@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NAudio.WinMM" Version="2.1.0" />
+  </ItemGroup>
+
+  <ItemGroup Label="NativeLibraries">
+    <Content Include="Native\opus.dll" Link="opus.dll" CopyToOutputDirectory="Always" />
+    <Content Include="Native\speexdsp.dll" Link="speexdsp.dll" CopyToOutputDirectory="Always" />
+  </ItemGroup>
+</Project>
