@@ -1,0 +1,15 @@
+<Solution>
+  <Folder Name="/lib/">
+    <Project Path="lib/MumbleVoiceEngine/MumbleVoiceEngine.csproj" />
+  </Folder>
+  <Folder Name="/lib/MumbleSharp/">
+    <Project Path="lib/MumbleSharp/MumbleSharp/MumbleSharp.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Brmble.Client/Brmble.Client.csproj" />
+    <Project Path="src/Brmble.Server/Brmble.Server.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MumbleVoiceEngine.Tests/MumbleVoiceEngine.Tests.csproj" />
+  </Folder>
+</Solution>
