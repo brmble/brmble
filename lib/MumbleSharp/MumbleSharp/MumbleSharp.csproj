@@ -1,0 +1,76 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.1;netstandard2.0</TargetFrameworks>
+    <Version>2.0.1</Version>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <Description>MumbleSharp is a mumble protocol implementation in C#.
+For more info on Mumble please visit https://www.mumble.info/</Description>
+    <Copyright>Copyright © 2023</Copyright>
+    <PackageProjectUrl>https://github.com/martindevans/MumbleSharp</PackageProjectUrl>
+    <ApplicationIcon>mumblesharp.ico</ApplicationIcon>
+    <RepositoryUrl>https://github.com/martindevans/MumbleSharp</RepositoryUrl>
+    <RepositoryType>Git</RepositoryType>
+    <PackageTags>Mumble voip voice chat</PackageTags>
+    <Authors>martindevans, Meetsch</Authors>
+    <Company />
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <PackageIcon>mumblesharp.png</PackageIcon>
+    <PackageIconUrl />
+    <PackageReadmeFile>Readme.md</PackageReadmeFile>
+    <PackageReleaseNotes>fix inclusion of opus.dll in projects referencing this package.</PackageReleaseNotes>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Optimize>false</Optimize>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+    <Optimize>true</Optimize>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="mumblesharp.ico" />
+    <None Remove="Resources\mumble.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\LICENSE" Link="LICENSE">
+      <Pack>True</Pack>
+      <PackagePath></PackagePath>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\mumblesharp.png" Link="mumblesharp.png">
+      <Pack>True</Pack>
+      <PackagePath></PackagePath>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Content>
+    <Content Include="mumblesharp.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\Readme.md">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NAudio.WinMM" Version="2.1.0" />
+    <PackageReference Include="protobuf-net" Version="2.4.7" />
+  </ItemGroup>
+
+  <ItemGroup Label="AudioCodecLibraries">
+    <Content Include="Audio\Codecs\Opus\Libs\32bit\opus.dll">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <PackageCopyToOutput>true</PackageCopyToOutput>
+    </Content>
+    <Content Include="Audio\Codecs\Opus\Libs\64bit\opus.dll">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <PackageCopyToOutput>true</PackageCopyToOutput>
+    </Content>
+  </ItemGroup>
+
+</Project>
