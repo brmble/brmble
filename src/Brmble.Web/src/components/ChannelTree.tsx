@@ -72,6 +72,17 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
       }
     });
 
+    // Sort children recursively
+    const sortChildren = (channels: ChannelWithUsers[]) => {
+      channels.forEach(ch => {
+        if (ch.children.length > 0) {
+          ch.children.sort((a, b) => a.id - b.id);
+          sortChildren(ch.children);
+        }
+      });
+    };
+    sortChildren(roots);
+
     return roots;
   }, [channels, users, sortByName]);
 
