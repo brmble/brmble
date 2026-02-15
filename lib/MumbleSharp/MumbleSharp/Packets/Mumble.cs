@@ -1684,9 +1684,6 @@ namespace MumbleProto
         public void ResetOpus() => __pbn__Opus = null;
         private bool? __pbn__Opus;
 
-        [global::ProtoBuf.ProtoMember(20, Name = @"rolling_stats")]
-        public RollingStats RollingStats { get; set; }
-
         [global::ProtoBuf.ProtoContract()]
         public partial class Stats : global::ProtoBuf.IExtensible
         {
@@ -1734,23 +1731,6 @@ namespace MumbleProto
             public void ResetResync() => __pbn__Resync = null;
             private uint? __pbn__Resync;
 
-        }
-
-        [global::ProtoBuf.ProtoContract()]
-        public partial class RollingStats : global::ProtoBuf.IExtensible
-        {
-            private global::ProtoBuf.IExtension __pbn__extensionData;
-            global::ProtoBuf.IExtension global::ProtoBuf.IExtensible.GetExtensionObject(bool createIfMissing)
-                => global::ProtoBuf.Extensible.GetExtensionObject(ref __pbn__extensionData, createIfMissing);
-
-            [global::ProtoBuf.ProtoMember(1, Name = @"time_window")]
-            public uint TimeWindow { get; set; }
-
-            [global::ProtoBuf.ProtoMember(2, Name = @"from_client")]
-            public Stats FromClient { get; set; }
-
-            [global::ProtoBuf.ProtoMember(3, Name = @"from_server")]
-            public Stats FromServer { get; set; }
         }
 
     }
