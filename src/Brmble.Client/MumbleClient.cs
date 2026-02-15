@@ -171,6 +171,16 @@ internal sealed class MumbleClient : BasicMumbleProtocol
                 SendTextMessage(message.GetString() ?? "");
             }
         });
+
+        bridge.RegisterHandler("mumbleJoinChannel", async (data) =>
+        {
+            if (data.TryGetProperty("channelId", out var channelId))
+            {
+                var id = channelId.GetUInt32();
+                JoinChannel(id);
+                Debug.WriteLine($"[Mumble] Joining channel: {id}");
+            }
+        });
     }
 
     public override void ServerSync(ServerSync serverSync)
@@ -189,6 +199,8 @@ internal sealed class MumbleClient : BasicMumbleProtocol
     {
         base.UserState(userState);
         
+        Debug.WriteLine($"[Mumble] UserState: {userState.Name} (session: {userState.Session})");
+        
         var isSelf = LocalUser != null && userState.Session == LocalUser.Id;
         
         _bridge.Send("mumbleUser", new 
@@ -203,6 +215,8 @@ internal sealed class MumbleClient : BasicMumbleProtocol
     public override void ChannelState(ChannelState channelState)
     {
         base.ChannelState(channelState);
+        
+        Debug.WriteLine($"[Mumble] ChannelState: {channelState.Name} (id: {channelState.ChannelId})");
         
         _bridge.Send("mumbleChannel", new 
         { 

@@ -133,6 +133,11 @@ function App() {
     bridge.send('mumbleDisconnect');
   };
 
+  const handleJoinChannel = (channelId: number) => {
+    bridge.send('mumbleJoinChannel', { channelId });
+    setMessages(prev => [...prev, `Joining channel ${channelId}...`]);
+  };
+
   return (
     <div className="app">
       <header className="header">
@@ -220,7 +225,12 @@ function App() {
                   <p className="empty">No channels</p>
                 ) : (
                   channels.map(channel => (
-                    <div key={channel.id} className="channel">
+                    <div 
+                      key={channel.id} 
+                      className="channel"
+                      onDoubleClick={() => handleJoinChannel(channel.id)}
+                      title="Double-click to join"
+                    >
                       📁 {channel.name}
                     </div>
                   ))

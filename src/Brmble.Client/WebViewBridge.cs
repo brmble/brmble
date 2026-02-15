@@ -21,6 +21,7 @@ internal sealed class WebViewBridge
     {
         var message = new { type, data };
         var json = JsonSerializer.Serialize(message);
+        Debug.WriteLine($"[WebViewBridge] Sending: {type}");
         _webView.PostWebMessageAsJson(json);
     }
 
