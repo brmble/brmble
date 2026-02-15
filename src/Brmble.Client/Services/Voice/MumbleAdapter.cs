@@ -278,19 +278,34 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// <param name="userState">The user state update from the server.</param>
     public override void UserState(UserState userState)
     {
+        var previousChannel = LocalUser?.Channel?.Id;
+        
         base.UserState(userState);
         
         Debug.WriteLine($"[Mumble] UserState: {userState.Name} (session: {userState.Session})");
         
         var isSelf = LocalUser != null && userState.Session == LocalUser.Id;
+        var newChannel = userState.ChannelId;
         
+        // Send userJoined for new users or channel changes
         _bridge?.Send("voice.userJoined", new 
         { 
             session = userState.Session, 
             name = userState.Name,
             channelId = userState.ChannelId,
+            muted = userState.Mute || userState.SelfMute,
+            deafened = userState.Deaf || userState.SelfDeaf,
             self = isSelf
         });
+        
+        // If user switched channels, notify
+        if (previousChannel.HasValue && newChannel != previousChannel && isSelf)
+        {
+            _bridge?.Send("voice.channelChanged", new
+            {
+                channelId = newChannel
+            });
+        }
     }
 
     /// <summary>
