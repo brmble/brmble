@@ -53,8 +53,9 @@ internal sealed class MumbleClient : BasicMumbleProtocol
             _processTask = Task.Run(() => ProcessLoop(_cts.Token));
 
             connection.Connect(username, password, tokens ?? Array.Empty<string>(), "Brmble");
-            _bridge.Send("mumbleConnected", new { username, host, port });
-            Debug.WriteLine($"[Mumble] Connected to {host}:{port} as {username}");
+            
+            // Note: mumbleConnected is now sent in ServerSync after full state is received
+            Debug.WriteLine($"[Mumble] Connection handshake complete, waiting for server sync...");
         }
         catch (System.Net.Sockets.SocketException ex)
         {
@@ -188,6 +189,10 @@ internal sealed class MumbleClient : BasicMumbleProtocol
         base.ServerSync(serverSync);
         
         Debug.WriteLine($"[Mumble] ServerSync received, sending full state");
+        
+        _bridge.Send("mumbleConnected", new { 
+            username = LocalUser?.Name
+        });
         
         _bridge.Send("mumbleServerSync", new 
         { 
