@@ -261,7 +261,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         Debug.WriteLine($"[Mumble] ServerSync received, sending full state");
         
         var channelList = Channels.Select(c => new { id = c.Id, name = c.Name, parent = c.Parent }).ToList();
-        var userList = Users.Select(u => new { session = u.Id, name = u.Name, channelId = u.Channel?.Id, self = u == LocalUser }).ToList();
+        
+        // Send all users - don't filter by channelId in initial sync
+        var userList = Users.Select(u => new { 
+            session = u.Id, 
+            name = u.Name, 
+            channelId = u.Channel?.Id ?? 0, 
+            muted = u.Muted || u.SelfMuted,
+            deafened = u.Deaf || u.SelfDeaf,
+            self = u == LocalUser 
+        }).ToList();
+        
+        Debug.WriteLine($"[Mumble] Local user: {LocalUser?.Name}, channel: {LocalUser?.Channel?.Id}");
         
         _bridge?.Send("voice.connected", new { 
             username = LocalUser?.Name,
@@ -278,18 +289,71 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// <param name="userState">The user state update from the server.</param>
     public override void UserState(UserState userState)
     {
+        var previousChannel = LocalUser?.Channel?.Id;
+        
         base.UserState(userState);
         
         Debug.WriteLine($"[Mumble] UserState: {userState.Name} (session: {userState.Session})");
         
         var isSelf = LocalUser != null && userState.Session == LocalUser.Id;
+        var newChannel = userState.ChannelId;
         
+        // Send userJoined for new users or channel changes
         _bridge?.Send("voice.userJoined", new 
         { 
             session = userState.Session, 
             name = userState.Name,
             channelId = userState.ChannelId,
+            muted = userState.Mute || userState.SelfMute,
+            deafened = userState.Deaf || userState.SelfDeaf,
             self = isSelf
+        });
+        
+        // If user switched channels, notify
+        if (previousChannel.HasValue && newChannel != previousChannel && isSelf)
+        {
+            _bridge?.Send("voice.channelChanged", new
+            {
+                channelId = newChannel
+            });
+        }
+    }
+
+    /// <summary>
+    /// Called when a user's channel changes.
+    /// </summary>
+    protected override void UserStateChannelChanged(User user, uint oldChannelId)
+    {
+        base.UserStateChannelChanged(user, oldChannelId);
+        
+        if (user == LocalUser && user.Channel != null)
+        {
+            Debug.WriteLine($"[Mumble] LocalUser channel changed to: {user.Channel.Id}");
+            _bridge?.Send("voice.userJoined", new 
+            { 
+                session = user.Id, 
+                name = user.Name,
+                channelId = user.Channel.Id,
+                muted = user.Muted || user.SelfMuted,
+                deafened = user.Deaf || user.SelfDeaf,
+                self = true
+            });
+        }
+    }
+
+    /// <summary>
+    /// Called when a user is removed from the server.
+    /// </summary>
+    /// <param name="userRemove">The user removal event from the server.</param>
+    public override void UserRemove(UserRemove userRemove)
+    {
+        base.UserRemove(userRemove);
+        
+        Debug.WriteLine($"[Mumble] UserRemove: session {userRemove.Session}");
+        
+        _bridge?.Send("voice.userLeft", new 
+        { 
+            session = userRemove.Session
         });
     }
 

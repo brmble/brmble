@@ -45,9 +45,18 @@ body {
 .main {
   flex: 1;
   padding: 2rem;
-  max-width: 600px;
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 1.5rem;
+  max-width: 1400px;
   margin: 0 auto;
   width: 100%;
+}
+
+.main-left {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
 }
 
 .connect-form {
@@ -194,17 +203,11 @@ body {
 }
 
 .server-panel {
-  display: flex;
-  gap: 1rem;
-  margin-top: 1rem;
-}
-
-.server-panel .channels,
-.server-panel .users {
-  flex: 1;
   background: #16213e;
   border-radius: 0.5rem;
   padding: 1rem;
+  height: 100%;
+  min-height: 500px;
 }
 
 .server-panel h2 {
@@ -213,9 +216,8 @@ body {
   color: #888;
 }
 
-.channel-list,
-.user-list {
-  max-height: 200px;
+.channel-list {
+  height: calc(100% - 50px);
   overflow-y: auto;
 }
 
@@ -228,4 +230,27 @@ body {
 .user.self {
   color: #53c28a;
   font-weight: 500;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.sort-toggle {
+  background: var(--bramble-purple);
+  border: 1px solid var(--bramble-subtle);
+  color: var(--bramble-ice);
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.sort-toggle:hover {
+  background: var(--bramble-blackberry);
+  border-color: var(--bramble-lemon);
 }

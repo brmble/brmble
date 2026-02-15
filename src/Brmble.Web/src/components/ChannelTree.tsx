@@ -1,0 +1,197 @@
+import { useState, useMemo, useCallback, useEffect } from 'react';
+import './ChannelTree.css';
+
+interface User {
+  session: number;
+  name: string;
+  channelId?: number;
+  muted?: boolean;
+  deafened?: boolean;
+  self?: boolean;
+}
+
+interface Channel {
+  id: number;
+  name: string;
+  parent?: number;
+}
+
+interface ChannelWithUsers extends Channel {
+  users: User[];
+  children: ChannelWithUsers[];
+}
+
+interface ChannelTreeProps {
+  channels: Channel[];
+  users: User[];
+  currentChannelId?: number;
+  onJoinChannel: (channelId: number) => void;
+}
+
+export function ChannelTree({ channels, users, currentChannelId, onJoinChannel }: ChannelTreeProps) {
+  // Track sort preference per channel (false = join order, true = alphabetical)
+  const [sortByNamePerChannel, setSortByNamePerChannel] = useState<Record<number, boolean>>({});
+  // Auto-expand channels that have users
+  const initialExpanded = useMemo(() => {
+    const expanded = new Set<number>();
+    channels.forEach(ch => {
+      const hasUsers = users.some(u => u.channelId === ch.id);
+      if (hasUsers) {
+        expanded.add(ch.id);
+      }
+    });
+    return expanded;
+  }, [channels, users]);
+
+  const [expandedChannels, setExpandedChannels] = useState<Set<number>>(initialExpanded);
+
+  // Auto-expand channels when users join
+  useEffect(() => {
+    setExpandedChannels(prev => {
+      const next = new Set(prev);
+      let changed = false;
+      channels.forEach(ch => {
+        const hasUsers = users.some(u => u.channelId === ch.id);
+        if (hasUsers && !next.has(ch.id)) {
+          next.add(ch.id);
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [channels, users]);
+
+  const toggleExpand = (channelId: number) => {
+    setExpandedChannels(prev => {
+      const next = new Set(prev);
+      if (next.has(channelId)) {
+        next.delete(channelId);
+      } else {
+        next.add(channelId);
+      }
+      return next;
+    });
+  };
+
+  const toggleSort = (channelId: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSortByNamePerChannel(prev => ({
+      ...prev,
+      [channelId]: !prev[channelId]
+    }));
+  };
+
+  const buildTree = useCallback((): ChannelWithUsers[] => {
+    const channelMap = new Map<number, ChannelWithUsers>();
+    const roots: ChannelWithUsers[] = [];
+
+    channels.forEach(ch => {
+      channelMap.set(ch.id, { ...ch, users: [], children: [] });
+    });
+
+    users.forEach(user => {
+      if (user.channelId && channelMap.has(user.channelId)) {
+        channelMap.get(user.channelId)!.users.push(user);
+      }
+    });
+
+    channelMap.forEach(ch => {
+      const sortByName = sortByNamePerChannel[ch.id] ?? false;
+      ch.users = sortByName
+        ? [...ch.users].sort((a, b) => a.name.localeCompare(b.name))
+        : ch.users;
+    });
+
+    channelMap.forEach(ch => {
+      if (ch.parent && channelMap.has(ch.parent)) {
+        channelMap.get(ch.parent)!.children.push(ch);
+      } else {
+        roots.push(ch);
+      }
+    });
+
+    // Sort children recursively
+    const sortChildren = (channels: ChannelWithUsers[]) => {
+      channels.forEach(ch => {
+        if (ch.children.length > 0) {
+          ch.children.sort((a, b) => a.id - b.id);
+          sortChildren(ch.children);
+        }
+      });
+    };
+    sortChildren(roots);
+
+    return roots;
+  }, [channels, users, sortByNamePerChannel]);
+
+  const tree = useMemo(() => buildTree(), [buildTree]);
+
+  const renderChannel = (channel: ChannelWithUsers, level: number = 0) => {
+    const hasChildren = channel.children.length > 0 || channel.users.length > 0;
+    const isExpanded = expandedChannels.has(channel.id);
+    const isCurrentChannel = currentChannelId === channel.id;
+
+    return (
+      <div key={channel.id} className="channel-item channel-item--level" data-level={level}>
+        <div 
+          className={`channel-row ${isCurrentChannel ? 'current' : ''}`}
+          onDoubleClick={() => onJoinChannel(channel.id)}
+        >
+          <span 
+            className={`expand-icon ${isExpanded ? 'expanded' : ''} ${!hasChildren ? 'placeholder' : ''}`}
+            onClick={(e) => { e.stopPropagation(); if (hasChildren) toggleExpand(channel.id); }}
+          >
+            ▶
+          </span>
+          <span className="channel-icon">📁</span>
+          <span className="channel-name">{channel.name}</span>
+          {channel.users.length > 0 && (
+            <>
+              <button
+                className="channel-sort-btn"
+                onClick={(e) => toggleSort(channel.id, e)}
+                title={(sortByNamePerChannel[channel.id] ?? false) ? 'Sort by join order' : 'Sort alphabetically'}
+              >
+                {(sortByNamePerChannel[channel.id] ?? false) ? 'A-Z' : '↺'}
+              </button>
+              <span className="user-count">({channel.users.length})</span>
+            </>
+          )}
+        </div>
+        
+        {isExpanded && (
+          <div className="channel-children">
+            {channel.users.map(user => (
+              <div 
+                key={user.session} 
+                className={`user-row ${user.self ? 'self' : ''} user-row--level`}
+                data-level={level + 1}
+                title={getUserTooltip(user)}
+              >
+                <span className="user-status">
+                  {user.deafened ? '🔇❌' : user.muted ? '🔇' : '🔊'}
+                </span>
+                <span className="user-name">{user.name}</span>
+                {user.self && <span className="self-badge">(you)</span>}
+              </div>
+            ))}
+            {channel.children.map(child => renderChannel(child, level + 1))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="channel-tree">
+      {tree.map(channel => renderChannel(channel))}
+    </div>
+  );
+}
+
+function getUserTooltip(user: User): string {
+  const statuses: string[] = [];
+  if (user.muted) statuses.push('Muted');
+  if (user.deafened) statuses.push('Deafened');
+  return statuses.length > 0 ? statuses.join(', ') : 'Online';
+}
