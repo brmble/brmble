@@ -13,7 +13,7 @@ namespace MumbleProto
         global::ProtoBuf.IExtension global::ProtoBuf.IExtensible.GetExtensionObject(bool createIfMissing)
             => global::ProtoBuf.Extensible.GetExtensionObject(ref __pbn__extensionData, createIfMissing);
 
-        [global::ProtoBuf.ProtoMember(1, Name = @"version_v1")]
+        [global::ProtoBuf.ProtoMember(1, Name = @"version")]
         public uint VersionV1
         {
             get { return __pbn__version.GetValueOrDefault(); }

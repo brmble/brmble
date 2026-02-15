@@ -80,11 +80,15 @@ namespace MumbleSharp
             MumbleProto.Version version = new MumbleProto.Version
             {
                 Release = "MumbleSharp",
-                VersionV1 = (1 << 16) | (5 << 8) | (0 & 0xFF),
-                VersionV2 = ((ulong)1 << 32) | ((ulong)5 << 16) | (ulong)(0 & 0xFFFF),
+                VersionV1 = (1 << 16) | (5 << 8) | 0,  // 1.5.0 = 0x010500
+                //VersionV2 = ((ulong)1 << 32) | ((ulong)5 << 16) | (ulong)0,
                 Os = Environment.OSVersion.ToString(),
                 OsVersion = Environment.OSVersion.VersionString,
             };
+            
+            System.Diagnostics.Debug.WriteLine($"[Mumble] Sending Version: V1={version.VersionV1} (0x{version.VersionV1:X8})");
+            Console.Error.WriteLine($"[Mumble] Sending Version: V1={version.VersionV1} (0x{version.VersionV1:X8})");
+            
             Send(PacketType.Version, version);
 
             Authenticate auth = new Authenticate
