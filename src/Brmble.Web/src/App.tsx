@@ -181,73 +181,75 @@ function App() {
       </header>
       
       <main className="main">
-        <section className="connect-form">
-          <h2>Connect to Mumble</h2>
-          <div className="form-row">
-            <label>
-              Server
-              <input 
-                type="text" 
-                value={host} 
-                onChange={e => setHost(e.target.value)}
-                disabled={connected || connecting}
-              />
-            </label>
-            <label>
-              Port
-              <input 
-                type="number" 
-                value={port} 
-                onChange={e => setPort(parseInt(e.target.value) || 64738)}
-                disabled={connected || connecting}
-              />
-            </label>
-          </div>
-          <div className="form-row">
-            <label>
-              Username
-              <input 
-                type="text" 
-                value={username} 
-                onChange={e => setUsername(e.target.value)}
-                disabled={connected || connecting}
-              />
-            </label>
-            <label>
-              Password
-              <input 
-                type="password" 
-                value={password} 
-                onChange={e => setPassword(e.target.value)}
-                disabled={connected || connecting}
-              />
-            </label>
-          </div>
-          <div className="form-actions">
-            {!connected ? (
-              <button onClick={handleConnect} disabled={connecting || !host || !username}>
-                {connecting ? 'Connecting...' : 'Connect'}
-              </button>
-            ) : (
-              <button onClick={handleDisconnect} className="disconnect">
-                Disconnect
-              </button>
-            )}
-          </div>
-        </section>
+        <div className="main-left">
+          <section className="connect-form">
+            <h2>Connect to Mumble</h2>
+            <div className="form-row">
+              <label>
+                Server
+                <input 
+                  type="text" 
+                  value={host} 
+                  onChange={e => setHost(e.target.value)}
+                  disabled={connected || connecting}
+                />
+              </label>
+              <label>
+                Port
+                <input 
+                  type="number" 
+                  value={port} 
+                  onChange={e => setPort(parseInt(e.target.value) || 64738)}
+                  disabled={connected || connecting}
+                />
+              </label>
+            </div>
+            <div className="form-row">
+              <label>
+                Username
+                <input 
+                  type="text" 
+                  value={username} 
+                  onChange={e => setUsername(e.target.value)}
+                  disabled={connected || connecting}
+                />
+              </label>
+              <label>
+                Password
+                <input 
+                  type="password" 
+                  value={password} 
+                  onChange={e => setPassword(e.target.value)}
+                  disabled={connected || connecting}
+                />
+              </label>
+            </div>
+            <div className="form-actions">
+              {!connected ? (
+                <button onClick={handleConnect} disabled={connecting || !host || !username}>
+                  {connecting ? 'Connecting...' : 'Connect'}
+                </button>
+              ) : (
+                <button onClick={handleDisconnect} className="disconnect">
+                  Disconnect
+                </button>
+              )}
+            </div>
+          </section>
 
-        <section className="messages">
-          <h2>Messages</h2>
-          <div className="message-list">
-            {messages.length === 0 ? (
-              <p className="empty">No messages yet</p>
-            ) : (
-              messages.map((msg, i) => (
-                <div key={i} className="message">{msg}</div>
-              ))
-            )}
-          </div>
-        </section>
+          <section className="messages">
+            <h2>Messages</h2>
+            <div className="message-list">
+              {messages.length === 0 ? (
+                <p className="empty">No messages yet</p>
+              ) : (
+                messages.map((msg, i) => (
+                  <div key={i} className="message">{msg}</div>
+                ))
+              )}
+            </div>
+          </section>
+        </div>
 
         {connected && (
           <section className="server-panel">

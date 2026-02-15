@@ -86,13 +86,14 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
       <div key={channel.id} className="channel-item channel-item--level" data-level={level}>
         <div 
           className={`channel-row ${isCurrentChannel ? 'current' : ''}`}
-          onClick={() => hasChildren && toggleExpand(channel.id)}
           onDoubleClick={() => onJoinChannel(channel.id)}
         >
-          {hasChildren && (
-            <span className={`expand-icon ${isExpanded ? 'expanded' : ''}`}>▶</span>
-          )}
-          {!hasChildren && <span className="expand-icon placeholder">▶</span>}
+          <span 
+            className={`expand-icon ${isExpanded ? 'expanded' : ''} ${!hasChildren ? 'placeholder' : ''}`}
+            onClick={(e) => { e.stopPropagation(); if (hasChildren) toggleExpand(channel.id); }}
+          >
+            ▶
+          </span>
           <span className="channel-icon">📁</span>
           <span className="channel-name">{channel.name}</span>
           {channel.users.length > 0 && (
