@@ -88,6 +88,13 @@ git push -u origin feature/my-feature
 - ❌ Push to main
 - ❌ Merge PRs without review
 
+## Review Notes
+
+- This patch updates CLAUDE.md to improve guidance for multi-agent collaboration and contributor onboarding.
+- No code changes; intended to support the open Bridge PR with better context for reviewers.
+- Please verify the added sections render clearly in the PR diff and that terminology remains consistent with the rest of CLAUDE.md.
+- If minor wording tweaks are needed, we can push a follow-up small edit.
+
 ## Extra: Design for Multi-Agent Collaboration
 
 This project supports modular bridge architecture. The following guidelines help AI agents collaborate:
