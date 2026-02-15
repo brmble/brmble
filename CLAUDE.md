@@ -87,3 +87,29 @@ git push -u origin feature/my-feature
 - ❌ Commit directly to main
 - ❌ Push to main
 - ❌ Merge PRs without review
+
+## Extra: Design for Multi-Agent Collaboration
+
+This project supports modular bridge architecture. The following guidelines help AI agents collaborate:
+- Never commit to main; create feature branches and PRs
+- Use a consistent, explicit planning and review workflow
+
+## Tech Stack (Summary)
+- Frontend: React + TypeScript + Vite
+- Backend: ASP.NET Core
+- Client: C# + WebView2
+- Voice: MumbleSharp
+- Text: Matrix (via Continuwity)
+
+## Build & Test (repeatable commands)
+- Build all: dotnet build
+- Build frontend: (cd src/Brmble.Web && npm run build)
+- Run tests: dotnet test
+- Specific test: dotnet test tests/MumbleVoiceEngine.Tests/MumbleVoiceEngine.Tests.csproj
+
+## Commit conventions
+- feat: new feature
+- fix: bug fix
+- docs: docs changes
+- refactor: code structure changes
+- test: tests
