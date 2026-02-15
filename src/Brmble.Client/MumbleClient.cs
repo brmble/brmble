@@ -190,41 +190,16 @@ internal sealed class MumbleClient : BasicMumbleProtocol
         
         Debug.WriteLine($"[Mumble] ServerSync received, sending full state");
         
+        var channelList = Channels.Select(c => new { id = c.Id, name = c.Name, parent = c.Parent }).ToList();
+        var userList = Users.Select(u => new { session = u.Id, name = u.Name, channelId = u.Channel?.Id, self = u == LocalUser }).ToList();
+        
         _bridge.Send("mumbleConnected", new { 
-            username = LocalUser?.Name
+            username = LocalUser?.Name,
+            channels = channelList,
+            users = userList
         });
         
-        _bridge.Send("mumbleServerSync", new 
-        { 
-            session = serverSync.Session,
-            maxBandwidth = serverSync.MaxBandwidth,
-            welcomeText = serverSync.WelcomeText
-        });
-
-        // Send all channels
-        foreach (var channel in Channels)
-        {
-            _bridge.Send("mumbleChannel", new 
-            { 
-                id = channel.Id, 
-                name = channel.Name,
-                parent = channel.Parent
-            });
-        }
-
-        // Send all users
-        foreach (var user in Users)
-        {
-            _bridge.Send("mumbleUser", new 
-            { 
-                session = user.Id, 
-                name = user.Name,
-                channelId = user.Channel?.Id,
-                self = user == LocalUser
-            });
-        }
-        
-        Debug.WriteLine($"[Mumble] Sent {Channels.Count()} channels and {Users.Count()} users");
+        Debug.WriteLine($"[Mumble] Sent {channelList.Count} channels and {userList.Count} users");
     }
 
     public override void UserState(UserState userState)

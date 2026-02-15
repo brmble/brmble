@@ -53,7 +53,16 @@ function App() {
     const onMumbleConnected = ((data: unknown) => {
       setConnected(true);
       setConnecting(false);
-      setMessages(prev => [...prev, `Connected to ${(data as { host?: string })?.host || 'server'}`]);
+      const d = data as { username?: string; channels?: Channel[]; users?: User[] } | undefined;
+      
+      if (d?.channels) {
+        setChannels(d.channels);
+      }
+      if (d?.users) {
+        setUsers(d.users);
+      }
+      
+      setMessages(prev => [...prev, `Connected to ${d?.username || 'server'}`]);
     });
 
     const onMumbleDisconnected = () => {
