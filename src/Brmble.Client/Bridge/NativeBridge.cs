@@ -3,9 +3,9 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 
-namespace Brmble.Client;
+namespace Brmble.Client.Bridge;
 
-internal sealed class WebViewBridge
+public sealed class NativeBridge
 {
     private const int WM_USER = 0x0400;
     
@@ -19,7 +19,7 @@ internal sealed class WebViewBridge
 
     public event Action<string>? OnMessage;
 
-    public WebViewBridge(CoreWebView2 webView, IntPtr hwnd)
+    public NativeBridge(CoreWebView2 webView, IntPtr hwnd)
     {
         _webView = webView;
         _hwnd = hwnd;
@@ -30,9 +30,8 @@ internal sealed class WebViewBridge
     {
         var message = new { type, data };
         var json = JsonSerializer.Serialize(message);
-        Debug.WriteLine($"[WebViewBridge] Sending: {type}");
+        Debug.WriteLine($"[NativeBridge] Sending: {type}");
         
-        // WebView2 must be called from UI thread - marshal via PostMessage
         _pendingJson = json;
         PostMessage(_hwnd, WM_USER, IntPtr.Zero, IntPtr.Zero);
     }
@@ -75,7 +74,7 @@ internal sealed class WebViewBridge
                 var type = typeProp.GetString();
                 var data = root.TryGetProperty("data", out var dataProp) ? dataProp : default(JsonElement?);
 
-                Debug.WriteLine($"[WebViewBridge] Received: {type}");
+                Debug.WriteLine($"[NativeBridge] Received: {type}");
 
                 if (type != null && _handlers.TryGetValue(type, out var handlers))
                 {
@@ -90,7 +89,7 @@ internal sealed class WebViewBridge
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[WebViewBridge] Error: {ex.Message}");
+            Debug.WriteLine($"[NativeBridge] Error: {ex.Message}");
         }
     }
 }

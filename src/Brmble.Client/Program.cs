@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Net.Sockets;
 using Microsoft.Web.WebView2.Core;
+using Brmble.Client.Bridge;
 
 namespace Brmble.Client;
 
@@ -11,7 +12,7 @@ static class Program
     private const int DevServerPort = 5173;
 
     private static CoreWebView2Controller? _controller;
-    private static WebViewBridge? _bridge;
+    private static NativeBridge? _bridge;
     private static MumbleClient? _mumbleClient;
 
     [STAThread]
@@ -40,7 +41,7 @@ static class Program
         _controller.CoreWebView2.SetVirtualHostNameToFolderMapping(
             "brmble.local", webRoot, CoreWebView2HostResourceAccessKind.Allow);
 
-        _bridge = new WebViewBridge(_controller.CoreWebView2, hwnd);
+        _bridge = new NativeBridge(_controller.CoreWebView2, hwnd);
         
         _mumbleClient = new MumbleClient(_bridge);
         

@@ -6,16 +6,17 @@ using MumbleSharp.Audio.Codecs;
 using MumbleSharp.Model;
 using MumbleProto;
 using PacketType = MumbleSharp.Packets.PacketType;
+using Brmble.Client.Bridge;
 
 namespace Brmble.Client;
 
 internal sealed class MumbleClient : BasicMumbleProtocol
 {
-    private readonly WebViewBridge _bridge;
+    private readonly NativeBridge _bridge;
     private CancellationTokenSource? _cts;
     private Task? _processTask;
 
-    public MumbleClient(WebViewBridge bridge) : base()
+    public MumbleClient(NativeBridge bridge) : base()
     {
         _bridge = bridge;
     }
@@ -143,7 +144,7 @@ internal sealed class MumbleClient : BasicMumbleProtocol
         Debug.WriteLine($"[Mumble] Sent join channel request for: {channelId}");
     }
 
-    public void RegisterHandlers(WebViewBridge bridge)
+    public void RegisterHandlers(NativeBridge bridge)
     {
         bridge.RegisterHandler("mumbleConnect", async (data) =>
         {
