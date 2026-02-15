@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 
@@ -6,14 +7,22 @@ namespace Brmble.Client;
 
 internal sealed class WebViewBridge
 {
+    private const int WM_USER = 0x0400;
+    
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
     private readonly CoreWebView2 _webView;
     private readonly Dictionary<string, List<Func<JsonElement, Task>>> _handlers = new();
+    private IntPtr _hwnd;
+    private string? _pendingJson;
 
     public event Action<string>? OnMessage;
 
-    public WebViewBridge(CoreWebView2 webView)
+    public WebViewBridge(CoreWebView2 webView, IntPtr hwnd)
     {
         _webView = webView;
+        _hwnd = hwnd;
         _webView.WebMessageReceived += OnWebMessageReceived;
     }
 
@@ -22,12 +31,25 @@ internal sealed class WebViewBridge
         var message = new { type, data };
         var json = JsonSerializer.Serialize(message);
         Debug.WriteLine($"[WebViewBridge] Sending: {type}");
-        _webView.PostWebMessageAsJson(json);
+        
+        // WebView2 must be called from UI thread - marshal via PostMessage
+        _pendingJson = json;
+        PostMessage(_hwnd, WM_USER, IntPtr.Zero, IntPtr.Zero);
     }
 
     public void SendString(string message)
     {
-        _webView.PostWebMessageAsString(message);
+        _pendingJson = message;
+        PostMessage(_hwnd, WM_USER, IntPtr.Zero, IntPtr.Zero);
+    }
+
+    public void ProcessUiMessage()
+    {
+        if (_pendingJson != null)
+        {
+            _webView.PostWebMessageAsJson(_pendingJson);
+            _pendingJson = null;
+        }
     }
 
     public void RegisterHandler(string type, Func<JsonElement, Task> handler)

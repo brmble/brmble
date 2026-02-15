@@ -40,7 +40,7 @@ static class Program
         _controller.CoreWebView2.SetVirtualHostNameToFolderMapping(
             "brmble.local", webRoot, CoreWebView2HostResourceAccessKind.Allow);
 
-        _bridge = new WebViewBridge(_controller.CoreWebView2);
+        _bridge = new WebViewBridge(_controller.CoreWebView2, hwnd);
         
         _mumbleClient = new MumbleClient(_bridge);
         
@@ -85,6 +85,10 @@ static class Program
 
             case Win32Window.WM_DESTROY:
                 Win32Window.PostQuitMessage(0);
+                return IntPtr.Zero;
+
+            case 0x0400: // WM_USER
+                _bridge?.ProcessUiMessage();
                 return IntPtr.Zero;
 
             default:

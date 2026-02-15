@@ -138,8 +138,9 @@ internal sealed class MumbleClient : BasicMumbleProtocol
         if (Connection == null || Connection.State != ConnectionStates.Connected)
             return;
 
-        var channel = new ChannelState { ChannelId = channelId };
-        Connection.SendControl(PacketType.ChannelState, channel);
+        var userState = new UserState { ChannelId = channelId };
+        Connection.SendControl(PacketType.UserState, userState);
+        Debug.WriteLine($"[Mumble] Sent join channel request for: {channelId}");
     }
 
     public void RegisterHandlers(WebViewBridge bridge)
