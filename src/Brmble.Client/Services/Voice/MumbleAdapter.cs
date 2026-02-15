@@ -26,11 +26,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     public event Action<Channel>? ChannelJoined;
     public event Action<string>? MessageReceived;
 
-    public MumbleAdapter()
-    {
-    }
-
-    public MumbleAdapter(NativeBridge bridge) : base()
+    public MumbleAdapter(NativeBridge bridge)
     {
         _bridge = bridge;
     }
@@ -108,7 +104,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             {
                 Connection.Close();
             }
-            catch { }
+            catch
+            {
+                Debug.WriteLine("[Mumble] Error closing connection");
+            }
         }
 
         _bridge?.Send("mumbleDisconnected", null);
@@ -168,7 +167,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     public void RegisterHandlers(NativeBridge bridge)
     {
-        bridge.RegisterHandler("mumbleConnect", async (data) =>
+        bridge.RegisterHandler("mumbleConnect", (data) =>
         {
             string p = "localhost";
             int pt = 64738;
@@ -185,19 +184,21 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 pw = password.GetString() ?? "";
 
             Connect(p, pt, u, pw);
+            return Task.CompletedTask;
         });
 
-        bridge.RegisterHandler("mumbleDisconnect", async _ => Disconnect());
+        bridge.RegisterHandler("mumbleDisconnect", _ => { Disconnect(); return Task.CompletedTask; });
 
-        bridge.RegisterHandler("mumbleSendMessage", async (data) =>
+        bridge.RegisterHandler("mumbleSendMessage", (data) =>
         {
             if (data.TryGetProperty("message", out var message))
             {
                 SendTextMessage(message.GetString() ?? "");
             }
+            return Task.CompletedTask;
         });
 
-        bridge.RegisterHandler("mumbleJoinChannel", async (data) =>
+        bridge.RegisterHandler("mumbleJoinChannel", (data) =>
         {
             if (data.TryGetProperty("channelId", out var channelId))
             {
@@ -205,6 +206,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 JoinChannel(id);
                 Debug.WriteLine($"[Mumble] Joining channel: {id}");
             }
+            return Task.CompletedTask;
         });
     }
 
