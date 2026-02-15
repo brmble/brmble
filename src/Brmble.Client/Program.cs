@@ -11,14 +11,12 @@ static class Program
     private const int DevServerPort = 5173;
 
     private static CoreWebView2Controller? _controller;
+    private static WebViewBridge? _bridge;
+    private static MumbleClient? _mumbleClient;
 
     [STAThread]
     static void Main()
     {
-        // Check before message loop so we don't break WebView2 thread affinity.
-        // WebView2 awaits marshal back to the UI thread via the Win32 message loop,
-        // but any non-WebView2 await (e.g. HttpClient) would resume on a thread pool
-        // thread, causing Navigate() to silently fail.
         var useDevServer = IsDevServerRunning();
         Debug.WriteLine(useDevServer
             ? "Brmble: Using Vite dev server"
@@ -42,10 +40,32 @@ static class Program
         _controller.CoreWebView2.SetVirtualHostNameToFolderMapping(
             "brmble.local", webRoot, CoreWebView2HostResourceAccessKind.Allow);
 
+        _bridge = new WebViewBridge(_controller.CoreWebView2);
+        
+        _mumbleClient = new MumbleClient(_bridge);
+        
+        SetupBridgeHandlers();
+
         if (useDevServer)
             _controller.CoreWebView2.Navigate(DevServerUrl);
         else
             _controller.CoreWebView2.Navigate("https://brmble.local/index.html");
+    }
+
+    private static void SetupBridgeHandlers()
+    {
+        _bridge!.RegisterHandler("ping", async _ =>
+        {
+            Debug.WriteLine("[WebViewBridge] Ping received, sending pong");
+            _bridge.Send("pong");
+        });
+
+        _bridge.RegisterHandler("getPlatform", async _ =>
+        {
+            _bridge.Send("platform", new { platform = "windows" });
+        });
+
+        _mumbleClient!.RegisterHandlers(_bridge);
     }
 
     private static bool IsDevServerRunning()
