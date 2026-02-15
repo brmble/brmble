@@ -8,20 +8,38 @@ using MumbleProto;
 using PacketType = MumbleSharp.Packets.PacketType;
 using Brmble.Client.Bridge;
 
-namespace Brmble.Client;
+namespace Brmble.Client.Services.Voice;
 
-internal sealed class MumbleClient : BasicMumbleProtocol
+internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 {
-    private readonly NativeBridge _bridge;
+    private readonly NativeBridge? _bridge;
     private CancellationTokenSource? _cts;
     private Task? _processTask;
 
-    public MumbleClient(NativeBridge bridge) : base()
+    public string ServiceName => "mumble";
+
+    public event Action? Connected;
+    public event Action? Disconnected;
+    public event Action<string>? Error;
+    public event Action<User>? UserJoined;
+    public event Action<User>? UserLeft;
+    public event Action<Channel>? ChannelJoined;
+    public event Action<string>? MessageReceived;
+
+    public MumbleAdapter()
+    {
+    }
+
+    public MumbleAdapter(NativeBridge bridge) : base()
     {
         _bridge = bridge;
     }
 
-    public void Connect(string host, int port, string username, string password = "", string[]? tokens = null)
+    public void Initialize(NativeBridge bridge)
+    {
+    }
+
+    public void Connect(string host, int port, string username, string password = "")
     {
         if (Connection?.State == ConnectionStates.Connected)
         {
@@ -30,19 +48,19 @@ internal sealed class MumbleClient : BasicMumbleProtocol
 
         if (string.IsNullOrWhiteSpace(host))
         {
-            _bridge.Send("mumbleError", new { message = "Server address is required" });
+            _bridge?.Send("mumbleError", new { message = "Server address is required" });
             return;
         }
 
         if (string.IsNullOrWhiteSpace(username))
         {
-            _bridge.Send("mumbleError", new { message = "Username is required" });
+            _bridge?.Send("mumbleError", new { message = "Username is required" });
             return;
         }
 
         if (port <= 0 || port > 65535)
         {
-            _bridge.Send("mumbleError", new { message = "Port must be between 1 and 65535" });
+            _bridge?.Send("mumbleError", new { message = "Port must be between 1 and 65535" });
             return;
         }
 
@@ -53,9 +71,8 @@ internal sealed class MumbleClient : BasicMumbleProtocol
             _cts = new CancellationTokenSource();
             _processTask = Task.Run(() => ProcessLoop(_cts.Token));
 
-            connection.Connect(username, password, tokens ?? Array.Empty<string>(), "Brmble");
+            connection.Connect(username, password, Array.Empty<string>(), "Brmble");
             
-            // Note: mumbleConnected is now sent in ServerSync after full state is received
             Debug.WriteLine($"[Mumble] Connection handshake complete, waiting for server sync...");
         }
         catch (System.Net.Sockets.SocketException ex)
@@ -69,13 +86,13 @@ internal sealed class MumbleClient : BasicMumbleProtocol
                 System.Net.Sockets.SocketError.HostUnreachable => "Server unreachable",
                 _ => $"Connection failed: {ex.Message}"
             };
-            _bridge.Send("mumbleError", new { message, code = ex.SocketErrorCode.ToString() });
+            _bridge?.Send("mumbleError", new { message, code = ex.SocketErrorCode.ToString() });
             Debug.WriteLine($"[Mumble] Connection failed: {message}");
             Disconnect();
         }
         catch (Exception ex)
         {
-            _bridge.Send("mumbleError", new { message = ex.Message });
+            _bridge?.Send("mumbleError", new { message = ex.Message });
             Debug.WriteLine($"[Mumble] Connection failed: {ex.Message}");
             Disconnect();
         }
@@ -94,7 +111,7 @@ internal sealed class MumbleClient : BasicMumbleProtocol
             catch { }
         }
 
-        _bridge.Send("mumbleDisconnected", null);
+        _bridge?.Send("mumbleDisconnected", null);
         Debug.WriteLine("[Mumble] Disconnected");
     }
 
@@ -119,6 +136,11 @@ internal sealed class MumbleClient : BasicMumbleProtocol
                 Debug.WriteLine($"[Mumble] Process error: {ex.Message}");
             }
         }
+    }
+
+    public void SendMessage(string message)
+    {
+        SendTextMessage(message);
     }
 
     public void SendTextMessage(string message)
@@ -195,7 +217,7 @@ internal sealed class MumbleClient : BasicMumbleProtocol
         var channelList = Channels.Select(c => new { id = c.Id, name = c.Name, parent = c.Parent }).ToList();
         var userList = Users.Select(u => new { session = u.Id, name = u.Name, channelId = u.Channel?.Id, self = u == LocalUser }).ToList();
         
-        _bridge.Send("mumbleConnected", new { 
+        _bridge?.Send("mumbleConnected", new { 
             username = LocalUser?.Name,
             channels = channelList,
             users = userList
@@ -212,7 +234,7 @@ internal sealed class MumbleClient : BasicMumbleProtocol
         
         var isSelf = LocalUser != null && userState.Session == LocalUser.Id;
         
-        _bridge.Send("mumbleUser", new 
+        _bridge?.Send("mumbleUser", new 
         { 
             session = userState.Session, 
             name = userState.Name,
@@ -227,7 +249,7 @@ internal sealed class MumbleClient : BasicMumbleProtocol
         
         Debug.WriteLine($"[Mumble] ChannelState: {channelState.Name} (id: {channelState.ChannelId})");
         
-        _bridge.Send("mumbleChannel", new 
+        _bridge?.Send("mumbleChannel", new 
         { 
             id = channelState.ChannelId, 
             name = channelState.Name,
@@ -239,7 +261,7 @@ internal sealed class MumbleClient : BasicMumbleProtocol
     {
         base.TextMessage(textMessage);
         
-        _bridge.Send("mumbleMessage", new 
+        _bridge?.Send("mumbleMessage", new 
         { 
             message = textMessage.Message,
             senderSession = textMessage.Actor
@@ -250,7 +272,7 @@ internal sealed class MumbleClient : BasicMumbleProtocol
     {
         base.Reject(reject);
         
-        _bridge.Send("mumbleError", new 
+        _bridge?.Send("mumbleError", new 
         { 
             message = reject.Reason,
             type = reject.Type
