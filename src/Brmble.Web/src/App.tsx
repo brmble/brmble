@@ -63,7 +63,9 @@ function App() {
         setChannels(d.channels);
       }
       if (d?.users) {
-        setUsers(d.users);
+        // Filter out users with channelId 0 (not yet assigned to a channel)
+        const validUsers = d.users.filter(u => u.channelId && u.channelId > 0);
+        setUsers(validUsers);
       }
       
       setMessages(prev => [...prev, `Connected to ${d?.username || 'server'}`]);
@@ -92,7 +94,7 @@ function App() {
 
     const onVoiceUserJoined = ((data: unknown) => {
       const d = data as { session: number; name: string; channelId?: number; muted?: boolean; deafened?: boolean; self?: boolean } | undefined;
-      if (d?.session && d?.name) {
+      if (d?.session && d?.name && d.channelId && d.channelId > 0) {
         setUsers(prev => {
           const existing = prev.find(u => u.session === d.session);
           if (existing) {
