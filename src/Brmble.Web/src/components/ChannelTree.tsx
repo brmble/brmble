@@ -30,7 +30,19 @@ interface ChannelTreeProps {
 }
 
 export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, sortByName }: ChannelTreeProps) {
-  const [expandedChannels, setExpandedChannels] = useState<Set<number>>(new Set());
+  // Auto-expand channels that have users
+  const initialExpanded = useMemo(() => {
+    const expanded = new Set<number>();
+    channels.forEach(ch => {
+      const hasUsers = users.some(u => u.channelId === ch.id);
+      if (hasUsers) {
+        expanded.add(ch.id);
+      }
+    });
+    return expanded;
+  }, [channels, users]);
+
+  const [expandedChannels, setExpandedChannels] = useState<Set<number>>(initialExpanded);
 
   const toggleExpand = (channelId: number) => {
     setExpandedChannels(prev => {
