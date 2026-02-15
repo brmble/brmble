@@ -50,7 +50,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const onMumbleConnected = ((data: unknown) => {
+    const onVoiceConnected = ((data: unknown) => {
       setConnected(true);
       setConnecting(false);
       const d = data as { username?: string; channels?: Channel[]; users?: User[] } | undefined;
@@ -65,7 +65,7 @@ function App() {
       setMessages(prev => [...prev, `Connected to ${d?.username || 'server'}`]);
     });
 
-    const onMumbleDisconnected = () => {
+    const onVoiceDisconnected = () => {
       setConnected(false);
       setConnecting(false);
       setChannels([]);
@@ -73,20 +73,20 @@ function App() {
       setMessages(prev => [...prev, 'Disconnected']);
     };
 
-    const onMumbleError = ((data: unknown) => {
+    const onVoiceError = ((data: unknown) => {
       setConnecting(false);
       const d = data as { message: string } | undefined;
       setMessages(prev => [...prev, `Error: ${d?.message || 'Unknown error'}`]);
     });
 
-    const onMumbleMessage = ((data: unknown) => {
+    const onVoiceMessage = ((data: unknown) => {
       const d = data as { message: string; senderSession?: number } | undefined;
       if (d?.message) {
         setMessages(prev => [...prev, `Chat: ${d.message}`]);
       }
     });
 
-    const onMumbleUser = ((data: unknown) => {
+    const onVoiceUserJoined = ((data: unknown) => {
       const d = data as { session: number; name: string; channelId?: number; self?: boolean } | undefined;
       if (d?.session && d?.name) {
         setUsers(prev => {
@@ -99,7 +99,7 @@ function App() {
       }
     });
 
-    const onMumbleChannel = ((data: unknown) => {
+    const onVoiceChannelJoined = ((data: unknown) => {
       const d = data as { id: number; name: string; parent?: number } | undefined;
       if (d?.id && d?.name) {
         setChannels(prev => {
@@ -112,20 +112,20 @@ function App() {
       }
     });
 
-    bridge.on('mumbleConnected', onMumbleConnected);
-    bridge.on('mumbleDisconnected', onMumbleDisconnected);
-    bridge.on('mumbleError', onMumbleError);
-    bridge.on('mumbleMessage', onMumbleMessage);
-    bridge.on('mumbleUser', onMumbleUser);
-    bridge.on('mumbleChannel', onMumbleChannel);
+    bridge.on('voice.connected', onVoiceConnected);
+    bridge.on('voice.disconnected', onVoiceDisconnected);
+    bridge.on('voice.error', onVoiceError);
+    bridge.on('voice.message', onVoiceMessage);
+    bridge.on('voice.userJoined', onVoiceUserJoined);
+    bridge.on('voice.channelJoined', onVoiceChannelJoined);
 
     return () => {
-      bridge.off('mumbleConnected', onMumbleConnected);
-      bridge.off('mumbleDisconnected', onMumbleDisconnected);
-      bridge.off('mumbleError', onMumbleError);
-      bridge.off('mumbleMessage', onMumbleMessage);
-      bridge.off('mumbleUser', onMumbleUser);
-      bridge.off('mumbleChannel', onMumbleChannel);
+      bridge.off('voice.connected', onVoiceConnected);
+      bridge.off('voice.disconnected', onVoiceDisconnected);
+      bridge.off('voice.error', onVoiceError);
+      bridge.off('voice.message', onVoiceMessage);
+      bridge.off('voice.userJoined', onVoiceUserJoined);
+      bridge.off('voice.channelJoined', onVoiceChannelJoined);
     };
   }, []);
 
@@ -135,15 +135,15 @@ function App() {
     
     setConnecting(true);
     setMessages(prev => [...prev, `Connecting to ${host}:${port}...`]);
-    bridge.send('mumbleConnect', serverData);
+    bridge.send('voice.connect', serverData);
   };
 
   const handleDisconnect = () => {
-    bridge.send('mumbleDisconnect');
+    bridge.send('voice.disconnect');
   };
 
   const handleJoinChannel = (channelId: number) => {
-    bridge.send('mumbleJoinChannel', { channelId });
+    bridge.send('voice.joinChannel', { channelId });
     setMessages(prev => [...prev, `Joining channel ${channelId}...`]);
   };
 

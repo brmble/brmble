@@ -44,19 +44,19 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         if (string.IsNullOrWhiteSpace(host))
         {
-            _bridge?.Send("mumbleError", new { message = "Server address is required" });
+            _bridge?.Send("voice.error", new { message = "Server address is required" });
             return;
         }
 
         if (string.IsNullOrWhiteSpace(username))
         {
-            _bridge?.Send("mumbleError", new { message = "Username is required" });
+            _bridge?.Send("voice.error", new { message = "Username is required" });
             return;
         }
 
         if (port <= 0 || port > 65535)
         {
-            _bridge?.Send("mumbleError", new { message = "Port must be between 1 and 65535" });
+            _bridge?.Send("voice.error", new { message = "Port must be between 1 and 65535" });
             return;
         }
 
@@ -82,13 +82,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 System.Net.Sockets.SocketError.HostUnreachable => "Server unreachable",
                 _ => $"Connection failed: {ex.Message}"
             };
-            _bridge?.Send("mumbleError", new { message, code = ex.SocketErrorCode.ToString() });
+            _bridge?.Send("voice.error", new { message, code = ex.SocketErrorCode.ToString() });
             Debug.WriteLine($"[Mumble] Connection failed: {message}");
             Disconnect();
         }
         catch (Exception ex)
         {
-            _bridge?.Send("mumbleError", new { message = ex.Message });
+            _bridge?.Send("voice.error", new { message = ex.Message });
             Debug.WriteLine($"[Mumble] Connection failed: {ex.Message}");
             Disconnect();
         }
@@ -110,7 +110,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             }
         }
 
-        _bridge?.Send("mumbleDisconnected", null);
+        _bridge?.Send("voice.disconnected", null);
         Debug.WriteLine("[Mumble] Disconnected");
     }
 
@@ -167,7 +167,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     public void RegisterHandlers(NativeBridge bridge)
     {
-        bridge.RegisterHandler("mumbleConnect", (data) =>
+        bridge.RegisterHandler("voice.connect", (data) =>
         {
             string p = "localhost";
             int pt = 64738;
@@ -187,9 +187,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             return Task.CompletedTask;
         });
 
-        bridge.RegisterHandler("mumbleDisconnect", _ => { Disconnect(); return Task.CompletedTask; });
+        bridge.RegisterHandler("voice.disconnect", _ => { Disconnect(); return Task.CompletedTask; });
 
-        bridge.RegisterHandler("mumbleSendMessage", (data) =>
+        bridge.RegisterHandler("voice.sendMessage", (data) =>
         {
             if (data.TryGetProperty("message", out var message))
             {
@@ -198,7 +198,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             return Task.CompletedTask;
         });
 
-        bridge.RegisterHandler("mumbleJoinChannel", (data) =>
+        bridge.RegisterHandler("voice.joinChannel", (data) =>
         {
             if (data.TryGetProperty("channelId", out var channelId))
             {
@@ -219,7 +219,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         var channelList = Channels.Select(c => new { id = c.Id, name = c.Name, parent = c.Parent }).ToList();
         var userList = Users.Select(u => new { session = u.Id, name = u.Name, channelId = u.Channel?.Id, self = u == LocalUser }).ToList();
         
-        _bridge?.Send("mumbleConnected", new { 
+        _bridge?.Send("voice.connected", new { 
             username = LocalUser?.Name,
             channels = channelList,
             users = userList
@@ -236,7 +236,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         
         var isSelf = LocalUser != null && userState.Session == LocalUser.Id;
         
-        _bridge?.Send("mumbleUser", new 
+        _bridge?.Send("voice.userJoined", new 
         { 
             session = userState.Session, 
             name = userState.Name,
@@ -251,7 +251,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         
         Debug.WriteLine($"[Mumble] ChannelState: {channelState.Name} (id: {channelState.ChannelId})");
         
-        _bridge?.Send("mumbleChannel", new 
+        _bridge?.Send("voice.channelJoined", new 
         { 
             id = channelState.ChannelId, 
             name = channelState.Name,
@@ -263,7 +263,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     {
         base.TextMessage(textMessage);
         
-        _bridge?.Send("mumbleMessage", new 
+        _bridge?.Send("voice.message", new 
         { 
             message = textMessage.Message,
             senderSession = textMessage.Actor
@@ -274,7 +274,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     {
         base.Reject(reject);
         
-        _bridge?.Send("mumbleError", new 
+        _bridge?.Send("voice.error", new 
         { 
             message = reject.Reason,
             type = reject.Type
