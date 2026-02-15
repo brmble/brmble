@@ -309,6 +309,28 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     }
 
     /// <summary>
+    /// Called when a user's channel changes.
+    /// </summary>
+    protected override void UserStateChannelChanged(User user, uint oldChannelId)
+    {
+        base.UserStateChannelChanged(user, oldChannelId);
+        
+        if (user == LocalUser && user.Channel != null)
+        {
+            Debug.WriteLine($"[Mumble] LocalUser channel changed to: {user.Channel.Id}");
+            _bridge?.Send("voice.userJoined", new 
+            { 
+                session = user.Id, 
+                name = user.Name,
+                channelId = user.Channel.Id,
+                muted = user.Muted || user.SelfMuted,
+                deafened = user.Deaf || user.SelfDeaf,
+                self = true
+            });
+        }
+    }
+
+    /// <summary>
     /// Called when a user is removed from the server.
     /// </summary>
     /// <param name="userRemove">The user removal event from the server.</param>
