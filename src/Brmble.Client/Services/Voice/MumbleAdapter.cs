@@ -111,13 +111,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 _ => $"Connection failed: {ex.Message}"
             };
             _bridge?.Send("voice.error", new { message, code = ex.SocketErrorCode.ToString() });
-            Debug.WriteLine($"[Mumble] Connection failed: {message}");
+            Debug.WriteLine($"[Mumble] Socket connection failed: {message}\n{ex}");
             Disconnect();
         }
         catch (Exception ex)
         {
             _bridge?.Send("voice.error", new { message = ex.Message });
-            Debug.WriteLine($"[Mumble] Connection failed: {ex.Message}");
+            Debug.WriteLine($"[Mumble] Connection failed: {ex}\n{ex.StackTrace}");
             Disconnect();
         }
     }
@@ -149,6 +149,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// <param name="ct">The cancellation token for stopping the loop.</param>
     private async Task ProcessLoop(CancellationToken ct)
     {
+        Debug.WriteLine("[Mumble] ProcessLoop started");
         while (!ct.IsCancellationRequested && Connection != null)
         {
             try
@@ -165,9 +166,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[Mumble] Process error: {ex.Message}");
+                Debug.WriteLine($"[Mumble] Process error: {ex}");
+                _bridge?.Send("voice.error", new { message = $"Process error: {ex.Message}" });
             }
         }
+        Debug.WriteLine("[Mumble] ProcessLoop ended");
     }
 
     /// <inheritdoc />
