@@ -54,17 +54,6 @@ static class Program
 
     private static void SetupBridgeHandlers()
     {
-        _bridge!.RegisterHandler("ping", async _ =>
-        {
-            Debug.WriteLine("[WebViewBridge] Ping received, sending pong");
-            _bridge.Send("pong");
-        });
-
-        _bridge.RegisterHandler("getPlatform", async _ =>
-        {
-            _bridge.Send("platform", new { platform = "windows" });
-        });
-
         _mumbleClient!.RegisterHandlers(_bridge);
     }
 

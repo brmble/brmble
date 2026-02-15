@@ -27,16 +27,49 @@ internal sealed class MumbleClient : BasicMumbleProtocol
             throw new InvalidOperationException("Already connected");
         }
 
-        var connection = new MumbleConnection(host, port, this, voiceSupport: true);
-        
-        _cts = new CancellationTokenSource();
-        _processTask = Task.Run(() => ProcessLoop(_cts.Token));
+        if (string.IsNullOrWhiteSpace(host))
+        {
+            _bridge.Send("mumbleError", new { message = "Server address is required" });
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(username))
+        {
+            _bridge.Send("mumbleError", new { message = "Username is required" });
+            return;
+        }
+
+        if (port <= 0 || port > 65535)
+        {
+            _bridge.Send("mumbleError", new { message = "Port must be between 1 and 65535" });
+            return;
+        }
 
         try
         {
+            var connection = new MumbleConnection(host, port, this, voiceSupport: true);
+            
+            _cts = new CancellationTokenSource();
+            _processTask = Task.Run(() => ProcessLoop(_cts.Token));
+
             connection.Connect(username, password, tokens ?? Array.Empty<string>(), "Brmble");
             _bridge.Send("mumbleConnected", new { username, host, port });
             Debug.WriteLine($"[Mumble] Connected to {host}:{port} as {username}");
+        }
+        catch (System.Net.Sockets.SocketException ex)
+        {
+            var message = ex.SocketErrorCode switch
+            {
+                System.Net.Sockets.SocketError.HostNotFound => $"Server '{host}' not found",
+                System.Net.Sockets.SocketError.ConnectionRefused => $"Connection refused to {host}:{port}",
+                System.Net.Sockets.SocketError.TimedOut => $"Connection timed out to {host}:{port}",
+                System.Net.Sockets.SocketError.NetworkUnreachable => "Network unreachable",
+                System.Net.Sockets.SocketError.HostUnreachable => "Server unreachable",
+                _ => $"Connection failed: {ex.Message}"
+            };
+            _bridge.Send("mumbleError", new { message, code = ex.SocketErrorCode.ToString() });
+            Debug.WriteLine($"[Mumble] Connection failed: {message}");
+            Disconnect();
         }
         catch (Exception ex)
         {
@@ -156,10 +189,14 @@ internal sealed class MumbleClient : BasicMumbleProtocol
     {
         base.UserState(userState);
         
+        var isSelf = LocalUser != null && userState.Session == LocalUser.Id;
+        
         _bridge.Send("mumbleUser", new 
         { 
             session = userState.Session, 
-            name = userState.Name
+            name = userState.Name,
+            channelId = userState.ChannelId,
+            self = isSelf
         });
     }
 
@@ -170,7 +207,8 @@ internal sealed class MumbleClient : BasicMumbleProtocol
         _bridge.Send("mumbleChannel", new 
         { 
             id = channelState.ChannelId, 
-            name = channelState.Name
+            name = channelState.Name,
+            parent = channelState.Parent
         });
     }
 
