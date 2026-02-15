@@ -1,0 +1,96 @@
+.channel-tree {
+  font-size: 14px;
+}
+
+.channel-item {
+  user-select: none;
+}
+
+.channel-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 0.15s;
+}
+
+.channel-row:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.channel-row.current {
+  background-color: rgba(114, 137, 218, 0.4);
+}
+
+.expand-icon {
+  font-size: 10px;
+  width: 16px;
+  text-align: center;
+  transition: transform 0.15s;
+  color: #8e9297;
+}
+
+.expand-icon.expanded {
+  transform: rotate(90deg);
+}
+
+.expand-icon.placeholder {
+  visibility: hidden;
+}
+
+.channel-icon {
+  font-size: 12px;
+}
+
+.channel-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-count {
+  font-size: 12px;
+  color: #8e9297;
+}
+
+.channel-children {
+  margin-left: 0;
+}
+
+.user-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 0.15s;
+}
+
+.user-row:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.user-row.self {
+  color: #43b581;
+}
+
+.user-status {
+  font-size: 12px;
+}
+
+.user-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.self-badge {
+  font-size: 11px;
+  color: #43b581;
+  margin-left: 4px;
+}
