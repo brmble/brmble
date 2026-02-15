@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import './ChannelTree.css';
 
 interface User {
@@ -44,7 +44,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     });
   };
 
-  const buildTree = (): ChannelWithUsers[] => {
+  const buildTree = useCallback((): ChannelWithUsers[] => {
     const channelMap = new Map<number, ChannelWithUsers>();
     const roots: ChannelWithUsers[] = [];
 
@@ -73,7 +73,9 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     });
 
     return roots;
-  };
+  }, [channels, users, sortByName]);
+
+  const tree = useMemo(() => buildTree(), [buildTree]);
 
   const renderChannel = (channel: ChannelWithUsers, level: number = 0) => {
     const hasChildren = channel.children.length > 0 || channel.users.length > 0;
@@ -81,7 +83,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     const isCurrentChannel = currentChannelId === channel.id;
 
     return (
-      <div key={channel.id} className="channel-item" style={{ paddingLeft: `${level * 16}px` }}>
+      <div key={channel.id} className="channel-item channel-item--level" data-level={level}>
         <div 
           className={`channel-row ${isCurrentChannel ? 'current' : ''}`}
           onClick={() => hasChildren && toggleExpand(channel.id)}
@@ -103,8 +105,8 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
             {channel.users.map(user => (
               <div 
                 key={user.session} 
-                className={`user-row ${user.self ? 'self' : ''}`}
-                style={{ paddingLeft: `${(level + 1) * 16 + 24}px` }}
+                className={`user-row ${user.self ? 'self' : ''} user-row--level`}
+                data-level={level + 1}
                 title={getUserTooltip(user)}
               >
                 <span className="user-status">
@@ -120,8 +122,6 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
       </div>
     );
   };
-
-  const tree = buildTree();
 
   return (
     <div className="channel-tree">
