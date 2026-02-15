@@ -187,12 +187,39 @@ internal sealed class MumbleClient : BasicMumbleProtocol
     {
         base.ServerSync(serverSync);
         
+        Debug.WriteLine($"[Mumble] ServerSync received, sending full state");
+        
         _bridge.Send("mumbleServerSync", new 
         { 
             session = serverSync.Session,
             maxBandwidth = serverSync.MaxBandwidth,
             welcomeText = serverSync.WelcomeText
         });
+
+        // Send all channels
+        foreach (var channel in Channels)
+        {
+            _bridge.Send("mumbleChannel", new 
+            { 
+                id = channel.Id, 
+                name = channel.Name,
+                parent = channel.Parent
+            });
+        }
+
+        // Send all users
+        foreach (var user in Users)
+        {
+            _bridge.Send("mumbleUser", new 
+            { 
+                session = user.Id, 
+                name = user.Name,
+                channelId = user.Channel?.Id,
+                self = user == LocalUser
+            });
+        }
+        
+        Debug.WriteLine($"[Mumble] Sent {Channels.Count()} channels and {Users.Count()} users");
     }
 
     public override void UserState(UserState userState)
