@@ -96,7 +96,9 @@ function App() {
         setUsers(prev => {
           const existing = prev.find(u => u.session === d.session);
           if (existing) {
-            return prev.map(u => u.session === d.session ? { ...u, ...d } : u);
+            // Only update channelId if it's a valid (non-zero) value
+            const updatedChannelId = d.channelId && d.channelId > 0 ? d.channelId : existing.channelId;
+            return prev.map(u => u.session === d.session ? { ...u, ...d, channelId: updatedChannelId } : u);
           }
           return [...prev, d];
         });
