@@ -26,10 +26,11 @@ interface ChannelTreeProps {
   users: User[];
   currentChannelId?: number;
   onJoinChannel: (channelId: number) => void;
-  sortByName: boolean;
 }
 
-export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, sortByName }: ChannelTreeProps) {
+export function ChannelTree({ channels, users, currentChannelId, onJoinChannel }: ChannelTreeProps) {
+  // Track sort preference per channel (false = join order, true = alphabetical)
+  const [sortByNamePerChannel, setSortByNamePerChannel] = useState<Record<number, boolean>>({});
   // Auto-expand channels that have users
   const initialExpanded = useMemo(() => {
     const expanded = new Set<number>();
@@ -56,6 +57,14 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     });
   };
 
+  const toggleSort = (channelId: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSortByNamePerChannel(prev => ({
+      ...prev,
+      [channelId]: !prev[channelId]
+    }));
+  };
+
   const buildTree = useCallback((): ChannelWithUsers[] => {
     const channelMap = new Map<number, ChannelWithUsers>();
     const roots: ChannelWithUsers[] = [];
@@ -71,6 +80,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     });
 
     channelMap.forEach(ch => {
+      const sortByName = sortByNamePerChannel[ch.id] ?? false;
       ch.users = sortByName
         ? [...ch.users].sort((a, b) => a.name.localeCompare(b.name))
         : ch.users;
@@ -96,7 +106,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     sortChildren(roots);
 
     return roots;
-  }, [channels, users, sortByName]);
+  }, [channels, users, sortByNamePerChannel]);
 
   const tree = useMemo(() => buildTree(), [buildTree]);
 
@@ -120,7 +130,16 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
           <span className="channel-icon">📁</span>
           <span className="channel-name">{channel.name}</span>
           {channel.users.length > 0 && (
-            <span className="user-count">({channel.users.length})</span>
+            <>
+              <button
+                className="channel-sort-btn"
+                onClick={(e) => toggleSort(channel.id, e)}
+                title={(sortByNamePerChannel[channel.id] ?? false) ? 'Sort by join order' : 'Sort alphabetically'}
+              >
+                {(sortByNamePerChannel[channel.id] ?? false) ? 'A-Z' : '↺'}
+              </button>
+              <span className="user-count">({channel.users.length})</span>
+            </>
           )}
         </div>
         

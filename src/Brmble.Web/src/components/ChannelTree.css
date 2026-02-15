@@ -63,6 +63,22 @@
   color: #8e9297;
 }
 
+.channel-sort-btn {
+  background: transparent;
+  border: 1px solid #4f545c;
+  color: #b9bbbe;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.channel-sort-btn:hover {
+  background: #4f545c;
+  border-color: #72767d;
+}
+
 .channel-children {
   margin-left: 0;
 }

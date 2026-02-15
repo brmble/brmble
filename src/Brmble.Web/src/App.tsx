@@ -31,7 +31,6 @@ function App() {
   const [connecting, setConnecting] = useState<boolean>(false)
   const [channels, setChannels] = useState<Channel[]>([])
   const [users, setUsers] = useState<User[]>([])
-  const [sortUsersByName, setSortUsersByName] = useState<boolean>(false);
   const [currentChannelId, setCurrentChannelId] = useState<number | undefined>();
   
   const [host, setHost] = useState<string>('mumble.hashbang.dk')
@@ -256,13 +255,6 @@ function App() {
             <div className="channels">
               <div className="panel-header">
                 <h2>Channels</h2>
-                <button 
-                  className="sort-toggle"
-                  onClick={() => setSortUsersByName(!sortUsersByName)}
-                  title={sortUsersByName ? 'Sort by join order' : 'Sort alphabetically'}
-                >
-                  Sort: {sortUsersByName ? 'A-Z' : 'Join'}
-                </button>
               </div>
               <div className="channel-list">
                 {channels.length === 0 ? (
@@ -273,7 +265,6 @@ function App() {
                     users={users}
                     currentChannelId={currentChannelId}
                     onJoinChannel={handleJoinChannel}
-                    sortByName={sortUsersByName}
                   />
                 )}
               </div>
