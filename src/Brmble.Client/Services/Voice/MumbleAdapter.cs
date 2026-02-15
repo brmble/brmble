@@ -294,6 +294,22 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     }
 
     /// <summary>
+    /// Called when a user is removed from the server.
+    /// </summary>
+    /// <param name="userRemove">The user removal event from the server.</param>
+    public override void UserRemove(UserRemove userRemove)
+    {
+        base.UserRemove(userRemove);
+        
+        Debug.WriteLine($"[Mumble] UserRemove: session {userRemove.Session}");
+        
+        _bridge?.Send("voice.userLeft", new 
+        { 
+            session = userRemove.Session
+        });
+    }
+
+    /// <summary>
     /// Called when a channel's state changes.
     /// </summary>
     /// <param name="channelState">The channel state update from the server.</param>
