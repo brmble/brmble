@@ -229,3 +229,26 @@ body {
   color: #53c28a;
   font-weight: 500;
 }
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.sort-toggle {
+  background: var(--bramble-purple);
+  border: 1px solid var(--bramble-subtle);
+  color: var(--bramble-ice);
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.sort-toggle:hover {
+  background: var(--bramble-blackberry);
+  border-color: var(--bramble-lemon);
+}
