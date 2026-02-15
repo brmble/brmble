@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import './ChannelTree.css';
 
 interface User {
@@ -44,6 +44,22 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel }
   }, [channels, users]);
 
   const [expandedChannels, setExpandedChannels] = useState<Set<number>>(initialExpanded);
+
+  // Auto-expand channels when users join
+  useEffect(() => {
+    setExpandedChannels(prev => {
+      const next = new Set(prev);
+      let changed = false;
+      channels.forEach(ch => {
+        const hasUsers = users.some(u => u.channelId === ch.id);
+        if (hasUsers && !next.has(ch.id)) {
+          next.add(ch.id);
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [channels, users]);
 
   const toggleExpand = (channelId: number) => {
     setExpandedChannels(prev => {
