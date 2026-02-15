@@ -53,3 +53,37 @@ Messages use service-prefixed namespacing:
 
 ### UI Thread Safety
 NativeBridge marshals all calls to the UI thread via PostMessage(WM_USER) to prevent WebView2 freezes.
+
+## Branch Management Rules
+
+**IMPORTANT: AI agents must NEVER commit directly to main branch.**
+
+### For All Changes:
+1. **Create a new branch** for any feature, fix, or change
+2. **Commit changes** to the new branch
+3. **Push the branch** to origin
+4. **Create a PR** for code review
+
+### Branch Naming Conventions:
+- `feature/<feature-name>` - New features
+- `fix/<issue-name>` - Bug fixes
+- `docs/<topic>` - Documentation changes
+
+### Example Workflow:
+```bash
+# Create and switch to new branch
+git checkout -b feature/my-feature
+
+# Make changes, commit
+git add .
+git commit -m "feat: add my feature"
+
+# Push and create PR
+git push -u origin feature/my-feature
+# Then create PR via GitHub UI or: gh pr create
+```
+
+### Never Do:
+- ❌ Commit directly to main
+- ❌ Push to main
+- ❌ Merge PRs without review
