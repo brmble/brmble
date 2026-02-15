@@ -63,9 +63,8 @@ function App() {
         setChannels(d.channels);
       }
       if (d?.users) {
-        // Filter out users with channelId 0 (not yet assigned to a channel)
-        const validUsers = d.users.filter(u => u.channelId && u.channelId > 0);
-        setUsers(validUsers);
+        // Accept all users - channelId 0 is valid (root channel in Mumble)
+        setUsers(d.users);
       }
       
       setMessages(prev => [...prev, `Connected to ${d?.username || 'server'}`]);
@@ -94,12 +93,12 @@ function App() {
 
     const onVoiceUserJoined = ((data: unknown) => {
       const d = data as { session: number; name: string; channelId?: number; muted?: boolean; deafened?: boolean; self?: boolean } | undefined;
-      if (d?.session && d?.name && d.channelId && d.channelId > 0) {
+      if (d?.session && d?.name && d.channelId !== undefined) {
         setUsers(prev => {
           const existing = prev.find(u => u.session === d.session);
           if (existing) {
-            // Only update channelId if it's a valid (non-zero) value
-            const updatedChannelId = d.channelId && d.channelId > 0 ? d.channelId : existing.channelId;
+            // Only update channelId if it's a valid value (including 0 for root channel)
+            const updatedChannelId = d.channelId !== undefined ? d.channelId : existing.channelId;
             return prev.map(u => u.session === d.session ? { ...u, ...d, channelId: updatedChannelId } : u);
           }
           return [...prev, d];

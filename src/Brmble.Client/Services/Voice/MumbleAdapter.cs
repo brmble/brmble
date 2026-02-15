@@ -261,7 +261,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         Debug.WriteLine($"[Mumble] ServerSync received, sending full state");
         
         var channelList = Channels.Select(c => new { id = c.Id, name = c.Name, parent = c.Parent }).ToList();
-        var userList = Users.Select(u => new { session = u.Id, name = u.Name, channelId = u.Channel?.Id, self = u == LocalUser }).ToList();
+        
+        // Send all users - don't filter by channelId in initial sync
+        var userList = Users.Select(u => new { 
+            session = u.Id, 
+            name = u.Name, 
+            channelId = u.Channel?.Id ?? 0, 
+            muted = u.Muted || u.SelfMuted,
+            deafened = u.Deaf || u.SelfDeaf,
+            self = u == LocalUser 
+        }).ToList();
+        
+        Debug.WriteLine($"[Mumble] Local user: {LocalUser?.Name}, channel: {LocalUser?.Channel?.Id}");
         
         _bridge?.Send("voice.connected", new { 
             username = LocalUser?.Name,
