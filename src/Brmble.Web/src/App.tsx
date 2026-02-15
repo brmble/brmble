@@ -9,11 +9,25 @@ interface SavedServer {
   password: string;
 }
 
+interface Channel {
+  id: number;
+  name: string;
+  parent?: number;
+}
+
+interface User {
+  session: number;
+  name: string;
+  channelId?: number;
+  self?: boolean;
+}
+
 function App() {
-  const [platform, setPlatform] = useState<string>('unknown')
   const [messages, setMessages] = useState<string[]>([])
   const [connected, setConnected] = useState<boolean>(false)
   const [connecting, setConnecting] = useState<boolean>(false)
+  const [channels, setChannels] = useState<Channel[]>([])
+  const [users, setUsers] = useState<User[]>([])
   
   const [host, setHost] = useState<string>('mumble.hashbang.dk')
   const [port, setPort] = useState<number>(64738)
@@ -36,18 +50,6 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const onPong = () => {
-      setMessages(prev => [...prev, 'C#: pong']);
-    };
-
-    const onPlatform = ((data: unknown) => {
-      const d = data as { platform: string } | undefined;
-      if (d?.platform) {
-        setPlatform(d.platform);
-        setMessages(prev => [...prev, `C#: platform = ${d.platform}`]);
-      }
-    });
-
     const onMumbleConnected = ((data: unknown) => {
       setConnected(true);
       setConnecting(false);
@@ -57,6 +59,8 @@ function App() {
     const onMumbleDisconnected = () => {
       setConnected(false);
       setConnecting(false);
+      setChannels([]);
+      setUsers([]);
       setMessages(prev => [...prev, 'Disconnected']);
     };
 
@@ -73,20 +77,46 @@ function App() {
       }
     });
 
-    bridge.on('pong', onPong);
-    bridge.on('platform', onPlatform);
+    const onMumbleUser = ((data: unknown) => {
+      const d = data as { session: number; name: string; channelId?: number; self?: boolean } | undefined;
+      if (d?.session && d?.name) {
+        setUsers(prev => {
+          const existing = prev.find(u => u.session === d.session);
+          if (existing) {
+            return prev.map(u => u.session === d.session ? d : u);
+          }
+          return [...prev, d];
+        });
+      }
+    });
+
+    const onMumbleChannel = ((data: unknown) => {
+      const d = data as { id: number; name: string; parent?: number } | undefined;
+      if (d?.id && d?.name) {
+        setChannels(prev => {
+          const existing = prev.find(c => c.id === d.id);
+          if (existing) {
+            return prev.map(c => c.id === d.id ? d : c);
+          }
+          return [...prev, d];
+        });
+      }
+    });
+
     bridge.on('mumbleConnected', onMumbleConnected);
     bridge.on('mumbleDisconnected', onMumbleDisconnected);
     bridge.on('mumbleError', onMumbleError);
     bridge.on('mumbleMessage', onMumbleMessage);
+    bridge.on('mumbleUser', onMumbleUser);
+    bridge.on('mumbleChannel', onMumbleChannel);
 
     return () => {
-      bridge.off('pong', onPong);
-      bridge.off('platform', onPlatform);
       bridge.off('mumbleConnected', onMumbleConnected);
       bridge.off('mumbleDisconnected', onMumbleDisconnected);
       bridge.off('mumbleError', onMumbleError);
       bridge.off('mumbleMessage', onMumbleMessage);
+      bridge.off('mumbleUser', onMumbleUser);
+      bridge.off('mumbleChannel', onMumbleChannel);
     };
   }, []);
 
@@ -103,20 +133,12 @@ function App() {
     bridge.send('mumbleDisconnect');
   };
 
-  const sendPing = () => {
-    bridge.send('ping');
-  };
-
-  const getPlatform = () => {
-    bridge.send('getPlatform');
-  };
-
   return (
     <div className="app">
       <header className="header">
         <h1>Brmble</h1>
         <span className={`platform-badge ${connected ? 'connected' : ''}`}>
-          {connected ? 'Connected' : platform}
+          {connected ? 'Connected' : 'Disconnected'}
         </span>
       </header>
       
@@ -176,11 +198,6 @@ function App() {
           </div>
         </section>
 
-        <section className="controls">
-          <button onClick={sendPing}>Send Ping</button>
-          <button onClick={getPlatform}>Get Platform</button>
-        </section>
-
         <section className="messages">
           <h2>Messages</h2>
           <div className="message-list">
@@ -193,6 +210,39 @@ function App() {
             )}
           </div>
         </section>
+
+        {connected && (
+          <section className="server-panel">
+            <div className="channels">
+              <h2>Channels</h2>
+              <div className="channel-list">
+                {channels.length === 0 ? (
+                  <p className="empty">No channels</p>
+                ) : (
+                  channels.map(channel => (
+                    <div key={channel.id} className="channel">
+                      📁 {channel.name}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+            <div className="users">
+              <h2>Users ({users.length})</h2>
+              <div className="user-list">
+                {users.length === 0 ? (
+                  <p className="empty">No users</p>
+                ) : (
+                  users.map(user => (
+                    <div key={user.session} className={`user ${user.self ? 'self' : ''}`}>
+                      🎤 {user.name}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </section>
+        )}
       </main>
     </div>
   )

@@ -192,3 +192,40 @@ body {
   color: #666;
   font-style: italic;
 }
+
+.server-panel {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.server-panel .channels,
+.server-panel .users {
+  flex: 1;
+  background: #16213e;
+  border-radius: 0.5rem;
+  padding: 1rem;
+}
+
+.server-panel h2 {
+  margin: 0 0 1rem 0;
+  font-size: 1rem;
+  color: #888;
+}
+
+.channel-list,
+.user-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.channel,
+.user {
+  padding: 0.375rem 0;
+  font-size: 0.875rem;
+}
+
+.user.self {
+  color: #53c28a;
+  font-weight: 500;
+}
