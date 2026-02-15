@@ -1,4 +1,4 @@
-﻿using MumbleProto;
+using MumbleProto;
 using MumbleSharp.Audio;
 using MumbleSharp.Audio.Codecs;
 using MumbleSharp.Packets;
@@ -80,7 +80,8 @@ namespace MumbleSharp
             MumbleProto.Version version = new MumbleProto.Version
             {
                 Release = "MumbleSharp",
-                version = (1 << 16) | (2 << 8) | (0 & 0xFF),
+                VersionV1 = (1 << 16) | (5 << 8) | (0 & 0xFF),
+                VersionV2 = ((ulong)1 << 32) | ((ulong)5 << 16) | (ulong)(0 & 0xFFFF),
                 Os = Environment.OSVersion.ToString(),
                 OsVersion = Environment.OSVersion.VersionString,
             };
@@ -91,6 +92,7 @@ namespace MumbleSharp
                 Username = username,
                 Password = password,
                 Opus = true,
+                ClientType = 0,
             };
             auth.Tokens.AddRange(tokens ?? new string[0]);
             auth.CeltVersions = new int[] { unchecked((int)0x8000000b) };
