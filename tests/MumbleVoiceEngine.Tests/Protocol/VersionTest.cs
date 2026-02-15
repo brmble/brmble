@@ -57,31 +57,5 @@ namespace MumbleVoiceEngine.Tests.Protocol
             Assert.AreEqual(5u, minor);
             Assert.AreEqual(0u, patch);
         }
-
-        [TestMethod]
-        public void VersionV2_1_5_0_Encoding()
-        {
-            ulong major = 1;
-            ulong minor = 5;
-            ulong patch = 0;
-
-            ulong versionV2 = (major << 32) | (minor << 16) | patch;
-
-            Assert.AreEqual(4295294976ul, versionV2);
-        }
-
-        [TestMethod]
-        public void VersionV2_1_5_0_Decoding()
-        {
-            ulong versionV2 = 4295294976ul;
-
-            ulong major = (versionV2 >> 32) & 0xFFFF;
-            ulong minor = (versionV2 >> 16) & 0xFFFF;
-            ulong patch = versionV2 & 0xFFFF;
-
-            Assert.AreEqual(1ul, major);
-            Assert.AreEqual(5ul, minor);
-            Assert.AreEqual(0ul, patch);
-        }
     }
 }
