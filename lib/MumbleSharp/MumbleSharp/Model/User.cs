@@ -1,4 +1,4 @@
-﻿using MumbleProto;
+using MumbleProto;
 using MumbleSharp.Audio;
 using MumbleSharp.Audio.Codecs;
 using MumbleSharp.Packets;
@@ -20,6 +20,8 @@ namespace MumbleSharp.Model
         public bool SelfDeaf { get; set; }
         public bool SelfMuted { get; set; }
         public bool Suppress { get; set; }
+        public System.Collections.Generic.List<uint> ListeningChannels { get; } = new System.Collections.Generic.List<uint>();
+        public System.Collections.Generic.Dictionary<uint, float> ListeningVolumeAdjustments { get; } = new System.Collections.Generic.Dictionary<uint, float>();
 
         private Channel _channel;
         public Channel Channel
