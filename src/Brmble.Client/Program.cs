@@ -7,15 +7,32 @@ using Brmble.Client.Services.Voice;
 
 namespace Brmble.Client;
 
+/// <summary>
+/// Main entry point for the Brmble desktop client.
+/// </summary>
+/// <remarks>
+/// This application uses WebView2 to display a React frontend and communicates
+/// with backend services via the NativeBridge.
+/// </remarks>
 static class Program
 {
+    /// <summary>
+    /// The URL of the Vite development server.
+    /// </summary>
     private const string DevServerUrl = "http://localhost:5173";
+    
+    /// <summary>
+    /// The port number for the Vite development server.
+    /// </summary>
     private const int DevServerPort = 5173;
 
     private static CoreWebView2Controller? _controller;
     private static NativeBridge? _bridge;
     private static MumbleAdapter? _mumbleClient;
 
+    /// <summary>
+    /// The main entry point for the application.
+    /// </summary>
     [STAThread]
     static void Main()
     {
@@ -29,6 +46,11 @@ static class Program
         Win32Window.RunMessageLoop();
     }
 
+    /// <summary>
+    /// Initializes the WebView2 environment and loads the frontend.
+    /// </summary>
+    /// <param name="hwnd">The window handle.</param>
+    /// <param name="useDevServer">Whether to use the development server.</param>
     private static async Task InitWebView2Async(IntPtr hwnd, bool useDevServer)
     {
         var env = await CoreWebView2Environment.CreateAsync();
@@ -54,11 +76,18 @@ static class Program
             _controller.CoreWebView2.Navigate("https://brmble.local/index.html");
     }
 
+    /// <summary>
+    /// Sets up message handlers for backend services.
+    /// </summary>
     private static void SetupBridgeHandlers()
     {
         _mumbleClient!.RegisterHandlers(_bridge);
     }
-
+ 
+    /// <summary>
+    /// Checks if the Vite development server is running.
+    /// </summary>
+    /// <returns>True if the development server is available.</returns>
     private static bool IsDevServerRunning()
     {
         try
@@ -73,6 +102,14 @@ static class Program
         }
     }
 
+    /// <summary>
+    /// Window procedure for handling Windows messages.
+    /// </summary>
+    /// <param name="hwnd">The window handle.</param>
+    /// <param name="msg">The message identifier.</param>
+    /// <param name="wParam">Additional message-specific information.</param>
+    /// <param name="lParam">Additional message-specific information.</param>
+    /// <returns>The result of the message processing.</returns>
     private static IntPtr WndProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam)
     {
         switch (msg)

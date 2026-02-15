@@ -10,31 +10,59 @@ using Brmble.Client.Bridge;
 
 namespace Brmble.Client.Services.Voice;
 
+/// <summary>
+/// Mumble protocol adapter implementing the VoiceService interface.
+/// </summary>
+/// <remarks>
+/// This adapter connects to Mumble servers using MumbleSharp and translates between
+/// Mumble protocol events and the voice.* message format used by the frontend.
+/// </remarks>
 internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 {
     private readonly NativeBridge? _bridge;
     private CancellationTokenSource? _cts;
     private Task? _processTask;
 
+    /// <inheritdoc />
     public string ServiceName => "mumble";
 
+    /// <inheritdoc />
     public event Action? Connected;
+    
+    /// <inheritdoc />
     public event Action? Disconnected;
+    
+    /// <inheritdoc />
     public event Action<string>? Error;
+    
+    /// <inheritdoc />
     public event Action<User>? UserJoined;
+    
+    /// <inheritdoc />
     public event Action<User>? UserLeft;
+    
+    /// <inheritdoc />
     public event Action<Channel>? ChannelJoined;
+    
+    /// <inheritdoc />
     public event Action<string>? MessageReceived;
 
+    /// <summary>
+    /// Initializes a new instance of the MumbleAdapter class.
+    /// </summary>
+    /// <param name="bridge">The NativeBridge for communicating with the frontend.</param>
     public MumbleAdapter(NativeBridge bridge)
     {
         _bridge = bridge;
     }
 
+    /// <inheritdoc />
     public void Initialize(NativeBridge bridge)
     {
+        // Initialization handled in constructor
     }
 
+    /// <inheritdoc />
     public void Connect(string host, int port, string username, string password = "")
     {
         if (Connection?.State == ConnectionStates.Connected)
@@ -94,6 +122,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         }
     }
 
+    /// <inheritdoc />
     public void Disconnect()
     {
         _cts?.Cancel();
@@ -114,6 +143,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         Debug.WriteLine("[Mumble] Disconnected");
     }
 
+    /// <summary>
+    /// Processes incoming Mumble protocol messages.
+    /// </summary>
+    /// <param name="ct">The cancellation token for stopping the loop.</param>
     private async Task ProcessLoop(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested && Connection != null)
@@ -137,11 +170,16 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         }
     }
 
+    /// <inheritdoc />
     public void SendMessage(string message)
     {
         SendTextMessage(message);
     }
 
+    /// <summary>
+    /// Sends a text message to the current channel.
+    /// </summary>
+    /// <param name="message">The message text to send.</param>
     public void SendTextMessage(string message)
     {
         if (Connection == null || Connection.State != ConnectionStates.Connected)
@@ -155,6 +193,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         Connection.SendControl(PacketType.TextMessage, textMessage);
     }
 
+    /// <inheritdoc />
     public void JoinChannel(uint channelId)
     {
         if (Connection == null || Connection.State != ConnectionStates.Connected)
@@ -165,6 +204,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         Debug.WriteLine($"[Mumble] Sent join channel request for: {channelId}");
     }
 
+    /// <inheritdoc />
     public void RegisterHandlers(NativeBridge bridge)
     {
         bridge.RegisterHandler("voice.connect", (data) =>
@@ -210,6 +250,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         });
     }
 
+    /// <summary>
+    /// Called when the server sends synchronization data after authentication.
+    /// </summary>
+    /// <param name="serverSync">The server sync message containing initial state.</param>
     public override void ServerSync(ServerSync serverSync)
     {
         base.ServerSync(serverSync);
@@ -228,6 +272,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         Debug.WriteLine($"[Mumble] Sent {channelList.Count} channels and {userList.Count} users");
     }
 
+    /// <summary>
+    /// Called when a user's state changes.
+    /// </summary>
+    /// <param name="userState">The user state update from the server.</param>
     public override void UserState(UserState userState)
     {
         base.UserState(userState);
@@ -245,6 +293,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         });
     }
 
+    /// <summary>
+    /// Called when a channel's state changes.
+    /// </summary>
+    /// <param name="channelState">The channel state update from the server.</param>
     public override void ChannelState(ChannelState channelState)
     {
         base.ChannelState(channelState);
@@ -259,6 +311,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         });
     }
 
+    /// <summary>
+    /// Called when a text message is received.
+    /// </summary>
+    /// <param name="textMessage">The text message from the server.</param>
     public override void TextMessage(TextMessage textMessage)
     {
         base.TextMessage(textMessage);
@@ -270,6 +326,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         });
     }
 
+    /// <summary>
+    /// Called when the server rejects the connection.
+    /// </summary>
+    /// <param name="reject">The rejection reason from the server.</param>
     public override void Reject(Reject reject)
     {
         base.Reject(reject);
