@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import bridge from './bridge'
+import { ChannelTree } from './components/ChannelTree';
 import './App.css'
 
 interface SavedServer {
@@ -20,6 +21,8 @@ interface User {
   name: string;
   channelId?: number;
   self?: boolean;
+  muted?: boolean;
+  deafened?: boolean;
 }
 
 function App() {
@@ -28,6 +31,8 @@ function App() {
   const [connecting, setConnecting] = useState<boolean>(false)
   const [channels, setChannels] = useState<Channel[]>([])
   const [users, setUsers] = useState<User[]>([])
+  const [sortUsersByName, setSortUsersByName] = useState<boolean>(false);
+  const [currentChannelId, setCurrentChannelId] = useState<number | undefined>();
   
   const [host, setHost] = useState<string>('mumble.hashbang.dk')
   const [port, setPort] = useState<number>(64738)
@@ -87,12 +92,12 @@ function App() {
     });
 
     const onVoiceUserJoined = ((data: unknown) => {
-      const d = data as { session: number; name: string; channelId?: number; self?: boolean } | undefined;
+      const d = data as { session: number; name: string; channelId?: number; muted?: boolean; deafened?: boolean; self?: boolean } | undefined;
       if (d?.session && d?.name) {
         setUsers(prev => {
           const existing = prev.find(u => u.session === d.session);
           if (existing) {
-            return prev.map(u => u.session === d.session ? d : u);
+            return prev.map(u => u.session === d.session ? { ...u, ...d } : u);
           }
           return [...prev, d];
         });
@@ -112,12 +117,29 @@ function App() {
       }
     });
 
+    const onVoiceChannelChanged = ((data: unknown) => {
+      const d = data as { channelId: number } | undefined;
+      if (d?.channelId) {
+        setCurrentChannelId(d.channelId);
+        setMessages(prev => [...prev, `Joined channel`]);
+      }
+    });
+
+    const onVoiceUserLeft = ((data: unknown) => {
+      const d = data as { session: number } | undefined;
+      if (d?.session) {
+        setUsers(prev => prev.filter(u => u.session !== d.session));
+      }
+    });
+
     bridge.on('voice.connected', onVoiceConnected);
     bridge.on('voice.disconnected', onVoiceDisconnected);
     bridge.on('voice.error', onVoiceError);
     bridge.on('voice.message', onVoiceMessage);
     bridge.on('voice.userJoined', onVoiceUserJoined);
     bridge.on('voice.channelJoined', onVoiceChannelJoined);
+    bridge.on('voice.userLeft', onVoiceUserLeft);
+    bridge.on('voice.channelChanged', onVoiceChannelChanged);
 
     return () => {
       bridge.off('voice.connected', onVoiceConnected);
@@ -126,6 +148,8 @@ function App() {
       bridge.off('voice.message', onVoiceMessage);
       bridge.off('voice.userJoined', onVoiceUserJoined);
       bridge.off('voice.channelJoined', onVoiceChannelJoined);
+      bridge.off('voice.userLeft', onVoiceUserLeft);
+      bridge.off('voice.channelChanged', onVoiceChannelChanged);
     };
   }, []);
 
@@ -228,35 +252,27 @@ function App() {
         {connected && (
           <section className="server-panel">
             <div className="channels">
-              <h2>Channels</h2>
+              <div className="panel-header">
+                <h2>Channels</h2>
+                <button 
+                  className="sort-toggle"
+                  onClick={() => setSortUsersByName(!sortUsersByName)}
+                  title={sortUsersByName ? 'Sort by join order' : 'Sort alphabetically'}
+                >
+                  Sort: {sortUsersByName ? 'A-Z' : 'Join'}
+                </button>
+              </div>
               <div className="channel-list">
                 {channels.length === 0 ? (
                   <p className="empty">No channels</p>
                 ) : (
-                  channels.map(channel => (
-                    <div 
-                      key={channel.id} 
-                      className="channel"
-                      onDoubleClick={() => handleJoinChannel(channel.id)}
-                      title="Double-click to join"
-                    >
-                      📁 {channel.name}
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-            <div className="users">
-              <h2>Users ({users.length})</h2>
-              <div className="user-list">
-                {users.length === 0 ? (
-                  <p className="empty">No users</p>
-                ) : (
-                  users.map(user => (
-                    <div key={user.session} className={`user ${user.self ? 'self' : ''}`}>
-                      🎤 {user.name}
-                    </div>
-                  ))
+                  <ChannelTree
+                    channels={channels}
+                    users={users}
+                    currentChannelId={currentChannelId}
+                    onJoinChannel={handleJoinChannel}
+                    sortByName={sortUsersByName}
+                  />
                 )}
               </div>
             </div>
