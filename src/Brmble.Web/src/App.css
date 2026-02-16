@@ -3,6 +3,7 @@
   display: flex;
   flex-direction: column;
   background: var(--bg-deep);
+  position: relative;
 }
 
 .app-body {
