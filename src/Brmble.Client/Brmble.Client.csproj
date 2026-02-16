@@ -5,25 +5,21 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3124.44" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3800.47" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\lib\MumbleSharp\MumbleSharp\MumbleSharp.csproj" />
     <ProjectReference Include="..\..\lib\MumbleVoiceEngine\MumbleVoiceEngine.csproj" />
   </ItemGroup>
-  <Target Name="CopyWebDist" AfterTargets="Build"
-          Condition="Exists('..\..\src\Brmble.Web\dist\index.html')">
+  <Target Name="CopyWebDist" AfterTargets="Build" Condition="Exists('..\..\src\Brmble.Web\dist\index.html')">
     <ItemGroup>
       <WebDistFiles Include="..\..\src\Brmble.Web\dist\**\*" />
     </ItemGroup>
-    <Copy SourceFiles="@(WebDistFiles)"
-          DestinationFolder="$(OutputPath)web\%(RecursiveDir)"
-          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(WebDistFiles)" DestinationFolder="$(OutputPath)web\%(RecursiveDir)" SkipUnchangedFiles="true" />
   </Target>
 
-  <Target Name="WarnWebDistMissing" AfterTargets="Build"
-          Condition="!Exists('..\..\src\Brmble.Web\dist\index.html')">
+  <Target Name="WarnWebDistMissing" AfterTargets="Build" Condition="!Exists('..\..\src\Brmble.Web\dist\index.html')">
     <Warning Text="Brmble.Web dist/ not found. Run 'npm run build' in src/Brmble.Web for local file serving." />
   </Target>
 </Project>

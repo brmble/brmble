@@ -29,6 +29,7 @@ static class Program
     private static CoreWebView2Controller? _controller;
     private static NativeBridge? _bridge;
     private static MumbleAdapter? _mumbleClient;
+    private static IntPtr _hwnd;
 
     /// <summary>
     /// The main entry point for the application.
@@ -43,8 +44,10 @@ static class Program
                 ? "Brmble: Using Vite dev server"
                 : "Brmble: Using local files");
 
-            var hwnd = Win32Window.Create("BrmbleWindow", "Brmble", 1280, 720, WndProc);
-            _ = InitWebView2Async(hwnd, useDevServer);
+            _hwnd = Win32Window.Create("BrmbleWindow", "Brmble", 1280, 720, WndProc);
+            Win32Window.ExtendFrameIntoClientArea(_hwnd);
+            Win32Window.ForceFrameChange(_hwnd);
+            _ = InitWebView2Async(_hwnd, useDevServer);
             Win32Window.RunMessageLoop();
         }
         catch (Exception ex)
@@ -68,6 +71,9 @@ static class Program
             Win32Window.GetClientRect(hwnd, out var rect);
             _controller.Bounds = new Rectangle(0, 0, rect.Right - rect.Left, rect.Bottom - rect.Top);
             _controller.IsVisible = true;
+
+            // Enable CSS app-region: drag/no-drag for window dragging
+            _controller.CoreWebView2.Settings.IsNonClientRegionSupportEnabled = true;
 
             var webRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "web");
             Debug.WriteLine($"[Brmble] Web root: {webRoot}");
@@ -97,6 +103,27 @@ static class Program
     private static void SetupBridgeHandlers()
     {
         _mumbleClient!.RegisterHandlers(_bridge);
+
+        _bridge!.RegisterHandler("window.minimize", _ =>
+        {
+            Win32Window.ShowWindow(_hwnd, Win32Window.SW_MINIMIZE);
+            return Task.CompletedTask;
+        });
+
+        _bridge.RegisterHandler("window.maximize", _ =>
+        {
+            if (Win32Window.IsZoomed(_hwnd))
+                Win32Window.ShowWindow(_hwnd, Win32Window.SW_RESTORE);
+            else
+                Win32Window.ShowWindow(_hwnd, Win32Window.SW_MAXIMIZE);
+            return Task.CompletedTask;
+        });
+
+        _bridge.RegisterHandler("window.close", _ =>
+        {
+            Win32Window.PostMessage(_hwnd, Win32Window.WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+            return Task.CompletedTask;
+        });
     }
  
     /// <summary>
@@ -127,8 +154,16 @@ static class Program
     /// <returns>The result of the message processing.</returns>
     private static IntPtr WndProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam)
     {
+        // Remove the non-client area (title bar) — client area fills entire window
+        if (msg == Win32Window.WM_NCCALCSIZE && wParam != IntPtr.Zero)
+            return IntPtr.Zero;
+
         switch (msg)
         {
+            case Win32Window.WM_ACTIVATE:
+                Win32Window.ExtendFrameIntoClientArea(hwnd);
+                return IntPtr.Zero;
+
             case Win32Window.WM_SIZE:
                 if (_controller != null)
                 {
@@ -144,9 +179,8 @@ static class Program
             case 0x0400: // WM_USER
                 _bridge?.ProcessUiMessage();
                 return IntPtr.Zero;
-
-            default:
-                return Win32Window.DefWindowProc(hwnd, msg, wParam, lParam);
         }
+
+        return Win32Window.DefWindowProc(hwnd, msg, wParam, lParam);
     }
 }
