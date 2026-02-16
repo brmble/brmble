@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import bridge from '../bridge';
 
 export interface ServerEntry {
   id: string;
@@ -13,44 +14,60 @@ export function useServerlist() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      const msg = JSON.parse(event.data);
-      if (msg.type === 'servers.list') {
-        setServers(msg.data.servers || []);
-        setLoading(false);
-      }
-      if (msg.type === 'servers.added') {
-        setServers(prev => [...prev, msg.data.server]);
-      }
-      if (msg.type === 'servers.updated') {
-        setServers(prev => prev.map(s => 
-          s.id === msg.data.server.id ? msg.data.server : s
-        ));
-      }
-      if (msg.type === 'servers.removed') {
-        setServers(prev => prev.filter(s => s.id !== msg.data.id));
+    const handleList = (data: unknown) => {
+      const d = data as { servers?: ServerEntry[] } | undefined;
+      setServers(d?.servers || []);
+      setLoading(false);
+    };
+
+    const handleAdded = (data: unknown) => {
+      const d = data as { server: ServerEntry } | undefined;
+      if (d?.server) {
+        setServers(prev => [...prev, d.server]);
       }
     };
 
-    window.addEventListener('message', handleMessage);
-    window.chrome?.webview?.postMessage({ type: 'servers.list' });
+    const handleUpdated = (data: unknown) => {
+      const d = data as { server: ServerEntry } | undefined;
+      if (d?.server) {
+        setServers(prev => prev.map(s => 
+          s.id === d.server.id ? d.server : s
+        ));
+      }
+    };
 
-    return () => window.removeEventListener('message', handleMessage);
+    const handleRemoved = (data: unknown) => {
+      const d = data as { id: string } | undefined;
+      if (d?.id) {
+        setServers(prev => prev.filter(s => s.id !== d.id));
+      }
+    };
+
+    bridge.on('servers.list', handleList);
+    bridge.on('servers.added', handleAdded);
+    bridge.on('servers.updated', handleUpdated);
+    bridge.on('servers.removed', handleRemoved);
+
+    bridge.send('servers.list');
+
+    return () => {
+      bridge.off('servers.list', handleList);
+      bridge.off('servers.added', handleAdded);
+      bridge.off('servers.updated', handleUpdated);
+      bridge.off('servers.removed', handleRemoved);
+    };
   }, []);
 
   const addServer = useCallback((server: Omit<ServerEntry, 'id'>) => {
-    window.chrome?.webview?.postMessage({
-      type: 'servers.add',
-      data: { ...server, id: crypto.randomUUID() }
-    });
+    bridge.send('servers.add', { ...server, id: crypto.randomUUID() });
   }, []);
 
   const updateServer = useCallback((server: ServerEntry) => {
-    window.chrome?.webview?.postMessage({ type: 'servers.update', data: server });
+    bridge.send('servers.update', server);
   }, []);
 
   const removeServer = useCallback((id: string) => {
-    window.chrome?.webview?.postMessage({ type: 'servers.remove', data: { id } });
+    bridge.send('servers.remove', { id });
   }, []);
 
   return { servers, loading, addServer, updateServer, removeServer };
