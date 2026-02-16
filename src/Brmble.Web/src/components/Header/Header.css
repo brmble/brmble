@@ -4,7 +4,6 @@
   align-items: center;
   justify-content: space-between;
   padding: 0 1.5rem;
-  padding-right: 138px;
   background: var(--bg-glass);
   backdrop-filter: var(--glass-blur);
   border-bottom: var(--glass-border);
@@ -35,5 +34,41 @@
 .header-right {
   display: flex;
   justify-content: flex-end;
+  margin-right: 138px;
   -webkit-app-region: no-drag;
+}
+
+.window-controls {
+  display: flex;
+  align-items: stretch;
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  -webkit-app-region: no-drag;
+}
+
+.window-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary, #999);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  padding: 0;
+  outline: none;
+}
+
+.window-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary, #fff);
+}
+
+.window-btn-close:hover {
+  background: var(--accent-berry, #d4145a);
+  color: #fff;
 }

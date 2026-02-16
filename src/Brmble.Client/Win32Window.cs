@@ -11,9 +11,15 @@ internal static class Win32Window
     private const uint CS_VREDRAW = 0x0001;
 
     public const uint WM_DESTROY = 0x0002;
+    public const uint WM_CLOSE = 0x0010;
     public const uint WM_SIZE = 0x0005;
     public const uint WM_ACTIVATE = 0x0006;
+    public const uint WM_SYSCOMMAND = 0x0112;
     public const uint WM_NCCALCSIZE = 0x0083;
+
+    public const int SW_MINIMIZE = 6;
+    public const int SW_MAXIMIZE = 3;
+    public const int SW_RESTORE = 9;
 
     public delegate IntPtr WndProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
 
@@ -80,6 +86,22 @@ internal static class Win32Window
     public static extern bool GetClientRect(IntPtr hwnd, out RECT rect);
 
     [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hwnd, int cmdShow);
+
+    [DllImport("user32.dll")]
+    public static extern bool IsZoomed(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool PostMessage(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
+
+    [DllImport("user32.dll")]
+    public static extern bool SetWindowPos(IntPtr hwnd, IntPtr hwndInsertAfter,
+        int x, int y, int cx, int cy, uint flags);
+
+    [DllImport("user32.dll")]
     private static extern IntPtr LoadCursor(IntPtr instance, int cursorName);
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
@@ -123,8 +145,22 @@ internal static class Win32Window
 
     public static void ExtendFrameIntoClientArea(IntPtr hwnd)
     {
-        var margins = new MARGINS { Left = 0, Right = 0, Top = -1, Bottom = 0 };
+        var margins = new MARGINS { Left = 0, Right = 0, Top = 1, Bottom = 0 };
         DwmExtendFrameIntoClientArea(hwnd, ref margins);
+    }
+
+    public static void ForceFrameChange(IntPtr hwnd)
+    {
+        const uint SWP_FRAMECHANGED = 0x0020;
+        const uint SWP_NOMOVE = 0x0002;
+        const uint SWP_NOSIZE = 0x0001;
+        const uint SWP_NOZORDER = 0x0004;
+        const uint SWP_NOACTIVATE = 0x0010;
+
+        GetWindowRect(hwnd, out var rect);
+        SetWindowPos(hwnd, IntPtr.Zero,
+            rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top,
+            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
     public static void RunMessageLoop()
