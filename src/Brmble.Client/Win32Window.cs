@@ -12,6 +12,8 @@ internal static class Win32Window
 
     public const uint WM_DESTROY = 0x0002;
     public const uint WM_SIZE = 0x0005;
+    public const uint WM_ACTIVATE = 0x0006;
+    public const uint WM_NCCALCSIZE = 0x0083;
 
     public delegate IntPtr WndProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
 
@@ -83,6 +85,18 @@ internal static class Win32Window
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr GetModuleHandle(string? moduleName);
 
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MARGINS
+    {
+        public int Left, Right, Top, Bottom;
+    }
+
+    [DllImport("dwmapi.dll")]
+    public static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref MARGINS margins);
+
+    [DllImport("dwmapi.dll")]
+    public static extern int DwmDefWindowProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam, out IntPtr result);
+
     private static WndProc? _wndProcRef; // prevent GC of delegate
 
     public static IntPtr Create(string className, string title, int width, int height, WndProc wndProc)
@@ -105,6 +119,12 @@ internal static class Win32Window
             WS_OVERLAPPEDWINDOW | WS_VISIBLE,
             CW_USEDEFAULT, CW_USEDEFAULT, width, height,
             IntPtr.Zero, IntPtr.Zero, hInstance, IntPtr.Zero);
+    }
+
+    public static void ExtendFrameIntoClientArea(IntPtr hwnd)
+    {
+        var margins = new MARGINS { Left = 0, Right = 0, Top = -1, Bottom = 0 };
+        DwmExtendFrameIntoClientArea(hwnd, ref margins);
     }
 
     public static void RunMessageLoop()
