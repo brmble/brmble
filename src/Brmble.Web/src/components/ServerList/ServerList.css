@@ -1,0 +1,92 @@
+.server-list {
+  padding: 0.75rem 0.5rem;
+}
+
+.server-list-header {
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.25rem;
+}
+
+.server-list-title {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.server-list-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.server-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  text-align: left;
+  transition: all var(--transition-fast);
+  background: transparent;
+}
+
+.server-item:hover {
+  background: var(--bg-hover);
+}
+
+.server-item.active {
+  background: rgba(212, 20, 90, 0.15);
+}
+
+.server-item.active .server-icon {
+  background: var(--accent-berry);
+  color: var(--text-primary);
+  box-shadow: 0 0 12px var(--accent-berry-glow);
+}
+
+.server-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 12px;
+  background: var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.server-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.server-status {
+  font-size: 0.625rem;
+  font-weight: 500;
+  color: var(--accent-mint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.server-name {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: color var(--transition-fast);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.server-item:hover .server-name,
+.server-item.active .server-name {
+  color: var(--text-primary);
+}

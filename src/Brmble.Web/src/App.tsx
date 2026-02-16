@@ -1,7 +1,13 @@
-import { useState, useEffect } from 'react'
-import bridge from './bridge'
-import { ChannelTree } from './components/ChannelTree';
-import './App.css'
+import { useState, useEffect } from 'react';
+import bridge from './bridge';
+import { Header } from './components/Header/Header';
+import { Sidebar } from './components/Sidebar/Sidebar';
+import { ChatPanel } from './components/ChatPanel/ChatPanel';
+import { ConnectModal } from './components/ConnectModal/ConnectModal';
+import { DMPanel } from './components/DMPanel/DMPanel';
+import { SettingsModal } from './components/SettingsModal/SettingsModal';
+import { useChatStore } from './hooks/useChatStore';
+import './App.css';
 
 interface SavedServer {
   host: string;
@@ -20,33 +26,48 @@ interface User {
   session: number;
   name: string;
   channelId?: number;
-  self?: boolean;
   muted?: boolean;
   deafened?: boolean;
+  self?: boolean;
+}
+
+interface Server {
+  id: string;
+  name: string;
+  host?: string;
+  port?: number;
 }
 
 function App() {
-  const [messages, setMessages] = useState<string[]>([])
-  const [connected, setConnected] = useState<boolean>(false)
-  const [connecting, setConnecting] = useState<boolean>(false)
-  const [channels, setChannels] = useState<Channel[]>([])
-  const [users, setUsers] = useState<User[]>([])
-  const [currentChannelId, setCurrentChannelId] = useState<number | undefined>();
+  const [connected, setConnected] = useState(false);
+  const [username, setUsername] = useState('');
+  const [serverAddress, setServerAddress] = useState('');
+  const [servers] = useState<Server[]>([
+    { id: '1', name: 'Mumble Server' }
+  ]);
+  const [selectedServerId, setSelectedServerId] = useState('1');
   
-  const [host, setHost] = useState<string>('mumble.hashbang.dk')
-  const [port, setPort] = useState<number>(64738)
-  const [username, setUsername] = useState<string>('TestUser')
-  const [password, setPassword] = useState<string>('')
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [currentChannelId, setCurrentChannelId] = useState<number | undefined>();
+  const [currentChannelName, setCurrentChannelName] = useState<string>('');
+  const [selfMuted, setSelfMuted] = useState(false);
+  const [selfDeafened, setSelfDeafened] = useState(false);
+
+  const [showConnectModal, setShowConnectModal] = useState(false);
+  const [showDMPanel, setShowDMPanel] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+
+  const channelKey = currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
+  const { messages, addMessage } = useChatStore(channelKey);
 
   useEffect(() => {
     const saved = localStorage.getItem('brmble-server');
     if (saved) {
       try {
         const data: SavedServer = JSON.parse(saved);
-        setHost(data.host);
-        setPort(data.port);
         setUsername(data.username);
-        setPassword(data.password);
+        handleConnect(data);
       } catch (e) {
         console.error('Failed to load saved server:', e);
       }
@@ -56,38 +77,46 @@ function App() {
   useEffect(() => {
     const onVoiceConnected = ((data: unknown) => {
       setConnected(true);
-      setConnecting(false);
       const d = data as { username?: string; channels?: Channel[]; users?: User[] } | undefined;
       
+      if (d?.username) {
+        setUsername(d.username);
+      }
       if (d?.channels) {
         setChannels(d.channels);
       }
       if (d?.users) {
-        // Accept all users - channelId 0 is valid (root channel in Mumble)
         setUsers(d.users);
+        const selfUser = d.users.find(u => u.self);
+        if (selfUser) {
+          setSelfMuted(selfUser.muted || false);
+          setSelfDeafened(selfUser.deafened || false);
+        }
       }
-      
-      setMessages(prev => [...prev, `Connected to ${d?.username || 'server'}`]);
     });
 
     const onVoiceDisconnected = () => {
       setConnected(false);
-      setConnecting(false);
+      setServerAddress('');
       setChannels([]);
       setUsers([]);
-      setMessages(prev => [...prev, 'Disconnected']);
+      setCurrentChannelId(undefined);
+      setCurrentChannelName('');
+      setSelfMuted(false);
+      setSelfDeafened(false);
     };
 
     const onVoiceError = ((data: unknown) => {
-      setConnecting(false);
       const d = data as { message: string } | undefined;
-      setMessages(prev => [...prev, `Error: ${d?.message || 'Unknown error'}`]);
+      console.error('Voice error:', d?.message);
     });
 
     const onVoiceMessage = ((data: unknown) => {
       const d = data as { message: string; senderSession?: number } | undefined;
       if (d?.message) {
-        setMessages(prev => [...prev, `Chat: ${d.message}`]);
+        const senderUser = users.find(u => u.session === d.senderSession);
+        const senderName = senderUser?.name || 'Unknown';
+        addMessage(senderName, d.message);
       }
     });
 
@@ -97,7 +126,6 @@ function App() {
         setUsers(prev => {
           const existing = prev.find(u => u.session === d.session);
           if (existing) {
-            // Only update channelId if it's a valid value (including 0 for root channel)
             const updatedChannelId = d.channelId !== undefined ? d.channelId : existing.channelId;
             return prev.map(u => u.session === d.session ? { ...u, ...d, channelId: updatedChannelId } : u);
           }
@@ -120,10 +148,15 @@ function App() {
     });
 
     const onVoiceChannelChanged = ((data: unknown) => {
-      const d = data as { channelId: number } | undefined;
+      const d = data as { channelId: number; name?: string } | undefined;
       if (d?.channelId) {
         setCurrentChannelId(d.channelId);
-        setMessages(prev => [...prev, `Joined channel`]);
+        if (d.name) {
+          setCurrentChannelName(d.name);
+        } else {
+          const channel = channels.find(c => c.id === d.channelId);
+          setCurrentChannelName(channel?.name || '');
+        }
       }
     });
 
@@ -131,6 +164,20 @@ function App() {
       const d = data as { session: number } | undefined;
       if (d?.session) {
         setUsers(prev => prev.filter(u => u.session !== d.session));
+      }
+    });
+
+    const onSelfMuteChanged = ((data: unknown) => {
+      const d = data as { muted: boolean } | undefined;
+      if (d?.muted !== undefined) {
+        setSelfMuted(d.muted);
+      }
+    });
+
+    const onSelfDeafChanged = ((data: unknown) => {
+      const d = data as { deafened: boolean } | undefined;
+      if (d?.deafened !== undefined) {
+        setSelfDeafened(d.deafened);
       }
     });
 
@@ -142,6 +189,8 @@ function App() {
     bridge.on('voice.channelJoined', onVoiceChannelJoined);
     bridge.on('voice.userLeft', onVoiceUserLeft);
     bridge.on('voice.channelChanged', onVoiceChannelChanged);
+    bridge.on('voice.selfMuteChanged', onSelfMuteChanged);
+    bridge.on('voice.selfDeafChanged', onSelfDeafChanged);
 
     return () => {
       bridge.off('voice.connected', onVoiceConnected);
@@ -152,131 +201,130 @@ function App() {
       bridge.off('voice.channelJoined', onVoiceChannelJoined);
       bridge.off('voice.userLeft', onVoiceUserLeft);
       bridge.off('voice.channelChanged', onVoiceChannelChanged);
+      bridge.off('voice.selfMuteChanged', onSelfMuteChanged);
+      bridge.off('voice.selfDeafChanged', onSelfDeafChanged);
     };
-  }, []);
+  }, [addMessage, channels, users]);
 
-  const handleConnect = () => {
-    const serverData = { host, port, username, password };
+  const handleConnect = (serverData: SavedServer) => {
     localStorage.setItem('brmble-server', JSON.stringify(serverData));
-    
-    setConnecting(true);
-    setMessages(prev => [...prev, `Connecting to ${host}:${port}...`]);
+    setServerAddress(`${serverData.host}:${serverData.port}`);
     bridge.send('voice.connect', serverData);
+  };
+
+  const handleJoinChannel = (channelId: number) => {
+    bridge.send('voice.joinChannel', { channelId });
+  };
+
+  const handleSelectChannel = (channelId: number) => {
+    const channel = channels.find(c => c.id === channelId);
+    if (channel) {
+      setCurrentChannelId(channelId);
+      setCurrentChannelName(channel.name);
+    }
+  };
+
+  const handleSendMessage = (content: string) => {
+    if (username && content) {
+      addMessage(username, content);
+      bridge.send('voice.sendMessage', { message: content });
+    }
   };
 
   const handleDisconnect = () => {
     bridge.send('voice.disconnect');
   };
 
-  const handleJoinChannel = (channelId: number) => {
-    bridge.send('voice.joinChannel', { channelId });
-    setMessages(prev => [...prev, `Joining channel ${channelId}...`]);
+  const handleToggleMute = () => {
+    bridge.send('voice.toggleMute', {});
   };
+
+  const handleToggleDeaf = () => {
+    bridge.send('voice.toggleDeaf', {});
+  };
+
+  const handleStartDM = (userId: string) => {
+    console.log('Starting DM with user:', userId);
+    setShowDMPanel(false);
+  };
+
+  const availableUsers = users
+    .filter(u => !u.self)
+    .map(u => ({ id: String(u.session), name: u.name }));
 
   return (
     <div className="app">
-      <header className="header">
-        <h1>Brmble</h1>
-        <span className={`platform-badge ${connected ? 'connected' : ''}`}>
-          {connected ? 'Connected' : 'Disconnected'}
-        </span>
-      </header>
+      <Header
+        username={username}
+        onOpenDMPanel={() => setShowDMPanel(true)}
+        onOpenSettings={() => setShowSettings(true)}
+        muted={selfMuted}
+        deafened={selfDeafened}
+        onToggleMute={connected ? handleToggleMute : undefined}
+        onToggleDeaf={connected ? handleToggleDeaf : undefined}
+      />
       
-      <main className="main">
-        <div className="main-left">
-          <section className="connect-form">
-            <h2>Connect to Mumble</h2>
-            <div className="form-row">
-              <label>
-                Server
-                <input 
-                  type="text" 
-                  value={host} 
-                  onChange={e => setHost(e.target.value)}
-                  disabled={connected || connecting}
-                />
-              </label>
-              <label>
-                Port
-                <input 
-                  type="number" 
-                  value={port} 
-                  onChange={e => setPort(parseInt(e.target.value) || 64738)}
-                  disabled={connected || connecting}
-                />
-              </label>
-            </div>
-            <div className="form-row">
-              <label>
-                Username
-                <input 
-                  type="text" 
-                  value={username} 
-                  onChange={e => setUsername(e.target.value)}
-                  disabled={connected || connecting}
-                />
-              </label>
-              <label>
-                Password
-                <input 
-                  type="password" 
-                  value={password} 
-                  onChange={e => setPassword(e.target.value)}
-                  disabled={connected || connecting}
-                />
-              </label>
-            </div>
-            <div className="form-actions">
-              {!connected ? (
-                <button onClick={handleConnect} disabled={connecting || !host || !username}>
-                  {connecting ? 'Connecting...' : 'Connect'}
-                </button>
-              ) : (
-                <button onClick={handleDisconnect} className="disconnect">
-                  Disconnect
-                </button>
-              )}
-            </div>
-          </section>
+      <div className="app-body">
+        <Sidebar
+          servers={servers}
+          selectedServerId={selectedServerId}
+          onSelectServer={setSelectedServerId}
+          channels={channels}
+          users={users}
+          currentChannelId={currentChannelId}
+          onJoinChannel={handleJoinChannel}
+          onSelectChannel={handleSelectChannel}
+          connected={connected}
+          serverAddress={serverAddress}
+          username={username}
+          onDisconnect={handleDisconnect}
+        />
+        
+        <main className="main-content">
+          <ChatPanel
+            channelId={currentChannelId ? String(currentChannelId) : undefined}
+            channelName={currentChannelName}
+            messages={messages}
+            currentUsername={username}
+            onSendMessage={handleSendMessage}
+          />
+        </main>
+      </div>
 
-          <section className="messages">
-            <h2>Messages</h2>
-            <div className="message-list">
-              {messages.length === 0 ? (
-                <p className="empty">No messages yet</p>
-              ) : (
-                messages.map((msg, i) => (
-                  <div key={i} className="message">{msg}</div>
-                ))
-              )}
-            </div>
-          </section>
+      {!connected && (
+        <div className="connect-overlay">
+          <button className="connect-overlay-btn" onClick={() => setShowConnectModal(true)}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+              <polyline points="10 17 15 12 10 7" />
+              <line x1="15" y1="12" x2="3" y2="12" />
+            </svg>
+            Connect to Server
+          </button>
         </div>
+      )}
 
-        {connected && (
-          <section className="server-panel">
-            <div className="channels">
-              <div className="panel-header">
-                <h2>Channels</h2>
-              </div>
-              <div className="channel-list">
-                {channels.length === 0 ? (
-                  <p className="empty">No channels</p>
-                ) : (
-                  <ChannelTree
-                    channels={channels}
-                    users={users}
-                    currentChannelId={currentChannelId}
-                    onJoinChannel={handleJoinChannel}
-                  />
-                )}
-              </div>
-            </div>
-          </section>
-        )}
-      </main>
+      <ConnectModal
+        isOpen={showConnectModal}
+        onClose={() => setShowConnectModal(false)}
+        onConnect={handleConnect}
+      />
+
+      <DMPanel
+        isOpen={showDMPanel}
+        onClose={() => setShowDMPanel(false)}
+        users={availableUsers}
+        conversations={[]}
+        onStartDM={handleStartDM}
+      />
+
+      <SettingsModal
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        username={username}
+      />
     </div>
-  )
+  );
 }
 
-export default App
+export default App;

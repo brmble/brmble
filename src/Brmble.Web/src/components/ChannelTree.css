@@ -6,37 +6,38 @@
   user-select: none;
 }
 
-.channel-item[data-level="0"] { padding-left: 0; }
-.channel-item[data-level="1"] { padding-left: 16px; }
-.channel-item[data-level="2"] { padding-left: 32px; }
-.channel-item[data-level="3"] { padding-left: 48px; }
-.channel-item[data-level="4"] { padding-left: 64px; }
-.channel-item[data-level="5"] { padding-left: 80px; }
-
 .channel-row {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
+  gap: 6px;
+  padding: 6px 10px;
   cursor: pointer;
-  border-radius: 4px;
-  transition: background-color 0.15s;
+  border-radius: 6px;
+  transition: all var(--transition-fast);
 }
 
 .channel-row:hover {
-  background-color: rgba(255, 255, 255, 0.1);
+  background: var(--bg-hover);
 }
 
 .channel-row.current {
-  background-color: rgba(114, 137, 218, 0.4);
+  background: rgba(212, 20, 90, 0.2);
+}
+
+.channel-row.current .channel-name {
+  color: var(--accent-berry);
+  font-weight: 500;
 }
 
 .expand-icon {
-  font-size: 10px;
   width: 16px;
-  text-align: center;
-  transition: transform 0.15s;
-  color: #8e9297;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform var(--transition-fast);
+  color: var(--text-muted);
+  flex-shrink: 0;
 }
 
 .expand-icon.expanded {
@@ -48,7 +49,10 @@
 }
 
 .channel-icon {
-  font-size: 12px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
 }
 
 .channel-name {
@@ -56,60 +60,79 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+
+.channel-row:hover .channel-name {
+  color: var(--text-primary);
 }
 
 .user-count {
-  font-size: 12px;
-  color: #8e9297;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  padding: 2px 6px;
+  background: var(--bg-hover);
+  border-radius: 10px;
+  flex-shrink: 0;
 }
 
 .channel-sort-btn {
   background: transparent;
-  border: 1px solid #4f545c;
-  color: #b9bbbe;
-  padding: 1px 6px;
-  border-radius: 3px;
-  font-size: 10px;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.625rem;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
 }
 
 .channel-sort-btn:hover {
-  background: #4f545c;
-  border-color: #72767d;
+  background: var(--accent-lemon);
+  border-color: var(--accent-lemon);
+  color: var(--bg-deep);
 }
 
 .channel-children {
   margin-left: 0;
+  padding-left: 24px;
+  border-left: 1px solid var(--border-subtle);
+  margin-top: 2px;
+  margin-bottom: 4px;
 }
 
 .user-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 8px;
+  gap: 8px;
+  padding: 4px 8px;
   cursor: pointer;
-  border-radius: 4px;
-  transition: background-color 0.15s;
+  border-radius: 6px;
+  transition: background var(--transition-fast);
+  margin: 2px 0;
 }
 
 .user-row:hover {
-  background-color: rgba(255, 255, 255, 0.05);
+  background: var(--bg-hover);
 }
 
-.user-row[data-level="0"] { padding-left: 40px; }
-.user-row[data-level="1"] { padding-left: 56px; }
-.user-row[data-level="2"] { padding-left: 72px; }
-.user-row[data-level="3"] { padding-left: 88px; }
-.user-row[data-level="4"] { padding-left: 104px; }
-.user-row[data-level="5"] { padding-left: 120px; }
-
-.user-row.self {
-  color: #43b581;
+.user-row.self .user-name {
+  color: var(--accent-mint);
 }
 
 .user-status {
-  font-size: 12px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  width: 18px;
+  justify-content: center;
+}
+
+.user-row.self .user-status {
+  color: var(--accent-mint);
 }
 
 .user-name {
@@ -117,10 +140,20 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+}
+
+.user-row:hover .user-name {
+  color: var(--text-primary);
 }
 
 .self-badge {
-  font-size: 11px;
-  color: #43b581;
+  font-size: 0.625rem;
+  color: var(--accent-mint);
+  padding: 1px 6px;
+  background: rgba(80, 200, 120, 0.15);
+  border-radius: 8px;
   margin-left: 4px;
+  flex-shrink: 0;
 }

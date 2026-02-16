@@ -1,0 +1,141 @@
+.settings-modal {
+  background: var(--bg-primary);
+  border: var(--glass-border);
+  border-radius: 16px;
+  width: 100%;
+  max-width: 520px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  animation: slideUp 300ms ease;
+}
+
+.settings-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 1.5rem;
+}
+
+.settings-section {
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settings-section:last-child {
+  border-bottom: none;
+}
+
+.settings-section-title {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin: 0 0 1rem;
+}
+
+.settings-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 0;
+}
+
+.settings-item label {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.settings-value {
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.settings-select {
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-glass);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  cursor: pointer;
+  min-width: 150px;
+}
+
+.settings-select:focus {
+  outline: none;
+  border-color: var(--accent-berry);
+}
+
+.settings-toggle {
+  cursor: pointer;
+}
+
+.toggle-input {
+  appearance: none;
+  width: 44px;
+  height: 24px;
+  background: var(--border-subtle);
+  border-radius: 12px;
+  position: relative;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.toggle-input::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  background: var(--text-primary);
+  border-radius: 50%;
+  transition: transform var(--transition-fast);
+}
+
+.toggle-input:checked {
+  background: var(--accent-mint);
+}
+
+.toggle-input:checked::after {
+  transform: translateX(20px);
+}
+
+.settings-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 1.5rem;
+  border-top: var(--glass-border);
+}
+
+.settings-btn {
+  padding: 0.625rem 1.25rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: all var(--transition-fast);
+}
+
+.settings-btn.secondary {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.settings-btn.secondary:hover {
+  background: var(--border-subtle);
+  color: var(--text-primary);
+}
+
+.settings-btn.primary {
+  background: var(--accent-berry);
+  color: var(--text-primary);
+}
+
+.settings-btn.primary:hover {
+  background: var(--accent-lemon);
+  color: var(--bg-deep);
+}
