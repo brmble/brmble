@@ -1,19 +1,139 @@
-:root {
-  /* Bramble Color Palette */
-  --bramble-deep-berry: #1a0a1f;
-  --bramble-purple: #6b2d5c;
-  --bramble-blackberry: #c11677;
-  --bramble-lemon: #f4d03f;
-  --bramble-ice: #e8e4e9;
-  --bramble-subtle: #3d2a3d;
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  line-height: 1.5;
+:root {
+  /* Bramble Cocktail Palette - Vintage Lounge */
+  --bg-deep: #0f0a14;
+  --bg-primary: #1a1025;
+  --bg-glass: rgba(26, 16, 37, 0.85);
+  --bg-hover: rgba(61, 42, 92, 0.3);
+  
+  /* Accent Colors */
+  --accent-berry: #d4145a;
+  --accent-berry-glow: rgba(212, 20, 90, 0.4);
+  --accent-lemon: #f4d03f;
+  --accent-lemon-glow: rgba(244, 208, 63, 0.3);
+  --accent-mint: #50c878;
+  --accent-mint-glow: rgba(80, 200, 120, 0.3);
+  
+  /* Text */
+  --text-primary: #f5f0e8;
+  --text-secondary: #a89fb8;
+  --text-muted: #6b5f7a;
+  
+  /* Borders & Effects */
+  --border-subtle: #3d2a5c;
+  --border-glow: rgba(212, 20, 90, 0.3);
+  
+  /* Glass Effect */
+  --glass-blur: blur(12px);
+  --glass-border: 1px solid rgba(61, 42, 92, 0.5);
+  
+  /* Typography */
+  --font-display: 'Cormorant Garamond', Georgia, serif;
+  --font-body: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  
+  /* Spacing */
+  --sidebar-width: 280px;
+  --header-height: 60px;
+  
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+  --transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-body);
   font-weight: 400;
-  color: #e0e0e0;
-  background-color: #1a1a2e;
+  color: var(--text-primary);
+  background: var(--bg-deep);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Noise grain overlay */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
 }
 
 #root {
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-deep);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-berry);
+}
+
+/* Selection */
+::selection {
+  background: var(--accent-berry);
+  color: var(--text-primary);
+}
+
+/* Focus styles */
+:focus-visible {
+  outline: 2px solid var(--accent-lemon);
+  outline-offset: 2px;
+}
+
+/* Button reset */
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+/* Input reset */
+input, textarea {
+  font-family: inherit;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+/* Link reset */
+a {
+  color: var(--accent-lemon);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+a:hover {
+  color: var(--text-primary);
 }

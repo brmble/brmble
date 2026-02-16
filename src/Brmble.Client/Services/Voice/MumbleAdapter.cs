@@ -197,6 +197,32 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     }
 
     /// <inheritdoc />
+    public void ToggleMute()
+    {
+        if (LocalUser == null)
+            return;
+
+        LocalUser.SelfMuted = !LocalUser.SelfMuted;
+        LocalUser.SendMuteDeaf();
+        
+        _bridge?.Send("voice.selfMuteChanged", new { muted = LocalUser.SelfMuted });
+        Debug.WriteLine($"[Mumble] SelfMute toggled: {LocalUser.SelfMuted}");
+    }
+
+    /// <inheritdoc />
+    public void ToggleDeaf()
+    {
+        if (LocalUser == null)
+            return;
+
+        LocalUser.SelfDeaf = !LocalUser.SelfDeaf;
+        LocalUser.SendMuteDeaf();
+        
+        _bridge?.Send("voice.selfDeafChanged", new { deafened = LocalUser.SelfDeaf });
+        Debug.WriteLine($"[Mumble] SelfDeaf toggled: {LocalUser.SelfDeaf}");
+    }
+
+    /// <inheritdoc />
     public void JoinChannel(uint channelId)
     {
         if (Connection == null || Connection.State != ConnectionStates.Connected)
@@ -251,6 +277,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             }
             return Task.CompletedTask;
         });
+
+        bridge.RegisterHandler("voice.toggleMute", _ => { ToggleMute(); return Task.CompletedTask; });
+        bridge.RegisterHandler("voice.toggleDeaf", _ => { ToggleDeaf(); return Task.CompletedTask; });
     }
 
     /// <summary>

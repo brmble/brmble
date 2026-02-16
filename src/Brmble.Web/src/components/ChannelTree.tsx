@@ -26,12 +26,11 @@ interface ChannelTreeProps {
   users: User[];
   currentChannelId?: number;
   onJoinChannel: (channelId: number) => void;
+  onSelectChannel?: (channelId: number) => void;
 }
 
-export function ChannelTree({ channels, users, currentChannelId, onJoinChannel }: ChannelTreeProps) {
-  // Track sort preference per channel (false = join order, true = alphabetical)
+export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel }: ChannelTreeProps) {
   const [sortByNamePerChannel, setSortByNamePerChannel] = useState<Record<number, boolean>>({});
-  // Auto-expand channels that have users
   const initialExpanded = useMemo(() => {
     const expanded = new Set<number>();
     channels.forEach(ch => {
@@ -45,7 +44,6 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel }
 
   const [expandedChannels, setExpandedChannels] = useState<Set<number>>(initialExpanded);
 
-  // Auto-expand channels when users join
   useEffect(() => {
     setExpandedChannels(prev => {
       const next = new Set(prev);
@@ -110,7 +108,6 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel }
       }
     });
 
-    // Sort children recursively
     const sortChildren = (channels: ChannelWithUsers[]) => {
       channels.forEach(ch => {
         if (ch.children.length > 0) {
@@ -126,24 +123,37 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel }
 
   const tree = useMemo(() => buildTree(), [buildTree]);
 
+  const handleChannelClick = (channelId: number) => {
+    if (onSelectChannel) {
+      onSelectChannel(channelId);
+    }
+  };
+
   const renderChannel = (channel: ChannelWithUsers, level: number = 0) => {
     const hasChildren = channel.children.length > 0 || channel.users.length > 0;
     const isExpanded = expandedChannels.has(channel.id);
     const isCurrentChannel = currentChannelId === channel.id;
 
     return (
-      <div key={channel.id} className="channel-item channel-item--level" data-level={level}>
+      <div key={channel.id} className="channel-item" data-level={level}>
         <div 
           className={`channel-row ${isCurrentChannel ? 'current' : ''}`}
+          onClick={() => handleChannelClick(channel.id)}
           onDoubleClick={() => onJoinChannel(channel.id)}
         >
           <span 
             className={`expand-icon ${isExpanded ? 'expanded' : ''} ${!hasChildren ? 'placeholder' : ''}`}
             onClick={(e) => { e.stopPropagation(); if (hasChildren) toggleExpand(channel.id); }}
           >
-            ▶
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+              <path d="M3 2L7 5L3 8V2Z" />
+            </svg>
           </span>
-          <span className="channel-icon">📁</span>
+          <span className="channel-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+            </svg>
+          </span>
           <span className="channel-name">{channel.name}</span>
           {channel.users.length > 0 && (
             <>
@@ -164,12 +174,17 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel }
             {channel.users.map(user => (
               <div 
                 key={user.session} 
-                className={`user-row ${user.self ? 'self' : ''} user-row--level`}
-                data-level={level + 1}
+                className={`user-row ${user.self ? 'self' : ''}`}
                 title={getUserTooltip(user)}
               >
                 <span className="user-status">
-                  {user.deafened ? '🔇❌' : user.muted ? '🔇' : '🔊'}
+                  {user.deafened ? (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M1 1l22 22M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23M12 19v4m-4 0h8"/></svg>
+                  ) : user.muted ? (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M1 1l22 22M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/></svg>
+                  ) : (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4m-4 0h8"/></svg>
+                  )}
                 </span>
                 <span className="user-name">{user.name}</span>
                 {user.self && <span className="self-badge">(you)</span>}

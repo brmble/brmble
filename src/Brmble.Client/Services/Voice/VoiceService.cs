@@ -56,6 +56,16 @@ public interface VoiceService : IService
     void SendMessage(string message);
     
     /// <summary>
+    /// Toggles self mute state.
+    /// </summary>
+    void ToggleMute();
+    
+    /// <summary>
+    /// Toggles self deaf state.
+    /// </summary>
+    void ToggleDeaf();
+    
+    /// <summary>
     /// Occurs when successfully connected to a voice server.
     /// </summary>
     event Action? Connected;

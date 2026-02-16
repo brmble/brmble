@@ -1,0 +1,70 @@
+.user-panel {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.user-panel-btn {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  background: transparent;
+  transition: all var(--transition-fast);
+}
+
+.user-panel-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.user-panel-btn.dm-btn:hover {
+  color: var(--accent-lemon);
+}
+
+.user-panel-btn.settings-btn:hover {
+  color: var(--accent-berry);
+}
+
+.user-panel-btn.mute-btn:hover {
+  color: var(--accent-berry);
+}
+
+.user-panel-btn.mute-btn.active {
+  color: var(--accent-berry);
+  background: rgba(212, 20, 90, 0.2);
+}
+
+.user-panel-btn.deaf-btn:hover {
+  color: var(--accent-berry);
+}
+
+.user-panel-btn.deaf-btn.active {
+  color: var(--accent-berry);
+  background: rgba(212, 20, 90, 0.2);
+}
+
+.user-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #4a1a6b 0%, #2d0f45 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+  color: #7b4dff;
+}
+
+.user-avatar:hover {
+  transform: scale(1.1);
+  box-shadow: 0 0 20px rgba(123, 77, 255, 0.5);
+}
+
+.user-avatar svg {
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,0.3));
+}
