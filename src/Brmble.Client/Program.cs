@@ -219,10 +219,16 @@ static class Program
                         Win32Window.SetForegroundWindow(hwnd);
                         break;
                     case TrayIcon.IDM_MUTE:
-                        _bridge?.Send("voice.toggleMute");
+                        _mumbleClient?.ToggleMute();
+                        _muted = !_muted;
+                        if (!_muted) _deafened = false; // unmute also undeafens
+                        TrayIcon.UpdateState(_muted, _deafened);
                         break;
                     case TrayIcon.IDM_DEAFEN:
-                        _bridge?.Send("voice.toggleDeaf");
+                        _mumbleClient?.ToggleDeaf();
+                        _deafened = !_deafened;
+                        _muted = _deafened; // deafen implies mute
+                        TrayIcon.UpdateState(_muted, _deafened);
                         break;
                     case TrayIcon.IDM_QUIT:
                         Win32Window.DestroyWindow(hwnd);
