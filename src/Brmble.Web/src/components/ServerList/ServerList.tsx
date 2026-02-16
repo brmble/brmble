@@ -1,48 +1,72 @@
-import './ServerList.css';
+import { useState } from 'react';
+import { useServerlist, ServerEntry } from '../../hooks/useServerlist';
 
-interface Server {
-  id: string;
-  name: string;
-  host?: string;
-  port?: number;
-}
+export function ServerList({ onConnect }: { onConnect: (server: ServerEntry) => void }) {
+  const { servers, loading, addServer, updateServer, removeServer } = useServerlist();
+  const [editing, setEditing] = useState<ServerEntry | null>(null);
+  const [isAdding, setIsAdding] = useState(false);
+  const [form, setForm] = useState({ label: '', host: '', port: '64738', username: '' });
 
-interface ServerListProps {
-  servers: Server[];
-  selectedServerId: string;
-  onSelectServer: (id: string) => void;
-  connected?: boolean;
-  serverAddress?: string;
-}
+  if (loading) return <div>Loading servers...</div>;
 
-export function ServerList({ servers, selectedServerId, onSelectServer, connected, serverAddress }: ServerListProps) {
-  const selectedServer = servers.find(s => s.id === selectedServerId);
-  const displayName = serverAddress || selectedServer?.name || 'Server';
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const server = { ...form, port: parseInt(form.port) };
+    if (editing) {
+      updateServer({ ...server, id: editing.id });
+      setEditing(null);
+    } else {
+      addServer(server);
+      setIsAdding(false);
+    }
+    setForm({ label: '', host: '', port: '64738', username: '' });
+  };
 
   return (
     <div className="server-list">
-      <div className="server-list-header">
-        <span className="server-list-title">Servers</span>
-      </div>
-      <div className="server-list-items">
-        {servers.map(server => (
-          <button
-            key={server.id}
-            className={`server-item ${selectedServerId === server.id ? 'active' : ''}`}
-            onClick={() => onSelectServer(server.id)}
-          >
-            <span className="server-icon">
-              {server.name.charAt(0).toUpperCase()}
-            </span>
-            <div className="server-info">
-              <span className="server-status">
-                {selectedServerId === server.id && connected ? 'Connected' : ''}
-              </span>
-              <span className="server-name">{displayName}</span>
-            </div>
+      <h2>Servers</h2>
+      {servers.map(server => (
+        <div key={server.id} className="server-item">
+          <span>{server.label} - {server.host}:{server.port}</span>
+          <div>
+            <button onClick={() => onConnect(server)}>Connect</button>
+            <button onClick={() => setEditing(server)}>Edit</button>
+            <button onClick={() => removeServer(server.id)}>Delete</button>
+          </div>
+        </div>
+      ))}
+      
+      {isAdding || editing ? (
+        <form onSubmit={handleSubmit}>
+          <input 
+            placeholder="Label" 
+            value={editing?.label ?? form.label}
+            onChange={e => setForm(f => ({ ...f, label: e.target.value }))}
+          />
+          <input 
+            placeholder="Host" 
+            value={editing?.host ?? form.host}
+            onChange={e => setForm(f => ({ ...f, host: e.target.value }))}
+          />
+          <input 
+            placeholder="Port" 
+            type="number"
+            value={editing?.port ?? form.port}
+            onChange={e => setForm(f => ({ ...f, port: e.target.value }))}
+          />
+          <input 
+            placeholder="Username" 
+            value={editing?.username ?? form.username}
+            onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
+          />
+          <button type="submit">{editing ? 'Update' : 'Add'}</button>
+          <button type="button" onClick={() => { setEditing(null); setIsAdding(false); }}>
+            Cancel
           </button>
-        ))}
-      </div>
+        </form>
+      ) : (
+        <button onClick={() => setIsAdding(true)}>+ Add Server</button>
+      )}
     </div>
   );
 }
