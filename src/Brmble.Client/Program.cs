@@ -44,6 +44,7 @@ static class Program
                 : "Brmble: Using local files");
 
             var hwnd = Win32Window.Create("BrmbleWindow", "Brmble", 1280, 720, WndProc);
+            Win32Window.ExtendFrameIntoClientArea(hwnd);
             _ = InitWebView2Async(hwnd, useDevServer);
             Win32Window.RunMessageLoop();
         }
@@ -127,8 +128,22 @@ static class Program
     /// <returns>The result of the message processing.</returns>
     private static IntPtr WndProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam)
     {
+        // Let DWM handle caption button hit-testing first
+        if (Win32Window.DwmDefWindowProc(hwnd, msg, wParam, lParam, out var dwmResult) != 0)
+            return dwmResult;
+
         switch (msg)
         {
+            case Win32Window.WM_NCCALCSIZE:
+                // When wParam is 1, returning 0 removes the non-client area (title bar)
+                if (wParam != IntPtr.Zero)
+                    return IntPtr.Zero;
+                break;
+
+            case Win32Window.WM_ACTIVATE:
+                Win32Window.ExtendFrameIntoClientArea(hwnd);
+                return IntPtr.Zero;
+
             case Win32Window.WM_SIZE:
                 if (_controller != null)
                 {
@@ -144,9 +159,8 @@ static class Program
             case 0x0400: // WM_USER
                 _bridge?.ProcessUiMessage();
                 return IntPtr.Zero;
-
-            default:
-                return Win32Window.DefWindowProc(hwnd, msg, wParam, lParam);
         }
+
+        return Win32Window.DefWindowProc(hwnd, msg, wParam, lParam);
     }
 }
