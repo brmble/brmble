@@ -61,18 +61,19 @@ const [servers] = useState<Server[]>([]);
   const channelKey = currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
   const { messages, addMessage } = useChatStore(channelKey);
 
-  useEffect(() => {
-    const saved = localStorage.getItem('brmble-server');
-    if (saved) {
-      try {
-        const data: SavedServer = JSON.parse(saved);
-        setUsername(data.username);
-        handleConnect(data);
-      } catch (e) {
-        console.error('Failed to load saved server:', e);
-      }
-    }
-  }, []);
+  // Auto-connect disabled - users select server from serverlist manually
+  // useEffect(() => {
+  //   const saved = localStorage.getItem('brmble-server');
+  //   if (saved) {
+  //     try {
+  //       const data: SavedServer = JSON.parse(saved);
+  //       setUsername(data.username);
+  //       handleConnect(data);
+  //     } catch (e) {
+  //       console.error('Failed to load saved server:', e);
+  //     }
+  //   }
+  // }, []);
 
   useEffect(() => {
     const onVoiceConnected = ((data: unknown) => {
