@@ -16,10 +16,15 @@ internal static class Win32Window
     public const uint WM_ACTIVATE = 0x0006;
     public const uint WM_SYSCOMMAND = 0x0112;
     public const uint WM_NCCALCSIZE = 0x0083;
+    public const uint WM_COMMAND = 0x0111;
+    public const uint WM_LBUTTONDBLCLK = 0x0203;
+    public const uint WM_RBUTTONUP = 0x0205;
 
     public const int SW_MINIMIZE = 6;
     public const int SW_MAXIMIZE = 3;
     public const int SW_RESTORE = 9;
+    public const int SW_HIDE = 0;
+    public const int SW_SHOW = 5;
 
     public delegate IntPtr WndProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
 
@@ -100,6 +105,15 @@ internal static class Win32Window
     [DllImport("user32.dll")]
     public static extern bool SetWindowPos(IntPtr hwnd, IntPtr hwndInsertAfter,
         int x, int y, int cx, int cy, uint flags);
+
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool DestroyWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool IsWindowVisible(IntPtr hwnd);
 
     [DllImport("user32.dll")]
     private static extern IntPtr LoadCursor(IntPtr instance, int cursorName);

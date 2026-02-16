@@ -203,10 +203,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             return;
 
         LocalUser.SelfMuted = !LocalUser.SelfMuted;
+        // Unmuting while deafened also undeafens (Mumble behavior)
+        if (!LocalUser.SelfMuted && LocalUser.SelfDeaf)
+            LocalUser.SelfDeaf = false;
         LocalUser.SendMuteDeaf();
-        
+
         _bridge?.Send("voice.selfMuteChanged", new { muted = LocalUser.SelfMuted });
-        Debug.WriteLine($"[Mumble] SelfMute toggled: {LocalUser.SelfMuted}");
+        _bridge?.Send("voice.selfDeafChanged", new { deafened = LocalUser.SelfDeaf });
+        Debug.WriteLine($"[Mumble] SelfMute toggled: {LocalUser.SelfMuted}, SelfDeaf: {LocalUser.SelfDeaf}");
     }
 
     /// <inheritdoc />
@@ -216,10 +220,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             return;
 
         LocalUser.SelfDeaf = !LocalUser.SelfDeaf;
+        LocalUser.SelfMuted = LocalUser.SelfDeaf; // deafen implies mute in Mumble
         LocalUser.SendMuteDeaf();
-        
+
         _bridge?.Send("voice.selfDeafChanged", new { deafened = LocalUser.SelfDeaf });
-        Debug.WriteLine($"[Mumble] SelfDeaf toggled: {LocalUser.SelfDeaf}");
+        _bridge?.Send("voice.selfMuteChanged", new { muted = LocalUser.SelfMuted });
+        Debug.WriteLine($"[Mumble] SelfDeaf toggled: {LocalUser.SelfDeaf}, SelfMute: {LocalUser.SelfMuted}");
     }
 
     /// <inheritdoc />

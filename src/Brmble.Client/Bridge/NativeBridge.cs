@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
@@ -25,7 +26,7 @@ public sealed class NativeBridge
     private readonly CoreWebView2 _webView;
     private readonly Dictionary<string, List<Func<JsonElement, Task>>> _handlers = new();
     private IntPtr _hwnd;
-    private string? _pendingJson;
+    private readonly ConcurrentQueue<string> _pendingMessages = new();
 
     /// <summary>
     /// Occurs when a message is received from the frontend.
@@ -58,7 +59,7 @@ public sealed class NativeBridge
         var json = JsonSerializer.Serialize(message);
         Debug.WriteLine($"[NativeBridge] Sending: {type}");
         
-        _pendingJson = json;
+        _pendingMessages.Enqueue(json);
         PostMessage(_hwnd, WM_USER, IntPtr.Zero, IntPtr.Zero);
     }
 
@@ -68,7 +69,7 @@ public sealed class NativeBridge
     /// <param name="message">The message to send.</param>
     public void SendString(string message)
     {
-        _pendingJson = message;
+        _pendingMessages.Enqueue(message);
         PostMessage(_hwnd, WM_USER, IntPtr.Zero, IntPtr.Zero);
     }
 
@@ -80,10 +81,9 @@ public sealed class NativeBridge
     /// </remarks>
     public void ProcessUiMessage()
     {
-        if (_pendingJson != null)
+        while (_pendingMessages.TryDequeue(out var json))
         {
-            _webView.PostWebMessageAsJson(_pendingJson);
-            _pendingJson = null;
+            _webView.PostWebMessageAsJson(json);
         }
     }
 

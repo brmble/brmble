@@ -30,6 +30,8 @@ static class Program
     private static NativeBridge? _bridge;
     private static MumbleAdapter? _mumbleClient;
     private static IntPtr _hwnd;
+    private static bool _muted;
+    private static bool _deafened;
 
     /// <summary>
     /// The main entry point for the application.
@@ -47,6 +49,7 @@ static class Program
             _hwnd = Win32Window.Create("BrmbleWindow", "Brmble", 1280, 720, WndProc);
             Win32Window.ExtendFrameIntoClientArea(_hwnd);
             Win32Window.ForceFrameChange(_hwnd);
+            TrayIcon.Create(_hwnd);
             _ = InitWebView2Async(_hwnd, useDevServer);
             Win32Window.RunMessageLoop();
         }
@@ -124,6 +127,26 @@ static class Program
             Win32Window.PostMessage(_hwnd, Win32Window.WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
             return Task.CompletedTask;
         });
+
+        _bridge.RegisterHandler("voice.selfMuteChanged", data =>
+        {
+            if (data.TryGetProperty("muted", out var m))
+            {
+                _muted = m.GetBoolean();
+                TrayIcon.UpdateState(_muted, _deafened);
+            }
+            return Task.CompletedTask;
+        });
+
+        _bridge.RegisterHandler("voice.selfDeafChanged", data =>
+        {
+            if (data.TryGetProperty("deafened", out var d))
+            {
+                _deafened = d.GetBoolean();
+                TrayIcon.UpdateState(_muted, _deafened);
+            }
+            return Task.CompletedTask;
+        });
     }
  
     /// <summary>
@@ -172,7 +195,49 @@ static class Program
                 }
                 return IntPtr.Zero;
 
+            case Win32Window.WM_CLOSE:
+                Win32Window.ShowWindow(hwnd, Win32Window.SW_HIDE);
+                return IntPtr.Zero;
+
+            case TrayIcon.WM_TRAYICON:
+                var trayMsg = (uint)(lParam.ToInt64() & 0xFFFF);
+                if (trayMsg == Win32Window.WM_RBUTTONUP)
+                    TrayIcon.ShowContextMenu(hwnd);
+                else if (trayMsg == Win32Window.WM_LBUTTONDBLCLK)
+                {
+                    Win32Window.ShowWindow(hwnd, Win32Window.SW_RESTORE);
+                    Win32Window.SetForegroundWindow(hwnd);
+                }
+                return IntPtr.Zero;
+
+            case Win32Window.WM_COMMAND:
+                var menuId = (int)(wParam.ToInt64() & 0xFFFF);
+                switch (menuId)
+                {
+                    case TrayIcon.IDM_SHOW:
+                        Win32Window.ShowWindow(hwnd, Win32Window.SW_RESTORE);
+                        Win32Window.SetForegroundWindow(hwnd);
+                        break;
+                    case TrayIcon.IDM_MUTE:
+                        _mumbleClient?.ToggleMute();
+                        _muted = !_muted;
+                        if (!_muted) _deafened = false; // unmute also undeafens
+                        TrayIcon.UpdateState(_muted, _deafened);
+                        break;
+                    case TrayIcon.IDM_DEAFEN:
+                        _mumbleClient?.ToggleDeaf();
+                        _deafened = !_deafened;
+                        _muted = _deafened; // deafen implies mute
+                        TrayIcon.UpdateState(_muted, _deafened);
+                        break;
+                    case TrayIcon.IDM_QUIT:
+                        Win32Window.DestroyWindow(hwnd);
+                        break;
+                }
+                return IntPtr.Zero;
+
             case Win32Window.WM_DESTROY:
+                TrayIcon.Destroy();
                 Win32Window.PostQuitMessage(0);
                 return IntPtr.Zero;
 
