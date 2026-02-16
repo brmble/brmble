@@ -1,4 +1,4 @@
-﻿using System.Threading;
+using System.Threading;
 using MumbleProto;
 using MumbleSharp.Audio;
 using MumbleSharp.Audio.Codecs;
@@ -427,6 +427,32 @@ namespace MumbleSharp
                     oldChannelId = RootChannel.Id;
                     user.Channel = RootChannel;
                     triggerUserStateChannelChanged = true;
+                }
+
+                if (userState.ListeningChannelAdd.Count > 0)
+                {
+                    foreach (var channelId in userState.ListeningChannelAdd)
+                    {
+                        if (!user.ListeningChannels.Contains(channelId))
+                            user.ListeningChannels.Add(channelId);
+                    }
+                }
+
+                if (userState.ListeningChannelRemove.Count > 0)
+                {
+                    foreach (var channelId in userState.ListeningChannelRemove)
+                    {
+                        user.ListeningChannels.Remove(channelId);
+                        user.ListeningVolumeAdjustments.Remove(channelId);
+                    }
+                }
+
+                if (userState.ListeningVolumeAdjustment.Count > 0)
+                {
+                    foreach (var adj in userState.ListeningVolumeAdjustment)
+                    {
+                        user.ListeningVolumeAdjustments[adj.ListeningChannel] = adj.VolumeAdjustment_;
+                    }
                 }
 
                 if (added)

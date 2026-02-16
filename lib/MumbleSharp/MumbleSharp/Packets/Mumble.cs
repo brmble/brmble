@@ -13,15 +13,25 @@ namespace MumbleProto
         global::ProtoBuf.IExtension global::ProtoBuf.IExtensible.GetExtensionObject(bool createIfMissing)
             => global::ProtoBuf.Extensible.GetExtensionObject(ref __pbn__extensionData, createIfMissing);
 
-        [global::ProtoBuf.ProtoMember(1)]
-        public uint version
+        [global::ProtoBuf.ProtoMember(1, Name = @"version")]
+        public uint VersionV1
         {
             get { return __pbn__version.GetValueOrDefault(); }
             set { __pbn__version = value; }
         }
-        public bool ShouldSerializeversion() => __pbn__version != null;
-        public void Resetversion() => __pbn__version = null;
+        public bool ShouldSerializeVersionV1() => __pbn__version != null;
+        public void ResetVersionV1() => __pbn__version = null;
         private uint? __pbn__version;
+
+        [global::ProtoBuf.ProtoMember(5, Name = @"version_v2")]
+        public ulong VersionV2
+        {
+            get { return __pbn__VersionV2.GetValueOrDefault(); }
+            set { __pbn__VersionV2 = value; }
+        }
+        public bool ShouldSerializeVersionV2() => __pbn__VersionV2 != null;
+        public void ResetVersionV2() => __pbn__VersionV2 = null;
+        private ulong? __pbn__VersionV2;
 
         [global::ProtoBuf.ProtoMember(2, Name = @"release")]
         [global::System.ComponentModel.DefaultValue("")]
@@ -115,6 +125,17 @@ namespace MumbleProto
         public bool ShouldSerializeOpus() => __pbn__Opus != null;
         public void ResetOpus() => __pbn__Opus = null;
         private bool? __pbn__Opus;
+
+        [global::ProtoBuf.ProtoMember(6, Name = @"client_type")]
+        [global::System.ComponentModel.DefaultValue(0)]
+        public int ClientType
+        {
+            get { return __pbn__ClientType.GetValueOrDefault(); }
+            set { __pbn__ClientType = value; }
+        }
+        public bool ShouldSerializeClientType() => __pbn__ClientType != null;
+        public void ResetClientType() => __pbn__ClientType = null;
+        private int? __pbn__ClientType;
 
     }
 
@@ -278,6 +299,7 @@ namespace MumbleProto
             ServerFull = 6,
             NoCertificate = 7,
             AuthenticatorFail = 8,
+            NoNewConnections = 9,
         }
 
     }
@@ -444,6 +466,26 @@ namespace MumbleProto
         public void ResetMaxUsers() => __pbn__MaxUsers = null;
         private uint? __pbn__MaxUsers;
 
+        [global::ProtoBuf.ProtoMember(12, Name = @"is_enter_restricted")]
+        public bool IsEnterRestricted
+        {
+            get { return __pbn__IsEnterRestricted.GetValueOrDefault(); }
+            set { __pbn__IsEnterRestricted = value; }
+        }
+        public bool ShouldSerializeIsEnterRestricted() => __pbn__IsEnterRestricted != null;
+        public void ResetIsEnterRestricted() => __pbn__IsEnterRestricted = null;
+        private bool? __pbn__IsEnterRestricted;
+
+        [global::ProtoBuf.ProtoMember(13, Name = @"can_enter")]
+        public bool CanEnter
+        {
+            get { return __pbn__CanEnter.GetValueOrDefault(); }
+            set { __pbn__CanEnter = value; }
+        }
+        public bool ShouldSerializeCanEnter() => __pbn__CanEnter != null;
+        public void ResetCanEnter() => __pbn__CanEnter = null;
+        private bool? __pbn__CanEnter;
+
     }
 
     [global::ProtoBuf.ProtoContract()]
@@ -486,6 +528,26 @@ namespace MumbleProto
         public bool ShouldSerializeBan() => __pbn__Ban != null;
         public void ResetBan() => __pbn__Ban = null;
         private bool? __pbn__Ban;
+
+        [global::ProtoBuf.ProtoMember(5, Name = @"ban_certificate")]
+        public bool BanCertificate
+        {
+            get { return __pbn__BanCertificate.GetValueOrDefault(); }
+            set { __pbn__BanCertificate = value; }
+        }
+        public bool ShouldSerializeBanCertificate() => __pbn__BanCertificate != null;
+        public void ResetBanCertificate() => __pbn__BanCertificate = null;
+        private bool? __pbn__BanCertificate;
+
+        [global::ProtoBuf.ProtoMember(6, Name = @"ban_ip")]
+        public bool BanIp
+        {
+            get { return __pbn__BanIp.GetValueOrDefault(); }
+            set { __pbn__BanIp = value; }
+        }
+        public bool ShouldSerializeBanIp() => __pbn__BanIp != null;
+        public void ResetBanIp() => __pbn__BanIp = null;
+        private bool? __pbn__BanIp;
 
     }
 
@@ -692,6 +754,29 @@ namespace MumbleProto
 
         [global::ProtoBuf.ProtoMember(20, Name = @"temporary_access_tokens")]
         public global::System.Collections.Generic.List<string> TemporaryAccessTokens { get; } = new global::System.Collections.Generic.List<string>();
+
+        [global::ProtoBuf.ProtoMember(21, Name = @"listening_channel_add")]
+        public global::System.Collections.Generic.List<uint> ListeningChannelAdd { get; } = new global::System.Collections.Generic.List<uint>();
+
+        [global::ProtoBuf.ProtoMember(22, Name = @"listening_channel_remove")]
+        public global::System.Collections.Generic.List<uint> ListeningChannelRemove { get; } = new global::System.Collections.Generic.List<uint>();
+
+        [global::ProtoBuf.ProtoMember(23, Name = @"listening_volume_adjustment")]
+        public global::System.Collections.Generic.List<VolumeAdjustment> ListeningVolumeAdjustment { get; } = new global::System.Collections.Generic.List<VolumeAdjustment>();
+
+        [global::ProtoBuf.ProtoContract()]
+        public partial class VolumeAdjustment : global::ProtoBuf.IExtensible
+        {
+            private global::ProtoBuf.IExtension __pbn__extensionData;
+            global::ProtoBuf.IExtension global::ProtoBuf.IExtensible.GetExtensionObject(bool createIfMissing)
+                => global::ProtoBuf.Extensible.GetExtensionObject(ref __pbn__extensionData, createIfMissing);
+
+            [global::ProtoBuf.ProtoMember(1, Name = @"listening_channel")]
+            public uint ListeningChannel { get; set; }
+
+            [global::ProtoBuf.ProtoMember(2, Name = @"volume_adjustment")]
+            public float VolumeAdjustment_ { get; set; }
+        }
 
     }
 
@@ -904,6 +989,8 @@ namespace MumbleProto
             ChannelFull = 9,
             NestingLimit = 10,
             ChannelCountLimit = 11,
+            ChannelListenerLimit = 12,
+            UserListenerLimit = 13,
         }
 
     }
@@ -1734,6 +1821,16 @@ namespace MumbleProto
         public void ResetMaxUsers() => __pbn__MaxUsers = null;
         private uint? __pbn__MaxUsers;
 
+        [global::ProtoBuf.ProtoMember(7, Name = @"recording_allowed")]
+        public bool RecordingAllowed
+        {
+            get { return __pbn__RecordingAllowed.GetValueOrDefault(); }
+            set { __pbn__RecordingAllowed = value; }
+        }
+        public bool ShouldSerializeRecordingAllowed() => __pbn__RecordingAllowed != null;
+        public void ResetRecordingAllowed() => __pbn__RecordingAllowed = null;
+        private bool? __pbn__RecordingAllowed;
+
     }
 
     [global::ProtoBuf.ProtoContract()]
@@ -1743,15 +1840,25 @@ namespace MumbleProto
         global::ProtoBuf.IExtension global::ProtoBuf.IExtensible.GetExtensionObject(bool createIfMissing)
             => global::ProtoBuf.Extensible.GetExtensionObject(ref __pbn__extensionData, createIfMissing);
 
-        [global::ProtoBuf.ProtoMember(1, Name = @"version")]
-        public uint Version
+        [global::ProtoBuf.ProtoMember(1, Name = @"version_v1")]
+        public uint VersionV1
         {
             get { return __pbn__Version.GetValueOrDefault(); }
             set { __pbn__Version = value; }
         }
-        public bool ShouldSerializeVersion() => __pbn__Version != null;
-        public void ResetVersion() => __pbn__Version = null;
+        public bool ShouldSerializeVersionV1() => __pbn__Version != null;
+        public void ResetVersionV1() => __pbn__Version = null;
         private uint? __pbn__Version;
+
+        [global::ProtoBuf.ProtoMember(4, Name = @"version_v2")]
+        public ulong VersionV2
+        {
+            get { return __pbn__VersionV2.GetValueOrDefault(); }
+            set { __pbn__VersionV2 = value; }
+        }
+        public bool ShouldSerializeVersionV2() => __pbn__VersionV2 != null;
+        public void ResetVersionV2() => __pbn__VersionV2 = null;
+        private ulong? __pbn__VersionV2;
 
         [global::ProtoBuf.ProtoMember(2, Name = @"positional")]
         public bool Positional
@@ -1773,6 +1880,26 @@ namespace MumbleProto
         public void ResetPushToTalk() => __pbn__PushToTalk = null;
         private bool? __pbn__PushToTalk;
 
+    }
+
+    [global::ProtoBuf.ProtoContract()]
+    public partial class PluginDataTransmission : global::ProtoBuf.IExtensible
+    {
+        private global::ProtoBuf.IExtension __pbn__extensionData;
+        global::ProtoBuf.IExtension global::ProtoBuf.IExtensible.GetExtensionObject(bool createIfMissing)
+            => global::ProtoBuf.Extensible.GetExtensionObject(ref __pbn__extensionData, createIfMissing);
+
+        [global::ProtoBuf.ProtoMember(1, Name = @"senderSession")]
+        public uint SenderSession { get; set; }
+
+        [global::ProtoBuf.ProtoMember(2, Name = @"receiverSessions")]
+        public global::System.Collections.Generic.List<uint> ReceiverSessions { get; } = new global::System.Collections.Generic.List<uint>();
+
+        [global::ProtoBuf.ProtoMember(3, Name = @"data")]
+        public byte[] Data { get; set; }
+
+        [global::ProtoBuf.ProtoMember(4, Name = @"dataID")]
+        public string DataID { get; set; }
     }
 
 }

@@ -36,14 +36,21 @@ static class Program
     [STAThread]
     static void Main()
     {
-        var useDevServer = IsDevServerRunning();
-        Debug.WriteLine(useDevServer
-            ? "Brmble: Using Vite dev server"
-            : "Brmble: Using local files");
+        try
+        {
+            var useDevServer = IsDevServerRunning();
+            Debug.WriteLine(useDevServer
+                ? "Brmble: Using Vite dev server"
+                : "Brmble: Using local files");
 
-        var hwnd = Win32Window.Create("BrmbleWindow", "Brmble", 1280, 720, WndProc);
-        _ = InitWebView2Async(hwnd, useDevServer);
-        Win32Window.RunMessageLoop();
+            var hwnd = Win32Window.Create("BrmbleWindow", "Brmble", 1280, 720, WndProc);
+            _ = InitWebView2Async(hwnd, useDevServer);
+            Win32Window.RunMessageLoop();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[FATAL] {ex}");
+        }
     }
 
     /// <summary>
@@ -53,27 +60,35 @@ static class Program
     /// <param name="useDevServer">Whether to use the development server.</param>
     private static async Task InitWebView2Async(IntPtr hwnd, bool useDevServer)
     {
-        var env = await CoreWebView2Environment.CreateAsync();
-        _controller = await env.CreateCoreWebView2ControllerAsync(hwnd);
+        try
+        {
+            var env = await CoreWebView2Environment.CreateAsync();
+            _controller = await env.CreateCoreWebView2ControllerAsync(hwnd);
 
-        Win32Window.GetClientRect(hwnd, out var rect);
-        _controller.Bounds = new Rectangle(0, 0, rect.Right - rect.Left, rect.Bottom - rect.Top);
-        _controller.IsVisible = true;
+            Win32Window.GetClientRect(hwnd, out var rect);
+            _controller.Bounds = new Rectangle(0, 0, rect.Right - rect.Left, rect.Bottom - rect.Top);
+            _controller.IsVisible = true;
 
-        var webRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "web");
-        _controller.CoreWebView2.SetVirtualHostNameToFolderMapping(
-            "brmble.local", webRoot, CoreWebView2HostResourceAccessKind.Allow);
+            var webRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "web");
+            Debug.WriteLine($"[Brmble] Web root: {webRoot}");
+            _controller.CoreWebView2.SetVirtualHostNameToFolderMapping(
+                "brmble.local", webRoot, CoreWebView2HostResourceAccessKind.Allow);
 
-        _bridge = new NativeBridge(_controller.CoreWebView2, hwnd);
-        
-        _mumbleClient = new MumbleAdapter(_bridge);
-        
-        SetupBridgeHandlers();
+            _bridge = new NativeBridge(_controller.CoreWebView2, hwnd);
+            
+            _mumbleClient = new MumbleAdapter(_bridge);
+            
+            SetupBridgeHandlers();
 
-        if (useDevServer)
-            _controller.CoreWebView2.Navigate(DevServerUrl);
-        else
-            _controller.CoreWebView2.Navigate("https://brmble.local/index.html");
+            if (useDevServer)
+                _controller.CoreWebView2.Navigate(DevServerUrl);
+            else
+                _controller.CoreWebView2.Navigate("https://brmble.local/index.html");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[ERROR] InitWebView2Async: {ex}");
+        }
     }
 
     /// <summary>
