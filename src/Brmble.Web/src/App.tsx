@@ -4,6 +4,8 @@ import { Header } from './components/Header/Header';
 import { Sidebar } from './components/Sidebar/Sidebar';
 import { ChatPanel } from './components/ChatPanel/ChatPanel';
 import { ConnectModal } from './components/ConnectModal/ConnectModal';
+import { ServerList } from './components/ServerList/ServerList';
+import type { ServerEntry } from './hooks/useServerlist';
 import { DMPanel } from './components/DMPanel/DMPanel';
 import { SettingsModal } from './components/SettingsModal/SettingsModal';
 import { useChatStore } from './hooks/useChatStore';
@@ -42,9 +44,7 @@ function App() {
   const [connected, setConnected] = useState(false);
   const [username, setUsername] = useState('');
   const [serverAddress, setServerAddress] = useState('');
-  const [servers] = useState<Server[]>([
-    { id: '1', name: 'Mumble Server' }
-  ]);
+const [servers] = useState<Server[]>([]);
   const [selectedServerId, setSelectedServerId] = useState('1');
   
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -206,10 +206,19 @@ function App() {
     };
   }, [addMessage, channels, users]);
 
-  const handleConnect = (serverData: SavedServer) => {
+const handleConnect = (serverData: SavedServer) => {
     localStorage.setItem('brmble-server', JSON.stringify(serverData));
     setServerAddress(`${serverData.host}:${serverData.port}`);
     bridge.send('voice.connect', serverData);
+  };
+
+  const handleServerConnect = (server: ServerEntry) => {
+    handleConnect({ 
+      host: server.host, 
+      port: server.port, 
+      username: server.username, 
+      password: '' 
+    });
   };
 
   const handleJoinChannel = (channelId: number) => {
@@ -293,14 +302,7 @@ function App() {
 
       {!connected && (
         <div className="connect-overlay">
-          <button className="connect-overlay-btn" onClick={() => setShowConnectModal(true)}>
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
-              <polyline points="10 17 15 12 10 7" />
-              <line x1="15" y1="12" x2="3" y2="12" />
-            </svg>
-            Connect to Server
-          </button>
+          <ServerList onConnect={handleServerConnect} />
         </div>
       )}
 
