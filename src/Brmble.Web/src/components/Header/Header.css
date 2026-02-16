@@ -4,12 +4,14 @@
   align-items: center;
   justify-content: space-between;
   padding: 0 1.5rem;
+  padding-right: 138px;
   background: var(--bg-glass);
   backdrop-filter: var(--glass-blur);
   border-bottom: var(--glass-border);
   position: sticky;
   top: 0;
   z-index: 100;
+  -webkit-app-region: drag;
 }
 
 .header-left {
@@ -33,4 +35,5 @@
 .header-right {
   display: flex;
   justify-content: flex-end;
+  -webkit-app-region: no-drag;
 }
