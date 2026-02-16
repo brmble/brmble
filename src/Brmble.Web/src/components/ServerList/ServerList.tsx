@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { useServerlist, ServerEntry } from '../../hooks/useServerlist';
+import { useServerlist } from '../../hooks/useServerlist';
+import type { ServerEntry } from '../../hooks/useServerlist';
 
 export function ServerList({ onConnect }: { onConnect: (server: ServerEntry) => void }) {
   const { servers, loading, addServer, updateServer, removeServer } = useServerlist();

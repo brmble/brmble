@@ -1,4 +1,3 @@
-import { ServerList } from '../ServerList/ServerList';
 import { ChannelTree } from '../ChannelTree';
 import type { Channel, User } from '../../types';
 import './Sidebar.css';
@@ -34,13 +33,22 @@ export function Sidebar({
 }: SidebarProps) {
   return (
     <aside className="sidebar">
-      <ServerList 
-        servers={servers}
-        selectedServerId={selectedServerId}
-        onSelectServer={onSelectServer}
-        connected={connected}
-        serverAddress={serverAddress}
-      />
+      <div className="server-selector">
+        <select 
+          value={selectedServerId}
+          onChange={(e) => onSelectServer(e.target.value)}
+          disabled={connected}
+        >
+          {servers.map(server => (
+            <option key={server.id} value={server.id}>
+              {server.name}
+            </option>
+          ))}
+        </select>
+        {serverAddress && (
+          <span className="server-address">{serverAddress}</span>
+        )}
+      </div>
       
       {connected && (
         <div className="server-status-panel">

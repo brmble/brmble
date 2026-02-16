@@ -33,24 +33,24 @@ export function useServerlist() {
     };
 
     window.addEventListener('message', handleMessage);
-    window.chrome.webview.postMessage({ type: 'servers.list' });
+    window.chrome?.webview?.postMessage({ type: 'servers.list' });
 
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
   const addServer = useCallback((server: Omit<ServerEntry, 'id'>) => {
-    window.chrome.webview.postMessage({
+    window.chrome?.webview?.postMessage({
       type: 'servers.add',
       data: { ...server, id: crypto.randomUUID() }
     });
   }, []);
 
   const updateServer = useCallback((server: ServerEntry) => {
-    window.chrome.webview.postMessage({ type: 'servers.update', data: server });
+    window.chrome?.webview?.postMessage({ type: 'servers.update', data: server });
   }, []);
 
   const removeServer = useCallback((id: string) => {
-    window.chrome.webview.postMessage({ type: 'servers.remove', data: { id } });
+    window.chrome?.webview?.postMessage({ type: 'servers.remove', data: { id } });
   }, []);
 
   return { servers, loading, addServer, updateServer, removeServer };
