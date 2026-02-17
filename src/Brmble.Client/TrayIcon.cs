@@ -132,21 +132,24 @@ internal static class TrayIcon
 
     private static void UpdateIconAndTooltip()
     {
+        if (_iconNormal == IntPtr.Zero)
+            return;
+
         var baseColor = _deafened ? " (Deafened)" : _muted ? " (Muted)" : "";
         var badgeSuffix = _hasBadge ? (baseColor.Length > 0 ? ", Unread" : " (Unread)") : "";
         _nid.szTip = "Brmble" + baseColor + badgeSuffix;
 
         if (_deafened)
         {
-            _nid.hIcon = _hasBadge ? _iconDeafenedBadge : _iconDeafened;
+            _nid.hIcon = (_hasBadge && _iconDeafenedBadge != IntPtr.Zero) ? _iconDeafenedBadge : _iconDeafened;
         }
         else if (_muted)
         {
-            _nid.hIcon = _hasBadge ? _iconMutedBadge : _iconMuted;
+            _nid.hIcon = (_hasBadge && _iconMutedBadge != IntPtr.Zero) ? _iconMutedBadge : _iconMuted;
         }
         else
         {
-            _nid.hIcon = _hasBadge ? _iconNormalBadge : _iconNormal;
+            _nid.hIcon = (_hasBadge && _iconNormalBadge != IntPtr.Zero) ? _iconNormalBadge : _iconNormal;
         }
 
         _nid.uFlags = NIF_ICON | NIF_TIP;
@@ -192,9 +195,13 @@ internal static class TrayIcon
         _iconMuted = CreateColoredIcon(0xE8, 0xB0, 0x00);    // yellow/amber
         _iconDeafened = CreateColoredIcon(0xD4, 0x14, 0x5A); // berry red
 
+        Debug.WriteLine($"[TrayIcon] Icons created: normal={_iconNormal}, muted={_iconMuted}, deafened={_iconDeafened}");
+
         _iconNormalBadge = CreateColoredIconWithBadge(0x00, 0xC8, 0x50);
         _iconMutedBadge = CreateColoredIconWithBadge(0xE8, 0xB0, 0x00);
         _iconDeafenedBadge = CreateColoredIconWithBadge(0xD4, 0x14, 0x5A);
+
+        Debug.WriteLine($"[TrayIcon] Badge icons created: normal={_iconNormalBadge}, muted={_iconMutedBadge}, deafened={_iconDeafenedBadge}");
     }
 
     private static IntPtr CreateColoredIcon(byte r, byte g, byte b)
