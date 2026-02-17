@@ -22,6 +22,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private readonly NativeBridge? _bridge;
     private CancellationTokenSource? _cts;
     private Task? _processTask;
+    private AudioManager? _audioManager;
 
     /// <inheritdoc />
     public string ServiceName => "mumble";
@@ -126,7 +127,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     public void Disconnect()
     {
         _cts?.Cancel();
-        
+
+        _audioManager?.Dispose();
+        _audioManager = null;
+
         if (Connection != null)
         {
             try
@@ -207,6 +211,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (!LocalUser.SelfMuted && LocalUser.SelfDeaf)
             LocalUser.SelfDeaf = false;
         LocalUser.SendMuteDeaf();
+        _audioManager?.SetMuted(LocalUser.SelfMuted);
 
         _bridge?.Send("voice.selfMuteChanged", new { muted = LocalUser.SelfMuted });
         _bridge?.Send("voice.selfDeafChanged", new { deafened = LocalUser.SelfDeaf });
@@ -222,6 +227,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         LocalUser.SelfDeaf = !LocalUser.SelfDeaf;
         LocalUser.SelfMuted = LocalUser.SelfDeaf; // deafen implies mute in Mumble
         LocalUser.SendMuteDeaf();
+        _audioManager?.SetDeafened(LocalUser.SelfDeaf);
+        _audioManager?.SetMuted(LocalUser.SelfMuted);
 
         _bridge?.Send("voice.selfDeafChanged", new { deafened = LocalUser.SelfDeaf });
         _bridge?.Send("voice.selfMuteChanged", new { muted = LocalUser.SelfMuted });
@@ -319,6 +326,24 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         });
         
         Debug.WriteLine($"[Mumble] Sent {channelList.Count} channels and {userList.Count} users");
+
+        // Start audio after connection is established
+        _audioManager?.Dispose();
+        _audioManager = new AudioManager();
+        _audioManager.SendVoicePacket += packet =>
+        {
+            Connection?.SendVoice(new ArraySegment<byte>(packet.ToArray()));
+        };
+        _audioManager.UserStartedSpeaking += userId =>
+        {
+            _bridge?.Send("voice.userSpeaking", new { session = userId });
+        };
+        _audioManager.UserStoppedSpeaking += userId =>
+        {
+            _bridge?.Send("voice.userSilent", new { session = userId });
+        };
+        _audioManager.StartMic();
+        Debug.WriteLine("[Mumble] AudioManager started");
     }
 
     /// <summary>
@@ -386,7 +411,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     public override void UserRemove(UserRemove userRemove)
     {
         base.UserRemove(userRemove);
-        
+        _audioManager?.RemoveUser(userRemove.Session);
+
         Debug.WriteLine($"[Mumble] UserRemove: session {userRemove.Session}");
         
         _bridge?.Send("voice.userLeft", new 
@@ -435,11 +461,23 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     public override void Reject(Reject reject)
     {
         base.Reject(reject);
-        
-        _bridge?.Send("voice.error", new 
-        { 
+
+        _bridge?.Send("voice.error", new
+        {
             message = reject.Reason,
             type = reject.Type
         });
+    }
+
+    /// <summary>
+    /// Called when voice data is received from another user.
+    /// Forwards to AudioManager for decoding and playback.
+    /// </summary>
+    public override void EncodedVoice(byte[] data, uint userId, long sequence,
+        IVoiceCodec codec, SpeechTarget target)
+    {
+        // DON'T call base — we use our own decode pipeline instead of
+        // MumbleSharp's AudioDecodingBuffer (fixed 350ms buffer, poor quality)
+        _audioManager?.FeedVoice(userId, data, sequence);
     }
 }
