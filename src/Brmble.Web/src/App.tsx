@@ -8,7 +8,7 @@ import { ServerList } from './components/ServerList/ServerList';
 import type { ServerEntry } from './hooks/useServerlist';
 import { DMPanel } from './components/DMPanel/DMPanel';
 import { SettingsModal } from './components/SettingsModal/SettingsModal';
-import { useChatStore } from './hooks/useChatStore';
+import { useChatStore, addMessageToStore } from './hooks/useChatStore';
 import './App.css';
 
 interface SavedServer {
@@ -42,7 +42,7 @@ function App() {
   
   const [channels, setChannels] = useState<Channel[]>([]);
   const [users, setUsers] = useState<User[]>([]);
-  const [currentChannelId, setCurrentChannelId] = useState<number | undefined>();
+  const [currentChannelId, setCurrentChannelId] = useState<string | undefined>();
   const [currentChannelName, setCurrentChannelName] = useState<string>('');
   const [selfMuted, setSelfMuted] = useState(false);
   const [selfDeafened, setSelfDeafened] = useState(false);
@@ -53,7 +53,7 @@ function App() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [hasPendingInvite] = useState(false);
 
-  const channelKey = currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
+  const channelKey = currentChannelId === 'server-root' ? 'server-root' : currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
   const { messages, addMessage } = useChatStore(channelKey);
 
   const updateBadge = (unread: number, invite: boolean) => {
@@ -67,6 +67,8 @@ function App() {
   channelsRef.current = channels;
   const addMessageRef = useRef(addMessage);
   addMessageRef.current = addMessage;
+  const currentChannelIdRef = useRef(currentChannelId);
+  currentChannelIdRef.current = currentChannelId;
   const unreadCountRef = useRef(unreadCount);
   unreadCountRef.current = unreadCount;
   const hasPendingInviteRef = useRef(hasPendingInvite);
@@ -76,6 +78,8 @@ function App() {
   useEffect(() => {
     const onVoiceConnected = ((data: unknown) => {
       setConnected(true);
+      setCurrentChannelId('server-root');
+      setCurrentChannelName('');
       const d = data as { username?: string; channels?: Channel[]; users?: User[] } | undefined;
       
       if (d?.username) {
@@ -112,14 +116,42 @@ function App() {
     });
 
     const onVoiceMessage = ((data: unknown) => {
-      const d = data as { message: string; senderSession?: number } | undefined;
+      const d = data as { message: string; senderSession?: number; channelIds?: number[] } | undefined;
       if (d?.message) {
+        // Skip own message echoes -- we already added them locally in handleSendMessage
+        const selfUser = usersRef.current.find(u => u.self);
+        if (selfUser && d.senderSession === selfUser.session) {
+          return;
+        }
         const senderUser = usersRef.current.find(u => u.session === d.senderSession);
         const senderName = senderUser?.name || 'Unknown';
-        addMessageRef.current(senderName, d.message);
+        // Route to server-root if message targets root channel (0) or has no channel target
+        const isRootMessage = !d.channelIds || d.channelIds.length === 0 || d.channelIds.includes(0);
+        const targetKey = isRootMessage ? 'server-root' : `channel-${d.channelIds![0]}`;
+        const currentKey = currentChannelIdRef.current;
+        const currentStoreKey = currentKey === 'server-root' ? 'server-root' : currentKey ? `channel-${currentKey}` : 'no-channel';
+        if (targetKey === currentStoreKey) {
+          // Message belongs to the currently viewed store -- add via React state
+          addMessageRef.current(senderName, d.message);
+        } else {
+          // Message belongs to a different store -- write directly to localStorage
+          addMessageToStore(targetKey, senderName, d.message);
+        }
         const newUnread = unreadCountRef.current + 1;
         setUnreadCount(newUnread);
         updateBadge(newUnread, hasPendingInviteRef.current);
+      }
+    });
+
+    const onVoiceSystem = ((data: unknown) => {
+      const d = data as { message: string; systemType?: string; html?: boolean } | undefined;
+      if (d?.message) {
+        const currentKey = currentChannelIdRef.current;
+        if (currentKey === 'server-root') {
+          addMessageRef.current('Server', d.message, 'system', d.html);
+        } else {
+          addMessageToStore('server-root', 'Server', d.message, 'system', d.html);
+        }
       }
     });
 
@@ -139,7 +171,7 @@ function App() {
 
     const onVoiceChannelJoined = ((data: unknown) => {
       const d = data as { id: number; name: string; parent?: number } | undefined;
-      if (d?.id && d?.name) {
+      if (d?.id !== undefined && d?.name) {
         setChannels(prev => {
           const existing = prev.find(c => c.id === d.id);
           if (existing) {
@@ -152,8 +184,8 @@ function App() {
 
     const onVoiceChannelChanged = ((data: unknown) => {
       const d = data as { channelId: number; name?: string } | undefined;
-      if (d?.channelId) {
-        setCurrentChannelId(d.channelId);
+      if (d?.channelId !== undefined && d?.channelId !== null) {
+        setCurrentChannelId(String(d.channelId));
         if (d.name) {
           setCurrentChannelName(d.name);
         } else {
@@ -188,6 +220,7 @@ function App() {
     bridge.on('voice.disconnected', onVoiceDisconnected);
     bridge.on('voice.error', onVoiceError);
     bridge.on('voice.message', onVoiceMessage);
+    bridge.on('voice.system', onVoiceSystem);
     bridge.on('voice.userJoined', onVoiceUserJoined);
     bridge.on('voice.channelJoined', onVoiceChannelJoined);
     bridge.on('voice.userLeft', onVoiceUserLeft);
@@ -200,6 +233,7 @@ function App() {
       bridge.off('voice.disconnected', onVoiceDisconnected);
       bridge.off('voice.error', onVoiceError);
       bridge.off('voice.message', onVoiceMessage);
+      bridge.off('voice.system', onVoiceSystem);
       bridge.off('voice.userJoined', onVoiceUserJoined);
       bridge.off('voice.channelJoined', onVoiceChannelJoined);
       bridge.off('voice.userLeft', onVoiceUserLeft);
@@ -233,17 +267,26 @@ const handleConnect = (serverData: SavedServer) => {
   const handleSelectChannel = (channelId: number) => {
     const channel = channels.find(c => c.id === channelId);
     if (channel) {
-      setCurrentChannelId(channelId);
+      setCurrentChannelId(String(channelId));
       setCurrentChannelName(channel.name);
       setUnreadCount(0);
       updateBadge(0, hasPendingInvite);
     }
   };
 
+  const handleSelectServer = () => {
+    setCurrentChannelId('server-root');
+    setCurrentChannelName(serverLabel || 'Server');
+  };
+
   const handleSendMessage = (content: string) => {
     if (username && content) {
       addMessage(username, content);
-      bridge.send('voice.sendMessage', { message: content });
+      if (currentChannelId === 'server-root') {
+        bridge.send('voice.sendMessage', { message: content, channelId: 0 });
+      } else if (currentChannelId) {
+        bridge.send('voice.sendMessage', { message: content, channelId: Number(currentChannelId) });
+      }
       setUnreadCount(0);
       updateBadge(0, hasPendingInvite);
     }
@@ -286,9 +329,11 @@ const handleConnect = (serverData: SavedServer) => {
         <Sidebar
           channels={channels}
           users={users}
-          currentChannelId={currentChannelId}
+          currentChannelId={currentChannelId && currentChannelId !== 'server-root' ? Number(currentChannelId) : undefined}
           onJoinChannel={handleJoinChannel}
           onSelectChannel={handleSelectChannel}
+          onSelectServer={handleSelectServer}
+          isServerChatActive={currentChannelId === 'server-root'}
           connected={connected}
           serverLabel={serverLabel}
           serverAddress={serverAddress}
@@ -298,8 +343,8 @@ const handleConnect = (serverData: SavedServer) => {
         
         <main className="main-content">
           <ChatPanel
-            channelId={currentChannelId ? String(currentChannelId) : undefined}
-            channelName={currentChannelName}
+            channelId={currentChannelId || undefined}
+            channelName={currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName}
             messages={messages}
             currentUsername={username}
             onSendMessage={handleSendMessage}
