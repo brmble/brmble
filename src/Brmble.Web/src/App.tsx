@@ -214,7 +214,7 @@ const handleConnect = (serverData: SavedServer) => {
   };
 
   const handleServerConnect = (server: ServerEntry) => {
-    handleConnect({ 
+    handleConnect({
       host: server.host, 
       port: server.port, 
       username: server.username, 

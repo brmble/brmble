@@ -13,7 +13,7 @@ export function ServerList({ onConnect }: ServerListProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [form, setForm] = useState({ label: '', host: '', port: '64738', username: '' });
 
-  const getInitial = (label: string) => label.charAt(0).toUpperCase();
+  const getInitial = (label: string) => (label?.charAt(0) || '?').toUpperCase();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -68,7 +68,7 @@ export function ServerList({ onConnect }: ServerListProps) {
             <div className="server-list-items">
               {servers.map((server, index) => (
                 <div 
-                  key={server.id} 
+                  key={server.id || `server-${index}`} 
                   className="server-list-item"
                   style={{ animationDelay: `${index * 50}ms` }}
                 >
@@ -119,7 +119,7 @@ export function ServerList({ onConnect }: ServerListProps) {
                 <input
                   className="server-list-input"
                   placeholder="Server Name"
-                  value={editing?.label ?? form.label}
+                  value={form.label}
                   onChange={e => setForm(f => ({ ...f, label: e.target.value }))}
                   autoFocus
                 />
@@ -127,21 +127,21 @@ export function ServerList({ onConnect }: ServerListProps) {
                   <input
                     className="server-list-input server-list-input-host"
                     placeholder="Host"
-                    value={editing?.host ?? form.host}
+                    value={form.host}
                     onChange={e => setForm(f => ({ ...f, host: e.target.value }))}
                   />
                   <input
                     className="server-list-input server-list-input-port"
                     placeholder="Port"
                     type="number"
-                    value={editing?.port ?? form.port}
+                    value={form.port}
                     onChange={e => setForm(f => ({ ...f, port: e.target.value }))}
                   />
                 </div>
                 <input
                   className="server-list-input"
                   placeholder="Username"
-                  value={editing?.username ?? form.username}
+                  value={form.username}
                   onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
                 />
               </div>
