@@ -139,6 +139,15 @@ internal static class TrayIcon
     }
 
     /// <summary>
+    /// Sets whether the notification indicator is shown on the tray icon.
+    /// </summary>
+    public static void SetNotification(bool hasNotification)
+    {
+        _hasNotification = hasNotification;
+        UpdateState(_muted, _deafened);
+    }
+
+    /// <summary>
     /// Shows the tray context menu at the cursor position.
     /// </summary>
     public static void ShowContextMenu(IntPtr hwnd)
