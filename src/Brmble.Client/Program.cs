@@ -147,6 +147,14 @@ static class Program
             }
             return Task.CompletedTask;
         });
+
+        _bridge.RegisterHandler("notification.badge", data =>
+        {
+            var hasUnreadDMs = data.TryGetProperty("unreadDMs", out var u) && u.GetBoolean();
+            var hasPendingInvite = data.TryGetProperty("pendingInvite", out var p) && p.GetBoolean();
+            TrayIcon.UpdateBadge(hasUnreadDMs, hasPendingInvite);
+            return Task.CompletedTask;
+        });
     }
  
     /// <summary>
