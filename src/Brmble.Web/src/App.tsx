@@ -57,9 +57,15 @@ function App() {
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [showDMPanel, setShowDMPanel] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [hasPendingInvite] = useState(false);
 
   const channelKey = currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
   const { messages, addMessage } = useChatStore(channelKey);
+
+  const updateBadge = (unread: number, invite: boolean) => {
+    bridge.send('notification.badge', { unreadDMs: unread > 0, pendingInvite: invite });
+  };
 
   useEffect(() => {
     const saved = localStorage.getItem('brmble-server');
@@ -117,6 +123,9 @@ function App() {
         const senderUser = users.find(u => u.session === d.senderSession);
         const senderName = senderUser?.name || 'Unknown';
         addMessage(senderName, d.message);
+        const newUnread = unreadCount + 1;
+        setUnreadCount(newUnread);
+        updateBadge(newUnread, hasPendingInvite);
       }
     });
 
@@ -204,7 +213,7 @@ function App() {
       bridge.off('voice.selfMuteChanged', onSelfMuteChanged);
       bridge.off('voice.selfDeafChanged', onSelfDeafChanged);
     };
-  }, [addMessage, channels, users]);
+  }, [addMessage, channels, users, unreadCount, hasPendingInvite]);
 
   const handleConnect = (serverData: SavedServer) => {
     localStorage.setItem('brmble-server', JSON.stringify(serverData));
@@ -221,6 +230,8 @@ function App() {
     if (channel) {
       setCurrentChannelId(channelId);
       setCurrentChannelName(channel.name);
+      setUnreadCount(0);
+      updateBadge(0, hasPendingInvite);
     }
   };
 
@@ -228,6 +239,8 @@ function App() {
     if (username && content) {
       addMessage(username, content);
       bridge.send('voice.sendMessage', { message: content });
+      setUnreadCount(0);
+      updateBadge(0, hasPendingInvite);
     }
   };
 
