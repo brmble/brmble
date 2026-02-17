@@ -42,7 +42,7 @@ function App() {
   
   const [channels, setChannels] = useState<Channel[]>([]);
   const [users, setUsers] = useState<User[]>([]);
-  const [currentChannelId, setCurrentChannelId] = useState<number | undefined>();
+  const [currentChannelId, setCurrentChannelId] = useState<string | undefined>();
   const [currentChannelName, setCurrentChannelName] = useState<string>('');
   const [selfMuted, setSelfMuted] = useState(false);
   const [selfDeafened, setSelfDeafened] = useState(false);
@@ -51,7 +51,7 @@ function App() {
   const [showDMPanel, setShowDMPanel] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
-  const channelKey = currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
+  const channelKey = currentChannelId === 'server-root' ? 'server-root' : currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
   const { messages, addMessage } = useChatStore(channelKey);
 
   // Refs to avoid re-registering bridge handlers on every state change
@@ -66,6 +66,8 @@ function App() {
   useEffect(() => {
     const onVoiceConnected = ((data: unknown) => {
       setConnected(true);
+      setCurrentChannelId('server-root');
+      setCurrentChannelName('');
       const d = data as { username?: string; channels?: Channel[]; users?: User[] } | undefined;
       
       if (d?.username) {
