@@ -85,6 +85,9 @@ internal static class TrayIcon
     private static IntPtr _iconNormal;
     private static IntPtr _iconMuted;
     private static IntPtr _iconDeafened;
+    private static IntPtr _iconNormalBadge;
+    private static IntPtr _iconMutedBadge;
+    private static IntPtr _iconDeafenedBadge;
     private static bool _muted;
     private static bool _deafened;
     private static bool _hasBadge;
@@ -166,13 +169,20 @@ internal static class TrayIcon
         if (_iconNormal != IntPtr.Zero) DestroyIcon(_iconNormal);
         if (_iconMuted != IntPtr.Zero) DestroyIcon(_iconMuted);
         if (_iconDeafened != IntPtr.Zero) DestroyIcon(_iconDeafened);
+        if (_iconNormalBadge != IntPtr.Zero) DestroyIcon(_iconNormalBadge);
+        if (_iconMutedBadge != IntPtr.Zero) DestroyIcon(_iconMutedBadge);
+        if (_iconDeafenedBadge != IntPtr.Zero) DestroyIcon(_iconDeafenedBadge);
     }
 
     private static void CreateIcons()
     {
         _iconNormal = CreateColoredIcon(0x00, 0xC8, 0x50);    // green
-        _iconMuted = CreateColoredIcon(0xE8, 0xB0, 0x00);     // yellow/amber
-        _iconDeafened = CreateColoredIcon(0xD4, 0x14, 0x5A);   // berry red
+        _iconMuted = CreateColoredIcon(0xE8, 0xB0, 0x00);    // yellow/amber
+        _iconDeafened = CreateColoredIcon(0xD4, 0x14, 0x5A); // berry red
+
+        _iconNormalBadge = CreateColoredIconWithBadge(0x00, 0xC8, 0x50);
+        _iconMutedBadge = CreateColoredIconWithBadge(0xE8, 0xB0, 0x00);
+        _iconDeafenedBadge = CreateColoredIconWithBadge(0xD4, 0x14, 0x5A);
     }
 
     private static IntPtr CreateColoredIcon(byte r, byte g, byte b)
@@ -208,6 +218,71 @@ internal static class TrayIcon
         }
 
         return CreateIconFromArgb(size, pixels);
+    }
+
+    private static IntPtr CreateColoredIconWithBadge(byte r, byte g, byte b)
+    {
+        const int size = 16;
+        var pixels = new byte[size * size * 4];
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                var dx = x - 7.5;
+                var dy = y - 7.5;
+                var dist = Math.Sqrt(dx * dx + dy * dy);
+                var idx = (y * size + x) * 4;
+
+                if (dist <= 6.5)
+                {
+                    pixels[idx + 0] = b;
+                    pixels[idx + 1] = g;
+                    pixels[idx + 2] = r;
+                    pixels[idx + 3] = 0xFF;
+                }
+                else if (dist <= 7.5)
+                {
+                    var alpha = (byte)(255 * (7.5 - dist));
+                    pixels[idx + 0] = b;
+                    pixels[idx + 1] = g;
+                    pixels[idx + 2] = r;
+                    pixels[idx + 3] = alpha;
+                }
+            }
+        }
+
+        // Draw badge in top-right corner (darker red: RGB 180, 30, 30)
+        DrawBadge(pixels, size, 180, 30, 30);
+
+        return CreateIconFromArgb(size, pixels);
+    }
+
+    private static void DrawBadge(byte[] pixels, int size, byte r, byte g, byte b)
+    {
+        const int badgeX = 11;
+        const int badgeY = 2;
+        const int badgeRadius = 2;
+
+        for (int dy = -badgeRadius; dy <= badgeRadius; dy++)
+        {
+            for (int dx = -badgeRadius; dx <= badgeRadius; dx++)
+            {
+                if (dx * dx + dy * dy <= badgeRadius * badgeRadius)
+                {
+                    var x = badgeX + dx;
+                    var y = badgeY + dy;
+                    if (x >= 0 && x < size && y >= 0 && y < size)
+                    {
+                        var idx = (y * size + x) * 4;
+                        pixels[idx + 0] = b;
+                        pixels[idx + 1] = g;
+                        pixels[idx + 2] = r;
+                        pixels[idx + 3] = 0xFF;
+                    }
+                }
+            }
+        }
     }
 
     [StructLayout(LayoutKind.Sequential)]
