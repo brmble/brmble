@@ -121,20 +121,32 @@ internal static class TrayIcon
         _muted = muted;
         _deafened = deafened;
 
-        if (deafened)
+        UpdateIconAndTooltip();
+    }
+
+    public static void UpdateBadge(bool hasUnreadDMs, bool hasPendingInvite)
+    {
+        _hasBadge = hasUnreadDMs || hasPendingInvite;
+        UpdateIconAndTooltip();
+    }
+
+    private static void UpdateIconAndTooltip()
+    {
+        var baseColor = _deafened ? " (Deafened)" : _muted ? " (Muted)" : "";
+        var badgeSuffix = _hasBadge ? (baseColor.Length > 0 ? ", Unread" : " (Unread)") : "";
+        _nid.szTip = "Brmble" + baseColor + badgeSuffix;
+
+        if (_deafened)
         {
-            _nid.hIcon = _iconDeafened;
-            _nid.szTip = "Brmble (Deafened)";
+            _nid.hIcon = _hasBadge ? _iconDeafenedBadge : _iconDeafened;
         }
-        else if (muted)
+        else if (_muted)
         {
-            _nid.hIcon = _iconMuted;
-            _nid.szTip = "Brmble (Muted)";
+            _nid.hIcon = _hasBadge ? _iconMutedBadge : _iconMuted;
         }
         else
         {
-            _nid.hIcon = _iconNormal;
-            _nid.szTip = "Brmble";
+            _nid.hIcon = _hasBadge ? _iconNormalBadge : _iconNormal;
         }
 
         _nid.uFlags = NIF_ICON | NIF_TIP;
