@@ -199,6 +199,9 @@ internal static class TrayIcon
         if (_iconNormal != IntPtr.Zero) DestroyIcon(_iconNormal);
         if (_iconMuted != IntPtr.Zero) DestroyIcon(_iconMuted);
         if (_iconDeafened != IntPtr.Zero) DestroyIcon(_iconDeafened);
+        if (_iconNormalNotified != IntPtr.Zero) DestroyIcon(_iconNormalNotified);
+        if (_iconMutedNotified != IntPtr.Zero) DestroyIcon(_iconMutedNotified);
+        if (_iconDeafenedNotified != IntPtr.Zero) DestroyIcon(_iconDeafenedNotified);
     }
 
     private static void CreateIcons()
