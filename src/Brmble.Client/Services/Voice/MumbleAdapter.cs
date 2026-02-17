@@ -132,6 +132,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     public void Disconnect()
     {
         _cts?.Cancel();
+        _processThread?.Join(2000);
+        _processThread = null;
 
         _audioManager?.Dispose();
         _audioManager = null;

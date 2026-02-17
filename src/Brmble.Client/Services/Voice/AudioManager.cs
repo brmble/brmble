@@ -50,36 +50,44 @@ internal sealed class AudioManager : IDisposable
     /// <summary>Start mic capture and encoding. No-op if already started or muted.</summary>
     public void StartMic()
     {
-        if (_micStarted || _muted) return;
-
-        _encodePipeline ??= new EncodePipeline(
-            sampleRate: 48000, channels: 1, bitrate: 72000,
-            onPacketReady: packet => SendVoicePacket?.Invoke(packet));
-
-        if (_waveIn == null)
+        lock (_lock)
         {
-            _waveIn = new WaveInEvent
-            {
-                DeviceNumber = -1,
-                BufferMilliseconds = 20,
-                WaveFormat = new WaveFormat(48000, 16, 1)
-            };
-            _waveIn.DataAvailable += OnMicData;
-        }
+            if (_micStarted || _muted) return;
 
-        _waveIn.StartRecording();
-        _micStarted = true;
-        Debug.WriteLine("[Audio] Mic started");
+            _encodePipeline ??= new EncodePipeline(
+                sampleRate: 48000, channels: 1, bitrate: 72000,
+                onPacketReady: packet => SendVoicePacket?.Invoke(packet));
+
+            if (_waveIn == null)
+            {
+                _waveIn = new WaveInEvent
+                {
+                    DeviceNumber = -1,
+                    BufferMilliseconds = 20,
+                    WaveFormat = new WaveFormat(48000, 16, 1)
+                };
+                _waveIn.DataAvailable += OnMicData;
+            }
+
+            _waveIn.StartRecording();
+            _micStarted = true;
+            Debug.WriteLine("[Audio] Mic started");
+        }
     }
 
-    /// <summary>Stop mic capture. No-op if not started.</summary>
+    /// <summary>Stop mic capture and dispose encode pipeline. No-op if not started.</summary>
     public void StopMic()
     {
-        if (!_micStarted) return;
+        lock (_lock)
+        {
+            if (!_micStarted) return;
 
-        _waveIn?.StopRecording();
-        _micStarted = false;
-        Debug.WriteLine("[Audio] Mic stopped");
+            _waveIn?.StopRecording();
+            _encodePipeline?.Dispose();
+            _encodePipeline = null;
+            _micStarted = false;
+            Debug.WriteLine("[Audio] Mic stopped");
+        }
     }
 
     private void OnMicData(object? sender, WaveInEventArgs e)
