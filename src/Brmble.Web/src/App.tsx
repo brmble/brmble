@@ -286,7 +286,7 @@ const handleConnect = (serverData: SavedServer) => {
         <Sidebar
           channels={channels}
           users={users}
-          currentChannelId={currentChannelId !== 'server-root' ? Number(currentChannelId) : undefined}
+          currentChannelId={currentChannelId && currentChannelId !== 'server-root' ? Number(currentChannelId) : undefined}
           onJoinChannel={handleJoinChannel}
           onSelectChannel={handleSelectChannel}
           onSelectServer={handleSelectServer}
