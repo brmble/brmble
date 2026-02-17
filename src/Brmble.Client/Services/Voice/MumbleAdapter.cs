@@ -421,6 +421,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     {
         base.TextMessage(textMessage);
         
+        // Show notification for messages from other users (not our own messages)
+        if (textMessage.Actor != LocalUser?.Id)
+        {
+            TrayIcon.SetNotification(true);
+        }
+        
         _bridge?.Send("voice.message", new 
         { 
             message = textMessage.Message,

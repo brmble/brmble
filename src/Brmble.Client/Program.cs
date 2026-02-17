@@ -150,8 +150,10 @@ static class Program
 
         _bridge.RegisterHandler("notifications.set", data =>
         {
+            Debug.WriteLine("[Notifications] Received notifications.set");
             if (data.TryGetProperty("hasNotification", out var n))
             {
+                Debug.WriteLine($"[Notifications] hasNotification = {n.GetBoolean()}");
                 TrayIcon.SetNotification(n.GetBoolean());
             }
             return Task.CompletedTask;
