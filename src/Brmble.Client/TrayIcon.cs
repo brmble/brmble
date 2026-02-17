@@ -85,6 +85,9 @@ internal static class TrayIcon
     private static IntPtr _iconNormal;
     private static IntPtr _iconMuted;
     private static IntPtr _iconDeafened;
+    private static IntPtr _iconNormalNotified;
+    private static IntPtr _iconMutedNotified;
+    private static IntPtr _iconDeafenedNotified;
     private static bool _muted;
     private static bool _deafened;
     private static bool _hasNotification;
@@ -118,20 +121,41 @@ internal static class TrayIcon
         _muted = muted;
         _deafened = deafened;
 
-        if (deafened)
+        if (_hasNotification)
         {
-            _nid.hIcon = _iconDeafened;
-            _nid.szTip = "Brmble (Deafened)";
-        }
-        else if (muted)
-        {
-            _nid.hIcon = _iconMuted;
-            _nid.szTip = "Brmble (Muted)";
+            if (deafened)
+            {
+                _nid.hIcon = _iconDeafenedNotified;
+                _nid.szTip = "Brmble (Deafened) •";
+            }
+            else if (muted)
+            {
+                _nid.hIcon = _iconMutedNotified;
+                _nid.szTip = "Brmble (Muted) •";
+            }
+            else
+            {
+                _nid.hIcon = _iconNormalNotified;
+                _nid.szTip = "Brmble •";
+            }
         }
         else
         {
-            _nid.hIcon = _iconNormal;
-            _nid.szTip = "Brmble";
+            if (deafened)
+            {
+                _nid.hIcon = _iconDeafened;
+                _nid.szTip = "Brmble (Deafened)";
+            }
+            else if (muted)
+            {
+                _nid.hIcon = _iconMuted;
+                _nid.szTip = "Brmble (Muted)";
+            }
+            else
+            {
+                _nid.hIcon = _iconNormal;
+                _nid.szTip = "Brmble";
+            }
         }
 
         _nid.uFlags = NIF_ICON | NIF_TIP;
