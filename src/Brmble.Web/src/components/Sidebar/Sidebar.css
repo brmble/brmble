@@ -31,6 +31,20 @@
   margin-top: 0.125rem;
 }
 
+.server-info-panel[style*="cursor: pointer"]:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-default);
+}
+
+.server-info-active {
+  background: var(--bg-hover);
+  border-color: var(--accent-lemon);
+}
+
+.server-info-active .server-info-name {
+  color: var(--accent-lemon);
+}
+
 .server-status-panel {
   padding: 0.5rem 0.75rem;
   margin: 0 0.5rem;

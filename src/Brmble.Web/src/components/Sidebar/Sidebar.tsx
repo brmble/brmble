@@ -8,6 +8,8 @@ interface SidebarProps {
   currentChannelId?: number;
   onJoinChannel: (channelId: number) => void;
   onSelectChannel: (channelId: number) => void;
+  onSelectServer?: () => void;
+  isServerChatActive?: boolean;
   connected?: boolean;
   serverLabel?: string;
   serverAddress?: string;
@@ -21,6 +23,8 @@ export function Sidebar({
   currentChannelId,
   onJoinChannel,
   onSelectChannel,
+  onSelectServer,
+  isServerChatActive,
   connected,
   serverLabel,
   serverAddress,
@@ -30,7 +34,11 @@ export function Sidebar({
   return (
     <aside className="sidebar">
       {connected && (
-        <div className="server-info-panel">
+        <div 
+          className={`server-info-panel${isServerChatActive ? ' server-info-active' : ''}`}
+          onClick={onSelectServer}
+          style={{ cursor: onSelectServer ? 'pointer' : undefined }}
+        >
           <div className="server-info-name">{serverLabel || 'Server'}</div>
           {serverAddress && (
             <div className="server-info-address">{serverAddress}</div>
