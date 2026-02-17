@@ -1,9 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import bridge from './bridge';
 import { Header } from './components/Header/Header';
 import { Sidebar } from './components/Sidebar/Sidebar';
 import { ChatPanel } from './components/ChatPanel/ChatPanel';
 import { ConnectModal } from './components/ConnectModal/ConnectModal';
+import { ServerList } from './components/ServerList/ServerList';
+import type { ServerEntry } from './hooks/useServerlist';
 import { DMPanel } from './components/DMPanel/DMPanel';
 import { SettingsModal } from './components/SettingsModal/SettingsModal';
 import { useChatStore } from './hooks/useChatStore';
@@ -31,21 +33,12 @@ interface User {
   self?: boolean;
 }
 
-interface Server {
-  id: string;
-  name: string;
-  host?: string;
-  port?: number;
-}
 
 function App() {
   const [connected, setConnected] = useState(false);
   const [username, setUsername] = useState('');
   const [serverAddress, setServerAddress] = useState('');
-  const [servers] = useState<Server[]>([
-    { id: '1', name: 'Mumble Server' }
-  ]);
-  const [selectedServerId, setSelectedServerId] = useState('1');
+  const [serverLabel, setServerLabel] = useState('');
   
   const [channels, setChannels] = useState<Channel[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -67,19 +60,19 @@ function App() {
     bridge.send('notification.badge', { unreadDMs: unread > 0, pendingInvite: invite });
   };
 
-  useEffect(() => {
-    const saved = localStorage.getItem('brmble-server');
-    if (saved) {
-      try {
-        const data: SavedServer = JSON.parse(saved);
-        setUsername(data.username);
-        handleConnect(data);
-      } catch (e) {
-        console.error('Failed to load saved server:', e);
-      }
-    }
-  }, []);
+  // Refs to avoid re-registering bridge handlers on every state change
+  const usersRef = useRef(users);
+  usersRef.current = users;
+  const channelsRef = useRef(channels);
+  channelsRef.current = channels;
+  const addMessageRef = useRef(addMessage);
+  addMessageRef.current = addMessage;
+  const unreadCountRef = useRef(unreadCount);
+  unreadCountRef.current = unreadCount;
+  const hasPendingInviteRef = useRef(hasPendingInvite);
+  hasPendingInviteRef.current = hasPendingInvite;
 
+  // Register all bridge handlers once on mount
   useEffect(() => {
     const onVoiceConnected = ((data: unknown) => {
       setConnected(true);
@@ -104,6 +97,7 @@ function App() {
     const onVoiceDisconnected = () => {
       setConnected(false);
       setServerAddress('');
+      setServerLabel('');
       setChannels([]);
       setUsers([]);
       setCurrentChannelId(undefined);
@@ -120,12 +114,12 @@ function App() {
     const onVoiceMessage = ((data: unknown) => {
       const d = data as { message: string; senderSession?: number } | undefined;
       if (d?.message) {
-        const senderUser = users.find(u => u.session === d.senderSession);
+        const senderUser = usersRef.current.find(u => u.session === d.senderSession);
         const senderName = senderUser?.name || 'Unknown';
-        addMessage(senderName, d.message);
-        const newUnread = unreadCount + 1;
+        addMessageRef.current(senderName, d.message);
+        const newUnread = unreadCountRef.current + 1;
         setUnreadCount(newUnread);
-        updateBadge(newUnread, hasPendingInvite);
+        updateBadge(newUnread, hasPendingInviteRef.current);
       }
     });
 
@@ -163,7 +157,7 @@ function App() {
         if (d.name) {
           setCurrentChannelName(d.name);
         } else {
-          const channel = channels.find(c => c.id === d.channelId);
+          const channel = channelsRef.current.find(c => c.id === d.channelId);
           setCurrentChannelName(channel?.name || '');
         }
       }
@@ -213,12 +207,23 @@ function App() {
       bridge.off('voice.selfMuteChanged', onSelfMuteChanged);
       bridge.off('voice.selfDeafChanged', onSelfDeafChanged);
     };
-  }, [addMessage, channels, users, unreadCount, hasPendingInvite]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const handleConnect = (serverData: SavedServer) => {
+const handleConnect = (serverData: SavedServer) => {
     localStorage.setItem('brmble-server', JSON.stringify(serverData));
     setServerAddress(`${serverData.host}:${serverData.port}`);
     bridge.send('voice.connect', serverData);
+  };
+
+  const handleServerConnect = (server: ServerEntry) => {
+    setServerLabel(server.label || `${server.host}:${server.port}`);
+    handleConnect({
+      host: server.host, 
+      port: server.port, 
+      username: server.username, 
+      password: '' 
+    });
   };
 
   const handleJoinChannel = (channelId: number) => {
@@ -279,15 +284,13 @@ function App() {
       
       <div className="app-body">
         <Sidebar
-          servers={servers}
-          selectedServerId={selectedServerId}
-          onSelectServer={setSelectedServerId}
           channels={channels}
           users={users}
           currentChannelId={currentChannelId}
           onJoinChannel={handleJoinChannel}
           onSelectChannel={handleSelectChannel}
           connected={connected}
+          serverLabel={serverLabel}
           serverAddress={serverAddress}
           username={username}
           onDisconnect={handleDisconnect}
@@ -306,14 +309,7 @@ function App() {
 
       {!connected && (
         <div className="connect-overlay">
-          <button className="connect-overlay-btn" onClick={() => setShowConnectModal(true)}>
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
-              <polyline points="10 17 15 12 10 7" />
-              <line x1="15" y1="12" x2="3" y2="12" />
-            </svg>
-            Connect to Server
-          </button>
+          <ServerList onConnect={handleServerConnect} />
         </div>
       )}
 

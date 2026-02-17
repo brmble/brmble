@@ -11,7 +11,9 @@ using MumbleVoiceEngine.Codec;
 public class UserAudioPipeline : IWaveProvider, IDisposable
 {
     private readonly OpusDecoder _decoder;
-    private readonly int _frameSizeBytes; // 1920 for 960 samples mono 16-bit
+    private readonly int _sampleRate;
+    private readonly int _channels;
+    private readonly int _bytesPerSample;
 
     // Decoded PCM queue — written by network thread, read by audio thread
     private readonly Queue<byte[]> _pcmQueue = new();
@@ -22,9 +24,11 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
 
     public WaveFormat WaveFormat { get; }
 
-    public UserAudioPipeline(int sampleRate = 48000, int channels = 1, int frameSize = 960)
+    public UserAudioPipeline(int sampleRate = 48000, int channels = 1)
     {
-        _frameSizeBytes = frameSize * sizeof(short) * channels;
+        _sampleRate = sampleRate;
+        _channels = channels;
+        _bytesPerSample = sizeof(short) * channels;
         WaveFormat = new WaveFormat(sampleRate, 16, channels);
         _decoder = new OpusDecoder(sampleRate, channels);
     }
@@ -35,7 +39,12 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
     /// </summary>
     public void FeedEncodedPacket(byte[] opusData, long sequence)
     {
-        var decoded = new byte[_frameSizeBytes];
+        // Query actual sample count — Mumble 1.5+ clients may send multi-frame
+        // or larger-frame packets that exceed the default 960-sample (20ms) size.
+        var samples = OpusDecoder.GetSamples(opusData, 0, opusData.Length, _sampleRate);
+        if (samples <= 0) return;
+
+        var decoded = new byte[samples * _bytesPerSample];
         _decoder.Decode(opusData, 0, opusData.Length, decoded, 0);
 
         lock (_lock)

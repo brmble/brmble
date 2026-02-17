@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Text.Json;
 using MumbleSharp;
 using MumbleSharp.Audio;
 using MumbleSharp.Audio.Codecs;
@@ -11,64 +10,29 @@ using Brmble.Client.Bridge;
 namespace Brmble.Client.Services.Voice;
 
 /// <summary>
-/// Mumble protocol adapter implementing the VoiceService interface.
+/// Mumble protocol adapter — translates between MumbleSharp events and
+/// the voice.* bridge messages consumed by the frontend.
 /// </summary>
-/// <remarks>
-/// This adapter connects to Mumble servers using MumbleSharp and translates between
-/// Mumble protocol events and the voice.* message format used by the frontend.
-/// </remarks>
 internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 {
     private readonly NativeBridge? _bridge;
     private CancellationTokenSource? _cts;
-    private Task? _processTask;
+    private Thread? _processThread;
+    private AudioManager? _audioManager;
 
-    /// <inheritdoc />
     public string ServiceName => "mumble";
 
-    /// <inheritdoc />
-    public event Action? Connected;
-    
-    /// <inheritdoc />
-    public event Action? Disconnected;
-    
-    /// <inheritdoc />
-    public event Action<string>? Error;
-    
-    /// <inheritdoc />
-    public event Action<User>? UserJoined;
-    
-    /// <inheritdoc />
-    public event Action<User>? UserLeft;
-    
-    /// <inheritdoc />
-    public event Action<Channel>? ChannelJoined;
-    
-    /// <inheritdoc />
-    public event Action<string>? MessageReceived;
-
-    /// <summary>
-    /// Initializes a new instance of the MumbleAdapter class.
-    /// </summary>
-    /// <param name="bridge">The NativeBridge for communicating with the frontend.</param>
     public MumbleAdapter(NativeBridge bridge)
     {
         _bridge = bridge;
     }
 
-    /// <inheritdoc />
-    public void Initialize(NativeBridge bridge)
-    {
-        // Initialization handled in constructor
-    }
+    public void Initialize(NativeBridge bridge) { }
 
-    /// <inheritdoc />
     public void Connect(string host, int port, string username, string password = "")
     {
         if (Connection?.State == ConnectionStates.Connected)
-        {
             throw new InvalidOperationException("Already connected");
-        }
 
         if (string.IsNullOrWhiteSpace(host))
         {
@@ -82,7 +46,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             return;
         }
 
-        if (port <= 0 || port > 65535)
+        if (port is <= 0 or > 65535)
         {
             _bridge?.Send("voice.error", new { message = "Port must be between 1 and 65535" });
             return;
@@ -91,13 +55,15 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         try
         {
             var connection = new MumbleConnection(host, port, this, voiceSupport: true);
-            
-            _cts = new CancellationTokenSource();
-            _processTask = Task.Run(() => ProcessLoop(_cts.Token));
-
             connection.Connect(username, password, Array.Empty<string>(), "Brmble");
-            
-            Debug.WriteLine($"[Mumble] Connection handshake complete, waiting for server sync...");
+
+            _cts = new CancellationTokenSource();
+            _processThread = new Thread(() => ProcessLoop(_cts.Token))
+            {
+                IsBackground = true,
+                Name = "MumbleProcess"
+            };
+            _processThread.Start();
         }
         catch (System.Net.Sockets.SocketException ex)
         {
@@ -111,176 +77,138 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 _ => $"Connection failed: {ex.Message}"
             };
             _bridge?.Send("voice.error", new { message, code = ex.SocketErrorCode.ToString() });
-            Debug.WriteLine($"[Mumble] Socket connection failed: {message}\n{ex}");
+            Debug.WriteLine($"[Mumble] Connection failed: {message}");
             Disconnect();
         }
         catch (Exception ex)
         {
             _bridge?.Send("voice.error", new { message = ex.Message });
-            Debug.WriteLine($"[Mumble] Connection failed: {ex}\n{ex.StackTrace}");
+            Debug.WriteLine($"[Mumble] Connection failed: {ex.Message}");
             Disconnect();
         }
     }
 
-    /// <inheritdoc />
     public void Disconnect()
     {
         _cts?.Cancel();
-        
-        if (Connection != null)
+        _processThread?.Join(2000);
+        _processThread = null;
+
+        _audioManager?.Dispose();
+        _audioManager = null;
+
+        try
         {
-            try
-            {
-                Connection.Close();
-            }
-            catch
-            {
-                Debug.WriteLine("[Mumble] Error closing connection");
-            }
+            // Close TCP/UDP sockets — BasicMumbleProtocol.Close() only nulls
+            // the Connection reference without closing the sockets.
+            Connection?.Close();
         }
+        catch { /* best effort */ }
+
+        try
+        {
+            // Resets LocalUser and Connection to null, stops the encoding thread.
+            // Without this the next ServerSync throws "Second ServerSync Received".
+            Close();
+        }
+        catch { /* best effort */ }
+
+        UserDictionary.Clear();
+        ChannelDictionary.Clear();
 
         _bridge?.Send("voice.disconnected", null);
-        Debug.WriteLine("[Mumble] Disconnected");
     }
 
-    /// <summary>
-    /// Processes incoming Mumble protocol messages.
-    /// </summary>
-    /// <param name="ct">The cancellation token for stopping the loop.</param>
-    private async Task ProcessLoop(CancellationToken ct)
+    private void ProcessLoop(CancellationToken ct)
     {
-        Debug.WriteLine("[Mumble] ProcessLoop started");
-        while (!ct.IsCancellationRequested && Connection != null)
+        while (!ct.IsCancellationRequested
+               && Connection is { State: not ConnectionStates.Disconnected })
         {
             try
             {
-                if (Connection.State == ConnectionStates.Connected)
-                {
-                    Connection.Process();
-                }
-                await Task.Delay(10, ct);
+                if (Connection.Process())
+                    Thread.Yield();
+                else
+                    Thread.Sleep(1);
             }
-            catch (OperationCanceledException)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                break;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[Mumble] Process error: {ex}");
                 _bridge?.Send("voice.error", new { message = $"Process error: {ex.Message}" });
             }
         }
-        Debug.WriteLine("[Mumble] ProcessLoop ended");
     }
 
-    /// <inheritdoc />
-    public void SendMessage(string message)
-    {
-        SendTextMessage(message);
-    }
+    public void SendMessage(string message) => SendTextMessage(message);
 
-    /// <summary>
-    /// Sends a text message to the current channel.
-    /// </summary>
-    /// <param name="message">The message text to send.</param>
     public void SendTextMessage(string message)
     {
-        if (Connection == null || Connection.State != ConnectionStates.Connected)
+        if (Connection is not { State: ConnectionStates.Connected })
             return;
 
-        var textMessage = new TextMessage
-        {
-            Message = message
-        };
-
-        Connection.SendControl(PacketType.TextMessage, textMessage);
+        Connection.SendControl(PacketType.TextMessage, new TextMessage { Message = message });
     }
 
-    /// <inheritdoc />
     public void ToggleMute()
     {
-        if (LocalUser == null)
-            return;
+        if (LocalUser == null) return;
 
         LocalUser.SelfMuted = !LocalUser.SelfMuted;
-        // Unmuting while deafened also undeafens (Mumble behavior)
         if (!LocalUser.SelfMuted && LocalUser.SelfDeaf)
             LocalUser.SelfDeaf = false;
         LocalUser.SendMuteDeaf();
+        _audioManager?.SetMuted(LocalUser.SelfMuted);
 
         _bridge?.Send("voice.selfMuteChanged", new { muted = LocalUser.SelfMuted });
         _bridge?.Send("voice.selfDeafChanged", new { deafened = LocalUser.SelfDeaf });
-        Debug.WriteLine($"[Mumble] SelfMute toggled: {LocalUser.SelfMuted}, SelfDeaf: {LocalUser.SelfDeaf}");
     }
 
-    /// <inheritdoc />
     public void ToggleDeaf()
     {
-        if (LocalUser == null)
-            return;
+        if (LocalUser == null) return;
 
         LocalUser.SelfDeaf = !LocalUser.SelfDeaf;
-        LocalUser.SelfMuted = LocalUser.SelfDeaf; // deafen implies mute in Mumble
+        LocalUser.SelfMuted = LocalUser.SelfDeaf;
         LocalUser.SendMuteDeaf();
+        _audioManager?.SetDeafened(LocalUser.SelfDeaf);
+        _audioManager?.SetMuted(LocalUser.SelfMuted);
 
         _bridge?.Send("voice.selfDeafChanged", new { deafened = LocalUser.SelfDeaf });
         _bridge?.Send("voice.selfMuteChanged", new { muted = LocalUser.SelfMuted });
-        Debug.WriteLine($"[Mumble] SelfDeaf toggled: {LocalUser.SelfDeaf}, SelfMute: {LocalUser.SelfMuted}");
     }
 
-    /// <inheritdoc />
     public void JoinChannel(uint channelId)
     {
-        if (Connection == null || Connection.State != ConnectionStates.Connected)
+        if (Connection is not { State: ConnectionStates.Connected })
             return;
 
-        var userState = new UserState { ChannelId = channelId };
-        Connection.SendControl(PacketType.UserState, userState);
-        Debug.WriteLine($"[Mumble] Sent join channel request for: {channelId}");
+        Connection.SendControl(PacketType.UserState, new UserState { ChannelId = channelId });
     }
 
-    /// <inheritdoc />
     public void RegisterHandlers(NativeBridge bridge)
     {
-        bridge.RegisterHandler("voice.connect", (data) =>
+        bridge.RegisterHandler("voice.connect", data =>
         {
-            string p = "localhost";
-            int pt = 64738;
-            string u = "User";
-            string pw = "";
-
-            if (data.TryGetProperty("host", out var host))
-                p = host.GetString() ?? "localhost";
-            if (data.TryGetProperty("port", out var port))
-                pt = port.GetInt32();
-            if (data.TryGetProperty("username", out var username))
-                u = username.GetString() ?? "User";
-            if (data.TryGetProperty("password", out var password))
-                pw = password.GetString() ?? "";
-
-            Connect(p, pt, u, pw);
+            var h = data.TryGetProperty("host", out var host) ? host.GetString() ?? "localhost" : "localhost";
+            var p = data.TryGetProperty("port", out var port) ? port.GetInt32() : 64738;
+            var u = data.TryGetProperty("username", out var user) ? user.GetString() ?? "User" : "User";
+            var pw = data.TryGetProperty("password", out var pass) ? pass.GetString() ?? "" : "";
+            Task.Run(() => Connect(h, p, u, pw));
             return Task.CompletedTask;
         });
 
         bridge.RegisterHandler("voice.disconnect", _ => { Disconnect(); return Task.CompletedTask; });
 
-        bridge.RegisterHandler("voice.sendMessage", (data) =>
+        bridge.RegisterHandler("voice.sendMessage", data =>
         {
-            if (data.TryGetProperty("message", out var message))
-            {
-                SendTextMessage(message.GetString() ?? "");
-            }
+            if (data.TryGetProperty("message", out var msg))
+                SendTextMessage(msg.GetString() ?? "");
             return Task.CompletedTask;
         });
 
-        bridge.RegisterHandler("voice.joinChannel", (data) =>
+        bridge.RegisterHandler("voice.joinChannel", data =>
         {
-            if (data.TryGetProperty("channelId", out var channelId))
-            {
-                var id = channelId.GetUInt32();
-                JoinChannel(id);
-                Debug.WriteLine($"[Mumble] Joining channel: {id}");
-            }
+            if (data.TryGetProperty("channelId", out var id))
+                JoinChannel(id.GetUInt32());
             return Task.CompletedTask;
         });
 
@@ -288,88 +216,71 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         bridge.RegisterHandler("voice.toggleDeaf", _ => { ToggleDeaf(); return Task.CompletedTask; });
     }
 
-    /// <summary>
-    /// Called when the server sends synchronization data after authentication.
-    /// </summary>
-    /// <param name="serverSync">The server sync message containing initial state.</param>
+    // --- MumbleSharp protocol overrides ---
+
     public override void ServerSync(ServerSync serverSync)
     {
         base.ServerSync(serverSync);
-        
-        Debug.WriteLine($"[Mumble] ServerSync received, sending full state");
-        
-        var channelList = Channels.Select(c => new { id = c.Id, name = c.Name, parent = c.Parent }).ToList();
-        
-        // Send all users - don't filter by channelId in initial sync
-        var userList = Users.Select(u => new { 
-            session = u.Id, 
-            name = u.Name, 
-            channelId = u.Channel?.Id ?? 0, 
+
+        var channels = Channels.Select(c => new { id = c.Id, name = c.Name, parent = c.Parent }).ToList();
+        var users = Users.Select(u => new
+        {
+            session = u.Id,
+            name = u.Name,
+            channelId = u.Channel?.Id ?? 0,
             muted = u.Muted || u.SelfMuted,
             deafened = u.Deaf || u.SelfDeaf,
-            self = u == LocalUser 
+            self = u == LocalUser
         }).ToList();
-        
-        Debug.WriteLine($"[Mumble] Local user: {LocalUser?.Name}, channel: {LocalUser?.Channel?.Id}");
-        
-        _bridge?.Send("voice.connected", new { 
+
+        _bridge?.Send("voice.connected", new
+        {
             username = LocalUser?.Name,
-            channels = channelList,
-            users = userList
+            channels,
+            users
         });
-        
-        Debug.WriteLine($"[Mumble] Sent {channelList.Count} channels and {userList.Count} users");
+
+        _audioManager?.Dispose();
+        _audioManager = new AudioManager();
+        _audioManager.SendVoicePacket += packet =>
+            Connection?.SendVoice(new ArraySegment<byte>(packet.ToArray()));
+        _audioManager.UserStartedSpeaking += userId =>
+            _bridge?.Send("voice.userSpeaking", new { session = userId });
+        _audioManager.UserStoppedSpeaking += userId =>
+            _bridge?.Send("voice.userSilent", new { session = userId });
+        _audioManager.StartMic();
     }
 
-    /// <summary>
-    /// Called when a user's state changes.
-    /// </summary>
-    /// <param name="userState">The user state update from the server.</param>
     public override void UserState(UserState userState)
     {
         var previousChannel = LocalUser?.Channel?.Id;
-        
         base.UserState(userState);
-        
-        Debug.WriteLine($"[Mumble] UserState: {userState.Name} (session: {userState.Session})");
-        
+
         var isSelf = LocalUser != null && userState.Session == LocalUser.Id;
-        var newChannel = userState.ChannelId;
-        
-        // Send userJoined for new users or channel changes
-        _bridge?.Send("voice.userJoined", new 
-        { 
-            session = userState.Session, 
+
+        _bridge?.Send("voice.userJoined", new
+        {
+            session = userState.Session,
             name = userState.Name,
             channelId = userState.ChannelId,
             muted = userState.Mute || userState.SelfMute,
             deafened = userState.Deaf || userState.SelfDeaf,
             self = isSelf
         });
-        
-        // If user switched channels, notify
-        if (previousChannel.HasValue && newChannel != previousChannel && isSelf)
-        {
-            _bridge?.Send("voice.channelChanged", new
-            {
-                channelId = newChannel
-            });
-        }
+
+        if (previousChannel.HasValue && userState.ChannelId != previousChannel && isSelf)
+            _bridge?.Send("voice.channelChanged", new { channelId = userState.ChannelId });
     }
 
-    /// <summary>
-    /// Called when a user's channel changes.
-    /// </summary>
     protected override void UserStateChannelChanged(User user, uint oldChannelId)
     {
         base.UserStateChannelChanged(user, oldChannelId);
-        
+
         if (user == LocalUser && user.Channel != null)
         {
-            Debug.WriteLine($"[Mumble] LocalUser channel changed to: {user.Channel.Id}");
-            _bridge?.Send("voice.userJoined", new 
-            { 
-                session = user.Id, 
+            _bridge?.Send("voice.userJoined", new
+            {
+                session = user.Id,
                 name = user.Name,
                 channelId = user.Channel.Id,
                 muted = user.Muted || user.SelfMuted,
@@ -379,67 +290,45 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         }
     }
 
-    /// <summary>
-    /// Called when a user is removed from the server.
-    /// </summary>
-    /// <param name="userRemove">The user removal event from the server.</param>
     public override void UserRemove(UserRemove userRemove)
     {
         base.UserRemove(userRemove);
-        
-        Debug.WriteLine($"[Mumble] UserRemove: session {userRemove.Session}");
-        
-        _bridge?.Send("voice.userLeft", new 
-        { 
-            session = userRemove.Session
-        });
+        _audioManager?.RemoveUser(userRemove.Session);
+        _bridge?.Send("voice.userLeft", new { session = userRemove.Session });
     }
 
-    /// <summary>
-    /// Called when a channel's state changes.
-    /// </summary>
-    /// <param name="channelState">The channel state update from the server.</param>
     public override void ChannelState(ChannelState channelState)
     {
         base.ChannelState(channelState);
-        
-        Debug.WriteLine($"[Mumble] ChannelState: {channelState.Name} (id: {channelState.ChannelId})");
-        
-        _bridge?.Send("voice.channelJoined", new 
-        { 
-            id = channelState.ChannelId, 
+        _bridge?.Send("voice.channelJoined", new
+        {
+            id = channelState.ChannelId,
             name = channelState.Name,
             parent = channelState.Parent
         });
     }
 
-    /// <summary>
-    /// Called when a text message is received.
-    /// </summary>
-    /// <param name="textMessage">The text message from the server.</param>
     public override void TextMessage(TextMessage textMessage)
     {
         base.TextMessage(textMessage);
-        
-        _bridge?.Send("voice.message", new 
-        { 
+        _bridge?.Send("voice.message", new
+        {
             message = textMessage.Message,
             senderSession = textMessage.Actor
         });
     }
 
-    /// <summary>
-    /// Called when the server rejects the connection.
-    /// </summary>
-    /// <param name="reject">The rejection reason from the server.</param>
     public override void Reject(Reject reject)
     {
         base.Reject(reject);
-        
-        _bridge?.Send("voice.error", new 
-        { 
-            message = reject.Reason,
-            type = reject.Type
-        });
+        _bridge?.Send("voice.error", new { message = reject.Reason, type = reject.Type });
+    }
+
+    public override void EncodedVoice(byte[] data, uint userId, long sequence,
+        IVoiceCodec codec, SpeechTarget target)
+    {
+        // Don't call base — we use our own decode pipeline instead of
+        // MumbleSharp's AudioDecodingBuffer (fixed 350ms buffer, poor quality).
+        _audioManager?.FeedVoice(userId, data, sequence);
     }
 }
