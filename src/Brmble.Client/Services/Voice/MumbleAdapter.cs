@@ -138,17 +138,34 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.Dispose();
         _audioManager = null;
 
-        if (Connection != null)
+        try
         {
-            try
-            {
-                Connection.Close();
-            }
-            catch
-            {
-                Debug.WriteLine("[Mumble] Error closing connection");
-            }
+            // Close the underlying TCP/UDP sockets first — BasicMumbleProtocol.Close()
+            // only nulls the Connection reference without closing the sockets.
+            Connection?.Close();
         }
+        catch
+        {
+            Debug.WriteLine("[Mumble] Error closing connection sockets");
+        }
+
+        try
+        {
+            // Close() on BasicMumbleProtocol resets LocalUser and Connection to null,
+            // and stops the encoding thread. Without this, LocalUser stays set from
+            // the first connection and the next ServerSync throws
+            // "Second ServerSync Received".
+            Close();
+        }
+        catch
+        {
+            Debug.WriteLine("[Mumble] Error closing protocol");
+        }
+
+        // Clear stale state from previous connection so the next server
+        // starts fresh.
+        UserDictionary.Clear();
+        ChannelDictionary.Clear();
 
         _bridge?.Send("voice.disconnected", null);
         Debug.WriteLine("[Mumble] Disconnected");

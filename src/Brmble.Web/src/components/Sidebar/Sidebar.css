@@ -9,6 +9,28 @@
   overflow: hidden;
 }
 
+.server-info-panel {
+  padding: 0.75rem;
+  margin: 0.5rem 0.5rem 0;
+  background: var(--bg-glass);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+
+.server-info-name {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.server-info-address {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  margin-top: 0.125rem;
+}
+
 .server-status-panel {
   padding: 0.5rem 0.75rem;
   margin: 0 0.5rem;
