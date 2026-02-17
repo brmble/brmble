@@ -235,7 +235,6 @@ namespace MumbleSharp
                     case PacketType.UDPTunnel:
                         {
                             var length = IPAddress.NetworkToHostOrder(_reader.ReadInt32());
-                            Console.WriteLine($"[DBG-VOICE] TCP tunnel received {length}B voice packet");
                             _connection.ReceiveDecryptedUdp(_reader.ReadBytes(length));
                         }
                         break;

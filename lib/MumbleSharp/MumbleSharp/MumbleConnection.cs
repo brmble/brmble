@@ -118,17 +118,11 @@ namespace MumbleSharp
 
             _tcpProcessed = _tcp.Process();
             _udpProcessed = _udp.IsConnected ? _udp.Process() : false;
-
-            _processCount++;
-            if (_processCount % 5000 == 1)
-                Console.WriteLine($"[DBG-CONN] Process #{_processCount}: tcp={_tcpProcessed}, udp={_udpProcessed}, udpConnected={_udp.IsConnected}, state={State}");
-
             return _tcpProcessed || _udpProcessed;
         }
         //declared outside method for alloc optimization
         private bool _tcpProcessed;
         private bool _udpProcessed;
-        private int _processCount;
 
         public void SendControl<T>(PacketType type, T packet)
         {
@@ -160,8 +154,6 @@ namespace MumbleSharp
                 _udp.Send(encrypted, encrypted.Length);
         }
 
-        private int _voicePacketsSent;
-
         /// <summary>
         /// When true, voice is sent via TCP tunnel even if UDP is connected.
         /// </summary>
@@ -175,7 +167,6 @@ namespace MumbleSharp
             if (!VoiceSupportEnabled)
                 throw new InvalidOperationException("Voice Support is disabled with this connection");
 
-            _voicePacketsSent++;
             if (!ForceTcp && _udp != null && _udp.IsConnected)
             {
                 // Encrypt and send via UDP
@@ -183,21 +174,12 @@ namespace MumbleSharp
                 Buffer.BlockCopy(packet.Array, packet.Offset, voiceData, 0, packet.Count);
                 byte[] encrypted = _cryptState.Encrypt(voiceData, voiceData.Length);
                 if (encrypted != null)
-                {
-                    if (_voicePacketsSent % 50 == 1)
-                        Console.WriteLine($"[DBG-WIRE] Packet #{_voicePacketsSent}: {packet.Count}B encoded → {encrypted.Length}B encrypted → UDP");
                     _udp.Send(encrypted, encrypted.Length);
-                }
                 else
-                {
-                    Console.WriteLine($"[DBG-WIRE] Packet #{_voicePacketsSent}: Encryption FAILED, falling back to TCP");
-                    _tcp.SendVoice(PacketType.UDPTunnel, packet); // Fallback to TCP
-                }
+                    _tcp.SendVoice(PacketType.UDPTunnel, packet); // Encryption failed, fallback to TCP
             }
             else
             {
-                if (_voicePacketsSent % 50 == 1)
-                    Console.WriteLine($"[DBG-WIRE] Packet #{_voicePacketsSent}: {packet.Count}B → TCP tunnel (UDP not connected)");
                 _tcp.SendVoice(PacketType.UDPTunnel, packet); // TCP tunnel fallback
             }
         }
@@ -207,12 +189,8 @@ namespace MumbleSharp
             byte[] plaintext = _cryptState.Decrypt(packet, packet.Length);
 
             if (plaintext == null)
-            {
-                Console.WriteLine("[DBG-VOICE] UDP decryption failed");
                 return;
-            }
 
-            Console.WriteLine($"[DBG-VOICE] UDP decrypted {plaintext.Length}B, type={(plaintext[0] >> 5 & 0x7)}");
             ReceiveDecryptedUdp(plaintext);
         }
 
@@ -224,8 +202,6 @@ namespace MumbleSharp
                 Protocol.UdpPing(packet);
             else if(VoiceSupportEnabled)
                 UnpackVoicePacket(packet, type);
-            else
-                Console.WriteLine($"[DBG-VOICE] Voice packet dropped: VoiceSupportEnabled={VoiceSupportEnabled}, type={type}");
         }
 
         private void PackVoicePacket(ArraySegment<byte> packet)
@@ -245,10 +221,7 @@ namespace MumbleSharp
                 //Null codec means the user was not found. This can happen if a user leaves while voice packets are still in flight
                 IVoiceCodec codec = Protocol.GetCodec(session, vType);
                 if (codec == null)
-                {
-                    Console.WriteLine($"[DBG-VOICE] GetCodec returned null for session={session}, codec={vType}");
                     return;
-                }
 
                 if (vType == SpeechCodecs.Opus)
                 {
@@ -256,19 +229,12 @@ namespace MumbleSharp
                     size &= 0x1fff;
 
                     if (size == 0)
-                    {
-                        Console.WriteLine($"[DBG-VOICE] Opus size=0, dropping packet for session={session}");
                         return;
-                    }
 
                     byte[] data = reader.ReadBytes(size);
                     if (data == null)
-                    {
-                        Console.WriteLine($"[DBG-VOICE] ReadBytes returned null for session={session}, size={size}");
                         return;
-                    }
 
-                    Console.WriteLine($"[DBG-VOICE] Calling EncodedVoice: session={session}, seq={sequence}, bytes={data.Length}");
                     Protocol.EncodedVoice(data, session, sequence, codec, target);
                 }
                 else
