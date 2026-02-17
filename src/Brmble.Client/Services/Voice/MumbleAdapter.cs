@@ -197,10 +197,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     }
 
     /// <summary>
-    /// Sends a text message to the current channel.
+    /// Sends a text message to the current channel, or to a specific channel if channelId is provided.
     /// </summary>
     /// <param name="message">The message text to send.</param>
-    public void SendTextMessage(string message)
+    /// <param name="channelId">Optional channel ID to target. If null, sends to the current channel.</param>
+    public void SendTextMessage(string message, uint? channelId = null)
     {
         if (Connection == null || Connection.State != ConnectionStates.Connected)
             return;
@@ -209,6 +210,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         {
             Message = message
         };
+
+        if (channelId.HasValue)
+        {
+            textMessage.ChannelIds = new[] { channelId.Value };
+        }
 
         Connection.SendControl(PacketType.TextMessage, textMessage);
     }
@@ -285,7 +291,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         {
             if (data.TryGetProperty("message", out var message))
             {
-                SendTextMessage(message.GetString() ?? "");
+                uint? channelId = null;
+                if (data.TryGetProperty("channelId", out var cid))
+                {
+                    channelId = cid.GetUInt32();
+                }
+                SendTextMessage(message.GetString() ?? "", channelId);
             }
             return Task.CompletedTask;
         });
