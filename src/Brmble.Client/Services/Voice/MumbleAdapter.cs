@@ -21,7 +21,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 {
     private readonly NativeBridge? _bridge;
     private CancellationTokenSource? _cts;
-    private Task? _processTask;
+    private Thread? _processThread;
     private AudioManager? _audioManager;
 
     /// <inheritdoc />
@@ -94,7 +94,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             var connection = new MumbleConnection(host, port, this, voiceSupport: true);
             
             _cts = new CancellationTokenSource();
-            _processTask = Task.Run(() => ProcessLoop(_cts.Token));
+            _processThread = new Thread(() => ProcessLoop(_cts.Token))
+            {
+                IsBackground = true,
+                Name = "MumbleProcess"
+            };
+            _processThread.Start();
 
             connection.Connect(username, password, Array.Empty<string>(), "Brmble");
             
@@ -148,27 +153,23 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     }
 
     /// <summary>
-    /// Processes incoming Mumble protocol messages.
+    /// Processes incoming Mumble protocol messages on a dedicated thread.
+    /// Uses Thread.Sleep(1)/Yield for low-latency voice packet processing.
     /// </summary>
-    /// <param name="ct">The cancellation token for stopping the loop.</param>
-    private async Task ProcessLoop(CancellationToken ct)
+    private void ProcessLoop(CancellationToken ct)
     {
         Debug.WriteLine("[Mumble] ProcessLoop started");
-        while (!ct.IsCancellationRequested && Connection != null)
+        while (!ct.IsCancellationRequested && Connection != null
+               && Connection.State != ConnectionStates.Disconnected)
         {
             try
             {
-                if (Connection.State == ConnectionStates.Connected)
-                {
-                    Connection.Process();
-                }
-                await Task.Delay(10, ct);
+                if (Connection.Process())
+                    Thread.Yield();
+                else
+                    Thread.Sleep(1);
             }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 Debug.WriteLine($"[Mumble] Process error: {ex}");
                 _bridge?.Send("voice.error", new { message = $"Process error: {ex.Message}" });
