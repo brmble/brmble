@@ -452,7 +452,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _bridge?.Send("voice.message", new 
         { 
             message = textMessage.Message,
-            senderSession = textMessage.Actor
+            senderSession = textMessage.Actor,
+            channelIds = textMessage.ChannelIds ?? Array.Empty<uint>()
         });
     }
 
