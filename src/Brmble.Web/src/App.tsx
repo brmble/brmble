@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import bridge from './bridge';
 import { Header } from './components/Header/Header';
 import { Sidebar } from './components/Sidebar/Sidebar';
@@ -61,20 +61,15 @@ const [servers] = useState<Server[]>([]);
   const channelKey = currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
   const { messages, addMessage } = useChatStore(channelKey);
 
-  // Auto-connect disabled - users select server from serverlist manually
-  // useEffect(() => {
-  //   const saved = localStorage.getItem('brmble-server');
-  //   if (saved) {
-  //     try {
-  //       const data: SavedServer = JSON.parse(saved);
-  //       setUsername(data.username);
-  //       handleConnect(data);
-  //     } catch (e) {
-  //       console.error('Failed to load saved server:', e);
-  //     }
-  //   }
-  // }, []);
+  // Refs to avoid re-registering bridge handlers on every state change
+  const usersRef = useRef(users);
+  usersRef.current = users;
+  const channelsRef = useRef(channels);
+  channelsRef.current = channels;
+  const addMessageRef = useRef(addMessage);
+  addMessageRef.current = addMessage;
 
+  // Register all bridge handlers once on mount
   useEffect(() => {
     const onVoiceConnected = ((data: unknown) => {
       setConnected(true);
@@ -115,9 +110,9 @@ const [servers] = useState<Server[]>([]);
     const onVoiceMessage = ((data: unknown) => {
       const d = data as { message: string; senderSession?: number } | undefined;
       if (d?.message) {
-        const senderUser = users.find(u => u.session === d.senderSession);
+        const senderUser = usersRef.current.find(u => u.session === d.senderSession);
         const senderName = senderUser?.name || 'Unknown';
-        addMessage(senderName, d.message);
+        addMessageRef.current(senderName, d.message);
       }
     });
 
@@ -155,7 +150,7 @@ const [servers] = useState<Server[]>([]);
         if (d.name) {
           setCurrentChannelName(d.name);
         } else {
-          const channel = channels.find(c => c.id === d.channelId);
+          const channel = channelsRef.current.find(c => c.id === d.channelId);
           setCurrentChannelName(channel?.name || '');
         }
       }
@@ -205,7 +200,8 @@ const [servers] = useState<Server[]>([]);
       bridge.off('voice.selfMuteChanged', onSelfMuteChanged);
       bridge.off('voice.selfDeafChanged', onSelfDeafChanged);
     };
-  }, [addMessage, channels, users]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
 const handleConnect = (serverData: SavedServer) => {
     localStorage.setItem('brmble-server', JSON.stringify(serverData));
