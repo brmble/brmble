@@ -61,6 +61,8 @@ function App() {
   channelsRef.current = channels;
   const addMessageRef = useRef(addMessage);
   addMessageRef.current = addMessage;
+  const currentChannelIdRef = useRef(currentChannelId);
+  currentChannelIdRef.current = currentChannelId;
 
   // Register all bridge handlers once on mount
   useEffect(() => {
@@ -104,11 +106,17 @@ function App() {
     });
 
     const onVoiceMessage = ((data: unknown) => {
-      const d = data as { message: string; senderSession?: number } | undefined;
+      const d = data as { message: string; senderSession?: number; channelIds?: number[] } | undefined;
       if (d?.message) {
         const senderUser = usersRef.current.find(u => u.session === d.senderSession);
         const senderName = senderUser?.name || 'Unknown';
-        addMessageRef.current(senderName, d.message);
+        const isRootMessage = !d.channelIds || d.channelIds.length === 0 || d.channelIds.includes(0);
+        const currentKey = currentChannelIdRef.current;
+        if (isRootMessage && currentKey === 'server-root') {
+          addMessageRef.current(senderName, d.message);
+        } else if (!isRootMessage && currentKey !== 'server-root') {
+          addMessageRef.current(senderName, d.message);
+        }
       }
     });
 
