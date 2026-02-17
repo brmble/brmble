@@ -3,6 +3,7 @@ using System.Drawing;
 using System.Net.Sockets;
 using Microsoft.Web.WebView2.Core;
 using Brmble.Client.Bridge;
+using Brmble.Client.Services.Serverlist;
 using Brmble.Client.Services.Voice;
 
 namespace Brmble.Client;
@@ -28,6 +29,7 @@ static class Program
 
     private static CoreWebView2Controller? _controller;
     private static NativeBridge? _bridge;
+    private static ServerlistService? _serverlistService;
     private static MumbleAdapter? _mumbleClient;
     private static IntPtr _hwnd;
     private static bool _muted;
@@ -84,7 +86,11 @@ static class Program
                 "brmble.local", webRoot, CoreWebView2HostResourceAccessKind.Allow);
 
             _bridge = new NativeBridge(_controller.CoreWebView2, hwnd);
-            
+
+            _serverlistService = new ServerlistService();
+            _serverlistService.Initialize(_bridge);
+            _serverlistService.RegisterHandlers(_bridge);
+
             _mumbleClient = new MumbleAdapter(_bridge);
             
             SetupBridgeHandlers();

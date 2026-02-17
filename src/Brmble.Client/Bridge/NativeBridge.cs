@@ -23,6 +23,11 @@ public sealed class NativeBridge
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
+    private static readonly JsonSerializerOptions _jsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
     private readonly CoreWebView2 _webView;
     private readonly Dictionary<string, List<Func<JsonElement, Task>>> _handlers = new();
     private IntPtr _hwnd;
@@ -56,7 +61,7 @@ public sealed class NativeBridge
     public void Send(string type, object? data = null)
     {
         var message = new { type, data };
-        var json = JsonSerializer.Serialize(message);
+        var json = JsonSerializer.Serialize(message, _jsonOptions);
         Debug.WriteLine($"[NativeBridge] Sending: {type}");
         
         _pendingMessages.Enqueue(json);
