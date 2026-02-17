@@ -154,8 +154,6 @@ namespace MumbleSharp
                 _udp.Send(encrypted, encrypted.Length);
         }
 
-        private int _voicePacketsSent;
-
         /// <summary>
         /// When true, voice is sent via TCP tunnel even if UDP is connected.
         /// </summary>
@@ -169,7 +167,6 @@ namespace MumbleSharp
             if (!VoiceSupportEnabled)
                 throw new InvalidOperationException("Voice Support is disabled with this connection");
 
-            _voicePacketsSent++;
             if (!ForceTcp && _udp != null && _udp.IsConnected)
             {
                 // Encrypt and send via UDP
@@ -177,21 +174,12 @@ namespace MumbleSharp
                 Buffer.BlockCopy(packet.Array, packet.Offset, voiceData, 0, packet.Count);
                 byte[] encrypted = _cryptState.Encrypt(voiceData, voiceData.Length);
                 if (encrypted != null)
-                {
-                    if (_voicePacketsSent % 50 == 1)
-                        Console.WriteLine($"[DBG-WIRE] Packet #{_voicePacketsSent}: {packet.Count}B encoded → {encrypted.Length}B encrypted → UDP");
                     _udp.Send(encrypted, encrypted.Length);
-                }
                 else
-                {
-                    Console.WriteLine($"[DBG-WIRE] Packet #{_voicePacketsSent}: Encryption FAILED, falling back to TCP");
-                    _tcp.SendVoice(PacketType.UDPTunnel, packet); // Fallback to TCP
-                }
+                    _tcp.SendVoice(PacketType.UDPTunnel, packet); // Encryption failed, fallback to TCP
             }
             else
             {
-                if (_voicePacketsSent % 50 == 1)
-                    Console.WriteLine($"[DBG-WIRE] Packet #{_voicePacketsSent}: {packet.Count}B → TCP tunnel (UDP not connected)");
                 _tcp.SendVoice(PacketType.UDPTunnel, packet); // TCP tunnel fallback
             }
         }
@@ -201,10 +189,7 @@ namespace MumbleSharp
             byte[] plaintext = _cryptState.Decrypt(packet, packet.Length);
 
             if (plaintext == null)
-            {
-                Console.WriteLine("Decryption failed");
                 return;
-            }
 
             ReceiveDecryptedUdp(plaintext);
         }

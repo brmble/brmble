@@ -149,5 +149,5 @@ internal sealed class ServerlistService : IServerlistService
         );
     }
 
-    private record ServerlistData { public List<ServerEntry> Servers { get; init; } }
+    private record ServerlistData { public List<ServerEntry> Servers { get; init; } = []; }
 }

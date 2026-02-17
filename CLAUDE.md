@@ -59,10 +59,9 @@ NativeBridge marshals all calls to the UI thread via PostMessage(WM_USER) to pre
 **IMPORTANT: AI agents must NEVER commit directly to main branch.**
 
 ### For All Changes:
-1. **Create a new branch** for any feature, fix, or change
+1. **Always create a new branch** for any feature, fix, or change — do this automatically
 2. **Commit changes** to the new branch
-3. **Push the branch** to origin
-4. **Create a PR** for code review
+3. **Ask the user** before pushing the branch or creating a PR — never do this automatically
 
 ### Branch Naming Conventions:
 - `feature/<feature-name>` - New features

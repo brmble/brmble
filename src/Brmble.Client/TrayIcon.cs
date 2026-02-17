@@ -31,6 +31,7 @@ internal static class TrayIcon
     public const int IDM_SHOW = 1001;
     public const int IDM_MUTE = 1002;
     public const int IDM_DEAFEN = 1003;
+    public const int IDM_CONSOLE = 1005;
     public const int IDM_QUIT = 1004;
 
     /// <summary>
@@ -148,7 +149,9 @@ internal static class TrayIcon
         InsertMenu(menu, 1, MF_STRING | (_muted ? MF_CHECKED : MF_UNCHECKED), IDM_MUTE, "Mute Self");
         InsertMenu(menu, 2, MF_STRING | (_deafened ? MF_CHECKED : MF_UNCHECKED), IDM_DEAFEN, "Deafen Self");
         InsertMenu(menu, 3, MF_SEPARATOR, 0, "");
-        InsertMenu(menu, 4, MF_STRING, IDM_QUIT, "Quit");
+        InsertMenu(menu, 4, MF_STRING, IDM_CONSOLE, "Show Console");
+        InsertMenu(menu, 5, MF_SEPARATOR, 0, "");
+        InsertMenu(menu, 6, MF_STRING, IDM_QUIT, "Quit");
 
         GetCursorPos(out var pt);
         Win32Window.SetForegroundWindow(hwnd);
