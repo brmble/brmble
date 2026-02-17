@@ -50,9 +50,15 @@ function App() {
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [showDMPanel, setShowDMPanel] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [hasPendingInvite] = useState(false);
 
   const channelKey = currentChannelId === 'server-root' ? 'server-root' : currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
   const { messages, addMessage } = useChatStore(channelKey);
+
+  const updateBadge = (unread: number, invite: boolean) => {
+    bridge.send('notification.badge', { unreadDMs: unread > 0, pendingInvite: invite });
+  };
 
   // Refs to avoid re-registering bridge handlers on every state change
   const usersRef = useRef(users);
@@ -63,6 +69,10 @@ function App() {
   addMessageRef.current = addMessage;
   const currentChannelIdRef = useRef(currentChannelId);
   currentChannelIdRef.current = currentChannelId;
+  const unreadCountRef = useRef(unreadCount);
+  unreadCountRef.current = unreadCount;
+  const hasPendingInviteRef = useRef(hasPendingInvite);
+  hasPendingInviteRef.current = hasPendingInvite;
 
   // Register all bridge handlers once on mount
   useEffect(() => {
@@ -127,6 +137,9 @@ function App() {
           // Message belongs to a different store -- write directly to localStorage
           addMessageToStore(targetKey, senderName, d.message);
         }
+        const newUnread = unreadCountRef.current + 1;
+        setUnreadCount(newUnread);
+        updateBadge(newUnread, hasPendingInviteRef.current);
       }
     });
 
@@ -256,6 +269,8 @@ const handleConnect = (serverData: SavedServer) => {
     if (channel) {
       setCurrentChannelId(String(channelId));
       setCurrentChannelName(channel.name);
+      setUnreadCount(0);
+      updateBadge(0, hasPendingInvite);
     }
   };
 
@@ -272,6 +287,8 @@ const handleConnect = (serverData: SavedServer) => {
       } else if (currentChannelId) {
         bridge.send('voice.sendMessage', { message: content, channelId: Number(currentChannelId) });
       }
+      setUnreadCount(0);
+      updateBadge(0, hasPendingInvite);
     }
   };
 

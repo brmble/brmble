@@ -118,6 +118,12 @@ internal static class Win32Window
     [DllImport("user32.dll")]
     private static extern IntPtr LoadCursor(IntPtr instance, int cursorName);
 
+    [DllImport("kernel32.dll")]
+    public static extern bool AllocConsole();
+
+    [DllImport("kernel32.dll")]
+    public static extern bool FreeConsole();
+
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr GetModuleHandle(string? moduleName);
 
