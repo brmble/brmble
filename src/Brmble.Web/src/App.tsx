@@ -222,15 +222,22 @@ const handleConnect = (serverData: SavedServer) => {
   const handleSelectChannel = (channelId: number) => {
     const channel = channels.find(c => c.id === channelId);
     if (channel) {
-      setCurrentChannelId(channelId);
+      setCurrentChannelId(String(channelId));
       setCurrentChannelName(channel.name);
     }
+  };
+
+  const handleSelectServer = () => {
+    setCurrentChannelId('server-root');
+    setCurrentChannelName(serverLabel || 'Server');
   };
 
   const handleSendMessage = (content: string) => {
     if (username && content) {
       addMessage(username, content);
-      bridge.send('voice.sendMessage', { message: content });
+      if (currentChannelId === 'server-root') {
+        bridge.send('voice.sendMessage', { message: content, channelId: 0 });
+      }
     }
   };
 
