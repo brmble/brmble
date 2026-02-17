@@ -147,6 +147,15 @@ static class Program
             }
             return Task.CompletedTask;
         });
+
+        _bridge.RegisterHandler("notifications.set", data =>
+        {
+            if (data.TryGetProperty("hasNotification", out var n))
+            {
+                TrayIcon.SetNotification(n.GetBoolean());
+            }
+            return Task.CompletedTask;
+        });
     }
  
     /// <summary>
