@@ -118,11 +118,17 @@ namespace MumbleSharp
 
             _tcpProcessed = _tcp.Process();
             _udpProcessed = _udp.IsConnected ? _udp.Process() : false;
+
+            _processCount++;
+            if (_processCount % 5000 == 1)
+                Console.WriteLine($"[DBG-CONN] Process #{_processCount}: tcp={_tcpProcessed}, udp={_udpProcessed}, udpConnected={_udp.IsConnected}, state={State}");
+
             return _tcpProcessed || _udpProcessed;
         }
         //declared outside method for alloc optimization
         private bool _tcpProcessed;
         private bool _udpProcessed;
+        private int _processCount;
 
         public void SendControl<T>(PacketType type, T packet)
         {
@@ -202,10 +208,11 @@ namespace MumbleSharp
 
             if (plaintext == null)
             {
-                Console.WriteLine("Decryption failed");
+                Console.WriteLine("[DBG-VOICE] UDP decryption failed");
                 return;
             }
 
+            Console.WriteLine($"[DBG-VOICE] UDP decrypted {plaintext.Length}B, type={(plaintext[0] >> 5 & 0x7)}");
             ReceiveDecryptedUdp(plaintext);
         }
 
@@ -217,6 +224,8 @@ namespace MumbleSharp
                 Protocol.UdpPing(packet);
             else if(VoiceSupportEnabled)
                 UnpackVoicePacket(packet, type);
+            else
+                Console.WriteLine($"[DBG-VOICE] Voice packet dropped: VoiceSupportEnabled={VoiceSupportEnabled}, type={type}");
         }
 
         private void PackVoicePacket(ArraySegment<byte> packet)
@@ -236,7 +245,10 @@ namespace MumbleSharp
                 //Null codec means the user was not found. This can happen if a user leaves while voice packets are still in flight
                 IVoiceCodec codec = Protocol.GetCodec(session, vType);
                 if (codec == null)
+                {
+                    Console.WriteLine($"[DBG-VOICE] GetCodec returned null for session={session}, codec={vType}");
                     return;
+                }
 
                 if (vType == SpeechCodecs.Opus)
                 {
@@ -244,12 +256,19 @@ namespace MumbleSharp
                     size &= 0x1fff;
 
                     if (size == 0)
+                    {
+                        Console.WriteLine($"[DBG-VOICE] Opus size=0, dropping packet for session={session}");
                         return;
+                    }
 
                     byte[] data = reader.ReadBytes(size);
                     if (data == null)
+                    {
+                        Console.WriteLine($"[DBG-VOICE] ReadBytes returned null for session={session}, size={size}");
                         return;
+                    }
 
+                    Console.WriteLine($"[DBG-VOICE] Calling EncodedVoice: session={session}, seq={sequence}, bytes={data.Length}");
                     Protocol.EncodedVoice(data, session, sequence, codec, target);
                 }
                 else

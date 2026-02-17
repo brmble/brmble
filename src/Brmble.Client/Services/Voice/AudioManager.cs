@@ -69,9 +69,17 @@ internal sealed class AudioManager : IDisposable
                 _waveIn.DataAvailable += OnMicData;
             }
 
+            // Log available input devices
+            DevLog.Log($"[Audio] Input devices ({WaveInEvent.DeviceCount}):");
+            for (int i = -1; i < WaveInEvent.DeviceCount; i++)
+            {
+                var caps = WaveInEvent.GetCapabilities(i);
+                DevLog.Log($"[Audio]   [{i}]{(i == -1 ? " (DEFAULT)" : "")} {caps.ProductName} (channels: {caps.Channels})");
+            }
+
             _waveIn.StartRecording();
             _micStarted = true;
-            Debug.WriteLine("[Audio] Mic started");
+            DevLog.Log("[Audio] Mic started, using device -1 (Windows default)");
         }
     }
 
@@ -90,9 +98,13 @@ internal sealed class AudioManager : IDisposable
         }
     }
 
+    private int _micDataCount;
     private void OnMicData(object? sender, WaveInEventArgs e)
     {
         if (_muted) return;
+        _micDataCount++;
+        if (_micDataCount % 250 == 1) // log every ~5 seconds at 20ms intervals
+            DevLog.Log($"[Audio] OnMicData #{_micDataCount}: {e.BytesRecorded}B");
         _encodePipeline?.SubmitPcm(new ReadOnlySpan<byte>(e.Buffer, 0, e.BytesRecorded));
     }
 
@@ -122,7 +134,7 @@ internal sealed class AudioManager : IDisposable
                 player.Play();
                 _players[userId] = player;
 
-                Debug.WriteLine($"[Audio] Playback started for user {userId}");
+                DevLog.Log($"[Audio] Created playback pipeline for user {userId}, using device -1 (Windows default)");
             }
 
             pipeline.FeedEncodedPacket(opusData, sequence);

@@ -350,8 +350,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         // Start audio after connection is established
         _audioManager?.Dispose();
         _audioManager = new AudioManager();
+        var sendCount = 0;
         _audioManager.SendVoicePacket += packet =>
         {
+            sendCount++;
+            if (sendCount % 250 == 1)
+                DevLog.Log($"[Mumble] SendVoice #{sendCount}: {packet.Length}B");
             Connection?.SendVoice(new ArraySegment<byte>(packet.ToArray()));
         };
         _audioManager.UserStartedSpeaking += userId =>
@@ -363,7 +367,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _bridge?.Send("voice.userSilent", new { session = userId });
         };
         _audioManager.StartMic();
-        Debug.WriteLine("[Mumble] AudioManager started");
+        DevLog.Log("[Mumble] AudioManager started, mic recording");
     }
 
     /// <summary>
@@ -498,6 +502,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     {
         // DON'T call base — we use our own decode pipeline instead of
         // MumbleSharp's AudioDecodingBuffer (fixed 350ms buffer, poor quality)
+        DevLog.Log($"[Voice-RX] EncodedVoice from user {userId}, {data.Length}B, seq {sequence}, audioMgr={_audioManager != null}");
         _audioManager?.FeedVoice(userId, data, sequence);
     }
 }

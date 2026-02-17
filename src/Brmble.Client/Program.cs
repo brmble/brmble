@@ -43,6 +43,8 @@ static class Program
     {
         try
         {
+            DevLog.Init();
+
             var useDevServer = IsDevServerRunning();
             Debug.WriteLine(useDevServer
                 ? "Brmble: Using Vite dev server"
@@ -236,6 +238,10 @@ static class Program
                         _muted = _deafened; // deafen implies mute
                         TrayIcon.UpdateState(_muted, _deafened);
                         break;
+                    case TrayIcon.IDM_CONSOLE:
+                        Win32Window.AllocConsole();
+                        Console.WriteLine("[Console] Debug console opened");
+                        break;
                     case TrayIcon.IDM_QUIT:
                         Win32Window.DestroyWindow(hwnd);
                         break;
@@ -243,6 +249,7 @@ static class Program
                 return IntPtr.Zero;
 
             case Win32Window.WM_DESTROY:
+                _mumbleClient?.Disconnect();
                 TrayIcon.Destroy();
                 Win32Window.PostQuitMessage(0);
                 return IntPtr.Zero;
