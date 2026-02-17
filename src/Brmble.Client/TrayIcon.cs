@@ -206,6 +206,10 @@ internal static class TrayIcon
         _iconNormal = CreateColoredIcon(0x00, 0xC8, 0x50);    // green
         _iconMuted = CreateColoredIcon(0xE8, 0xB0, 0x00);     // yellow/amber
         _iconDeafened = CreateColoredIcon(0xD4, 0x14, 0x5A);   // berry red
+        
+        _iconNormalNotified = CreateIconWithNotification(0x00, 0xC8, 0x50);
+        _iconMutedNotified = CreateIconWithNotification(0xE8, 0xB0, 0x00);
+        _iconDeafenedNotified = CreateIconWithNotification(0xD4, 0x14, 0x5A);
     }
 
     private static IntPtr CreateColoredIcon(byte r, byte g, byte b)
@@ -228,6 +232,55 @@ internal static class TrayIcon
                     pixels[idx + 1] = g;     // Green
                     pixels[idx + 2] = r;     // Red
                     pixels[idx + 3] = 0xFF;  // Alpha
+                }
+                else if (dist <= 7.5)
+                {
+                    var alpha = (byte)(255 * (7.5 - dist));
+                    pixels[idx + 0] = b;
+                    pixels[idx + 1] = g;
+                    pixels[idx + 2] = r;
+                    pixels[idx + 3] = alpha;
+                }
+            }
+        }
+
+        return CreateIconFromArgb(size, pixels);
+    }
+
+    private static IntPtr CreateIconWithNotification(byte r, byte g, byte b)
+    {
+        const int size = 16;
+        var pixels = new byte[size * size * 4];
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                var dx = x - 7.5;
+                var dy = y - 7.5;
+                var dist = Math.Sqrt(dx * dx + dy * dy);
+                var idx = (y * size + x) * 4;
+
+                // Notification dot in top-right corner (positioned at x=11, y=3)
+                var dotDx = x - 11.5;
+                var dotDy = y - 3.5;
+                var dotDist = Math.Sqrt(dotDx * dotDx + dotDy * dotDy);
+                var isDot = dotDist <= 2.5;
+
+                if (isDot)
+                {
+                    // Blue notification dot
+                    pixels[idx + 0] = 0xF3;  // Blue
+                    pixels[idx + 1] = 0x96;  // Green
+                    pixels[idx + 2] = 0x21;  // Red
+                    pixels[idx + 3] = 0xFF;  // Alpha
+                }
+                else if (dist <= 6.5)
+                {
+                    pixels[idx + 0] = b;
+                    pixels[idx + 1] = g;
+                    pixels[idx + 2] = r;
+                    pixels[idx + 3] = 0xFF;
                 }
                 else if (dist <= 7.5)
                 {
