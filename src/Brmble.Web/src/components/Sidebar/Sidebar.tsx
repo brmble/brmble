@@ -35,9 +35,8 @@ export function Sidebar({
     <aside className="sidebar">
       {connected && (
         <div 
-          className={`server-info-panel${isServerChatActive ? ' server-info-active' : ''}`}
+          className={`server-info-panel${onSelectServer ? ' server-info-clickable' : ''}${isServerChatActive ? ' server-info-active' : ''}`}
           onClick={onSelectServer}
-          style={{ cursor: onSelectServer ? 'pointer' : undefined }}
         >
           <div className="server-info-name">{serverLabel || 'Server'}</div>
           {serverAddress && (

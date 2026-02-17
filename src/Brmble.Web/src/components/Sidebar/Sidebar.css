@@ -31,7 +31,11 @@
   margin-top: 0.125rem;
 }
 
-.server-info-panel[style*="cursor: pointer"]:hover {
+.server-info-clickable {
+  cursor: pointer;
+}
+
+.server-info-clickable:hover {
   background: var(--bg-hover);
   border-color: var(--border-default);
 }

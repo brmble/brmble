@@ -8,7 +8,7 @@ import { ServerList } from './components/ServerList/ServerList';
 import type { ServerEntry } from './hooks/useServerlist';
 import { DMPanel } from './components/DMPanel/DMPanel';
 import { SettingsModal } from './components/SettingsModal/SettingsModal';
-import { useChatStore } from './hooks/useChatStore';
+import { useChatStore, addMessageToStore } from './hooks/useChatStore';
 import './App.css';
 
 interface SavedServer {
@@ -108,14 +108,24 @@ function App() {
     const onVoiceMessage = ((data: unknown) => {
       const d = data as { message: string; senderSession?: number; channelIds?: number[] } | undefined;
       if (d?.message) {
+        // Skip own message echoes -- we already added them locally in handleSendMessage
+        const selfUser = usersRef.current.find(u => u.self);
+        if (selfUser && d.senderSession === selfUser.session) {
+          return;
+        }
         const senderUser = usersRef.current.find(u => u.session === d.senderSession);
         const senderName = senderUser?.name || 'Unknown';
+        // Route to server-root if message targets root channel (0) or has no channel target
         const isRootMessage = !d.channelIds || d.channelIds.length === 0 || d.channelIds.includes(0);
+        const targetKey = isRootMessage ? 'server-root' : `channel-${d.channelIds![0]}`;
         const currentKey = currentChannelIdRef.current;
-        if (isRootMessage && currentKey === 'server-root') {
+        const currentStoreKey = currentKey === 'server-root' ? 'server-root' : currentKey ? `channel-${currentKey}` : 'no-channel';
+        if (targetKey === currentStoreKey) {
+          // Message belongs to the currently viewed store -- add via React state
           addMessageRef.current(senderName, d.message);
-        } else if (!isRootMessage && currentKey !== 'server-root') {
-          addMessageRef.current(senderName, d.message);
+        } else {
+          // Message belongs to a different store -- write directly to localStorage
+          addMessageToStore(targetKey, senderName, d.message);
         }
       }
     });
@@ -136,7 +146,7 @@ function App() {
 
     const onVoiceChannelJoined = ((data: unknown) => {
       const d = data as { id: number; name: string; parent?: number } | undefined;
-      if (d?.id && d?.name) {
+      if (d?.id !== undefined && d?.name) {
         setChannels(prev => {
           const existing = prev.find(c => c.id === d.id);
           if (existing) {
@@ -149,7 +159,7 @@ function App() {
 
     const onVoiceChannelChanged = ((data: unknown) => {
       const d = data as { channelId: number; name?: string } | undefined;
-      if (d?.channelId) {
+      if (d?.channelId !== undefined && d?.channelId !== null) {
         setCurrentChannelId(String(d.channelId));
         if (d.name) {
           setCurrentChannelName(d.name);

@@ -50,6 +50,33 @@ export function useChatStore(channelId: string) {
   return { messages, addMessage, clearMessages };
 }
 
+/**
+ * Write a message directly to a specific store key in localStorage,
+ * bypassing React state. Used for background message storage when
+ * the user is viewing a different chat panel.
+ */
+export function addMessageToStore(storeKey: string, sender: string, content: string) {
+  const fullKey = `${STORAGE_KEY_PREFIX}${storeKey}`;
+  let messages: ChatMessage[] = [];
+  const stored = localStorage.getItem(fullKey);
+  if (stored) {
+    try {
+      messages = JSON.parse(stored);
+    } catch {
+      messages = [];
+    }
+  }
+  const newMessage: ChatMessage = {
+    id: crypto.randomUUID(),
+    channelId: storeKey,
+    sender,
+    content,
+    timestamp: new Date()
+  };
+  messages.push(newMessage);
+  localStorage.setItem(fullKey, JSON.stringify(messages));
+}
+
 export function useAllChats() {
   const getAllChannelIds = useCallback(() => {
     const keys = Object.keys(localStorage).filter(k => k.startsWith(STORAGE_KEY_PREFIX));

@@ -215,6 +215,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         {
             textMessage.ChannelIds = new[] { channelId.Value };
         }
+        else
+        {
+            textMessage.ChannelIds = new[] { 0u };
+        }
 
         Connection.SendControl(PacketType.TextMessage, textMessage);
     }
