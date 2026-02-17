@@ -150,7 +150,7 @@ function App() {
     const onVoiceChannelChanged = ((data: unknown) => {
       const d = data as { channelId: number; name?: string } | undefined;
       if (d?.channelId) {
-        setCurrentChannelId(d.channelId);
+        setCurrentChannelId(String(d.channelId));
         if (d.name) {
           setCurrentChannelName(d.name);
         } else {
@@ -286,9 +286,11 @@ const handleConnect = (serverData: SavedServer) => {
         <Sidebar
           channels={channels}
           users={users}
-          currentChannelId={currentChannelId}
+          currentChannelId={currentChannelId !== 'server-root' ? Number(currentChannelId) : undefined}
           onJoinChannel={handleJoinChannel}
           onSelectChannel={handleSelectChannel}
+          onSelectServer={handleSelectServer}
+          isServerChatActive={currentChannelId === 'server-root'}
           connected={connected}
           serverLabel={serverLabel}
           serverAddress={serverAddress}
@@ -298,8 +300,8 @@ const handleConnect = (serverData: SavedServer) => {
         
         <main className="main-content">
           <ChatPanel
-            channelId={currentChannelId ? String(currentChannelId) : undefined}
-            channelName={currentChannelName}
+            channelId={currentChannelId || undefined}
+            channelName={currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName}
             messages={messages}
             currentUsername={username}
             onSendMessage={handleSendMessage}
