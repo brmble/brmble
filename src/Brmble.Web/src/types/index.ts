@@ -28,6 +28,8 @@ export interface ChatMessage {
   sender: string;
   content: string;
   timestamp: Date;
+  type?: 'system';
+  html?: boolean;
 }
 
 export interface DMConversation {

@@ -130,6 +130,18 @@ function App() {
       }
     });
 
+    const onVoiceSystem = ((data: unknown) => {
+      const d = data as { message: string; systemType?: string; html?: boolean } | undefined;
+      if (d?.message) {
+        const currentKey = currentChannelIdRef.current;
+        if (currentKey === 'server-root') {
+          addMessageRef.current('Server', d.message, 'system', d.html);
+        } else {
+          addMessageToStore('server-root', 'Server', d.message, 'system', d.html);
+        }
+      }
+    });
+
     const onVoiceUserJoined = ((data: unknown) => {
       const d = data as { session: number; name: string; channelId?: number; muted?: boolean; deafened?: boolean; self?: boolean } | undefined;
       if (d?.session && d?.name && d.channelId !== undefined) {
@@ -195,6 +207,7 @@ function App() {
     bridge.on('voice.disconnected', onVoiceDisconnected);
     bridge.on('voice.error', onVoiceError);
     bridge.on('voice.message', onVoiceMessage);
+    bridge.on('voice.system', onVoiceSystem);
     bridge.on('voice.userJoined', onVoiceUserJoined);
     bridge.on('voice.channelJoined', onVoiceChannelJoined);
     bridge.on('voice.userLeft', onVoiceUserLeft);
@@ -207,6 +220,7 @@ function App() {
       bridge.off('voice.disconnected', onVoiceDisconnected);
       bridge.off('voice.error', onVoiceError);
       bridge.off('voice.message', onVoiceMessage);
+      bridge.off('voice.system', onVoiceSystem);
       bridge.off('voice.userJoined', onVoiceUserJoined);
       bridge.off('voice.channelJoined', onVoiceChannelJoined);
       bridge.off('voice.userLeft', onVoiceUserLeft);
@@ -255,6 +269,8 @@ const handleConnect = (serverData: SavedServer) => {
       addMessage(username, content);
       if (currentChannelId === 'server-root') {
         bridge.send('voice.sendMessage', { message: content, channelId: 0 });
+      } else if (currentChannelId) {
+        bridge.send('voice.sendMessage', { message: content, channelId: Number(currentChannelId) });
       }
     }
   };

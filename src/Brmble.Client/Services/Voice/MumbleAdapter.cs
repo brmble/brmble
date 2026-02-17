@@ -22,6 +22,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private readonly NativeBridge? _bridge;
     private CancellationTokenSource? _cts;
     private Task? _processTask;
+    private string? _lastWelcomeText;
 
     /// <inheritdoc />
     public string ServiceName => "mumble";
@@ -90,6 +91,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         try
         {
+            SendSystemMessage($"Connecting to {host}:{port}...", "connecting");
+
             var connection = new MumbleConnection(host, port, this, voiceSupport: true);
             
             _cts = new CancellationTokenSource();
@@ -155,6 +158,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         // starts fresh.
         UserDictionary.Clear();
         ChannelDictionary.Clear();
+        _lastWelcomeText = null;
 
         _bridge?.Send("voice.disconnected", null);
         Debug.WriteLine("[Mumble] Disconnected");
@@ -221,6 +225,17 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         }
 
         Connection.SendControl(PacketType.TextMessage, textMessage);
+    }
+
+    /// <summary>
+    /// Sends a system message to the frontend via the voice.system bridge event.
+    /// </summary>
+    /// <param name="message">The message text (may contain HTML for welcome messages).</param>
+    /// <param name="systemType">The type: connecting, welcome, userJoined, userLeft, kicked, banned.</param>
+    /// <param name="html">Whether the message contains HTML that should be rendered as-is.</param>
+    private void SendSystemMessage(string message, string systemType, bool html = false)
+    {
+        _bridge?.Send("voice.system", new { message, systemType, html });
     }
 
     /// <inheritdoc />
@@ -350,7 +365,30 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             users = userList
         });
         
+        if (!string.IsNullOrEmpty(serverSync.WelcomeText))
+        {
+            _lastWelcomeText = serverSync.WelcomeText;
+            SendSystemMessage(serverSync.WelcomeText, "welcome", html: true);
+        }
+
         Debug.WriteLine($"[Mumble] Sent {channelList.Count} channels and {userList.Count} users");
+    }
+
+    /// <summary>
+    /// Called when the server sends updated configuration.
+    /// </summary>
+    /// <param name="serverConfig">The server config message.</param>
+    public override void ServerConfig(MumbleProto.ServerConfig serverConfig)
+    {
+        base.ServerConfig(serverConfig);
+
+        if (serverConfig.ShouldSerializeWelcomeText() 
+            && !string.IsNullOrEmpty(serverConfig.WelcomeText) 
+            && serverConfig.WelcomeText != _lastWelcomeText)
+        {
+            _lastWelcomeText = serverConfig.WelcomeText;
+            SendSystemMessage(serverConfig.WelcomeText, "welcome", html: true);
+        }
     }
 
     /// <summary>
@@ -360,10 +398,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     public override void UserState(UserState userState)
     {
         var previousChannel = LocalUser?.Channel?.Id;
+        var isNewUser = !UserDictionary.ContainsKey(userState.Session);
         
         base.UserState(userState);
         
-        Debug.WriteLine($"[Mumble] UserState: {userState.Name} (session: {userState.Session})");
+        Debug.WriteLine($"[Mumble] UserState: {userState.Name} (session: {userState.Session}), isNew: {isNewUser}");
         
         var isSelf = LocalUser != null && userState.Session == LocalUser.Id;
         var newChannel = userState.ChannelId;
@@ -379,6 +418,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             self = isSelf
         });
         
+        // Emit system message for genuinely new users (not initial sync, not self)
+        if (isNewUser && !isSelf && ReceivedServerSync)
+        {
+            var userName = userState.Name ?? "Unknown";
+            SendSystemMessage($"{userName} connected to the server", "userJoined");
+        }
+
         // If user switched channels, notify
         if (previousChannel.HasValue && newChannel != previousChannel && isSelf)
         {
@@ -417,14 +463,47 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// <param name="userRemove">The user removal event from the server.</param>
     public override void UserRemove(UserRemove userRemove)
     {
+        // Look up user name before base call removes them from dictionary
+        string? userName = null;
+        bool isSelf = LocalUser != null && userRemove.Session == LocalUser.Id;
+        if (UserDictionary.TryGetValue(userRemove.Session, out var user))
+        {
+            userName = user.Name;
+        }
+
         base.UserRemove(userRemove);
         
-        Debug.WriteLine($"[Mumble] UserRemove: session {userRemove.Session}");
+        Debug.WriteLine($"[Mumble] UserRemove: session {userRemove.Session}, name: {userName}, isSelf: {isSelf}");
         
         _bridge?.Send("voice.userLeft", new 
         { 
             session = userRemove.Session
         });
+
+        // Emit system message
+        if (isSelf)
+        {
+            // Self was kicked or banned
+            var actorName = "the server";
+            if (userRemove.ShouldSerializeActor() && UserDictionary.TryGetValue(userRemove.Actor, out var actor))
+            {
+                actorName = actor.Name ?? "Unknown";
+            }
+            var reason = !string.IsNullOrEmpty(userRemove.Reason) ? $": {userRemove.Reason}" : "";
+
+            if (userRemove.Ban == true)
+            {
+                SendSystemMessage($"You were banned by {actorName}{reason}", "banned");
+            }
+            else
+            {
+                SendSystemMessage($"You were kicked by {actorName}{reason}", "kicked");
+            }
+        }
+        else if (userName != null)
+        {
+            SendSystemMessage($"{userName} disconnected from the server", "userLeft");
+        }
     }
 
     /// <summary>

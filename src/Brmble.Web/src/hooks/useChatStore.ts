@@ -27,13 +27,15 @@ export function useChatStore(channelId: string) {
     localStorage.setItem(`${STORAGE_KEY_PREFIX}${channelId}`, JSON.stringify(msgs));
   }, [channelId]);
 
-  const addMessage = useCallback((sender: string, content: string) => {
+  const addMessage = useCallback((sender: string, content: string, type?: 'system', html?: boolean) => {
     const newMessage: ChatMessage = {
       id: crypto.randomUUID(),
       channelId,
       sender,
       content,
-      timestamp: new Date()
+      timestamp: new Date(),
+      ...(type && { type }),
+      ...(html && { html }),
     };
     setMessages(prev => {
       const updated = [...prev, newMessage];
@@ -55,7 +57,7 @@ export function useChatStore(channelId: string) {
  * bypassing React state. Used for background message storage when
  * the user is viewing a different chat panel.
  */
-export function addMessageToStore(storeKey: string, sender: string, content: string) {
+export function addMessageToStore(storeKey: string, sender: string, content: string, type?: 'system', html?: boolean) {
   const fullKey = `${STORAGE_KEY_PREFIX}${storeKey}`;
   let messages: ChatMessage[] = [];
   const stored = localStorage.getItem(fullKey);
@@ -71,7 +73,9 @@ export function addMessageToStore(storeKey: string, sender: string, content: str
     channelId: storeKey,
     sender,
     content,
-    timestamp: new Date()
+    timestamp: new Date(),
+    ...(type && { type }),
+    ...(html && { html }),
   };
   messages.push(newMessage);
   localStorage.setItem(fullKey, JSON.stringify(messages));
