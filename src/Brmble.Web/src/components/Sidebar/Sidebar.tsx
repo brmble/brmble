@@ -3,52 +3,40 @@ import type { Channel, User } from '../../types';
 import './Sidebar.css';
 
 interface SidebarProps {
-  servers: { id: string; name: string; host?: string; port?: number }[];
-  selectedServerId: string;
-  onSelectServer: (id: string) => void;
   channels: Channel[];
   users: User[];
   currentChannelId?: number;
   onJoinChannel: (channelId: number) => void;
   onSelectChannel: (channelId: number) => void;
   connected?: boolean;
+  serverLabel?: string;
   serverAddress?: string;
   username?: string;
   onDisconnect?: () => void;
 }
 
 export function Sidebar({
-  servers,
-  selectedServerId,
-  onSelectServer,
   channels,
   users,
   currentChannelId,
   onJoinChannel,
   onSelectChannel,
   connected,
+  serverLabel,
   serverAddress,
   username,
   onDisconnect
 }: SidebarProps) {
   return (
     <aside className="sidebar">
-      <div className="server-selector">
-        <select 
-          value={selectedServerId}
-          onChange={(e) => onSelectServer(e.target.value)}
-          disabled={connected}
-        >
-          {servers.map(server => (
-            <option key={server.id} value={server.id}>
-              {server.name}
-            </option>
-          ))}
-        </select>
-        {serverAddress && (
-          <span className="server-address">{serverAddress}</span>
-        )}
-      </div>
+      {connected && (
+        <div className="server-info-panel">
+          <div className="server-info-name">{serverLabel || 'Server'}</div>
+          {serverAddress && (
+            <div className="server-info-address">{serverAddress}</div>
+          )}
+        </div>
+      )}
       
       {connected && (
         <div className="server-status-panel">

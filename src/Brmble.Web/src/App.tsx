@@ -33,19 +33,12 @@ interface User {
   self?: boolean;
 }
 
-interface Server {
-  id: string;
-  name: string;
-  host?: string;
-  port?: number;
-}
 
 function App() {
   const [connected, setConnected] = useState(false);
   const [username, setUsername] = useState('');
   const [serverAddress, setServerAddress] = useState('');
-const [servers] = useState<Server[]>([]);
-  const [selectedServerId, setSelectedServerId] = useState('1');
+  const [serverLabel, setServerLabel] = useState('');
   
   const [channels, setChannels] = useState<Channel[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -94,6 +87,7 @@ const [servers] = useState<Server[]>([]);
     const onVoiceDisconnected = () => {
       setConnected(false);
       setServerAddress('');
+      setServerLabel('');
       setChannels([]);
       setUsers([]);
       setCurrentChannelId(undefined);
@@ -210,6 +204,7 @@ const handleConnect = (serverData: SavedServer) => {
   };
 
   const handleServerConnect = (server: ServerEntry) => {
+    setServerLabel(server.label || `${server.host}:${server.port}`);
     handleConnect({
       host: server.host, 
       port: server.port, 
@@ -272,15 +267,13 @@ const handleConnect = (serverData: SavedServer) => {
       
       <div className="app-body">
         <Sidebar
-          servers={servers}
-          selectedServerId={selectedServerId}
-          onSelectServer={setSelectedServerId}
           channels={channels}
           users={users}
           currentChannelId={currentChannelId}
           onJoinChannel={handleJoinChannel}
           onSelectChannel={handleSelectChannel}
           connected={connected}
+          serverLabel={serverLabel}
           serverAddress={serverAddress}
           username={username}
           onDisconnect={handleDisconnect}
