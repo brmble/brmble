@@ -87,6 +87,7 @@ internal static class TrayIcon
     private static IntPtr _iconDeafened;
     private static bool _muted;
     private static bool _deafened;
+    private static bool _hasNotification;
 
     /// <summary>
     /// Creates the tray icon and adds it to the notification area.
