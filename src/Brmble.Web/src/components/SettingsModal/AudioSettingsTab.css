@@ -1,3 +1,32 @@
+.key-binding-btn {
+  padding: 8px 16px;
+  background: #2a2a2a;
+  border: 1px solid #4a4a4a;
+  border-radius: 4px;
+  color: #ccc;
+  cursor: pointer;
+  font-size: 14px;
+  min-width: 120px;
+  transition: all 0.2s;
+}
+
+.key-binding-btn:hover {
+  background: #3a3a3a;
+  border-color: #5a5a5a;
+}
+
+.key-binding-btn.recording {
+  background: #4a2a2a;
+  border-color: #ff6b6b;
+  color: #ff6b6b;
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
 .settings-slider {
   flex-direction: column;
   align-items: flex-start;
