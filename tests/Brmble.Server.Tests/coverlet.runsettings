@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<RunSettings>
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="XPlat Code Coverage">
+        <Configuration>
+          <Format>cobertura</Format>
+          <Include>[Brmble.Server]*</Include>
+          <Exclude>[Brmble.Server.Tests]*</Exclude>
+          <!-- TODO: Raise threshold to 80 as stubs in Brmble.Server are implemented -->
+          <Threshold>40</Threshold>
+          <ThresholdType>line</ThresholdType>
+          <ThresholdStat>Total</ThresholdStat>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+</RunSettings>
