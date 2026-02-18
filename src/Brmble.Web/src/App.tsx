@@ -362,6 +362,7 @@ const handleConnect = (serverData: SavedServer) => {
           serverAddress={serverAddress}
           username={username}
           onDisconnect={handleDisconnect}
+          onStartDM={handleSelectDMUser}
         />
         
         <main className="main-content">
