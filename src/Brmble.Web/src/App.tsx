@@ -57,6 +57,9 @@ function App() {
   const channelKey = currentChannelId === 'server-root' ? 'server-root' : currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
   const { messages, addMessage } = useChatStore(channelKey);
 
+  const dmKey = selectedDMUserId ? `dm-${selectedDMUserId}` : 'no-dm';
+  const { messages: dmMessages, addMessage: addDMMessage } = useChatStore(dmKey);
+
   const updateBadge = (unread: number, invite: boolean) => {
     bridge.send('notification.badge', { unreadDMs: unread > 0, pendingInvite: invite });
   };
@@ -293,6 +296,13 @@ const handleConnect = (serverData: SavedServer) => {
     }
   };
 
+  const handleSendDMMessage = (content: string) => {
+    if (username && content && selectedDMUserId) {
+      addDMMessage(username, content);
+      // TODO: Bridge call for DM delivery will be added when backend supports it
+    }
+  };
+
   const handleDisconnect = () => {
     bridge.send('voice.disconnect');
   };
@@ -320,7 +330,7 @@ const handleConnect = (serverData: SavedServer) => {
     .map(u => ({ id: String(u.session), name: u.name }));
 
   // Suppress unused warnings — these are wired up in subsequent DM tasks
-  void selectedDMUserId; void selectedDMUserName; void handleSelectDMUser; void availableUsers;
+  void handleSelectDMUser; void availableUsers;
 
   return (
     <div className="app">
@@ -352,13 +362,27 @@ const handleConnect = (serverData: SavedServer) => {
         />
         
         <main className="main-content">
-          <ChatPanel
-            channelId={currentChannelId || undefined}
-            channelName={currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName}
-            messages={messages}
-            currentUsername={username}
-            onSendMessage={handleSendMessage}
-          />
+          <div className={`content-slider ${appMode === 'dm' ? 'dm-active' : ''}`}>
+            <div className="content-slide">
+              <ChatPanel
+                channelId={currentChannelId || undefined}
+                channelName={currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName}
+                messages={messages}
+                currentUsername={username}
+                onSendMessage={handleSendMessage}
+              />
+            </div>
+            <div className="content-slide">
+              <ChatPanel
+                channelId={selectedDMUserId ? `dm-${selectedDMUserId}` : undefined}
+                channelName={selectedDMUserName}
+                messages={dmMessages}
+                currentUsername={username}
+                onSendMessage={handleSendDMMessage}
+                isDM={true}
+              />
+            </div>
+          </div>
         </main>
       </div>
 

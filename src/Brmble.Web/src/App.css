@@ -44,6 +44,27 @@
   flex-direction: column;
   min-width: 0;
   position: relative;
+  overflow: hidden;
+}
+
+.content-slider {
+  display: flex;
+  width: 200%;
+  height: 100%;
+  transition: transform var(--transition-slow);
+  will-change: transform;
+}
+
+.content-slider.dm-active {
+  transform: translateX(-50%);
+}
+
+.content-slide {
+  width: 50%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
 }
 
 .connect-overlay {

@@ -108,3 +108,21 @@
   color: var(--text-muted);
   font-style: italic;
 }
+
+.dm-chat-avatar {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent-berry) 0%, var(--accent-lemon) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dm-chat-avatar span {
+  font-family: var(--font-display);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--bg-deep);
+}
