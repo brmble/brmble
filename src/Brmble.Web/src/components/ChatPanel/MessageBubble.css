@@ -70,3 +70,17 @@
   line-height: 1.5;
   word-wrap: break-word;
 }
+
+/* System message variant */
+.message-bubble--system .message-avatar {
+  background: linear-gradient(135deg, var(--bg-elevated, #2a2a3e) 0%, var(--border-subtle, #3a3a4e) 100%);
+}
+
+.message-bubble--system .message-sender {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.message-bubble--system .message-text {
+  color: var(--text-muted);
+}

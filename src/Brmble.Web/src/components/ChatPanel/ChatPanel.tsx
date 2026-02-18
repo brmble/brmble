@@ -69,7 +69,9 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
               sender={message.sender}
               content={message.content}
               timestamp={message.timestamp}
-              isOwnMessage={message.sender === currentUsername}
+              isOwnMessage={!message.type && message.sender === currentUsername}
+              isSystem={message.type === 'system'}
+              html={message.html}
             />
           ))
         )}

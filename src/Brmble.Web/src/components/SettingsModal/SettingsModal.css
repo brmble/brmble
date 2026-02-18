@@ -11,6 +11,33 @@
   animation: slideUp 300ms ease;
 }
 
+.settings-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 1.5rem;
+  border-bottom: 1px solid #3a3a3a;
+}
+
+.settings-tab {
+  padding: 10px 16px;
+  background: transparent;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  font-size: 14px;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+
+.settings-tab:hover {
+  color: #ccc;
+}
+
+.settings-tab.active {
+  color: #fff;
+  border-bottom-color: #4a9eff;
+}
+
 .settings-content {
   flex: 1;
   overflow-y: auto;

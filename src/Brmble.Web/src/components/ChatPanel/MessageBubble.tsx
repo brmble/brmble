@@ -5,9 +5,11 @@ interface MessageBubbleProps {
   content: string;
   timestamp: Date;
   isOwnMessage?: boolean;
+  isSystem?: boolean;
+  html?: boolean;
 }
 
-export function MessageBubble({ sender, content, timestamp, isOwnMessage }: MessageBubbleProps) {
+export function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html }: MessageBubbleProps) {
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
@@ -16,8 +18,12 @@ export function MessageBubble({ sender, content, timestamp, isOwnMessage }: Mess
     return name.charAt(0).toUpperCase();
   };
 
+  const classes = ['message-bubble'];
+  if (isOwnMessage) classes.push('own');
+  if (isSystem) classes.push('message-bubble--system');
+
   return (
-    <div className={`message-bubble ${isOwnMessage ? 'own' : ''}`}>
+    <div className={classes.join(' ')}>
       <div className="message-avatar">
         <span className="avatar-letter">{getAvatarLetter(sender)}</span>
       </div>
@@ -26,7 +32,11 @@ export function MessageBubble({ sender, content, timestamp, isOwnMessage }: Mess
           <span className="message-sender">{sender}</span>
           <span className="message-time">{formatTime(timestamp)}</span>
         </div>
-        <p className="message-text">{content}</p>
+        {html ? (
+          <div className="message-text" dangerouslySetInnerHTML={{ __html: content }} />
+        ) : (
+          <p className="message-text">{content}</p>
+        )}
       </div>
     </div>
   );
