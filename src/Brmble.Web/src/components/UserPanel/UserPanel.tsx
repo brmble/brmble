@@ -2,7 +2,8 @@ import './UserPanel.css';
 
 interface UserPanelProps {
   username?: string;
-  onOpenDMPanel: () => void;
+  onToggleDM: () => void;
+  dmActive?: boolean;
   onOpenSettings: () => void;
   muted?: boolean;
   deafened?: boolean;
@@ -10,7 +11,7 @@ interface UserPanelProps {
   onToggleDeaf?: () => void;
 }
 
-export function UserPanel({ username, onOpenDMPanel, onOpenSettings, muted, deafened, onToggleMute, onToggleDeaf }: UserPanelProps) {
+export function UserPanel({ username, onToggleDM, dmActive, onOpenSettings, muted, deafened, onToggleMute, onToggleDeaf }: UserPanelProps) {
   return (
     <div className="user-panel">
       {onToggleMute && (
@@ -58,8 +59,8 @@ export function UserPanel({ username, onOpenDMPanel, onOpenSettings, muted, deaf
       )}
       
       <button 
-        className="user-panel-btn dm-btn" 
-        onClick={onOpenDMPanel}
+        className={`user-panel-btn dm-btn ${dmActive ? 'active' : ''}`}
+        onClick={onToggleDM}
         title="Direct Messages"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

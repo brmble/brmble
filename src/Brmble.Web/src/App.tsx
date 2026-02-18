@@ -6,7 +6,6 @@ import { ChatPanel } from './components/ChatPanel/ChatPanel';
 import { ConnectModal } from './components/ConnectModal/ConnectModal';
 import { ServerList } from './components/ServerList/ServerList';
 import type { ServerEntry } from './hooks/useServerlist';
-import { DMPanel } from './components/DMPanel/DMPanel';
 import { SettingsModal } from './components/SettingsModal/SettingsModal';
 import { useChatStore, addMessageToStore } from './hooks/useChatStore';
 import './App.css';
@@ -48,7 +47,9 @@ function App() {
   const [selfDeafened, setSelfDeafened] = useState(false);
 
   const [showConnectModal, setShowConnectModal] = useState(false);
-  const [showDMPanel, setShowDMPanel] = useState(false);
+  const [appMode, setAppMode] = useState<'channels' | 'dm'>('channels');
+  const [selectedDMUserId, setSelectedDMUserId] = useState<string | null>(null);
+  const [selectedDMUserName, setSelectedDMUserName] = useState<string>('');
   const [showSettings, setShowSettings] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [hasPendingInvite] = useState(false);
@@ -304,20 +305,29 @@ const handleConnect = (serverData: SavedServer) => {
     bridge.send('voice.toggleDeaf', {});
   };
 
-  const handleStartDM = (userId: string) => {
-    console.log('Starting DM with user:', userId);
-    setShowDMPanel(false);
+  const toggleDMMode = () => {
+    setAppMode(prev => prev === 'channels' ? 'dm' : 'channels');
+  };
+
+  const handleSelectDMUser = (userId: string, userName: string) => {
+    setSelectedDMUserId(userId);
+    setSelectedDMUserName(userName);
+    setAppMode('dm');
   };
 
   const availableUsers = users
     .filter(u => !u.self)
     .map(u => ({ id: String(u.session), name: u.name }));
 
+  // Suppress unused warnings — these are wired up in subsequent DM tasks
+  void selectedDMUserId; void selectedDMUserName; void handleSelectDMUser; void availableUsers;
+
   return (
     <div className="app">
       <Header
         username={username}
-        onOpenDMPanel={() => setShowDMPanel(true)}
+        onToggleDM={toggleDMMode}
+        dmActive={appMode === 'dm'}
         onOpenSettings={() => setShowSettings(true)}
         muted={selfMuted}
         deafened={selfDeafened}
@@ -362,14 +372,6 @@ const handleConnect = (serverData: SavedServer) => {
         isOpen={showConnectModal}
         onClose={() => setShowConnectModal(false)}
         onConnect={handleConnect}
-      />
-
-      <DMPanel
-        isOpen={showDMPanel}
-        onClose={() => setShowDMPanel(false)}
-        users={availableUsers}
-        conversations={[]}
-        onStartDM={handleStartDM}
       />
 
       <SettingsModal
