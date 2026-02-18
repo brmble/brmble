@@ -20,6 +20,7 @@ static class Program
     private static IntPtr _hwnd;
     private static bool _muted;
     private static bool _deafened;
+    private static volatile string? _closeAction; // null = ask, "minimize", "quit"
 
     [STAThread]
     static void Main()
@@ -70,7 +71,7 @@ static class Program
             _serverlistService.Initialize(_bridge);
             _serverlistService.RegisterHandlers(_bridge);
 
-            _mumbleClient = new MumbleAdapter(_bridge);
+            _mumbleClient = new MumbleAdapter(_bridge, _hwnd);
             
             SetupBridgeHandlers();
 
@@ -107,6 +108,20 @@ static class Program
         _bridge.RegisterHandler("window.close", _ =>
         {
             Win32Window.PostMessage(_hwnd, Win32Window.WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+            return Task.CompletedTask;
+        });
+
+        _bridge.RegisterHandler("window.quit", _ =>
+        {
+            _closeAction = "quit";
+            Win32Window.PostMessage(_hwnd, Win32Window.WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+            return Task.CompletedTask;
+        });
+
+        _bridge.RegisterHandler("window.setClosePreference", data =>
+        {
+            if (data.TryGetProperty("action", out var a))
+                _closeAction = a.GetString();
             return Task.CompletedTask;
         });
 
@@ -174,7 +189,24 @@ static class Program
                 return IntPtr.Zero;
 
             case Win32Window.WM_CLOSE:
-                Win32Window.ShowWindow(hwnd, Win32Window.SW_HIDE);
+                if (_closeAction == "quit")
+                {
+                    Win32Window.DestroyWindow(hwnd);
+                }
+                else if (_closeAction == "minimize")
+                {
+                    Win32Window.ShowWindow(hwnd, Win32Window.SW_HIDE);
+                }
+                else if (_bridge != null)
+                {
+                    // Ask via WebView2 modal — fire-and-forget
+                    _bridge.Send("window.showCloseDialog");
+                }
+                else
+                {
+                    // Bridge not ready yet — just quit
+                    Win32Window.DestroyWindow(hwnd);
+                }
                 return IntPtr.Zero;
 
             case TrayIcon.WM_TRAYICON:
@@ -222,6 +254,10 @@ static class Program
                 _mumbleClient?.Disconnect();
                 TrayIcon.Destroy();
                 Win32Window.PostQuitMessage(0);
+                return IntPtr.Zero;
+
+            case Win32Window.WM_HOTKEY:
+                _mumbleClient?.HandleHotKey((int)wParam.ToInt64(), true);
                 return IntPtr.Zero;
 
             case 0x0400: // WM_USER

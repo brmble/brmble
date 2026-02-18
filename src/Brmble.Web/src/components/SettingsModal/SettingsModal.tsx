@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import './SettingsModal.css';
+import bridge from '../../bridge';
 import { AudioSettingsTab, type AudioSettings, DEFAULT_SETTINGS as DEFAULT_AUDIO } from './AudioSettingsTab';
 import { ShortcutsSettingsTab, type ShortcutsSettings, DEFAULT_SHORTCUTS } from './ShortcutsSettingsTab';
 import { MessagesSettingsTab, type MessagesSettings, DEFAULT_MESSAGES } from './MessagesSettingsTab';
@@ -47,6 +48,15 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const newSettings = { ...settings, audio };
     setSettings(newSettings);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(newSettings));
+
+    // Notify backend of transmission mode change (only when relevant fields change)
+    if (audio.transmissionMode !== settings.audio.transmissionMode ||
+        audio.pushToTalkKey !== settings.audio.pushToTalkKey) {
+      bridge.send('voice.setTransmissionMode', {
+        mode: audio.transmissionMode,
+        key: audio.transmissionMode === 'pushToTalk' ? audio.pushToTalkKey : null,
+      });
+    }
   };
 
   const handleShortcutsChange = (shortcuts: ShortcutsSettings) => {

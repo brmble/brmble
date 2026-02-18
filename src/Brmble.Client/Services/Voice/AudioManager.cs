@@ -4,6 +4,8 @@ using NAudio.Wave;
 
 namespace Brmble.Client.Services.Voice;
 
+public enum TransmissionMode { Continuous, VoiceActivity, PushToTalk }
+
 /// <summary>
 /// Manages audio I/O: mic capture via EncodePipeline, per-user speaker
 /// playback via UserAudioPipeline, mute/deafen state, and speaking detection.
@@ -24,6 +26,12 @@ internal sealed class AudioManager : IDisposable
     // State
     private volatile bool _muted;
     private volatile bool _deafened;
+    private volatile TransmissionMode _transmissionMode = TransmissionMode.Continuous;
+    private volatile bool _pttActive;
+    internal const int PttHotkeyId = 1;
+    private int _hotkeyId = -1;
+    private IntPtr _hwnd;
+    private const int RmsThreshold = 300; // ~1% of 16-bit max (32767)
 
     // Speaking detection
     private readonly Dictionary<uint, DateTime> _lastVoicePacket = new();
@@ -93,7 +101,25 @@ internal sealed class AudioManager : IDisposable
     private void OnMicData(object? sender, WaveInEventArgs e)
     {
         if (_muted) return;
+        if (_transmissionMode == TransmissionMode.PushToTalk && !_pttActive) return;
+        if (_transmissionMode == TransmissionMode.VoiceActivity && !IsAboveThreshold(e.Buffer, e.BytesRecorded)) return;
+
         _encodePipeline?.SubmitPcm(new ReadOnlySpan<byte>(e.Buffer, 0, e.BytesRecorded));
+    }
+
+    /// <summary>RMS check: returns true if the audio chunk is loud enough to transmit.</summary>
+    private static bool IsAboveThreshold(byte[] buffer, int bytesRecorded)
+    {
+        long sumSq = 0;
+        int samples = bytesRecorded / 2; // 16-bit samples
+        for (int i = 0; i < bytesRecorded - 1; i += 2)
+        {
+            short sample = (short)(buffer[i] | (buffer[i + 1] << 8));
+            sumSq += sample * sample;
+        }
+        if (samples == 0) return false;
+        var rms = Math.Sqrt(sumSq / (double)samples);
+        return rms >= RmsThreshold;
     }
 
     /// <summary>
@@ -196,6 +222,61 @@ internal sealed class AudioManager : IDisposable
         }
     }
 
+    /// <summary>
+    /// Sets the transmission mode. For PTT, registers a global Win32 hotkey.
+    /// Pass hwnd = IntPtr.Zero to skip hotkey registration (e.g. in tests).
+    /// </summary>
+    public void SetTransmissionMode(TransmissionMode mode, string? key, IntPtr hwnd)
+    {
+        _pttActive = false;
+        _hwnd = hwnd;
+        _transmissionMode = mode;
+
+        // Unregister any existing hotkey
+        if (_hotkeyId >= 0 && _hwnd != IntPtr.Zero)
+        {
+            UnregisterHotKey(_hwnd, _hotkeyId);
+            _hotkeyId = -1;
+        }
+
+        if (mode == TransmissionMode.PushToTalk && key != null && hwnd != IntPtr.Zero)
+        {
+            var vk = KeyNameToVirtualKey(key);
+            if (vk != 0)
+            {
+                _hotkeyId = PttHotkeyId;
+                if (!RegisterHotKey(hwnd, _hotkeyId, 0, (uint)vk))
+                {
+                    _hotkeyId = -1;
+                    Debug.WriteLine($"[Audio] RegisterHotKey failed for vk=0x{vk:X2}");
+                }
+            }
+        }
+
+        // For PTT, start with mic off until key pressed
+        if (mode == TransmissionMode.PushToTalk)
+            StopMic();
+        else if (!_muted)
+            StartMic();
+    }
+
+    /// <summary>Called from WndProc when WM_HOTKEY fires.</summary>
+    public void HandleHotKey(int id, bool keyDown)
+    {
+        if (id != _hotkeyId || _transmissionMode != TransmissionMode.PushToTalk) return;
+        SetPttActive(keyDown);
+    }
+
+    /// <summary>Start or stop mic for PTT.</summary>
+    private void SetPttActive(bool active)
+    {
+        _pttActive = active;
+        if (active && !_muted)
+            StartMic();
+        else
+            StopMic();
+    }
+
     private void CheckSpeakingState(object? state)
     {
         List<uint> stopped;
@@ -219,6 +300,11 @@ internal sealed class AudioManager : IDisposable
     public void Dispose()
     {
         _speakingTimer.Dispose();
+        if (_hotkeyId >= 0 && _hwnd != IntPtr.Zero)
+        {
+            UnregisterHotKey(_hwnd, _hotkeyId);
+            _hotkeyId = -1;
+        }
         StopMic();
         _waveIn?.Dispose();
         _waveIn = null;
@@ -239,4 +325,29 @@ internal sealed class AudioManager : IDisposable
             _lastVoicePacket.Clear();
         }
     }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
+    /// <summary>
+    /// Maps JS key names (from e.key / e.code) to Win32 virtual key codes.
+    /// Covers common PTT keys. Returns 0 if unknown.
+    /// </summary>
+    internal static int KeyNameToVirtualKey(string key) => key switch
+    {
+        "Space"  => 0x20,
+        "F1"     => 0x70, "F2" => 0x71, "F3" => 0x72, "F4" => 0x73,
+        "F5"     => 0x74, "F6" => 0x75, "F7" => 0x76, "F8" => 0x77,
+        "F9"     => 0x78, "F10" => 0x79, "F11" => 0x7A, "F12" => 0x7B,
+        "CapsLock" => 0x14,
+        "Tab"    => 0x09,
+        "Shift"  => 0x10, "Control" => 0x11, "Alt" => 0x12,
+        "Insert" => 0x2D,
+        _ when key.Length == 1 => char.ToUpper(key[0]),
+        _ => 0
+    };
 }
+

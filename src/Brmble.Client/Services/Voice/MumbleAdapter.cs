@@ -16,16 +16,19 @@ namespace Brmble.Client.Services.Voice;
 internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 {
     private readonly NativeBridge? _bridge;
+    private readonly IntPtr _hwnd;
     private CancellationTokenSource? _cts;
     private Thread? _processThread;
     private AudioManager? _audioManager;
+    private PttKeyMonitor? _pttMonitor;
     private string? _lastWelcomeText;
 
     public string ServiceName => "mumble";
 
-    public MumbleAdapter(NativeBridge bridge)
+    public MumbleAdapter(NativeBridge bridge, IntPtr hwnd)
     {
         _bridge = bridge;
+        _hwnd = hwnd;
     }
 
     public void Initialize(NativeBridge bridge) { }
@@ -96,6 +99,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _cts?.Cancel();
         _processThread?.Join(2000);
         _processThread = null;
+
+        _pttMonitor?.Dispose();
+        _pttMonitor = null;
 
         _audioManager?.Dispose();
         _audioManager = null;
@@ -210,6 +216,42 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _bridge?.Send("voice.selfMuteChanged", new { muted = LocalUser.SelfMuted });
     }
 
+    public void SetTransmissionMode(string mode, string? key)
+    {
+        var parsed = mode switch
+        {
+            "voiceActivity" => TransmissionMode.VoiceActivity,
+            "pushToTalk"    => TransmissionMode.PushToTalk,
+            "continuous"    => TransmissionMode.Continuous,
+            _ => TransmissionMode.Continuous,
+        };
+        if (parsed == TransmissionMode.Continuous && mode != "continuous")
+            Debug.WriteLine($"[Audio] Unknown transmission mode '{mode}', defaulting to Continuous");
+
+        _audioManager?.SetTransmissionMode(parsed, key, _hwnd);
+
+        // Manage key-up monitor for PTT release
+        _pttMonitor?.Unwatch();
+        if (parsed == TransmissionMode.PushToTalk && key != null)
+        {
+            _pttMonitor ??= new PttKeyMonitor(_ =>
+            {
+                var am = Volatile.Read(ref _audioManager);
+                if (am != null)
+                    Task.Run(() => am.HandleHotKey(AudioManager.PttHotkeyId, false));
+            });
+            var vk = AudioManager.KeyNameToVirtualKey(key);
+            if (vk != 0)
+                _pttMonitor.Watch(vk);
+            else
+                System.Diagnostics.Debug.WriteLine($"[MumbleAdapter] Unknown PTT key '{key}', monitor not started.");
+        }
+    }
+
+    /// <summary>Called from WndProc on WM_HOTKEY.</summary>
+    public void HandleHotKey(int id, bool keyDown)
+        => _audioManager?.HandleHotKey(id, keyDown);
+
     public void JoinChannel(uint channelId)
     {
         if (Connection is not { State: ConnectionStates.Connected })
@@ -255,6 +297,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         bridge.RegisterHandler("voice.toggleMute", _ => { ToggleMute(); return Task.CompletedTask; });
         bridge.RegisterHandler("voice.toggleDeaf", _ => { ToggleDeaf(); return Task.CompletedTask; });
+
+        bridge.RegisterHandler("voice.setTransmissionMode", data =>
+        {
+            var mode = data.TryGetProperty("mode", out var m) ? m.GetString() ?? "continuous" : "continuous";
+            var key  = data.TryGetProperty("key",  out var k) ? k.GetString() : null;
+            SetTransmissionMode(mode, key);
+            return Task.CompletedTask;
+        });
     }
 
     // --- MumbleSharp protocol overrides ---

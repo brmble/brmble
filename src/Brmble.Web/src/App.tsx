@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import bridge from './bridge';
 import { Header } from './components/Header/Header';
 import { Sidebar } from './components/Sidebar/Sidebar';
@@ -7,6 +7,7 @@ import { ConnectModal } from './components/ConnectModal/ConnectModal';
 import { ServerList } from './components/ServerList/ServerList';
 import type { ServerEntry } from './hooks/useServerlist';
 import { SettingsModal } from './components/SettingsModal/SettingsModal';
+import { CloseDialog } from './components/CloseDialog/CloseDialog';
 import { useChatStore, addMessageToStore, loadDMContacts, upsertDMContact } from './hooks/useChatStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
 import './App.css';
@@ -61,6 +62,7 @@ function App() {
   const [selectedDMUserId, setSelectedDMUserId] = useState<string | null>(null);
   const [selectedDMUserName, setSelectedDMUserName] = useState<string>('');
   const [showSettings, setShowSettings] = useState(false);
+  const [showCloseDialog, setShowCloseDialog] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [hasPendingInvite] = useState(false);
 
@@ -230,6 +232,10 @@ function App() {
       }
     });
 
+    const onShowCloseDialog = () => {
+      setShowCloseDialog(true);
+    };
+
     bridge.on('voice.connected', onVoiceConnected);
     bridge.on('voice.disconnected', onVoiceDisconnected);
     bridge.on('voice.error', onVoiceError);
@@ -241,6 +247,7 @@ function App() {
     bridge.on('voice.channelChanged', onVoiceChannelChanged);
     bridge.on('voice.selfMuteChanged', onSelfMuteChanged);
     bridge.on('voice.selfDeafChanged', onSelfDeafChanged);
+    bridge.on('window.showCloseDialog', onShowCloseDialog);
 
     return () => {
       bridge.off('voice.connected', onVoiceConnected);
@@ -254,6 +261,7 @@ function App() {
       bridge.off('voice.channelChanged', onVoiceChannelChanged);
       bridge.off('voice.selfMuteChanged', onSelfMuteChanged);
       bridge.off('voice.selfDeafChanged', onSelfDeafChanged);
+      bridge.off('window.showCloseDialog', onShowCloseDialog);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -331,6 +339,22 @@ const handleConnect = (serverData: SavedServer) => {
   const handleToggleDeaf = () => {
     bridge.send('voice.toggleDeaf', {});
   };
+
+  const handleCloseMinimize = useCallback((dontAskAgain: boolean) => {
+    setShowCloseDialog(false);
+    if (dontAskAgain) {
+      bridge.send('window.setClosePreference', { action: 'minimize' });
+    }
+    bridge.send('window.minimize');
+  }, []);
+
+  const handleCloseQuit = useCallback((dontAskAgain: boolean) => {
+    setShowCloseDialog(false);
+    if (dontAskAgain) {
+      bridge.send('window.setClosePreference', { action: 'quit' });
+    }
+    bridge.send('window.quit');
+  }, []);
 
   const toggleDMMode = () => {
     setAppMode(prev => prev === 'channels' ? 'dm' : 'channels');
@@ -435,6 +459,12 @@ const handleConnect = (serverData: SavedServer) => {
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
         username={username}
+      />
+
+      <CloseDialog
+        isOpen={showCloseDialog}
+        onMinimize={handleCloseMinimize}
+        onQuit={handleCloseQuit}
       />
     </div>
   );
