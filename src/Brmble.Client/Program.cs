@@ -20,7 +20,7 @@ static class Program
     private static IntPtr _hwnd;
     private static bool _muted;
     private static bool _deafened;
-    private static string? _closeAction; // null = ask, "minimize", "quit"
+    private static volatile string? _closeAction; // null = ask, "minimize", "quit"
 
     [STAThread]
     static void Main()
@@ -113,7 +113,8 @@ static class Program
 
         _bridge.RegisterHandler("window.quit", _ =>
         {
-            Win32Window.DestroyWindow(_hwnd);
+            _closeAction = "quit";
+            Win32Window.PostMessage(_hwnd, Win32Window.WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
             return Task.CompletedTask;
         });
 
@@ -196,10 +197,15 @@ static class Program
                 {
                     Win32Window.ShowWindow(hwnd, Win32Window.SW_HIDE);
                 }
-                else
+                else if (_bridge != null)
                 {
                     // Ask via WebView2 modal — fire-and-forget
-                    _bridge?.Send("window.showCloseDialog");
+                    _bridge.Send("window.showCloseDialog");
+                }
+                else
+                {
+                    // Bridge not ready yet — just quit
+                    Win32Window.DestroyWindow(hwnd);
                 }
                 return IntPtr.Zero;
 
