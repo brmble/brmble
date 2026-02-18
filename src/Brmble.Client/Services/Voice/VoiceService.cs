@@ -14,4 +14,5 @@ public interface VoiceService : IService
     void SendMessage(string message);
     void ToggleMute();
     void ToggleDeaf();
+    void SetTransmissionMode(string mode, string? key);
 }

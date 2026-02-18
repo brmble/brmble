@@ -19,6 +19,7 @@ internal static class Win32Window
     public const uint WM_COMMAND = 0x0111;
     public const uint WM_LBUTTONDBLCLK = 0x0203;
     public const uint WM_RBUTTONUP = 0x0205;
+    public const uint WM_HOTKEY = 0x0312;
 
     public const int SW_MINIMIZE = 6;
     public const int SW_MAXIMIZE = 3;

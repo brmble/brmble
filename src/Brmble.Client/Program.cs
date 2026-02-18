@@ -71,7 +71,7 @@ static class Program
             _serverlistService.Initialize(_bridge);
             _serverlistService.RegisterHandlers(_bridge);
 
-            _mumbleClient = new MumbleAdapter(_bridge);
+            _mumbleClient = new MumbleAdapter(_bridge, _hwnd);
             
             SetupBridgeHandlers();
 
@@ -254,6 +254,10 @@ static class Program
                 _mumbleClient?.Disconnect();
                 TrayIcon.Destroy();
                 Win32Window.PostQuitMessage(0);
+                return IntPtr.Zero;
+
+            case Win32Window.WM_HOTKEY:
+                _mumbleClient?.HandleHotKey((int)wParam.ToInt64(), true);
                 return IntPtr.Zero;
 
             case 0x0400: // WM_USER
