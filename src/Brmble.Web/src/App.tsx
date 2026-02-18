@@ -9,6 +9,7 @@ import type { ServerEntry } from './hooks/useServerlist';
 import { SettingsModal } from './components/SettingsModal/SettingsModal';
 import { CloseDialog } from './components/CloseDialog/CloseDialog';
 import { useChatStore, addMessageToStore, loadDMContacts, upsertDMContact, markDMContactRead } from './hooks/useChatStore';
+import type { StoredDMContact } from './hooks/useChatStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
 import './App.css';
 
@@ -35,6 +36,15 @@ interface User {
 }
 
 
+const mapStoredContacts = (contacts: StoredDMContact[]) =>
+  contacts.map(c => ({
+    userId: c.userId,
+    userName: c.userName,
+    lastMessage: c.lastMessage,
+    lastMessageTime: c.lastMessageTime ? new Date(c.lastMessageTime) : undefined,
+    unread: c.unread,
+  }));
+
 function App() {
   const [connected, setConnected] = useState(false);
   const [username, setUsername] = useState('');
@@ -49,15 +59,7 @@ function App() {
   const [selfDeafened, setSelfDeafened] = useState(false);
 
   const [showConnectModal, setShowConnectModal] = useState(false);
-  const [dmContacts, setDmContacts] = useState(() => {
-    return loadDMContacts().map(c => ({
-      userId: c.userId,
-      userName: c.userName,
-      lastMessage: c.lastMessage,
-      lastMessageTime: c.lastMessageTime ? new Date(c.lastMessageTime) : undefined,
-      unread: c.unread,
-    }));
-  });
+  const [dmContacts, setDmContacts] = useState(() => mapStoredContacts(loadDMContacts()));
   const [appMode, setAppMode] = useState<'channels' | 'dm'>('channels');
   const [selectedDMUserId, setSelectedDMUserId] = useState<string | null>(null);
   const [selectedDMUserName, setSelectedDMUserName] = useState<string>('');
@@ -147,18 +149,18 @@ function App() {
       if (!d?.message) return;
 
       const selfUser = usersRef.current.find(u => u.self);
+      if (selfUser && d.senderSession === selfUser.session) return; // self-echo check (once)
+      if (d.senderSession === undefined) return; // guard against undefined
+
+      const senderUser = usersRef.current.find(u => u.session === d.senderSession);
+      const senderName = senderUser?.name || 'Unknown';
 
       // Detect private message: has sessions, no channelIds
       const isPrivateMessage = d.sessions && d.sessions.length > 0 &&
         (!d.channelIds || d.channelIds.length === 0);
 
       if (isPrivateMessage) {
-        // Skip own echoes for private messages too
-        if (selfUser && d.senderSession === selfUser.session) return;
-
         const senderSession = String(d.senderSession);
-        const senderUser = usersRef.current.find(u => u.session === d.senderSession);
-        const senderName = senderUser?.name || 'Unknown';
         const dmStoreKey = `dm-${senderSession}`;
 
         // Check if user is currently viewing this DM conversation
@@ -176,22 +178,11 @@ function App() {
         // Update DM contacts: upsert with lastMessage and increment unread
         // (only increment if not currently viewing this DM)
         const updated = upsertDMContact(senderSession, senderName, d.message, !isViewingThisDM);
-        setDmContacts(updated.map(c => ({
-          userId: c.userId,
-          userName: c.userName,
-          lastMessage: c.lastMessage,
-          lastMessageTime: c.lastMessageTime ? new Date(c.lastMessageTime) : undefined,
-          unread: c.unread,
-        })));
+        setDmContacts(mapStoredContacts(updated));
         return;
       }
 
       // Channel message (existing logic)
-      // Skip own message echoes
-      if (selfUser && d.senderSession === selfUser.session) return;
-
-      const senderUser = usersRef.current.find(u => u.session === d.senderSession);
-      const senderName = senderUser?.name || 'Unknown';
       const isRootMessage = !d.channelIds || d.channelIds.length === 0 || d.channelIds.includes(0);
       const targetKey = isRootMessage ? 'server-root' : `channel-${d.channelIds![0]}`;
       const currentKey = currentChannelIdRef.current;
@@ -369,13 +360,7 @@ const handleConnect = (serverData: SavedServer) => {
         targetSession: Number(selectedDMUserId),
       });
       const updated = upsertDMContact(selectedDMUserId, selectedDMUserName, content);
-      setDmContacts(updated.map(c => ({
-        userId: c.userId,
-        userName: c.userName,
-        lastMessage: c.lastMessage,
-        lastMessageTime: c.lastMessageTime ? new Date(c.lastMessageTime) : undefined,
-        unread: c.unread,
-      })));
+      setDmContacts(mapStoredContacts(updated));
     }
   };
 
@@ -420,13 +405,7 @@ const handleConnect = (serverData: SavedServer) => {
     // Mark this contact as read, then upsert to ensure contact exists
     markDMContactRead(userId);
     const updated = upsertDMContact(userId, userName);
-    setDmContacts(updated.map(c => ({
-      userId: c.userId,
-      userName: c.userName,
-      lastMessage: c.lastMessage,
-      lastMessageTime: c.lastMessageTime ? new Date(c.lastMessageTime) : undefined,
-      unread: c.unread,
-    })));
+    setDmContacts(mapStoredContacts(updated));
   };
 
   const availableUsers = users
