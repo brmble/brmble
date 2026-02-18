@@ -7,9 +7,8 @@ import { ConnectModal } from './components/ConnectModal/ConnectModal';
 import { ServerList } from './components/ServerList/ServerList';
 import type { ServerEntry } from './hooks/useServerlist';
 import { SettingsModal } from './components/SettingsModal/SettingsModal';
-import { useChatStore, addMessageToStore } from './hooks/useChatStore';
+import { useChatStore, addMessageToStore, loadDMContacts, upsertDMContact } from './hooks/useChatStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
-import type { DMContact } from './components/DMContactList/DMContactList';
 import './App.css';
 
 interface SavedServer {
@@ -49,7 +48,15 @@ function App() {
   const [selfDeafened, setSelfDeafened] = useState(false);
 
   const [showConnectModal, setShowConnectModal] = useState(false);
-  const [dmContacts, setDmContacts] = useState<DMContact[]>([]);
+  const [dmContacts, setDmContacts] = useState(() => {
+    return loadDMContacts().map(c => ({
+      userId: c.userId,
+      userName: c.userName,
+      lastMessage: c.lastMessage,
+      lastMessageTime: c.lastMessageTime ? new Date(c.lastMessageTime) : undefined,
+      unread: c.unread,
+    }));
+  });
   const [appMode, setAppMode] = useState<'channels' | 'dm'>('channels');
   const [selectedDMUserId, setSelectedDMUserId] = useState<string | null>(null);
   const [selectedDMUserName, setSelectedDMUserName] = useState<string>('');
@@ -302,7 +309,14 @@ const handleConnect = (serverData: SavedServer) => {
   const handleSendDMMessage = (content: string) => {
     if (username && content && selectedDMUserId) {
       addDMMessage(username, content);
-      // TODO: Bridge call for DM delivery will be added when backend supports it
+      const updated = upsertDMContact(selectedDMUserId, selectedDMUserName, content);
+      setDmContacts(updated.map(c => ({
+        userId: c.userId,
+        userName: c.userName,
+        lastMessage: c.lastMessage,
+        lastMessageTime: c.lastMessageTime ? new Date(c.lastMessageTime) : undefined,
+        unread: c.unread,
+      })));
     }
   };
 
@@ -326,6 +340,14 @@ const handleConnect = (serverData: SavedServer) => {
     setSelectedDMUserId(userId);
     setSelectedDMUserName(userName);
     setAppMode('dm');
+    const updated = upsertDMContact(userId, userName);
+    setDmContacts(updated.map(c => ({
+      userId: c.userId,
+      userName: c.userName,
+      lastMessage: c.lastMessage,
+      lastMessageTime: c.lastMessageTime ? new Date(c.lastMessageTime) : undefined,
+      unread: c.unread,
+    })));
   };
 
   const availableUsers = users
@@ -333,7 +355,7 @@ const handleConnect = (serverData: SavedServer) => {
     .map(u => ({ id: String(u.session), name: u.name }));
 
   // Suppress unused warnings — these are wired up in subsequent DM tasks
-  void availableUsers; void setDmContacts;
+  void availableUsers;
 
   return (
     <div className="app">

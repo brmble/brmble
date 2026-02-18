@@ -95,3 +95,55 @@ export function useAllChats() {
 
   return { getAllChannelIds, clearAllChats };
 }
+
+const DM_CONTACTS_KEY = 'brmble_dm_contacts';
+
+export interface StoredDMContact {
+  userId: string;
+  userName: string;
+  lastMessage?: string;
+  lastMessageTime?: string;
+  unread: number;
+}
+
+export function loadDMContacts(): StoredDMContact[] {
+  const stored = localStorage.getItem(DM_CONTACTS_KEY);
+  if (!stored) return [];
+  try {
+    return JSON.parse(stored);
+  } catch {
+    return [];
+  }
+}
+
+export function saveDMContacts(contacts: StoredDMContact[]) {
+  localStorage.setItem(DM_CONTACTS_KEY, JSON.stringify(contacts));
+}
+
+export function upsertDMContact(userId: string, userName: string, lastMessage?: string) {
+  const contacts = loadDMContacts();
+  const existing = contacts.find(c => c.userId === userId);
+  if (existing) {
+    existing.userName = userName;
+    if (lastMessage) {
+      existing.lastMessage = lastMessage;
+      existing.lastMessageTime = new Date().toISOString();
+    }
+  } else {
+    contacts.unshift({
+      userId,
+      userName,
+      lastMessage,
+      lastMessageTime: lastMessage ? new Date().toISOString() : undefined,
+      unread: 0,
+    });
+  }
+  // Sort by most recent message
+  contacts.sort((a, b) => {
+    if (!a.lastMessageTime) return 1;
+    if (!b.lastMessageTime) return -1;
+    return new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime();
+  });
+  saveDMContacts(contacts);
+  return contacts;
+}
