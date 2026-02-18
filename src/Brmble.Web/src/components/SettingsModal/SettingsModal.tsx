@@ -47,6 +47,15 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const newSettings = { ...settings, audio };
     setSettings(newSettings);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(newSettings));
+
+    // Notify backend of transmission mode change
+    window.chrome?.webview?.postMessage({
+      type: 'voice.setTransmissionMode',
+      data: {
+        mode: audio.transmissionMode,
+        key: audio.transmissionMode === 'pushToTalk' ? audio.pushToTalkKey : null,
+      }
+    });
   };
 
   const handleShortcutsChange = (shortcuts: ShortcutsSettings) => {
