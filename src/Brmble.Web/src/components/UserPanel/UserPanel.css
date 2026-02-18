@@ -25,7 +25,7 @@
   color: var(--accent-lemon);
 }
 
-.user-panel-btn.settings-btn:hover {
+.user-panel-btn.user-settings-btn:hover {
   color: var(--accent-berry);
 }
 
