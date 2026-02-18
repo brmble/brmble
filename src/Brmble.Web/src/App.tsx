@@ -8,7 +8,7 @@ import { ServerList } from './components/ServerList/ServerList';
 import type { ServerEntry } from './hooks/useServerlist';
 import { SettingsModal } from './components/SettingsModal/SettingsModal';
 import { CloseDialog } from './components/CloseDialog/CloseDialog';
-import { useChatStore, addMessageToStore, loadDMContacts, upsertDMContact } from './hooks/useChatStore';
+import { useChatStore, addMessageToStore, loadDMContacts, upsertDMContact, markDMContactRead } from './hooks/useChatStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
 import './App.css';
 
@@ -89,6 +89,12 @@ function App() {
   unreadCountRef.current = unreadCount;
   const hasPendingInviteRef = useRef(hasPendingInvite);
   hasPendingInviteRef.current = hasPendingInvite;
+  const selectedDMUserIdRef = useRef(selectedDMUserId);
+  selectedDMUserIdRef.current = selectedDMUserId;
+  const appModeRef = useRef(appMode);
+  appModeRef.current = appMode;
+  const addDMMessageRef = useRef(addDMMessage);
+  addDMMessageRef.current = addDMMessage;
 
   // Register all bridge handlers once on mount
   useEffect(() => {
@@ -132,31 +138,72 @@ function App() {
     });
 
     const onVoiceMessage = ((data: unknown) => {
-      const d = data as { message: string; senderSession?: number; channelIds?: number[] } | undefined;
-      if (d?.message) {
-        // Skip own message echoes -- we already added them locally in handleSendMessage
-        const selfUser = usersRef.current.find(u => u.self);
-        if (selfUser && d.senderSession === selfUser.session) {
-          return;
-        }
+      const d = data as {
+        message: string;
+        senderSession?: number;
+        channelIds?: number[];
+        sessions?: number[];
+      } | undefined;
+      if (!d?.message) return;
+
+      const selfUser = usersRef.current.find(u => u.self);
+
+      // Detect private message: has sessions, no channelIds
+      const isPrivateMessage = d.sessions && d.sessions.length > 0 &&
+        (!d.channelIds || d.channelIds.length === 0);
+
+      if (isPrivateMessage) {
+        // Skip own echoes for private messages too
+        if (selfUser && d.senderSession === selfUser.session) return;
+
+        const senderSession = String(d.senderSession);
         const senderUser = usersRef.current.find(u => u.session === d.senderSession);
         const senderName = senderUser?.name || 'Unknown';
-        // Route to server-root if message targets root channel (0) or has no channel target
-        const isRootMessage = !d.channelIds || d.channelIds.length === 0 || d.channelIds.includes(0);
-        const targetKey = isRootMessage ? 'server-root' : `channel-${d.channelIds![0]}`;
-        const currentKey = currentChannelIdRef.current;
-        const currentStoreKey = currentKey === 'server-root' ? 'server-root' : currentKey ? `channel-${currentKey}` : 'no-channel';
-        if (targetKey === currentStoreKey) {
-          // Message belongs to the currently viewed store -- add via React state
-          addMessageRef.current(senderName, d.message);
+        const dmStoreKey = `dm-${senderSession}`;
+
+        // Check if user is currently viewing this DM conversation
+        const isViewingThisDM = appModeRef.current === 'dm' &&
+          selectedDMUserIdRef.current === senderSession;
+
+        if (isViewingThisDM) {
+          // Add via React state so it appears immediately
+          addDMMessageRef.current(senderName, d.message);
         } else {
-          // Message belongs to a different store -- write directly to localStorage
-          addMessageToStore(targetKey, senderName, d.message);
+          // Write to localStorage in the background
+          addMessageToStore(dmStoreKey, senderName, d.message);
         }
-        const newUnread = unreadCountRef.current + 1;
-        setUnreadCount(newUnread);
-        updateBadge(newUnread, hasPendingInviteRef.current);
+
+        // Update DM contacts: upsert with lastMessage and increment unread
+        // (only increment if not currently viewing this DM)
+        const updated = upsertDMContact(senderSession, senderName, d.message, !isViewingThisDM);
+        setDmContacts(updated.map(c => ({
+          userId: c.userId,
+          userName: c.userName,
+          lastMessage: c.lastMessage,
+          lastMessageTime: c.lastMessageTime ? new Date(c.lastMessageTime) : undefined,
+          unread: c.unread,
+        })));
+        return;
       }
+
+      // Channel message (existing logic)
+      // Skip own message echoes
+      if (selfUser && d.senderSession === selfUser.session) return;
+
+      const senderUser = usersRef.current.find(u => u.session === d.senderSession);
+      const senderName = senderUser?.name || 'Unknown';
+      const isRootMessage = !d.channelIds || d.channelIds.length === 0 || d.channelIds.includes(0);
+      const targetKey = isRootMessage ? 'server-root' : `channel-${d.channelIds![0]}`;
+      const currentKey = currentChannelIdRef.current;
+      const currentStoreKey = currentKey === 'server-root' ? 'server-root' : currentKey ? `channel-${currentKey}` : 'no-channel';
+      if (targetKey === currentStoreKey) {
+        addMessageRef.current(senderName, d.message);
+      } else {
+        addMessageToStore(targetKey, senderName, d.message);
+      }
+      const newUnread = unreadCountRef.current + 1;
+      setUnreadCount(newUnread);
+      updateBadge(newUnread, hasPendingInviteRef.current);
     });
 
     const onVoiceSystem = ((data: unknown) => {
@@ -317,6 +364,10 @@ const handleConnect = (serverData: SavedServer) => {
   const handleSendDMMessage = (content: string) => {
     if (username && content && selectedDMUserId) {
       addDMMessage(username, content);
+      bridge.send('voice.sendPrivateMessage', {
+        message: content,
+        targetSession: Number(selectedDMUserId),
+      });
       const updated = upsertDMContact(selectedDMUserId, selectedDMUserName, content);
       setDmContacts(updated.map(c => ({
         userId: c.userId,
@@ -360,10 +411,14 @@ const handleConnect = (serverData: SavedServer) => {
     setAppMode(prev => prev === 'channels' ? 'dm' : 'channels');
   };
 
+  const unreadDMUserCount = dmContacts.filter(c => c.unread > 0).length;
+
   const handleSelectDMUser = (userId: string, userName: string) => {
     setSelectedDMUserId(userId);
     setSelectedDMUserName(userName);
     setAppMode('dm');
+    // Mark this contact as read, then upsert to ensure contact exists
+    markDMContactRead(userId);
     const updated = upsertDMContact(userId, userName);
     setDmContacts(updated.map(c => ({
       userId: c.userId,
@@ -387,6 +442,7 @@ const handleConnect = (serverData: SavedServer) => {
         username={username}
         onToggleDM={toggleDMMode}
         dmActive={appMode === 'dm'}
+        unreadDMCount={unreadDMUserCount}
         onOpenSettings={() => setShowSettings(true)}
         muted={selfMuted}
         deafened={selfDeafened}
