@@ -8,6 +8,8 @@ import { ServerList } from './components/ServerList/ServerList';
 import type { ServerEntry } from './hooks/useServerlist';
 import { SettingsModal } from './components/SettingsModal/SettingsModal';
 import { useChatStore, addMessageToStore } from './hooks/useChatStore';
+import { DMContactList } from './components/DMContactList/DMContactList';
+import type { DMContact } from './components/DMContactList/DMContactList';
 import './App.css';
 
 interface SavedServer {
@@ -47,6 +49,7 @@ function App() {
   const [selfDeafened, setSelfDeafened] = useState(false);
 
   const [showConnectModal, setShowConnectModal] = useState(false);
+  const [dmContacts, setDmContacts] = useState<DMContact[]>([]);
   const [appMode, setAppMode] = useState<'channels' | 'dm'>('channels');
   const [selectedDMUserId, setSelectedDMUserId] = useState<string | null>(null);
   const [selectedDMUserName, setSelectedDMUserName] = useState<string>('');
@@ -330,7 +333,7 @@ const handleConnect = (serverData: SavedServer) => {
     .map(u => ({ id: String(u.session), name: u.name }));
 
   // Suppress unused warnings — these are wired up in subsequent DM tasks
-  void handleSelectDMUser; void availableUsers;
+  void availableUsers; void setDmContacts;
 
   return (
     <div className="app">
@@ -384,6 +387,13 @@ const handleConnect = (serverData: SavedServer) => {
             </div>
           </div>
         </main>
+
+        <DMContactList
+          contacts={dmContacts}
+          selectedUserId={selectedDMUserId}
+          onSelectContact={handleSelectDMUser}
+          visible={appMode === 'dm'}
+        />
       </div>
 
       {!connected && (
