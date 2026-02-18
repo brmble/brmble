@@ -25,6 +25,11 @@
   color: var(--accent-lemon);
 }
 
+.user-panel-btn.dm-btn.active {
+  color: var(--accent-berry);
+  background: rgba(212, 20, 90, 0.15);
+}
+
 .user-panel-btn.user-settings-btn:hover {
   color: var(--accent-berry);
 }
