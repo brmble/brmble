@@ -120,7 +120,7 @@ export function saveDMContacts(contacts: StoredDMContact[]) {
   localStorage.setItem(DM_CONTACTS_KEY, JSON.stringify(contacts));
 }
 
-export function upsertDMContact(userId: string, userName: string, lastMessage?: string) {
+export function upsertDMContact(userId: string, userName: string, lastMessage?: string, incrementUnread?: boolean) {
   const contacts = loadDMContacts();
   const existing = contacts.find(c => c.userId === userId);
   if (existing) {
@@ -129,13 +129,16 @@ export function upsertDMContact(userId: string, userName: string, lastMessage?: 
       existing.lastMessage = lastMessage;
       existing.lastMessageTime = new Date().toISOString();
     }
+    if (incrementUnread) {
+      existing.unread = (existing.unread || 0) + 1;
+    }
   } else {
     contacts.unshift({
       userId,
       userName,
       lastMessage,
       lastMessageTime: lastMessage ? new Date().toISOString() : undefined,
-      unread: 0,
+      unread: incrementUnread ? 1 : 0,
     });
   }
   // Sort by most recent message
@@ -145,5 +148,15 @@ export function upsertDMContact(userId: string, userName: string, lastMessage?: 
     return new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime();
   });
   saveDMContacts(contacts);
+  return contacts;
+}
+
+export function markDMContactRead(userId: string): StoredDMContact[] {
+  const contacts = loadDMContacts();
+  const contact = contacts.find(c => c.userId === userId);
+  if (contact) {
+    contact.unread = 0;
+    saveDMContacts(contacts);
+  }
   return contacts;
 }
