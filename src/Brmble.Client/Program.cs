@@ -20,6 +20,7 @@ static class Program
     private static IntPtr _hwnd;
     private static bool _muted;
     private static bool _deafened;
+    private static volatile string? _closeAction; // null = ask, "minimize", "quit"
 
     [STAThread]
     static void Main()
@@ -110,6 +111,20 @@ static class Program
             return Task.CompletedTask;
         });
 
+        _bridge.RegisterHandler("window.quit", _ =>
+        {
+            _closeAction = "quit";
+            Win32Window.PostMessage(_hwnd, Win32Window.WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+            return Task.CompletedTask;
+        });
+
+        _bridge.RegisterHandler("window.setClosePreference", data =>
+        {
+            if (data.TryGetProperty("action", out var a))
+                _closeAction = a.GetString();
+            return Task.CompletedTask;
+        });
+
         _bridge.RegisterHandler("voice.selfMuteChanged", data =>
         {
             if (data.TryGetProperty("muted", out var m))
@@ -174,7 +189,24 @@ static class Program
                 return IntPtr.Zero;
 
             case Win32Window.WM_CLOSE:
-                Win32Window.ShowWindow(hwnd, Win32Window.SW_HIDE);
+                if (_closeAction == "quit")
+                {
+                    Win32Window.DestroyWindow(hwnd);
+                }
+                else if (_closeAction == "minimize")
+                {
+                    Win32Window.ShowWindow(hwnd, Win32Window.SW_HIDE);
+                }
+                else if (_bridge != null)
+                {
+                    // Ask via WebView2 modal — fire-and-forget
+                    _bridge.Send("window.showCloseDialog");
+                }
+                else
+                {
+                    // Bridge not ready yet — just quit
+                    Win32Window.DestroyWindow(hwnd);
+                }
                 return IntPtr.Zero;
 
             case TrayIcon.WM_TRAYICON:
