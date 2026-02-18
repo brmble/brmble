@@ -178,6 +178,25 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     }
 
     /// <summary>
+    /// Sends a private text message to a specific user session.
+    /// </summary>
+    /// <param name="message">The message text to send.</param>
+    /// <param name="targetSession">The session ID of the target user.</param>
+    public void SendPrivateMessage(string message, uint targetSession)
+    {
+        if (Connection is not { State: ConnectionStates.Connected })
+            return;
+
+        var textMessage = new TextMessage
+        {
+            Message = message,
+            Sessions = new[] { targetSession },
+        };
+
+        Connection.SendControl(PacketType.TextMessage, textMessage);
+    }
+
+    /// <summary>
     /// Sends a system message to the frontend via the voice.system bridge event.
     /// </summary>
     /// <param name="message">The message text (may contain HTML for welcome messages).</param>
@@ -284,6 +303,16 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     channelId = cid.GetUInt32();
                 }
                 SendTextMessage(message.GetString() ?? "", channelId);
+            }
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.sendPrivateMessage", data =>
+        {
+            if (data.TryGetProperty("message", out var message) &&
+                data.TryGetProperty("targetSession", out var session))
+            {
+                SendPrivateMessage(message.GetString() ?? "", session.GetUInt32());
             }
             return Task.CompletedTask;
         });
@@ -482,7 +511,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         {
             message = textMessage.Message,
             senderSession = textMessage.Actor,
-            channelIds = textMessage.ChannelIds ?? Array.Empty<uint>()
+            channelIds = textMessage.ChannelIds ?? Array.Empty<uint>(),
+            sessions = textMessage.Sessions ?? Array.Empty<uint>(),
         });
     }
 
