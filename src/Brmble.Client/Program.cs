@@ -224,6 +224,10 @@ static class Program
                 Win32Window.PostQuitMessage(0);
                 return IntPtr.Zero;
 
+            case Win32Window.WM_HOTKEY:
+                _mumbleClient?.HandleHotKey((int)wParam.ToInt64(), true);
+                return IntPtr.Zero;
+
             case 0x0400: // WM_USER
                 _bridge?.ProcessUiMessage();
                 return IntPtr.Zero;
