@@ -234,9 +234,16 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _pttMonitor?.Unwatch();
         if (parsed == TransmissionMode.PushToTalk && key != null)
         {
-            _pttMonitor ??= new PttKeyMonitor(active => _audioManager?.HandleHotKey(1, active));
+            _pttMonitor ??= new PttKeyMonitor(_ =>
+            {
+                var am = Volatile.Read(ref _audioManager);
+                am?.HandleHotKey(AudioManager.PttHotkeyId, false);
+            });
             var vk = AudioManager.KeyNameToVirtualKey(key);
-            if (vk != 0) _pttMonitor.Watch(vk);
+            if (vk != 0)
+                _pttMonitor.Watch(vk);
+            else
+                System.Diagnostics.Debug.WriteLine($"[MumbleAdapter] Unknown PTT key '{key}', monitor not started.");
         }
     }
 

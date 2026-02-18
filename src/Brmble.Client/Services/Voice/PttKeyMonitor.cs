@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using System.Diagnostics;
 
 namespace Brmble.Client.Services.Voice;
 
@@ -15,7 +14,7 @@ internal sealed class PttKeyMonitor : IDisposable
 
     private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
 
-    [DllImport("user32.dll")]
+    [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
 
     [DllImport("user32.dll")]
@@ -39,7 +38,7 @@ internal sealed class PttKeyMonitor : IDisposable
 
     private IntPtr _hook = IntPtr.Zero;
     private LowLevelKeyboardProc? _proc; // prevent GC
-    private int _watchedVk;
+    private volatile int _watchedVk;
     private readonly Action<bool> _onKeyEvent;
 
     public PttKeyMonitor(Action<bool> onKeyEvent)
@@ -52,9 +51,12 @@ internal sealed class PttKeyMonitor : IDisposable
         Unwatch();
         _watchedVk = vkCode;
         _proc = HookCallback;
-        using var curProcess = Process.GetCurrentProcess();
-        using var curModule = curProcess.MainModule!;
-        _hook = SetWindowsHookEx(WH_KEYBOARD_LL, _proc, GetModuleHandle(curModule.ModuleName), 0);
+        _hook = SetWindowsHookEx(WH_KEYBOARD_LL, _proc, GetModuleHandle(null), 0);
+        if (_hook == IntPtr.Zero)
+        {
+            System.Diagnostics.Debug.WriteLine($"[PttKeyMonitor] SetWindowsHookEx failed: {Marshal.GetLastWin32Error()}");
+            _proc = null; // allow GC since hook wasn't installed
+        }
     }
 
     public void Unwatch()

@@ -28,6 +28,7 @@ internal sealed class AudioManager : IDisposable
     private volatile bool _deafened;
     private volatile TransmissionMode _transmissionMode = TransmissionMode.Continuous;
     private volatile bool _pttActive;
+    internal const int PttHotkeyId = 1;
     private int _hotkeyId = -1;
     private IntPtr _hwnd;
     private const int RmsThreshold = 300; // ~1% of 16-bit max (32767)
@@ -243,7 +244,7 @@ internal sealed class AudioManager : IDisposable
             var vk = KeyNameToVirtualKey(key);
             if (vk != 0)
             {
-                _hotkeyId = 1;
+                _hotkeyId = PttHotkeyId;
                 if (!RegisterHotKey(hwnd, _hotkeyId, 0, (uint)vk))
                 {
                     _hotkeyId = -1;
