@@ -15,6 +15,7 @@ interface SidebarProps {
   serverAddress?: string;
   username?: string;
   onDisconnect?: () => void;
+  onStartDM?: (userId: string, userName: string) => void;
 }
 
 export function Sidebar({
@@ -29,7 +30,8 @@ export function Sidebar({
   serverLabel,
   serverAddress,
   username,
-  onDisconnect
+  onDisconnect,
+  onStartDM
 }: SidebarProps) {
   return (
     <aside className="sidebar">
@@ -72,6 +74,7 @@ export function Sidebar({
           currentChannelId={currentChannelId}
           onJoinChannel={onJoinChannel}
           onSelectChannel={onSelectChannel}
+          onStartDM={onStartDM}
         />
       </div>
     </aside>

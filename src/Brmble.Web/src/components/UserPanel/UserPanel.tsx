@@ -2,7 +2,9 @@ import './UserPanel.css';
 
 interface UserPanelProps {
   username?: string;
-  onOpenDMPanel: () => void;
+  onToggleDM: () => void;
+  dmActive?: boolean;
+  unreadDMCount?: number;
   onOpenSettings: () => void;
   muted?: boolean;
   deafened?: boolean;
@@ -10,7 +12,7 @@ interface UserPanelProps {
   onToggleDeaf?: () => void;
 }
 
-export function UserPanel({ username, onOpenDMPanel, onOpenSettings, muted, deafened, onToggleMute, onToggleDeaf }: UserPanelProps) {
+export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, muted, deafened, onToggleMute, onToggleDeaf }: UserPanelProps) {
   return (
     <div className="user-panel">
       {onToggleMute && (
@@ -58,13 +60,18 @@ export function UserPanel({ username, onOpenDMPanel, onOpenSettings, muted, deaf
       )}
       
       <button 
-        className="user-panel-btn dm-btn" 
-        onClick={onOpenDMPanel}
+        className={`user-panel-btn dm-btn ${dmActive ? 'active' : ''}`}
+        onClick={onToggleDM}
         title="Direct Messages"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
         </svg>
+        {unreadDMCount != null && unreadDMCount > 0 && (
+          <span className="dm-unread-badge" key={unreadDMCount}>
+            {unreadDMCount > 9 ? '9+' : unreadDMCount}
+          </span>
+        )}
       </button>
       
       <button 

@@ -4,7 +4,9 @@ import './Header.css';
 
 interface HeaderProps {
   username?: string;
-  onOpenDMPanel: () => void;
+  onToggleDM: () => void;
+  dmActive?: boolean;
+  unreadDMCount?: number;
   onOpenSettings: () => void;
   muted?: boolean;
   deafened?: boolean;
@@ -12,7 +14,7 @@ interface HeaderProps {
   onToggleDeaf?: () => void;
 }
 
-export function Header({ username, onOpenDMPanel, onOpenSettings, muted, deafened, onToggleMute, onToggleDeaf }: HeaderProps) {
+export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, muted, deafened, onToggleMute, onToggleDeaf }: HeaderProps) {
   return (
     <header className="header">
       <div className="header-left">
@@ -22,7 +24,9 @@ export function Header({ username, onOpenDMPanel, onOpenSettings, muted, deafene
       <div className="header-right">
         <UserPanel
           username={username}
-          onOpenDMPanel={onOpenDMPanel}
+          onToggleDM={onToggleDM}
+          dmActive={dmActive}
+          unreadDMCount={unreadDMCount}
           onOpenSettings={onOpenSettings}
           muted={muted}
           deafened={deafened}

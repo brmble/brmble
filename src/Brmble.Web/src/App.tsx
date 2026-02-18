@@ -6,10 +6,11 @@ import { ChatPanel } from './components/ChatPanel/ChatPanel';
 import { ConnectModal } from './components/ConnectModal/ConnectModal';
 import { ServerList } from './components/ServerList/ServerList';
 import type { ServerEntry } from './hooks/useServerlist';
-import { DMPanel } from './components/DMPanel/DMPanel';
 import { SettingsModal } from './components/SettingsModal/SettingsModal';
 import { CloseDialog } from './components/CloseDialog/CloseDialog';
-import { useChatStore, addMessageToStore } from './hooks/useChatStore';
+import { useChatStore, addMessageToStore, loadDMContacts, upsertDMContact, markDMContactRead } from './hooks/useChatStore';
+import type { StoredDMContact } from './hooks/useChatStore';
+import { DMContactList } from './components/DMContactList/DMContactList';
 import './App.css';
 
 interface SavedServer {
@@ -35,6 +36,15 @@ interface User {
 }
 
 
+const mapStoredContacts = (contacts: StoredDMContact[]) =>
+  contacts.map(c => ({
+    userId: c.userId,
+    userName: c.userName,
+    lastMessage: c.lastMessage,
+    lastMessageTime: c.lastMessageTime ? new Date(c.lastMessageTime) : undefined,
+    unread: c.unread,
+  }));
+
 function App() {
   const [connected, setConnected] = useState(false);
   const [username, setUsername] = useState('');
@@ -49,7 +59,10 @@ function App() {
   const [selfDeafened, setSelfDeafened] = useState(false);
 
   const [showConnectModal, setShowConnectModal] = useState(false);
-  const [showDMPanel, setShowDMPanel] = useState(false);
+  const [dmContacts, setDmContacts] = useState(() => mapStoredContacts(loadDMContacts()));
+  const [appMode, setAppMode] = useState<'channels' | 'dm'>('channels');
+  const [selectedDMUserId, setSelectedDMUserId] = useState<string | null>(null);
+  const [selectedDMUserName, setSelectedDMUserName] = useState<string>('');
   const [showSettings, setShowSettings] = useState(false);
   const [showCloseDialog, setShowCloseDialog] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -57,6 +70,9 @@ function App() {
 
   const channelKey = currentChannelId === 'server-root' ? 'server-root' : currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
   const { messages, addMessage } = useChatStore(channelKey);
+
+  const dmKey = selectedDMUserId ? `dm-${selectedDMUserId}` : 'no-dm';
+  const { messages: dmMessages, addMessage: addDMMessage } = useChatStore(dmKey);
 
   const updateBadge = (unread: number, invite: boolean) => {
     bridge.send('notification.badge', { unreadDMs: unread > 0, pendingInvite: invite });
@@ -75,6 +91,12 @@ function App() {
   unreadCountRef.current = unreadCount;
   const hasPendingInviteRef = useRef(hasPendingInvite);
   hasPendingInviteRef.current = hasPendingInvite;
+  const selectedDMUserIdRef = useRef(selectedDMUserId);
+  selectedDMUserIdRef.current = selectedDMUserId;
+  const appModeRef = useRef(appMode);
+  appModeRef.current = appMode;
+  const addDMMessageRef = useRef(addDMMessage);
+  addDMMessageRef.current = addDMMessage;
 
   // Register all bridge handlers once on mount
   useEffect(() => {
@@ -118,31 +140,61 @@ function App() {
     });
 
     const onVoiceMessage = ((data: unknown) => {
-      const d = data as { message: string; senderSession?: number; channelIds?: number[] } | undefined;
-      if (d?.message) {
-        // Skip own message echoes -- we already added them locally in handleSendMessage
-        const selfUser = usersRef.current.find(u => u.self);
-        if (selfUser && d.senderSession === selfUser.session) {
-          return;
-        }
-        const senderUser = usersRef.current.find(u => u.session === d.senderSession);
-        const senderName = senderUser?.name || 'Unknown';
-        // Route to server-root if message targets root channel (0) or has no channel target
-        const isRootMessage = !d.channelIds || d.channelIds.length === 0 || d.channelIds.includes(0);
-        const targetKey = isRootMessage ? 'server-root' : `channel-${d.channelIds![0]}`;
-        const currentKey = currentChannelIdRef.current;
-        const currentStoreKey = currentKey === 'server-root' ? 'server-root' : currentKey ? `channel-${currentKey}` : 'no-channel';
-        if (targetKey === currentStoreKey) {
-          // Message belongs to the currently viewed store -- add via React state
-          addMessageRef.current(senderName, d.message);
+      const d = data as {
+        message: string;
+        senderSession?: number;
+        channelIds?: number[];
+        sessions?: number[];
+      } | undefined;
+      if (!d?.message) return;
+
+      const selfUser = usersRef.current.find(u => u.self);
+      if (selfUser && d.senderSession === selfUser.session) return; // self-echo check (once)
+      if (d.senderSession === undefined) return; // guard against undefined
+
+      const senderUser = usersRef.current.find(u => u.session === d.senderSession);
+      const senderName = senderUser?.name || 'Unknown';
+
+      // Detect private message: has sessions, no channelIds
+      const isPrivateMessage = d.sessions && d.sessions.length > 0 &&
+        (!d.channelIds || d.channelIds.length === 0);
+
+      if (isPrivateMessage) {
+        const senderSession = String(d.senderSession);
+        const dmStoreKey = `dm-${senderSession}`;
+
+        // Check if user is currently viewing this DM conversation
+        const isViewingThisDM = appModeRef.current === 'dm' &&
+          selectedDMUserIdRef.current === senderSession;
+
+        if (isViewingThisDM) {
+          // Add via React state so it appears immediately
+          addDMMessageRef.current(senderName, d.message);
         } else {
-          // Message belongs to a different store -- write directly to localStorage
-          addMessageToStore(targetKey, senderName, d.message);
+          // Write to localStorage in the background
+          addMessageToStore(dmStoreKey, senderName, d.message);
         }
-        const newUnread = unreadCountRef.current + 1;
-        setUnreadCount(newUnread);
-        updateBadge(newUnread, hasPendingInviteRef.current);
+
+        // Update DM contacts: upsert with lastMessage and increment unread
+        // (only increment if not currently viewing this DM)
+        const updated = upsertDMContact(senderSession, senderName, d.message, !isViewingThisDM);
+        setDmContacts(mapStoredContacts(updated));
+        return;
       }
+
+      // Channel message (existing logic)
+      const isRootMessage = !d.channelIds || d.channelIds.length === 0 || d.channelIds.includes(0);
+      const targetKey = isRootMessage ? 'server-root' : `channel-${d.channelIds![0]}`;
+      const currentKey = currentChannelIdRef.current;
+      const currentStoreKey = currentKey === 'server-root' ? 'server-root' : currentKey ? `channel-${currentKey}` : 'no-channel';
+      if (targetKey === currentStoreKey) {
+        addMessageRef.current(senderName, d.message);
+      } else {
+        addMessageToStore(targetKey, senderName, d.message);
+      }
+      const newUnread = unreadCountRef.current + 1;
+      setUnreadCount(newUnread);
+      updateBadge(newUnread, hasPendingInviteRef.current);
     });
 
     const onVoiceSystem = ((data: unknown) => {
@@ -300,6 +352,18 @@ const handleConnect = (serverData: SavedServer) => {
     }
   };
 
+  const handleSendDMMessage = (content: string) => {
+    if (username && content && selectedDMUserId) {
+      addDMMessage(username, content);
+      bridge.send('voice.sendPrivateMessage', {
+        message: content,
+        targetSession: Number(selectedDMUserId),
+      });
+      const updated = upsertDMContact(selectedDMUserId, selectedDMUserName, content);
+      setDmContacts(mapStoredContacts(updated));
+    }
+  };
+
   const handleDisconnect = () => {
     bridge.send('voice.disconnect');
   };
@@ -328,20 +392,36 @@ const handleConnect = (serverData: SavedServer) => {
     bridge.send('window.quit');
   }, []);
 
-  const handleStartDM = (userId: string) => {
-    console.log('Starting DM with user:', userId);
-    setShowDMPanel(false);
+  const toggleDMMode = () => {
+    setAppMode(prev => prev === 'channels' ? 'dm' : 'channels');
+  };
+
+  const unreadDMUserCount = dmContacts.filter(c => c.unread > 0).length;
+
+  const handleSelectDMUser = (userId: string, userName: string) => {
+    setSelectedDMUserId(userId);
+    setSelectedDMUserName(userName);
+    setAppMode('dm');
+    // Mark this contact as read, then upsert to ensure contact exists
+    markDMContactRead(userId);
+    const updated = upsertDMContact(userId, userName);
+    setDmContacts(mapStoredContacts(updated));
   };
 
   const availableUsers = users
     .filter(u => !u.self)
     .map(u => ({ id: String(u.session), name: u.name }));
 
+  // Suppress unused warnings — these are wired up in subsequent DM tasks
+  void availableUsers;
+
   return (
     <div className="app">
       <Header
         username={username}
-        onOpenDMPanel={() => setShowDMPanel(true)}
+        onToggleDM={toggleDMMode}
+        dmActive={appMode === 'dm'}
+        unreadDMCount={unreadDMUserCount}
         onOpenSettings={() => setShowSettings(true)}
         muted={selfMuted}
         deafened={selfDeafened}
@@ -363,17 +443,39 @@ const handleConnect = (serverData: SavedServer) => {
           serverAddress={serverAddress}
           username={username}
           onDisconnect={handleDisconnect}
+          onStartDM={handleSelectDMUser}
         />
         
         <main className="main-content">
-          <ChatPanel
-            channelId={currentChannelId || undefined}
-            channelName={currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName}
-            messages={messages}
-            currentUsername={username}
-            onSendMessage={handleSendMessage}
-          />
+          <div className={`content-slider ${appMode === 'dm' ? 'dm-active' : ''}`}>
+            <div className="content-slide">
+              <ChatPanel
+                channelId={currentChannelId || undefined}
+                channelName={currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName}
+                messages={messages}
+                currentUsername={username}
+                onSendMessage={handleSendMessage}
+              />
+            </div>
+            <div className="content-slide">
+              <ChatPanel
+                channelId={selectedDMUserId ? `dm-${selectedDMUserId}` : undefined}
+                channelName={selectedDMUserName}
+                messages={dmMessages}
+                currentUsername={username}
+                onSendMessage={handleSendDMMessage}
+                isDM={true}
+              />
+            </div>
+          </div>
         </main>
+
+        <DMContactList
+          contacts={dmContacts}
+          selectedUserId={selectedDMUserId}
+          onSelectContact={handleSelectDMUser}
+          visible={appMode === 'dm'}
+        />
       </div>
 
       {!connected && (
@@ -386,14 +488,6 @@ const handleConnect = (serverData: SavedServer) => {
         isOpen={showConnectModal}
         onClose={() => setShowConnectModal(false)}
         onConnect={handleConnect}
-      />
-
-      <DMPanel
-        isOpen={showDMPanel}
-        onClose={() => setShowDMPanel(false)}
-        users={availableUsers}
-        conversations={[]}
-        onStartDM={handleStartDM}
       />
 
       <SettingsModal
