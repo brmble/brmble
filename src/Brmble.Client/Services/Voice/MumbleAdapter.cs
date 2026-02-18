@@ -20,6 +20,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private CancellationTokenSource? _cts;
     private Thread? _processThread;
     private AudioManager? _audioManager;
+    private PttKeyMonitor? _pttMonitor;
     private string? _lastWelcomeText;
 
     public string ServiceName => "mumble";
@@ -98,6 +99,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _cts?.Cancel();
         _processThread?.Join(2000);
         _processThread = null;
+
+        _pttMonitor?.Dispose();
+        _pttMonitor = null;
 
         _audioManager?.Dispose();
         _audioManager = null;
@@ -223,7 +227,17 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         };
         if (parsed == TransmissionMode.Continuous && mode != "continuous")
             Debug.WriteLine($"[Audio] Unknown transmission mode '{mode}', defaulting to Continuous");
+
         _audioManager?.SetTransmissionMode(parsed, key, _hwnd);
+
+        // Manage key-up monitor for PTT release
+        _pttMonitor?.Unwatch();
+        if (parsed == TransmissionMode.PushToTalk && key != null)
+        {
+            _pttMonitor ??= new PttKeyMonitor(active => _audioManager?.HandleHotKey(1, active));
+            var vk = AudioManager.KeyNameToVirtualKey(key);
+            if (vk != 0) _pttMonitor.Watch(vk);
+        }
     }
 
     /// <summary>Called from WndProc on WM_HOTKEY.</summary>
