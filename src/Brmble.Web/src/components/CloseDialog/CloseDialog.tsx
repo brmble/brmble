@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import './CloseDialog.css';
 
 interface CloseDialogProps {
@@ -10,18 +10,42 @@ interface CloseDialogProps {
 export function CloseDialog({ isOpen, onMinimize, onQuit }: CloseDialogProps) {
   const [dontAskAgain, setDontAskAgain] = useState(false);
 
+  // Fix 4: Escape key handler — treat Escape as safe "Minimize" action
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onMinimize(false);
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [isOpen, onMinimize]);
+
+  // Fix 5: Reset dontAskAgain when dialog closes
+  useEffect(() => {
+    if (!isOpen) setDontAskAgain(false);
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   return (
     <div className="close-dialog-overlay">
-      <div className="close-dialog-card">
-        <h2 className="close-dialog-title">Leaving so soon?</h2>
+      {/* Fix 2: ARIA dialog semantics */}
+      <div
+        className="close-dialog-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="close-dialog-title"
+      >
+        {/* Fix 2: id on heading to satisfy aria-labelledby */}
+        <h2 id="close-dialog-title" className="close-dialog-title">Leaving so soon?</h2>
         <p className="close-dialog-subtitle">Choose what happens when you close the window.</p>
 
         <div className="close-dialog-buttons">
+          {/* Fix 3: autoFocus so keyboard lands inside the dialog */}
           <button
             className="close-dialog-btn minimize"
             onClick={() => onMinimize(dontAskAgain)}
+            autoFocus
           >
             Minimize to tray
           </button>
