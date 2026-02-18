@@ -70,7 +70,7 @@ static class Program
             _serverlistService.Initialize(_bridge);
             _serverlistService.RegisterHandlers(_bridge);
 
-            _mumbleClient = new MumbleAdapter(_bridge);
+            _mumbleClient = new MumbleAdapter(_bridge, _hwnd);
             
             SetupBridgeHandlers();
 

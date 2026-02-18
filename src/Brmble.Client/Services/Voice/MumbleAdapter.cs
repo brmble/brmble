@@ -16,6 +16,7 @@ namespace Brmble.Client.Services.Voice;
 internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 {
     private readonly NativeBridge? _bridge;
+    private readonly IntPtr _hwnd;
     private CancellationTokenSource? _cts;
     private Thread? _processThread;
     private AudioManager? _audioManager;
@@ -23,9 +24,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     public string ServiceName => "mumble";
 
-    public MumbleAdapter(NativeBridge bridge)
+    public MumbleAdapter(NativeBridge bridge, IntPtr hwnd)
     {
         _bridge = bridge;
+        _hwnd = hwnd;
     }
 
     public void Initialize(NativeBridge bridge) { }
@@ -210,6 +212,24 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _bridge?.Send("voice.selfMuteChanged", new { muted = LocalUser.SelfMuted });
     }
 
+    public void SetTransmissionMode(string mode, string? key)
+    {
+        var parsed = mode switch
+        {
+            "voiceActivity" => TransmissionMode.VoiceActivity,
+            "pushToTalk"    => TransmissionMode.PushToTalk,
+            "continuous"    => TransmissionMode.Continuous,
+            _ => TransmissionMode.Continuous,
+        };
+        if (parsed == TransmissionMode.Continuous && mode != "continuous")
+            Debug.WriteLine($"[Audio] Unknown transmission mode '{mode}', defaulting to Continuous");
+        _audioManager?.SetTransmissionMode(parsed, key, _hwnd);
+    }
+
+    /// <summary>Called from WndProc on WM_HOTKEY.</summary>
+    public void HandleHotKey(int id, bool keyDown)
+        => _audioManager?.HandleHotKey(id, keyDown);
+
     public void JoinChannel(uint channelId)
     {
         if (Connection is not { State: ConnectionStates.Connected })
@@ -255,6 +275,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         bridge.RegisterHandler("voice.toggleMute", _ => { ToggleMute(); return Task.CompletedTask; });
         bridge.RegisterHandler("voice.toggleDeaf", _ => { ToggleDeaf(); return Task.CompletedTask; });
+
+        bridge.RegisterHandler("voice.setTransmissionMode", data =>
+        {
+            var mode = data.TryGetProperty("mode", out var m) ? m.GetString() ?? "continuous" : "continuous";
+            var key  = data.TryGetProperty("key",  out var k) ? k.GetString() : null;
+            SetTransmissionMode(mode, key);
+            return Task.CompletedTask;
+        });
     }
 
     // --- MumbleSharp protocol overrides ---
