@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import './SettingsModal.css';
-import { AudioSettingsTab, AudioSettings, DEFAULT_SETTINGS as DEFAULT_AUDIO } from './AudioSettingsTab';
-import { ShortcutsSettingsTab, ShortcutsSettings, DEFAULT_SHORTCUTS } from './ShortcutsSettingsTab';
-import { MessagesSettingsTab, MessagesSettings, DEFAULT_MESSAGES } from './MessagesSettingsTab';
-import { OverlaySettingsTab, OverlaySettings, DEFAULT_OVERLAY } from './OverlaySettingsTab';
+import { AudioSettingsTab, type AudioSettings, DEFAULT_SETTINGS as DEFAULT_AUDIO } from './AudioSettingsTab';
+import { ShortcutsSettingsTab, type ShortcutsSettings, DEFAULT_SHORTCUTS } from './ShortcutsSettingsTab';
+import { MessagesSettingsTab, type MessagesSettings, DEFAULT_MESSAGES } from './MessagesSettingsTab';
+import { OverlaySettingsTab, type OverlaySettings, DEFAULT_OVERLAY } from './OverlaySettingsTab';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -39,7 +39,7 @@ function loadSettings(): AppSettings {
   return DEFAULT_SETTINGS;
 }
 
-export function SettingsModal({ isOpen, onClose, username }: SettingsModalProps) {
+export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<'audio' | 'shortcuts' | 'messages' | 'overlay'>('audio');
   const [settings, setSettings] = useState<AppSettings>(loadSettings);
 
