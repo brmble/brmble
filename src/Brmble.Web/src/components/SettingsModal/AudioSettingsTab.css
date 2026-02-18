@@ -1,0 +1,30 @@
+.settings-slider {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.settings-slider label {
+  margin-bottom: 8px;
+}
+
+.settings-slider input[type="range"] {
+  width: 100%;
+  height: 6px;
+  -webkit-appearance: none;
+  background: #3a3a3a;
+  border-radius: 3px;
+  outline: none;
+}
+
+.settings-slider input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  background: #4a9eff;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.settings-slider input[type="range"]::-webkit-slider-thumb:hover {
+  background: #5aafff;
+}

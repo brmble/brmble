@@ -1,4 +1,9 @@
+import { useState } from 'react';
 import './SettingsModal.css';
+import { AudioSettingsTab, AudioSettings, DEFAULT_SETTINGS as DEFAULT_AUDIO } from './AudioSettingsTab';
+import { ShortcutsSettingsTab, ShortcutsSettings, DEFAULT_SHORTCUTS } from './ShortcutsSettingsTab';
+import { MessagesSettingsTab, MessagesSettings, DEFAULT_MESSAGES } from './MessagesSettingsTab';
+import { OverlaySettingsTab, OverlaySettings, DEFAULT_OVERLAY } from './OverlaySettingsTab';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -6,7 +11,62 @@ interface SettingsModalProps {
   username?: string;
 }
 
+interface AppSettings {
+  audio: AudioSettings;
+  shortcuts: ShortcutsSettings;
+  messages: MessagesSettings;
+  overlay: OverlaySettings;
+}
+
+const STORAGE_KEY = 'brmble-settings';
+
+const DEFAULT_SETTINGS: AppSettings = {
+  audio: DEFAULT_AUDIO,
+  shortcuts: DEFAULT_SHORTCUTS,
+  messages: DEFAULT_MESSAGES,
+  overlay: DEFAULT_OVERLAY,
+};
+
+function loadSettings(): AppSettings {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      return { ...DEFAULT_SETTINGS, ...JSON.parse(stored) };
+    }
+  } catch (e) {
+    console.error('Failed to load settings:', e);
+  }
+  return DEFAULT_SETTINGS;
+}
+
 export function SettingsModal({ isOpen, onClose, username }: SettingsModalProps) {
+  const [activeTab, setActiveTab] = useState<'audio' | 'shortcuts' | 'messages' | 'overlay'>('audio');
+  const [settings, setSettings] = useState<AppSettings>(loadSettings);
+
+  const handleAudioChange = (audio: AudioSettings) => {
+    const newSettings = { ...settings, audio };
+    setSettings(newSettings);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(newSettings));
+  };
+
+  const handleShortcutsChange = (shortcuts: ShortcutsSettings) => {
+    const newSettings = { ...settings, shortcuts };
+    setSettings(newSettings);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(newSettings));
+  };
+
+  const handleMessagesChange = (messages: MessagesSettings) => {
+    const newSettings = { ...settings, messages };
+    setSettings(newSettings);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(newSettings));
+  };
+
+  const handleOverlayChange = (overlay: OverlaySettings) => {
+    const newSettings = { ...settings, overlay };
+    setSettings(newSettings);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(newSettings));
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -24,42 +84,38 @@ export function SettingsModal({ isOpen, onClose, username }: SettingsModalProps)
           <p className="modal-subtitle">Configure your preferences</p>
         </div>
 
+        <div className="settings-tabs">
+          <button 
+            className={`settings-tab ${activeTab === 'audio' ? 'active' : ''}`}
+            onClick={() => setActiveTab('audio')}
+          >
+            Audio
+          </button>
+          <button 
+            className={`settings-tab ${activeTab === 'shortcuts' ? 'active' : ''}`}
+            onClick={() => setActiveTab('shortcuts')}
+          >
+            Shortcuts
+          </button>
+          <button 
+            className={`settings-tab ${activeTab === 'messages' ? 'active' : ''}`}
+            onClick={() => setActiveTab('messages')}
+          >
+            Messages
+          </button>
+          <button 
+            className={`settings-tab ${activeTab === 'overlay' ? 'active' : ''}`}
+            onClick={() => setActiveTab('overlay')}
+          >
+            Overlay
+          </button>
+        </div>
+
         <div className="settings-content">
-          <div className="settings-section">
-            <h3 className="settings-section-title">Account</h3>
-            <div className="settings-item">
-              <label>Username</label>
-              <div className="settings-value">{username || 'Not connected'}</div>
-            </div>
-          </div>
-
-          <div className="settings-section">
-            <h3 className="settings-section-title">Audio</h3>
-            <div className="settings-item">
-              <label>Input Device</label>
-              <select className="settings-select">
-                <option>Default</option>
-              </select>
-            </div>
-            <div className="settings-item">
-              <label>Output Device</label>
-              <select className="settings-select">
-                <option>Default</option>
-              </select>
-            </div>
-            <div className="settings-item settings-toggle">
-              <label>Push to Talk</label>
-              <input type="checkbox" className="toggle-input" />
-            </div>
-          </div>
-
-          <div className="settings-section">
-            <h3 className="settings-section-title">Appearance</h3>
-            <div className="settings-item settings-toggle">
-              <label>Compact Mode</label>
-              <input type="checkbox" className="toggle-input" />
-            </div>
-          </div>
+          {activeTab === 'audio' && <AudioSettingsTab settings={settings.audio} onChange={handleAudioChange} />}
+          {activeTab === 'shortcuts' && <ShortcutsSettingsTab settings={settings.shortcuts} onChange={handleShortcutsChange} />}
+          {activeTab === 'messages' && <MessagesSettingsTab settings={settings.messages} onChange={handleMessagesChange} />}
+          {activeTab === 'overlay' && <OverlaySettingsTab settings={settings.overlay} onChange={handleOverlayChange} />}
         </div>
 
         <div className="settings-footer">
