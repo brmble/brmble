@@ -20,9 +20,34 @@ export function CloseDialog({ isOpen, onMinimize, onQuit }: CloseDialogProps) {
     return () => window.removeEventListener('keydown', handleKey);
   }, [isOpen, onMinimize]);
 
-  // Fix 5: Reset dontAskAgain when dialog closes
+  // Focus trap
   useEffect(() => {
-    if (!isOpen) setDontAskAgain(false);
+    if (!isOpen) return;
+    const card = document.querySelector<HTMLElement>('.close-dialog-card');
+    if (!card) return;
+    const focusable = card.querySelectorAll<HTMLElement>(
+      'button, input[type="checkbox"], [tabindex]:not([tabindex="-1"])'
+    );
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+
+    const handleTrap = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleTrap);
+    return () => window.removeEventListener('keydown', handleTrap);
   }, [isOpen]);
 
   if (!isOpen) return null;
