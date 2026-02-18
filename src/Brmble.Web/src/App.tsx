@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import bridge from './bridge';
 import { Header } from './components/Header/Header';
 import { Sidebar } from './components/Sidebar/Sidebar';
@@ -269,21 +269,21 @@ const handleConnect = (serverData: SavedServer) => {
     bridge.send('voice.toggleDeaf', {});
   };
 
-  const handleCloseMinimize = (dontAskAgain: boolean) => {
+  const handleCloseMinimize = useCallback((dontAskAgain: boolean) => {
     setShowCloseDialog(false);
     if (dontAskAgain) {
       bridge.send('window.setClosePreference', { action: 'minimize' });
     }
     bridge.send('window.minimize');
-  };
+  }, []);
 
-  const handleCloseQuit = (dontAskAgain: boolean) => {
+  const handleCloseQuit = useCallback((dontAskAgain: boolean) => {
     setShowCloseDialog(false);
     if (dontAskAgain) {
       bridge.send('window.setClosePreference', { action: 'quit' });
     }
     bridge.send('window.quit');
-  };
+  }, []);
 
   const handleStartDM = (userId: string) => {
     console.log('Starting DM with user:', userId);
