@@ -57,6 +57,10 @@ internal sealed class PttKeyMonitor : IDisposable
             System.Diagnostics.Debug.WriteLine($"[PttKeyMonitor] SetWindowsHookEx failed: {Marshal.GetLastWin32Error()}");
             _proc = null; // allow GC since hook wasn't installed
         }
+        else
+        {
+            System.Diagnostics.Debug.WriteLine($"[PttKeyMonitor] Hook installed for vk=0x{vkCode:X2}");
+        }
     }
 
     public void Unwatch()
@@ -71,16 +75,17 @@ internal sealed class PttKeyMonitor : IDisposable
 
     private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
+        var hook = _hook; // snapshot once; CallNextHookEx(NULL) is valid per MSDN
         if (nCode >= 0)
         {
             var kb = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
-            if (kb.vkCode == _watchedVk)
+            if (kb.vkCode == (uint)_watchedVk)
             {
-                var isKeyUp = wParam == WM_KEYUP || wParam == WM_SYSKEYUP;
-                if (isKeyUp) _onKeyEvent(false); // false = key released
+                if ((int)wParam == WM_KEYUP || (int)wParam == WM_SYSKEYUP)
+                    _onKeyEvent(false);
             }
         }
-        return CallNextHookEx(_hook, nCode, wParam, lParam);
+        return CallNextHookEx(hook, nCode, wParam, lParam);
     }
 
     public void Dispose() => Unwatch();

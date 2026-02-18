@@ -237,7 +237,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _pttMonitor ??= new PttKeyMonitor(_ =>
             {
                 var am = Volatile.Read(ref _audioManager);
-                am?.HandleHotKey(AudioManager.PttHotkeyId, false);
+                if (am != null)
+                    Task.Run(() => am.HandleHotKey(AudioManager.PttHotkeyId, false));
             });
             var vk = AudioManager.KeyNameToVirtualKey(key);
             if (vk != 0)
