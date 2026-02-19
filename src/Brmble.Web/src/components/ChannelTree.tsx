@@ -29,9 +29,10 @@ interface ChannelTreeProps {
   onJoinChannel: (channelId: number) => void;
   onSelectChannel?: (channelId: number) => void;
   onStartDM?: (userId: string, userName: string) => void;
+  speakingUsers?: Map<number, boolean>;
 }
 
-export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM }: ChannelTreeProps) {
+export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, speakingUsers }: ChannelTreeProps) {
   const [sortByNamePerChannel, setSortByNamePerChannel] = useState<Record<number, boolean>>({});
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string } | null>(null);
   const initialExpanded = useMemo(() => {
@@ -177,7 +178,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
             {channel.users.map(user => (
               <div 
                 key={user.session} 
-                className={`user-row ${user.self ? 'self' : ''}`}
+                className={`user-row ${user.self ? 'self' : ''} ${speakingUsers?.has(user.session) ? 'speaking' : ''}`}
                 title={getUserTooltip(user)}
                 onContextMenu={(e) => {
                   if (!user.self && onStartDM) {

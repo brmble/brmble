@@ -57,6 +57,8 @@ function App() {
   const [currentChannelName, setCurrentChannelName] = useState<string>('');
   const [selfMuted, setSelfMuted] = useState(false);
   const [selfDeafened, setSelfDeafened] = useState(false);
+  const [selfSession, setSelfSession] = useState<number>(0);
+  const [speakingUsers, setSpeakingUsers] = useState<Map<number, boolean>>(new Map());
 
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [dmContacts, setDmContacts] = useState(() => mapStoredContacts(loadDMContacts()));
@@ -118,6 +120,7 @@ function App() {
         if (selfUser) {
           setSelfMuted(selfUser.muted || false);
           setSelfDeafened(selfUser.deafened || false);
+          setSelfSession(selfUser.session);
         }
       }
     });
@@ -132,6 +135,8 @@ function App() {
       setCurrentChannelName('');
       setSelfMuted(false);
       setSelfDeafened(false);
+      setSelfSession(0);
+      setSpeakingUsers(new Map());
     };
 
     const onVoiceError = ((data: unknown) => {
@@ -270,6 +275,21 @@ function App() {
       }
     });
 
+    const onVoiceUserSpeaking = ((data: unknown) => {
+      const d = data as { session: number; speaking: boolean } | undefined;
+      if (d?.session !== undefined && d?.speaking !== undefined) {
+        setSpeakingUsers(prev => {
+          const next = new Map(prev);
+          if (d.speaking) {
+            next.set(d.session, true);
+          } else {
+            next.delete(d.session);
+          }
+          return next;
+        });
+      }
+    });
+
     const onShowCloseDialog = () => {
       setShowCloseDialog(true);
     };
@@ -285,6 +305,7 @@ function App() {
     bridge.on('voice.channelChanged', onVoiceChannelChanged);
     bridge.on('voice.selfMuteChanged', onSelfMuteChanged);
     bridge.on('voice.selfDeafChanged', onSelfDeafChanged);
+    bridge.on('voice.userSpeaking', onVoiceUserSpeaking);
     bridge.on('window.showCloseDialog', onShowCloseDialog);
 
     return () => {
@@ -299,6 +320,7 @@ function App() {
       bridge.off('voice.channelChanged', onVoiceChannelChanged);
       bridge.off('voice.selfMuteChanged', onSelfMuteChanged);
       bridge.off('voice.selfDeafChanged', onSelfDeafChanged);
+      bridge.off('voice.userSpeaking', onVoiceUserSpeaking);
       bridge.off('window.showCloseDialog', onShowCloseDialog);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -427,6 +449,7 @@ const handleConnect = (serverData: SavedServer) => {
         deafened={selfDeafened}
         onToggleMute={connected ? handleToggleMute : undefined}
         onToggleDeaf={connected ? handleToggleDeaf : undefined}
+        speaking={speakingUsers.has(selfSession) || false}
       />
       
       <div className="app-body">
@@ -444,6 +467,7 @@ const handleConnect = (serverData: SavedServer) => {
           username={username}
           onDisconnect={handleDisconnect}
           onStartDM={handleSelectDMUser}
+          speakingUsers={speakingUsers}
         />
         
         <main className="main-content">

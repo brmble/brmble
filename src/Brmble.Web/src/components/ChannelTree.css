@@ -157,3 +157,18 @@
   margin-left: 4px;
   flex-shrink: 0;
 }
+
+.user-row.speaking {
+  background: rgba(80, 200, 120, 0.15);
+  box-shadow: 0 0 12px var(--accent-mint-glow);
+  animation: speaking-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes speaking-pulse {
+  0%, 100% { 
+    box-shadow: 0 0 8px var(--accent-mint-glow);
+  }
+  50% { 
+    box-shadow: 0 0 16px var(--accent-mint-glow);
+  }
+}
