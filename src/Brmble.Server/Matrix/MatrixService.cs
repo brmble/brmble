@@ -43,6 +43,19 @@ public class MatrixService
         _channelRepository.Insert(channel.Id, roomId);
     }
 
+    public void DeleteChannelRoom(int channelId)
+    {
+        _channelRepository.Delete(channelId);
+    }
+
+    public async Task RenameChannelRoom(MumbleChannel channel)
+    {
+        var roomId = _channelRepository.GetRoomId(channel.Id);
+        if (roomId is null)
+            return;
+        await _appService.SetRoomName(roomId, channel.Name);
+    }
+
     private static string StripHtml(string html)
     {
         var stripped = Regex.Replace(html, "<.*?>", string.Empty, RegexOptions.Singleline);
