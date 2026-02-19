@@ -1,5 +1,7 @@
+// tests/Brmble.Server.Tests/Auth/AuthServiceTests.cs
 using Brmble.Server.Auth;
 using Brmble.Server.Data;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -8,9 +10,17 @@ namespace Brmble.Server.Tests.Auth;
 [TestClass]
 public class AuthServiceTests
 {
-    private static AuthService CreateService()
+    private SqliteConnection? _keepAlive;
+    private AuthService? _svc;
+
+    [TestInitialize]
+    public void Setup()
     {
-        var db = new Database("Data Source=:memory:");
+        var dbName = "authsvc_" + Guid.NewGuid().ToString("N");
+        var cs = $"Data Source={dbName};Mode=Memory;Cache=Shared";
+        _keepAlive = new SqliteConnection(cs);
+        _keepAlive.Open();
+        var db = new Database(cs);
         db.Initialize();
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -19,31 +29,58 @@ public class AuthServiceTests
             })
             .Build();
         var repo = new UserRepository(db, config);
-        return new AuthService(repo);
+        _svc = new AuthService(repo);
     }
+
+    [TestCleanup]
+    public void Cleanup() => _keepAlive?.Dispose();
 
     [TestMethod]
     public void IsBrmbleClient_UnknownHash_ReturnsFalse()
     {
-        var svc = CreateService();
-        Assert.IsFalse(svc.IsBrmbleClient("unknown-cert-hash"));
+        Assert.IsFalse(_svc!.IsBrmbleClient("unknown-cert-hash"));
     }
 
     [TestMethod]
     public void IsBrmbleClient_EmptyHash_ReturnsFalse()
     {
-        var svc = CreateService();
-        Assert.IsFalse(svc.IsBrmbleClient(string.Empty));
+        Assert.IsFalse(_svc!.IsBrmbleClient(string.Empty));
     }
 
     [TestMethod]
     public void IsBrmbleClient_NullHash_ReturnsFalse()
     {
-        var svc = CreateService();
-        Assert.IsFalse(svc.IsBrmbleClient(null!));
+        Assert.IsFalse(_svc!.IsBrmbleClient(null!));
     }
 
-    // TODO: Add tests once Authenticate(certHash, displayName) is implemented:
-    // - IsBrmbleClient_AfterAuthenticate_ReturnsTrue
-    // - IsBrmbleClient_AfterDeactivate_ReturnsFalse
+    [TestMethod]
+    public async Task Authenticate_NewUser_AddsToActiveSessions()
+    {
+        await _svc!.Authenticate("newhash", "Alice");
+        Assert.IsTrue(_svc.IsBrmbleClient("newhash"));
+    }
+
+    [TestMethod]
+    public async Task Authenticate_NewUser_ReturnsStubToken()
+    {
+        var result = await _svc!.Authenticate("somehash", "Bob");
+        StringAssert.StartsWith(result.MatrixAccessToken, "stub_token_");
+    }
+
+    [TestMethod]
+    public async Task Authenticate_ExistingUser_StillAddsToActiveSessions()
+    {
+        await _svc!.Authenticate("existinghash", "Charlie");
+        _svc.Deactivate("existinghash");
+        await _svc.Authenticate("existinghash", "Charlie");
+        Assert.IsTrue(_svc.IsBrmbleClient("existinghash"));
+    }
+
+    [TestMethod]
+    public async Task Deactivate_AfterAuthenticate_RemovesFromActiveSessions()
+    {
+        await _svc!.Authenticate("todeactivate", "Dave");
+        _svc.Deactivate("todeactivate");
+        Assert.IsFalse(_svc.IsBrmbleClient("todeactivate"));
+    }
 }
