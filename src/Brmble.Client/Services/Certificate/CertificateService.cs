@@ -39,9 +39,11 @@ internal sealed class CertificateService : IService
             return Task.CompletedTask;
         });
 
-        bridge.RegisterHandler("cert.import", _ =>
+        bridge.RegisterHandler("cert.import", data =>
         {
-            Task.Run(ImportCertificate);
+            var base64 = data.TryGetProperty("data", out var d) ? d.GetString() : null;
+            if (base64 != null)
+                Task.Run(() => ImportCertificate(base64));
             return Task.CompletedTask;
         });
 
@@ -108,6 +110,29 @@ internal sealed class CertificateService : IService
             _bridge.Send("cert.error", new { message = $"Failed to generate certificate: {ex.Message}" });
         }
     }
-    private void ImportCertificate() { }                   // Task 4
+    private void ImportCertificate(string base64Data)
+    {
+        try
+        {
+            var bytes = Convert.FromBase64String(base64Data);
+
+            // Validate it loads before overwriting
+            var testCert = new X509Certificate2(bytes);
+
+            Directory.CreateDirectory(Path.GetDirectoryName(CertPath)!);
+            File.WriteAllBytes(CertPath, bytes);
+            ActiveCertificate = testCert;
+
+            _bridge.Send("cert.imported", new
+            {
+                fingerprint = ActiveCertificate.Thumbprint,
+                subject = ActiveCertificate.Subject
+            });
+        }
+        catch (Exception ex)
+        {
+            _bridge.Send("cert.error", new { message = $"Failed to import certificate: {ex.Message}" });
+        }
+    }
     private void ExportCertificate() { }                   // Task 5
 }
