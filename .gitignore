@@ -489,3 +489,6 @@ $RECYCLE.BIN/
 
 # Claude Code local settings (machine-specific permissions)
 .claude/settings.local.json
+
+# Git worktrees
+.worktrees/
