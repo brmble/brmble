@@ -73,7 +73,41 @@ internal sealed class CertificateService : IService
         _bridge.Send("cert.status", new { exists = false });
     }
 
-    private void GenerateCertificate(string subject) { }   // Task 2
+    private void GenerateCertificate(string subject)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(CertPath)!);
+
+            using var ecdsa = System.Security.Cryptography.ECDsa.Create(
+                System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+
+            var req = new System.Security.Cryptography.X509Certificates.CertificateRequest(
+                $"CN={subject}",
+                ecdsa,
+                System.Security.Cryptography.HashAlgorithmName.SHA256);
+
+            var now = DateTimeOffset.UtcNow;
+            using var cert = req.CreateSelfSigned(now, now.AddYears(100));
+
+            // Export WITH private key (PFX = PKCS#12)
+            var pfxBytes = cert.Export(X509ContentType.Pfx);
+            File.WriteAllBytes(CertPath, pfxBytes);
+
+            // Reload from file to get a clean X509Certificate2
+            ActiveCertificate = new X509Certificate2(CertPath);
+
+            _bridge.Send("cert.generated", new
+            {
+                fingerprint = ActiveCertificate.Thumbprint,
+                subject = ActiveCertificate.Subject
+            });
+        }
+        catch (Exception ex)
+        {
+            _bridge.Send("cert.error", new { message = $"Failed to generate certificate: {ex.Message}" });
+        }
+    }
     private void ImportCertificate() { }                   // Task 4
     private void ExportCertificate() { }                   // Task 5
 }
