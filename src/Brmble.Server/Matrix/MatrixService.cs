@@ -34,6 +34,15 @@ public class MatrixService
         await _appService.SendMessage(roomId, sender.Name, plainText);
     }
 
+    public async Task EnsureChannelRoom(MumbleChannel channel)
+    {
+        if (_channelRepository.GetRoomId(channel.Id) is not null)
+            return;
+
+        var roomId = await _appService.CreateRoom(channel.Name);
+        _channelRepository.Insert(channel.Id, roomId);
+    }
+
     private static string StripHtml(string html)
     {
         var stripped = Regex.Replace(html, "<.*?>", string.Empty, RegexOptions.Singleline);

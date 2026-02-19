@@ -114,4 +114,26 @@ public class MatrixServiceTests
             a => a.SendMessage("!room:server", "Bob", "hello & world"),
             Times.Once);
     }
+
+    [TestMethod]
+    public async Task EnsureChannelRoom_NewChannel_CreatesRoomAndStoresMapping()
+    {
+        _appService.Setup(a => a.CreateRoom("General"))
+            .ReturnsAsync("!newroom:server");
+
+        await _svc.EnsureChannelRoom(new MumbleChannel(10, "General"));
+
+        _appService.Verify(a => a.CreateRoom("General"), Times.Once);
+        Assert.AreEqual("!newroom:server", _channelRepo.GetRoomId(10));
+    }
+
+    [TestMethod]
+    public async Task EnsureChannelRoom_ExistingChannel_DoesNotCreateRoom()
+    {
+        _channelRepo.Insert(10, "!existing:server");
+
+        await _svc.EnsureChannelRoom(new MumbleChannel(10, "General"));
+
+        _appService.Verify(a => a.CreateRoom(It.IsAny<string>()), Times.Never);
+    }
 }
