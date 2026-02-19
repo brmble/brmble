@@ -225,7 +225,7 @@ export function CertWizard({ onComplete }: CertWizardProps) {
                 marginBottom: '1.5rem',
                 boxSizing: 'border-box',
               }}
-              placeholder="Your username (e.g. pieterhenk)"
+              placeholder="Your username"
               value={username}
               onChange={e => setUsername(e.target.value)}
               maxLength={50}
