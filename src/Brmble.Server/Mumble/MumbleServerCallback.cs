@@ -9,7 +9,21 @@ public class MumbleServerCallback
         _handlers = handlers;
     }
 
-    // TODO: Wire to ZeroC Ice ServerCallback methods.
-    // Each Ice callback dispatches to all _handlers, e.g.:
-    //   await Task.WhenAll(_handlers.Select(h => h.OnUserTextMessage(user, text, channelId)));
+    public Task DispatchTextMessage(MumbleUser sender, string text, int channelId)
+        => Task.WhenAll(_handlers.Select(h => h.OnUserTextMessage(sender, text, channelId)));
+
+    public Task DispatchUserConnected(MumbleUser user)
+        => Task.WhenAll(_handlers.Select(h => h.OnUserConnected(user)));
+
+    public Task DispatchUserDisconnected(MumbleUser user)
+        => Task.WhenAll(_handlers.Select(h => h.OnUserDisconnected(user)));
+
+    public Task DispatchChannelCreated(MumbleChannel channel)
+        => Task.WhenAll(_handlers.Select(h => h.OnChannelCreated(channel)));
+
+    public Task DispatchChannelRemoved(MumbleChannel channel)
+        => Task.WhenAll(_handlers.Select(h => h.OnChannelRemoved(channel)));
+
+    public Task DispatchChannelRenamed(MumbleChannel channel)
+        => Task.WhenAll(_handlers.Select(h => h.OnChannelRenamed(channel)));
 }
