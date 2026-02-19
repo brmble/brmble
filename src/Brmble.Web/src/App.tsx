@@ -8,6 +8,7 @@ import { ServerList } from './components/ServerList/ServerList';
 import type { ServerEntry } from './hooks/useServerlist';
 import { SettingsModal } from './components/SettingsModal/SettingsModal';
 import { CloseDialog } from './components/CloseDialog/CloseDialog';
+import { CertWizard } from './components/CertWizard/CertWizard';
 import { useChatStore, addMessageToStore, loadDMContacts, upsertDMContact, markDMContactRead } from './hooks/useChatStore';
 import type { StoredDMContact } from './hooks/useChatStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
@@ -46,6 +47,10 @@ const mapStoredContacts = (contacts: StoredDMContact[]) =>
   }));
 
 function App() {
+  // null = status not yet received, false = no cert, true = cert exists
+  const [certExists, setCertExists] = useState<boolean | null>(null);
+  const [certFingerprint, setCertFingerprint] = useState('');
+
   const [connected, setConnected] = useState(false);
   const [username, setUsername] = useState('');
   const [serverAddress, setServerAddress] = useState('');
@@ -301,6 +306,26 @@ function App() {
       setShowCloseDialog(true);
     };
 
+    const onCertStatus = (data: unknown) => {
+      const d = data as { exists: boolean; fingerprint?: string } | undefined;
+      if (d?.exists) {
+        setCertExists(true);
+        setCertFingerprint(d.fingerprint ?? '');
+      } else {
+        setCertExists(false);
+      }
+    };
+    const onCertGenerated = (data: unknown) => {
+      const d = data as { fingerprint?: string } | undefined;
+      setCertExists(true);
+      setCertFingerprint(d?.fingerprint ?? '');
+    };
+    const onCertImported = (data: unknown) => {
+      const d = data as { fingerprint?: string } | undefined;
+      setCertExists(true);
+      setCertFingerprint(d?.fingerprint ?? '');
+    };
+
     bridge.on('voice.connected', onVoiceConnected);
     bridge.on('voice.disconnected', onVoiceDisconnected);
     bridge.on('voice.error', onVoiceError);
@@ -315,6 +340,9 @@ function App() {
     bridge.on('voice.userSpeaking', onVoiceUserSpeaking);
     bridge.on('voice.userSilent', onVoiceUserSilent);
     bridge.on('window.showCloseDialog', onShowCloseDialog);
+    bridge.on('cert.status', onCertStatus);
+    bridge.on('cert.generated', onCertGenerated);
+    bridge.on('cert.imported', onCertImported);
 
     return () => {
       bridge.off('voice.connected', onVoiceConnected);
@@ -331,8 +359,15 @@ function App() {
       bridge.off('voice.userSpeaking', onVoiceUserSpeaking);
       bridge.off('voice.userSilent', onVoiceUserSilent);
       bridge.off('window.showCloseDialog', onShowCloseDialog);
+      bridge.off('cert.status', onCertStatus);
+      bridge.off('cert.generated', onCertGenerated);
+      bridge.off('cert.imported', onCertImported);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    bridge.send('cert.requestStatus');
   }, []);
 
 const handleConnect = (serverData: SavedServer) => {
@@ -511,7 +546,11 @@ const handleConnect = (serverData: SavedServer) => {
         />
       </div>
 
-      {!connected && (
+      {certExists === false && (
+        <CertWizard onComplete={(fp) => { setCertExists(true); setCertFingerprint(fp); }} />
+      )}
+
+      {certExists === true && !connected && (
         <div className="connect-overlay">
           <ServerList onConnect={handleServerConnect} />
         </div>
@@ -527,6 +566,7 @@ const handleConnect = (serverData: SavedServer) => {
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
         username={username}
+        certFingerprint={certFingerprint}
       />
 
       <CloseDialog
