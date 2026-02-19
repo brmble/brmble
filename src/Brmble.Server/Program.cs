@@ -22,3 +22,6 @@ app.MapLiveKitEndpoints();
 app.MapReverseProxy();
 
 app.Run();
+
+// Required for WebApplicationFactory<Program> in tests
+public partial class Program { }

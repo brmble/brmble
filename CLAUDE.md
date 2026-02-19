@@ -112,6 +112,7 @@ This project supports modular bridge architecture. The following guidelines help
 - Build frontend: (cd src/Brmble.Web && npm run build)
 - Run tests: dotnet test
 - Specific test: dotnet test tests/MumbleVoiceEngine.Tests/MumbleVoiceEngine.Tests.csproj
+- Server tests: dotnet test tests/Brmble.Server.Tests/Brmble.Server.Tests.csproj
 
 ## Commit conventions
 - feat: new feature
