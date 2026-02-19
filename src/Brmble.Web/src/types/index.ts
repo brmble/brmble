@@ -20,6 +20,7 @@ export interface User {
   muted?: boolean;
   deafened?: boolean;
   self?: boolean;
+  speaking?: boolean;
 }
 
 export interface ChatMessage {
