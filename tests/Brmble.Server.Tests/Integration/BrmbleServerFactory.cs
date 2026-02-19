@@ -21,6 +21,8 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>
                 ["ReverseProxy:Routes:placeholder:ClusterId"] = "placeholder",
                 ["ReverseProxy:Routes:placeholder:Match:Path"] = "/__placeholder/{**catch-all}",
                 ["ReverseProxy:Clusters:placeholder:Destinations:d1:Address"] = "http://localhost:1",
+                ["Matrix:HomeserverUrl"] = "http://localhost:8008",
+                ["Matrix:AppServiceToken"] = "test-token",
             });
         });
     }

@@ -19,8 +19,7 @@ public class MatrixServiceTests
     {
         var db = new Database("Data Source=:memory:");
         var channelRepo = new ChannelRepository(db);
-        var httpClientFactory = new Mock<IHttpClientFactory>().Object;
-        var appService = new MatrixAppService(httpClientFactory);
+        var appService = new Mock<IMatrixAppService>().Object;
         var sessions = new Mock<IActiveBrmbleSessions>().Object;
         var svc = new MatrixService(channelRepo, appService, sessions);
         Assert.IsNotNull(svc);
