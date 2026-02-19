@@ -1,4 +1,7 @@
+using System.Text.RegularExpressions;
+using System.Web;
 using Brmble.Server.Auth;
+using Brmble.Server.Mumble;
 
 namespace Brmble.Server.Matrix;
 
@@ -16,5 +19,24 @@ public class MatrixService
         _channelRepository = channelRepository;
         _appService = appService;
         _activeSessions = activeSessions;
+    }
+
+    public async Task RelayMessage(MumbleUser sender, string text, int channelId)
+    {
+        if (_activeSessions.IsBrmbleClient(sender.CertHash))
+            return;
+
+        var roomId = _channelRepository.GetRoomId(channelId);
+        if (roomId is null)
+            return;
+
+        var plainText = StripHtml(text);
+        await _appService.SendMessage(roomId, sender.Name, plainText);
+    }
+
+    private static string StripHtml(string html)
+    {
+        var stripped = Regex.Replace(html, "<.*?>", string.Empty, RegexOptions.Singleline);
+        return HttpUtility.HtmlDecode(stripped).Trim();
     }
 }

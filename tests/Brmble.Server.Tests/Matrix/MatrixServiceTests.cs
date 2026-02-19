@@ -1,6 +1,8 @@
 using Brmble.Server.Auth;
 using Brmble.Server.Data;
 using Brmble.Server.Matrix;
+using Brmble.Server.Mumble;
+using Microsoft.Data.Sqlite;
 using Moq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -9,10 +11,30 @@ namespace Brmble.Server.Tests.Matrix;
 [TestClass]
 public class MatrixServiceTests
 {
-    // TODO: Add tests as RelayMessage is implemented:
-    // - RelayMessage_BrmbleClient_SkipsRelay
-    // - RelayMessage_UnmappedChannel_SkipsRelay
-    // - RelayMessage_MappedChannel_PostsAsBot
+    private SqliteConnection? _keepAlive;
+    private ChannelRepository _channelRepo = null!;
+    private Mock<IMatrixAppService> _appService = null!;
+    private Mock<IActiveBrmbleSessions> _sessions = null!;
+    private MatrixService _svc = null!;
+
+    [TestInitialize]
+    public void Setup()
+    {
+        var dbName = "testdb_" + Guid.NewGuid().ToString("N");
+        var cs = $"Data Source={dbName};Mode=Memory;Cache=Shared";
+        _keepAlive = new SqliteConnection(cs);
+        _keepAlive.Open();
+        var db = new Database(cs);
+        db.Initialize();
+        _channelRepo = new ChannelRepository(db);
+
+        _appService = new Mock<IMatrixAppService>();
+        _sessions = new Mock<IActiveBrmbleSessions>();
+        _svc = new MatrixService(_channelRepo, _appService.Object, _sessions.Object);
+    }
+
+    [TestCleanup]
+    public void Cleanup() => _keepAlive?.Dispose();
 
     [TestMethod]
     public void Constructor_WithValidDependencies_DoesNotThrow()
@@ -23,5 +45,73 @@ public class MatrixServiceTests
         var sessions = new Mock<IActiveBrmbleSessions>().Object;
         var svc = new MatrixService(channelRepo, appService, sessions);
         Assert.IsNotNull(svc);
+    }
+
+    [TestMethod]
+    public async Task RelayMessage_BrmbleClient_SkipsRelay()
+    {
+        _sessions.Setup(s => s.IsBrmbleClient("brmble-hash")).Returns(true);
+
+        await _svc.RelayMessage(new MumbleUser("Alice", "brmble-hash", 1), "hello", 42);
+
+        _appService.Verify(
+            a => a.SendMessage(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()),
+            Times.Never);
+    }
+
+    [TestMethod]
+    public async Task RelayMessage_UnmappedChannel_SkipsRelay()
+    {
+        _sessions.Setup(s => s.IsBrmbleClient(It.IsAny<string>())).Returns(false);
+        // channel 99 not in DB
+
+        await _svc.RelayMessage(new MumbleUser("Alice", "abc", 1), "hello", 99);
+
+        _appService.Verify(
+            a => a.SendMessage(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()),
+            Times.Never);
+    }
+
+    [TestMethod]
+    public async Task RelayMessage_MappedChannel_PostsMessage()
+    {
+        _sessions.Setup(s => s.IsBrmbleClient("og-hash")).Returns(false);
+        _channelRepo.Insert(42, "!room:server");
+
+        await _svc.RelayMessage(new MumbleUser("Bob", "og-hash", 2), "hello", 42);
+
+        _appService.Verify(a => a.SendMessage("!room:server", "Bob", "hello"), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task RelayMessage_HtmlInText_StripsTagsBeforePosting()
+    {
+        _sessions.Setup(s => s.IsBrmbleClient("og-hash")).Returns(false);
+        _channelRepo.Insert(1, "!room:server");
+
+        await _svc.RelayMessage(
+            new MumbleUser("Bob", "og-hash", 1),
+            "<b>bold</b> and <i>italic</i>",
+            1);
+
+        _appService.Verify(
+            a => a.SendMessage("!room:server", "Bob", "bold and italic"),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task RelayMessage_HtmlEntitiesInText_DecodesEntities()
+    {
+        _sessions.Setup(s => s.IsBrmbleClient("og-hash")).Returns(false);
+        _channelRepo.Insert(1, "!room:server");
+
+        await _svc.RelayMessage(
+            new MumbleUser("Bob", "og-hash", 1),
+            "hello &amp; world",
+            1);
+
+        _appService.Verify(
+            a => a.SendMessage("!room:server", "Bob", "hello & world"),
+            Times.Once);
     }
 }
