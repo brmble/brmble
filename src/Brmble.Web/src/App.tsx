@@ -276,15 +276,22 @@ function App() {
     });
 
     const onVoiceUserSpeaking = ((data: unknown) => {
-      const d = data as { session: number; speaking: boolean } | undefined;
-      if (d?.session !== undefined && d?.speaking !== undefined) {
+      const d = data as { session: number } | undefined;
+      if (d?.session !== undefined) {
         setSpeakingUsers(prev => {
           const next = new Map(prev);
-          if (d.speaking) {
-            next.set(d.session, true);
-          } else {
-            next.delete(d.session);
-          }
+          next.set(d.session, true);
+          return next;
+        });
+      }
+    });
+
+    const onVoiceUserSilent = ((data: unknown) => {
+      const d = data as { session: number } | undefined;
+      if (d?.session !== undefined) {
+        setSpeakingUsers(prev => {
+          const next = new Map(prev);
+          next.delete(d.session);
           return next;
         });
       }
@@ -306,6 +313,7 @@ function App() {
     bridge.on('voice.selfMuteChanged', onSelfMuteChanged);
     bridge.on('voice.selfDeafChanged', onSelfDeafChanged);
     bridge.on('voice.userSpeaking', onVoiceUserSpeaking);
+    bridge.on('voice.userSilent', onVoiceUserSilent);
     bridge.on('window.showCloseDialog', onShowCloseDialog);
 
     return () => {
@@ -321,6 +329,7 @@ function App() {
       bridge.off('voice.selfMuteChanged', onSelfMuteChanged);
       bridge.off('voice.selfDeafChanged', onSelfDeafChanged);
       bridge.off('voice.userSpeaking', onVoiceUserSpeaking);
+      bridge.off('voice.userSilent', onVoiceUserSilent);
       bridge.off('window.showCloseDialog', onShowCloseDialog);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps

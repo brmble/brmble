@@ -37,6 +37,9 @@ internal sealed class AudioManager : IDisposable
     private readonly Dictionary<uint, DateTime> _lastVoicePacket = new();
     private readonly Timer _speakingTimer;
     private const int SpeakingTimeoutMs = 200;
+    private uint _localUserId = 0;
+
+    public void SetLocalUserId(uint sessionId) => _localUserId = sessionId;
 
     /// <summary>Fired when an encoded voice packet is ready to send to the server.</summary>
     public event Action<ReadOnlyMemory<byte>>? SendVoicePacket;
@@ -103,6 +106,16 @@ internal sealed class AudioManager : IDisposable
         if (_muted) return;
         if (_transmissionMode == TransmissionMode.PushToTalk && !_pttActive) return;
         if (_transmissionMode == TransmissionMode.VoiceActivity && !IsAboveThreshold(e.Buffer, e.BytesRecorded)) return;
+
+        // Local speaking detection - track in _lastVoicePacket like remote users
+        lock (_lock)
+        {
+            if (!_lastVoicePacket.ContainsKey(_localUserId))
+            {
+                UserStartedSpeaking?.Invoke(_localUserId);
+            }
+            _lastVoicePacket[_localUserId] = DateTime.UtcNow;
+        }
 
         _encodePipeline?.SubmitPcm(new ReadOnlySpan<byte>(e.Buffer, 0, e.BytesRecorded));
     }
