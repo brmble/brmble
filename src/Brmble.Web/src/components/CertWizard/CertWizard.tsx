@@ -24,7 +24,6 @@ export function CertWizard({ onComplete }: CertWizardProps) {
   const [step, setStep] = useState<WizardStep>('welcome');
   const [mode, setMode] = useState<WizardMode>('generate');
   const [acknowledged, setAcknowledged] = useState(false);
-  const [username, setUsername] = useState('');
   const [generating, setGenerating] = useState(false);
   const [fingerprint, setFingerprint] = useState('');
   const [error, setError] = useState('');
@@ -77,7 +76,7 @@ export function CertWizard({ onComplete }: CertWizardProps) {
   const handleGenerate = () => {
     setError('');
     setGenerating(true);
-    bridge.send('cert.generate', { subject: username.trim() || 'Brmble User' });
+    bridge.send('cert.generate');
   };
 
   const handleImportClick = () => {
@@ -211,26 +210,9 @@ export function CertWizard({ onComplete }: CertWizardProps) {
             <div className="cert-wizard-icon">✨</div>
             <h2 className="cert-wizard-title">Generate Your Certificate</h2>
             <p className="cert-wizard-body">
-              Choose a display name. This will be your username on Mumble servers.
+              Brmble will generate a unique identity certificate for you. You can set your
+              display name when connecting to each server.
             </p>
-            <input
-              style={{
-                width: '100%',
-                padding: '0.625rem 0.875rem',
-                background: 'var(--bg-glass)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: '8px',
-                color: 'var(--text-primary)',
-                fontSize: '0.875rem',
-                marginBottom: '1.5rem',
-                boxSizing: 'border-box',
-              }}
-              placeholder="Your username"
-              value={username}
-              onChange={e => setUsername(e.target.value)}
-              maxLength={50}
-              disabled={generating}
-            />
             {generating && (
               <div className="cert-wizard-generating">
                 <div className="cert-wizard-spinner" />
@@ -245,7 +227,7 @@ export function CertWizard({ onComplete }: CertWizardProps) {
               <button
                 className="cert-wizard-btn primary"
                 onClick={handleGenerate}
-                disabled={generating || !username.trim()}
+                disabled={generating}
               >
                 Generate
               </button>

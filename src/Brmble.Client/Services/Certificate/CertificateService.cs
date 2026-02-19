@@ -32,10 +32,9 @@ internal sealed class CertificateService : IService
             return Task.CompletedTask;
         });
 
-        bridge.RegisterHandler("cert.generate", data =>
+        bridge.RegisterHandler("cert.generate", _ =>
         {
-            var subject = data.TryGetProperty("subject", out var s) ? s.GetString() ?? "Brmble User" : "Brmble User";
-            Task.Run(() => GenerateCertificate(subject));
+            Task.Run(GenerateCertificate);
             return Task.CompletedTask;
         });
 
@@ -75,7 +74,7 @@ internal sealed class CertificateService : IService
         _bridge.Send("cert.status", new { exists = false });
     }
 
-    private void GenerateCertificate(string subject)
+    private void GenerateCertificate()
     {
         try
         {
@@ -85,7 +84,7 @@ internal sealed class CertificateService : IService
                 System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
 
             var req = new System.Security.Cryptography.X509Certificates.CertificateRequest(
-                $"CN={subject}",
+                "CN=Brmble User",
                 ecdsa,
                 System.Security.Cryptography.HashAlgorithmName.SHA256);
 
