@@ -58,4 +58,13 @@ public class UserRepositoryTests
         Assert.AreEqual("abc123", found.CertHash);
         Assert.AreEqual("TestUser", found.DisplayName);
     }
+
+    [TestMethod]
+    public async Task UpdateDisplayName_ExistingUser_UpdatesRecord()
+    {
+        var user = await _repo!.Insert("cafebabe", "OldName");
+        await _repo.UpdateDisplayName(user.Id, "NewName");
+        var updated = await _repo.GetByCertHash("cafebabe");
+        Assert.AreEqual("NewName", updated!.DisplayName);
+    }
 }

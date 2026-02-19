@@ -53,5 +53,11 @@ public class UserRepository
         return new User(id, certHash, displayName, matrixUserId);
     }
 
-    // TODO: UpdateDisplayName(int id, string displayName)
+    public async Task UpdateDisplayName(long id, string displayName)
+    {
+        using var conn = _db.CreateConnection();
+        await conn.ExecuteAsync(
+            "UPDATE users SET display_name = @DisplayName WHERE id = @Id",
+            new { DisplayName = displayName, Id = id });
+    }
 }
