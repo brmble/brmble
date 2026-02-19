@@ -137,3 +137,17 @@
 .user-avatar svg {
   filter: drop-shadow(0 1px 1px rgba(0,0,0,0.3));
 }
+
+.user-avatar.speaking {
+  box-shadow: 0 0 12px var(--accent-mint-glow);
+  animation: speaking-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes speaking-pulse {
+  0%, 100% { 
+    box-shadow: 0 0 8px var(--accent-mint-glow);
+  }
+  50% { 
+    box-shadow: 0 0 16px var(--accent-mint-glow);
+  }
+}

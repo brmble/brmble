@@ -374,6 +374,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _bridge?.Send("voice.userSpeaking", new { session = userId });
         _audioManager.UserStoppedSpeaking += userId =>
             _bridge?.Send("voice.userSilent", new { session = userId });
+        if (LocalUser != null)
+            _audioManager.SetLocalUserId(LocalUser.Id);
         _audioManager.StartMic();
 
         Debug.WriteLine($"[Mumble] Sent {channels.Count} channels and {users.Count} users");

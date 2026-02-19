@@ -16,6 +16,7 @@ interface SidebarProps {
   username?: string;
   onDisconnect?: () => void;
   onStartDM?: (userId: string, userName: string) => void;
+  speakingUsers?: Map<number, boolean>;
 }
 
 export function Sidebar({
@@ -31,7 +32,8 @@ export function Sidebar({
   serverAddress,
   username,
   onDisconnect,
-  onStartDM
+  onStartDM,
+  speakingUsers
 }: SidebarProps) {
   return (
     <aside className="sidebar">
@@ -75,6 +77,7 @@ export function Sidebar({
           onJoinChannel={onJoinChannel}
           onSelectChannel={onSelectChannel}
           onStartDM={onStartDM}
+          speakingUsers={speakingUsers}
         />
       </div>
     </aside>

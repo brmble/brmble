@@ -10,9 +10,10 @@ interface UserPanelProps {
   deafened?: boolean;
   onToggleMute?: () => void;
   onToggleDeaf?: () => void;
+  speaking?: boolean;
 }
 
-export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, muted, deafened, onToggleMute, onToggleDeaf }: UserPanelProps) {
+export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, muted, deafened, onToggleMute, onToggleDeaf, speaking }: UserPanelProps) {
   return (
     <div className="user-panel">
       {onToggleMute && (
@@ -85,7 +86,7 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
         </svg>
       </button>
       
-      <div className="user-avatar" title={username || 'Not logged in'}>
+      <div className={`user-avatar ${speaking ? 'speaking' : ''}`} title={username || 'Not logged in'}>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
           <circle cx="12" cy="14" r="8" />
           <path d="M12 2C12 2 8 2 8 6C8 10 12 14 12 14C12 14 16 10 16 6C16 2 12 2 12 2Z" fill="var(--accent-mint)" />
