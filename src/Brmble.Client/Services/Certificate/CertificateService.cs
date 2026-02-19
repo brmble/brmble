@@ -134,5 +134,23 @@ internal sealed class CertificateService : IService
             _bridge.Send("cert.error", new { message = $"Failed to import certificate: {ex.Message}" });
         }
     }
-    private void ExportCertificate() { }                   // Task 5
+    private void ExportCertificate()
+    {
+        try
+        {
+            if (!File.Exists(CertPath))
+            {
+                _bridge.Send("cert.error", new { message = "No certificate to export." });
+                return;
+            }
+
+            var bytes = File.ReadAllBytes(CertPath);
+            var base64 = Convert.ToBase64String(bytes);
+            _bridge.Send("cert.exportData", new { data = base64, filename = "brmble-identity.pfx" });
+        }
+        catch (Exception ex)
+        {
+            _bridge.Send("cert.error", new { message = $"Failed to export certificate: {ex.Message}" });
+        }
+    }
 }
