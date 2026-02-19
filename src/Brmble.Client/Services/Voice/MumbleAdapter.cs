@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Security.Cryptography.X509Certificates;
 using MumbleSharp;
 using MumbleSharp.Audio;
 using MumbleSharp.Audio.Codecs;
@@ -6,6 +7,7 @@ using MumbleSharp.Model;
 using MumbleProto;
 using PacketType = MumbleSharp.Packets.PacketType;
 using Brmble.Client.Bridge;
+using Brmble.Client.Services.Certificate;
 
 namespace Brmble.Client.Services.Voice;
 
@@ -22,13 +24,15 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private AudioManager? _audioManager;
     private PttKeyMonitor? _pttMonitor;
     private string? _lastWelcomeText;
+    private readonly CertificateService? _certService;
 
     public string ServiceName => "mumble";
 
-    public MumbleAdapter(NativeBridge bridge, IntPtr hwnd)
+    public MumbleAdapter(NativeBridge bridge, IntPtr hwnd, CertificateService? certService = null)
     {
         _bridge = bridge;
         _hwnd = hwnd;
+        _certService = certService;
     }
 
     public void Initialize(NativeBridge bridge) { }
@@ -334,6 +338,17 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             SetTransmissionMode(mode, key);
             return Task.CompletedTask;
         });
+    }
+
+    public override X509Certificate SelectCertificate(
+        object sender,
+        string targetHost,
+        X509CertificateCollection localCertificates,
+        X509Certificate remoteCertificate,
+        string[] acceptableIssuers)
+    {
+        return _certService?.ActiveCertificate
+            ?? base.SelectCertificate(sender, targetHost, localCertificates, remoteCertificate, acceptableIssuers);
     }
 
     // --- MumbleSharp protocol overrides ---

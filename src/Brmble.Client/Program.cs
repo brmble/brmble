@@ -76,7 +76,7 @@ static class Program
             _certService = new CertificateService(_bridge);
             _certService.RegisterHandlers(_bridge);
 
-            _mumbleClient = new MumbleAdapter(_bridge, _hwnd);
+            _mumbleClient = new MumbleAdapter(_bridge, _hwnd, _certService);
             
             SetupBridgeHandlers();
 
