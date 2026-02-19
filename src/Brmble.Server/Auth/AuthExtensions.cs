@@ -7,6 +7,7 @@ public static class AuthExtensions
         services.AddSingleton<UserRepository>();
         services.AddSingleton<AuthService>();
         services.AddSingleton<IActiveBrmbleSessions>(sp => sp.GetRequiredService<AuthService>());
+        services.AddSingleton<ICertificateHashExtractor, MtlsCertificateHashExtractor>();
         return services;
     }
 }
