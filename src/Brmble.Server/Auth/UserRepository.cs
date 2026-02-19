@@ -1,19 +1,57 @@
+// src/Brmble.Server/Auth/UserRepository.cs
+using Dapper;
 using Brmble.Server.Data;
+using Microsoft.Extensions.Configuration;
 
 namespace Brmble.Server.Auth;
 
-public record User(int Id, string CertHash, string DisplayName, string MatrixUserId);
+public record User(long Id, string CertHash, string DisplayName, string MatrixUserId);
 
 public class UserRepository
 {
     private readonly Database _db;
+    private readonly string _serverDomain;
 
-    public UserRepository(Database db)
+    public UserRepository(Database db, IConfiguration configuration)
     {
         _db = db;
+        _serverDomain = configuration["Matrix:ServerDomain"] ?? "localhost";
     }
 
-    // TODO: GetByCertHash(string certHash) → User?
-    // TODO: Insert(string certHash, string displayName, string matrixUserId) → User
+    public async Task<User?> GetByCertHash(string certHash)
+    {
+        using var conn = _db.CreateConnection();
+        return await conn.QuerySingleOrDefaultAsync<User>(
+            """
+            SELECT id AS Id, cert_hash AS CertHash, display_name AS DisplayName, matrix_user_id AS MatrixUserId
+            FROM users
+            WHERE cert_hash = @CertHash
+            """,
+            new { CertHash = certHash });
+    }
+
+    public async Task<User> Insert(string certHash, string displayName)
+    {
+        using var conn = _db.CreateConnection();
+        conn.Open();
+        using var tx = conn.BeginTransaction();
+
+        await conn.ExecuteAsync(
+            "INSERT INTO users (cert_hash, display_name, matrix_user_id) VALUES (@CertHash, @DisplayName, 'pending')",
+            new { CertHash = certHash, DisplayName = displayName },
+            tx);
+
+        var id = await conn.QuerySingleAsync<long>("SELECT last_insert_rowid()", transaction: tx);
+        var matrixUserId = $"@{id}:{_serverDomain}";
+
+        await conn.ExecuteAsync(
+            "UPDATE users SET matrix_user_id = @MatrixUserId WHERE id = @Id",
+            new { MatrixUserId = matrixUserId, Id = id },
+            tx);
+
+        tx.Commit();
+        return new User(id, certHash, displayName, matrixUserId);
+    }
+
     // TODO: UpdateDisplayName(int id, string displayName)
 }

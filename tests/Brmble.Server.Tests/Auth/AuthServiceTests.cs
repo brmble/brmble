@@ -1,5 +1,6 @@
 using Brmble.Server.Auth;
 using Brmble.Server.Data;
+using Microsoft.Extensions.Configuration;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Brmble.Server.Tests.Auth;
@@ -10,7 +11,14 @@ public class AuthServiceTests
     private static AuthService CreateService()
     {
         var db = new Database("Data Source=:memory:");
-        var repo = new UserRepository(db);
+        db.Initialize();
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Matrix:ServerDomain"] = "test.local"
+            })
+            .Build();
+        var repo = new UserRepository(db, config);
         return new AuthService(repo);
     }
 
