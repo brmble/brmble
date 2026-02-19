@@ -5,11 +5,13 @@ import { AudioSettingsTab, type AudioSettings, DEFAULT_SETTINGS as DEFAULT_AUDIO
 import { ShortcutsSettingsTab, type ShortcutsSettings, DEFAULT_SHORTCUTS } from './ShortcutsSettingsTab';
 import { MessagesSettingsTab, type MessagesSettings, DEFAULT_MESSAGES } from './MessagesSettingsTab';
 import { OverlaySettingsTab, type OverlaySettings, DEFAULT_OVERLAY } from './OverlaySettingsTab';
+import { IdentitySettingsTab } from './IdentitySettingsTab';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   username?: string;
+  certFingerprint?: string;
 }
 
 interface AppSettings {
@@ -40,8 +42,9 @@ function loadSettings(): AppSettings {
   return DEFAULT_SETTINGS;
 }
 
-export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
-  const [activeTab, setActiveTab] = useState<'audio' | 'shortcuts' | 'messages' | 'overlay'>('audio');
+export function SettingsModal(props: SettingsModalProps) {
+  const { isOpen, onClose } = props;
+  const [activeTab, setActiveTab] = useState<'audio' | 'shortcuts' | 'messages' | 'overlay' | 'identity'>('audio');
   const [settings, setSettings] = useState<AppSettings>(loadSettings);
 
   const handleAudioChange = (audio: AudioSettings) => {
@@ -113,11 +116,17 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           >
             Messages
           </button>
-          <button 
+          <button
             className={`settings-tab ${activeTab === 'overlay' ? 'active' : ''}`}
             onClick={() => setActiveTab('overlay')}
           >
             Overlay
+          </button>
+          <button
+            className={`settings-tab ${activeTab === 'identity' ? 'active' : ''}`}
+            onClick={() => setActiveTab('identity')}
+          >
+            Identity
           </button>
         </div>
 
@@ -126,6 +135,12 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           {activeTab === 'shortcuts' && <ShortcutsSettingsTab settings={settings.shortcuts} onChange={handleShortcutsChange} />}
           {activeTab === 'messages' && <MessagesSettingsTab settings={settings.messages} onChange={handleMessagesChange} />}
           {activeTab === 'overlay' && <OverlaySettingsTab settings={settings.overlay} onChange={handleOverlayChange} />}
+          {activeTab === 'identity' && (
+            <IdentitySettingsTab
+              fingerprint={props.certFingerprint ?? ''}
+              connectedUsername={props.username ?? ''}
+            />
+          )}
         </div>
 
         <div className="settings-footer">
