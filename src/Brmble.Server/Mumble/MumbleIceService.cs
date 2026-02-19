@@ -42,7 +42,8 @@ public class MumbleIceService : IHostedService
             _communicator = new Ice.Communicator(initData);
 
             var context = new Dictionary<string, string> { ["secret"] = _secret };
-            var proxy = _communicator.stringToProxy($"s/1 -e 1.0:tcp -h {_host} -p {_port}")
+            var proxy = (_communicator.stringToProxy($"s/1 -e 1.0:tcp -h {_host} -p {_port}")
+                ?? throw new InvalidOperationException("stringToProxy returned null"))
                 .ice_context(context);
             var serverProxy = MumbleServer.ServerPrxHelper.checkedCast(proxy)
                 ?? throw new InvalidOperationException("checkedCast failed — not a MumbleServer.Server");
