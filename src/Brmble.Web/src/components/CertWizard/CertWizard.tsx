@@ -210,8 +210,7 @@ export function CertWizard({ onComplete }: CertWizardProps) {
             <div className="cert-wizard-icon">✨</div>
             <h2 className="cert-wizard-title">Generate Your Certificate</h2>
             <p className="cert-wizard-body">
-              Brmble will generate a unique identity certificate for you. You can set your
-              display name when connecting to each server.
+              Brmble will generate a unique identity certificate for you.
             </p>
             {generating && (
               <div className="cert-wizard-generating">
