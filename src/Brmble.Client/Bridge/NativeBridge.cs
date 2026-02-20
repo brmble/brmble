@@ -63,9 +63,9 @@ public sealed class NativeBridge
         var message = new { type, data };
         var json = JsonSerializer.Serialize(message, _jsonOptions);
         Debug.WriteLine($"[NativeBridge] Sending: {type}");
-        
+
         _pendingMessages.Enqueue(json);
-        PostMessage(_hwnd, WM_USER, IntPtr.Zero, IntPtr.Zero);
+        // No PostMessage here — caller is responsible for triggering flush
     }
 
     /// <summary>
@@ -75,7 +75,6 @@ public sealed class NativeBridge
     public void SendString(string message)
     {
         _pendingMessages.Enqueue(message);
-        PostMessage(_hwnd, WM_USER, IntPtr.Zero, IntPtr.Zero);
     }
 
     /// <summary>
@@ -86,10 +85,45 @@ public sealed class NativeBridge
     /// </remarks>
     public void ProcessUiMessage()
     {
+        // Drain all pending messages
+        var batch = new List<string>();
         while (_pendingMessages.TryDequeue(out var json))
         {
-            _webView.PostWebMessageAsJson(json);
+            batch.Add(json);
         }
+
+        if (batch.Count == 0)
+            return;
+
+        if (batch.Count == 1)
+        {
+            // Single message — send as-is, no array wrapper
+            _webView.PostWebMessageAsJson(batch[0]);
+        }
+        else
+        {
+            // Multiple messages — wrap in JSON array, one IPC call
+            _webView.PostWebMessageAsJson("[" + string.Join(",", batch) + "]");
+        }
+    }
+
+    /// <summary>
+    /// Immediately drains the message queue and sends to WebView2.
+    /// Call this from the UI thread when you need messages delivered without
+    /// waiting for a WM_USER roundtrip (e.g. after ToggleMute, Disconnect).
+    /// </summary>
+    public void Flush()
+    {
+        ProcessUiMessage();
+    }
+
+    /// <summary>
+    /// Posts a WM_USER message to trigger ProcessUiMessage on the UI thread.
+    /// Safe to call from any thread.
+    /// </summary>
+    public void NotifyUiThread()
+    {
+        PostMessage(_hwnd, WM_USER, IntPtr.Zero, IntPtr.Zero);
     }
 
     /// <summary>
