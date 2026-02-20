@@ -11,6 +11,7 @@ set -e
 : "${MATRIX_APPSERVICE_TOKEN:?MATRIX_APPSERVICE_TOKEN is required}"
 
 mkdir -p /data/continuwuity
+mkdir -p /data/dataprotection-keys
 mkdir -p /etc/continuwuity
 
 # Generate Continuwuity config
