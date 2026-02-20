@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Drawing;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using Microsoft.Web.WebView2.Core;
 using Brmble.Client.Bridge;
 using Brmble.Client.Services.Certificate;
@@ -254,6 +255,25 @@ static class Program
                         break;
                 }
                 return IntPtr.Zero;
+
+            case Win32Window.WM_NCHITTEST:
+            {
+                Win32Window.GetCursorPos(out var pt);
+                Win32Window.ScreenToClient(hwnd, ref pt);
+                Win32Window.GetClientRect(hwnd, out var rect);
+                var width = rect.Right - rect.Left;
+                var height = rect.Bottom - rect.Top;
+                var hit = HitTestHelper.Calculate(pt.X, pt.Y, width, height, borderWidth: 6);
+                return (IntPtr)hit;
+            }
+
+            case Win32Window.WM_GETMINMAXINFO:
+            {
+                var info = Marshal.PtrToStructure<Win32Window.MINMAXINFO>(lParam);
+                info.ptMinTrackSize = new Win32Window.POINT { X = 600, Y = 400 };
+                Marshal.StructureToPtr(info, lParam, false);
+                return IntPtr.Zero;
+            }
 
             case Win32Window.WM_DESTROY:
                 _mumbleClient?.Disconnect();
