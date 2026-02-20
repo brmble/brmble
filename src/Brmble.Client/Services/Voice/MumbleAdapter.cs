@@ -575,6 +575,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 _bridge?.Send("voice.leftVoiceChanged", new { leftVoice = false });
                 EmitCanRejoin(false);
             }
+            // If the user moves to root while not in leave-voice, treat it as activating leave-voice.
+            // Store the channel they came from so they can rejoin.
+            // ReceivedServerSync guard prevents firing during the initial state-sync burst on connect.
+            else if (userState.ChannelId == 0 && ReceivedServerSync)
+            {
+                _previousChannelId = previousChannel;
+                ActivateLeaveVoice();
+            }
         }
     }
 
