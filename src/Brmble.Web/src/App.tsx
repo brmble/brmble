@@ -460,7 +460,9 @@ const handleConnect = (serverData: SavedServer) => {
 
   const handleLeaveVoice = () => {
     bridge.send('voice.leaveVoice', {});
-    handleSelectServer();
+    if (!selfLeftVoice) {
+      handleSelectServer();
+    }
   };
 
   const handleCloseMinimize = useCallback((dontAskAgain: boolean) => {
