@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Drawing;
+using System.IO;
 using System.Net.Sockets;
 using Microsoft.Web.WebView2.Core;
 using Brmble.Client.Bridge;
@@ -23,6 +24,23 @@ static class Program
     private static bool _muted;
     private static bool _deafened;
     private static volatile string? _closeAction; // null = ask, "minimize", "quit"
+
+    private static readonly string LogPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Brmble", "audio.log");
+
+    private static void Log(string msg)
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(LogPath);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+            // Uncomment for debugging:
+            // File.AppendAllText(LogPath, $"[{DateTime.Now:HH:mm:ss.fff}] {msg}\n");
+        }
+        catch { }
+    }
 
     [STAThread]
     static void Main()

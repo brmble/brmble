@@ -1,10 +1,83 @@
 using System.Diagnostics;
+using System.IO;
+using System.Runtime.InteropServices;
 using MumbleVoiceEngine.Pipeline;
 using NAudio.Wave;
 
 namespace Brmble.Client.Services.Voice;
 
 public enum TransmissionMode { Continuous, VoiceActivity, PushToTalk }
+
+internal static class AudioLog
+{
+    private static readonly string LogPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Brmble", "audio.log");
+
+    static AudioLog()
+    {
+        var dir = Path.GetDirectoryName(LogPath);
+        if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+            Directory.CreateDirectory(dir);
+    }
+
+    public static void Write(string msg)
+    {
+        try
+        {
+            // Uncomment for debugging:
+            // File.AppendAllText(LogPath, $"[{DateTime.Now:HH:mm:ss.fff}] {msg}\n");
+        }
+        catch { }
+    }
+}
+
+internal static class Win32RawInput
+{
+    public const uint WM_INPUT = 0x00FF;
+    public const uint RIDEV_INPUTSINK = 0x00000001;
+    public const ushort HID_USAGE_PAGE_GENERIC = 0x01;
+    public const ushort HID_USAGE_GENERIC_MOUSE = 0x02;
+
+    public const int WH_MOUSE_LL = 14;
+    public const int WH_KEYBOARD_LL = 13;
+    public const int WM_LBUTTONDOWN = 0x0201;
+    public const int WM_RBUTTONDOWN = 0x0204;
+    public const int WM_MBUTTONDOWN = 0x0207;
+    public const int WM_XBUTTONDOWN = 0x020B;
+    public const int WM_LBUTTONUP = 0x0202;
+    public const int WM_RBUTTONUP = 0x0205;
+    public const int WM_MBUTTONUP = 0x0208;
+    public const int WM_XBUTTONUP = 0x020C;
+
+    public const int XBUTTON1 = 1;
+    public const int XBUTTON2 = 2;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MSLLHOOKSTRUCT
+    {
+        public int ptX;
+        public int ptY;
+        public int mouseData;
+        public int flags;
+        public int time;
+        public IntPtr dwExtraInfo;
+    }
+
+    public delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    public static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    public static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    public static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    public static extern IntPtr GetModuleHandle(string? lpModuleName);
+}
 
 /// <summary>
 /// Manages audio I/O: mic capture via EncodePipeline, per-user speaker
@@ -96,7 +169,7 @@ private IntPtr _hwnd;
 
             _waveIn.StartRecording();
             _micStarted = true;
-            Debug.WriteLine("[Audio] Mic started");
+            AudioLog.Write("[Audio] Mic started");
         }
     }
 
@@ -111,7 +184,7 @@ private IntPtr _hwnd;
             _encodePipeline?.Dispose();
             _encodePipeline = null;
             _micStarted = false;
-            Debug.WriteLine("[Audio] Mic stopped");
+            AudioLog.Write("[Audio] Mic stopped");
         }
     }
 
@@ -175,7 +248,7 @@ private IntPtr _hwnd;
                 player.Play();
                 _players[userId] = player;
 
-                Debug.WriteLine($"[Audio] Created playback pipeline for user {userId}");
+                AudioLog.Write($"[Audio] Created playback pipeline for user {userId}");
             }
 
             pipeline.FeedEncodedPacket(opusData, sequence);
@@ -286,14 +359,30 @@ private IntPtr _hwnd;
         if (mode == TransmissionMode.PushToTalk && key != null && hwnd != IntPtr.Zero)
         {
             var vk = KeyNameToVirtualKey(key);
-            if (vk != 0)
+            AudioLog.Write($"[Audio] SetTransmissionMode PTT: key={key}, vk=0x{vk:X2}, hwnd={hwnd}");
+
+            bool isMouseButton = key is "XButton1" or "XButton2" or "MouseLeft" or "MouseRight" or "MouseMiddle";
+
+            if (isMouseButton)
+            {
+                RegisterMouseHookForButton(key);
+            }
+            else if (vk != 0)
             {
                 _hotkeyId = PttHotkeyId;
                 if (!RegisterHotKey(hwnd, _hotkeyId, 0, (uint)vk))
                 {
                     _hotkeyId = -1;
-                    Debug.WriteLine($"[Audio] RegisterHotKey failed for vk=0x{vk:X2}");
+                    AudioLog.Write($"[Audio] RegisterHotKey failed for vk=0x{vk:X2}");
                 }
+                else
+                {
+                    AudioLog.Write($"[Audio] RegisterHotKey SUCCESS for vk=0x{vk:X2}");
+                }
+            }
+            else
+            {
+                AudioLog.Write($"[Audio] KeyNameToVirtualKey returned 0 for key={key}");
             }
         }
 
@@ -306,12 +395,21 @@ private IntPtr _hwnd;
 
     public void SetShortcut(string action, string? key)
     {
+        AudioLog.Write($"[Audio] SetShortcut: action={action}, key={key}, _hwnd={_hwnd}");
         if (_hwnd == IntPtr.Zero) return;
+
+        bool isMouseButton = key is "XButton1" or "XButton2" or "MouseLeft" or "MouseRight" or "MouseMiddle";
+
+        if (isMouseButton)
+        {
+            RegisterMouseHookForShortcut(action, key);
+            return;
+        }
         
         switch (action)
         {
             case "pushToTalk":
-                RegisterSingleHotkey(ref _hotkeyId, PttHotkeyId, key, _hwnd);
+                RegisterMouseHookForButton(key);
                 break;
             case "toggleMute":
                 RegisterSingleHotkey(ref _muteHotkeyId, MuteHotkeyId, key, _hwnd);
@@ -331,27 +429,168 @@ private IntPtr _hwnd;
     /// <summary>Called from WndProc when WM_HOTKEY fires.</summary>
     public void HandleHotKey(int id, bool keyDown)
     {
+        AudioLog.Write($"[Audio] HandleHotKey: id={id}, keyDown={keyDown}, _hotkeyId={_hotkeyId}, _transmissionMode={_transmissionMode}");
         if (id == _hotkeyId && _transmissionMode == TransmissionMode.PushToTalk)
         {
+            AudioLog.Write($"[Audio] PTT activated: keyDown={keyDown}");
             SetPttActive(keyDown);
         }
         else if (id == _muteHotkeyId && keyDown)
         {
+            AudioLog.Write($"[Audio] ToggleMute hotkey");
             ToggleMuteRequested?.Invoke();
         }
         else if (id == _deafenHotkeyId && keyDown)
         {
+            AudioLog.Write($"[Audio] ToggleDeafen hotkey");
             ToggleDeafenRequested?.Invoke();
         }
         else if (id == _muteDeafenHotkeyId && keyDown)
         {
+            AudioLog.Write($"[Audio] ToggleMuteDeafen hotkey");
             ToggleMuteRequested?.Invoke();
             ToggleDeafenRequested?.Invoke();
         }
         else if (id == _continuousHotkeyId && keyDown)
         {
+            AudioLog.Write($"[Audio] ToggleContinuous hotkey");
             ToggleContinuousRequested?.Invoke();
         }
+    }
+
+    private Win32RawInput.LowLevelMouseProc? _mouseHookProc;
+    private IntPtr _mouseHookHandle = IntPtr.Zero;
+
+    private void UnregisterMouseHook()
+    {
+        if (_mouseHookHandle != IntPtr.Zero)
+        {
+            Win32RawInput.UnhookWindowsHookEx(_mouseHookHandle);
+            _mouseHookHandle = IntPtr.Zero;
+            AudioLog.Write($"[Audio] Mouse hook unregistered");
+        }
+    }
+
+    private string? _shortcutActionForMouse;
+    private string? _shortcutKeyForMouse;
+
+    private IntPtr MouseHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        if (nCode >= 0)
+        {
+            int msg = wParam.ToInt32();
+            bool isButtonDown = msg == Win32RawInput.WM_LBUTTONDOWN ||
+                               msg == Win32RawInput.WM_RBUTTONDOWN ||
+                               msg == Win32RawInput.WM_MBUTTONDOWN ||
+                               msg == Win32RawInput.WM_XBUTTONDOWN;
+            bool isButtonUp = msg == Win32RawInput.WM_LBUTTONUP ||
+                             msg == Win32RawInput.WM_RBUTTONUP ||
+                             msg == Win32RawInput.WM_MBUTTONUP ||
+                             msg == Win32RawInput.WM_XBUTTONUP;
+
+            if ((isButtonDown || isButtonUp) && _shortcutKeyForMouse != null)
+            {
+                int buttonNumber = -1;
+                if (msg == Win32RawInput.WM_LBUTTONDOWN || msg == Win32RawInput.WM_LBUTTONUP)
+                    buttonNumber = 0;
+                else if (msg == Win32RawInput.WM_RBUTTONDOWN || msg == Win32RawInput.WM_RBUTTONUP)
+                    buttonNumber = 1;
+                else if (msg == Win32RawInput.WM_MBUTTONDOWN || msg == Win32RawInput.WM_MBUTTONUP)
+                    buttonNumber = 2;
+                else if (msg == Win32RawInput.WM_XBUTTONDOWN || msg == Win32RawInput.WM_XBUTTONUP)
+                {
+                    var hookStruct = Marshal.PtrToStructure<Win32RawInput.MSLLHOOKSTRUCT>(lParam);
+                    int xButtons = (hookStruct.mouseData >> 16) & 0xFFFF;
+                    if (xButtons == Win32RawInput.XBUTTON1)
+                        buttonNumber = 3;
+                    else if (xButtons == Win32RawInput.XBUTTON2)
+                        buttonNumber = 4;
+                }
+
+                int expectedButton = _shortcutKeyForMouse switch
+                {
+                    "MouseLeft" => 0,
+                    "MouseMiddle" => 2,
+                    "MouseRight" => 1,
+                    "XButton1" => 3,
+                    "XButton2" => 4,
+                    _ => -1
+                };
+
+                if (buttonNumber == expectedButton && isButtonDown)
+                {
+                    AudioLog.Write($"[Audio] Mouse hook: action={_shortcutActionForMouse}, button={buttonNumber}");
+
+                    switch (_shortcutActionForMouse)
+                    {
+                        case "pushToTalk":
+                            if (_transmissionMode == TransmissionMode.PushToTalk)
+                                SetPttActive(true);
+                            break;
+                        case "toggleMute":
+                            ToggleMuteRequested?.Invoke();
+                            break;
+                        case "toggleDeafen":
+                            ToggleDeafenRequested?.Invoke();
+                            break;
+                        case "toggleMuteDeafen":
+                            ToggleMuteRequested?.Invoke();
+                            ToggleDeafenRequested?.Invoke();
+                            break;
+                        case "continuousTransmission":
+                            ToggleContinuousRequested?.Invoke();
+                            break;
+                    }
+                }
+                else if (buttonNumber == expectedButton && !isButtonDown && _shortcutActionForMouse == "pushToTalk")
+                {
+                    if (_transmissionMode == TransmissionMode.PushToTalk)
+                        SetPttActive(false);
+                }
+            }
+        }
+
+        return Win32RawInput.CallNextHookEx(_mouseHookHandle, nCode, wParam, lParam);
+    }
+
+    private void RegisterMouseHookForShortcut(string action, string? key)
+    {
+        UnregisterMouseHook();
+        _shortcutActionForMouse = null;
+        _shortcutKeyForMouse = null;
+
+        if (key == null || _hwnd == IntPtr.Zero)
+            return;
+
+        _shortcutActionForMouse = action;
+        _shortcutKeyForMouse = key;
+        AudioLog.Write($"[Audio] Registering mouse hook for action={action}, key={key}");
+
+        _mouseHookProc = MouseHookCallback;
+        IntPtr hModule = Win32RawInput.GetModuleHandle(null);
+        _mouseHookHandle = Win32RawInput.SetWindowsHookEx(Win32RawInput.WH_MOUSE_LL, _mouseHookProc, hModule, 0);
+
+        if (_mouseHookHandle != IntPtr.Zero)
+        {
+            AudioLog.Write($"[Audio] Mouse hook registered successfully");
+        }
+        else
+        {
+            int error = Marshal.GetLastWin32Error();
+            AudioLog.Write($"[Audio] Mouse hook registration failed, error={error}");
+        }
+    }
+
+    private void RegisterMouseHookForButton(string? key)
+    {
+        if (key != null)
+            RegisterMouseHookForShortcut("pushToTalk", key);
+    }
+
+    /// <summary>Called from WndProc on WM_INPUT for raw mouse input.</summary>
+    public void HandleRawInput(IntPtr wParam, IntPtr lParam)
+    {
+        // Now handled via low-level mouse hook instead
     }
 
     /// <summary>Start or stop mic for PTT.</summary>

@@ -19,7 +19,63 @@ internal static class Win32Window
     public const uint WM_COMMAND = 0x0111;
     public const uint WM_LBUTTONDBLCLK = 0x0203;
     public const uint WM_RBUTTONUP = 0x0205;
+    public const uint WM_INPUT = 0x00FF;
     public const uint WM_HOTKEY = 0x0312;
+
+    public const uint RIM_INPUT = 0x00;
+    public const uint RIM_INPUTSINK = 0x01;
+
+    public const uint RIDEV_INPUTSINK = 0x00000001;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RAWINPUTDEVICE
+    {
+        public ushort usUsagePage;
+        public ushort usUsage;
+        public uint dwFlags;
+        public IntPtr hwndTarget;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RAWINPUTHEADER
+    {
+        public uint dwType;
+        public uint dwSize;
+        public IntPtr hDevice;
+        public IntPtr wParam;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RAWMOUSE
+    {
+        public ushort usFlags;
+        public ushort usButtonFlags;
+        public ushort usButtonData;
+        public uint ulRawButtons;
+        public int lLastX;
+        public int lLastY;
+        public uint ulExtraInformation;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    public struct RAWINPUTDATA
+    {
+        [FieldOffset(0)]
+        public RAWMOUSE mouse;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RAWINPUT
+    {
+        public RAWINPUTHEADER header;
+        public RAWINPUTDATA data;
+    }
+
+    [DllImport("user32.dll")]
+    public static extern bool RegisterRawInputDevices(RAWINPUTDEVICE[] pRawInputDevices, uint uiNumDevices, uint cbSize);
+
+    [DllImport("user32.dll")]
+    public static extern uint GetRawInputData(IntPtr hRawInput, uint uiCommand, IntPtr pData, ref uint pcbSize, uint cbSizeHeader);
 
     public const int SW_MINIMIZE = 6;
     public const int SW_MAXIMIZE = 3;
