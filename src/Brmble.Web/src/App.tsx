@@ -70,6 +70,8 @@ function App() {
   const [selfCanRejoin, setSelfCanRejoin] = useState(false);
   const [selfSession, setSelfSession] = useState<number>(0);
   const [speakingUsers, setSpeakingUsers] = useState<Map<number, boolean>>(new Map());
+  const [pendingChannelAction, setPendingChannelAction] = useState<number | 'leave' | null>(null);
+  const pendingChannelActionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [dmContacts, setDmContacts] = useState(() => mapStoredContacts(loadDMContacts()));
@@ -153,6 +155,7 @@ function App() {
     };
 
     const onVoiceError = ((data: unknown) => {
+      clearPendingAction();
       const d = data as { message: string } | undefined;
       console.error('Voice error:', d?.message);
     });
@@ -262,6 +265,7 @@ function App() {
     });
 
     const onVoiceChannelChanged = ((data: unknown) => {
+      clearPendingAction();
       const d = data as { channelId: number; name?: string } | undefined;
       if (d?.channelId !== undefined && d?.channelId !== null) {
         if (d.channelId === 0) {
@@ -301,6 +305,7 @@ function App() {
     });
 
     const onLeftVoiceChanged = ((data: unknown) => {
+      clearPendingAction();
       const d = data as { leftVoice: boolean } | undefined;
       if (d?.leftVoice !== undefined) {
         setSelfLeftVoice(d.leftVoice);
@@ -433,6 +438,24 @@ function App() {
     bridge.send('cert.requestStatus');
   }, []);
 
+const startPendingAction = (action: number | 'leave') => {
+    if (pendingChannelActionTimeoutRef.current) {
+      clearTimeout(pendingChannelActionTimeoutRef.current);
+    }
+    setPendingChannelAction(action);
+    pendingChannelActionTimeoutRef.current = setTimeout(() => {
+      setPendingChannelAction(null);
+    }, 5000);
+  };
+
+  const clearPendingAction = () => {
+    if (pendingChannelActionTimeoutRef.current) {
+      clearTimeout(pendingChannelActionTimeoutRef.current);
+      pendingChannelActionTimeoutRef.current = null;
+    }
+    setPendingChannelAction(null);
+  };
+
 const handleConnect = (serverData: SavedServer) => {
     localStorage.setItem('brmble-server', JSON.stringify(serverData));
     setServerAddress(`${serverData.host}:${serverData.port}`);
@@ -467,6 +490,7 @@ const handleConnect = (serverData: SavedServer) => {
   };
 
   const handleJoinChannel = (channelId: number) => {
+    startPendingAction(channelId);
     bridge.send('voice.joinChannel', { channelId });
   };
 
@@ -527,6 +551,7 @@ const handleConnect = (serverData: SavedServer) => {
   };
 
   const handleLeaveVoice = () => {
+    startPendingAction('leave');
     bridge.send('voice.leaveVoice', {});
     if (!selfLeftVoice) {
       handleSelectServer();
@@ -588,6 +613,7 @@ const handleConnect = (serverData: SavedServer) => {
         onToggleDeaf={connected ? handleToggleDeaf : undefined}
         onLeaveVoice={connected ? handleLeaveVoice : undefined}
         speaking={speakingUsers.has(selfSession) || false}
+        pendingChannelAction={pendingChannelAction}
       />
       
       <div className="app-body">
@@ -607,6 +633,7 @@ const handleConnect = (serverData: SavedServer) => {
           speakingUsers={speakingUsers}
           connectionStatus={connectionStatus}
           onCancelReconnect={handleCancelReconnect}
+          pendingChannelAction={pendingChannelAction}
         />
         
         <main className="main-content">

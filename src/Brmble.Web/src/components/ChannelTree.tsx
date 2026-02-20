@@ -30,9 +30,10 @@ interface ChannelTreeProps {
   onSelectChannel?: (channelId: number) => void;
   onStartDM?: (userId: string, userName: string) => void;
   speakingUsers?: Map<number, boolean>;
+  pendingChannelAction?: number | 'leave' | null;
 }
 
-export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, speakingUsers }: ChannelTreeProps) {
+export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, speakingUsers, pendingChannelAction }: ChannelTreeProps) {
   const [sortByNamePerChannel, setSortByNamePerChannel] = useState<Record<number, boolean>>({});
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string } | null>(null);
   const initialExpanded = useMemo(() => {
@@ -139,11 +140,11 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     const isCurrentChannel = currentChannelId === channel.id;
 
     return (
-      <div key={channel.id} className="channel-item" data-level={level}>
+      <div key={channel.id} className={`channel-item${pendingChannelAction !== null ? ' channel-item--pending' : ''}`} data-level={level}>
         <div 
           className={`channel-row ${isCurrentChannel ? 'current' : ''}`}
           onClick={() => handleChannelClick(channel.id)}
-          onDoubleClick={() => onJoinChannel(channel.id)}
+          onDoubleClick={pendingChannelAction === null ? () => onJoinChannel(channel.id) : undefined}
         >
           <span 
             className={`expand-icon ${isExpanded ? 'expanded' : ''} ${!hasChildren ? 'placeholder' : ''}`}
