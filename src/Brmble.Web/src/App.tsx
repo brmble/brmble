@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import bridge from './bridge';
+import type { ConnectionStatus } from './types';
 import { Header } from './components/Header/Header';
 import { Sidebar } from './components/Sidebar/Sidebar';
 import { ChatPanel } from './components/ChatPanel/ChatPanel';
@@ -53,7 +54,8 @@ function App() {
   const [certExists, setCertExists] = useState<boolean | null>(null);
   const [certFingerprint, setCertFingerprint] = useState('');
 
-  const [connected, setConnected] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
+  const connected = connectionStatus === 'connected';
   const [username, setUsername] = useState('');
   const [serverAddress, setServerAddress] = useState('');
   const [serverLabel, setServerLabel] = useState('');
@@ -68,6 +70,8 @@ function App() {
   const [selfCanRejoin, setSelfCanRejoin] = useState(false);
   const [selfSession, setSelfSession] = useState<number>(0);
   const [speakingUsers, setSpeakingUsers] = useState<Map<number, boolean>>(new Map());
+  const [pendingChannelAction, setPendingChannelAction] = useState<number | 'leave' | null>(null);
+  const pendingChannelActionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [dmContacts, setDmContacts] = useState(() => mapStoredContacts(loadDMContacts()));
@@ -109,10 +113,28 @@ function App() {
   const addDMMessageRef = useRef(addDMMessage);
   addDMMessageRef.current = addDMMessage;
 
+  const clearPendingAction = useCallback(() => {
+    if (pendingChannelActionTimeoutRef.current) {
+      clearTimeout(pendingChannelActionTimeoutRef.current);
+      pendingChannelActionTimeoutRef.current = null;
+    }
+    setPendingChannelAction(null);
+  }, []);
+
+  const startPendingAction = useCallback((action: number | 'leave') => {
+    if (pendingChannelActionTimeoutRef.current) {
+      clearTimeout(pendingChannelActionTimeoutRef.current);
+    }
+    setPendingChannelAction(action);
+    pendingChannelActionTimeoutRef.current = setTimeout(() => {
+      setPendingChannelAction(null);
+    }, 5000);
+  }, []);
+
   // Register all bridge handlers once on mount
   useEffect(() => {
     const onVoiceConnected = ((data: unknown) => {
-      setConnected(true);
+      setConnectionStatus('connected');
       setCurrentChannelId('server-root');
       setCurrentChannelName('');
       const d = data as { username?: string; channels?: Channel[]; users?: User[] } | undefined;
@@ -135,7 +157,8 @@ function App() {
     });
 
     const onVoiceDisconnected = () => {
-      setConnected(false);
+      clearPendingAction();
+      setConnectionStatus('idle');
       setServerAddress('');
       setServerLabel('');
       setChannels([]);
@@ -151,6 +174,7 @@ function App() {
     };
 
     const onVoiceError = ((data: unknown) => {
+      clearPendingAction();
       const d = data as { message: string } | undefined;
       console.error('Voice error:', d?.message);
     });
@@ -260,6 +284,7 @@ function App() {
     });
 
     const onVoiceChannelChanged = ((data: unknown) => {
+      clearPendingAction();
       const d = data as { channelId: number; name?: string } | undefined;
       if (d?.channelId !== undefined && d?.channelId !== null) {
         if (d.channelId === 0) {
@@ -299,6 +324,7 @@ function App() {
     });
 
     const onLeftVoiceChanged = ((data: unknown) => {
+      clearPendingAction();
       const d = data as { leftVoice: boolean } | undefined;
       if (d?.leftVoice !== undefined) {
         setSelfLeftVoice(d.leftVoice);
@@ -358,6 +384,26 @@ function App() {
       setCertFingerprint(d?.fingerprint ?? '');
     };
 
+    const onVoiceReconnecting = () => {
+      setConnectionStatus('reconnecting');
+    };
+    const onVoiceReconnectFailed = () => {
+      clearPendingAction();
+      setConnectionStatus('failed');
+      setServerAddress('');
+      setServerLabel('');
+      setChannels([]);
+      setUsers([]);
+      setCurrentChannelId(undefined);
+      setCurrentChannelName('');
+      setSelfMuted(false);
+      setSelfDeafened(false);
+      setSelfLeftVoice(false);
+      setSelfCanRejoin(false);
+      setSelfSession(0);
+      setSpeakingUsers(new Map());
+    };
+
     bridge.on('voice.connected', onVoiceConnected);
     bridge.on('voice.disconnected', onVoiceDisconnected);
     bridge.on('voice.error', onVoiceError);
@@ -378,6 +424,8 @@ function App() {
     bridge.on('cert.status', onCertStatus);
     bridge.on('cert.generated', onCertGenerated);
     bridge.on('cert.imported', onCertImported);
+    bridge.on('voice.reconnecting', onVoiceReconnecting);
+    bridge.on('voice.reconnectFailed', onVoiceReconnectFailed);
 
     return () => {
       bridge.off('voice.connected', onVoiceConnected);
@@ -400,6 +448,8 @@ function App() {
       bridge.off('cert.status', onCertStatus);
       bridge.off('cert.generated', onCertGenerated);
       bridge.off('cert.imported', onCertImported);
+      bridge.off('voice.reconnecting', onVoiceReconnecting);
+      bridge.off('voice.reconnectFailed', onVoiceReconnectFailed);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -408,9 +458,18 @@ function App() {
     bridge.send('cert.requestStatus');
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (pendingChannelActionTimeoutRef.current) {
+        clearTimeout(pendingChannelActionTimeoutRef.current);
+      }
+    };
+  }, []);
+
 const handleConnect = (serverData: SavedServer) => {
     localStorage.setItem('brmble-server', JSON.stringify(serverData));
     setServerAddress(`${serverData.host}:${serverData.port}`);
+    setConnectionStatus('connecting');
     bridge.send('voice.connect', serverData);
     
     // Send transmission mode from settings
@@ -441,6 +500,7 @@ const handleConnect = (serverData: SavedServer) => {
   };
 
   const handleJoinChannel = (channelId: number) => {
+    startPendingAction(channelId);
     bridge.send('voice.joinChannel', { channelId });
   };
 
@@ -488,6 +548,10 @@ const handleConnect = (serverData: SavedServer) => {
     bridge.send('voice.disconnect');
   };
 
+  const handleCancelReconnect = () => {
+    bridge.send('voice.cancelReconnect');
+  };
+
   const handleToggleMute = () => {
     bridge.send('voice.toggleMute', {});
   };
@@ -497,6 +561,7 @@ const handleConnect = (serverData: SavedServer) => {
   };
 
   const handleLeaveVoice = () => {
+    startPendingAction('leave');
     bridge.send('voice.leaveVoice', {});
     if (!selfLeftVoice) {
       handleSelectServer();
@@ -558,6 +623,7 @@ const handleConnect = (serverData: SavedServer) => {
         onToggleDeaf={connected ? handleToggleDeaf : undefined}
         onLeaveVoice={connected ? handleLeaveVoice : undefined}
         speaking={speakingUsers.has(selfSession) || false}
+        pendingChannelAction={pendingChannelAction}
       />
       
       <div className="app-body">
@@ -569,13 +635,15 @@ const handleConnect = (serverData: SavedServer) => {
           onSelectChannel={handleSelectChannel}
           onSelectServer={handleSelectServer}
           isServerChatActive={currentChannelId === 'server-root'}
-          connected={connected}
           serverLabel={serverLabel}
           serverAddress={serverAddress}
           username={username}
           onDisconnect={handleDisconnect}
           onStartDM={handleSelectDMUser}
           speakingUsers={speakingUsers}
+          connectionStatus={connectionStatus}
+          onCancelReconnect={handleCancelReconnect}
+          pendingChannelAction={pendingChannelAction}
         />
         
         <main className="main-content">
@@ -614,7 +682,7 @@ const handleConnect = (serverData: SavedServer) => {
         <CertWizard onComplete={(fp) => { setCertExists(true); setCertFingerprint(fp); }} />
       )}
 
-      {certExists === true && !connected && (
+      {certExists === true && connectionStatus === 'idle' && (
         <div className="connect-overlay">
           <ServerList onConnect={handleServerConnect} />
         </div>

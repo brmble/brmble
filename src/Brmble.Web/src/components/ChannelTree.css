@@ -164,6 +164,11 @@
   animation: speaking-pulse 1.5s ease-in-out infinite;
 }
 
+.channel-item--pending .channel-row {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 @keyframes speaking-pulse {
   0%, 100% { 
     box-shadow: 0 0 8px var(--accent-mint-glow);

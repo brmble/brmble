@@ -1,5 +1,5 @@
 import { ChannelTree } from '../ChannelTree';
-import type { Channel, User } from '../../types';
+import type { Channel, User, ConnectionStatus } from '../../types';
 import './Sidebar.css';
 
 interface SidebarProps {
@@ -10,13 +10,15 @@ interface SidebarProps {
   onSelectChannel: (channelId: number) => void;
   onSelectServer?: () => void;
   isServerChatActive?: boolean;
-  connected?: boolean;
+  connectionStatus?: ConnectionStatus;
+  onCancelReconnect?: () => void;
   serverLabel?: string;
   serverAddress?: string;
   username?: string;
   onDisconnect?: () => void;
   onStartDM?: (userId: string, userName: string) => void;
   speakingUsers?: Map<number, boolean>;
+  pendingChannelAction?: number | 'leave' | null;
 }
 
 export function Sidebar({
@@ -27,25 +29,49 @@ export function Sidebar({
   onSelectChannel,
   onSelectServer,
   isServerChatActive,
-  connected,
+  connectionStatus = 'idle',
+  onCancelReconnect,
   serverLabel,
   serverAddress,
   username,
   onDisconnect,
   onStartDM,
-  speakingUsers
+  speakingUsers,
+  pendingChannelAction
 }: SidebarProps) {
+  const connected = connectionStatus === 'connected';
+  const isReconnecting = connectionStatus === 'reconnecting';
+
   return (
     <aside className="sidebar">
-      {connected && (
+      {serverLabel && (
         <div 
           className={`server-info-panel${onSelectServer ? ' server-info-clickable' : ''}${isServerChatActive ? ' server-info-active' : ''}`}
           onClick={onSelectServer}
         >
-          <div className="server-info-name">{serverLabel || 'Server'}</div>
+          <div className="server-info-name">{serverLabel}</div>
           {serverAddress && (
             <div className="server-info-address">{serverAddress}</div>
           )}
+          <div className="server-status-line" aria-live="polite" aria-atomic="true">
+            <span className={`status-dot status-dot--${connectionStatus}`} aria-hidden="true" />
+            {connectionStatus !== 'idle' && (
+              <span className="status-text">
+                {connectionStatus === 'connected' && 'Connected'}
+                {connectionStatus === 'connecting' && 'Connecting...'}
+                {connectionStatus === 'reconnecting' && 'Reconnecting...'}
+                {connectionStatus === 'failed' && 'Disconnected'}
+              </span>
+            )}
+            {(onDisconnect || onCancelReconnect) && (connected || isReconnecting) && (
+              <button
+                className="disconnect-btn"
+                onClick={(e) => { e.stopPropagation(); (isReconnecting ? onCancelReconnect : onDisconnect)?.(); }}
+              >
+                {isReconnecting ? 'Cancel' : 'Disconnect'}
+              </button>
+            )}
+          </div>
         </div>
       )}
       
@@ -59,11 +85,6 @@ export function Sidebar({
             <span className="status-label">Users online</span>
             <span className="status-value">{users.length}</span>
           </div>
-          {onDisconnect && (
-            <button className="disconnect-btn" onClick={onDisconnect}>
-              Disconnect
-            </button>
-          )}
         </div>
       )}
       
@@ -78,6 +99,7 @@ export function Sidebar({
           onSelectChannel={onSelectChannel}
           onStartDM={onStartDM}
           speakingUsers={speakingUsers}
+          pendingChannelAction={pendingChannelAction}
         />
       </div>
     </aside>
