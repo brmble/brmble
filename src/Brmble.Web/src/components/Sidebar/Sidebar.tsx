@@ -65,16 +65,20 @@ export function Sidebar({
         </div>
       )}
       
-      {connected && (
+      {(connected || isReconnecting) && (
         <div className="server-status-panel">
-          <div className="server-status-row">
-            <span className="status-label">Logged in as</span>
-            <span className="status-value">{username}</span>
-          </div>
-          <div className="server-status-row">
-            <span className="status-label">Users online</span>
-            <span className="status-value">{users.length}</span>
-          </div>
+          {connected && (
+            <>
+              <div className="server-status-row">
+                <span className="status-label">Logged in as</span>
+                <span className="status-value">{username}</span>
+              </div>
+              <div className="server-status-row">
+                <span className="status-label">Users online</span>
+                <span className="status-value">{users.length}</span>
+              </div>
+            </>
+          )}
           {(onDisconnect || onCancelReconnect) && (
             <button
               className="disconnect-btn"
