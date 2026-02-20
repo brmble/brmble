@@ -578,7 +578,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             // If the user moves to root while not in leave-voice, treat it as activating leave-voice.
             // Store the channel they came from so they can rejoin.
             // ReceivedServerSync guard prevents firing during the initial state-sync burst on connect.
-            else if (userState.ChannelId == 0 && ReceivedServerSync)
+            // ShouldSerializeChannelId guard prevents mute/deafen echoes (which have ChannelId=0 by
+            // protobuf default but no explicit channel field) from being mistaken for a move to root.
+            else if (userState.ChannelId == 0 && ReceivedServerSync && userState.ShouldSerializeChannelId())
             {
                 _previousChannelId = previousChannel;
                 ActivateLeaveVoice();
