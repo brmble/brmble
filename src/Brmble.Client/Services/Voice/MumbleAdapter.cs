@@ -7,6 +7,7 @@ using MumbleSharp.Model;
 using MumbleProto;
 using PacketType = MumbleSharp.Packets.PacketType;
 using Brmble.Client.Bridge;
+using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.Certificate;
 
 namespace Brmble.Client.Services.Voice;
@@ -384,6 +385,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             else
                 System.Diagnostics.Debug.WriteLine($"[MumbleAdapter] Unknown PTT key '{key}', monitor not started.");
         }
+    }
+
+    public void ApplySettings(AppSettings settings)
+    {
+        SetTransmissionMode(settings.Audio.TransmissionMode, settings.Audio.PushToTalkKey);
+        _audioManager?.SetShortcut("toggleMute", settings.Shortcuts.ToggleMuteKey);
+        _audioManager?.SetShortcut("toggleDeafen", settings.Shortcuts.ToggleDeafenKey);
+        _audioManager?.SetShortcut("toggleMuteDeafen", settings.Shortcuts.ToggleMuteDeafenKey);
     }
 
     /// <summary>Called from WndProc on WM_HOTKEY.</summary>
