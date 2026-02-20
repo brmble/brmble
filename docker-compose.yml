@@ -1,0 +1,22 @@
+services:
+  brmble:
+    image: ghcr.io/brmble/brmble-server:latest
+    ports:
+      - "8080:8080"
+      - "7881:7881"
+      - "50100-50200:50100-50200/udp"
+    volumes:
+      - brmble-data:/data
+    environment:
+      # Required — set these in a .env file or your environment
+      MATRIX_SERVER_NAME: ${MATRIX_SERVER_NAME}
+      MATRIX_APPSERVICE_TOKEN: ${MATRIX_APPSERVICE_TOKEN}
+      Matrix__AppServiceToken: ${MATRIX_APPSERVICE_TOKEN}
+      # Optional — Mumble ICE bridge (leave blank if no Mumble server)
+      Ice__Host: ${ICE_HOST:-mumble-server}
+      Ice__Port: ${ICE_PORT:-6502}
+      Ice__Secret: ${ICE_SECRET:-}
+    restart: unless-stopped
+
+volumes:
+  brmble-data:
