@@ -6,7 +6,7 @@ using System.Runtime.InteropServices;
 using Microsoft.Web.WebView2.Core;
 using Brmble.Client.Bridge;
 using Brmble.Client.Services.Certificate;
-using Brmble.Client.Services.Serverlist;
+using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.Voice;
 
 namespace Brmble.Client;
@@ -18,7 +18,7 @@ static class Program
 
     private static CoreWebView2Controller? _controller;
     private static NativeBridge? _bridge;
-    private static ServerlistService? _serverlistService;
+    private static AppConfigService? _appConfigService;
     private static CertificateService? _certService;
     private static MumbleAdapter? _mumbleClient;
     private static IntPtr _hwnd;
@@ -55,7 +55,35 @@ static class Program
                 ? "Brmble: Using Vite dev server"
                 : "Brmble: Using local files");
 
-            _hwnd = Win32Window.Create("BrmbleWindow", "Brmble", 1280, 720, WndProc);
+            _appConfigService = new AppConfigService();
+            _closeAction = _appConfigService.GetClosePreference();
+            var savedWindow = _appConfigService.GetWindowState();
+
+            int wx = Win32Window.CW_USEDEFAULT, wy = Win32Window.CW_USEDEFAULT;
+            int ww = 1280, wh = 720;
+            bool restoreMaximized = false;
+
+            if (savedWindow != null)
+            {
+                var center = new Win32Window.POINT
+                {
+                    X = savedWindow.X + savedWindow.Width / 2,
+                    Y = savedWindow.Y + savedWindow.Height / 2
+                };
+                var monitor = Win32Window.MonitorFromPoint(center, Win32Window.MONITOR_DEFAULTTONULL);
+                if (monitor != IntPtr.Zero)
+                {
+                    wx = savedWindow.X;
+                    wy = savedWindow.Y;
+                    ww = savedWindow.Width;
+                    wh = savedWindow.Height;
+                    restoreMaximized = savedWindow.IsMaximized;
+                }
+            }
+
+            _hwnd = Win32Window.Create("BrmbleWindow", "Brmble", wx, wy, ww, wh, WndProc);
+            if (restoreMaximized)
+                Win32Window.ShowWindow(_hwnd, Win32Window.SW_MAXIMIZE);
             Win32Window.ExtendFrameIntoClientArea(_hwnd);
             Win32Window.ForceFrameChange(_hwnd);
             TrayIcon.Create(_hwnd);
@@ -88,15 +116,16 @@ static class Program
 
             _bridge = new NativeBridge(_controller.CoreWebView2, hwnd);
 
-            _serverlistService = new ServerlistService();
-            _serverlistService.Initialize(_bridge);
-            _serverlistService.RegisterHandlers(_bridge);
+            _appConfigService!.Initialize(_bridge);
+            _appConfigService!.OnSettingsChanged = settings => _mumbleClient?.ApplySettings(settings);
+            _appConfigService!.RegisterHandlers(_bridge);
 
             _certService = new CertificateService(_bridge);
             _certService.RegisterHandlers(_bridge);
 
             _mumbleClient = new MumbleAdapter(_bridge, _hwnd, _certService);
-            
+            _mumbleClient.ApplySettings(_appConfigService!.GetSettings());
+
             SetupBridgeHandlers();
 
             if (useDevServer)
@@ -145,7 +174,10 @@ static class Program
         _bridge.RegisterHandler("window.setClosePreference", data =>
         {
             if (data.TryGetProperty("action", out var a))
+            {
                 _closeAction = a.GetString();
+                _appConfigService!.SaveClosePreference(_closeAction);
+            }
             return Task.CompletedTask;
         });
 
@@ -298,6 +330,21 @@ static class Program
             }
 
             case Win32Window.WM_DESTROY:
+                if (_appConfigService != null)
+                {
+                    var placement = new Win32Window.WINDOWPLACEMENT
+                    {
+                        length = (uint)Marshal.SizeOf<Win32Window.WINDOWPLACEMENT>()
+                    };
+                    Win32Window.GetWindowPlacement(hwnd, ref placement);
+                    _appConfigService.SaveWindowState(new WindowState(
+                        X: placement.rcNormalPosition.Left,
+                        Y: placement.rcNormalPosition.Top,
+                        Width: placement.rcNormalPosition.Right - placement.rcNormalPosition.Left,
+                        Height: placement.rcNormalPosition.Bottom - placement.rcNormalPosition.Top,
+                        IsMaximized: placement.showCmd == Win32Window.SW_SHOWMAXIMIZED
+                    ));
+                }
                 _mumbleClient?.Disconnect();
                 TrayIcon.Destroy();
                 Win32Window.PostQuitMessage(0);

@@ -1,4 +1,5 @@
 using Brmble.Client.Bridge;
+using Brmble.Client.Services.AppConfig;
 
 namespace Brmble.Client.Services.Voice;
 
@@ -15,4 +16,5 @@ public interface VoiceService : IService
     void ToggleMute();
     void ToggleDeaf();
     void SetTransmissionMode(string mode, string? key);
+    void ApplySettings(AppConfig.AppSettings settings);
 }
