@@ -1,6 +1,5 @@
 // tests/Brmble.Server.Tests/Integration/AuthIntegrationTests.cs
 using System.Net;
-using System.Net.Http.Json;
 using Brmble.Server.Auth;
 using Brmble.Server.Tests.Auth;
 using Microsoft.AspNetCore.Hosting;
