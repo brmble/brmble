@@ -84,6 +84,7 @@ internal static class Win32Window
     public const int SW_RESTORE = 9;
     public const int SW_HIDE = 0;
     public const int SW_SHOW = 5;
+    public const int SW_SHOWMAXIMIZED = 3;
 
     public delegate IntPtr WndProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
 
@@ -147,6 +148,7 @@ internal static class Win32Window
         public POINT ptMinPosition;
         public POINT ptMaxPosition;
         public RECT rcNormalPosition;
+        public RECT rcDevice;
     }
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
