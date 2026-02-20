@@ -54,14 +54,14 @@ public class AuthIntegrationTests : IDisposable
     [TestMethod]
     public async Task PostToken_ValidRequest_ReturnsOk()
     {
-        var response = await _client.PostAsJsonAsync("/auth/token", new { displayName = "Alice" });
+        var response = await _client.PostAsync("/auth/token", null);
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
     }
 
     [TestMethod]
     public async Task PostToken_ValidRequest_ReturnsStubToken()
     {
-        var response = await _client.PostAsJsonAsync("/auth/token", new { displayName = "Alice" });
+        var response = await _client.PostAsync("/auth/token", null);
         var body = await response.Content.ReadAsStringAsync();
         StringAssert.Contains(body, "matrixAccessToken");
         StringAssert.Contains(body, "stub_token_");
@@ -96,7 +96,7 @@ public class AuthIntegrationTests : IDisposable
         });
 
         using var noCertClient = noCertFactory.CreateClient();
-        var response = await noCertClient.PostAsJsonAsync("/auth/token", new { displayName = "Alice" });
+        var response = await noCertClient.PostAsync("/auth/token", null);
         Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
