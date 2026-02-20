@@ -6,7 +6,7 @@ internal static class Win32Window
 {
     private const uint WS_OVERLAPPEDWINDOW = 0x00CF0000;
     private const uint WS_VISIBLE = 0x10000000;
-    private const int CW_USEDEFAULT = unchecked((int)0x80000000);
+    public const int CW_USEDEFAULT = unchecked((int)0x80000000);
     private const uint CS_HREDRAW = 0x0002;
     private const uint CS_VREDRAW = 0x0001;
 
@@ -138,6 +138,17 @@ internal static class Win32Window
         public POINT ptMaxTrackSize;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    public struct WINDOWPLACEMENT
+    {
+        public uint length;
+        public uint flags;
+        public uint showCmd;
+        public POINT ptMinPosition;
+        public POINT ptMaxPosition;
+        public RECT rcNormalPosition;
+    }
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern ushort RegisterClassEx(ref WNDCLASSEX lpwcx);
 
@@ -196,6 +207,14 @@ internal static class Win32Window
     [DllImport("user32.dll")]
     public static extern bool IsWindowVisible(IntPtr hwnd);
 
+    public const uint MONITOR_DEFAULTTONULL = 0x00000000;
+
+    [DllImport("user32.dll")]
+    public static extern bool GetWindowPlacement(IntPtr hwnd, ref WINDOWPLACEMENT lpwndpl);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);
+
     [DllImport("user32.dll")]
     private static extern IntPtr LoadCursor(IntPtr instance, int cursorName);
 
@@ -225,7 +244,7 @@ internal static class Win32Window
 
     private static WndProc? _wndProcRef; // prevent GC of delegate
 
-    public static IntPtr Create(string className, string title, int width, int height, WndProc wndProc)
+    public static IntPtr Create(string className, string title, int x, int y, int width, int height, WndProc wndProc)
     {
         var hInstance = GetModuleHandle(null);
         _wndProcRef = wndProc;
@@ -244,7 +263,7 @@ internal static class Win32Window
 
         return CreateWindowEx(0, className, title,
             WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-            CW_USEDEFAULT, CW_USEDEFAULT, width, height,
+            x, y, width, height,
             IntPtr.Zero, IntPtr.Zero, hInstance, IntPtr.Zero);
     }
 
