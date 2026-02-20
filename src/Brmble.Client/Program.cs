@@ -4,7 +4,7 @@ using System.Net.Sockets;
 using Microsoft.Web.WebView2.Core;
 using Brmble.Client.Bridge;
 using Brmble.Client.Services.Certificate;
-using Brmble.Client.Services.Serverlist;
+using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.Voice;
 
 namespace Brmble.Client;
@@ -16,7 +16,7 @@ static class Program
 
     private static CoreWebView2Controller? _controller;
     private static NativeBridge? _bridge;
-    private static ServerlistService? _serverlistService;
+    private static AppConfigService? _appConfigService;
     private static CertificateService? _certService;
     private static MumbleAdapter? _mumbleClient;
     private static IntPtr _hwnd;
@@ -69,15 +69,17 @@ static class Program
 
             _bridge = new NativeBridge(_controller.CoreWebView2, hwnd);
 
-            _serverlistService = new ServerlistService();
-            _serverlistService.Initialize(_bridge);
-            _serverlistService.RegisterHandlers(_bridge);
+            _appConfigService = new AppConfigService();
+            _appConfigService.Initialize(_bridge);
+            _appConfigService.OnSettingsChanged = settings => _mumbleClient?.ApplySettings(settings);
+            _appConfigService.RegisterHandlers(_bridge);
 
             _certService = new CertificateService(_bridge);
             _certService.RegisterHandlers(_bridge);
 
             _mumbleClient = new MumbleAdapter(_bridge, _hwnd, _certService);
-            
+            _mumbleClient.ApplySettings(_appConfigService.GetSettings());
+
             SetupBridgeHandlers();
 
             if (useDevServer)
