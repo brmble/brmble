@@ -99,7 +99,7 @@ public class AuthServiceTests
     {
         await _svc!.HandleUserState("queuedhash", "Queued");
         // Name is in the queue — verify by authenticating and checking the stored name
-        await _svc.Authenticate("queuedhash");
+        await _svc.Authenticate("queuedhash", "");
         var user = await _repo!.GetByCertHash("queuedhash");
         Assert.AreEqual("Queued", user!.DisplayName);
     }
@@ -118,9 +118,9 @@ public class AuthServiceTests
     public async Task HandleUserState_QueueConsumedAfterAuthenticate()
     {
         await _svc!.HandleUserState("consumedhash", "ConsumedName");
-        await _svc.Authenticate("consumedhash");
+        await _svc.Authenticate("consumedhash", "");
         // Authenticate a second time — queue entry should be gone, no double-update
-        await _svc.Authenticate("consumedhash");
+        await _svc.Authenticate("consumedhash", "");
         var user = await _repo!.GetByCertHash("consumedhash");
         Assert.AreEqual("ConsumedName", user!.DisplayName);
     }
