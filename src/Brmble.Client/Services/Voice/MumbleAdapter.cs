@@ -31,6 +31,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private bool _canRejoin;
     private TransmissionMode _previousMode = TransmissionMode.Continuous;
     private string? _currentPttKey;
+    private readonly Stopwatch _notifyThrottle = Stopwatch.StartNew();
 
     public string ServiceName => "mumble";
 
@@ -63,24 +64,28 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (string.IsNullOrWhiteSpace(host))
         {
             _bridge?.Send("voice.error", new { message = "Server address is required" });
+            _bridge?.NotifyUiThread();
             return;
         }
 
         if (string.IsNullOrWhiteSpace(username))
         {
             _bridge?.Send("voice.error", new { message = "Username is required" });
+            _bridge?.NotifyUiThread();
             return;
         }
 
         if (port is <= 0 or > 65535)
         {
             _bridge?.Send("voice.error", new { message = "Port must be between 1 and 65535" });
+            _bridge?.NotifyUiThread();
             return;
         }
 
         try
         {
             SendSystemMessage($"Connecting to {host}:{port}...", "connecting");
+            _bridge?.NotifyUiThread();
 
             var connection = new MumbleConnection(host, port, this, voiceSupport: true);
             connection.Connect(username, password, Array.Empty<string>(), "Brmble");
@@ -153,6 +158,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         EmitCanRejoin(false);
 
         _bridge?.Send("voice.disconnected", null);
+        _bridge?.NotifyUiThread();
     }
 
     private void ProcessLoop(CancellationToken ct)
@@ -163,13 +169,29 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             try
             {
                 if (Connection.Process())
+                {
+                    // Throttle UI notifications to at most once per 50ms (20/sec).
+                    // Without this, UDP voice packets (20-50+/sec) flood the UI
+                    // thread with WM_USER messages and cause choppy audio.
+                    if (_notifyThrottle.ElapsedMilliseconds >= 50)
+                    {
+                        _bridge?.NotifyUiThread();
+                        _notifyThrottle.Restart();
+                    }
                     Thread.Yield();
+                }
                 else
+                {
+                    // No more packets — flush any queued messages before sleeping.
+                    _bridge?.NotifyUiThread();
+                    _notifyThrottle.Restart();
                     Thread.Sleep(1);
+                }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _bridge?.Send("voice.error", new { message = $"Process error: {ex.Message}" });
+                _bridge?.NotifyUiThread();
             }
         }
     }
@@ -245,6 +267,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         _bridge?.Send("voice.selfMuteChanged", new { muted = LocalUser.SelfMuted });
         _bridge?.Send("voice.selfDeafChanged", new { deafened = LocalUser.SelfDeaf });
+        _bridge?.Flush();
     }
 
     /// <summary>
@@ -309,6 +332,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _previousChannelId = LocalUser.Channel?.Id ?? 0;
             JoinChannel(0);
             ActivateLeaveVoice(channelMoveInProgress: true);
+            _bridge?.Flush();
         }
         else
         {
@@ -334,6 +358,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _bridge?.Send("voice.selfMuteChanged", new { muted = false });
             _bridge?.Send("voice.selfDeafChanged", new { deafened = false });
             _bridge?.Send("voice.leftVoiceChanged", new { leftVoice = false });
+            _bridge?.Flush();
         }
     }
 
@@ -349,6 +374,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         _bridge?.Send("voice.selfDeafChanged", new { deafened = LocalUser.SelfDeaf });
         _bridge?.Send("voice.selfMuteChanged", new { muted = LocalUser.SelfMuted });
+        _bridge?.Flush();
     }
 
     public void SetTransmissionMode(string mode, string? key)
@@ -389,6 +415,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// <summary>Called from WndProc on WM_HOTKEY.</summary>
     public void HandleHotKey(int id, bool keyDown)
         => _audioManager?.HandleHotKey(id, keyDown);
+
+    /// <summary>Called from WndProc on WM_INPUT.</summary>
+    public void HandleRawInput(IntPtr wParam, IntPtr lParam)
+        => _audioManager?.HandleRawInput(wParam, lParam);
 
     public void JoinChannel(uint channelId)
     {
@@ -553,17 +583,19 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         base.UserState(userState);
 
-        Debug.WriteLine($"[Mumble] UserState: {userState.Name} (session: {userState.Session}), isNew: {isNewUser}");
+        UserDictionary.TryGetValue(userState.Session, out var user);
+
+        Debug.WriteLine($"[Mumble] UserState: {user?.Name ?? userState.Name} (session: {userState.Session}), isNew: {isNewUser}");
 
         var isSelf = LocalUser != null && userState.Session == LocalUser.Id;
 
         _bridge?.Send("voice.userJoined", new
         {
             session = userState.Session,
-            name = userState.Name,
-            channelId = userState.ChannelId,
-            muted = userState.Mute || userState.SelfMute,
-            deafened = userState.Deaf || userState.SelfDeaf,
+            name = user?.Name ?? userState.Name,
+            channelId = user?.Channel?.Id ?? userState.ChannelId,
+            muted = user != null ? (user.Muted || user.SelfMuted) : (userState.Mute || userState.SelfMute),
+            deafened = user != null ? (user.Deaf || user.SelfDeaf) : (userState.Deaf || userState.SelfDeaf),
             self = isSelf
         });
 
@@ -574,9 +606,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             SendSystemMessage($"{userName} connected to the server", "userJoined");
         }
 
-        if (previousChannel.HasValue && userState.ChannelId != previousChannel && isSelf)
+        var currentChannelId = user?.Channel?.Id ?? userState.ChannelId;
+        if (previousChannel.HasValue && currentChannelId != previousChannel && isSelf)
         {
-            _bridge?.Send("voice.channelChanged", new { channelId = userState.ChannelId });
+            _bridge?.Send("voice.channelChanged", new { channelId = currentChannelId });
 
             // If this channel change was initiated by LeaveVoice toggle, just clear the flag
             if (_leaveVoiceInProgress)
@@ -605,29 +638,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             // ReceivedServerSync guard prevents firing during the initial state-sync burst on connect.
             // ShouldSerializeChannelId guard prevents mute/deafen echoes (which have ChannelId=0 by
             // protobuf default but no explicit channel field) from being mistaken for a move to root.
-            else if (userState.ChannelId == 0 && ReceivedServerSync && userState.ShouldSerializeChannelId())
+            else if (currentChannelId == 0 && ReceivedServerSync && userState.ShouldSerializeChannelId())
             {
                 _previousChannelId = previousChannel;
                 ActivateLeaveVoice();
             }
-        }
-    }
-
-    protected override void UserStateChannelChanged(User user, uint oldChannelId)
-    {
-        base.UserStateChannelChanged(user, oldChannelId);
-
-        if (user == LocalUser && user.Channel != null)
-        {
-            _bridge?.Send("voice.userJoined", new
-            {
-                session = user.Id,
-                name = user.Name,
-                channelId = user.Channel.Id,
-                muted = user.Muted || user.SelfMuted,
-                deafened = user.Deaf || user.SelfDeaf,
-                self = true
-            });
         }
     }
 
@@ -677,12 +692,23 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     public override void ChannelState(ChannelState channelState)
     {
         base.ChannelState(channelState);
-        _bridge?.Send("voice.channelJoined", new
+
+        if (ChannelDictionary.TryGetValue(channelState.ChannelId, out var channel))
         {
-            id = channelState.ChannelId,
-            name = channelState.Name,
-            parent = channelState.Parent
-        });
+            _bridge?.Send("voice.channelJoined", new
+            {
+                id = channel.Id,
+                name = channel.Name,
+                parent = channel.Parent
+            });
+        }
+    }
+
+    public override void ChannelRemove(ChannelRemove channelRemove)
+    {
+        var channelId = channelRemove.ChannelId;
+        base.ChannelRemove(channelRemove);
+        _bridge?.Send("voice.channelRemoved", new { id = channelId });
     }
 
     public override void TextMessage(TextMessage textMessage)
@@ -701,6 +727,17 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     {
         base.Reject(reject);
         _bridge?.Send("voice.error", new { message = reject.Reason, type = reject.Type });
+    }
+
+    public override void PermissionDenied(PermissionDenied permissionDenied)
+    {
+        base.PermissionDenied(permissionDenied);
+
+        var reason = !string.IsNullOrEmpty(permissionDenied.Reason)
+            ? permissionDenied.Reason
+            : $"Permission denied: {permissionDenied.Type}";
+
+        _bridge?.Send("voice.error", new { message = reason, type = "permissionDenied" });
     }
 
     public override void EncodedVoice(byte[] data, uint userId, long sequence,

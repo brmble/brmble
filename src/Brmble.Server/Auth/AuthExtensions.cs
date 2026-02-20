@@ -4,6 +4,11 @@ public static class AuthExtensions
 {
     public static IServiceCollection AddAuth(this IServiceCollection services)
     {
+        services.AddOptions<AuthSettings>()
+            .BindConfiguration("Auth")
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
         services.AddSingleton<UserRepository>();
         services.AddSingleton<AuthService>();
         services.AddSingleton<IActiveBrmbleSessions>(sp => sp.GetRequiredService<AuthService>());

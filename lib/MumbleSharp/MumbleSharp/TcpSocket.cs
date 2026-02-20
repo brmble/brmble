@@ -192,15 +192,46 @@ namespace MumbleSharp
             if (!_client.Connected)
                 throw new InvalidOperationException("Not connected");
 
+            // Check both the raw TCP buffer and attempt to read from SslStream.
+            // SslStream may have decrypted data buffered internally from a previous
+            // TLS record even when the underlying NetworkStream shows no new bytes.
             if (!_netStream.DataAvailable)
-                return false;
+            {
+                // No raw TCP data — but SslStream might still have buffered plaintext.
+                // Try a non-blocking read via a short timeout to detect this case.
+                lock (_ssl)
+                {
+                    var oldTimeout = _ssl.ReadTimeout;
+                    _ssl.ReadTimeout = 1;
+                    try
+                    {
+                        PacketType type = (PacketType)IPAddress.NetworkToHostOrder(_reader.ReadInt16());
+                        _ssl.ReadTimeout = oldTimeout;
+                        ProcessPacket(type);
+                        return true;
+                    }
+                    catch (IOException)
+                    {
+                        // Timeout or end-of-stream — no data in SslStream buffer either
+                        _ssl.ReadTimeout = oldTimeout;
+                        return false;
+                    }
+                }
+            }
 
             lock (_ssl)
             {
                 PacketType type = (PacketType)IPAddress.NetworkToHostOrder(_reader.ReadInt16());
+                ProcessPacket(type);
+            }
 
-                switch (type)
-                {
+            return true;
+        }
+
+        private void ProcessPacket(PacketType type)
+        {
+            switch (type)
+            {
                     case PacketType.Version:
                         _protocol.Version(Serializer.DeserializeWithLengthPrefix<MumbleProto.Version>(_ssl, PrefixStyle.Fixed32BigEndian));
                         break;
@@ -290,10 +321,7 @@ namespace MumbleSharp
                     case PacketType.VoiceTarget:
                     default:
                         throw new NotImplementedException($"{nameof(Process)} {nameof(PacketType)}.{type.ToString()}");
-                }
             }
-
-            return true;
         }
     }
 }
