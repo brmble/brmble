@@ -136,6 +136,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _previousChannelId = null;
         _leftVoice = false;
         _leaveVoiceInProgress = false;
+        EmitCanRejoin(false);
 
         _bridge?.Send("voice.disconnected", null);
     }
@@ -264,6 +265,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _bridge?.Send("voice.selfMuteChanged", new { muted = true });
         _bridge?.Send("voice.selfDeafChanged", new { deafened = true });
         _bridge?.Send("voice.leftVoiceChanged", new { leftVoice = true });
+        EmitCanRejoin(_previousChannelId != null);
     }
 
     /// <summary>
@@ -305,6 +307,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _leaveVoiceInProgress = true;
             var channelId = _previousChannelId ?? 0; // ?? 0 is unreachable: null case is guarded above
             _previousChannelId = null;
+            EmitCanRejoin(false);
 
             JoinChannel(channelId);
 
@@ -314,9 +317,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _audioManager?.SetMuted(false);
             _audioManager?.SetDeafened(false);
 
-            _bridge?.Send("voice.selfMuteChanged", new { muted = false });
-            _bridge?.Send("voice.selfDeafChanged", new { deafened = false });
-            _bridge?.Send("voice.leftVoiceChanged", new { leftVoice = false });
+                _bridge?.Send("voice.selfMuteChanged", new { muted = false });
+                _bridge?.Send("voice.selfDeafChanged", new { deafened = false });
+                _bridge?.Send("voice.leftVoiceChanged", new { leftVoice = false });
+                EmitCanRejoin(false);
         }
     }
 
@@ -570,6 +574,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 _bridge?.Send("voice.selfMuteChanged", new { muted = false });
                 _bridge?.Send("voice.selfDeafChanged", new { deafened = false });
                 _bridge?.Send("voice.leftVoiceChanged", new { leftVoice = false });
+                EmitCanRejoin(false);
             }
         }
     }
