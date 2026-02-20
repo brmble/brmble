@@ -63,32 +63,28 @@ export function Sidebar({
                 {connectionStatus === 'failed' && 'Disconnected'}
               </span>
             )}
+            {(onDisconnect || onCancelReconnect) && (connected || isReconnecting) && (
+              <button
+                className="disconnect-btn"
+                onClick={(e) => { e.stopPropagation(); (isReconnecting ? onCancelReconnect : onDisconnect)?.(); }}
+              >
+                {isReconnecting ? 'Cancel' : 'Disconnect'}
+              </button>
+            )}
           </div>
         </div>
       )}
       
-      {(connected || isReconnecting) && (
+      {connected && (
         <div className="server-status-panel">
-          {connected && (
-            <>
-              <div className="server-status-row">
-                <span className="status-label">Logged in as</span>
-                <span className="status-value">{username}</span>
-              </div>
-              <div className="server-status-row">
-                <span className="status-label">Users online</span>
-                <span className="status-value">{users.length}</span>
-              </div>
-            </>
-          )}
-          {(onDisconnect || onCancelReconnect) && (
-            <button
-              className="disconnect-btn"
-              onClick={isReconnecting ? onCancelReconnect : onDisconnect}
-            >
-              {isReconnecting ? 'Cancel reconnecting' : 'Disconnect'}
-            </button>
-          )}
+          <div className="server-status-row">
+            <span className="status-label">Logged in as</span>
+            <span className="status-value">{username}</span>
+          </div>
+          <div className="server-status-row">
+            <span className="status-label">Users online</span>
+            <span className="status-value">{users.length}</span>
+          </div>
         </div>
       )}
       
