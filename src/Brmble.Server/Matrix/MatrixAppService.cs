@@ -1,7 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 
 namespace Brmble.Server.Matrix;
 
@@ -18,13 +18,11 @@ public class MatrixAppService : IMatrixAppService
     private readonly string _homeserverUrl;
     private readonly string _appServiceToken;
 
-    public MatrixAppService(IHttpClientFactory httpClientFactory, IConfiguration configuration)
+    public MatrixAppService(IHttpClientFactory httpClientFactory, IOptions<MatrixSettings> settings)
     {
         _httpClientFactory = httpClientFactory;
-        _homeserverUrl = configuration["Matrix:HomeserverUrl"]
-            ?? throw new InvalidOperationException("Matrix:HomeserverUrl not configured");
-        _appServiceToken = configuration["Matrix:AppServiceToken"]
-            ?? throw new InvalidOperationException("Matrix:AppServiceToken not configured");
+        _homeserverUrl = settings.Value.HomeserverUrl;
+        _appServiceToken = settings.Value.AppServiceToken;
     }
 
     public async Task SendMessage(string roomId, string displayName, string text)
