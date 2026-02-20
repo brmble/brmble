@@ -143,6 +143,9 @@ internal static class Win32Window
     [DllImport("user32.dll")]
     private static extern IntPtr LoadCursor(IntPtr instance, int cursorName);
 
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr CreateSolidBrush(uint crColor);
+
     [DllImport("kernel32.dll")]
     public static extern bool AllocConsole();
 
@@ -178,6 +181,7 @@ internal static class Win32Window
             lpfnWndProc = _wndProcRef,
             hInstance = hInstance,
             hCursor = LoadCursor(IntPtr.Zero, 32512),
+            hbrBackground = CreateSolidBrush(0x140a0f), // #0f0a14 as COLORREF (0x00BBGGRR)
             lpszClassName = className
         };
         RegisterClassEx(ref wc);
@@ -190,7 +194,7 @@ internal static class Win32Window
 
     public static void ExtendFrameIntoClientArea(IntPtr hwnd)
     {
-        var margins = new MARGINS { Left = 0, Right = 0, Top = 1, Bottom = 0 };
+        var margins = new MARGINS { Left = -1, Right = -1, Top = -1, Bottom = -1 };
         DwmExtendFrameIntoClientArea(hwnd, ref margins);
     }
 

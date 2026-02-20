@@ -176,9 +176,16 @@ static class Program
 
     private static IntPtr WndProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam)
     {
-        // Remove the non-client area (title bar) — client area fills entire window
+        // Remove title bar but keep the resize frame on left/right/bottom as non-client area.
+        // DWM renders those frames transparently via DwmExtendFrameIntoClientArea({-1,-1,-1,-1}).
+        // Top is set to window top (no NC area there — top resize handled via JS bridge).
         if (msg == Win32Window.WM_NCCALCSIZE && wParam != IntPtr.Zero)
+        {
+            int windowTop = Marshal.ReadInt32(lParam, 4);
+            Win32Window.DefWindowProc(hwnd, msg, wParam, lParam);
+            Marshal.WriteInt32(lParam, 4, windowTop);
             return IntPtr.Zero;
+        }
 
         switch (msg)
         {
@@ -258,13 +265,9 @@ static class Program
 
             case Win32Window.WM_NCHITTEST:
             {
-                Win32Window.GetCursorPos(out var pt);
-                Win32Window.ScreenToClient(hwnd, ref pt);
-                Win32Window.GetClientRect(hwnd, out var rect);
-                var width = rect.Right - rect.Left;
-                var height = rect.Bottom - rect.Top;
-                var hit = HitTestHelper.Calculate(pt.X, pt.Y, width, height, borderWidth: 6);
-                return (IntPtr)hit;
+                if (Win32Window.DwmDefWindowProc(hwnd, msg, wParam, lParam, out var dwmResult) != 0)
+                    return dwmResult;
+                return Win32Window.DefWindowProc(hwnd, msg, wParam, lParam);
             }
 
             case Win32Window.WM_GETMINMAXINFO:
