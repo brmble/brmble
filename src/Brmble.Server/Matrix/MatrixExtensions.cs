@@ -8,7 +8,7 @@ public static class MatrixExtensions
     {
         services.AddHttpClient();
         services.AddSingleton<ChannelRepository>();
-        services.AddSingleton<MatrixAppService>();
+        services.AddSingleton<IMatrixAppService, MatrixAppService>();
         services.AddSingleton<MatrixService>();
         services.AddSingleton<IMumbleEventHandler, MatrixEventHandler>();
         return services;

@@ -1,4 +1,5 @@
 using Brmble.Server.Data;
+using Dapper;
 
 namespace Brmble.Server.Matrix;
 
@@ -13,7 +14,27 @@ public class ChannelRepository
         _db = db;
     }
 
-    // TODO: GetRoomId(int mumbleChannelId) → string?
-    // TODO: Insert(int mumbleChannelId, string matrixRoomId)
-    // TODO: Delete(int mumbleChannelId)
+    public string? GetRoomId(int mumbleChannelId)
+    {
+        using var conn = _db.CreateConnection();
+        return conn.QuerySingleOrDefault<string>(
+            "SELECT matrix_room_id FROM channel_room_map WHERE mumble_channel_id = @id",
+            new { id = mumbleChannelId });
+    }
+
+    public void Insert(int mumbleChannelId, string matrixRoomId)
+    {
+        using var conn = _db.CreateConnection();
+        conn.Execute(
+            "INSERT OR IGNORE INTO channel_room_map (mumble_channel_id, matrix_room_id) VALUES (@channelId, @roomId)",
+            new { channelId = mumbleChannelId, roomId = matrixRoomId });
+    }
+
+    public void Delete(int mumbleChannelId)
+    {
+        using var conn = _db.CreateConnection();
+        conn.Execute(
+            "DELETE FROM channel_room_map WHERE mumble_channel_id = @id",
+            new { id = mumbleChannelId });
+    }
 }

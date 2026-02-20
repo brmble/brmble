@@ -492,3 +492,4 @@ $RECYCLE.BIN/
 
 # Git worktrees
 .worktrees/
+src/Brmble.Server/generated/

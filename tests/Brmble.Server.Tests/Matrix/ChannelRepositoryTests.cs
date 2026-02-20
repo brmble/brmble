@@ -8,11 +8,7 @@ namespace Brmble.Server.Tests.Matrix;
 [TestClass]
 public class ChannelRepositoryTests
 {
-    // TODO: Add tests as methods are implemented in ChannelRepository:
-    // - GetRoomId_ExistingMapping_ReturnsRoomId
-    // - GetRoomId_UnknownChannel_ReturnsNull
-    // - Insert_NewMapping_PersistsToDatabase
-    // - Delete_ExistingMapping_RemovesRecord
+
 
     private SqliteConnection? _keepAlive;
     private Database? _db;
@@ -36,5 +32,63 @@ public class ChannelRepositoryTests
     {
         var repo = new ChannelRepository(_db!);
         Assert.IsNotNull(repo);
+    }
+
+    [TestMethod]
+    public void GetRoomId_ExistingMapping_ReturnsRoomId()
+    {
+        var repo = new ChannelRepository(_db!);
+        repo.Insert(42, "!room:server");
+
+        var result = repo.GetRoomId(42);
+
+        Assert.AreEqual("!room:server", result);
+    }
+
+    [TestMethod]
+    public void GetRoomId_UnknownChannel_ReturnsNull()
+    {
+        var repo = new ChannelRepository(_db!);
+
+        var result = repo.GetRoomId(99);
+
+        Assert.IsNull(result);
+    }
+
+    [TestMethod]
+    public void Insert_NewMapping_PersistsToDatabase()
+    {
+        var repo = new ChannelRepository(_db!);
+        repo.Insert(1, "!abc:server");
+
+        var result = repo.GetRoomId(1);
+
+        Assert.AreEqual("!abc:server", result);
+    }
+
+    [TestMethod]
+    public void Insert_DuplicateChannelId_DoesNotThrow()
+    {
+        var repo = new ChannelRepository(_db!);
+        repo.Insert(1, "!abc:server");
+        repo.Insert(1, "!xyz:server"); // INSERT OR IGNORE — no throw
+    }
+
+    [TestMethod]
+    public void Delete_ExistingMapping_RemovesRecord()
+    {
+        var repo = new ChannelRepository(_db!);
+        repo.Insert(5, "!room:server");
+
+        repo.Delete(5);
+
+        Assert.IsNull(repo.GetRoomId(5));
+    }
+
+    [TestMethod]
+    public void Delete_NonExistentMapping_DoesNotThrow()
+    {
+        var repo = new ChannelRepository(_db!);
+        repo.Delete(999);
     }
 }
