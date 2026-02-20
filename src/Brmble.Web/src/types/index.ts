@@ -40,3 +40,5 @@ export interface DMConversation {
   messages: ChatMessage[];
   unreadCount: number;
 }
+
+export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed'
