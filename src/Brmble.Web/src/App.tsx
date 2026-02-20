@@ -63,6 +63,7 @@ function App() {
   const [selfMuted, setSelfMuted] = useState(false);
   const [selfDeafened, setSelfDeafened] = useState(false);
   const [selfLeftVoice, setSelfLeftVoice] = useState(false);
+  const [selfCanRejoin, setSelfCanRejoin] = useState(false);
   const [selfSession, setSelfSession] = useState<number>(0);
   const [speakingUsers, setSpeakingUsers] = useState<Map<number, boolean>>(new Map());
 
@@ -142,6 +143,7 @@ function App() {
       setSelfMuted(false);
       setSelfDeafened(false);
       setSelfLeftVoice(false);
+      setSelfCanRejoin(false);
       setSelfSession(0);
       setSpeakingUsers(new Map());
     };
@@ -294,6 +296,13 @@ function App() {
       }
     });
 
+    const onCanRejoinChanged = ((data: unknown) => {
+      const d = data as { canRejoin: boolean } | undefined;
+      if (d?.canRejoin !== undefined) {
+        setSelfCanRejoin(d.canRejoin);
+      }
+    });
+
     const onVoiceUserSpeaking = ((data: unknown) => {
       const d = data as { session: number } | undefined;
       if (d?.session !== undefined) {
@@ -352,6 +361,7 @@ function App() {
     bridge.on('voice.selfMuteChanged', onSelfMuteChanged);
     bridge.on('voice.selfDeafChanged', onSelfDeafChanged);
     bridge.on('voice.leftVoiceChanged', onLeftVoiceChanged);
+    bridge.on('voice.canRejoinChanged', onCanRejoinChanged);
     bridge.on('voice.userSpeaking', onVoiceUserSpeaking);
     bridge.on('voice.userSilent', onVoiceUserSilent);
     bridge.on('window.showCloseDialog', onShowCloseDialog);
@@ -372,6 +382,7 @@ function App() {
       bridge.off('voice.selfMuteChanged', onSelfMuteChanged);
       bridge.off('voice.selfDeafChanged', onSelfDeafChanged);
       bridge.off('voice.leftVoiceChanged', onLeftVoiceChanged);
+      bridge.off('voice.canRejoinChanged', onCanRejoinChanged);
       bridge.off('voice.userSpeaking', onVoiceUserSpeaking);
       bridge.off('voice.userSilent', onVoiceUserSilent);
       bridge.off('window.showCloseDialog', onShowCloseDialog);
@@ -515,6 +526,7 @@ const handleConnect = (serverData: SavedServer) => {
         muted={selfMuted}
         deafened={selfDeafened}
         leftVoice={selfLeftVoice}
+        canRejoin={selfCanRejoin}
         onToggleMute={connected ? handleToggleMute : undefined}
         onToggleDeaf={connected ? handleToggleDeaf : undefined}
         onLeaveVoice={connected ? handleLeaveVoice : undefined}

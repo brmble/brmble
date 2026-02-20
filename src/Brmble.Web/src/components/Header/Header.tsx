@@ -11,6 +11,7 @@ interface HeaderProps {
   muted?: boolean;
   deafened?: boolean;
   leftVoice?: boolean;
+  canRejoin?: boolean;
   onToggleMute?: () => void;
   onToggleDeaf?: () => void;
   onLeaveVoice?: () => void;
