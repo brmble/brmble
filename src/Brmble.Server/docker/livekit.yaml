@@ -1,0 +1,15 @@
+# LiveKit server config
+# API keys are injected via LIVEKIT_KEYS env var: "api-key: secret"
+port: 7880
+bind_addresses:
+  - "127.0.0.1"
+
+rtc:
+  tcp_port: 7881
+  port_range_start: 50100
+  port_range_end: 50200
+  use_external_ip: true
+
+logging:
+  json: false
+  level: info
