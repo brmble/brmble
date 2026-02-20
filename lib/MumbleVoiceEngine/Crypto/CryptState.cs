@@ -46,7 +46,7 @@ namespace MumbleVoiceEngine.Crypto
                 try
                 {
                     _aesLock.EnterReadLock();
-                    return _clientNonce!;
+                    return (byte[])_clientNonce!.Clone();
                 }
                 finally
                 {
