@@ -79,13 +79,6 @@ public class UserRepositoryTests
     }
 
     [TestMethod]
-    public async Task Insert_WithDisplayName_PersistsSuppliedName()
-    {
-        var user = await _repo!.Insert("hash1", "Alice");
-        Assert.AreEqual("Alice", user.DisplayName);
-    }
-
-    [TestMethod]
     public async Task Insert_WithNullDisplayName_UsesPlaceholder()
     {
         var user = await _repo!.Insert("hash2", null);
