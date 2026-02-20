@@ -30,6 +30,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private bool _leaveVoiceInProgress;
     private bool _canRejoin;
     private TransmissionMode _previousMode = TransmissionMode.Continuous;
+    private bool _intentionalDisconnect = false;
+    private CancellationTokenSource? _reconnectCts;
+    private string? _reconnectHost;
+    private int _reconnectPort;
+    private string? _reconnectUsername;
+    private string? _reconnectPassword;
     private string? _currentPttKey;
     private readonly Stopwatch _notifyThrottle = Stopwatch.StartNew();
 
@@ -81,6 +87,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _bridge?.NotifyUiThread();
             return;
         }
+
+        _intentionalDisconnect = false;
 
         try
         {
@@ -157,8 +165,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _leaveVoiceInProgress = false;
         EmitCanRejoin(false);
 
-        _bridge?.Send("voice.disconnected", null);
-        _bridge?.NotifyUiThread();
+        // Only emit voice.disconnected for intentional disconnects or when no reconnect is possible.
+        // When _intentionalDisconnect is false and we have reconnect params, ReconnectLoop will take over.
+        if (_intentionalDisconnect || _reconnectHost == null)
+        {
+            _bridge?.Send("voice.disconnected", null);
+            _bridge?.NotifyUiThread();
+        }
     }
 
     private void ProcessLoop(CancellationToken ct)
@@ -193,6 +206,62 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 _bridge?.Send("voice.error", new { message = $"Process error: {ex.Message}" });
                 _bridge?.NotifyUiThread();
             }
+        }
+
+        // Loop exited — either intentional (CTS cancelled) or unexpected connection drop.
+        if (!_intentionalDisconnect && !ct.IsCancellationRequested && _reconnectHost != null)
+        {
+            // Unexpected drop — clean up and start reconnect loop.
+            Disconnect();
+            Task.Run(() => ReconnectLoop());
+        }
+        // If intentional or CTS was cancelled, Disconnect() was already called by the handler.
+    }
+
+    private async Task ReconnectLoop()
+    {
+        var delays = new[] { 2000, 4000, 8000, 16000, 30000 };
+        int attempt = 0;
+        _reconnectCts = new CancellationTokenSource();
+        var token = _reconnectCts.Token;
+
+        while (!token.IsCancellationRequested && !_intentionalDisconnect)
+        {
+            int delayMs = delays[Math.Min(attempt, delays.Length - 1)];
+            _bridge?.Send("voice.reconnecting", new { attempt = attempt + 1, delayMs });
+            _bridge?.NotifyUiThread();
+
+            try
+            {
+                await Task.Delay(delayMs, token);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+
+            if (_intentionalDisconnect || token.IsCancellationRequested)
+                break;
+
+            try
+            {
+                Connect(_reconnectHost!, _reconnectPort, _reconnectUsername!, _reconnectPassword ?? "");
+                // Connect is synchronous — if no exception is thrown, connection started.
+                // ServerSync will fire voice.connected on success.
+                return;
+            }
+            catch
+            {
+                // Connect failed; loop continues with next attempt.
+            }
+
+            attempt++;
+        }
+
+        if (!_intentionalDisconnect)
+        {
+            _bridge?.Send("voice.reconnectFailed", new { reason = "Reconnect cancelled or failed" });
+            _bridge?.NotifyUiThread();
         }
     }
 
@@ -436,11 +505,31 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             var p = data.TryGetProperty("port", out var port) ? port.GetInt32() : 64738;
             var u = data.TryGetProperty("username", out var user) ? user.GetString() ?? "User" : "User";
             var pw = data.TryGetProperty("password", out var pass) ? pass.GetString() ?? "" : "";
+            _reconnectHost = h;
+            _reconnectPort = p;
+            _reconnectUsername = u;
+            _reconnectPassword = pw;
+            _intentionalDisconnect = false;
             Task.Run(() => Connect(h, p, u, pw));
             return Task.CompletedTask;
         });
 
-        bridge.RegisterHandler("voice.disconnect", _ => { Disconnect(); return Task.CompletedTask; });
+        bridge.RegisterHandler("voice.disconnect", _ =>
+        {
+            _intentionalDisconnect = true;
+            _reconnectCts?.Cancel();
+            Disconnect();
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.cancelReconnect", _ =>
+        {
+            _intentionalDisconnect = true;
+            _reconnectCts?.Cancel();
+            _bridge?.Send("voice.disconnected", null);
+            _bridge?.NotifyUiThread();
+            return Task.CompletedTask;
+        });
 
         bridge.RegisterHandler("voice.sendMessage", data =>
         {
