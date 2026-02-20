@@ -92,7 +92,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     });
 
     users.forEach(user => {
-      if (user.channelId && channelMap.has(user.channelId)) {
+      if (user.channelId !== undefined && channelMap.has(user.channelId)) {
         channelMap.get(user.channelId)!.users.push(user);
       }
     });
