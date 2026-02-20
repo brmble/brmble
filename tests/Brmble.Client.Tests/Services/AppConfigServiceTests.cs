@@ -112,4 +112,16 @@ public class AppConfigServiceTests
         Assert.AreEqual(768, ws.Height);
         Assert.IsFalse(ws.IsMaximized);
     }
+
+    [TestMethod]
+    public void SavesAndReloads_ClosePreference()
+    {
+        var svc = new AppConfigService(_tempDir);
+        Assert.IsNull(svc.GetClosePreference(), "No preference saved yet — should be null");
+
+        svc.SaveClosePreference("minimize");
+        var svc2 = new AppConfigService(_tempDir);
+
+        Assert.AreEqual("minimize", svc2.GetClosePreference());
+    }
 }

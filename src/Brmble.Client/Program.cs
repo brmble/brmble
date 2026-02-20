@@ -56,6 +56,7 @@ static class Program
                 : "Brmble: Using local files");
 
             _appConfigService = new AppConfigService();
+            _closeAction = _appConfigService.GetClosePreference();
             var savedWindow = _appConfigService.GetWindowState();
 
             int wx = Win32Window.CW_USEDEFAULT, wy = Win32Window.CW_USEDEFAULT;
@@ -173,7 +174,10 @@ static class Program
         _bridge.RegisterHandler("window.setClosePreference", data =>
         {
             if (data.TryGetProperty("action", out var a))
+            {
                 _closeAction = a.GetString();
+                _appConfigService!.SaveClosePreference(_closeAction);
+            }
             return Task.CompletedTask;
         });
 

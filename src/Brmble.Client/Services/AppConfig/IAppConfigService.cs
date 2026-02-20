@@ -12,4 +12,6 @@ public interface IAppConfigService
     void SetSettings(AppSettings settings);
     WindowState? GetWindowState();
     void SaveWindowState(WindowState state);
+    string? GetClosePreference();
+    void SaveClosePreference(string? preference);
 }
