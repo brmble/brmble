@@ -1,5 +1,8 @@
+// tests/Brmble.Server.Tests/Auth/AuthServiceTests.cs
 using Brmble.Server.Auth;
 using Brmble.Server.Data;
+using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Configuration;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Brmble.Server.Tests.Auth;
@@ -7,35 +10,127 @@ namespace Brmble.Server.Tests.Auth;
 [TestClass]
 public class AuthServiceTests
 {
-    private static AuthService CreateService()
+    private SqliteConnection? _keepAlive;
+    private AuthService? _svc;
+    private UserRepository? _repo;
+
+    [TestInitialize]
+    public void Setup()
     {
-        var db = new Database("Data Source=:memory:");
-        var repo = new UserRepository(db);
-        return new AuthService(repo);
+        var dbName = "authsvc_" + Guid.NewGuid().ToString("N");
+        var cs = $"Data Source={dbName};Mode=Memory;Cache=Shared";
+        _keepAlive = new SqliteConnection(cs);
+        _keepAlive.Open();
+        var db = new Database(cs);
+        db.Initialize();
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Matrix:ServerDomain"] = "test.local"
+            })
+            .Build();
+        var repo = new UserRepository(db, config);
+        _repo = repo;
+        _svc = new AuthService(repo);
     }
+
+    [TestCleanup]
+    public void Cleanup() => _keepAlive?.Dispose();
 
     [TestMethod]
     public void IsBrmbleClient_UnknownHash_ReturnsFalse()
     {
-        var svc = CreateService();
-        Assert.IsFalse(svc.IsBrmbleClient("unknown-cert-hash"));
+        Assert.IsFalse(_svc!.IsBrmbleClient("unknown-cert-hash"));
     }
 
     [TestMethod]
     public void IsBrmbleClient_EmptyHash_ReturnsFalse()
     {
-        var svc = CreateService();
-        Assert.IsFalse(svc.IsBrmbleClient(string.Empty));
+        Assert.IsFalse(_svc!.IsBrmbleClient(string.Empty));
     }
 
     [TestMethod]
     public void IsBrmbleClient_NullHash_ReturnsFalse()
     {
-        var svc = CreateService();
-        Assert.IsFalse(svc.IsBrmbleClient(null!));
+        Assert.IsFalse(_svc!.IsBrmbleClient(null!));
     }
 
-    // TODO: Add tests once Authenticate(certHash, displayName) is implemented:
-    // - IsBrmbleClient_AfterAuthenticate_ReturnsTrue
-    // - IsBrmbleClient_AfterDeactivate_ReturnsFalse
+    [TestMethod]
+    public async Task Authenticate_NewUser_AddsToActiveSessions()
+    {
+        await _svc!.Authenticate("newhash");
+        Assert.IsTrue(_svc.IsBrmbleClient("newhash"));
+    }
+
+    [TestMethod]
+    public async Task Authenticate_NewUser_ReturnsStubToken()
+    {
+        var result = await _svc!.Authenticate("somehash");
+        StringAssert.StartsWith(result.MatrixAccessToken, "stub_token_");
+    }
+
+    [TestMethod]
+    public async Task Authenticate_ExistingUser_StillAddsToActiveSessions()
+    {
+        await _svc!.Authenticate("existinghash");
+        _svc.Deactivate("existinghash");
+        await _svc.Authenticate("existinghash");
+        Assert.IsTrue(_svc.IsBrmbleClient("existinghash"));
+    }
+
+    [TestMethod]
+    public async Task Deactivate_AfterAuthenticate_RemovesFromActiveSessions()
+    {
+        await _svc!.Authenticate("todeactivate");
+        _svc.Deactivate("todeactivate");
+        Assert.IsFalse(_svc.IsBrmbleClient("todeactivate"));
+    }
+
+    [TestMethod]
+    public async Task HandleUserState_UnknownCert_DoesNotThrow()
+    {
+        // No user in DB, no auth call — should just queue silently
+        await _svc!.HandleUserState("unknownhash", "Ghost");
+        // No assert needed — just verifying no exception
+    }
+
+    [TestMethod]
+    public async Task HandleUserState_BeforeAuth_QueuesName()
+    {
+        await _svc!.HandleUserState("queuedhash", "Queued");
+        // Name is in the queue — verify by authenticating and checking the stored name
+        await _svc.Authenticate("queuedhash");
+        var user = await _repo!.GetByCertHash("queuedhash");
+        Assert.AreEqual("Queued", user!.DisplayName);
+    }
+
+    [TestMethod]
+    public async Task HandleUserState_AfterAuth_UpdatesDisplayName()
+    {
+        await _svc!.Authenticate("updatehash");
+        // User exists with placeholder — now UserState arrives
+        await _svc.HandleUserState("updatehash", "RealName");
+        var user = await _repo!.GetByCertHash("updatehash");
+        Assert.AreEqual("RealName", user!.DisplayName);
+    }
+
+    [TestMethod]
+    public async Task HandleUserState_QueueConsumedAfterAuthenticate()
+    {
+        await _svc!.HandleUserState("consumedhash", "ConsumedName");
+        await _svc.Authenticate("consumedhash");
+        // Authenticate a second time — queue entry should be gone, no double-update
+        await _svc.Authenticate("consumedhash");
+        var user = await _repo!.GetByCertHash("consumedhash");
+        Assert.AreEqual("ConsumedName", user!.DisplayName);
+    }
+
+    [TestMethod]
+    public async Task Authenticate_NoPendingName_UsesPlaceholder()
+    {
+        await _svc!.Authenticate("placeholderhash");
+        var user = await _repo!.GetByCertHash("placeholderhash");
+        Assert.IsNotNull(user);
+        Assert.AreEqual($"user_{user.Id}", user.DisplayName);
+    }
 }
