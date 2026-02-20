@@ -48,24 +48,45 @@ export function SettingsModal(props: SettingsModalProps) {
   const [settings, setSettings] = useState<AppSettings>(loadSettings);
 
   const handleAudioChange = (audio: AudioSettings) => {
-    const newSettings = { ...settings, audio };
-    setSettings(newSettings);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(newSettings));
+    setSettings(prev => {
+      const newSettings = { ...prev, audio };
+      
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(newSettings));
 
-    // Notify backend of transmission mode change (only when relevant fields change)
-    if (audio.transmissionMode !== settings.audio.transmissionMode ||
-        audio.pushToTalkKey !== settings.audio.pushToTalkKey) {
-      bridge.send('voice.setTransmissionMode', {
-        mode: audio.transmissionMode,
-        key: audio.transmissionMode === 'pushToTalk' ? audio.pushToTalkKey : null,
-      });
-    }
+      // Notify backend of transmission mode change (only when relevant fields change)
+      if (audio.transmissionMode !== prev.audio.transmissionMode ||
+          audio.pushToTalkKey !== prev.audio.pushToTalkKey) {
+        bridge.send('voice.setTransmissionMode', {
+          mode: audio.transmissionMode,
+          key: audio.transmissionMode === 'pushToTalk' ? audio.pushToTalkKey : null,
+        });
+      }
+      
+      return newSettings;
+    });
   };
 
   const handleShortcutsChange = (shortcuts: ShortcutsSettings) => {
-    const newSettings = { ...settings, shortcuts };
-    setSettings(newSettings);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(newSettings));
+    setSettings(prev => {
+      const newSettings = { ...prev, shortcuts };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(newSettings));
+
+      // Notify backend of each shortcut change
+      const actions: { action: string; key: string | null }[] = [
+        { action: 'toggleMute', key: shortcuts.toggleMuteKey },
+        { action: 'toggleDeafen', key: shortcuts.toggleDeafenKey },
+        { action: 'toggleMuteDeafen', key: shortcuts.toggleMuteDeafenKey },
+      ];
+
+      for (const { action, key } of actions) {
+        const prevKey = (prev.shortcuts as unknown as Record<string, string | null>)[action + 'Key'];
+        if (key !== prevKey) {
+          bridge.send('voice.setShortcut', { action, key });
+        }
+      }
+      
+      return newSettings;
+    });
   };
 
   const handleMessagesChange = (messages: MessagesSettings) => {

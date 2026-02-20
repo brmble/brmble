@@ -28,9 +28,17 @@ internal sealed class AudioManager : IDisposable
     private volatile bool _deafened;
     private volatile TransmissionMode _transmissionMode = TransmissionMode.Continuous;
     private volatile bool _pttActive;
-    internal const int PttHotkeyId = 1;
-    private int _hotkeyId = -1;
-    private IntPtr _hwnd;
+internal const int PttHotkeyId = 1;
+internal const int MuteHotkeyId = 2;
+internal const int DeafenHotkeyId = 3;
+internal const int MuteDeafenHotkeyId = 4;
+internal const int ContinuousHotkeyId = 5;
+private int _hotkeyId = -1;
+private int _muteHotkeyId = -1;
+private int _deafenHotkeyId = -1;
+private int _muteDeafenHotkeyId = -1;
+private int _continuousHotkeyId = -1;
+private IntPtr _hwnd;
     private const int RmsThreshold = 300; // ~1% of 16-bit max (32767)
 
     // Speaking detection
@@ -50,11 +58,17 @@ internal sealed class AudioManager : IDisposable
     /// <summary>Fired when a user stops speaking (no packets for SpeakingTimeoutMs).</summary>
     public event Action<uint>? UserStoppedSpeaking;
 
+    public event Action? ToggleMuteRequested;
+    public event Action? ToggleDeafenRequested;
+    public event Action? ToggleContinuousRequested;
+
     public bool IsMuted => _muted;
     public bool IsDeafened => _deafened;
+    public TransmissionMode TransmissionMode => _transmissionMode;
 
-    public AudioManager()
+    public AudioManager(IntPtr hwnd = default)
     {
+        _hwnd = hwnd;
         _speakingTimer = new Timer(CheckSpeakingState, null, 100, 100);
     }
 
@@ -235,6 +249,23 @@ internal sealed class AudioManager : IDisposable
         }
     }
 
+    private bool RegisterSingleHotkey(ref int hotkeyId, int id, string? key, IntPtr hwnd)
+    {
+        if (hotkeyId >= 0 && hwnd != IntPtr.Zero)
+        {
+            UnregisterHotKey(hwnd, hotkeyId);
+            hotkeyId = -1;
+        }
+        
+        if (key == null || hwnd == IntPtr.Zero) return false;
+        
+        var vk = KeyNameToVirtualKey(key);
+        if (vk == 0) return false;
+        
+        hotkeyId = id;
+        return RegisterHotKey(hwnd, hotkeyId, 0, (uint)vk);
+    }
+
     /// <summary>
     /// Sets the transmission mode. For PTT, registers a global Win32 hotkey.
     /// Pass hwnd = IntPtr.Zero to skip hotkey registration (e.g. in tests).
@@ -273,11 +304,54 @@ internal sealed class AudioManager : IDisposable
             StartMic();
     }
 
+    public void SetShortcut(string action, string? key)
+    {
+        if (_hwnd == IntPtr.Zero) return;
+        
+        switch (action)
+        {
+            case "pushToTalk":
+                RegisterSingleHotkey(ref _hotkeyId, PttHotkeyId, key, _hwnd);
+                break;
+            case "toggleMute":
+                RegisterSingleHotkey(ref _muteHotkeyId, MuteHotkeyId, key, _hwnd);
+                break;
+            case "toggleDeafen":
+                RegisterSingleHotkey(ref _deafenHotkeyId, DeafenHotkeyId, key, _hwnd);
+                break;
+            case "toggleMuteDeafen":
+                RegisterSingleHotkey(ref _muteDeafenHotkeyId, MuteDeafenHotkeyId, key, _hwnd);
+                break;
+            case "continuousTransmission":
+                RegisterSingleHotkey(ref _continuousHotkeyId, ContinuousHotkeyId, key, _hwnd);
+                break;
+        }
+    }
+
     /// <summary>Called from WndProc when WM_HOTKEY fires.</summary>
     public void HandleHotKey(int id, bool keyDown)
     {
-        if (id != _hotkeyId || _transmissionMode != TransmissionMode.PushToTalk) return;
-        SetPttActive(keyDown);
+        if (id == _hotkeyId && _transmissionMode == TransmissionMode.PushToTalk)
+        {
+            SetPttActive(keyDown);
+        }
+        else if (id == _muteHotkeyId && keyDown)
+        {
+            ToggleMuteRequested?.Invoke();
+        }
+        else if (id == _deafenHotkeyId && keyDown)
+        {
+            ToggleDeafenRequested?.Invoke();
+        }
+        else if (id == _muteDeafenHotkeyId && keyDown)
+        {
+            ToggleMuteRequested?.Invoke();
+            ToggleDeafenRequested?.Invoke();
+        }
+        else if (id == _continuousHotkeyId && keyDown)
+        {
+            ToggleContinuousRequested?.Invoke();
+        }
     }
 
     /// <summary>Start or stop mic for PTT.</summary>
@@ -318,6 +392,26 @@ internal sealed class AudioManager : IDisposable
             UnregisterHotKey(_hwnd, _hotkeyId);
             _hotkeyId = -1;
         }
+        if (_muteHotkeyId >= 0 && _hwnd != IntPtr.Zero)
+        {
+            UnregisterHotKey(_hwnd, _muteHotkeyId);
+            _muteHotkeyId = -1;
+        }
+        if (_deafenHotkeyId >= 0 && _hwnd != IntPtr.Zero)
+        {
+            UnregisterHotKey(_hwnd, _deafenHotkeyId);
+            _deafenHotkeyId = -1;
+        }
+        if (_muteDeafenHotkeyId >= 0 && _hwnd != IntPtr.Zero)
+        {
+            UnregisterHotKey(_hwnd, _muteDeafenHotkeyId);
+            _muteDeafenHotkeyId = -1;
+        }
+        if (_continuousHotkeyId >= 0 && _hwnd != IntPtr.Zero)
+        {
+            UnregisterHotKey(_hwnd, _continuousHotkeyId);
+            _continuousHotkeyId = -1;
+        }
         StopMic();
         _waveIn?.Dispose();
         _waveIn = null;
@@ -346,20 +440,98 @@ internal sealed class AudioManager : IDisposable
     private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
     /// <summary>
-    /// Maps JS key names (from e.key / e.code) to Win32 virtual key codes.
-    /// Covers common PTT keys. Returns 0 if unknown.
+    /// Maps JS key codes (from e.code) to Win32 virtual key codes.
+    /// Covers common keys including mouse buttons. Returns 0 if unknown.
     /// </summary>
     internal static int KeyNameToVirtualKey(string key) => key switch
     {
-        "Space"  => 0x20,
-        "F1"     => 0x70, "F2" => 0x71, "F3" => 0x72, "F4" => 0x73,
-        "F5"     => 0x74, "F6" => 0x75, "F7" => 0x76, "F8" => 0x77,
-        "F9"     => 0x78, "F10" => 0x79, "F11" => 0x7A, "F12" => 0x7B,
+        // Function keys
+        "F1" => 0x70, "F2" => 0x71, "F3" => 0x72, "F4" => 0x73,
+        "F5" => 0x74, "F6" => 0x75, "F7" => 0x76, "F8" => 0x77,
+        "F9" => 0x78, "F10" => 0x79, "F11" => 0x7A, "F12" => 0x7B,
+        "F13" => 0x7C, "F14" => 0x7D, "F15" => 0x7E, "F16" => 0x7F,
+        "F17" => 0x80, "F18" => 0x81, "F19" => 0x82, "F20" => 0x83,
+        "F21" => 0x84, "F22" => 0x85, "F23" => 0x86, "F24" => 0x87,
+
+        // Modifier keys
+        "ShiftLeft" => 0x10, "ShiftRight" => 0x10,
+        "ControlLeft" => 0x11, "ControlRight" => 0x11,
+        "AltLeft" => 0x12, "AltRight" => 0x12,
+        "MetaLeft" => 0x5B, "MetaRight" => 0x5C, // Windows key
         "CapsLock" => 0x14,
-        "Tab"    => 0x09,
-        "Shift"  => 0x10, "Control" => 0x11, "Alt" => 0x12,
+        "NumLock" => 0x90,
+        "ScrollLock" => 0x91,
+
+        // Special keys
+        "Space" => 0x20,
+        "Tab" => 0x09,
+        "Backspace" => 0x08,
+        "Enter" => 0x0D,
+        "Escape" => 0x1B,
+        "Delete" => 0x2E,
         "Insert" => 0x2D,
-        _ when key.Length == 1 => char.ToUpper(key[0]),
+        "Home" => 0x24,
+        "End" => 0x23,
+        "PageUp" => 0x21,
+        "PageDown" => 0x22,
+        "PrintScreen" => 0x2C,
+        "Pause" => 0x13,
+
+        // Arrow keys
+        "ArrowUp" => 0x26, "ArrowDown" => 0x28,
+        "ArrowLeft" => 0x25, "ArrowRight" => 0x27,
+
+        // Mouse buttons
+        "MouseLeft" => 0x01,
+        "MouseRight" => 0x02,
+        "MouseMiddle" => 0x04,
+        "MouseXButton1" => 0x05,
+        "MouseXButton2" => 0x06,
+        // Alternative names (some browsers use these)
+        "XButton1" => 0x05,
+        "XButton2" => 0x06,
+        "Back" => 0x0A,
+        "Forward" => 0x0B,
+
+        // Numpad
+        "Numpad0" => 0x60, "Numpad1" => 0x61, "Numpad2" => 0x62,
+        "Numpad3" => 0x63, "Numpad4" => 0x64, "Numpad5" => 0x65,
+        "Numpad6" => 0x66, "Numpad7" => 0x67, "Numpad8" => 0x68,
+        "Numpad9" => 0x69,
+        "NumpadDecimal" => 0x6E,
+        "NumpadDivide" => 0x6F,
+        "NumpadMultiply" => 0x6A,
+        "NumpadSubtract" => 0x6D,
+        "NumpadAdd" => 0x6B,
+        "NumpadEnter" => 0x0D,
+
+        // Punctuation and numbers (top row)
+        "Digit0" => 0x30, "Digit1" => 0x31, "Digit2" => 0x32,
+        "Digit3" => 0x33, "Digit4" => 0x34, "Digit5" => 0x35,
+        "Digit6" => 0x36, "Digit7" => 0x37, "Digit8" => 0x38,
+        "Digit9" => 0x39,
+
+        // Letters
+        "KeyA" => 0x41, "KeyB" => 0x42, "KeyC" => 0x43, "KeyD" => 0x44,
+        "KeyE" => 0x45, "KeyF" => 0x46, "KeyG" => 0x47, "KeyH" => 0x48,
+        "KeyI" => 0x49, "KeyJ" => 0x4A, "KeyK" => 0x4B, "KeyL" => 0x4C,
+        "KeyM" => 0x4D, "KeyN" => 0x4E, "KeyO" => 0x4F, "KeyP" => 0x50,
+        "KeyQ" => 0x51, "KeyR" => 0x52, "KeyS" => 0x53, "KeyT" => 0x54,
+        "KeyU" => 0x55, "KeyV" => 0x56, "KeyW" => 0x57, "KeyX" => 0x58,
+        "KeyY" => 0x59, "KeyZ" => 0x5A,
+
+        // Punctuation
+        "Minus" => 0xBD,
+        "Equal" => 0xBB,
+        "BracketLeft" => 0xDB, "BracketRight" => 0xDD,
+        "Backslash" => 0xDC,
+        "Semicolon" => 0xBA,
+        "Quote" => 0xDE,
+        "Comma" => 0xBC,
+        "Period" => 0xBE,
+        "Slash" => 0xBF,
+        "Backquote" => 0xC0,
+
         _ => 0
     };
 }
