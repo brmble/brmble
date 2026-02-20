@@ -25,6 +25,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private PttKeyMonitor? _pttMonitor;
     private string? _lastWelcomeText;
     private readonly CertificateService? _certService;
+    private uint? _previousChannelId;
+    private bool _leftVoice;
+    private bool _leaveVoiceInProgress;
 
     public string ServiceName => "mumble";
 
@@ -129,6 +132,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         UserDictionary.Clear();
         ChannelDictionary.Clear();
         _lastWelcomeText = null;
+        _previousChannelId = null;
+        _leftVoice = false;
+        _leaveVoiceInProgress = false;
 
         _bridge?.Send("voice.disconnected", null);
     }
@@ -223,6 +229,56 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         _bridge?.Send("voice.selfMuteChanged", new { muted = LocalUser.SelfMuted });
         _bridge?.Send("voice.selfDeafChanged", new { deafened = LocalUser.SelfDeaf });
+    }
+
+    /// <summary>
+    /// Toggles leave voice: first press saves the current channel, moves to root,
+    /// and forces mute + deafen. Second press rejoins the saved channel and unmutes/undeafens.
+    /// </summary>
+    public void LeaveVoice()
+    {
+        if (LocalUser == null || Connection is not { State: ConnectionStates.Connected })
+            return;
+
+        if (!_leftVoice)
+        {
+            // Save current channel and leave
+            _previousChannelId = LocalUser.Channel?.Id ?? 0;
+            _leftVoice = true;
+            _leaveVoiceInProgress = true;
+
+            JoinChannel(0);
+
+            LocalUser.SelfMuted = true;
+            LocalUser.SelfDeaf = true;
+            LocalUser.SendMuteDeaf();
+            _audioManager?.SetMuted(true);
+            _audioManager?.SetDeafened(true);
+
+            _bridge?.Send("voice.selfMuteChanged", new { muted = true });
+            _bridge?.Send("voice.selfDeafChanged", new { deafened = true });
+            _bridge?.Send("voice.leftVoiceChanged", new { leftVoice = true });
+        }
+        else
+        {
+            // Rejoin previous channel
+            _leftVoice = false;
+            _leaveVoiceInProgress = true;
+            var channelId = _previousChannelId ?? 0;
+            _previousChannelId = null;
+
+            JoinChannel(channelId);
+
+            LocalUser.SelfMuted = false;
+            LocalUser.SelfDeaf = false;
+            LocalUser.SendMuteDeaf();
+            _audioManager?.SetMuted(false);
+            _audioManager?.SetDeafened(false);
+
+            _bridge?.Send("voice.selfMuteChanged", new { muted = false });
+            _bridge?.Send("voice.selfDeafChanged", new { deafened = false });
+            _bridge?.Send("voice.leftVoiceChanged", new { leftVoice = false });
+        }
     }
 
     public void ToggleDeaf()
@@ -330,6 +386,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         bridge.RegisterHandler("voice.toggleMute", _ => { ToggleMute(); return Task.CompletedTask; });
         bridge.RegisterHandler("voice.toggleDeaf", _ => { ToggleDeaf(); return Task.CompletedTask; });
+        bridge.RegisterHandler("voice.leaveVoice", _ => { LeaveVoice(); return Task.CompletedTask; });
 
         bridge.RegisterHandler("voice.setTransmissionMode", data =>
         {
@@ -446,7 +503,31 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         }
 
         if (previousChannel.HasValue && userState.ChannelId != previousChannel && isSelf)
+        {
             _bridge?.Send("voice.channelChanged", new { channelId = userState.ChannelId });
+
+            // If this channel change was initiated by LeaveVoice toggle, just clear the flag
+            if (_leaveVoiceInProgress)
+            {
+                _leaveVoiceInProgress = false;
+            }
+            // If user manually joins a channel while in left-voice mode, clear it
+            else if (_leftVoice && LocalUser != null)
+            {
+                _leftVoice = false;
+                _previousChannelId = null;
+
+                LocalUser.SelfMuted = false;
+                LocalUser.SelfDeaf = false;
+                LocalUser.SendMuteDeaf();
+                _audioManager?.SetMuted(false);
+                _audioManager?.SetDeafened(false);
+
+                _bridge?.Send("voice.selfMuteChanged", new { muted = false });
+                _bridge?.Send("voice.selfDeafChanged", new { deafened = false });
+                _bridge?.Send("voice.leftVoiceChanged", new { leftVoice = false });
+            }
+        }
     }
 
     protected override void UserStateChannelChanged(User user, uint oldChannelId)

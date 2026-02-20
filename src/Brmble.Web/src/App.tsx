@@ -62,6 +62,7 @@ function App() {
   const [currentChannelName, setCurrentChannelName] = useState<string>('');
   const [selfMuted, setSelfMuted] = useState(false);
   const [selfDeafened, setSelfDeafened] = useState(false);
+  const [selfLeftVoice, setSelfLeftVoice] = useState(false);
   const [selfSession, setSelfSession] = useState<number>(0);
   const [speakingUsers, setSpeakingUsers] = useState<Map<number, boolean>>(new Map());
 
@@ -140,6 +141,7 @@ function App() {
       setCurrentChannelName('');
       setSelfMuted(false);
       setSelfDeafened(false);
+      setSelfLeftVoice(false);
       setSelfSession(0);
       setSpeakingUsers(new Map());
     };
@@ -249,12 +251,17 @@ function App() {
     const onVoiceChannelChanged = ((data: unknown) => {
       const d = data as { channelId: number; name?: string } | undefined;
       if (d?.channelId !== undefined && d?.channelId !== null) {
-        setCurrentChannelId(String(d.channelId));
-        if (d.name) {
-          setCurrentChannelName(d.name);
+        if (d.channelId === 0) {
+          setCurrentChannelId('server-root');
+          setCurrentChannelName('');
         } else {
-          const channel = channelsRef.current.find(c => c.id === d.channelId);
-          setCurrentChannelName(channel?.name || '');
+          setCurrentChannelId(String(d.channelId));
+          if (d.name) {
+            setCurrentChannelName(d.name);
+          } else {
+            const channel = channelsRef.current.find(c => c.id === d.channelId);
+            setCurrentChannelName(channel?.name || '');
+          }
         }
       }
     });
@@ -277,6 +284,13 @@ function App() {
       const d = data as { deafened: boolean } | undefined;
       if (d?.deafened !== undefined) {
         setSelfDeafened(d.deafened);
+      }
+    });
+
+    const onLeftVoiceChanged = ((data: unknown) => {
+      const d = data as { leftVoice: boolean } | undefined;
+      if (d?.leftVoice !== undefined) {
+        setSelfLeftVoice(d.leftVoice);
       }
     });
 
@@ -337,6 +351,7 @@ function App() {
     bridge.on('voice.channelChanged', onVoiceChannelChanged);
     bridge.on('voice.selfMuteChanged', onSelfMuteChanged);
     bridge.on('voice.selfDeafChanged', onSelfDeafChanged);
+    bridge.on('voice.leftVoiceChanged', onLeftVoiceChanged);
     bridge.on('voice.userSpeaking', onVoiceUserSpeaking);
     bridge.on('voice.userSilent', onVoiceUserSilent);
     bridge.on('window.showCloseDialog', onShowCloseDialog);
@@ -356,6 +371,7 @@ function App() {
       bridge.off('voice.channelChanged', onVoiceChannelChanged);
       bridge.off('voice.selfMuteChanged', onSelfMuteChanged);
       bridge.off('voice.selfDeafChanged', onSelfDeafChanged);
+      bridge.off('voice.leftVoiceChanged', onLeftVoiceChanged);
       bridge.off('voice.userSpeaking', onVoiceUserSpeaking);
       bridge.off('voice.userSilent', onVoiceUserSilent);
       bridge.off('window.showCloseDialog', onShowCloseDialog);
@@ -442,6 +458,11 @@ const handleConnect = (serverData: SavedServer) => {
     bridge.send('voice.toggleDeaf', {});
   };
 
+  const handleLeaveVoice = () => {
+    bridge.send('voice.leaveVoice', {});
+    handleSelectServer();
+  };
+
   const handleCloseMinimize = useCallback((dontAskAgain: boolean) => {
     setShowCloseDialog(false);
     if (dontAskAgain) {
@@ -491,8 +512,10 @@ const handleConnect = (serverData: SavedServer) => {
         onOpenSettings={() => setShowSettings(true)}
         muted={selfMuted}
         deafened={selfDeafened}
+        leftVoice={selfLeftVoice}
         onToggleMute={connected ? handleToggleMute : undefined}
         onToggleDeaf={connected ? handleToggleDeaf : undefined}
+        onLeaveVoice={connected ? handleLeaveVoice : undefined}
         speaking={speakingUsers.has(selfSession) || false}
       />
       

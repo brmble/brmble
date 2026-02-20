@@ -116,6 +116,26 @@
   background: rgba(212, 20, 90, 0.2);
 }
 
+.user-panel-btn.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.user-panel-btn.leave-voice-btn {
+  color: var(--text-secondary);
+}
+
+.user-panel-btn.leave-voice-btn:hover {
+  color: #ff4444;
+  background: rgba(255, 68, 68, 0.15);
+}
+
+.user-panel-btn.leave-voice-btn.active {
+  color: var(--accent-berry);
+  background: rgba(212, 20, 90, 0.2);
+}
+
 .user-avatar {
   width: 36px;
   height: 36px;
