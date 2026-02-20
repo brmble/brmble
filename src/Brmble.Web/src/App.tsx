@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import bridge from './bridge';
+import type { ConnectionStatus } from './types';
 import { Header } from './components/Header/Header';
 import { Sidebar } from './components/Sidebar/Sidebar';
 import { ChatPanel } from './components/ChatPanel/ChatPanel';
@@ -53,7 +54,8 @@ function App() {
   const [certExists, setCertExists] = useState<boolean | null>(null);
   const [certFingerprint, setCertFingerprint] = useState('');
 
-  const [connected, setConnected] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
+  const connected = connectionStatus === 'connected';
   const [username, setUsername] = useState('');
   const [serverAddress, setServerAddress] = useState('');
   const [serverLabel, setServerLabel] = useState('');
@@ -112,7 +114,7 @@ function App() {
   // Register all bridge handlers once on mount
   useEffect(() => {
     const onVoiceConnected = ((data: unknown) => {
-      setConnected(true);
+      setConnectionStatus('connected');
       setCurrentChannelId('server-root');
       setCurrentChannelName('');
       const d = data as { username?: string; channels?: Channel[]; users?: User[] } | undefined;
@@ -135,7 +137,7 @@ function App() {
     });
 
     const onVoiceDisconnected = () => {
-      setConnected(false);
+      setConnectionStatus('idle');
       setServerAddress('');
       setServerLabel('');
       setChannels([]);
@@ -358,6 +360,13 @@ function App() {
       setCertFingerprint(d?.fingerprint ?? '');
     };
 
+    const onVoiceReconnecting = () => {
+      setConnectionStatus('reconnecting');
+    };
+    const onVoiceReconnectFailed = () => {
+      setConnectionStatus('failed');
+    };
+
     bridge.on('voice.connected', onVoiceConnected);
     bridge.on('voice.disconnected', onVoiceDisconnected);
     bridge.on('voice.error', onVoiceError);
@@ -378,6 +387,8 @@ function App() {
     bridge.on('cert.status', onCertStatus);
     bridge.on('cert.generated', onCertGenerated);
     bridge.on('cert.imported', onCertImported);
+    bridge.on('voice.reconnecting', onVoiceReconnecting);
+    bridge.on('voice.reconnectFailed', onVoiceReconnectFailed);
 
     return () => {
       bridge.off('voice.connected', onVoiceConnected);
@@ -400,6 +411,8 @@ function App() {
       bridge.off('cert.status', onCertStatus);
       bridge.off('cert.generated', onCertGenerated);
       bridge.off('cert.imported', onCertImported);
+      bridge.off('voice.reconnecting', onVoiceReconnecting);
+      bridge.off('voice.reconnectFailed', onVoiceReconnectFailed);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -411,6 +424,7 @@ function App() {
 const handleConnect = (serverData: SavedServer) => {
     localStorage.setItem('brmble-server', JSON.stringify(serverData));
     setServerAddress(`${serverData.host}:${serverData.port}`);
+    setConnectionStatus('connecting');
     bridge.send('voice.connect', serverData);
     
     // Send transmission mode from settings
@@ -486,6 +500,10 @@ const handleConnect = (serverData: SavedServer) => {
 
   const handleDisconnect = () => {
     bridge.send('voice.disconnect');
+  };
+
+  const handleCancelReconnect = () => {
+    bridge.send('voice.cancelReconnect');
   };
 
   const handleToggleMute = () => {
@@ -569,13 +587,14 @@ const handleConnect = (serverData: SavedServer) => {
           onSelectChannel={handleSelectChannel}
           onSelectServer={handleSelectServer}
           isServerChatActive={currentChannelId === 'server-root'}
-          connected={connected}
           serverLabel={serverLabel}
           serverAddress={serverAddress}
           username={username}
           onDisconnect={handleDisconnect}
           onStartDM={handleSelectDMUser}
           speakingUsers={speakingUsers}
+          connectionStatus={connectionStatus}
+          onCancelReconnect={handleCancelReconnect}
         />
         
         <main className="main-content">
