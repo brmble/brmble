@@ -317,10 +317,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _audioManager?.SetMuted(false);
             _audioManager?.SetDeafened(false);
 
-                _bridge?.Send("voice.selfMuteChanged", new { muted = false });
-                _bridge?.Send("voice.selfDeafChanged", new { deafened = false });
-                _bridge?.Send("voice.leftVoiceChanged", new { leftVoice = false });
-                EmitCanRejoin(false);
+            _bridge?.Send("voice.selfMuteChanged", new { muted = false });
+            _bridge?.Send("voice.selfDeafChanged", new { deafened = false });
+            _bridge?.Send("voice.leftVoiceChanged", new { leftVoice = false });
         }
     }
 
