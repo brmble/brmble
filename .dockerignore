@@ -1,0 +1,13 @@
+# .dockerignore
+**/bin/
+**/obj/
+**/.vs/
+**/.git/
+.worktrees/
+src/Brmble.Web/
+src/Brmble.Client/
+lib/
+tests/
+docs/
+*.md
+.github/
