@@ -41,4 +41,8 @@ namespaces:
 rate_limited: false
 EOF
 
+# Expose token and server name to Brmble.Server via ASP.NET config env vars
+export Matrix__AppServiceToken="${MATRIX_APPSERVICE_TOKEN}"
+export Matrix__ServerDomain="${MATRIX_SERVER_NAME}"
+
 exec /usr/bin/supervisord -c /etc/supervisord.conf
