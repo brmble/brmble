@@ -140,3 +140,113 @@
   font-size: 0.6875rem;
   color: var(--text-muted);
 }
+
+/* Root channel users (lobby) */
+.root-users-panel {
+  margin: 0.125rem 0.5rem 0.125rem;
+  padding: 0.5rem 0.625rem 0.5rem 0.75rem;
+  border-left: 1px dashed rgba(212, 20, 90, 0.25);
+  animation: lobby-fade-in 300ms ease backwards;
+}
+
+.root-users-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.375rem;
+}
+
+.root-users-label {
+  font-family: var(--font-display);
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(212, 20, 90, 0.45);
+  font-style: italic;
+}
+
+.root-users-count {
+  font-size: 0.5625rem;
+  color: rgba(212, 20, 90, 0.3);
+  font-family: var(--font-mono);
+  letter-spacing: 0.05em;
+}
+
+.root-users-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.root-user-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 4px 2px 2px;
+  border-radius: 4px;
+  transition: background var(--transition-fast);
+  animation: root-user-appear 200ms ease backwards;
+}
+
+.root-user-row:hover {
+  background: rgba(212, 20, 90, 0.06);
+}
+
+.root-user-status {
+  color: rgba(107, 95, 122, 0.5);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  width: 16px;
+  justify-content: center;
+}
+
+.root-user-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(107, 95, 122, 0.85);
+  font-size: 0.8rem;
+  font-style: italic;
+}
+
+.root-user-row:hover .root-user-name {
+  color: var(--text-secondary);
+}
+
+.root-user-self .root-user-name {
+  color: rgba(168, 159, 184, 0.7);
+}
+
+.root-self-badge {
+  font-size: 0.5625rem;
+  font-family: var(--font-mono);
+  color: rgba(212, 20, 90, 0.4);
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+  text-transform: lowercase;
+}
+
+@keyframes lobby-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes root-user-appear {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}

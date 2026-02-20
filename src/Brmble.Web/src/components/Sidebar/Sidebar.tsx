@@ -42,6 +42,11 @@ export function Sidebar({
   const connected = connectionStatus === 'connected';
   const isReconnecting = connectionStatus === 'reconnecting';
 
+  const rootChannel = channels.find(ch => ch.parent === undefined);
+  const rootUsers = rootChannel ? users.filter(u => u.channelId === rootChannel.id) : [];
+  const nonRootChannels = rootChannel ? channels.filter(ch => ch !== rootChannel) : channels;
+  const nonRootUsers = rootChannel ? users.filter(u => u.channelId !== rootChannel.id) : users;
+
   return (
     <aside className="sidebar">
       {serverLabel && (
@@ -88,12 +93,43 @@ export function Sidebar({
         </div>
       )}
       
+      {connected && rootUsers.length > 0 && (
+        <div className="root-users-panel">
+          <div className="root-users-header">
+            <span className="root-users-label">Lobby</span>
+            <span className="root-users-count">{rootUsers.length}</span>
+          </div>
+          <div className="root-users-list">
+            {rootUsers.map((user, i) => (
+              <div
+                key={user.session}
+                className={`root-user-row${user.self ? ' root-user-self' : ''}`}
+                style={{ animationDelay: `${i * 50}ms` }}
+                title={user.deafened ? 'Deafened' : user.muted ? 'Muted' : 'Online'}
+              >
+                <span className="root-user-status">
+                  {user.deafened ? (
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M1 1l22 22M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23M12 19v4m-4 0h8"/></svg>
+                  ) : user.muted ? (
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M1 1l22 22M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/></svg>
+                  ) : (
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4m-4 0h8"/></svg>
+                  )}
+                </span>
+                <span className="root-user-name">{user.name}</span>
+                {user.self && <span className="root-self-badge">you</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="sidebar-divider"></div>
       
       <div className="sidebar-channels">
         <ChannelTree
-          channels={channels}
-          users={users}
+          channels={nonRootChannels}
+          users={nonRootUsers}
           currentChannelId={currentChannelId}
           onJoinChannel={onJoinChannel}
           onSelectChannel={onSelectChannel}
