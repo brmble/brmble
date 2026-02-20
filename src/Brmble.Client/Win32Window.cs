@@ -84,7 +84,7 @@ internal static class Win32Window
     public const int SW_RESTORE = 9;
     public const int SW_HIDE = 0;
     public const int SW_SHOW = 5;
-    public const int SW_SHOWMAXIMIZED = 3;
+    public const int SW_SHOWMAXIMIZED = SW_MAXIMIZE;
 
     public delegate IntPtr WndProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
 
