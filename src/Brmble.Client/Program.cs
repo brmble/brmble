@@ -115,15 +115,15 @@ static class Program
 
             _bridge = new NativeBridge(_controller.CoreWebView2, hwnd);
 
-            _appConfigService.Initialize(_bridge);
-            _appConfigService.OnSettingsChanged = settings => _mumbleClient?.ApplySettings(settings);
-            _appConfigService.RegisterHandlers(_bridge);
+            _appConfigService!.Initialize(_bridge);
+            _appConfigService!.OnSettingsChanged = settings => _mumbleClient?.ApplySettings(settings);
+            _appConfigService!.RegisterHandlers(_bridge);
 
             _certService = new CertificateService(_bridge);
             _certService.RegisterHandlers(_bridge);
 
             _mumbleClient = new MumbleAdapter(_bridge, _hwnd, _certService);
-            _mumbleClient.ApplySettings(_appConfigService.GetSettings());
+            _mumbleClient.ApplySettings(_appConfigService!.GetSettings());
 
             SetupBridgeHandlers();
 
@@ -333,7 +333,7 @@ static class Program
                         length = (uint)Marshal.SizeOf<Win32Window.WINDOWPLACEMENT>()
                     };
                     Win32Window.GetWindowPlacement(hwnd, ref placement);
-                    _appConfigService.SaveWindowState(new Services.AppConfig.WindowState(
+                    _appConfigService.SaveWindowState(new WindowState(
                         X: placement.rcNormalPosition.Left,
                         Y: placement.rcNormalPosition.Top,
                         Width: placement.rcNormalPosition.Right - placement.rcNormalPosition.Left,
