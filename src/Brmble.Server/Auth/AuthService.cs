@@ -1,4 +1,6 @@
 // src/Brmble.Server/Auth/AuthService.cs
+using System.Collections.Concurrent;
+
 namespace Brmble.Server.Auth;
 
 public record AuthResult(string MatrixAccessToken);
@@ -13,7 +15,9 @@ public class AuthService : IActiveBrmbleSessions
     private readonly UserRepository _userRepository;
     private readonly HashSet<string> _activeSessions = [];
     private readonly object _lock = new();
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _pendingNames = new();
+    // Parks display names from Mumble UserState events that arrive before the user's first Authenticate call.
+    // Entries are consumed atomically by Authenticate and are not persisted across restarts.
+    private readonly ConcurrentDictionary<string, string> _pendingNames = new();
 
     public AuthService(UserRepository userRepository)
     {
@@ -48,8 +52,11 @@ public class AuthService : IActiveBrmbleSessions
         }
     }
 
-    public async Task HandleUserState(string certHash, string displayName)
+    public async Task HandleUserState(string certHash, string? displayName)
     {
+        if (string.IsNullOrWhiteSpace(displayName))
+            return;
+
         var user = await _userRepository.GetByCertHash(certHash);
         if (user is not null)
         {

@@ -124,4 +124,13 @@ public class AuthServiceTests
         var user = await _repo!.GetByCertHash("consumedhash");
         Assert.AreEqual("ConsumedName", user!.DisplayName);
     }
+
+    [TestMethod]
+    public async Task Authenticate_NoPendingName_UsesPlaceholder()
+    {
+        await _svc!.Authenticate("placeholderhash");
+        var user = await _repo!.GetByCertHash("placeholderhash");
+        Assert.IsNotNull(user);
+        Assert.AreEqual($"user_{user.Id}", user.DisplayName);
+    }
 }
