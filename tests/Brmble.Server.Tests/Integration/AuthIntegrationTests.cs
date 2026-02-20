@@ -34,7 +34,10 @@ public class AuthIntegrationTests : IDisposable
                 config.AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["ConnectionStrings:Default"] = cs,
+                    ["Auth:ServerDomain"] = "test.local",
                     ["Matrix:ServerDomain"] = "test.local",
+                    ["Matrix:HomeserverUrl"] = "http://localhost:1",
+                    ["Matrix:AppServiceToken"] = "test-token",
                     ["ReverseProxy:Routes:placeholder:ClusterId"] = "placeholder",
                     ["ReverseProxy:Routes:placeholder:Match:Path"] = "/__placeholder/{**catch-all}",
                     ["ReverseProxy:Clusters:placeholder:Destinations:d1:Address"] = "http://localhost:1",
@@ -81,7 +84,10 @@ public class AuthIntegrationTests : IDisposable
                 config.AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["ConnectionStrings:Default"] = $"Data Source={dbName2};Mode=Memory;Cache=Shared",
+                    ["Auth:ServerDomain"] = "test.local",
                     ["Matrix:ServerDomain"] = "test.local",
+                    ["Matrix:HomeserverUrl"] = "http://localhost:1",
+                    ["Matrix:AppServiceToken"] = "test-token",
                     ["ReverseProxy:Routes:placeholder:ClusterId"] = "placeholder",
                     ["ReverseProxy:Routes:placeholder:Match:Path"] = "/__placeholder/{**catch-all}",
                     ["ReverseProxy:Clusters:placeholder:Destinations:d1:Address"] = "http://localhost:1",
