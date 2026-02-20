@@ -184,6 +184,7 @@ internal sealed class AppConfigService : IAppConfigService
         {
             _servers = new List<ServerEntry>();
             _settings = AppSettings.Default;
+            _windowState = null;
         }
     }
 
