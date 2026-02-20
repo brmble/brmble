@@ -94,4 +94,22 @@ public class AppConfigServiceTests
         Assert.AreEqual("Legacy", svc.GetServers()[0].Label);
         Assert.IsTrue(File.Exists(Path.Combine(_tempDir, "config.json")));
     }
+
+    [TestMethod]
+    public void SavesAndReloads_WindowState()
+    {
+        var svc = new AppConfigService(_tempDir);
+        Assert.IsNull(svc.GetWindowState(), "No state saved yet — should be null");
+
+        svc.SaveWindowState(new WindowState(100, 200, 1024, 768, IsMaximized: false));
+        var svc2 = new AppConfigService(_tempDir);
+
+        var ws = svc2.GetWindowState();
+        Assert.IsNotNull(ws);
+        Assert.AreEqual(100, ws.X);
+        Assert.AreEqual(200, ws.Y);
+        Assert.AreEqual(1024, ws.Width);
+        Assert.AreEqual(768, ws.Height);
+        Assert.IsFalse(ws.IsMaximized);
+    }
 }
