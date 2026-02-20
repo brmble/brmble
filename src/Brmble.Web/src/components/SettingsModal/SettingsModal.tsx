@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import './SettingsModal.css';
 import bridge from '../../bridge';
 import { AudioSettingsTab, type AudioSettings, DEFAULT_SETTINGS as DEFAULT_AUDIO } from './AudioSettingsTab';
@@ -21,8 +21,6 @@ interface AppSettings {
   overlay: OverlaySettings;
 }
 
-const STORAGE_KEY = 'brmble-settings';
-
 const DEFAULT_SETTINGS: AppSettings = {
   audio: DEFAULT_AUDIO,
   shortcuts: DEFAULT_SHORTCUTS,
@@ -30,28 +28,32 @@ const DEFAULT_SETTINGS: AppSettings = {
   overlay: DEFAULT_OVERLAY,
 };
 
-function loadSettings(): AppSettings {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      return { ...DEFAULT_SETTINGS, ...JSON.parse(stored) };
-    }
-  } catch (e) {
-    console.error('Failed to load settings:', e);
-  }
-  return DEFAULT_SETTINGS;
-}
-
 export function SettingsModal(props: SettingsModalProps) {
   const { isOpen, onClose } = props;
   const [activeTab, setActiveTab] = useState<'audio' | 'shortcuts' | 'messages' | 'overlay' | 'identity'>('audio');
-  const [settings, setSettings] = useState<AppSettings>(loadSettings);
+  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+
+  useEffect(() => {
+    const handleCurrent = (data: unknown) => {
+      const d = data as { settings?: AppSettings } | undefined;
+      if (d?.settings) {
+        setSettings({ ...DEFAULT_SETTINGS, ...d.settings });
+      }
+    };
+
+    bridge.on('settings.current', handleCurrent);
+    bridge.send('settings.get');
+
+    return () => {
+      bridge.off('settings.current', handleCurrent);
+    };
+  }, []);
 
   const handleAudioChange = (audio: AudioSettings) => {
     setSettings(prev => {
       const newSettings = { ...prev, audio };
-      
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(newSettings));
+
+      bridge.send('settings.set', { settings: newSettings });
 
       // Notify backend of transmission mode change (only when relevant fields change)
       if (audio.transmissionMode !== prev.audio.transmissionMode ||
@@ -69,7 +71,7 @@ export function SettingsModal(props: SettingsModalProps) {
   const handleShortcutsChange = (shortcuts: ShortcutsSettings) => {
     setSettings(prev => {
       const newSettings = { ...prev, shortcuts };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(newSettings));
+      bridge.send('settings.set', { settings: newSettings });
 
       // Notify backend of each shortcut change
       const actions: { action: string; key: string | null }[] = [
@@ -92,13 +94,13 @@ export function SettingsModal(props: SettingsModalProps) {
   const handleMessagesChange = (messages: MessagesSettings) => {
     const newSettings = { ...settings, messages };
     setSettings(newSettings);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(newSettings));
+    bridge.send('settings.set', { settings: newSettings });
   };
 
   const handleOverlayChange = (overlay: OverlaySettings) => {
     const newSettings = { ...settings, overlay };
     setSettings(newSettings);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(newSettings));
+    bridge.send('settings.set', { settings: newSettings });
   };
 
   if (!isOpen) return null;
@@ -168,7 +170,7 @@ export function SettingsModal(props: SettingsModalProps) {
           <button className="settings-btn secondary" onClick={onClose}>
             Cancel
           </button>
-          <button className="settings-btn primary">
+          <button className="settings-btn primary" onClick={onClose}>
             Save Changes
           </button>
         </div>
