@@ -6,7 +6,7 @@ internal static class Win32Window
 {
     private const uint WS_OVERLAPPEDWINDOW = 0x00CF0000;
     private const uint WS_VISIBLE = 0x10000000;
-    private const int CW_USEDEFAULT = unchecked((int)0x80000000);
+    public const int CW_USEDEFAULT = unchecked((int)0x80000000);
     private const uint CS_HREDRAW = 0x0002;
     private const uint CS_VREDRAW = 0x0001;
 
@@ -16,6 +16,8 @@ internal static class Win32Window
     public const uint WM_ACTIVATE = 0x0006;
     public const uint WM_SYSCOMMAND = 0x0112;
     public const uint WM_NCCALCSIZE = 0x0083;
+    public const uint WM_NCHITTEST = 0x0084;
+    public const uint WM_GETMINMAXINFO = 0x0024;
     public const uint WM_COMMAND = 0x0111;
     public const uint WM_LBUTTONDBLCLK = 0x0203;
     public const uint WM_RBUTTONUP = 0x0205;
@@ -82,6 +84,7 @@ internal static class Win32Window
     public const int SW_RESTORE = 9;
     public const int SW_HIDE = 0;
     public const int SW_SHOW = 5;
+    public const int SW_SHOWMAXIMIZED = SW_MAXIMIZE;
 
     public delegate IntPtr WndProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
 
@@ -120,6 +123,34 @@ internal static class Win32Window
         public int Left, Top, Right, Bottom;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    public struct POINT
+    {
+        public int X, Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MINMAXINFO
+    {
+        public POINT ptReserved;
+        public POINT ptMaxSize;
+        public POINT ptMaxPosition;
+        public POINT ptMinTrackSize;
+        public POINT ptMaxTrackSize;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct WINDOWPLACEMENT
+    {
+        public uint length;
+        public uint flags;
+        public uint showCmd;
+        public POINT ptMinPosition;
+        public POINT ptMaxPosition;
+        public RECT rcNormalPosition;
+        public RECT rcDevice;
+    }
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern ushort RegisterClassEx(ref WNDCLASSEX lpwcx);
 
@@ -148,6 +179,12 @@ internal static class Win32Window
     public static extern bool GetClientRect(IntPtr hwnd, out RECT rect);
 
     [DllImport("user32.dll")]
+    public static extern bool GetCursorPos(out POINT lpPoint);
+
+    [DllImport("user32.dll")]
+    public static extern bool ScreenToClient(IntPtr hwnd, ref POINT lpPoint);
+
+    [DllImport("user32.dll")]
     public static extern bool ShowWindow(IntPtr hwnd, int cmdShow);
 
     [DllImport("user32.dll")]
@@ -172,8 +209,19 @@ internal static class Win32Window
     [DllImport("user32.dll")]
     public static extern bool IsWindowVisible(IntPtr hwnd);
 
+    public const uint MONITOR_DEFAULTTONULL = 0x00000000;
+
+    [DllImport("user32.dll")]
+    public static extern bool GetWindowPlacement(IntPtr hwnd, ref WINDOWPLACEMENT lpwndpl);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);
+
     [DllImport("user32.dll")]
     private static extern IntPtr LoadCursor(IntPtr instance, int cursorName);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr CreateSolidBrush(uint crColor);
 
     [DllImport("kernel32.dll")]
     public static extern bool AllocConsole();
@@ -198,7 +246,7 @@ internal static class Win32Window
 
     private static WndProc? _wndProcRef; // prevent GC of delegate
 
-    public static IntPtr Create(string className, string title, int width, int height, WndProc wndProc)
+    public static IntPtr Create(string className, string title, int x, int y, int width, int height, WndProc wndProc)
     {
         var hInstance = GetModuleHandle(null);
         _wndProcRef = wndProc;
@@ -210,19 +258,20 @@ internal static class Win32Window
             lpfnWndProc = _wndProcRef,
             hInstance = hInstance,
             hCursor = LoadCursor(IntPtr.Zero, 32512),
+            hbrBackground = CreateSolidBrush(0x140a0f), // #0f0a14 as COLORREF (0x00BBGGRR)
             lpszClassName = className
         };
         RegisterClassEx(ref wc);
 
         return CreateWindowEx(0, className, title,
             WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-            CW_USEDEFAULT, CW_USEDEFAULT, width, height,
+            x, y, width, height,
             IntPtr.Zero, IntPtr.Zero, hInstance, IntPtr.Zero);
     }
 
     public static void ExtendFrameIntoClientArea(IntPtr hwnd)
     {
-        var margins = new MARGINS { Left = 0, Right = 0, Top = 1, Bottom = 0 };
+        var margins = new MARGINS { Left = -1, Right = -1, Top = -1, Bottom = -1 };
         DwmExtendFrameIntoClientArea(hwnd, ref margins);
     }
 
