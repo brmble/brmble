@@ -10,4 +10,6 @@ public interface IAppConfigService
     void RemoveServer(string id);
     AppSettings GetSettings();
     void SetSettings(AppSettings settings);
+    WindowState? GetWindowState();
+    void SaveWindowState(WindowState state);
 }

@@ -39,3 +39,5 @@ public record AppSettings(
         new OverlaySettings()
     );
 }
+
+public record WindowState(int X, int Y, int Width, int Height, bool IsMaximized);
