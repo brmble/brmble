@@ -28,6 +28,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private uint? _previousChannelId;
     private bool _leftVoice;
     private bool _leaveVoiceInProgress;
+    private bool _canRejoin;
 
     public string ServiceName => "mumble";
 
@@ -239,6 +240,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// <c>_previousChannelId</c> must be set (or left null) by the caller
     /// before invoking this method. When null the rejoin action is disabled.
     /// </para>
+    /// </summary>
     /// <param name="channelMoveInProgress">
     /// Pass <c>true</c> when a <see cref="JoinChannel"/> call has just been issued
     /// so that the subsequent <see cref="UserState"/> channel-change echo clears the
@@ -246,7 +248,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// Pass <c>false</c> (the default) when no channel move is in flight (e.g. auto-
     /// activate on connect — the user is already in root).
     /// </param>
-    /// </summary>
     private void ActivateLeaveVoice(bool channelMoveInProgress = false)
     {
         if (LocalUser == null) return;
@@ -263,6 +264,16 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _bridge?.Send("voice.selfMuteChanged", new { muted = true });
         _bridge?.Send("voice.selfDeafChanged", new { deafened = true });
         _bridge?.Send("voice.leftVoiceChanged", new { leftVoice = true });
+    }
+
+    /// <summary>
+    /// Updates <see cref="_canRejoin"/> and emits <c>voice.canRejoinChanged</c>.
+    /// Call whenever <see cref="_previousChannelId"/> is assigned or cleared.
+    /// </summary>
+    private void EmitCanRejoin(bool canRejoin)
+    {
+        _canRejoin = canRejoin;
+        _bridge?.Send("voice.canRejoinChanged", new { canRejoin });
     }
 
     /// <summary>
@@ -292,7 +303,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             // Rejoin previous channel
             _leftVoice = false;
             _leaveVoiceInProgress = true;
-            var channelId = _previousChannelId ?? 0;
+            var channelId = _previousChannelId ?? 0; // ?? 0 is unreachable: null case is guarded above
             _previousChannelId = null;
 
             JoinChannel(channelId);
