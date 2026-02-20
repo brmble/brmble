@@ -7,53 +7,102 @@ interface ShortcutsSettingsTabProps {
 }
 
 export interface ShortcutsSettings {
-  pushToTalkKey: string | null;
+  toggleMuteKey: string | null;
+  toggleDeafenKey: string | null;
+  toggleMuteDeafenKey: string | null;
 }
 
 export const DEFAULT_SHORTCUTS: ShortcutsSettings = {
-  pushToTalkKey: null,
+  toggleMuteKey: null,
+  toggleDeafenKey: null,
+  toggleMuteDeafenKey: null,
 };
 
 export function ShortcutsSettingsTab({ settings, onChange }: ShortcutsSettingsTabProps) {
-  const [recording, setRecording] = useState(false);
+  const [recordingKey, setRecordingKey] = useState<keyof ShortcutsSettings | null>(null);
   const [localSettings, setLocalSettings] = useState<ShortcutsSettings>(settings);
 
   useEffect(() => {
     setLocalSettings(settings);
   }, [settings]);
 
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (!recording) return;
-    e.preventDefault();
+  const handleInput = useCallback((key: string) => {
+    if (!recordingKey) return;
     
-    const key = e.code === 'Space' ? 'Space' : e.key;
-    const newSettings = { ...localSettings, pushToTalkKey: key };
-    setLocalSettings(newSettings);
-    onChange(newSettings);
-    setRecording(false);
-  }, [recording, localSettings, onChange]);
+    setLocalSettings((prev) => {
+      const newSettings = { ...prev, [recordingKey]: key };
+      onChange(newSettings);
+      return newSettings;
+    });
+    setRecordingKey(null);
+  }, [recordingKey, onChange]);
+
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    e.preventDefault();
+    handleInput(e.code);
+  }, [handleInput]);
+
+  const handlePointerDown = useCallback((e: PointerEvent) => {
+    e.preventDefault();
+    const button = e.button;
+    const mouseButtonMap: Record<number, string> = {
+      0: 'MouseLeft',
+      1: 'MouseMiddle', 
+      2: 'MouseRight',
+      3: 'XButton1',
+      4: 'XButton2',
+    };
+    const key = mouseButtonMap[button];
+    if (key) {
+      handleInput(key);
+    }
+  }, [handleInput]);
 
   useEffect(() => {
-    if (recording) {
+    if (recordingKey) {
       window.addEventListener('keydown', handleKeyDown);
-      return () => window.removeEventListener('keydown', handleKeyDown);
+      window.addEventListener('pointerdown', handlePointerDown);
+      return () => {
+        window.removeEventListener('keydown', handleKeyDown);
+        window.removeEventListener('pointerdown', handlePointerDown);
+      };
     }
-  }, [recording, handleKeyDown]);
+  }, [recordingKey, handleKeyDown, handlePointerDown]);
 
   return (
     <div className="shortcuts-settings-tab">
       <div className="settings-item">
-        <label>Push to Talk</label>
+        <label>Toggle Mute Self</label>
         <button
-          className={`key-binding-btn ${recording ? 'recording' : ''}`}
-          onClick={() => setRecording(!recording)}
+          className={`key-binding-btn ${recordingKey === 'toggleMuteKey' ? 'recording' : ''}`}
+          onClick={() => setRecordingKey(recordingKey === 'toggleMuteKey' ? null : 'toggleMuteKey')}
         >
-          {recording ? 'Press any key...' : (localSettings.pushToTalkKey || 'Not bound')}
+          {recordingKey === 'toggleMuteKey' ? 'Press any key...' : (localSettings.toggleMuteKey || 'Not bound')}
+        </button>
+      </div>
+
+      <div className="settings-item">
+        <label>Toggle Deafen Self</label>
+        <button
+          className={`key-binding-btn ${recordingKey === 'toggleDeafenKey' ? 'recording' : ''}`}
+          onClick={() => setRecordingKey(recordingKey === 'toggleDeafenKey' ? null : 'toggleDeafenKey')}
+        >
+          {recordingKey === 'toggleDeafenKey' ? 'Press any key...' : (localSettings.toggleDeafenKey || 'Not bound')}
+        </button>
+      </div>
+
+      <div className="settings-item">
+        <label>Toggle Mute/Deafen Self</label>
+        <button
+          className={`key-binding-btn ${recordingKey === 'toggleMuteDeafenKey' ? 'recording' : ''}`}
+          onClick={() => setRecordingKey(recordingKey === 'toggleMuteDeafenKey' ? null : 'toggleMuteDeafenKey')}
+        >
+          {recordingKey === 'toggleMuteDeafenKey' ? 'Press any key...' : (localSettings.toggleMuteDeafenKey || 'Not bound')}
         </button>
       </div>
       
       <p className="settings-hint">
-        Click the button and press a key to set it as your push-to-talk shortcut.
+        Click a button and press a key to set a shortcut.
       </p>
     </div>
   );
