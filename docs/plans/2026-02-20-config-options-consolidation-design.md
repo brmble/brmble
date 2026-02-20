@@ -57,7 +57,7 @@ public class MatrixSettings
 }
 ```
 
-`Matrix:ServerDomain` remains for the Matrix bridge's own Matrix user ID construction (if needed). `Auth:ServerDomain` is used solely by `UserRepository`.
+`Matrix:ServerDomain` remains for the Matrix bridge's own use (if needed). `Auth:ServerDomain` is used solely by `UserRepository`.
 
 ## Service Changes
 

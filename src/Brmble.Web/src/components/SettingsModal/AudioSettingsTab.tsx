@@ -22,7 +22,7 @@ export const DEFAULT_SETTINGS: AudioSettings = {
   outputDevice: 'default',
   inputVolume: 100,
   outputVolume: 100,
-  transmissionMode: 'voiceActivity',
+  transmissionMode: 'pushToTalk',
   pushToTalkKey: null,
 };
 
@@ -51,7 +51,7 @@ export function AudioSettingsTab({ settings, onChange }: AudioSettingsTabProps) 
     handleInput(e.code);
   }, [handleInput]);
 
-  const handlePointerDown = useCallback((e: PointerEvent) => {
+  const handleMouseDown = useCallback((e: MouseEvent) => {
     e.preventDefault();
     const button = e.button;
     const mouseButtonMap: Record<number, string> = {
@@ -70,13 +70,13 @@ export function AudioSettingsTab({ settings, onChange }: AudioSettingsTabProps) 
   useEffect(() => {
     if (recording) {
       window.addEventListener('keydown', handleKeyDown);
-      window.addEventListener('pointerdown', handlePointerDown);
+      window.addEventListener('mousedown', handleMouseDown);
       return () => {
         window.removeEventListener('keydown', handleKeyDown);
-        window.removeEventListener('pointerdown', handlePointerDown);
+        window.removeEventListener('mousedown', handleMouseDown);
       };
     }
-  }, [recording, handleKeyDown, handlePointerDown]);
+  }, [recording, handleKeyDown, handleMouseDown]);
 
   return (
     <div className="audio-settings-tab">

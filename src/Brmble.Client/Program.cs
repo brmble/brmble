@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Drawing;
+using System.IO;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using Microsoft.Web.WebView2.Core;
 using Brmble.Client.Bridge;
 using Brmble.Client.Services.Certificate;
@@ -23,6 +25,23 @@ static class Program
     private static bool _muted;
     private static bool _deafened;
     private static volatile string? _closeAction; // null = ask, "minimize", "quit"
+
+    private static readonly string LogPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Brmble", "audio.log");
+
+    private static void Log(string msg)
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(LogPath);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+            // Uncomment for debugging:
+            // File.AppendAllText(LogPath, $"[{DateTime.Now:HH:mm:ss.fff}] {msg}\n");
+        }
+        catch { }
+    }
 
     [STAThread]
     static void Main()
@@ -177,9 +196,16 @@ static class Program
 
     private static IntPtr WndProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam)
     {
-        // Remove the non-client area (title bar) — client area fills entire window
+        // Remove title bar but keep the resize frame on left/right/bottom as non-client area.
+        // DWM renders those frames transparently via DwmExtendFrameIntoClientArea({-1,-1,-1,-1}).
+        // Top is set to window top (no NC area there — top resize handled via JS bridge).
         if (msg == Win32Window.WM_NCCALCSIZE && wParam != IntPtr.Zero)
+        {
+            int windowTop = Marshal.ReadInt32(lParam, 4);
+            Win32Window.DefWindowProc(hwnd, msg, wParam, lParam);
+            Marshal.WriteInt32(lParam, 4, windowTop);
             return IntPtr.Zero;
+        }
 
         switch (msg)
         {
@@ -208,6 +234,7 @@ static class Program
                 {
                     // Ask via WebView2 modal — fire-and-forget
                     _bridge.Send("window.showCloseDialog");
+                    _bridge.Flush();
                 }
                 else
                 {
@@ -256,6 +283,21 @@ static class Program
                         break;
                 }
                 return IntPtr.Zero;
+
+            case Win32Window.WM_NCHITTEST:
+            {
+                if (Win32Window.DwmDefWindowProc(hwnd, msg, wParam, lParam, out var dwmResult) != 0)
+                    return dwmResult;
+                return Win32Window.DefWindowProc(hwnd, msg, wParam, lParam);
+            }
+
+            case Win32Window.WM_GETMINMAXINFO:
+            {
+                var info = Marshal.PtrToStructure<Win32Window.MINMAXINFO>(lParam);
+                info.ptMinTrackSize = new Win32Window.POINT { X = 600, Y = 400 };
+                Marshal.StructureToPtr(info, lParam, false);
+                return IntPtr.Zero;
+            }
 
             case Win32Window.WM_DESTROY:
                 _mumbleClient?.Disconnect();

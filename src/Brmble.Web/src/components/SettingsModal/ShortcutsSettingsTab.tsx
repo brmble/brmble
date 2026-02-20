@@ -42,7 +42,7 @@ export function ShortcutsSettingsTab({ settings, onChange }: ShortcutsSettingsTa
     handleInput(e.code);
   }, [handleInput]);
 
-  const handlePointerDown = useCallback((e: PointerEvent) => {
+  const handleMouseDown = useCallback((e: MouseEvent) => {
     e.preventDefault();
     const button = e.button;
     const mouseButtonMap: Record<number, string> = {
@@ -61,13 +61,13 @@ export function ShortcutsSettingsTab({ settings, onChange }: ShortcutsSettingsTa
   useEffect(() => {
     if (recordingKey) {
       window.addEventListener('keydown', handleKeyDown);
-      window.addEventListener('pointerdown', handlePointerDown);
+      window.addEventListener('mousedown', handleMouseDown);
       return () => {
         window.removeEventListener('keydown', handleKeyDown);
-        window.removeEventListener('pointerdown', handlePointerDown);
+        window.removeEventListener('mousedown', handleMouseDown);
       };
     }
-  }, [recordingKey, handleKeyDown, handlePointerDown]);
+  }, [recordingKey, handleKeyDown, handleMouseDown]);
 
   return (
     <div className="shortcuts-settings-tab">

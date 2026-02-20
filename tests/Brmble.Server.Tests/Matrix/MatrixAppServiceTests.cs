@@ -1,7 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using Brmble.Server.Matrix;
-using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 using Moq;
 using Moq.Protected;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -25,15 +25,13 @@ public class MatrixAppServiceTests
         factory.Setup(f => f.CreateClient(It.IsAny<string>()))
             .Returns(new HttpClient(_mockHandler.Object));
 
-        var config = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Matrix:HomeserverUrl"] = "http://localhost:8008",
-                ["Matrix:AppServiceToken"] = "test-token"
-            })
-            .Build();
+        var settings = Options.Create(new MatrixSettings
+        {
+            HomeserverUrl = "http://localhost:8008",
+            AppServiceToken = "test-token"
+        });
 
-        _svc = new MatrixAppService(factory.Object, config);
+        _svc = new MatrixAppService(factory.Object, settings);
     }
 
     private void SetupHttpResponse(HttpStatusCode status, string body = "{}")
