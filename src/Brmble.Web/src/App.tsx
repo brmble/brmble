@@ -365,6 +365,18 @@ function App() {
     };
     const onVoiceReconnectFailed = () => {
       setConnectionStatus('failed');
+      setServerAddress('');
+      setServerLabel('');
+      setChannels([]);
+      setUsers([]);
+      setCurrentChannelId(undefined);
+      setCurrentChannelName('');
+      setSelfMuted(false);
+      setSelfDeafened(false);
+      setSelfLeftVoice(false);
+      setSelfCanRejoin(false);
+      setSelfSession(0);
+      setSpeakingUsers(new Map());
     };
 
     bridge.on('voice.connected', onVoiceConnected);
@@ -633,7 +645,7 @@ const handleConnect = (serverData: SavedServer) => {
         <CertWizard onComplete={(fp) => { setCertExists(true); setCertFingerprint(fp); }} />
       )}
 
-      {certExists === true && !connected && (
+      {certExists === true && connectionStatus === 'idle' && (
         <div className="connect-overlay">
           <ServerList onConnect={handleServerConnect} />
         </div>
