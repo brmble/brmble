@@ -25,6 +25,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private PttKeyMonitor? _pttMonitor;
     private string? _lastWelcomeText;
     private readonly CertificateService? _certService;
+    private uint? _previousChannelId;
+    private bool _leftVoice;
+    private bool _leaveVoiceInProgress;
+    private bool _canRejoin;
     private TransmissionMode _previousMode = TransmissionMode.Continuous;
     private string? _currentPttKey;
 
@@ -143,6 +147,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         UserDictionary.Clear();
         ChannelDictionary.Clear();
         _lastWelcomeText = null;
+        _previousChannelId = null;
+        _leftVoice = false;
+        _leaveVoiceInProgress = false;
+        EmitCanRejoin(false);
 
         _bridge?.Send("voice.disconnected", null);
     }
@@ -237,6 +245,96 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         _bridge?.Send("voice.selfMuteChanged", new { muted = LocalUser.SelfMuted });
         _bridge?.Send("voice.selfDeafChanged", new { deafened = LocalUser.SelfDeaf });
+    }
+
+    /// <summary>
+    /// Activates leave-voice state: mutes and deafens the local user and fires
+    /// the three bridge events. Does NOT move the user to root — caller is
+    /// responsible for ensuring the user is already in the correct channel.
+    /// <para>
+    /// <c>_previousChannelId</c> must be set (or left null) by the caller
+    /// before invoking this method. When null the rejoin action is disabled.
+    /// </para>
+    /// </summary>
+    /// <param name="channelMoveInProgress">
+    /// Pass <c>true</c> when a <see cref="JoinChannel"/> call has just been issued
+    /// so that the subsequent <see cref="UserState"/> channel-change echo clears the
+    /// in-progress flag rather than being treated as a manual channel join.
+    /// Pass <c>false</c> (the default) when no channel move is in flight (e.g. auto-
+    /// activate on connect — the user is already in root).
+    /// </param>
+    private void ActivateLeaveVoice(bool channelMoveInProgress = false)
+    {
+        if (LocalUser == null) return;
+
+        _leftVoice = true;
+        _leaveVoiceInProgress = channelMoveInProgress;
+
+        LocalUser.SelfMuted = true;
+        LocalUser.SelfDeaf = true;
+        LocalUser.SendMuteDeaf();
+        _audioManager?.SetMuted(true);
+        _audioManager?.SetDeafened(true);
+
+        _bridge?.Send("voice.selfMuteChanged", new { muted = true });
+        _bridge?.Send("voice.selfDeafChanged", new { deafened = true });
+        _bridge?.Send("voice.leftVoiceChanged", new { leftVoice = true });
+        EmitCanRejoin(_previousChannelId != null);
+    }
+
+    /// <summary>
+    /// Updates <see cref="_canRejoin"/> and emits <c>voice.canRejoinChanged</c>.
+    /// Call whenever <see cref="_previousChannelId"/> is assigned or cleared.
+    /// </summary>
+    private void EmitCanRejoin(bool canRejoin)
+    {
+        _canRejoin = canRejoin;
+        _bridge?.Send("voice.canRejoinChanged", new { canRejoin });
+    }
+
+    /// <summary>
+    /// Toggles leave voice: first press saves the current channel, moves to root,
+    /// and forces mute + deafen. Second press rejoins the saved channel and unmutes/undeafens.
+    /// </summary>
+    public void LeaveVoice()
+    {
+        if (LocalUser == null || Connection is not { State: ConnectionStates.Connected })
+            return;
+
+        if (!_leftVoice)
+        {
+            // Save current channel, move to root, then activate leave-voice state.
+            // Pass channelMoveInProgress: true so UserState clears the flag when
+            // the server echoes back the channel change.
+            _previousChannelId = LocalUser.Channel?.Id ?? 0;
+            JoinChannel(0);
+            ActivateLeaveVoice(channelMoveInProgress: true);
+        }
+        else
+        {
+            // No channel to rejoin — leave voice was auto-activated on connect
+            if (_previousChannelId == null)
+                return;
+
+            // Rejoin previous channel
+            _leftVoice = false;
+            _leaveVoiceInProgress = true;
+            var channelId = _previousChannelId ?? 0; // ?? 0 is unreachable: null case is guarded above
+            _previousChannelId = null;
+            EmitCanRejoin(false);
+
+            JoinChannel(channelId);
+
+            LocalUser.SelfMuted = false;
+            LocalUser.SelfDeaf = false;
+            LocalUser.SendMuteDeaf();
+            _audioManager?.SetMuted(false);
+            _audioManager?.SetDeafened(false);
+
+            _bridge?.Send("voice.selfMuteChanged", new { muted = false });
+            _bridge?.Send("voice.selfDeafChanged", new { deafened = false });
+            _bridge?.Send("voice.leftVoiceChanged", new { leftVoice = false });
+        }
     }
 
     public void ToggleDeaf()
@@ -347,6 +445,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         bridge.RegisterHandler("voice.toggleMute", _ => { ToggleMute(); return Task.CompletedTask; });
         bridge.RegisterHandler("voice.toggleDeaf", _ => { ToggleDeaf(); return Task.CompletedTask; });
+        bridge.RegisterHandler("voice.leaveVoice", _ => { LeaveVoice(); return Task.CompletedTask; });
 
         bridge.RegisterHandler("voice.setTransmissionMode", data =>
         {
@@ -418,6 +517,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _audioManager.SetLocalUserId(LocalUser.Id);
         _audioManager.StartMic();
 
+        // User starts in root channel on connect — auto-activate leave voice.
+        // _previousChannelId stays null so the rejoin action is disabled until
+        // the user manually joins a channel.
+        ActivateLeaveVoice();
+
         Debug.WriteLine($"[Mumble] Sent {channels.Count} channels and {users.Count} users");
     }
 
@@ -471,7 +575,42 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         }
 
         if (previousChannel.HasValue && userState.ChannelId != previousChannel && isSelf)
+        {
             _bridge?.Send("voice.channelChanged", new { channelId = userState.ChannelId });
+
+            // If this channel change was initiated by LeaveVoice toggle, just clear the flag
+            if (_leaveVoiceInProgress)
+            {
+                _leaveVoiceInProgress = false;
+            }
+            // If user manually joins a channel while in left-voice mode, clear it
+            else if (_leftVoice && LocalUser != null)
+            {
+                _leftVoice = false;
+                _previousChannelId = null;
+
+                LocalUser.SelfMuted = false;
+                LocalUser.SelfDeaf = false;
+                LocalUser.SendMuteDeaf();
+                _audioManager?.SetMuted(false);
+                _audioManager?.SetDeafened(false);
+
+                _bridge?.Send("voice.selfMuteChanged", new { muted = false });
+                _bridge?.Send("voice.selfDeafChanged", new { deafened = false });
+                _bridge?.Send("voice.leftVoiceChanged", new { leftVoice = false });
+                EmitCanRejoin(false);
+            }
+            // If the user moves to root while not in leave-voice, treat it as activating leave-voice.
+            // Store the channel they came from so they can rejoin.
+            // ReceivedServerSync guard prevents firing during the initial state-sync burst on connect.
+            // ShouldSerializeChannelId guard prevents mute/deafen echoes (which have ChannelId=0 by
+            // protobuf default but no explicit channel field) from being mistaken for a move to root.
+            else if (userState.ChannelId == 0 && ReceivedServerSync && userState.ShouldSerializeChannelId())
+            {
+                _previousChannelId = previousChannel;
+                ActivateLeaveVoice();
+            }
+        }
     }
 
     protected override void UserStateChannelChanged(User user, uint oldChannelId)
