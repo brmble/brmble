@@ -22,17 +22,14 @@ public class AuthService : IActiveBrmbleSessions
 
     public bool IsBrmbleClient(string certHash) => _activeSessions.Contains(certHash);
 
-    public async Task<AuthResult> Authenticate(string certHash, string displayName)
+    public async Task<AuthResult> Authenticate(string certHash)
     {
         var user = await _userRepository.GetByCertHash(certHash);
 
         if (user is null)
         {
-            user = await _userRepository.Insert(certHash, displayName);
-        }
-        else if (user.DisplayName != displayName)
-        {
-            await _userRepository.UpdateDisplayName(user.Id, displayName);
+            _pendingNames.TryRemove(certHash, out var pendingName);
+            user = await _userRepository.Insert(certHash, pendingName);
         }
 
         lock (_lock)

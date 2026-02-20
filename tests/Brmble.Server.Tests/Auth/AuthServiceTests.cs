@@ -58,30 +58,30 @@ public class AuthServiceTests
     [TestMethod]
     public async Task Authenticate_NewUser_AddsToActiveSessions()
     {
-        await _svc!.Authenticate("newhash", "Alice");
+        await _svc!.Authenticate("newhash");
         Assert.IsTrue(_svc.IsBrmbleClient("newhash"));
     }
 
     [TestMethod]
     public async Task Authenticate_NewUser_ReturnsStubToken()
     {
-        var result = await _svc!.Authenticate("somehash", "Bob");
+        var result = await _svc!.Authenticate("somehash");
         StringAssert.StartsWith(result.MatrixAccessToken, "stub_token_");
     }
 
     [TestMethod]
     public async Task Authenticate_ExistingUser_StillAddsToActiveSessions()
     {
-        await _svc!.Authenticate("existinghash", "Charlie");
+        await _svc!.Authenticate("existinghash");
         _svc.Deactivate("existinghash");
-        await _svc.Authenticate("existinghash", "Charlie");
+        await _svc.Authenticate("existinghash");
         Assert.IsTrue(_svc.IsBrmbleClient("existinghash"));
     }
 
     [TestMethod]
     public async Task Deactivate_AfterAuthenticate_RemovesFromActiveSessions()
     {
-        await _svc!.Authenticate("todeactivate", "Dave");
+        await _svc!.Authenticate("todeactivate");
         _svc.Deactivate("todeactivate");
         Assert.IsFalse(_svc.IsBrmbleClient("todeactivate"));
     }
@@ -99,7 +99,7 @@ public class AuthServiceTests
     {
         await _svc!.HandleUserState("queuedhash", "Queued");
         // Name is in the queue — verify by authenticating and checking the stored name
-        await _svc.Authenticate("queuedhash", "");
+        await _svc.Authenticate("queuedhash");
         var user = await _repo!.GetByCertHash("queuedhash");
         Assert.AreEqual("Queued", user!.DisplayName);
     }
@@ -107,7 +107,7 @@ public class AuthServiceTests
     [TestMethod]
     public async Task HandleUserState_AfterAuth_UpdatesDisplayName()
     {
-        await _svc!.Authenticate("updatehash", "Placeholder");
+        await _svc!.Authenticate("updatehash");
         // User exists with placeholder — now UserState arrives
         await _svc.HandleUserState("updatehash", "RealName");
         var user = await _repo!.GetByCertHash("updatehash");
@@ -118,9 +118,9 @@ public class AuthServiceTests
     public async Task HandleUserState_QueueConsumedAfterAuthenticate()
     {
         await _svc!.HandleUserState("consumedhash", "ConsumedName");
-        await _svc.Authenticate("consumedhash", "");
+        await _svc.Authenticate("consumedhash");
         // Authenticate a second time — queue entry should be gone, no double-update
-        await _svc.Authenticate("consumedhash", "");
+        await _svc.Authenticate("consumedhash");
         var user = await _repo!.GetByCertHash("consumedhash");
         Assert.AreEqual("ConsumedName", user!.DisplayName);
     }
