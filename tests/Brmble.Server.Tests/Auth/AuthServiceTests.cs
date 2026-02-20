@@ -2,7 +2,7 @@
 using Brmble.Server.Auth;
 using Brmble.Server.Data;
 using Microsoft.Data.Sqlite;
-using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Brmble.Server.Tests.Auth;
@@ -23,13 +23,8 @@ public class AuthServiceTests
         _keepAlive.Open();
         var db = new Database(cs);
         db.Initialize();
-        var config = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Matrix:ServerDomain"] = "test.local"
-            })
-            .Build();
-        var repo = new UserRepository(db, config);
+        var settings = Options.Create(new AuthSettings { ServerDomain = "test.local" });
+        var repo = new UserRepository(db, settings);
         _repo = repo;
         _svc = new AuthService(repo);
     }
