@@ -1,5 +1,5 @@
 import { ChannelTree } from '../ChannelTree';
-import type { Channel, User } from '../../types';
+import type { Channel, User, ConnectionStatus } from '../../types';
 import './Sidebar.css';
 
 interface SidebarProps {
@@ -10,7 +10,8 @@ interface SidebarProps {
   onSelectChannel: (channelId: number) => void;
   onSelectServer?: () => void;
   isServerChatActive?: boolean;
-  connected?: boolean;
+  connectionStatus?: ConnectionStatus;
+  onCancelReconnect?: () => void;
   serverLabel?: string;
   serverAddress?: string;
   username?: string;
@@ -27,7 +28,8 @@ export function Sidebar({
   onSelectChannel,
   onSelectServer,
   isServerChatActive,
-  connected,
+  connectionStatus = 'idle',
+  onCancelReconnect,
   serverLabel,
   serverAddress,
   username,
@@ -35,9 +37,12 @@ export function Sidebar({
   onStartDM,
   speakingUsers
 }: SidebarProps) {
+  const connected = connectionStatus === 'connected';
+  const isReconnecting = connectionStatus === 'reconnecting';
+
   return (
     <aside className="sidebar">
-      {connected && (
+      {serverLabel && (
         <div 
           className={`server-info-panel${onSelectServer ? ' server-info-clickable' : ''}${isServerChatActive ? ' server-info-active' : ''}`}
           onClick={onSelectServer}
@@ -46,6 +51,17 @@ export function Sidebar({
           {serverAddress && (
             <div className="server-info-address">{serverAddress}</div>
           )}
+          <div className="server-status-line">
+            <span className={`status-dot status-dot--${connectionStatus ?? 'idle'}`} />
+            {connectionStatus && connectionStatus !== 'idle' && (
+              <span className="status-text">
+                {connectionStatus === 'connected' && 'Connected'}
+                {connectionStatus === 'connecting' && 'Connecting...'}
+                {connectionStatus === 'reconnecting' && 'Reconnecting...'}
+                {connectionStatus === 'failed' && 'Disconnected'}
+              </span>
+            )}
+          </div>
         </div>
       )}
       
@@ -59,9 +75,12 @@ export function Sidebar({
             <span className="status-label">Users online</span>
             <span className="status-value">{users.length}</span>
           </div>
-          {onDisconnect && (
-            <button className="disconnect-btn" onClick={onDisconnect}>
-              Disconnect
+          {(onDisconnect || onCancelReconnect) && (
+            <button
+              className="disconnect-btn"
+              onClick={isReconnecting ? onCancelReconnect : onDisconnect}
+            >
+              {isReconnecting ? 'Cancel reconnecting' : 'Disconnect'}
             </button>
           )}
         </div>
