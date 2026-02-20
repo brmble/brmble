@@ -20,8 +20,9 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
     <div className="user-panel">
       {onToggleMute && (
         <button 
-          className={`user-panel-btn mute-btn ${muted ? 'active' : ''}`}
+          className={`user-panel-btn mute-btn ${(muted || leftVoice) ? 'active' : ''} ${leftVoice ? 'disabled' : ''}`}
           onClick={onToggleMute}
+          disabled={leftVoice}
           title={muted ? 'Unmute' : 'Mute'}
         >
           {muted ? (
@@ -42,8 +43,9 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
       
       {onToggleDeaf && (
         <button 
-          className={`user-panel-btn deaf-btn ${deafened ? 'active' : ''}`}
+          className={`user-panel-btn deaf-btn ${(deafened || leftVoice) ? 'active' : ''} ${leftVoice ? 'disabled' : ''}`}
           onClick={onToggleDeaf}
+          disabled={leftVoice}
           title={deafened ? 'Undeafen' : 'Deafen'}
         >
           {deafened ? (
