@@ -18,7 +18,7 @@ interface HeaderProps {
   speaking?: boolean;
 }
 
-export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, muted, deafened, leftVoice, onToggleMute, onToggleDeaf, onLeaveVoice, speaking }: HeaderProps) {
+export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, speaking }: HeaderProps) {
   return (
     <header className="header">
       <div className="header-left">
@@ -35,6 +35,7 @@ export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSe
           muted={muted}
           deafened={deafened}
           leftVoice={leftVoice}
+          canRejoin={canRejoin}
           onToggleMute={onToggleMute}
           onToggleDeaf={onToggleDeaf}
           onLeaveVoice={onLeaveVoice}
