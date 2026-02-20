@@ -227,7 +227,7 @@ function App() {
 
     const onVoiceUserJoined = ((data: unknown) => {
       const d = data as { session: number; name: string; channelId?: number; muted?: boolean; deafened?: boolean; self?: boolean } | undefined;
-      if (d?.session && d?.name && d.channelId !== undefined) {
+      if (d?.session && d.channelId !== undefined) {
         setUsers(prev => {
           const existing = prev.find(u => u.session === d.session);
           if (existing) {
@@ -241,7 +241,7 @@ function App() {
 
     const onVoiceChannelJoined = ((data: unknown) => {
       const d = data as { id: number; name: string; parent?: number } | undefined;
-      if (d?.id !== undefined && d?.name) {
+      if (d?.id !== undefined) {
         setChannels(prev => {
           const existing = prev.find(c => c.id === d.id);
           if (existing) {
@@ -249,6 +249,13 @@ function App() {
           }
           return [...prev, d];
         });
+      }
+    });
+
+    const onVoiceChannelRemoved = ((data: unknown) => {
+      const d = data as { id: number } | undefined;
+      if (d?.id !== undefined) {
+        setChannels(prev => prev.filter(c => c.id !== d.id));
       }
     });
 
@@ -358,6 +365,7 @@ function App() {
     bridge.on('voice.system', onVoiceSystem);
     bridge.on('voice.userJoined', onVoiceUserJoined);
     bridge.on('voice.channelJoined', onVoiceChannelJoined);
+    bridge.on('voice.channelRemoved', onVoiceChannelRemoved);
     bridge.on('voice.userLeft', onVoiceUserLeft);
     bridge.on('voice.channelChanged', onVoiceChannelChanged);
     bridge.on('voice.selfMuteChanged', onSelfMuteChanged);
@@ -379,6 +387,7 @@ function App() {
       bridge.off('voice.system', onVoiceSystem);
       bridge.off('voice.userJoined', onVoiceUserJoined);
       bridge.off('voice.channelJoined', onVoiceChannelJoined);
+      bridge.off('voice.channelRemoved', onVoiceChannelRemoved);
       bridge.off('voice.userLeft', onVoiceUserLeft);
       bridge.off('voice.channelChanged', onVoiceChannelChanged);
       bridge.off('voice.selfMuteChanged', onSelfMuteChanged);
