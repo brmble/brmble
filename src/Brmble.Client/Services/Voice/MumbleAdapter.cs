@@ -29,6 +29,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private bool _leftVoice;
     private bool _leaveVoiceInProgress;
     private bool _canRejoin;
+    private TransmissionMode _previousMode = TransmissionMode.Continuous;
+    private string? _currentPttKey;
 
     public string ServiceName => "mumble";
 
@@ -37,6 +39,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _bridge = bridge;
         _hwnd = hwnd;
         _certService = certService;
+        _audioManager = new AudioManager(_hwnd);
+        _audioManager.ToggleMuteRequested += ToggleMute;
+        _audioManager.ToggleDeafenRequested += ToggleDeaf;
+        _audioManager.ToggleContinuousRequested += () => {
+            if (_audioManager == null) return;
+            var current = _audioManager.TransmissionMode;
+            var newMode = current == TransmissionMode.Continuous ? _previousMode : TransmissionMode.Continuous;
+            if (current != TransmissionMode.Continuous)
+                _previousMode = current;
+            var pttKey = newMode == TransmissionMode.PushToTalk ? _currentPttKey : null;
+            _audioManager.SetTransmissionMode(newMode, pttKey, _hwnd);
+        };
     }
 
     public void Initialize(NativeBridge bridge) { }
@@ -349,6 +363,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (parsed == TransmissionMode.Continuous && mode != "continuous")
             Debug.WriteLine($"[Audio] Unknown transmission mode '{mode}', defaulting to Continuous");
 
+        if (parsed == TransmissionMode.PushToTalk)
+            _currentPttKey = key;
+
         _audioManager?.SetTransmissionMode(parsed, key, _hwnd);
 
         // Manage key-up monitor for PTT release
@@ -437,6 +454,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             SetTransmissionMode(mode, key);
             return Task.CompletedTask;
         });
+
+        bridge.RegisterHandler("voice.setShortcut", data =>
+        {
+            var action = data.TryGetProperty("action", out var a) ? a.GetString() ?? "" : "";
+            var key = data.TryGetProperty("key", out var k) ? k.GetString() : null;
+            _audioManager?.SetShortcut(action, key);
+            return Task.CompletedTask;
+        });
     }
 
     public override X509Certificate SelectCertificate(
@@ -480,9 +505,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             SendSystemMessage(serverSync.WelcomeText, "welcome", html: true);
         }
 
-        _audioManager?.Dispose();
-        _audioManager = new AudioManager();
-        _audioManager.SendVoicePacket += packet =>
+        // Reuse existing AudioManager (created in constructor)
+        // Set up audio packet handlers (need Connection which is now available)
+        _audioManager!.SendVoicePacket += packet =>
             Connection?.SendVoice(new ArraySegment<byte>(packet.ToArray()));
         _audioManager.UserStartedSpeaking += userId =>
             _bridge?.Send("voice.userSpeaking", new { session = userId });

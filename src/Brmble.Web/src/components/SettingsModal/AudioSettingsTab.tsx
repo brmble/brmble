@@ -40,20 +40,43 @@ export function AudioSettingsTab({ settings, onChange }: AudioSettingsTabProps) 
     onChange(newSettings);
   };
 
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+  const handleInput = useCallback((key: string) => {
     if (!recording) return;
-    e.preventDefault();
-    const key = e.code === 'Space' ? 'Space' : e.key;
     handleChange('pushToTalkKey', key);
     setRecording(false);
   }, [recording, handleChange]);
 
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    e.preventDefault();
+    handleInput(e.code);
+  }, [handleInput]);
+
+  const handlePointerDown = useCallback((e: PointerEvent) => {
+    e.preventDefault();
+    const button = e.button;
+    const mouseButtonMap: Record<number, string> = {
+      0: 'MouseLeft',
+      1: 'MouseMiddle', 
+      2: 'MouseRight',
+      3: 'XButton1',
+      4: 'XButton2',
+    };
+    const key = mouseButtonMap[button];
+    if (key) {
+      handleInput(key);
+    }
+  }, [handleInput]);
+
   useEffect(() => {
     if (recording) {
       window.addEventListener('keydown', handleKeyDown);
-      return () => window.removeEventListener('keydown', handleKeyDown);
+      window.addEventListener('pointerdown', handlePointerDown);
+      return () => {
+        window.removeEventListener('keydown', handleKeyDown);
+        window.removeEventListener('pointerdown', handlePointerDown);
+      };
     }
-  }, [recording, handleKeyDown]);
+  }, [recording, handleKeyDown, handlePointerDown]);
 
   return (
     <div className="audio-settings-tab">
