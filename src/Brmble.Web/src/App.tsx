@@ -14,6 +14,8 @@ import type { StoredDMContact } from './hooks/useChatStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
 import './App.css';
 
+const SETTINGS_STORAGE_KEY = 'brmble-settings';
+
 interface SavedServer {
   host: string;
   port: number;
@@ -401,6 +403,22 @@ const handleConnect = (serverData: SavedServer) => {
     localStorage.setItem('brmble-server', JSON.stringify(serverData));
     setServerAddress(`${serverData.host}:${serverData.port}`);
     bridge.send('voice.connect', serverData);
+    
+    // Send transmission mode from settings
+    try {
+      const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
+      if (stored) {
+        const settings = JSON.parse(stored);
+        if (settings.audio?.transmissionMode) {
+          bridge.send('voice.setTransmissionMode', {
+            mode: settings.audio.transmissionMode,
+            key: settings.audio.transmissionMode === 'pushToTalk' ? settings.audio.pushToTalkKey : null,
+          });
+        }
+      }
+    } catch (e) {
+      console.error('Failed to send transmission mode:', e);
+    }
   };
 
   const handleServerConnect = (server: ServerEntry) => {

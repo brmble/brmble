@@ -407,6 +407,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     public void HandleHotKey(int id, bool keyDown)
         => _audioManager?.HandleHotKey(id, keyDown);
 
+    /// <summary>Called from WndProc on WM_INPUT.</summary>
+    public void HandleRawInput(IntPtr wParam, IntPtr lParam)
+        => _audioManager?.HandleRawInput(wParam, lParam);
+
     public void JoinChannel(uint channelId)
     {
         if (Connection is not { State: ConnectionStates.Connected })
