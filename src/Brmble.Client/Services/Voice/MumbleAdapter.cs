@@ -30,8 +30,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private bool _leaveVoiceInProgress;
     private bool _canRejoin;
     private TransmissionMode _previousMode = TransmissionMode.Continuous;
-    private bool _intentionalDisconnect = false;
-    private CancellationTokenSource? _reconnectCts;
+    private volatile bool _intentionalDisconnect = false;
+    private volatile CancellationTokenSource? _reconnectCts;
     private string? _reconnectHost;
     private int _reconnectPort;
     private string? _reconnectUsername;
@@ -89,6 +89,23 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         }
 
         _intentionalDisconnect = false;
+
+        // Recreate audio manager if disposed by a previous Disconnect()
+        if (_audioManager == null)
+        {
+            _audioManager = new AudioManager(_hwnd);
+            _audioManager.ToggleMuteRequested += ToggleMute;
+            _audioManager.ToggleDeafenRequested += ToggleDeaf;
+            _audioManager.ToggleContinuousRequested += () => {
+                if (_audioManager == null) return;
+                var current = _audioManager.TransmissionMode;
+                var newMode = current == TransmissionMode.Continuous ? _previousMode : TransmissionMode.Continuous;
+                if (current != TransmissionMode.Continuous)
+                    _previousMode = current;
+                var pttKey = newMode == TransmissionMode.PushToTalk ? _currentPttKey : null;
+                _audioManager.SetTransmissionMode(newMode, pttKey, _hwnd);
+            };
+        }
 
         try
         {
@@ -209,7 +226,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         }
 
         // Loop exited — either intentional (CTS cancelled) or unexpected connection drop.
-        if (!_intentionalDisconnect && !ct.IsCancellationRequested && _reconnectHost != null)
+        if (!_intentionalDisconnect && !ct.IsCancellationRequested && _reconnectHost != null && _reconnectCts == null)
         {
             // Unexpected drop — clean up and start reconnect loop.
             Disconnect();
@@ -222,46 +239,54 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     {
         var delays = new[] { 2000, 4000, 8000, 16000, 30000 };
         int attempt = 0;
-        _reconnectCts = new CancellationTokenSource();
-        var token = _reconnectCts.Token;
+        var cts = new CancellationTokenSource();
+        _reconnectCts = cts;
+        var token = cts.Token;
 
-        while (!token.IsCancellationRequested && !_intentionalDisconnect)
+        try
         {
-            int delayMs = delays[Math.Min(attempt, delays.Length - 1)];
-            _bridge?.Send("voice.reconnecting", new { attempt = attempt + 1, delayMs });
-            _bridge?.NotifyUiThread();
-
-            try
+            while (!token.IsCancellationRequested && !_intentionalDisconnect)
             {
-                await Task.Delay(delayMs, token);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
+                int delayMs = delays[Math.Min(attempt, delays.Length - 1)];
+                _bridge?.Send("voice.reconnecting", new { attempt = attempt + 1, delayMs });
+                _bridge?.NotifyUiThread();
+
+                try
+                {
+                    await Task.Delay(delayMs, token);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+
+                if (_intentionalDisconnect || token.IsCancellationRequested)
+                    break;
+
+                try
+                {
+                    Connect(_reconnectHost!, _reconnectPort, _reconnectUsername!, _reconnectPassword ?? "");
+                    return; // ServerSync will emit voice.connected
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // Connect failed; continue to next attempt
+                }
+
+                attempt++;
             }
 
-            if (_intentionalDisconnect || token.IsCancellationRequested)
-                break;
-
-            try
+            if (!_intentionalDisconnect)
             {
-                Connect(_reconnectHost!, _reconnectPort, _reconnectUsername!, _reconnectPassword ?? "");
-                // Connect is synchronous — if no exception is thrown, connection started.
-                // ServerSync will fire voice.connected on success.
-                return;
+                _bridge?.Send("voice.reconnectFailed", new { reason = "Reconnect cancelled or failed" });
+                _bridge?.NotifyUiThread();
             }
-            catch
-            {
-                // Connect failed; loop continues with next attempt.
-            }
-
-            attempt++;
         }
-
-        if (!_intentionalDisconnect)
+        finally
         {
-            _bridge?.Send("voice.reconnectFailed", new { reason = "Reconnect cancelled or failed" });
-            _bridge?.NotifyUiThread();
+            cts.Dispose();
+            if (_reconnectCts == cts)
+                _reconnectCts = null;
         }
     }
 
@@ -624,17 +649,17 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             SendSystemMessage(serverSync.WelcomeText, "welcome", html: true);
         }
 
-        // Reuse existing AudioManager (created in constructor)
+        // Reuse or recreated AudioManager (see Connect())
         // Set up audio packet handlers (need Connection which is now available)
-        _audioManager!.SendVoicePacket += packet =>
+        _audioManager?.SendVoicePacket += packet =>
             Connection?.SendVoice(new ArraySegment<byte>(packet.ToArray()));
-        _audioManager.UserStartedSpeaking += userId =>
+        _audioManager?.UserStartedSpeaking += userId =>
             _bridge?.Send("voice.userSpeaking", new { session = userId });
-        _audioManager.UserStoppedSpeaking += userId =>
+        _audioManager?.UserStoppedSpeaking += userId =>
             _bridge?.Send("voice.userSilent", new { session = userId });
         if (LocalUser != null)
-            _audioManager.SetLocalUserId(LocalUser.Id);
-        _audioManager.StartMic();
+            _audioManager?.SetLocalUserId(LocalUser.Id);
+        _audioManager?.StartMic();
 
         // User starts in root channel on connect — auto-activate leave voice.
         // _previousChannelId stays null so the rejoin action is disabled until
