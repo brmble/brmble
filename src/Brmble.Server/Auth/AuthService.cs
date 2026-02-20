@@ -13,6 +13,7 @@ public class AuthService : IActiveBrmbleSessions
     private readonly UserRepository _userRepository;
     private readonly HashSet<string> _activeSessions = [];
     private readonly object _lock = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _pendingNames = new();
 
     public AuthService(UserRepository userRepository)
     {
@@ -47,6 +48,20 @@ public class AuthService : IActiveBrmbleSessions
         lock (_lock)
         {
             _activeSessions.Remove(certHash);
+        }
+    }
+
+    public async Task HandleUserState(string certHash, string displayName)
+    {
+        var user = await _userRepository.GetByCertHash(certHash);
+        if (user is not null)
+        {
+            if (user.DisplayName != displayName)
+                await _userRepository.UpdateDisplayName(user.Id, displayName);
+        }
+        else
+        {
+            _pendingNames[certHash] = displayName;
         }
     }
 }

@@ -12,6 +12,7 @@ public class AuthServiceTests
 {
     private SqliteConnection? _keepAlive;
     private AuthService? _svc;
+    private UserRepository? _repo;
 
     [TestInitialize]
     public void Setup()
@@ -29,6 +30,7 @@ public class AuthServiceTests
             })
             .Build();
         var repo = new UserRepository(db, config);
+        _repo = repo;
         _svc = new AuthService(repo);
     }
 
@@ -82,5 +84,44 @@ public class AuthServiceTests
         await _svc!.Authenticate("todeactivate", "Dave");
         _svc.Deactivate("todeactivate");
         Assert.IsFalse(_svc.IsBrmbleClient("todeactivate"));
+    }
+
+    [TestMethod]
+    public async Task HandleUserState_UnknownCert_DoesNotThrow()
+    {
+        // No user in DB, no auth call — should just queue silently
+        await _svc!.HandleUserState("unknownhash", "Ghost");
+        // No assert needed — just verifying no exception
+    }
+
+    [TestMethod]
+    public async Task HandleUserState_BeforeAuth_QueuesName()
+    {
+        await _svc!.HandleUserState("queuedhash", "Queued");
+        // Name is in the queue — verify by authenticating and checking the stored name
+        await _svc.Authenticate("queuedhash");
+        var user = await _repo!.GetByCertHash("queuedhash");
+        Assert.AreEqual("Queued", user!.DisplayName);
+    }
+
+    [TestMethod]
+    public async Task HandleUserState_AfterAuth_UpdatesDisplayName()
+    {
+        await _svc!.Authenticate("updatehash", "Placeholder");
+        // User exists with placeholder — now UserState arrives
+        await _svc.HandleUserState("updatehash", "RealName");
+        var user = await _repo!.GetByCertHash("updatehash");
+        Assert.AreEqual("RealName", user!.DisplayName);
+    }
+
+    [TestMethod]
+    public async Task HandleUserState_QueueConsumedAfterAuthenticate()
+    {
+        await _svc!.HandleUserState("consumedhash", "ConsumedName");
+        await _svc.Authenticate("consumedhash");
+        // Authenticate a second time — queue entry should be gone, no double-update
+        await _svc.Authenticate("consumedhash");
+        var user = await _repo!.GetByCertHash("consumedhash");
+        Assert.AreEqual("ConsumedName", user!.DisplayName);
     }
 }
