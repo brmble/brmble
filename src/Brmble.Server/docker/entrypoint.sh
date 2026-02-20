@@ -45,4 +45,9 @@ EOF
 export Matrix__AppServiceToken="${MATRIX_APPSERVICE_TOKEN}"
 export Matrix__ServerDomain="${MATRIX_SERVER_NAME}"
 
+# LiveKit requires API keys — generate random ones at first start if not supplied
+LIVEKIT_API_KEY="${LIVEKIT_API_KEY:-$(openssl rand -hex 8)}"
+LIVEKIT_API_SECRET="${LIVEKIT_API_SECRET:-$(openssl rand -hex 32)}"
+export LIVEKIT_KEYS="${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
+
 exec /usr/bin/supervisord -c /etc/supervisord.conf
