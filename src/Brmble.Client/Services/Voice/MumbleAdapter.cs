@@ -35,6 +35,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _bridge = bridge;
         _hwnd = hwnd;
         _certService = certService;
+        _audioManager = new AudioManager(_hwnd);
+        _audioManager.ToggleMuteRequested += ToggleMute;
+        _audioManager.ToggleDeafenRequested += ToggleDeaf;
+        _audioManager.ToggleContinuousRequested += () => {
+            if (_audioManager == null) return;
+            var current = _audioManager.TransmissionMode;
+            var newMode = current == TransmissionMode.Continuous ? _previousMode : TransmissionMode.Continuous;
+            if (current != TransmissionMode.Continuous)
+                _previousMode = current;
+            var pttKey = newMode == TransmissionMode.PushToTalk ? _currentPttKey : null;
+            _audioManager.SetTransmissionMode(newMode, pttKey, _hwnd);
+        };
     }
 
     public void Initialize(NativeBridge bridge) { }
@@ -394,25 +406,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             SendSystemMessage(serverSync.WelcomeText, "welcome", html: true);
         }
 
-        _audioManager?.Dispose();
-        _audioManager = new AudioManager();
-        _audioManager.SendVoicePacket += packet =>
+        // Reuse existing AudioManager (created in constructor)
+        // Set up audio packet handlers (need Connection which is now available)
+        _audioManager!.SendVoicePacket += packet =>
             Connection?.SendVoice(new ArraySegment<byte>(packet.ToArray()));
         _audioManager.UserStartedSpeaking += userId =>
             _bridge?.Send("voice.userSpeaking", new { session = userId });
         _audioManager.UserStoppedSpeaking += userId =>
             _bridge?.Send("voice.userSilent", new { session = userId });
-        _audioManager.ToggleMuteRequested += ToggleMute;
-        _audioManager.ToggleDeafenRequested += ToggleDeaf;
-        _audioManager.ToggleContinuousRequested += () => {
-            if (_audioManager == null) return;
-            var current = _audioManager.TransmissionMode;
-            var newMode = current == TransmissionMode.Continuous ? _previousMode : TransmissionMode.Continuous;
-            if (current != TransmissionMode.Continuous)
-                _previousMode = current;
-            var pttKey = newMode == TransmissionMode.PushToTalk ? _currentPttKey : null;
-            _audioManager.SetTransmissionMode(newMode, pttKey, _hwnd);
-        };
         if (LocalUser != null)
             _audioManager.SetLocalUserId(LocalUser.Id);
         _audioManager.StartMic();

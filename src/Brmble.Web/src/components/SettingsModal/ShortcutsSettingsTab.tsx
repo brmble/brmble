@@ -7,19 +7,15 @@ interface ShortcutsSettingsTabProps {
 }
 
 export interface ShortcutsSettings {
-  pushToTalkKey: string | null;
   toggleMuteKey: string | null;
   toggleDeafenKey: string | null;
   toggleMuteDeafenKey: string | null;
-  continuousTransmissionKey: string | null;
 }
 
 export const DEFAULT_SHORTCUTS: ShortcutsSettings = {
-  pushToTalkKey: null,
   toggleMuteKey: null,
   toggleDeafenKey: null,
   toggleMuteDeafenKey: null,
-  continuousTransmissionKey: null,
 };
 
 export function ShortcutsSettingsTab({ settings, onChange }: ShortcutsSettingsTabProps) {
@@ -30,11 +26,9 @@ export function ShortcutsSettingsTab({ settings, onChange }: ShortcutsSettingsTa
     setLocalSettings(settings);
   }, [settings]);
 
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+  const handleInput = useCallback((key: string) => {
     if (!recordingKey) return;
-    e.preventDefault();
     
-    const key = e.code === 'Space' ? 'Space' : e.key;
     setLocalSettings((prev) => {
       const newSettings = { ...prev, [recordingKey]: key };
       onChange(newSettings);
@@ -43,25 +37,40 @@ export function ShortcutsSettingsTab({ settings, onChange }: ShortcutsSettingsTa
     setRecordingKey(null);
   }, [recordingKey, onChange]);
 
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    e.preventDefault();
+    handleInput(e.code);
+  }, [handleInput]);
+
+  const handlePointerDown = useCallback((e: PointerEvent) => {
+    e.preventDefault();
+    const button = e.button;
+    const mouseButtonMap: Record<number, string> = {
+      0: 'MouseLeft',
+      1: 'MouseMiddle', 
+      2: 'MouseRight',
+      3: 'XButton1',
+      4: 'XButton2',
+    };
+    const key = mouseButtonMap[button];
+    if (key) {
+      handleInput(key);
+    }
+  }, [handleInput]);
+
   useEffect(() => {
     if (recordingKey) {
       window.addEventListener('keydown', handleKeyDown);
-      return () => window.removeEventListener('keydown', handleKeyDown);
+      window.addEventListener('pointerdown', handlePointerDown);
+      return () => {
+        window.removeEventListener('keydown', handleKeyDown);
+        window.removeEventListener('pointerdown', handlePointerDown);
+      };
     }
-  }, [recordingKey, handleKeyDown]);
+  }, [recordingKey, handleKeyDown, handlePointerDown]);
 
   return (
     <div className="shortcuts-settings-tab">
-      <div className="settings-item">
-        <label>Push to Talk</label>
-        <button
-          className={`key-binding-btn ${recordingKey === 'pushToTalkKey' ? 'recording' : ''}`}
-          onClick={() => setRecordingKey(recordingKey === 'pushToTalkKey' ? null : 'pushToTalkKey')}
-        >
-          {recordingKey === 'pushToTalkKey' ? 'Press any key...' : (localSettings.pushToTalkKey || 'Not bound')}
-        </button>
-      </div>
-
       <div className="settings-item">
         <label>Toggle Mute Self</label>
         <button
@@ -89,16 +98,6 @@ export function ShortcutsSettingsTab({ settings, onChange }: ShortcutsSettingsTa
           onClick={() => setRecordingKey(recordingKey === 'toggleMuteDeafenKey' ? null : 'toggleMuteDeafenKey')}
         >
           {recordingKey === 'toggleMuteDeafenKey' ? 'Press any key...' : (localSettings.toggleMuteDeafenKey || 'Not bound')}
-        </button>
-      </div>
-
-      <div className="settings-item">
-        <label>Continuous Transmission</label>
-        <button
-          className={`key-binding-btn ${recordingKey === 'continuousTransmissionKey' ? 'recording' : ''}`}
-          onClick={() => setRecordingKey(recordingKey === 'continuousTransmissionKey' ? null : 'continuousTransmissionKey')}
-        >
-          {recordingKey === 'continuousTransmissionKey' ? 'Press any key...' : (localSettings.continuousTransmissionKey || 'Not bound')}
         </button>
       </div>
       

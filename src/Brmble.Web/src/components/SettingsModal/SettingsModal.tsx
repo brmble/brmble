@@ -51,11 +51,6 @@ export function SettingsModal(props: SettingsModalProps) {
     setSettings(prev => {
       const newSettings = { ...prev, audio };
       
-      // Sync pushToTalkKey to shortcuts tab as well
-      if (audio.pushToTalkKey !== prev.audio.pushToTalkKey) {
-        newSettings.shortcuts = { ...newSettings.shortcuts, pushToTalkKey: audio.pushToTalkKey };
-      }
-      
       localStorage.setItem(STORAGE_KEY, JSON.stringify(newSettings));
 
       // Notify backend of transmission mode change (only when relevant fields change)
@@ -78,11 +73,9 @@ export function SettingsModal(props: SettingsModalProps) {
 
       // Notify backend of each shortcut change
       const actions: { action: string; key: string | null }[] = [
-        { action: 'pushToTalk', key: prev.audio.transmissionMode === 'pushToTalk' ? shortcuts.pushToTalkKey : null },
         { action: 'toggleMute', key: shortcuts.toggleMuteKey },
         { action: 'toggleDeafen', key: shortcuts.toggleDeafenKey },
         { action: 'toggleMuteDeafen', key: shortcuts.toggleMuteDeafenKey },
-        { action: 'continuousTransmission', key: shortcuts.continuousTransmissionKey },
       ];
 
       for (const { action, key } of actions) {
