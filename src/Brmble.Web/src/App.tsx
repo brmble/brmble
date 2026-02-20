@@ -113,6 +113,24 @@ function App() {
   const addDMMessageRef = useRef(addDMMessage);
   addDMMessageRef.current = addDMMessage;
 
+  const clearPendingAction = useCallback(() => {
+    if (pendingChannelActionTimeoutRef.current) {
+      clearTimeout(pendingChannelActionTimeoutRef.current);
+      pendingChannelActionTimeoutRef.current = null;
+    }
+    setPendingChannelAction(null);
+  }, []);
+
+  const startPendingAction = useCallback((action: number | 'leave') => {
+    if (pendingChannelActionTimeoutRef.current) {
+      clearTimeout(pendingChannelActionTimeoutRef.current);
+    }
+    setPendingChannelAction(action);
+    pendingChannelActionTimeoutRef.current = setTimeout(() => {
+      setPendingChannelAction(null);
+    }, 5000);
+  }, []);
+
   // Register all bridge handlers once on mount
   useEffect(() => {
     const onVoiceConnected = ((data: unknown) => {
@@ -139,6 +157,7 @@ function App() {
     });
 
     const onVoiceDisconnected = () => {
+      clearPendingAction();
       setConnectionStatus('idle');
       setServerAddress('');
       setServerLabel('');
@@ -369,6 +388,7 @@ function App() {
       setConnectionStatus('reconnecting');
     };
     const onVoiceReconnectFailed = () => {
+      clearPendingAction();
       setConnectionStatus('failed');
       setServerAddress('');
       setServerLabel('');
@@ -438,23 +458,13 @@ function App() {
     bridge.send('cert.requestStatus');
   }, []);
 
-const startPendingAction = (action: number | 'leave') => {
-    if (pendingChannelActionTimeoutRef.current) {
-      clearTimeout(pendingChannelActionTimeoutRef.current);
-    }
-    setPendingChannelAction(action);
-    pendingChannelActionTimeoutRef.current = setTimeout(() => {
-      setPendingChannelAction(null);
-    }, 5000);
-  };
-
-  const clearPendingAction = () => {
-    if (pendingChannelActionTimeoutRef.current) {
-      clearTimeout(pendingChannelActionTimeoutRef.current);
-      pendingChannelActionTimeoutRef.current = null;
-    }
-    setPendingChannelAction(null);
-  };
+  useEffect(() => {
+    return () => {
+      if (pendingChannelActionTimeoutRef.current) {
+        clearTimeout(pendingChannelActionTimeoutRef.current);
+      }
+    };
+  }, []);
 
 const handleConnect = (serverData: SavedServer) => {
     localStorage.setItem('brmble-server', JSON.stringify(serverData));
