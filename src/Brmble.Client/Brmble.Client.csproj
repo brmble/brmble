@@ -8,6 +8,12 @@
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3800.47" />
   </ItemGroup>
 
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>Brmble.Client.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
   <!-- WebView2 unconditionally adds its WPF + WinForms assemblies for net5.0+.
        We're a raw Win32 app — remove them to avoid the WindowsBase version conflict. -->
   <Target Name="RemoveWebView2WpfWinForms" BeforeTargets="FindReferenceAssembliesForReferences;ResolveAssemblyReferences">
