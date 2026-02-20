@@ -47,13 +47,13 @@ export function Sidebar({
           className={`server-info-panel${onSelectServer ? ' server-info-clickable' : ''}${isServerChatActive ? ' server-info-active' : ''}`}
           onClick={onSelectServer}
         >
-          <div className="server-info-name">{serverLabel || 'Server'}</div>
+          <div className="server-info-name">{serverLabel}</div>
           {serverAddress && (
             <div className="server-info-address">{serverAddress}</div>
           )}
-          <div className="server-status-line">
-            <span className={`status-dot status-dot--${connectionStatus ?? 'idle'}`} />
-            {connectionStatus && connectionStatus !== 'idle' && (
+          <div className="server-status-line" aria-live="polite" aria-atomic="true">
+            <span className={`status-dot status-dot--${connectionStatus}`} aria-hidden="true" />
+            {connectionStatus !== 'idle' && (
               <span className="status-text">
                 {connectionStatus === 'connected' && 'Connected'}
                 {connectionStatus === 'connecting' && 'Connecting...'}
