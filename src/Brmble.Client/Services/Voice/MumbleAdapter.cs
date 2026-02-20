@@ -232,6 +232,40 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     }
 
     /// <summary>
+    /// Activates leave-voice state: mutes and deafens the local user and fires
+    /// the three bridge events. Does NOT move the user to root — caller is
+    /// responsible for ensuring the user is already in the correct channel.
+    /// <para>
+    /// <c>_previousChannelId</c> must be set (or left null) by the caller
+    /// before invoking this method. When null the rejoin action is disabled.
+    /// </para>
+    /// <param name="channelMoveInProgress">
+    /// Pass <c>true</c> when a <see cref="JoinChannel"/> call has just been issued
+    /// so that the subsequent <see cref="UserState"/> channel-change echo clears the
+    /// in-progress flag rather than being treated as a manual channel join.
+    /// Pass <c>false</c> (the default) when no channel move is in flight (e.g. auto-
+    /// activate on connect — the user is already in root).
+    /// </param>
+    /// </summary>
+    private void ActivateLeaveVoice(bool channelMoveInProgress = false)
+    {
+        if (LocalUser == null) return;
+
+        _leftVoice = true;
+        _leaveVoiceInProgress = channelMoveInProgress;
+
+        LocalUser.SelfMuted = true;
+        LocalUser.SelfDeaf = true;
+        LocalUser.SendMuteDeaf();
+        _audioManager?.SetMuted(true);
+        _audioManager?.SetDeafened(true);
+
+        _bridge?.Send("voice.selfMuteChanged", new { muted = true });
+        _bridge?.Send("voice.selfDeafChanged", new { deafened = true });
+        _bridge?.Send("voice.leftVoiceChanged", new { leftVoice = true });
+    }
+
+    /// <summary>
     /// Toggles leave voice: first press saves the current channel, moves to root,
     /// and forces mute + deafen. Second press rejoins the saved channel and unmutes/undeafens.
     /// </summary>
@@ -242,25 +276,19 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         if (!_leftVoice)
         {
-            // Save current channel and leave
+            // Save current channel, move to root, then activate leave-voice state.
+            // Pass channelMoveInProgress: true so UserState clears the flag when
+            // the server echoes back the channel change.
             _previousChannelId = LocalUser.Channel?.Id ?? 0;
-            _leftVoice = true;
-            _leaveVoiceInProgress = true;
-
             JoinChannel(0);
-
-            LocalUser.SelfMuted = true;
-            LocalUser.SelfDeaf = true;
-            LocalUser.SendMuteDeaf();
-            _audioManager?.SetMuted(true);
-            _audioManager?.SetDeafened(true);
-
-            _bridge?.Send("voice.selfMuteChanged", new { muted = true });
-            _bridge?.Send("voice.selfDeafChanged", new { deafened = true });
-            _bridge?.Send("voice.leftVoiceChanged", new { leftVoice = true });
+            ActivateLeaveVoice(channelMoveInProgress: true);
         }
         else
         {
+            // No channel to rejoin — leave voice was auto-activated on connect
+            if (_previousChannelId == null)
+                return;
+
             // Rejoin previous channel
             _leftVoice = false;
             _leaveVoiceInProgress = true;
@@ -449,6 +477,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (LocalUser != null)
             _audioManager.SetLocalUserId(LocalUser.Id);
         _audioManager.StartMic();
+
+        // User starts in root channel on connect — auto-activate leave voice.
+        // _previousChannelId stays null so the rejoin action is disabled until
+        // the user manually joins a channel.
+        ActivateLeaveVoice();
 
         Debug.WriteLine($"[Mumble] Sent {channels.Count} channels and {users.Count} users");
     }
