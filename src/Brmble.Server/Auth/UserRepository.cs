@@ -43,7 +43,7 @@ public class UserRepository
 
         var id = await conn.QuerySingleAsync<long>("SELECT last_insert_rowid()", transaction: tx);
         var matrixUserId = $"@{id}:{_serverDomain}";
-        var finalDisplayName = displayName ?? $"user_{id}";
+        var finalDisplayName = string.IsNullOrEmpty(displayName) ? $"user_{id}" : displayName;
 
         await conn.ExecuteAsync(
             "UPDATE users SET display_name = @DisplayName, matrix_user_id = @MatrixUserId WHERE id = @Id",
