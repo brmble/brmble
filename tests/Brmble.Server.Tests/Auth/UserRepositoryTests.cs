@@ -67,4 +67,28 @@ public class UserRepositoryTests
         var updated = await _repo.GetByCertHash("cafebabe");
         Assert.AreEqual("NewName", updated!.DisplayName);
     }
+
+    [TestMethod]
+    public async Task Insert_NewUser_PersistsToDatabase()
+    {
+        var user = await _repo!.Insert("deadbeef", "Alice");
+        Assert.IsTrue(user.Id > 0);
+        Assert.AreEqual("deadbeef", user.CertHash);
+        Assert.AreEqual("Alice", user.DisplayName);
+        Assert.AreEqual($"@{user.Id}:test.local", user.MatrixUserId);
+    }
+
+    [TestMethod]
+    public async Task Insert_WithDisplayName_PersistsSuppliedName()
+    {
+        var user = await _repo!.Insert("hash1", "Alice");
+        Assert.AreEqual("Alice", user.DisplayName);
+    }
+
+    [TestMethod]
+    public async Task Insert_WithNullDisplayName_UsesPlaceholder()
+    {
+        var user = await _repo!.Insert("hash2", null);
+        Assert.AreEqual($"user_{user.Id}", user.DisplayName);
+    }
 }

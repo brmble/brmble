@@ -30,27 +30,28 @@ public class UserRepository
             new { CertHash = certHash });
     }
 
-    public async Task<User> Insert(string certHash, string displayName)
+    public async Task<User> Insert(string certHash, string? displayName)
     {
         using var conn = _db.CreateConnection();
         conn.Open();
         using var tx = conn.BeginTransaction();
 
         await conn.ExecuteAsync(
-            "INSERT INTO users (cert_hash, display_name, matrix_user_id) VALUES (@CertHash, @DisplayName, 'pending')",
-            new { CertHash = certHash, DisplayName = displayName },
+            "INSERT INTO users (cert_hash, display_name, matrix_user_id) VALUES (@CertHash, 'pending', 'pending')",
+            new { CertHash = certHash },
             tx);
 
         var id = await conn.QuerySingleAsync<long>("SELECT last_insert_rowid()", transaction: tx);
         var matrixUserId = $"@{id}:{_serverDomain}";
+        var finalDisplayName = displayName ?? $"user_{id}";
 
         await conn.ExecuteAsync(
-            "UPDATE users SET matrix_user_id = @MatrixUserId WHERE id = @Id",
-            new { MatrixUserId = matrixUserId, Id = id },
+            "UPDATE users SET display_name = @DisplayName, matrix_user_id = @MatrixUserId WHERE id = @Id",
+            new { DisplayName = finalDisplayName, MatrixUserId = matrixUserId, Id = id },
             tx);
 
         tx.Commit();
-        return new User(id, certHash, displayName, matrixUserId);
+        return new User(id, certHash, finalDisplayName, matrixUserId);
     }
 
     public async Task UpdateDisplayName(long id, string displayName)
