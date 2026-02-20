@@ -165,6 +165,11 @@ public sealed class NativeBridge
                 }
 
                 OnMessage?.Invoke(type ?? "");
+
+                // Handlers may have enqueued response messages via Send().
+                // Since OnWebMessageReceived runs on the UI thread, flush now
+                // so replies are delivered without waiting for a WM_USER roundtrip.
+                Flush();
             }
         }
         catch (Exception ex)

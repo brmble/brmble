@@ -63,24 +63,28 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (string.IsNullOrWhiteSpace(host))
         {
             _bridge?.Send("voice.error", new { message = "Server address is required" });
+            _bridge?.NotifyUiThread();
             return;
         }
 
         if (string.IsNullOrWhiteSpace(username))
         {
             _bridge?.Send("voice.error", new { message = "Username is required" });
+            _bridge?.NotifyUiThread();
             return;
         }
 
         if (port is <= 0 or > 65535)
         {
             _bridge?.Send("voice.error", new { message = "Port must be between 1 and 65535" });
+            _bridge?.NotifyUiThread();
             return;
         }
 
         try
         {
             SendSystemMessage($"Connecting to {host}:{port}...", "connecting");
+            _bridge?.NotifyUiThread();
 
             var connection = new MumbleConnection(host, port, this, voiceSupport: true);
             connection.Connect(username, password, Array.Empty<string>(), "Brmble");
@@ -153,6 +157,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         EmitCanRejoin(false);
 
         _bridge?.Send("voice.disconnected", null);
+        _bridge?.NotifyUiThread();
     }
 
     private void ProcessLoop(CancellationToken ct)
@@ -163,13 +168,21 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             try
             {
                 if (Connection.Process())
+                {
+                    // A server packet was processed — Send() calls have enqueued
+                    // messages. Post one WM_USER to flush the batch on the UI thread.
+                    _bridge?.NotifyUiThread();
                     Thread.Yield();
+                }
                 else
+                {
                     Thread.Sleep(1);
+                }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _bridge?.Send("voice.error", new { message = $"Process error: {ex.Message}" });
+                _bridge?.NotifyUiThread();
             }
         }
     }
@@ -245,6 +258,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         _bridge?.Send("voice.selfMuteChanged", new { muted = LocalUser.SelfMuted });
         _bridge?.Send("voice.selfDeafChanged", new { deafened = LocalUser.SelfDeaf });
+        _bridge?.Flush();
     }
 
     /// <summary>
@@ -309,6 +323,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _previousChannelId = LocalUser.Channel?.Id ?? 0;
             JoinChannel(0);
             ActivateLeaveVoice(channelMoveInProgress: true);
+            _bridge?.Flush();
         }
         else
         {
@@ -334,6 +349,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _bridge?.Send("voice.selfMuteChanged", new { muted = false });
             _bridge?.Send("voice.selfDeafChanged", new { deafened = false });
             _bridge?.Send("voice.leftVoiceChanged", new { leftVoice = false });
+            _bridge?.Flush();
         }
     }
 
@@ -349,6 +365,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         _bridge?.Send("voice.selfDeafChanged", new { deafened = LocalUser.SelfDeaf });
         _bridge?.Send("voice.selfMuteChanged", new { muted = LocalUser.SelfMuted });
+        _bridge?.Flush();
     }
 
     public void SetTransmissionMode(string mode, string? key)

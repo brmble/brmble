@@ -206,6 +206,7 @@ static class Program
                 {
                     // Ask via WebView2 modal — fire-and-forget
                     _bridge.Send("window.showCloseDialog");
+                    _bridge.Flush();
                 }
                 else
                 {

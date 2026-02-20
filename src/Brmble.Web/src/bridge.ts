@@ -6,19 +6,24 @@ const bridge = {
   init() {
     const webview = window.chrome?.webview;
     if (webview) {
-      webview.addEventListener('message', (event: { data: { type: string; data?: unknown } }) => {
-        this._handleMessage(event);
+      webview.addEventListener('message', (event: { data: unknown }) => {
+        this._handleMessage(event as { data: { type: string; data?: unknown } | { type: string; data?: unknown }[] });
       });
     }
   },
 
-  _handleMessage(event: { data: { type: string; data?: unknown } }) {
+  _handleMessage(event: { data: { type: string; data?: unknown } | { type: string; data?: unknown }[] }) {
     try {
-      const { type, data } = event.data;
-      console.log('[JS Bridge] Received:', type, data);
-      
-      if (this._handlers.has(type)) {
-        this._handlers.get(type)?.forEach(handler => handler(data));
+      const payload = event.data;
+      const messages = Array.isArray(payload) ? payload : [payload];
+
+      for (const msg of messages) {
+        const { type, data } = msg;
+        console.log('[JS Bridge] Received:', type, data);
+
+        if (this._handlers.has(type)) {
+          this._handlers.get(type)?.forEach(handler => handler(data));
+        }
       }
     } catch (e) {
       console.error('[JS Bridge] Error:', e);
