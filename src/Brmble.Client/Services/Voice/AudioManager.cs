@@ -28,9 +28,17 @@ internal sealed class AudioManager : IDisposable
     private volatile bool _deafened;
     private volatile TransmissionMode _transmissionMode = TransmissionMode.Continuous;
     private volatile bool _pttActive;
-    internal const int PttHotkeyId = 1;
-    private int _hotkeyId = -1;
-    private IntPtr _hwnd;
+internal const int PttHotkeyId = 1;
+internal const int MuteHotkeyId = 2;
+internal const int DeafenHotkeyId = 3;
+internal const int MuteDeafenHotkeyId = 4;
+internal const int ContinuousHotkeyId = 5;
+private int _hotkeyId = -1;
+private int _muteHotkeyId = -1;
+private int _deafenHotkeyId = -1;
+private int _muteDeafenHotkeyId = -1;
+private int _continuousHotkeyId = -1;
+private IntPtr _hwnd;
     private const int RmsThreshold = 300; // ~1% of 16-bit max (32767)
 
     // Speaking detection
@@ -50,8 +58,13 @@ internal sealed class AudioManager : IDisposable
     /// <summary>Fired when a user stops speaking (no packets for SpeakingTimeoutMs).</summary>
     public event Action<uint>? UserStoppedSpeaking;
 
+    public event Action? ToggleMuteRequested;
+    public event Action? ToggleDeafenRequested;
+    public event Action? ToggleContinuousRequested;
+
     public bool IsMuted => _muted;
     public bool IsDeafened => _deafened;
+    public TransmissionMode TransmissionMode => _transmissionMode;
 
     public AudioManager()
     {
@@ -235,6 +248,23 @@ internal sealed class AudioManager : IDisposable
         }
     }
 
+    private bool RegisterSingleHotkey(ref int hotkeyId, int id, string? key, IntPtr hwnd)
+    {
+        if (hotkeyId >= 0 && hwnd != IntPtr.Zero)
+        {
+            UnregisterHotKey(hwnd, hotkeyId);
+            hotkeyId = -1;
+        }
+        
+        if (key == null || hwnd == IntPtr.Zero) return false;
+        
+        var vk = KeyNameToVirtualKey(key);
+        if (vk == 0) return false;
+        
+        hotkeyId = id;
+        return RegisterHotKey(hwnd, hotkeyId, 0, (uint)vk);
+    }
+
     /// <summary>
     /// Sets the transmission mode. For PTT, registers a global Win32 hotkey.
     /// Pass hwnd = IntPtr.Zero to skip hotkey registration (e.g. in tests).
@@ -273,11 +303,54 @@ internal sealed class AudioManager : IDisposable
             StartMic();
     }
 
+    public void SetShortcut(string action, string? key)
+    {
+        if (_hwnd == IntPtr.Zero) return;
+        
+        switch (action)
+        {
+            case "pushToTalk":
+                RegisterSingleHotkey(ref _hotkeyId, PttHotkeyId, key, _hwnd);
+                break;
+            case "toggleMute":
+                RegisterSingleHotkey(ref _muteHotkeyId, MuteHotkeyId, key, _hwnd);
+                break;
+            case "toggleDeafen":
+                RegisterSingleHotkey(ref _deafenHotkeyId, DeafenHotkeyId, key, _hwnd);
+                break;
+            case "toggleMuteDeafen":
+                RegisterSingleHotkey(ref _muteDeafenHotkeyId, MuteDeafenHotkeyId, key, _hwnd);
+                break;
+            case "continuousTransmission":
+                RegisterSingleHotkey(ref _continuousHotkeyId, ContinuousHotkeyId, key, _hwnd);
+                break;
+        }
+    }
+
     /// <summary>Called from WndProc when WM_HOTKEY fires.</summary>
     public void HandleHotKey(int id, bool keyDown)
     {
-        if (id != _hotkeyId || _transmissionMode != TransmissionMode.PushToTalk) return;
-        SetPttActive(keyDown);
+        if (id == _hotkeyId && _transmissionMode == TransmissionMode.PushToTalk)
+        {
+            SetPttActive(keyDown);
+        }
+        else if (id == _muteHotkeyId && keyDown)
+        {
+            ToggleMuteRequested?.Invoke();
+        }
+        else if (id == _deafenHotkeyId && keyDown)
+        {
+            ToggleDeafenRequested?.Invoke();
+        }
+        else if (id == _muteDeafenHotkeyId && keyDown)
+        {
+            ToggleMuteRequested?.Invoke();
+            ToggleDeafenRequested?.Invoke();
+        }
+        else if (id == _continuousHotkeyId && keyDown)
+        {
+            ToggleContinuousRequested?.Invoke();
+        }
     }
 
     /// <summary>Start or stop mic for PTT.</summary>
@@ -317,6 +390,26 @@ internal sealed class AudioManager : IDisposable
         {
             UnregisterHotKey(_hwnd, _hotkeyId);
             _hotkeyId = -1;
+        }
+        if (_muteHotkeyId >= 0 && _hwnd != IntPtr.Zero)
+        {
+            UnregisterHotKey(_hwnd, _muteHotkeyId);
+            _muteHotkeyId = -1;
+        }
+        if (_deafenHotkeyId >= 0 && _hwnd != IntPtr.Zero)
+        {
+            UnregisterHotKey(_hwnd, _deafenHotkeyId);
+            _deafenHotkeyId = -1;
+        }
+        if (_muteDeafenHotkeyId >= 0 && _hwnd != IntPtr.Zero)
+        {
+            UnregisterHotKey(_hwnd, _muteDeafenHotkeyId);
+            _muteDeafenHotkeyId = -1;
+        }
+        if (_continuousHotkeyId >= 0 && _hwnd != IntPtr.Zero)
+        {
+            UnregisterHotKey(_hwnd, _continuousHotkeyId);
+            _continuousHotkeyId = -1;
         }
         StopMic();
         _waveIn?.Dispose();
