@@ -16,6 +16,8 @@ internal static class Win32Window
     public const uint WM_ACTIVATE = 0x0006;
     public const uint WM_SYSCOMMAND = 0x0112;
     public const uint WM_NCCALCSIZE = 0x0083;
+    public const uint WM_NCHITTEST = 0x0084;
+    public const uint WM_GETMINMAXINFO = 0x0024;
     public const uint WM_COMMAND = 0x0111;
     public const uint WM_LBUTTONDBLCLK = 0x0203;
     public const uint WM_RBUTTONUP = 0x0205;
@@ -120,6 +122,22 @@ internal static class Win32Window
         public int Left, Top, Right, Bottom;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    public struct POINT
+    {
+        public int X, Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MINMAXINFO
+    {
+        public POINT ptReserved;
+        public POINT ptMaxSize;
+        public POINT ptMaxPosition;
+        public POINT ptMinTrackSize;
+        public POINT ptMaxTrackSize;
+    }
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern ushort RegisterClassEx(ref WNDCLASSEX lpwcx);
 
@@ -148,6 +166,12 @@ internal static class Win32Window
     public static extern bool GetClientRect(IntPtr hwnd, out RECT rect);
 
     [DllImport("user32.dll")]
+    public static extern bool GetCursorPos(out POINT lpPoint);
+
+    [DllImport("user32.dll")]
+    public static extern bool ScreenToClient(IntPtr hwnd, ref POINT lpPoint);
+
+    [DllImport("user32.dll")]
     public static extern bool ShowWindow(IntPtr hwnd, int cmdShow);
 
     [DllImport("user32.dll")]
@@ -174,6 +198,9 @@ internal static class Win32Window
 
     [DllImport("user32.dll")]
     private static extern IntPtr LoadCursor(IntPtr instance, int cursorName);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr CreateSolidBrush(uint crColor);
 
     [DllImport("kernel32.dll")]
     public static extern bool AllocConsole();
@@ -210,6 +237,7 @@ internal static class Win32Window
             lpfnWndProc = _wndProcRef,
             hInstance = hInstance,
             hCursor = LoadCursor(IntPtr.Zero, 32512),
+            hbrBackground = CreateSolidBrush(0x140a0f), // #0f0a14 as COLORREF (0x00BBGGRR)
             lpszClassName = className
         };
         RegisterClassEx(ref wc);
@@ -222,7 +250,7 @@ internal static class Win32Window
 
     public static void ExtendFrameIntoClientArea(IntPtr hwnd)
     {
-        var margins = new MARGINS { Left = 0, Right = 0, Top = 1, Bottom = 0 };
+        var margins = new MARGINS { Left = -1, Right = -1, Top = -1, Bottom = -1 };
         DwmExtendFrameIntoClientArea(hwnd, ref margins);
     }
 
