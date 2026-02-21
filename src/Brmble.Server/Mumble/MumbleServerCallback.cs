@@ -1,12 +1,16 @@
+using Microsoft.Extensions.Logging;
+
 namespace Brmble.Server.Mumble;
 
 public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
 {
     private readonly IEnumerable<IMumbleEventHandler> _handlers;
+    private readonly ILogger<MumbleServerCallback> _logger;
 
-    public MumbleServerCallback(IEnumerable<IMumbleEventHandler> handlers)
+    public MumbleServerCallback(IEnumerable<IMumbleEventHandler> handlers, ILogger<MumbleServerCallback> logger)
     {
         _handlers = handlers;
+        _logger = logger;
     }
 
     // Ice overrides — called by ZeroC Ice runtime on Mumble server events.
@@ -19,32 +23,57 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     {
         var user = ToMumbleUser(state);
         var channelId = message.channels.FirstOrDefault();
-        Task.Run(() => DispatchTextMessage(user, message.text, channelId));
+        _logger.LogDebug("ICE callback: text message from {User} in channel {ChannelId}", user.Name, channelId);
+        Task.Run(() => SafeDispatch(
+            () => DispatchTextMessage(user, message.text, channelId),
+            nameof(userTextMessage)));
     }
 
     public override void userConnected(MumbleServer.User state, Ice.Current current)
     {
-        Task.Run(() => DispatchUserConnected(ToMumbleUser(state)));
+        var user = ToMumbleUser(state);
+        _logger.LogDebug("ICE callback: user connected {User}", user.Name);
+        Task.Run(() => SafeDispatch(() => DispatchUserConnected(user), nameof(userConnected)));
     }
 
     public override void userDisconnected(MumbleServer.User state, Ice.Current current)
     {
-        Task.Run(() => DispatchUserDisconnected(ToMumbleUser(state)));
+        var user = ToMumbleUser(state);
+        _logger.LogDebug("ICE callback: user disconnected {User}", user.Name);
+        Task.Run(() => SafeDispatch(() => DispatchUserDisconnected(user), nameof(userDisconnected)));
     }
 
     public override void channelCreated(MumbleServer.Channel state, Ice.Current current)
     {
-        Task.Run(() => DispatchChannelCreated(ToMumbleChannel(state)));
+        var channel = ToMumbleChannel(state);
+        _logger.LogDebug("ICE callback: channel created {Channel}", channel.Name);
+        Task.Run(() => SafeDispatch(() => DispatchChannelCreated(channel), nameof(channelCreated)));
     }
 
     public override void channelRemoved(MumbleServer.Channel state, Ice.Current current)
     {
-        Task.Run(() => DispatchChannelRemoved(ToMumbleChannel(state)));
+        var channel = ToMumbleChannel(state);
+        _logger.LogDebug("ICE callback: channel removed {Channel}", channel.Name);
+        Task.Run(() => SafeDispatch(() => DispatchChannelRemoved(channel), nameof(channelRemoved)));
     }
 
     public override void channelStateChanged(MumbleServer.Channel state, Ice.Current current)
     {
-        Task.Run(() => DispatchChannelRenamed(ToMumbleChannel(state)));
+        var channel = ToMumbleChannel(state);
+        _logger.LogDebug("ICE callback: channel renamed {Channel}", channel.Name);
+        Task.Run(() => SafeDispatch(() => DispatchChannelRenamed(channel), nameof(channelStateChanged)));
+    }
+
+    private async Task SafeDispatch(Func<Task> dispatch, string callbackName)
+    {
+        try
+        {
+            await dispatch();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unhandled exception dispatching {Callback}", callbackName);
+        }
     }
 
     // Unused Ice callbacks — empty implementations required by the base class

@@ -1,10 +1,11 @@
 using System.Net;
 using System.Text.Json;
 using Brmble.Server.Matrix;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
 using Moq.Protected;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Brmble.Server.Tests.Matrix;
 
@@ -31,7 +32,7 @@ public class MatrixAppServiceTests
             AppServiceToken = "test-token"
         });
 
-        _svc = new MatrixAppService(factory.Object, settings);
+        _svc = new MatrixAppService(factory.Object, settings, NullLogger<MatrixAppService>.Instance);
     }
 
     private void SetupHttpResponse(HttpStatusCode status, string body = "{}")

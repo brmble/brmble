@@ -14,7 +14,7 @@ public class MumbleIceServiceTests
 {
     private static MumbleIceService CreateService(string host = "localhost", int port = 9999)
     {
-        var callback = new MumbleServerCallback(Enumerable.Empty<IMumbleEventHandler>());
+        var callback = new MumbleServerCallback(Enumerable.Empty<IMumbleEventHandler>(), NullLogger<MumbleServerCallback>.Instance);
 
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -31,7 +31,7 @@ public class MumbleIceServiceTests
         var channelRepo = new ChannelRepository(db);
         var appService = new Mock<IMatrixAppService>().Object;
         var sessions = new Mock<IActiveBrmbleSessions>().Object;
-        var matrixService = new MatrixService(channelRepo, appService, sessions);
+        var matrixService = new MatrixService(channelRepo, appService, sessions, NullLogger<MatrixService>.Instance);
 
         return new MumbleIceService(
             callback,
