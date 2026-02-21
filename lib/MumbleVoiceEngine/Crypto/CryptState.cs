@@ -6,9 +6,9 @@ namespace MumbleVoiceEngine.Crypto
     public class CryptState
     {
         readonly ReaderWriterLockSlim _aesLock = new ReaderWriterLockSlim(LockRecursionPolicy.SupportsRecursion);
-        OcbAes _aes;
+        OcbAes? _aes;
 
-        byte[] _serverNonce;
+        byte[]? _serverNonce;
 
         public byte[] ServerNonce
         {
@@ -17,7 +17,7 @@ namespace MumbleVoiceEngine.Crypto
                 try
                 {
                     _aesLock.EnterReadLock();
-                    return (byte[])_serverNonce.Clone();
+                    return (byte[])_serverNonce!.Clone();
                 }
                 finally
                 {
@@ -38,7 +38,7 @@ namespace MumbleVoiceEngine.Crypto
             }
         }
 
-        byte[] _clientNonce;
+        byte[]? _clientNonce;
         public byte[] ClientNonce
         {
             get
@@ -46,7 +46,7 @@ namespace MumbleVoiceEngine.Crypto
                 try
                 {
                     _aesLock.EnterReadLock();
-                    return _clientNonce;
+                    return (byte[])_clientNonce!.Clone();
                 }
                 finally
                 {
@@ -93,7 +93,7 @@ namespace MumbleVoiceEngine.Crypto
             }
         }
 
-        public byte[] Decrypt(byte[] source, int length)
+        public byte[]? Decrypt(byte[] source, int length)
         {
             try
             {
@@ -111,9 +111,9 @@ namespace MumbleVoiceEngine.Crypto
                 int lost = 0;
                 int late = 0;
 
-                Array.ConstrainedCopy(_serverNonce, 0, saveiv, 0, OcbAes.BLOCK_SIZE);
+                Array.ConstrainedCopy(_serverNonce!, 0, saveiv, 0, OcbAes.BLOCK_SIZE);
 
-                if (((_serverNonce[0] + 1) & 0xFF) == ivbyte)
+                if (((_serverNonce![0] + 1) & 0xFF) == ivbyte)
                 {
                     // In order as expected.
                     if (ivbyte > _serverNonce[0])
@@ -184,7 +184,7 @@ namespace MumbleVoiceEngine.Crypto
 
                 // Decrypt and get computed tag
                 byte[] computedTag = new byte[OcbAes.BLOCK_SIZE];
-                byte[] dst = _aes.Decrypt(source, 4, plainLength, _serverNonce, 0, computedTag, 0);
+                byte[] dst = _aes!.Decrypt(source, 4, plainLength, _serverNonce!, 0, computedTag, 0);
 
                 // Verify 3-byte truncated tag against packet header
                 if (computedTag[0] != source[1] || computedTag[1] != source[2] || computedTag[2] != source[3])
@@ -218,15 +218,15 @@ namespace MumbleVoiceEngine.Crypto
 
                 // Increment client nonce (128-bit little-endian counter)
                 for (int i = 0; i < OcbAes.BLOCK_SIZE; i++)
-                    if ((++_clientNonce[i]) != 0)
+                    if ((++_clientNonce![i]) != 0)
                         break;
 
                 byte[] tag = new byte[OcbAes.BLOCK_SIZE];
-                byte[] ciphertext = _aes.Encrypt(source, 0, length, _clientNonce, 0, tag, 0);
+                byte[] ciphertext = _aes!.Encrypt(source, 0, length, _clientNonce!, 0, tag, 0);
 
                 // Build packet: [nonce_lsb, tag[0], tag[1], tag[2], ciphertext...]
                 byte[] packet = new byte[length + 4];
-                packet[0] = _clientNonce[0];
+                packet[0] = _clientNonce![0];
                 packet[1] = tag[0];
                 packet[2] = tag[1];
                 packet[3] = tag[2];

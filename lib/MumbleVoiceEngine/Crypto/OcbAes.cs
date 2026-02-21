@@ -18,17 +18,16 @@ namespace MumbleVoiceEngine.Crypto
         byte[] tmp = new byte[BLOCK_SIZE];
         byte[] pad = new byte[BLOCK_SIZE];
 
-        RijndaelManaged aes;
+        Aes? aes;
 
         public void Initialise(byte[] key)
         {
-            aes = new RijndaelManaged
-            {
-                BlockSize = BLOCK_SIZE * 8,
-                Key = key,
-                Mode = CipherMode.ECB,
-                Padding = PaddingMode.None
-            };
+            var a = Aes.Create();
+            a.BlockSize = BLOCK_SIZE * 8;
+            a.Key = key;
+            a.Mode = CipherMode.ECB;
+            a.Padding = PaddingMode.None;
+            aes = a;
         }
 
         /// <summary>

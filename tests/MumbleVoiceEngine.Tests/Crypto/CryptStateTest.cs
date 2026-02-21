@@ -30,7 +30,7 @@ namespace MumbleVoiceEngine.Tests.Crypto
             Assert.IsNotNull(encrypted);
             Assert.AreEqual(plaintext.Length + 4, encrypted.Length);
 
-            byte[] decrypted = receiver.Decrypt(encrypted, encrypted.Length);
+            byte[]? decrypted = receiver.Decrypt(encrypted, encrypted.Length);
 
             Assert.IsNotNull(decrypted, "Decryption returned null - tag verification failed");
             CollectionAssert.AreEqual(plaintext, decrypted);
@@ -46,7 +46,7 @@ namespace MumbleVoiceEngine.Tests.Crypto
             {
                 byte[] plaintext = new byte[] { 0x20, (byte)i, 0x01, 0x02 };
                 byte[] encrypted = sender.Encrypt(plaintext, plaintext.Length);
-                byte[] decrypted = receiver.Decrypt(encrypted, encrypted.Length);
+                byte[]? decrypted = receiver.Decrypt(encrypted, encrypted.Length);
 
                 Assert.IsNotNull(decrypted, $"Packet {i} decryption failed");
                 CollectionAssert.AreEqual(plaintext, decrypted);
@@ -68,7 +68,7 @@ namespace MumbleVoiceEngine.Tests.Crypto
 
             encrypted[1] ^= 0xFF;
 
-            byte[] decrypted = receiver.Decrypt(encrypted, encrypted.Length);
+            byte[]? decrypted = receiver.Decrypt(encrypted, encrypted.Length);
             Assert.IsNull(decrypted, "Corrupted packet should return null");
         }
 
@@ -97,7 +97,7 @@ namespace MumbleVoiceEngine.Tests.Crypto
             sender.Encrypt(p2, p2.Length);
             byte[] e3 = sender.Encrypt(p3, p3.Length);
 
-            byte[] d3 = receiver.Decrypt(e3, e3.Length);
+            byte[]? d3 = receiver.Decrypt(e3, e3.Length);
             Assert.IsNotNull(d3);
             CollectionAssert.AreEqual(p3, d3);
             Assert.AreEqual(2, receiver.Lost);
