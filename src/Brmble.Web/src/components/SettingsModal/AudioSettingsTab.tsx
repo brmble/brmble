@@ -20,8 +20,8 @@ export interface AudioSettings {
 export const DEFAULT_SETTINGS: AudioSettings = {
   inputDevice: 'default',
   outputDevice: 'default',
-  inputVolume: 100,
-  outputVolume: 100,
+  inputVolume: 250,
+  outputVolume: 250,
   transmissionMode: 'pushToTalk',
   pushToTalkKey: null,
 };
@@ -107,7 +107,7 @@ export function AudioSettingsTab({ settings, onChange }: AudioSettingsTabProps) 
         <input
           type="range"
           min="0"
-          max="150"
+          max="250"
           value={localSettings.inputVolume}
           onChange={(e) => handleChange('inputVolume', parseInt(e.target.value))}
         />
@@ -118,7 +118,7 @@ export function AudioSettingsTab({ settings, onChange }: AudioSettingsTabProps) 
         <input
           type="range"
           min="0"
-          max="150"
+          max="250"
           value={localSettings.outputVolume}
           onChange={(e) => handleChange('outputVolume', parseInt(e.target.value))}
         />

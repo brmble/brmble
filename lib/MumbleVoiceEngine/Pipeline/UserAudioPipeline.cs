@@ -1,5 +1,6 @@
 namespace MumbleVoiceEngine.Pipeline;
 
+using System.Threading;
 using NAudio.Wave;
 using MumbleVoiceEngine.Codec;
 
@@ -21,8 +22,15 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
     private int _currentFrameOffset;
 
     private readonly object _lock = new();
+    private float _volume = 1.0f;
 
     public WaveFormat WaveFormat { get; }
+
+    public float Volume
+    {
+        get => Volatile.Read(ref _volume);
+        set => Volatile.Write(ref _volume, Math.Clamp(value, 0f, 2.5f));
+    }
 
     public UserAudioPipeline(int sampleRate = 48000, int channels = 1)
     {
@@ -55,10 +63,11 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
 
     /// <summary>
     /// IWaveProvider.Read — called by NAudio playback device on its audio thread.
-    /// Pulls decoded PCM from the queue, returns silence if empty.
+    /// Pulls decoded PCM from the queue, returns silence if empty. Applies volume.
     /// </summary>
     public int Read(byte[] buffer, int offset, int count)
     {
+        float volume;
         lock (_lock)
         {
             int written = 0;
@@ -106,7 +115,27 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
                 }
             }
 
-            return count;
+            // Capture volume inside lock to ensure consistent read
+            volume = Volatile.Read(ref _volume);
+        }
+
+        // Apply volume outside lock to reduce contention
+        if (volume != 1.0f)
+            ApplyVolume(buffer, offset, count, volume);
+        
+        return count;
+    }
+
+    private void ApplyVolume(byte[] buffer, int offset, int length, float volume)
+    {
+        for (int i = offset; i < offset + length - 1; i += 2)
+        {
+            short sample = (short)(buffer[i] | (buffer[i + 1] << 8));
+            float adjusted = sample * volume;
+            adjusted = Math.Clamp(adjusted, short.MinValue, short.MaxValue);
+            short clampedSample = (short)adjusted;
+            buffer[i] = (byte)(clampedSample & 0xFF);
+            buffer[i + 1] = (byte)((clampedSample >> 8) & 0xFF);
         }
     }
 

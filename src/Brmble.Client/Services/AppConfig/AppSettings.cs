@@ -3,8 +3,8 @@ namespace Brmble.Client.Services.AppConfig;
 public record AudioSettings(
     string InputDevice = "default",
     string OutputDevice = "default",
-    int InputVolume = 100,
-    int OutputVolume = 100,
+    int InputVolume = 250,
+    int OutputVolume = 250,
     string TransmissionMode = "voiceActivity",
     string? PushToTalkKey = null
 );
