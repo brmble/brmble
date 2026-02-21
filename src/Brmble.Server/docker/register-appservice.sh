@@ -11,7 +11,16 @@ fi
 
 # Wait for conduwuit to be ready
 echo "[register-appservice] Waiting for conduwuit..."
+# Maximum time (in seconds) to wait for conduwuit to become ready (override with CONDUWUIT_STARTUP_TIMEOUT)
+MAX_WAIT_SECONDS="${CONDUWUIT_STARTUP_TIMEOUT:-60}"
+START_TIME=$(date +%s)
 until curl -sf "$HS/_matrix/client/versions" > /dev/null; do
+    NOW=$(date +%s)
+    ELAPSED=$((NOW - START_TIME))
+    if [ "$ELAPSED" -ge "$MAX_WAIT_SECONDS" ]; then
+        echo "[register-appservice] ERROR: Timed out after ${MAX_WAIT_SECONDS}s waiting for conduwuit at $HS" >&2
+        exit 1
+    fi
     sleep 2
 done
 echo "[register-appservice] conduwuit ready"
