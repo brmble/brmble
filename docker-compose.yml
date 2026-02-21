@@ -8,13 +8,31 @@ services:
     volumes:
       - brmble-data:/data
     environment:
-      # Required — set these in a .env file or your environment
+      # ── Required ──────────────────────────────────────────────────────────────
+      # Public Matrix server domain (e.g. "chat.example.com")
       MATRIX_SERVER_NAME: ${MATRIX_SERVER_NAME}
+      # Shared secret between Brmble and the embedded Matrix homeserver.
+      # Generate with: openssl rand -hex 32
       MATRIX_APPSERVICE_TOKEN: ${MATRIX_APPSERVICE_TOKEN}
-      # Optional — Mumble ICE bridge (leave blank if no Mumble server)
+
+      # ── Matrix admin account (first-run only) ─────────────────────────────────
+      # Created automatically on first start. Override to set known credentials.
+      # MATRIX_ADMIN_USER: brmble-admin
+      # MATRIX_ADMIN_PASSWORD: <your-password>
+
+      # ── Matrix registration ────────────────────────────────────────────────────
+      # Set to "true" to allow open user registration after first-run setup.
+      # MATRIX_ALLOW_REGISTRATION: "false"
+
+      # ── Mumble ICE bridge (optional) ──────────────────────────────────────────
+      # Leave unset if you have no Mumble server.
       Ice__Host: ${ICE_HOST:-mumble-server}
       Ice__Port: ${ICE_PORT:-6502}
       Ice__Secret: ${ICE_SECRET:-}
+
+      # ── Startup tuning ────────────────────────────────────────────────────────
+      # Max seconds to wait for the Matrix homeserver to be ready (default: 60)
+      # CONDUWUIT_STARTUP_TIMEOUT: "60"
     restart: unless-stopped
 
 volumes:
