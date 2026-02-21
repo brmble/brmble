@@ -144,8 +144,7 @@
 /* Root channel users (lobby) */
 .root-users-panel {
   margin: 0.125rem 0.5rem 0.125rem;
-  padding: 0.5rem 0.625rem 0.5rem 0.75rem;
-  border-left: 1px dashed rgba(212, 20, 90, 0.25);
+  padding: 0.5rem 0.625rem 0.5rem 0.5rem;
   animation: lobby-fade-in 300ms ease backwards;
 }
 
@@ -153,6 +152,7 @@
   display: flex;
   align-items: baseline;
   gap: 0.5rem;
+  padding-left: 0.25rem;
   margin-bottom: 0.375rem;
 }
 
