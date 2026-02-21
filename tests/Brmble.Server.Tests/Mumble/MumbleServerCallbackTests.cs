@@ -1,4 +1,5 @@
 using Brmble.Server.Mumble;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
@@ -87,5 +88,35 @@ public class MumbleServerCallbackTests
     {
         var callback = new MumbleServerCallback([], NullLogger<MumbleServerCallback>.Instance);
         await callback.DispatchTextMessage(new MumbleUser("X", "x", 1), "hi", 1);
+    }
+
+    [TestMethod]
+    public async Task SafeDispatch_HandlerThrows_CatchesAndLogsError()
+    {
+        var thrownException = new InvalidOperationException("handler failed");
+        var handler = new Mock<IMumbleEventHandler>();
+        handler.Setup(h => h.OnUserTextMessage(It.IsAny<MumbleUser>(), It.IsAny<string>(), It.IsAny<int>()))
+            .ThrowsAsync(thrownException);
+
+        var logger = new Mock<ILogger<MumbleServerCallback>>();
+        var callback = new MumbleServerCallback([handler.Object], logger.Object);
+
+        // userTextMessage dispatches via SafeDispatch — should not throw
+        var iceUser = new MumbleServer.User(new byte[] { 127, 0, 0, 1 }) { name = "Alice", session = 1 };
+        var iceMsg = new MumbleServer.TextMessage([], [42], [], "boom");
+
+        callback.userTextMessage(iceUser, iceMsg, null!);
+
+        // SafeDispatch runs via Task.Run, give it time to complete
+        await Task.Delay(200);
+
+        logger.Verify(
+            l => l.Log(
+                LogLevel.Error,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, _) => v.ToString()!.Contains("userTextMessage")),
+                thrownException,
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
     }
 }

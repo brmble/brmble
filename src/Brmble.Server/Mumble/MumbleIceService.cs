@@ -11,6 +11,7 @@ public class MumbleIceService : IHostedService
     private readonly string _host;
     private readonly int _port;
     private readonly string _secret;
+    private readonly string _callbackHost;
     private readonly ILogger<MumbleIceService> _logger;
     private Ice.Communicator? _communicator;
 
@@ -25,6 +26,7 @@ public class MumbleIceService : IHostedService
         _host = configuration["Ice:Host"] ?? "mumble-server";
         _port = int.Parse(configuration["Ice:Port"] ?? "6502");
         _secret = configuration["Ice:Secret"] ?? string.Empty;
+        _callbackHost = configuration["Ice:CallbackHost"] ?? System.Net.Dns.GetHostName();
         _logger = logger;
     }
 
@@ -62,11 +64,11 @@ public class MumbleIceService : IHostedService
             }
 
             // Register callback adapter so Mumble can call back into us.
-            // Use the container's actual hostname so Mumble can reach us across Docker networks.
-            // 127.0.0.1 only works when both processes share the same network namespace.
-            var callbackHost = System.Net.Dns.GetHostName();
+            // Configurable via Ice:CallbackHost; falls back to the container's hostname so
+            // Mumble can reach us across Docker networks. 127.0.0.1 only works when both
+            // processes share the same network namespace.
             var adapter = _communicator.createObjectAdapterWithEndpoints(
-                "MumbleCallback", $"tcp -h {callbackHost}");
+                "MumbleCallback", $"tcp -h {_callbackHost}");
             var callbackPrx = MumbleServer.ServerCallbackPrxHelper.uncheckedCast(
                 adapter.addWithUUID(_callback));
             adapter.activate();
