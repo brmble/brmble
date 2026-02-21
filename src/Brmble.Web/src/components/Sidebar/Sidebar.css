@@ -140,3 +140,155 @@
   font-size: 0.6875rem;
   color: var(--text-muted);
 }
+
+/* Root channel users (lobby) */
+.root-users-panel {
+  margin: 0.125rem 0 0.125rem;
+  padding: 0.375rem 0.5rem 0.375rem 0.5rem;
+  animation: lobby-fade-in 300ms ease backwards;
+}
+
+.root-users-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding-left: 0.25rem;
+  margin-bottom: 0.375rem;
+}
+
+.root-users-label {
+  font-family: var(--font-display);
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(212, 20, 90, 0.45);
+  font-style: italic;
+}
+
+.root-users-count {
+  font-size: 0.5625rem;
+  color: rgba(212, 20, 90, 0.3);
+  font-family: var(--font-mono);
+  letter-spacing: 0.05em;
+}
+
+.root-users-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.root-user-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background var(--transition-fast);
+  animation: root-user-appear 200ms ease backwards;
+  margin: 2px 0;
+}
+
+.root-user-row:hover {
+  background: rgba(212, 20, 90, 0.06);
+}
+
+.root-user-status {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.root-user-status .status-icon--deaf,
+.root-user-status .status-icon--muted {
+  color: color-mix(in srgb, var(--accent-berry) 55%, transparent);
+}
+
+.root-user-status .status-icon--hidden {
+  visibility: hidden;
+}
+
+.root-user-status .status-icon--mic {
+  color: rgba(107, 95, 122, 0.5);
+}
+
+.root-user-self .root-user-status .status-icon--mic {
+  color: rgba(168, 159, 184, 0.55);
+}
+
+.root-user-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(107, 95, 122, 0.85);
+  font-size: 0.8rem;
+  font-style: italic;
+}
+
+.root-user-row:hover .root-user-name {
+  color: var(--text-secondary);
+}
+
+.root-user-self .root-user-name {
+  color: rgba(168, 159, 184, 0.7);
+}
+
+.root-self-badge {
+  font-size: 0.5625rem;
+  font-family: var(--font-mono);
+  color: rgba(212, 20, 90, 0.4);
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+  text-transform: lowercase;
+}
+
+@keyframes lobby-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes root-user-appear {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Channels section header */
+.channels-section-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.25rem 0.125rem 0.25rem 0.25rem;
+  margin-bottom: 0.125rem;
+}
+
+.channels-section-label {
+  font-family: var(--font-display);
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(212, 20, 90, 0.45);
+  font-style: italic;
+}
+
+.channels-section-count {
+  font-size: 0.5625rem;
+  color: rgba(212, 20, 90, 0.3);
+  font-family: var(--font-mono);
+  letter-spacing: 0.05em;
+}

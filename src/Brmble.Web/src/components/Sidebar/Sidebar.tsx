@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { ChannelTree } from '../ChannelTree';
+import { ContextMenu } from '../ContextMenu/ContextMenu';
 import type { Channel, User, ConnectionStatus } from '../../types';
 import './Sidebar.css';
 
@@ -41,6 +43,19 @@ export function Sidebar({
 }: SidebarProps) {
   const connected = connectionStatus === 'connected';
   const isReconnecting = connectionStatus === 'reconnecting';
+
+  const rootChannel = channels.find(ch => ch.id === 0 || ch.parent === ch.id);
+  const rootUsers = rootChannel ? users.filter(u => u.channelId === rootChannel.id) : [];
+  const nonRootChannels = rootChannel ? channels.filter(ch => ch !== rootChannel) : channels;
+  const nonRootUsers = rootChannel ? users.filter(u => u.channelId !== rootChannel.id) : users;
+
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    userId: string;
+    userName: string;
+    isSelf: boolean;
+  } | null>(null);
 
   return (
     <aside className="sidebar">
@@ -88,12 +103,60 @@ export function Sidebar({
         </div>
       )}
       
-      <div className="sidebar-divider"></div>
-      
+      {connected && rootUsers.length > 0 && (
+        <div className="root-users-panel">
+          <div className="root-users-header">
+            <span className="root-users-label">Connected</span>
+            <span className="root-users-count">{rootUsers.length}</span>
+          </div>
+          <div className="root-users-list">
+            {rootUsers.map((user, i) => (
+              <div
+                key={user.session}
+                className={`root-user-row${user.self ? ' root-user-self' : ''}`}
+                style={{ animationDelay: `${i * 50}ms` }}
+                title={user.deafened ? 'Deafened' : user.muted ? 'Muted' : 'Online'}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setContextMenu({ x: e.clientX, y: e.clientY, userId: String(user.session), userName: user.name, isSelf: !!user.self });
+                }}
+              >
+                <span className="root-user-status">
+                  <svg className={`status-icon status-icon--deaf${user.deafened ? '' : ' status-icon--hidden'}`} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="1" y1="1" x2="23" y2="23"/>
+                    <path d="M3 18v-6a9 9 0 0 1 18 0v6"/>
+                    <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3z"/>
+                    <path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>
+                  </svg>
+                  <svg className={`status-icon status-icon--muted${user.muted ? '' : ' status-icon--hidden'}`} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="1" y1="1" x2="23" y2="23"/>
+                    <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/>
+                  </svg>
+                  <svg className="status-icon status-icon--mic" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                    <line x1="12" y1="19" x2="12" y2="23"/>
+                    <line x1="8" y1="23" x2="16" y2="23"/>
+                  </svg>
+                </span>
+                <span className="root-user-name">{user.name}</span>
+                {user.self && <span className="root-self-badge">you</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="sidebar-channels">
+        {connected && (
+          <div className="channels-section-header">
+            <span className="channels-section-label">Channels</span>
+            <span className="channels-section-count">{nonRootChannels.length}</span>
+          </div>
+        )}
         <ChannelTree
-          channels={channels}
-          users={users}
+          channels={nonRootChannels}
+          users={nonRootUsers}
           currentChannelId={currentChannelId}
           onJoinChannel={onJoinChannel}
           onSelectChannel={onSelectChannel}
@@ -102,6 +165,35 @@ export function Sidebar({
           pendingChannelAction={pendingChannelAction}
         />
       </div>
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          items={[
+            ...(!contextMenu.isSelf && onStartDM ? [{
+              label: 'Send Direct Message',
+              icon: (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
+              ),
+              onClick: () => onStartDM(contextMenu.userId, contextMenu.userName),
+            }] : []),
+            {
+              label: 'Information',
+              icon: (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10" />
+                  <circle cx="12" cy="8" r="1" fill="currentColor" stroke="none" />
+                  <line x1="12" y1="12" x2="12" y2="16" />
+                </svg>
+              ),
+              onClick: () => { /* placeholder — implement later */ },
+            },
+          ]}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
     </aside>
   );
 }
