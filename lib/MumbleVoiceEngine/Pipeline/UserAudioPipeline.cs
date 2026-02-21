@@ -1,5 +1,6 @@
 namespace MumbleVoiceEngine.Pipeline;
 
+using System.Threading;
 using NAudio.Wave;
 using MumbleVoiceEngine.Codec;
 
@@ -27,8 +28,8 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
 
     public float Volume
     {
-        get => _volume;
-        set => _volume = value;
+        get => Volatile.Read(ref _volume);
+        set => Volatile.Write(ref _volume, Math.Clamp(value, 0f, 2.5f));
     }
 
     public UserAudioPipeline(int sampleRate = 48000, int channels = 1)
@@ -66,6 +67,7 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
     /// </summary>
     public int Read(byte[] buffer, int offset, int count)
     {
+        float volume;
         lock (_lock)
         {
             int written = 0;
@@ -76,8 +78,6 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
                 int remaining = _currentFrame.Length - _currentFrameOffset;
                 int toCopy = Math.Min(count, remaining);
                 Array.Copy(_currentFrame, _currentFrameOffset, buffer, offset, toCopy);
-                if (_volume != 1.0f)
-                    ApplyVolume(buffer, offset, toCopy);
                 _currentFrameOffset += toCopy;
                 written += toCopy;
 
@@ -103,32 +103,35 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
                 if (frame.Length <= needed)
                 {
                     Array.Copy(frame, 0, buffer, offset + written, frame.Length);
-                    if (_volume != 1.0f)
-                        ApplyVolume(buffer, offset + written, frame.Length);
                     written += frame.Length;
                 }
                 else
                 {
                     // Partial frame — save remainder for next Read
                     Array.Copy(frame, 0, buffer, offset + written, needed);
-                    if (_volume != 1.0f)
-                        ApplyVolume(buffer, offset + written, needed);
                     written += needed;
                     _currentFrame = frame;
                     _currentFrameOffset = needed;
                 }
             }
 
-            return count;
+            // Capture volume inside lock to ensure consistent read
+            volume = Volatile.Read(ref _volume);
         }
+
+        // Apply volume outside lock to reduce contention
+        if (volume != 1.0f)
+            ApplyVolume(buffer, offset, count, volume);
+        
+        return count;
     }
 
-    private void ApplyVolume(byte[] buffer, int offset, int length)
+    private void ApplyVolume(byte[] buffer, int offset, int length, float volume)
     {
         for (int i = offset; i < offset + length - 1; i += 2)
         {
             short sample = (short)(buffer[i] | (buffer[i + 1] << 8));
-            float adjusted = sample * _volume;
+            float adjusted = sample * volume;
             adjusted = Math.Clamp(adjusted, short.MinValue, short.MaxValue);
             short clampedSample = (short)adjusted;
             buffer[i] = (byte)(clampedSample & 0xFF);

@@ -143,10 +143,10 @@ private IntPtr _hwnd;
     public bool IsDeafened => _deafened;
     public TransmissionMode TransmissionMode => _transmissionMode;
 
-    public void SetInputVolume(int percentage) => _inputVolume = percentage / 100f;
+    public void SetInputVolume(int percentage) => _inputVolume = Math.Clamp(percentage, 0, 250) / 100f;
     public void SetOutputVolume(int percentage)
     {
-        _outputVolume = percentage / 100f;
+        _outputVolume = Math.Clamp(percentage, 0, 250) / 100f;
         lock (_lock)
         {
             foreach (var pipeline in _pipelines.Values)
