@@ -18,11 +18,14 @@ public class MatrixAppService : IMatrixAppService
     private readonly string _homeserverUrl;
     private readonly string _appServiceToken;
 
+    private readonly string _botUserId;
+
     public MatrixAppService(IHttpClientFactory httpClientFactory, IOptions<MatrixSettings> settings)
     {
         _httpClientFactory = httpClientFactory;
         _homeserverUrl = settings.Value.HomeserverUrl;
         _appServiceToken = settings.Value.AppServiceToken;
+        _botUserId = $"@brmble:{settings.Value.ServerDomain}";
     }
 
     public async Task SendMessage(string roomId, string displayName, string text)
@@ -61,7 +64,8 @@ public class MatrixAppService : IMatrixAppService
     private async Task<string> SendRequest(HttpMethod method, string url, string jsonBody)
     {
         var client = _httpClientFactory.CreateClient();
-        var request = new HttpRequestMessage(method, url)
+        var urlWithUser = $"{url}{(url.Contains('?') ? '&' : '?')}user_id={Uri.EscapeDataString(_botUserId)}";
+        var request = new HttpRequestMessage(method, urlWithUser)
         {
             Content = new StringContent(jsonBody, Encoding.UTF8, "application/json")
         };
