@@ -182,11 +182,12 @@
 .root-user-row {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 2px 4px 2px 2px;
-  border-radius: 4px;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
   transition: background var(--transition-fast);
   animation: root-user-appear 200ms ease backwards;
+  margin: 2px 0;
 }
 
 .root-user-row:hover {
