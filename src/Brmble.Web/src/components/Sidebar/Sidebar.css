@@ -194,12 +194,25 @@
 }
 
 .root-user-status {
-  color: rgba(107, 95, 122, 0.5);
   display: flex;
   align-items: center;
+  gap: 2px;
   flex-shrink: 0;
-  width: 16px;
-  justify-content: center;
+  width: 38px;
+  justify-content: flex-end;
+}
+
+.root-user-status .status-icon--deaf,
+.root-user-status .status-icon--muted {
+  color: color-mix(in srgb, var(--accent-berry) 55%, transparent);
+}
+
+.root-user-status .status-icon--mic {
+  color: rgba(107, 95, 122, 0.5);
+}
+
+.root-user-self .root-user-status .status-icon--mic {
+  color: rgba(168, 159, 184, 0.55);
 }
 
 .root-user-name {

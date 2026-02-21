@@ -123,15 +123,26 @@
 }
 
 .user-status {
-  color: var(--text-muted);
   display: flex;
   align-items: center;
+  gap: 2px;
   flex-shrink: 0;
-  width: 18px;
-  justify-content: center;
+  width: 38px;        /* fixed: 3 × 11px icons + 2 × 2px gaps + 1px slack */
+  justify-content: flex-end;
 }
 
-.user-row.self .user-status {
+.status-icon--deaf,
+.status-icon--muted {
+  color: color-mix(in srgb, var(--accent-berry) 55%, transparent);
+  flex-shrink: 0;
+}
+
+.status-icon--mic {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.user-row.self .status-icon--mic {
   color: var(--accent-mint);
 }
 
