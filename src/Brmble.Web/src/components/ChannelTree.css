@@ -96,9 +96,6 @@
 }
 
 .channel-children {
-  margin-left: 0;
-  padding-left: 23px; /* 24px minus 1px for border-left, aligning mic with folder icon above */
-  border-left: 1px solid var(--border-subtle);
   margin-top: 2px;
   margin-bottom: 4px;
 }
