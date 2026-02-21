@@ -11,7 +11,6 @@ public class MumbleIceService : IHostedService
     private readonly string _host;
     private readonly int _port;
     private readonly string _secret;
-    private readonly int _connectTimeoutMs;
     private readonly ILogger<MumbleIceService> _logger;
     private Ice.Communicator? _communicator;
 
@@ -26,7 +25,6 @@ public class MumbleIceService : IHostedService
         _host = configuration["Ice:Host"] ?? "mumble-server";
         _port = int.Parse(configuration["Ice:Port"] ?? "6502");
         _secret = configuration["Ice:Secret"] ?? string.Empty;
-        _connectTimeoutMs = int.Parse(configuration["Ice:ConnectTimeoutMs"] ?? "3000");
         _logger = logger;
     }
 
@@ -36,6 +34,7 @@ public class MumbleIceService : IHostedService
         {
             var properties = new Ice.Properties();
             properties.setProperty("Ice.Default.EncodingVersion", "1.0");
+            properties.setProperty("Ice.MessageSizeMax", "10240"); // 10 MB (default is 1 MB)
 
             var initData = new Ice.InitializationData { properties = properties };
             _communicator = new Ice.Communicator(initData);
