@@ -29,6 +29,11 @@ if [ ! -f /data/.appservice-registered ]; then
 else
     EFFECTIVE_ALLOW_REGISTRATION=${MATRIX_ALLOW_REGISTRATION:-false}
     EFFECTIVE_REGISTRATION_TOKEN=""
+    # Cleanup: once the appservice has been registered and the sentinel exists,
+    # the one-time registration token file is no longer needed.
+    if [ -f /data/registration-token ]; then
+        rm -f /data/registration-token
+    fi
 fi
 
 # Generate Continuwuity config
@@ -42,7 +47,7 @@ address = "127.0.0.1"
 max_request_size = 20000000
 allow_registration = ${EFFECTIVE_ALLOW_REGISTRATION}
 allow_federation = false
-$([ -n "${EFFECTIVE_REGISTRATION_TOKEN}" ] && echo "registration_token = \"${EFFECTIVE_REGISTRATION_TOKEN}\""  || true)
+$([ -n "${EFFECTIVE_REGISTRATION_TOKEN}" ] && echo "registration_token = \"${EFFECTIVE_REGISTRATION_TOKEN}\"" || true)
 EOF
 
 # Expose token and server name to Brmble.Server via ASP.NET config env vars
