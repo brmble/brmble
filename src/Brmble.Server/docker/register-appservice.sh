@@ -81,11 +81,16 @@ ${TICKS}"
 # Send the registration command
 TXN_ID=$(openssl rand -hex 8)
 echo "[register-appservice] Sending registration command to admin room..."
-curl -sf -X PUT "$HS/_matrix/client/v3/rooms/${ROOM_ID}/send/m.room.message/${TXN_ID}" \
+RESPONSE=$(curl -sf -X PUT "$HS/_matrix/client/v3/rooms/${ROOM_ID}/send/m.room.message/${TXN_ID}" \
     -H "Authorization: Bearer $ACCESS_TOKEN" \
     -H "Content-Type: application/json" \
-    -d "$(jq -n --arg body "$COMMAND" '{msgtype:"m.text", body:$body}')" \
-    > /dev/null
+    -d "$(jq -n --arg body "$COMMAND" '{msgtype:"m.text", body:$body}')" )
 
-echo "[register-appservice] Appservice registered successfully"
+EVENT_ID=$(printf '%s\n' "$RESPONSE" | jq -r '.event_id // empty')
+if [ -z "$EVENT_ID" ]; then
+    echo "[register-appservice] Failed to confirm appservice registration command was accepted; not creating sentinel" >&2
+    exit 1
+fi
+
+echo "[register-appservice] Appservice registered successfully (event_id: $EVENT_ID)"
 touch "$SENTINEL"
