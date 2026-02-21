@@ -53,9 +53,8 @@ COPY --from=downloader /usr/local/bin/continuwuity /usr/local/bin/
 COPY src/Brmble.Server/docker/supervisord.conf /etc/supervisord.conf
 COPY src/Brmble.Server/docker/livekit.yaml /etc/livekit/livekit.yaml
 COPY src/Brmble.Server/docker/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
 COPY src/Brmble.Server/docker/register-appservice.sh /register-appservice.sh
-RUN chmod +x /register-appservice.sh
+RUN chmod +x /entrypoint.sh /register-appservice.sh
 
 # Data volume (SQLite + Continuwuity RocksDB)
 VOLUME /data
