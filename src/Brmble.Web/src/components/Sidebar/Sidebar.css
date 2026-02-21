@@ -205,6 +205,10 @@
   color: color-mix(in srgb, var(--accent-berry) 55%, transparent);
 }
 
+.root-user-status .status-icon--hidden {
+  visibility: hidden;
+}
+
 .root-user-status .status-icon--mic {
   color: rgba(107, 95, 122, 0.5);
 }

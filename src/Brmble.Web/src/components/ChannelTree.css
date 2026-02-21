@@ -135,6 +135,10 @@
   flex-shrink: 0;
 }
 
+.status-icon--hidden {
+  visibility: hidden;
+}
+
 .status-icon--mic {
   color: var(--text-muted);
   flex-shrink: 0;
