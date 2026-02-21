@@ -41,10 +41,13 @@ fi
 # Join the admin room (conduwuit auto-invites the first admin user)
 ENCODED_ALIAS=$(printf '%%23admins%%3A%s' "$MATRIX_SERVER_NAME")
 echo "[register-appservice] Joining #admins:${MATRIX_SERVER_NAME}..."
-curl -sf -X POST "$HS/_matrix/client/v3/join/${ENCODED_ALIAS}" \
+if ! curl -sf -X POST "$HS/_matrix/client/v3/join/${ENCODED_ALIAS}" \
     -H "Authorization: Bearer $ACCESS_TOKEN" \
     -H "Content-Type: application/json" \
-    -d '{}' > /dev/null
+    -d '{}' > /dev/null; then
+    echo "[register-appservice] ERROR: Failed to join #admins:${MATRIX_SERVER_NAME}."
+    exit 1
+fi
 
 # Resolve room alias to room ID for sending the message
 ROOM_ID=$(curl -sf "$HS/_matrix/client/v3/directory/room/${ENCODED_ALIAS}" \
