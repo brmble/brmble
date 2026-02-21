@@ -11,7 +11,6 @@ services:
       # Required — set these in a .env file or your environment
       MATRIX_SERVER_NAME: ${MATRIX_SERVER_NAME}
       MATRIX_APPSERVICE_TOKEN: ${MATRIX_APPSERVICE_TOKEN}
-      Matrix__AppServiceToken: ${MATRIX_APPSERVICE_TOKEN}
       # Optional — Mumble ICE bridge (leave blank if no Mumble server)
       Ice__Host: ${ICE_HOST:-mumble-server}
       Ice__Port: ${ICE_PORT:-6502}

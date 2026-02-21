@@ -36,7 +36,6 @@ public class MumbleIceService : IHostedService
         {
             var properties = new Ice.Properties();
             properties.setProperty("Ice.Default.EncodingVersion", "1.0");
-            properties.setProperty("Ice.Connection.ConnectTimeout", _connectTimeoutMs.ToString());
 
             var initData = new Ice.InitializationData { properties = properties };
             _communicator = new Ice.Communicator(initData);

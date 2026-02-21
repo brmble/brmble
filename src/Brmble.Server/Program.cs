@@ -1,10 +1,14 @@
 using Brmble.Server.Auth;
+using Microsoft.AspNetCore.DataProtection;
 using Brmble.Server.Data;
 using Brmble.Server.LiveKit;
 using Brmble.Server.Matrix;
 using Brmble.Server.Mumble;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(new DirectoryInfo("/data/dataprotection-keys"));
 
 builder.Services.AddDatabase(builder.Configuration);
 builder.Services.AddMumble();
