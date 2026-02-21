@@ -127,8 +127,6 @@
   align-items: center;
   gap: 2px;
   flex-shrink: 0;
-  width: 38px;        /* fixed: 3 × 11px icons + 2 × 2px gaps + 1px slack */
-  justify-content: flex-end;
 }
 
 .status-icon--deaf,
