@@ -50,7 +50,7 @@ public static class VoicePacketParser
         if (size == 0)
             return null;
 
-        byte[] data = reader.ReadBytes(size);
+        byte[]? data = reader.ReadBytes(size);
         if (data == null)
             return null;
 

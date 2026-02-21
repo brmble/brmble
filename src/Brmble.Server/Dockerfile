@@ -39,7 +39,7 @@ RUN dotnet publish src/Brmble.Server/Brmble.Server.csproj \
 # ── Stage 3: Runtime image ────────────────────────────────────────────────────
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 
-RUN apt-get update && apt-get install -y --no-install-recommends supervisor \
+RUN apt-get update && apt-get install -y --no-install-recommends supervisor curl jq \
     && rm -rf /var/lib/apt/lists/*
 
 # Brmble.Server
@@ -53,7 +53,8 @@ COPY --from=downloader /usr/local/bin/continuwuity /usr/local/bin/
 COPY src/Brmble.Server/docker/supervisord.conf /etc/supervisord.conf
 COPY src/Brmble.Server/docker/livekit.yaml /etc/livekit/livekit.yaml
 COPY src/Brmble.Server/docker/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY src/Brmble.Server/docker/register-appservice.sh /register-appservice.sh
+RUN chmod +x /entrypoint.sh /register-appservice.sh
 
 # Data volume (SQLite + Continuwuity RocksDB)
 VOLUME /data

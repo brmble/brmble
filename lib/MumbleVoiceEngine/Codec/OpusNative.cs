@@ -62,43 +62,43 @@ namespace MumbleVoiceEngine.Codec
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         internal delegate IntPtr opus_encoder_create_delegate(int sampleRate, int channelCount, int application, out IntPtr error);
-        internal static opus_encoder_create_delegate opus_encoder_create;
+        internal static opus_encoder_create_delegate opus_encoder_create = null!;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         internal delegate void opus_encoder_destroy_delegate(IntPtr encoder);
-        internal static opus_encoder_destroy_delegate opus_encoder_destroy;
+        internal static opus_encoder_destroy_delegate opus_encoder_destroy = null!;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         internal delegate int opus_encode_delegate(IntPtr encoder, IntPtr pcm, int frameSize, IntPtr data, int maxDataBytes);
-        internal static opus_encode_delegate opus_encode;
+        internal static opus_encode_delegate opus_encode = null!;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         internal delegate IntPtr opus_decoder_create_delegate(int sampleRate, int channelCount, out IntPtr error);
-        internal static opus_decoder_create_delegate opus_decoder_create;
+        internal static opus_decoder_create_delegate opus_decoder_create = null!;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         internal delegate void opus_decoder_destroy_delegate(IntPtr decoder);
-        internal static opus_decoder_destroy_delegate opus_decoder_destroy;
+        internal static opus_decoder_destroy_delegate opus_decoder_destroy = null!;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         internal delegate int opus_decode_delegate(IntPtr decoder, IntPtr data, int len, IntPtr pcm, int frameSize, int decodeFec);
-        internal static opus_decode_delegate opus_decode;
+        internal static opus_decode_delegate opus_decode = null!;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         internal delegate int opus_packet_get_nb_channels_delegate(IntPtr data);
-        internal static opus_packet_get_nb_channels_delegate opus_packet_get_nb_channels;
+        internal static opus_packet_get_nb_channels_delegate opus_packet_get_nb_channels = null!;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         internal delegate int opus_packet_get_nb_samples_delegate(IntPtr data, int len, int sampleRate);
-        internal static opus_packet_get_nb_samples_delegate opus_packet_get_nb_samples;
+        internal static opus_packet_get_nb_samples_delegate opus_packet_get_nb_samples = null!;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         internal delegate int opus_encoder_ctl_delegate(IntPtr encoder, Ctl request, int value);
-        internal static opus_encoder_ctl_delegate opus_encoder_ctl;
+        internal static opus_encoder_ctl_delegate opus_encoder_ctl = null!;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         internal delegate int opus_encoder_ctl_out_delegate(IntPtr encoder, Ctl request, out int value);
-        internal static opus_encoder_ctl_out_delegate opus_encoder_ctl_out;
+        internal static opus_encoder_ctl_out_delegate opus_encoder_ctl_out = null!;
 
         // ReSharper restore UnassignedField.Compiler
         // ReSharper restore InconsistentNaming

@@ -24,7 +24,8 @@ namespace MumbleVoiceEngine.Tests.Protocol
             int size = (int)reader.ReadVarInt64();
             Assert.AreEqual(3, size);
 
-            byte[] data = reader.ReadBytes(size);
+            byte[]? data = reader.ReadBytes(size);
+            Assert.IsNotNull(data);
             CollectionAssert.AreEqual(opusData, data);
         }
 

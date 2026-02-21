@@ -26,7 +26,7 @@ namespace MumbleVoiceEngine.Protocol
             return (byte)_inner.ReadByte();
         }
 
-        public byte[] ReadBytes(int length)
+        public byte[]? ReadBytes(int length)
         {
             byte[] buffer = new byte[length];
             var read = _inner.Read(buffer, 0, length);
