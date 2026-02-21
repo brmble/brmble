@@ -6,26 +6,32 @@ model: claude-opus-4-6
 
 # Address PR Review Comments
 
-Automates addressing pull request review feedback: analyze comments, make fixes, reply to explain changes, resolve threads, and request re-review from @codex.
+Automates addressing pull request review feedback: analyze comments, make fixes, reply to explain changes, resolve threads.
 
 ## Prerequisites
 
-- Must have `gh` CLI authenticated
+- Must have `gh` CLI authenticated (`gh auth status` to verify)
 - Must be in a git repository with a GitHub remote
 
 ## Step 1: Validate Input
 
 **If $ARGUMENTS is empty:**
+
 - Use AskUserQuestion to ask for the PR number
 - Validate it's a number
 
 **If $ARGUMENTS is provided:**
+
 - Extract PR number from $ARGUMENTS
 - Validate it's a valid number
 
-## Step 2: Fetch PR Review Threads
+## Step 2: Determine Repository Info
 
-Run this GraphQL query to get all unresolved review threads:
+Run `gh repo view --json owner,name --jq '.owner.login + " " + .name'` to get the owner and repo name. Store these for use in subsequent API calls.
+
+## Step 3: Fetch PR Review Threads
+
+Run this GraphQL query to get all unresolved review threads (replace `{owner}`, `{repo}`, and `PR_NUMBER` with actual values):
 
 ```bash
 gh api graphql -f query='
@@ -60,7 +66,7 @@ Filter to only unresolved threads (`isResolved: false`).
 
 If there are no unresolved threads, inform the user and exit.
 
-## Step 3: Analyze and Categorize Comments
+## Step 4: Analyze and Categorize Comments
 
 For each unresolved thread:
 
@@ -68,33 +74,34 @@ For each unresolved thread:
 2. Identify the file path and line number
 3. Read the relevant file section to understand the context
 4. Categorize the type of feedback:
-   - **Code change needed** - requires file modification
-   - **Documentation** - needs comment/doc update
-   - **Question** - requires explanation only, no code change
-   - **Disagree/Won't fix** - ASK USER before responding
+   - **Code change needed** — requires file modification
+   - **Documentation** — needs comment/doc update
+   - **Question** — requires explanation only, no code change
+   - **Disagree/Won't fix** — ASK THE USER before responding
 
 Present a summary to the user showing:
+
 - Number of comments found
 - File paths affected
 - Brief description of each comment
 
 **IMPORTANT**: For any comment where you disagree or think "won't fix" is appropriate, use AskUserQuestion to get user confirmation before replying. Never auto-resolve disagreements.
 
-## Step 4: Address Each Comment
+## Step 5: Address Each Comment
 
 For each comment requiring action:
 
-### 4a. Read the relevant file
+### 5a. Read the relevant file
 
 Use the Read tool to understand the context around the specified line.
 
-### 4b. Make the fix
+### 5b. Make the fix
 
 Use the Edit tool to make the necessary changes based on the feedback.
 
-### 4c. Reply to the comment
+### 5c. Reply to the comment
 
-Use REST API to reply to the comment explaining what was done:
+Use the REST API to reply to the comment explaining what was done:
 
 ```bash
 gh api --method POST \
@@ -104,7 +111,7 @@ gh api --method POST \
 
 Keep replies concise but informative. Explain WHAT was changed and WHY.
 
-### 4d. Resolve the thread
+### 5d. Resolve the thread
 
 Use GraphQL mutation to resolve the thread:
 
@@ -117,7 +124,7 @@ mutation {
 }'
 ```
 
-## Step 5: Commit Changes
+## Step 6: Commit Changes
 
 After all fixes are made:
 
@@ -128,24 +135,20 @@ After all fixes are made:
 git commit -m "fix: address PR review feedback
 
 - [list each fix made]
-- [reference comment IDs if helpful]
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
+- [reference comment IDs if helpful]"
 ```
 
 3. Push the changes to the remote branch
 
-## Step 6: Request Re-Review
+## Step 7: Request Re-Review (Optional)
 
-Add a comment to the PR requesting re-review from @codex:
+Ask the user if they want to request a re-review. If yes, ask who to notify:
 
 ```bash
-gh pr comment PR_NUMBER --body '@codex review'
+gh pr comment PR_NUMBER --body '@REVIEWER please re-review'
 ```
 
-## Step 7: Summary
+## Step 8: Summary
 
 Present a summary to the user:
 
