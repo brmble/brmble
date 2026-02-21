@@ -40,7 +40,7 @@ export LIVEKIT_KEYS="${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
 
 # Admin credentials for appservice registration (first-run only)
 if [ ! -f /data/admin-password ]; then
-    openssl rand -hex 16 > /data/admin-password
+    (umask 077; openssl rand -hex 16 > /data/admin-password)
 fi
 export MATRIX_ADMIN_USER="${MATRIX_ADMIN_USER:-brmble-admin}"
 export MATRIX_ADMIN_PASSWORD="${MATRIX_ADMIN_PASSWORD:-$(cat /data/admin-password)}"
