@@ -46,10 +46,14 @@ public class MumbleIceService : IHostedService
             var serverProxy = MumbleServer.ServerPrxHelper.checkedCast(proxy)
                 ?? throw new InvalidOperationException("checkedCast failed — not a MumbleServer.Server");
 
-            // Startup channel sync — ensure all existing channels have Matrix rooms
+            // Startup channel sync — ensure all existing channels have Matrix rooms.
+            // Non-fatal: a conduwuit hiccup here should not prevent callback registration.
             var channels = serverProxy.getChannels();
             foreach (var (_, ch) in channels)
-                await _matrixService.EnsureChannelRoom(new MumbleChannel(ch.id, ch.name));
+            {
+                try { await _matrixService.EnsureChannelRoom(new MumbleChannel(ch.id, ch.name)); }
+                catch (Exception ex) { _logger.LogWarning(ex, "Could not ensure Matrix room for channel {Name}", ch.name); }
+            }
 
             // Register callback adapter so Mumble can call back into us
             var adapter = _communicator.createObjectAdapterWithEndpoints(
