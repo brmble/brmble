@@ -42,7 +42,7 @@ export function Sidebar({
   const connected = connectionStatus === 'connected';
   const isReconnecting = connectionStatus === 'reconnecting';
 
-  const rootChannel = channels.find(ch => ch.parent === undefined);
+  const rootChannel = channels.find(ch => ch.id === 0 || ch.parent === ch.id);
   const rootUsers = rootChannel ? users.filter(u => u.channelId === rootChannel.id) : [];
   const nonRootChannels = rootChannel ? channels.filter(ch => ch !== rootChannel) : channels;
   const nonRootUsers = rootChannel ? users.filter(u => u.channelId !== rootChannel.id) : users;
