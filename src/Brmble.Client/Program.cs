@@ -354,6 +354,10 @@ static class Program
                 _mumbleClient?.HandleHotKey((int)wParam.ToInt64(), true);
                 return IntPtr.Zero;
 
+            case Win32Window.WM_INPUT:
+                _mumbleClient?.HandleRawInput(wParam, lParam);
+                return Win32Window.DefWindowProc(hwnd, msg, wParam, lParam);
+
             case 0x0400: // WM_USER
                 _bridge?.ProcessUiMessage();
                 return IntPtr.Zero;
