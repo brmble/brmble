@@ -120,6 +120,10 @@ private IntPtr _hwnd;
     private const int SpeakingTimeoutMs = 200;
     private uint _localUserId = 0;
 
+    // Volume controls
+    private volatile float _inputVolume = 1.0f;
+    private volatile float _outputVolume = 1.0f;
+
     public void SetLocalUserId(uint sessionId) => _localUserId = sessionId;
 
     /// <summary>Fired when an encoded voice packet is ready to send to the server.</summary>
@@ -138,6 +142,17 @@ private IntPtr _hwnd;
     public bool IsMuted => _muted;
     public bool IsDeafened => _deafened;
     public TransmissionMode TransmissionMode => _transmissionMode;
+
+    public void SetInputVolume(int percentage) => _inputVolume = Math.Clamp(percentage, 0, 250) / 100f;
+    public void SetOutputVolume(int percentage)
+    {
+        _outputVolume = Math.Clamp(percentage, 0, 250) / 100f;
+        lock (_lock)
+        {
+            foreach (var pipeline in _pipelines.Values)
+                pipeline.Volume = _outputVolume;
+        }
+    }
 
     public AudioManager(IntPtr hwnd = default)
     {
@@ -194,6 +209,10 @@ private IntPtr _hwnd;
         if (_transmissionMode == TransmissionMode.PushToTalk && !_pttActive) return;
         if (_transmissionMode == TransmissionMode.VoiceActivity && !IsAboveThreshold(e.Buffer, e.BytesRecorded)) return;
 
+        // Apply input volume
+        if (_inputVolume != 1.0f)
+            ApplyInputVolume(e.Buffer, e.BytesRecorded);
+
         // Local speaking detection - track in _lastVoicePacket like remote users
         lock (_lock)
         {
@@ -205,6 +224,19 @@ private IntPtr _hwnd;
         }
 
         _encodePipeline?.SubmitPcm(new ReadOnlySpan<byte>(e.Buffer, 0, e.BytesRecorded));
+    }
+
+    private void ApplyInputVolume(byte[] buffer, int bytesRecorded)
+    {
+        for (int i = 0; i < bytesRecorded - 1; i += 2)
+        {
+            short sample = (short)(buffer[i] | (buffer[i + 1] << 8));
+            float adjusted = sample * _inputVolume;
+            adjusted = Math.Clamp(adjusted, short.MinValue, short.MaxValue);
+            short clampedSample = (short)adjusted;
+            buffer[i] = (byte)(clampedSample & 0xFF);
+            buffer[i + 1] = (byte)((clampedSample >> 8) & 0xFF);
+        }
     }
 
     /// <summary>RMS check: returns true if the audio chunk is loud enough to transmit.</summary>
@@ -237,6 +269,7 @@ private IntPtr _hwnd;
             if (!_pipelines.TryGetValue(userId, out var pipeline))
             {
                 pipeline = new UserAudioPipeline(sampleRate: 48000, channels: 1);
+                pipeline.Volume = _outputVolume;
                 _pipelines[userId] = pipeline;
 
                 var player = new WaveOutEvent
