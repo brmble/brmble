@@ -25,8 +25,7 @@ internal static class AudioLog
     {
         try
         {
-            // Uncomment for debugging:
-            // File.AppendAllText(LogPath, $"[{DateTime.Now:HH:mm:ss.fff}] {msg}\n");
+            File.AppendAllText(LogPath, $"[{DateTime.Now:HH:mm:ss.fff}] {msg}\n");
         }
         catch { }
     }
@@ -35,12 +34,20 @@ internal static class AudioLog
 internal static class Win32RawInput
 {
     public const uint WM_INPUT = 0x00FF;
-    public const uint RIDEV_INPUTSINK = 0x00000001;
+    public const uint RID_INPUT = 0x10000003;
+    public const uint RIDEV_INPUTSINK = 0x00000100; // Receive input even when window not focused
+    public const uint RIDEV_NOLEGACY = 0x00000001;  // Don't receive legacy messages (blocks key)
+    public const uint RIM_TYPEKEYBOARD = 0x00010000;
     public const ushort HID_USAGE_PAGE_GENERIC = 0x01;
+    public const ushort HID_USAGE_GENERIC_KEYBOARD = 0x06;
     public const ushort HID_USAGE_GENERIC_MOUSE = 0x02;
 
     public const int WH_MOUSE_LL = 14;
     public const int WH_KEYBOARD_LL = 13;
+    public const int WM_KEYDOWN = 0x0100;
+    public const int WM_KEYUP = 0x0101;
+    public const int WM_SYSKEYDOWN = 0x0104;
+    public const int WM_SYSKEYUP = 0x0105;
     public const int WM_LBUTTONDOWN = 0x0201;
     public const int WM_RBUTTONDOWN = 0x0204;
     public const int WM_MBUTTONDOWN = 0x0207;
@@ -64,6 +71,32 @@ internal static class Win32RawInput
         public IntPtr dwExtraInfo;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RAWINPUTHEADER
+    {
+        public uint dwType;
+        public uint dwSize;
+        public IntPtr hDevice;
+        public IntPtr wParam;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RAWKEYBOARD
+    {
+        public ushort MakeCode;
+        public ushort Flags;
+        public ushort Reserved;
+        public ushort VKey;
+        public uint Message;
+        public uint ExtraInformation;
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    public static extern int GetRawInputData(IntPtr hRawInput, uint uiCommand, IntPtr pData, ref uint pcbSize, uint cbSizeHeader);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    public static extern bool RegisterRawInputDevices(RAWINPUTDEVICE[] pRawInputDevices, uint uiNumDevices, uint cbSize);
+
     public delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
 
     [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
@@ -77,6 +110,15 @@ internal static class Win32RawInput
 
     [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
     public static extern IntPtr GetModuleHandle(string? lpModuleName);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RAWINPUTDEVICE
+    {
+        public ushort usUsagePage;
+        public ushort usUsage;
+        public uint dwFlags;
+        public IntPtr hwndTarget;
+    }
 }
 
 /// <summary>
@@ -111,8 +153,16 @@ private int _muteHotkeyId = -1;
 private int _deafenHotkeyId = -1;
 private int _muteDeafenHotkeyId = -1;
 private int _continuousHotkeyId = -1;
-private IntPtr _hwnd;
+    private IntPtr _hwnd;
     private const int RmsThreshold = 300; // ~1% of 16-bit max (32767)
+
+    // Raw Input for PTT key detection (non-blocking)
+    private int _pttVk;
+    private bool _rawInputRegistered;
+
+    // Polling for PTT key (works globally without blocking keys)
+    private System.Threading.Timer? _pttPollingTimer;
+    private bool _pttKeyWasDown;
 
     // Speaking detection
     private readonly Dictionary<uint, DateTime> _lastVoicePacket = new();
@@ -340,8 +390,9 @@ private IntPtr _hwnd;
     }
 
     /// <summary>
-    /// Sets the transmission mode. For PTT, registers a global Win32 hotkey.
-    /// Pass hwnd = IntPtr.Zero to skip hotkey registration (e.g. in tests).
+    /// Sets the transmission mode. For PTT, registers raw input for key detection.
+    /// Raw Input does NOT block keys from other apps (unlike RegisterHotKey).
+    /// Pass hwnd = IntPtr.Zero to skip registration (e.g. in tests).
     /// </summary>
     public void SetTransmissionMode(TransmissionMode mode, string? key, IntPtr hwnd)
     {
@@ -354,6 +405,15 @@ private IntPtr _hwnd;
         {
             UnregisterHotKey(_hwnd, _hotkeyId);
             _hotkeyId = -1;
+        }
+
+        // Unregister raw input for PTT
+        UnregisterRawInputKeyboard();
+
+        // Stop polling when not in PTT mode
+        if (mode != TransmissionMode.PushToTalk)
+        {
+            StopPttPolling();
         }
 
         if (mode == TransmissionMode.PushToTalk && key != null && hwnd != IntPtr.Zero)
@@ -369,21 +429,21 @@ private IntPtr _hwnd;
             }
             else if (vk != 0)
             {
-                _hotkeyId = PttHotkeyId;
-                if (!RegisterHotKey(hwnd, _hotkeyId, 0, (uint)vk))
-                {
-                    _hotkeyId = -1;
-                    AudioLog.Write($"[Audio] RegisterHotKey failed for vk=0x{vk:X2}");
-                }
-                else
-                {
-                    AudioLog.Write($"[Audio] RegisterHotKey SUCCESS for vk=0x{vk:X2}");
-                }
+                // Use keyboard polling via GetAsyncKeyState - works globally without blocking keys
+                _pttVk = vk;
+                _pttKeyWasDown = false;
+                StartPttPolling();
+                AudioLog.Write($"[Audio] PTT polling started for vk=0x{vk:X2}");
             }
             else
             {
                 AudioLog.Write($"[Audio] KeyNameToVirtualKey returned 0 for key={key}");
             }
+        }
+        else
+        {
+            // Not PTT mode - stop polling
+            StopPttPolling();
         }
 
         // For PTT, start with mic off until key pressed
@@ -391,6 +451,42 @@ private IntPtr _hwnd;
             StopMic();
         else if (!_muted)
             StartMic();
+    }
+
+    private void StartPttPolling()
+    {
+        StopPttPolling();
+        // Poll every 50ms for PTT key state
+        _pttPollingTimer = new System.Threading.Timer(PttPollCallback, null, 0, 50);
+    }
+
+    private void StopPttPolling()
+    {
+        _pttPollingTimer?.Dispose();
+        _pttPollingTimer = null;
+    }
+
+    private void PttPollCallback(object? state)
+    {
+        if (_pttVk == 0 || _transmissionMode != TransmissionMode.PushToTalk)
+            return;
+
+        // GetAsyncKeyState returns negative if key is currently pressed
+        short keyState = GetAsyncKeyState(_pttVk);
+        bool isKeyDown = (keyState & 0x8000) != 0;
+
+        if (isKeyDown && !_pttKeyWasDown)
+        {
+            _pttKeyWasDown = true;
+            AudioLog.Write($"[Audio] PTT key down (polling)");
+            SetPttActive(true);
+        }
+        else if (!isKeyDown && _pttKeyWasDown)
+        {
+            _pttKeyWasDown = false;
+            AudioLog.Write($"[Audio] PTT key up (polling)");
+            SetPttActive(false);
+        }
     }
 
     public void SetShortcut(string action, string? key)
@@ -587,20 +683,122 @@ private IntPtr _hwnd;
             RegisterMouseHookForShortcut("pushToTalk", key);
     }
 
-    /// <summary>Called from WndProc on WM_INPUT for raw mouse input.</summary>
+    /// <summary>Called from WndProc on WM_INPUT for raw keyboard/mouse input.</summary>
     public void HandleRawInput(IntPtr wParam, IntPtr lParam)
     {
-        // Now handled via low-level mouse hook instead
+        uint pcbSize = 0;
+        Win32RawInput.GetRawInputData(lParam, Win32RawInput.RID_INPUT, IntPtr.Zero, ref pcbSize, (uint)Marshal.SizeOf<Win32RawInput.RAWINPUTHEADER>());
+
+        if (pcbSize == 0) return;
+
+        IntPtr buffer = Marshal.AllocHGlobal((int)pcbSize);
+        try
+        {
+            if (Win32RawInput.GetRawInputData(lParam, Win32RawInput.RID_INPUT, buffer, ref pcbSize, (uint)Marshal.SizeOf<Win32RawInput.RAWINPUTHEADER>()) == pcbSize)
+            {
+                var header = Marshal.PtrToStructure<Win32RawInput.RAWINPUTHEADER>(buffer);
+                if (header.dwType == Win32RawInput.RIM_TYPEKEYBOARD)
+                {
+                    var keyboard = Marshal.PtrToStructure<Win32RawInput.RAWKEYBOARD>(buffer + Marshal.SizeOf<Win32RawInput.RAWINPUTHEADER>());
+                    int vk = keyboard.VKey;
+                    bool isKeyDown = (keyboard.Flags & 0x01) == 0; // RI_KEY_BREAK is 0x01
+
+                    AudioLog.Write($"[Audio] RawInput: vk=0x{vk:X2} ('{VirtualKeyToString(vk)}'), down={isKeyDown}, pttVk=0x{_pttVk:X2}, mode={_transmissionMode}");
+
+                    // Check if this is our PTT key
+                    if (vk == _pttVk && _transmissionMode == TransmissionMode.PushToTalk)
+                    {
+                        AudioLog.Write($"[Audio] RawInput PTT MATCH: vk=0x{vk:X2}, down={isKeyDown}");
+                        SetPttActive(isKeyDown);
+                    }
+                }
+            }
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buffer);
+        }
+    }
+
+    private static string VirtualKeyToString(int vk) => vk switch
+    {
+        0x30 => "0", 0x31 => "1", 0x32 => "2", 0x33 => "3", 0x34 => "4",
+        0x35 => "5", 0x36 => "6", 0x37 => "7", 0x38 => "8", 0x39 => "9",
+        0x41 => "A", 0x42 => "B", 0x43 => "C", 0x44 => "D", 0x45 => "E",
+        0x46 => "F", 0x47 => "G", 0x48 => "H", 0x49 => "I", 0x4A => "J",
+        0x4B => "K", 0x4C => "L", 0x4D => "M", 0x4E => "N", 0x4F => "O",
+        0x50 => "P", 0x51 => "Q", 0x52 => "R", 0x53 => "S", 0x54 => "T",
+        0x55 => "U", 0x56 => "V", 0x57 => "W", 0x58 => "X", 0x59 => "Y",
+        0x5A => "Z",
+        _ => $"vk{vk}"
+    };
+
+    private bool RegisterRawInputKeyboard(IntPtr hwnd)
+    {
+        // Use RIDEV_INPUTSINK only (not NOLEGACY) to allow keys to pass through
+        // WebView2 will capture keys when focused, but they'll pass through when not focused
+        var rid = new Win32RawInput.RAWINPUTDEVICE
+        {
+            usUsagePage = Win32RawInput.HID_USAGE_PAGE_GENERIC,
+            usUsage = Win32RawInput.HID_USAGE_GENERIC_KEYBOARD,
+            dwFlags = Win32RawInput.RIDEV_INPUTSINK,
+            hwndTarget = hwnd
+        };
+
+        AudioLog.Write($"[Audio] RegisterRawInputKeyboard: hwnd={hwnd}, flags=0x{rid.dwFlags:X}");
+
+        if (Win32RawInput.RegisterRawInputDevices(new[] { rid }, 1, (uint)Marshal.SizeOf<Win32RawInput.RAWINPUTDEVICE>()))
+        {
+            _rawInputRegistered = true;
+            AudioLog.Write("[Audio] RegisterRawInputKeyboard: SUCCESS");
+            return true;
+        }
+        AudioLog.Write($"[Audio] RegisterRawInputKeyboard: FAILED, error={Marshal.GetLastWin32Error()}");
+        return false;
+    }
+
+    private void UnregisterRawInputKeyboard()
+    {
+        if (_rawInputRegistered)
+        {
+            var rid = new Win32RawInput.RAWINPUTDEVICE
+            {
+                usUsagePage = Win32RawInput.HID_USAGE_PAGE_GENERIC,
+                usUsage = Win32RawInput.HID_USAGE_GENERIC_KEYBOARD,
+                dwFlags = Win32RawInput.RIDEV_INPUTSINK, // RIDEV_REMOVE to unregister
+                hwndTarget = IntPtr.Zero
+            };
+            Win32RawInput.RegisterRawInputDevices(new[] { rid }, 1, (uint)Marshal.SizeOf<Win32RawInput.RAWINPUTDEVICE>());
+            _rawInputRegistered = false;
+        }
+        _pttVk = 0;
+    }
+
+    /// <summary>Handle PTT key from JavaScript when app is focused.</summary>
+    public void HandlePttKeyFromJs(bool pressed)
+    {
+        AudioLog.Write($"[Audio] HandlePttKeyFromJs: pressed={pressed}, mode={_transmissionMode}");
+        if (_transmissionMode == TransmissionMode.PushToTalk)
+        {
+            SetPttActive(pressed);
+        }
     }
 
     /// <summary>Start or stop mic for PTT.</summary>
     private void SetPttActive(bool active)
     {
+        AudioLog.Write($"[Audio] SetPttActive: active={active}, _pttActive={_pttActive}, muted={_muted}");
         _pttActive = active;
         if (active && !_muted)
+        {
+            AudioLog.Write("[Audio] Starting mic for PTT");
             StartMic();
+        }
         else
+        {
+            AudioLog.Write("[Audio] Stopping mic for PTT");
             StopMic();
+        }
     }
 
     private void CheckSpeakingState(object? state)
@@ -626,7 +824,9 @@ private IntPtr _hwnd;
     public void Dispose()
     {
         _speakingTimer.Dispose();
-        if (_hotkeyId >= 0 && _hwnd != IntPtr.Zero)
+        StopPttPolling();
+        UnregisterRawInputKeyboard();
+        UnregisterMouseHook();
         {
             UnregisterHotKey(_hwnd, _hotkeyId);
             _hotkeyId = -1;
@@ -677,6 +877,9 @@ private IntPtr _hwnd;
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int vKey);
 
     /// <summary>
     /// Maps JS key codes (from e.code) to Win32 virtual key codes.
