@@ -138,8 +138,6 @@ export function Sidebar({
         </div>
       )}
 
-      <div className="sidebar-divider"></div>
-      
       <div className="sidebar-channels">
         {connected && (
           <div className="channels-section-header">
