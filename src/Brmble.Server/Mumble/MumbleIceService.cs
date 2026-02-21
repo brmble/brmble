@@ -11,7 +11,6 @@ public class MumbleIceService : IHostedService
     private readonly string _host;
     private readonly int _port;
     private readonly string _secret;
-    private readonly int _connectTimeoutMs;
     private readonly ILogger<MumbleIceService> _logger;
     private Ice.Communicator? _communicator;
 
@@ -26,7 +25,6 @@ public class MumbleIceService : IHostedService
         _host = configuration["Ice:Host"] ?? "mumble-server";
         _port = int.Parse(configuration["Ice:Port"] ?? "6502");
         _secret = configuration["Ice:Secret"] ?? string.Empty;
-        _connectTimeoutMs = int.Parse(configuration["Ice:ConnectTimeoutMs"] ?? "3000");
         _logger = logger;
     }
 
@@ -36,6 +34,7 @@ public class MumbleIceService : IHostedService
         {
             var properties = new Ice.Properties();
             properties.setProperty("Ice.Default.EncodingVersion", "1.0");
+            properties.setProperty("Ice.MessageSizeMax", "10240"); // 10 MB (default is 1 MB)
 
             var initData = new Ice.InitializationData { properties = properties };
             _communicator = new Ice.Communicator(initData);
@@ -47,10 +46,20 @@ public class MumbleIceService : IHostedService
             var serverProxy = MumbleServer.ServerPrxHelper.checkedCast(proxy)
                 ?? throw new InvalidOperationException("checkedCast failed — not a MumbleServer.Server");
 
-            // Startup channel sync — ensure all existing channels have Matrix rooms
+            // Startup channel sync — ensure all existing channels have Matrix rooms.
+            // Non-fatal: a conduwuit hiccup here should not prevent callback registration.
             var channels = serverProxy.getChannels();
             foreach (var (_, ch) in channels)
-                await _matrixService.EnsureChannelRoom(new MumbleChannel(ch.id, ch.name));
+            {
+                try
+                {
+                    await _matrixService.EnsureChannelRoom(new MumbleChannel(ch.id, ch.name));
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not ensure Matrix room for channel {Name}", ch.name);
+                }
+            }
 
             // Register callback adapter so Mumble can call back into us
             var adapter = _communicator.createObjectAdapterWithEndpoints(

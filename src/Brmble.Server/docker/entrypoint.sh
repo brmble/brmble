@@ -16,6 +16,26 @@ mkdir -p /data/continuwuity
 mkdir -p /data/dataprotection-keys
 mkdir -p /etc/continuwuity
 
+# On first run, enable token-gated registration so register-appservice.sh can
+# create the admin user. Both allow_registration=true and registration_token are
+# required together — conduwuit rejects open registration without a token.
+if [ ! -f /data/.appservice-registered ]; then
+    if [ ! -f /data/registration-token ]; then
+        (umask 077; openssl rand -hex 16 > /data/registration-token)
+    fi
+    EFFECTIVE_ALLOW_REGISTRATION=true
+    EFFECTIVE_REGISTRATION_TOKEN="$(cat /data/registration-token)"
+    export MATRIX_REGISTRATION_TOKEN="$EFFECTIVE_REGISTRATION_TOKEN"
+else
+    EFFECTIVE_ALLOW_REGISTRATION=${MATRIX_ALLOW_REGISTRATION:-false}
+    EFFECTIVE_REGISTRATION_TOKEN=""
+    # Cleanup: once the appservice has been registered and the sentinel exists,
+    # the one-time registration token file is no longer needed.
+    if [ -f /data/registration-token ]; then
+        rm -f /data/registration-token
+    fi
+fi
+
 # Generate Continuwuity config
 cat > /etc/continuwuity/continuwuity.toml << EOF
 [global]
@@ -25,8 +45,9 @@ database_path = "/data/continuwuity"
 port = 6167
 address = "127.0.0.1"
 max_request_size = 20000000
-allow_registration = ${MATRIX_ALLOW_REGISTRATION:-false}
+allow_registration = ${EFFECTIVE_ALLOW_REGISTRATION}
 allow_federation = false
+$([ -n "${EFFECTIVE_REGISTRATION_TOKEN}" ] && echo "registration_token = \"${EFFECTIVE_REGISTRATION_TOKEN}\"" || true)
 EOF
 
 # Expose token and server name to Brmble.Server via ASP.NET config env vars
