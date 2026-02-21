@@ -119,4 +119,25 @@ if [ -z "$EVENT_ID" ]; then
 fi
 
 echo "[register-appservice] Appservice registered successfully (event_id: $EVENT_ID)"
+
+# Create the appservice bot user — conduwuit requires the sender_localpart user to exist
+# before the appservice token can create rooms on its behalf.
+BOT_PASSWORD=$(openssl rand -hex 16)
+TXN_ID=$(openssl rand -hex 8)
+echo "[register-appservice] Creating appservice bot user @brmble:${MATRIX_SERVER_NAME}..."
+BOT_RESPONSE=$(curl -sf -X PUT "$HS/_matrix/client/v3/rooms/${ROOM_ID}/send/m.room.message/${TXN_ID}" \
+    -H "Authorization: Bearer $ACCESS_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "$(jq -n --arg body "!admin users create-user brmble $BOT_PASSWORD" \
+        '{msgtype:"m.text", body:$body}')")
+BOT_EVENT_ID=$(printf '%s\n' "$BOT_RESPONSE" | jq -r '.event_id // empty')
+if [ -z "$BOT_EVENT_ID" ]; then
+    echo "[register-appservice] WARNING: Bot user creation command may not have been accepted" >&2
+else
+    echo "[register-appservice] Bot user creation command sent (event_id: $BOT_EVENT_ID)"
+fi
+
+# Give conduwuit a moment to process both admin commands before brmble-server starts
+sleep 2
+
 touch "$SENTINEL"
