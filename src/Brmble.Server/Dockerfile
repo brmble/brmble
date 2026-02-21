@@ -39,7 +39,7 @@ RUN dotnet publish src/Brmble.Server/Brmble.Server.csproj \
 # ── Stage 3: Runtime image ────────────────────────────────────────────────────
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 
-RUN apt-get update && apt-get install -y --no-install-recommends supervisor \
+RUN apt-get update && apt-get install -y --no-install-recommends supervisor curl jq \
     && rm -rf /var/lib/apt/lists/*
 
 # Brmble.Server
