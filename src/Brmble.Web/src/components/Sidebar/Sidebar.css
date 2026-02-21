@@ -198,8 +198,6 @@
   align-items: center;
   gap: 2px;
   flex-shrink: 0;
-  width: 38px;
-  justify-content: flex-end;
 }
 
 .root-user-status .status-icon--deaf,
