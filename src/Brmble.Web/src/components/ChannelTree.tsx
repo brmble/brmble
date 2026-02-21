@@ -35,7 +35,7 @@ interface ChannelTreeProps {
 
 export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, speakingUsers, pendingChannelAction }: ChannelTreeProps) {
   const [sortByNamePerChannel, setSortByNamePerChannel] = useState<Record<number, boolean>>({});
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string; isSelf: boolean } | null>(null);
   const initialExpanded = useMemo(() => {
     const expanded = new Set<number>();
     channels.forEach(ch => {
@@ -182,10 +182,8 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                 className={`user-row ${user.self ? 'self' : ''} ${speakingUsers?.has(user.session) ? 'speaking' : ''}`}
                 title={getUserTooltip(user)}
                 onContextMenu={(e) => {
-                  if (!user.self && onStartDM) {
-                    e.preventDefault();
-                    setContextMenu({ x: e.clientX, y: e.clientY, userId: String(user.session), userName: user.name });
-                  }
+                  e.preventDefault();
+                  setContextMenu({ x: e.clientX, y: e.clientY, userId: String(user.session), userName: user.name, isSelf: !!user.self });
                 }}
               >
                 <span className="user-status">
@@ -216,16 +214,25 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
           x={contextMenu.x}
           y={contextMenu.y}
           items={[
-            {
+            ...(!contextMenu.isSelf && onStartDM ? [{
               label: 'Send Direct Message',
               icon: (
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                 </svg>
               ),
-              onClick: () => {
-                if (onStartDM) onStartDM(contextMenu.userId, contextMenu.userName);
-              },
+              onClick: () => onStartDM(contextMenu.userId, contextMenu.userName),
+            }] : []),
+            {
+              label: 'Information',
+              icon: (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10" />
+                  <circle cx="12" cy="8" r="1" fill="currentColor" stroke="none" />
+                  <line x1="12" y1="12" x2="12" y2="16" />
+                </svg>
+              ),
+              onClick: () => { /* placeholder — implement later */ },
             },
           ]}
           onClose={() => setContextMenu(null)}
