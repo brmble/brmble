@@ -1,6 +1,7 @@
 using Brmble.Server.Mumble;
-using Moq;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Moq;
 
 namespace Brmble.Server.Tests.Mumble;
 
@@ -12,7 +13,7 @@ public class MumbleServerCallbackTests
     {
         var h1 = new Mock<IMumbleEventHandler>();
         var h2 = new Mock<IMumbleEventHandler>();
-        var callback = new MumbleServerCallback([h1.Object, h2.Object]);
+        var callback = new MumbleServerCallback([h1.Object, h2.Object], NullLogger<MumbleServerCallback>.Instance);
         var user = new MumbleUser("Alice", "abc", 1);
 
         await callback.DispatchTextMessage(user, "hello", 42);
@@ -25,7 +26,7 @@ public class MumbleServerCallbackTests
     public async Task DispatchUserConnected_CallsAllHandlers()
     {
         var h1 = new Mock<IMumbleEventHandler>();
-        var callback = new MumbleServerCallback([h1.Object]);
+        var callback = new MumbleServerCallback([h1.Object], NullLogger<MumbleServerCallback>.Instance);
         var user = new MumbleUser("Bob", "xyz", 2);
 
         await callback.DispatchUserConnected(user);
@@ -37,7 +38,7 @@ public class MumbleServerCallbackTests
     public async Task DispatchUserDisconnected_CallsAllHandlers()
     {
         var h1 = new Mock<IMumbleEventHandler>();
-        var callback = new MumbleServerCallback([h1.Object]);
+        var callback = new MumbleServerCallback([h1.Object], NullLogger<MumbleServerCallback>.Instance);
         var user = new MumbleUser("Bob", "xyz", 2);
 
         await callback.DispatchUserDisconnected(user);
@@ -49,7 +50,7 @@ public class MumbleServerCallbackTests
     public async Task DispatchChannelCreated_CallsAllHandlers()
     {
         var h1 = new Mock<IMumbleEventHandler>();
-        var callback = new MumbleServerCallback([h1.Object]);
+        var callback = new MumbleServerCallback([h1.Object], NullLogger<MumbleServerCallback>.Instance);
         var channel = new MumbleChannel(10, "General");
 
         await callback.DispatchChannelCreated(channel);
@@ -61,7 +62,7 @@ public class MumbleServerCallbackTests
     public async Task DispatchChannelRemoved_CallsAllHandlers()
     {
         var h1 = new Mock<IMumbleEventHandler>();
-        var callback = new MumbleServerCallback([h1.Object]);
+        var callback = new MumbleServerCallback([h1.Object], NullLogger<MumbleServerCallback>.Instance);
         var channel = new MumbleChannel(10, "General");
 
         await callback.DispatchChannelRemoved(channel);
@@ -73,7 +74,7 @@ public class MumbleServerCallbackTests
     public async Task DispatchChannelRenamed_CallsAllHandlers()
     {
         var h1 = new Mock<IMumbleEventHandler>();
-        var callback = new MumbleServerCallback([h1.Object]);
+        var callback = new MumbleServerCallback([h1.Object], NullLogger<MumbleServerCallback>.Instance);
         var channel = new MumbleChannel(10, "Renamed");
 
         await callback.DispatchChannelRenamed(channel);
@@ -84,7 +85,7 @@ public class MumbleServerCallbackTests
     [TestMethod]
     public async Task DispatchTextMessage_NoHandlers_DoesNotThrow()
     {
-        var callback = new MumbleServerCallback([]);
+        var callback = new MumbleServerCallback([], NullLogger<MumbleServerCallback>.Instance);
         await callback.DispatchTextMessage(new MumbleUser("X", "x", 1), "hi", 1);
     }
 }

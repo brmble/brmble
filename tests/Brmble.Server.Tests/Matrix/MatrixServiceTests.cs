@@ -3,8 +3,9 @@ using Brmble.Server.Data;
 using Brmble.Server.Matrix;
 using Brmble.Server.Mumble;
 using Microsoft.Data.Sqlite;
-using Moq;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Moq;
 
 namespace Brmble.Server.Tests.Matrix;
 
@@ -30,7 +31,7 @@ public class MatrixServiceTests
 
         _appService = new Mock<IMatrixAppService>();
         _sessions = new Mock<IActiveBrmbleSessions>();
-        _svc = new MatrixService(_channelRepo, _appService.Object, _sessions.Object);
+        _svc = new MatrixService(_channelRepo, _appService.Object, _sessions.Object, NullLogger<MatrixService>.Instance);
     }
 
     [TestCleanup]
@@ -43,7 +44,7 @@ public class MatrixServiceTests
         var channelRepo = new ChannelRepository(db);
         var appService = new Mock<IMatrixAppService>().Object;
         var sessions = new Mock<IActiveBrmbleSessions>().Object;
-        var svc = new MatrixService(channelRepo, appService, sessions);
+        var svc = new MatrixService(channelRepo, appService, sessions, NullLogger<MatrixService>.Instance);
         Assert.IsNotNull(svc);
     }
 

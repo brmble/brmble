@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Brmble.Server.Matrix;
@@ -17,15 +18,16 @@ public class MatrixAppService : IMatrixAppService
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly string _homeserverUrl;
     private readonly string _appServiceToken;
-
     private readonly string _botUserId;
+    private readonly ILogger<MatrixAppService> _logger;
 
-    public MatrixAppService(IHttpClientFactory httpClientFactory, IOptions<MatrixSettings> settings)
+    public MatrixAppService(IHttpClientFactory httpClientFactory, IOptions<MatrixSettings> settings, ILogger<MatrixAppService> logger)
     {
         _httpClientFactory = httpClientFactory;
         _homeserverUrl = settings.Value.HomeserverUrl;
         _appServiceToken = settings.Value.AppServiceToken;
         _botUserId = $"@brmble:{settings.Value.ServerDomain}";
+        _logger = logger;
     }
 
     public async Task SendMessage(string roomId, string displayName, string text)
@@ -70,7 +72,13 @@ public class MatrixAppService : IMatrixAppService
             Content = new StringContent(jsonBody, Encoding.UTF8, "application/json")
         };
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _appServiceToken);
+        _logger.LogDebug("Matrix request: {Method} {Url}", method, urlWithUser);
         var response = await client.SendAsync(request);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync();
+            _logger.LogError("Matrix request failed: {Method} {Url} → {Status} {Body}", method, urlWithUser, (int)response.StatusCode, body);
+        }
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadAsStringAsync();
     }

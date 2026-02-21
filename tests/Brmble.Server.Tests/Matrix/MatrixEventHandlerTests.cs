@@ -2,8 +2,9 @@ using Brmble.Server.Data;
 using Brmble.Server.Matrix;
 using Brmble.Server.Mumble;
 using Microsoft.Data.Sqlite;
-using Moq;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Moq;
 
 namespace Brmble.Server.Tests.Matrix;
 
@@ -38,7 +39,7 @@ public class MatrixEventHandlerTests
         var sessions = new Mock<Brmble.Server.Auth.IActiveBrmbleSessions>();
         sessions.Setup(s => s.IsBrmbleClient("og")).Returns(false);
 
-        var svc = new MatrixService(channelRepo, appService.Object, sessions.Object);
+        var svc = new MatrixService(channelRepo, appService.Object, sessions.Object, NullLogger<MatrixService>.Instance);
         _handler = new MatrixEventHandler(svc);
 
         await _handler.OnUserTextMessage(new MumbleUser("Bob", "og", 1), "hi", 1);
@@ -56,7 +57,7 @@ public class MatrixEventHandlerTests
         using var _ = keepAlive;
         var channelRepo = new ChannelRepository(db);
         var sessions = new Mock<Brmble.Server.Auth.IActiveBrmbleSessions>();
-        var svc = new MatrixService(channelRepo, appService.Object, sessions.Object);
+        var svc = new MatrixService(channelRepo, appService.Object, sessions.Object, NullLogger<MatrixService>.Instance);
         _handler = new MatrixEventHandler(svc);
 
         await _handler.OnChannelCreated(new MumbleChannel(99, "Test"));
@@ -73,7 +74,7 @@ public class MatrixEventHandlerTests
         var channelRepo = new ChannelRepository(db);
         channelRepo.Insert(5, "!room:server");
         var sessions = new Mock<Brmble.Server.Auth.IActiveBrmbleSessions>();
-        var svc = new MatrixService(channelRepo, appService.Object, sessions.Object);
+        var svc = new MatrixService(channelRepo, appService.Object, sessions.Object, NullLogger<MatrixService>.Instance);
         _handler = new MatrixEventHandler(svc);
 
         await _handler.OnChannelRemoved(new MumbleChannel(5, "OldChannel"));
@@ -93,7 +94,7 @@ public class MatrixEventHandlerTests
         var channelRepo = new ChannelRepository(db);
         channelRepo.Insert(3, "!room:server");
         var sessions = new Mock<Brmble.Server.Auth.IActiveBrmbleSessions>();
-        var svc = new MatrixService(channelRepo, appService.Object, sessions.Object);
+        var svc = new MatrixService(channelRepo, appService.Object, sessions.Object, NullLogger<MatrixService>.Instance);
         _handler = new MatrixEventHandler(svc);
 
         await _handler.OnChannelRenamed(new MumbleChannel(3, "NewName"));
@@ -109,7 +110,8 @@ public class MatrixEventHandlerTests
         var svc = new MatrixService(
             new ChannelRepository(db),
             new Mock<IMatrixAppService>().Object,
-            new Mock<Brmble.Server.Auth.IActiveBrmbleSessions>().Object);
+            new Mock<Brmble.Server.Auth.IActiveBrmbleSessions>().Object,
+            NullLogger<MatrixService>.Instance);
         _handler = new MatrixEventHandler(svc);
 
         await _handler.OnUserConnected(new MumbleUser("Alice", "abc", 1));
@@ -123,7 +125,8 @@ public class MatrixEventHandlerTests
         var svc = new MatrixService(
             new ChannelRepository(db),
             new Mock<IMatrixAppService>().Object,
-            new Mock<Brmble.Server.Auth.IActiveBrmbleSessions>().Object);
+            new Mock<Brmble.Server.Auth.IActiveBrmbleSessions>().Object,
+            NullLogger<MatrixService>.Instance);
         _handler = new MatrixEventHandler(svc);
 
         await _handler.OnUserDisconnected(new MumbleUser("Alice", "abc", 1));
