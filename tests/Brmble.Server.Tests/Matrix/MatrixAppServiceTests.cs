@@ -120,4 +120,16 @@ public class MatrixAppServiceTests
         Assert.AreEqual(HttpMethod.Put, req.Method);
         StringAssert.Contains(req.RequestUri!.AbsolutePath, "m.room.name");
     }
+
+    [TestMethod]
+    public async Task SendRequest_IncludesUserIdQueryParameter()
+    {
+        SetupHttpResponse(HttpStatusCode.OK,
+            JsonSerializer.Serialize(new { room_id = "!newroom:server" }));
+
+        await _svc.CreateRoom("General");
+
+        var req = _capturedRequests.Single();
+        StringAssert.Contains(req.RequestUri!.Query, "user_id=%40brmble%3Alocalhost");
+    }
 }

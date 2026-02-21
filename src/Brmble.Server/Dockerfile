@@ -54,7 +54,8 @@ COPY src/Brmble.Server/docker/supervisord.conf /etc/supervisord.conf
 COPY src/Brmble.Server/docker/livekit.yaml /etc/livekit/livekit.yaml
 COPY src/Brmble.Server/docker/entrypoint.sh /entrypoint.sh
 COPY src/Brmble.Server/docker/register-appservice.sh /register-appservice.sh
-RUN chmod +x /entrypoint.sh /register-appservice.sh
+COPY src/Brmble.Server/docker/wait-for-appservice.sh /wait-for-appservice.sh
+RUN chmod +x /entrypoint.sh /register-appservice.sh /wait-for-appservice.sh
 
 # Data volume (SQLite + Continuwuity RocksDB)
 VOLUME /data
