@@ -11,6 +11,8 @@ public interface IMatrixAppService
     Task SendMessage(string roomId, string displayName, string text);
     Task<string> CreateRoom(string name);
     Task SetRoomName(string roomId, string name);
+    Task<string> RegisterUser(string localpart, string displayName);
+    Task<string> LoginUser(string localpart);
 }
 
 public class MatrixAppService : IMatrixAppService
@@ -19,6 +21,7 @@ public class MatrixAppService : IMatrixAppService
     private readonly string _homeserverUrl;
     private readonly string _appServiceToken;
     private readonly string _botUserId;
+    private readonly string _serverDomain;
     private readonly ILogger<MatrixAppService> _logger;
 
     public MatrixAppService(IHttpClientFactory httpClientFactory, IOptions<MatrixSettings> settings, ILogger<MatrixAppService> logger)
@@ -26,7 +29,8 @@ public class MatrixAppService : IMatrixAppService
         _httpClientFactory = httpClientFactory;
         _homeserverUrl = settings.Value.HomeserverUrl;
         _appServiceToken = settings.Value.AppServiceToken;
-        _botUserId = $"@brmble:{settings.Value.ServerDomain}";
+        _serverDomain = settings.Value.ServerDomain;
+        _botUserId = $"@brmble:{_serverDomain}";
         _logger = logger;
     }
 
@@ -61,6 +65,30 @@ public class MatrixAppService : IMatrixAppService
         var url = $"{_homeserverUrl}/_matrix/client/v3/rooms/{roomId}/state/m.room.name";
         var body = JsonSerializer.Serialize(new { name });
         await SendRequest(HttpMethod.Put, url, body);
+    }
+
+    public async Task<string> RegisterUser(string localpart, string displayName)
+    {
+        var url = $"{_homeserverUrl}/_matrix/client/v3/register?kind=user";
+        var body = JsonSerializer.Serialize(new { username = localpart });
+        var response = await SendRequest(HttpMethod.Post, url, body);
+        var json = JsonSerializer.Deserialize<JsonElement>(response);
+        return json.GetProperty("access_token").GetString()
+            ?? throw new InvalidOperationException("Matrix did not return an access_token");
+    }
+
+    public async Task<string> LoginUser(string localpart)
+    {
+        var url = $"{_homeserverUrl}/_matrix/client/v3/login";
+        var body = JsonSerializer.Serialize(new
+        {
+            type = "m.login.application_service",
+            identifier = new { type = "m.id.user", user = $"@{localpart}:{_serverDomain}" }
+        });
+        var response = await SendRequest(HttpMethod.Post, url, body);
+        var json = JsonSerializer.Deserialize<JsonElement>(response);
+        return json.GetProperty("access_token").GetString()
+            ?? throw new InvalidOperationException("Matrix did not return an access_token");
     }
 
     private async Task<string> SendRequest(HttpMethod method, string url, string jsonBody)

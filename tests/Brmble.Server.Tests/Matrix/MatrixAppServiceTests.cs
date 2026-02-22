@@ -133,4 +133,33 @@ public class MatrixAppServiceTests
         var req = _capturedRequests.Single();
         StringAssert.Contains(req.RequestUri!.Query, "user_id=%40brmble%3Alocalhost");
     }
+
+    [TestMethod]
+    public async Task RegisterUser_PostsToRegisterEndpoint_ReturnsToken()
+    {
+        SetupHttpResponse(HttpStatusCode.OK,
+            """{"access_token":"syt_test","user_id":"@1:server","device_id":"DEV"}""");
+
+        var token = await _svc.RegisterUser("1", "Alice");
+
+        Assert.AreEqual("syt_test", token);
+        var req = _capturedRequests.Single();
+        Assert.AreEqual(HttpMethod.Post, req.Method);
+        StringAssert.Contains(req.RequestUri!.AbsoluteUri, "register");
+        StringAssert.Contains(req.RequestUri.Query, "kind=user");
+    }
+
+    [TestMethod]
+    public async Task LoginUser_PostsToLoginEndpoint_ReturnsToken()
+    {
+        SetupHttpResponse(HttpStatusCode.OK,
+            """{"access_token":"syt_refreshed","user_id":"@1:server","device_id":"DEV2"}""");
+
+        var token = await _svc.LoginUser("1");
+
+        Assert.AreEqual("syt_refreshed", token);
+        var req = _capturedRequests.Single();
+        Assert.AreEqual(HttpMethod.Post, req.Method);
+        StringAssert.Contains(req.RequestUri!.AbsoluteUri, "login");
+    }
 }
