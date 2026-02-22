@@ -532,6 +532,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// <summary>
     /// Parses a Brmble API URL from a Mumble server welcome text.
     /// Looks for an HTML comment of the form: &lt;!--brmble:{"apiUrl":"..."}--&gt;
+    /// Also accepts single-quoted values: &lt;!--brmble:{'apiUrl':'...'}--&gt;
     /// </summary>
     internal static string? ParseBrmbleApiUrl(string? welcomeText)
     {
@@ -540,29 +541,35 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         var match = System.Text.RegularExpressions.Regex.Match(
             welcomeText,
-            @"<!--brmble:(\{.*?\})-->",
+            @"<!--brmble:\{[^}]*?['""]apiUrl['""]\s*:\s*['""]([^'""]+)['""]",
             System.Text.RegularExpressions.RegexOptions.Singleline);
 
-        if (!match.Success)
+        return match.Success ? match.Groups[1].Value : null;
+    }
+
+    /// <summary>
+    /// Pure HTTP helper: POSTs to /auth/token and returns the parsed response body.
+    /// Body is empty — identity comes from the TLS client certificate attached to <paramref name="httpClient"/>.
+    /// Returns null on any non-success status.
+    /// </summary>
+    internal static async Task<System.Text.Json.JsonElement?> FetchCredentials(string apiUrl, HttpClient httpClient)
+    {
+        var baseUri = new System.Uri(apiUrl, System.UriKind.Absolute);
+        var tokenUri = new System.Uri(baseUri, "auth/token");
+
+        using var response = await httpClient.PostAsync(tokenUri, content: null);
+        if (!response.IsSuccessStatusCode)
             return null;
 
-        try
-        {
-            using var json = System.Text.Json.JsonDocument.Parse(match.Groups[1].Value);
-            return json.RootElement.TryGetProperty("apiUrl", out var apiUrl)
-                ? apiUrl.GetString()
-                : null;
-        }
-        catch
-        {
-            return null;
-        }
+        var json = await response.Content.ReadAsStringAsync();
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        return doc.RootElement.Clone();
     }
 
     private async Task FetchAndSendCredentials(string apiUrl)
     {
-        var certHash = _certService?.GetCertHash();
-        if (certHash is null)
+        var cert = _certService?.ActiveCertificate;
+        if (cert is null)
         {
             _bridge?.Send("voice.error", new { message = "No client certificate — cannot fetch Matrix credentials." });
             _bridge?.NotifyUiThread();
@@ -571,25 +578,24 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         try
         {
-            using var http = new System.Net.Http.HttpClient();
-            var body = System.Text.Json.JsonSerializer.Serialize(new { certHash });
-            var response = await http.PostAsync(
-                $"{apiUrl}/auth/token",
-                new System.Net.Http.StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+            var handler = new HttpClientHandler();
+            handler.ClientCertificates.Add(cert);
+            handler.ServerCertificateCustomValidationCallback =
+                HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
 
-            response.EnsureSuccessStatusCode();
-            var json = await response.Content.ReadAsStringAsync();
-            using var doc = System.Text.Json.JsonDocument.Parse(json);
-            var credentials = doc.RootElement.Clone();
+            using var http = new HttpClient(handler);
+            var credentials = await FetchCredentials(apiUrl, http);
+            if (credentials is null)
+                return;
 
-            _bridge?.Send("server.credentials", credentials);
+            _bridge?.Send("server.credentials", credentials.Value);
             _bridge?.NotifyUiThread();
-
             _apiUrl = apiUrl;
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[Brmble] Failed to fetch credentials from {apiUrl}: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"[Brmble] Failed to fetch credentials from {apiUrl}: {ex}");
+
         }
     }
 

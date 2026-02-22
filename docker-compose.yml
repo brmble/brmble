@@ -2,7 +2,7 @@ services:
   brmble:
     image: ghcr.io/brmble/brmble-server:latest
     ports:
-      - "8080:8080"
+      - "1912:8080"
       - "7881:7881"
       - "50100-50200:50100-50200/udp"
     volumes:

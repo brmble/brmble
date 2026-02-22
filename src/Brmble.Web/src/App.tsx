@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import bridge from './bridge';
 import type { ConnectionStatus } from './types';
+import { useMatrixClient } from './hooks/useMatrixClient';
+import type { MatrixCredentials } from './hooks/useMatrixClient';
 import { Header } from './components/Header/Header';
 import { Sidebar } from './components/Sidebar/Sidebar';
 import { ChatPanel } from './components/ChatPanel/ChatPanel';
@@ -84,6 +86,9 @@ function App() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [hasPendingInvite] = useState(false);
 
+  const [matrixCredentials, setMatrixCredentials] = useState<MatrixCredentials | null>(null);
+  const matrixClient = useMatrixClient(matrixCredentials);
+
   const channelKey = currentChannelId === 'server-root' ? 'server-root' : currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
   const { messages, addMessage } = useChatStore(channelKey);
 
@@ -113,6 +118,8 @@ function App() {
   appModeRef.current = appMode;
   const addDMMessageRef = useRef(addDMMessage);
   addDMMessageRef.current = addDMMessage;
+  const matrixCredentialsRef = useRef(matrixCredentials);
+  matrixCredentialsRef.current = matrixCredentials;
 
   const clearPendingAction = useCallback(() => {
     if (pendingChannelActionTimeoutRef.current) {
@@ -263,6 +270,15 @@ function App() {
       setSelfCanRejoin(false);
       setSelfSession(0);
       setSpeakingUsers(new Map());
+      setMatrixCredentials(null);
+    };
+
+    const onServerCredentials = (data: unknown) => {
+      const wrapped = data as { matrix?: MatrixCredentials } | undefined;
+      const d = wrapped?.matrix;
+      if (d?.homeserverUrl && d.accessToken && d.userId && d.roomMap) {
+        setMatrixCredentials(d);
+      }
     };
 
     const onVoiceError = ((data: unknown) => {
@@ -281,52 +297,47 @@ function App() {
       if (!d?.message) return;
 
       const selfUser = usersRef.current.find(u => u.self);
-      if (selfUser && d.senderSession === selfUser.session) return; // self-echo check (once)
-      if (d.senderSession === undefined) return; // guard against undefined
+      if (selfUser && d.senderSession === selfUser.session) return;
+      if (d.senderSession === undefined) return;
 
       const senderUser = usersRef.current.find(u => u.session === d.senderSession);
       const senderName = senderUser?.name || 'Unknown';
 
-      // Detect private message: has sessions, no channelIds
       const isPrivateMessage = d.sessions && d.sessions.length > 0 &&
         (!d.channelIds || d.channelIds.length === 0);
 
-      if (isPrivateMessage) {
-        const senderSession = String(d.senderSession);
-        const dmStoreKey = `dm-${senderSession}`;
-
-        // Check if user is currently viewing this DM conversation
-        const isViewingThisDM = appModeRef.current === 'dm' &&
-          selectedDMUserIdRef.current === senderSession;
-
-        if (isViewingThisDM) {
-          // Add via React state so it appears immediately
-          addDMMessageRef.current(senderName, d.message);
-        } else {
-          // Write to localStorage in the background
-          addMessageToStore(dmStoreKey, senderName, d.message);
+      // Channel messages: use Mumble path only when Matrix is not active for the channel
+      if (!isPrivateMessage) {
+        if (d.channelIds && d.channelIds.length > 0) {
+          const creds = matrixCredentialsRef.current;
+          const channelId = String(d.channelIds[0]);
+          const matrixActive = creds?.roomMap[channelId] !== undefined;
+          if (!matrixActive) {
+            const storeKey = `channel-${channelId}`;
+            if (currentChannelIdRef.current === channelId) {
+              addMessageRef.current(senderName, d.message);
+            } else {
+              addMessageToStore(storeKey, senderName, d.message);
+            }
+          }
         }
-
-        // Update DM contacts: upsert with lastMessage and increment unread
-        // (only increment if not currently viewing this DM)
-        const updated = upsertDMContact(senderSession, senderName, d.message, !isViewingThisDM);
-        setDmContacts(mapStoredContacts(updated));
         return;
       }
 
-      // Channel message (existing logic)
-      const isRootMessage = !d.channelIds || d.channelIds.length === 0 || d.channelIds.includes(0);
-      const targetKey = isRootMessage ? 'server-root' : `channel-${d.channelIds![0]}`;
-      const currentKey = currentChannelIdRef.current;
-      const currentStoreKey = currentKey === 'server-root' ? 'server-root' : currentKey ? `channel-${currentKey}` : 'no-channel';
-      if (targetKey === currentStoreKey) {
-        addMessageRef.current(senderName, d.message);
+      const senderSession = String(d.senderSession);
+      const dmStoreKey = `dm-${senderSession}`;
+
+      const isViewingThisDM = appModeRef.current === 'dm' &&
+        selectedDMUserIdRef.current === senderSession;
+
+      if (isViewingThisDM) {
+        addDMMessageRef.current(senderName, d.message);
       } else {
-        addMessageToStore(targetKey, senderName, d.message);
+        addMessageToStore(dmStoreKey, senderName, d.message);
       }
-      const newUnread = unreadCountRef.current + 1;
-      setUnreadCount(newUnread);
-      updateBadge(newUnread, hasPendingInviteRef.current);
+
+      const updated = upsertDMContact(senderSession, senderName, d.message, !isViewingThisDM);
+      setDmContacts(mapStoredContacts(updated));
     });
 
     const onVoiceSystem = ((data: unknown) => {
@@ -518,6 +529,7 @@ function App() {
     bridge.on('cert.imported', onCertImported);
     bridge.on('voice.reconnecting', onVoiceReconnecting);
     bridge.on('voice.reconnectFailed', onVoiceReconnectFailed);
+    bridge.on('server.credentials', onServerCredentials);
 
     return () => {
       bridge.off('voice.connected', onVoiceConnected);
@@ -542,6 +554,7 @@ function App() {
       bridge.off('cert.imported', onCertImported);
       bridge.off('voice.reconnecting', onVoiceReconnecting);
       bridge.off('voice.reconnectFailed', onVoiceReconnectFailed);
+      bridge.off('server.credentials', onServerCredentials);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -549,6 +562,12 @@ function App() {
   useEffect(() => {
     bridge.send('cert.requestStatus');
   }, []);
+
+  useEffect(() => {
+    if (currentChannelId && currentChannelId !== 'server-root' && matrixCredentials) {
+      matrixClient.fetchHistory(currentChannelId).catch(console.error);
+    }
+  }, [currentChannelId, matrixCredentials]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     return () => {
@@ -612,16 +631,28 @@ const handleConnect = (serverData: SavedServer) => {
   };
 
   const handleSendMessage = (content: string) => {
-    if (username && content) {
+    if (!username || !content) return;
+
+    const isMatrixChannel = currentChannelId &&
+      currentChannelId !== 'server-root' &&
+      matrixCredentials?.roomMap[currentChannelId] !== undefined;
+
+    // Only add local echo when Matrix is not available for this channel
+    if (!isMatrixChannel) {
       addMessage(username, content);
-      if (currentChannelId === 'server-root') {
-        bridge.send('voice.sendMessage', { message: content, channelId: 0 });
-      } else if (currentChannelId) {
-        bridge.send('voice.sendMessage', { message: content, channelId: Number(currentChannelId) });
-      }
-      setUnreadCount(0);
-      updateBadge(0, hasPendingInvite);
     }
+
+    if (currentChannelId === 'server-root') {
+      bridge.send('voice.sendMessage', { message: content, channelId: 0 });
+    } else if (currentChannelId) {
+      bridge.send('voice.sendMessage', { message: content, channelId: Number(currentChannelId) });
+      if (isMatrixChannel) {
+        matrixClient.sendMessage(currentChannelId, content).catch(console.error);
+      }
+    }
+
+    setUnreadCount(0);
+    updateBadge(0, hasPendingInvite);
   };
 
   const handleSendDMMessage = (content: string) => {
@@ -699,6 +730,13 @@ const handleConnect = (serverData: SavedServer) => {
   // Suppress unused warnings — these are wired up in subsequent DM tasks
   void availableUsers;
 
+  const activeChannelId = currentChannelId && currentChannelId !== 'server-root'
+    ? currentChannelId
+    : undefined;
+  const matrixMessages = activeChannelId
+    ? matrixClient.messages.get(activeChannelId)
+    : undefined;
+
   return (
     <div className="app">
       <Header
@@ -744,7 +782,7 @@ const handleConnect = (serverData: SavedServer) => {
               <ChatPanel
                 channelId={currentChannelId || undefined}
                 channelName={currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName}
-                messages={messages}
+                messages={matrixMessages ?? messages}
                 currentUsername={username}
                 onSendMessage={handleSendMessage}
               />
