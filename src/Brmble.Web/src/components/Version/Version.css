@@ -1,0 +1,9 @@
+.version-display {
+  position: fixed;
+  bottom: 8px;
+  right: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  pointer-events: none;
+  z-index: 1000;
+}
