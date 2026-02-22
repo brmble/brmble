@@ -1,11 +1,12 @@
-using Xunit;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Brmble.Client.Services.SpeechEnhancement;
 
 namespace Brmble.Client.Tests.Services.SpeechEnhancement;
 
+[TestClass]
 public class AudioResamplerTests
 {
-    [Fact]
+    [TestMethod]
     public void Resample_48kTo16k_ProducesCorrectLength()
     {
         var resampler = new AudioResampler(48000, 16000, 1);
@@ -18,7 +19,7 @@ public class AudioResamplerTests
         var output16k = resampler.Resample(input48k);
         
         // Should be ~320 samples at 16kHz
-        Assert.True(output16k.Length >= 300 && output16k.Length <= 340);
+        Assert.IsTrue(output16k.Length >= 300 && output16k.Length <= 340);
         
         resampler.Dispose();
     }
