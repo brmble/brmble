@@ -9,6 +9,9 @@ internal sealed class CertificateService : IService
 
     public X509Certificate2? ActiveCertificate { get; private set; }
 
+    public string? GetCertHash() =>
+        ActiveCertificate?.Thumbprint?.ToLowerInvariant();
+
     private readonly NativeBridge _bridge;
 
     private static string CertPath =>
