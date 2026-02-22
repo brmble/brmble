@@ -28,6 +28,12 @@
     <ProjectReference Include="..\..\lib\MumbleSharp\MumbleSharp\MumbleSharp.csproj" />
     <ProjectReference Include="..\..\lib\MumbleVoiceEngine\MumbleVoiceEngine.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <None Include="models\*.onnx">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
   <Target Name="CopyWebDist" AfterTargets="Build" Condition="Exists('..\..\src\Brmble.Web\dist\index.html')">
     <ItemGroup>
       <WebDistFiles Include="..\..\src\Brmble.Web\dist\**\*" />
