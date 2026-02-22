@@ -117,6 +117,8 @@ function App() {
   appModeRef.current = appMode;
   const addDMMessageRef = useRef(addDMMessage);
   addDMMessageRef.current = addDMMessage;
+  const matrixCredentialsRef = useRef(matrixCredentials);
+  matrixCredentialsRef.current = matrixCredentials;
 
   const clearPendingAction = useCallback(() => {
     if (pendingChannelActionTimeoutRef.current) {
@@ -271,7 +273,8 @@ function App() {
     };
 
     const onServerCredentials = (data: unknown) => {
-      const d = data as MatrixCredentials | undefined;
+      const wrapped = data as { matrix?: MatrixCredentials } | undefined;
+      const d = wrapped?.matrix;
       if (d?.homeserverUrl && d.accessToken && d.userId && d.roomMap) {
         setMatrixCredentials(d);
       }
@@ -299,10 +302,26 @@ function App() {
       const senderUser = usersRef.current.find(u => u.session === d.senderSession);
       const senderName = senderUser?.name || 'Unknown';
 
-      // Only handle private/DM messages — channel messages come through Matrix SDK
       const isPrivateMessage = d.sessions && d.sessions.length > 0 &&
         (!d.channelIds || d.channelIds.length === 0);
-      if (!isPrivateMessage) return;
+
+      // Channel messages: use Mumble path only when Matrix is not active for the channel
+      if (!isPrivateMessage) {
+        if (d.channelIds && d.channelIds.length > 0) {
+          const creds = matrixCredentialsRef.current;
+          const channelId = String(d.channelIds[0]);
+          const matrixActive = creds?.roomMap[channelId] !== undefined;
+          if (!matrixActive) {
+            const storeKey = `channel-${channelId}`;
+            if (currentChannelIdRef.current === channelId) {
+              addMessageRef.current(senderName, d.message);
+            } else {
+              addMessageToStore(storeKey, senderName, d.message);
+            }
+          }
+        }
+        return;
+      }
 
       const senderSession = String(d.senderSession);
       const dmStoreKey = `dm-${senderSession}`;

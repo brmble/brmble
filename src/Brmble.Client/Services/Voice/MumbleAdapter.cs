@@ -553,7 +553,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// </summary>
     internal static async Task<System.Text.Json.JsonElement?> FetchCredentials(string apiUrl, HttpClient httpClient)
     {
-        var response = await httpClient.PostAsync($"{apiUrl}/auth/token", content: null);
+        var baseUri = new System.Uri(apiUrl, System.UriKind.Absolute);
+        var tokenUri = new System.Uri(baseUri, "auth/token");
+
+        using var response = await httpClient.PostAsync(tokenUri, content: null);
         if (!response.IsSuccessStatusCode)
             return null;
 
@@ -582,10 +585,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             using var http = new HttpClient(handler);
             var credentials = await FetchCredentials(apiUrl, http);
             if (credentials is null)
-            {
-                Debug.WriteLine($"[Brmble] Auth token request to {apiUrl} returned non-success");
                 return;
-            }
 
             _bridge?.Send("server.credentials", credentials.Value);
             _bridge?.NotifyUiThread();
@@ -593,7 +593,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[Brmble] Failed to fetch credentials from {apiUrl}: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"[Brmble] Failed to fetch credentials from {apiUrl}: {ex}");
+
         }
     }
 
