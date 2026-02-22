@@ -291,32 +291,41 @@ private int _continuousHotkeyId = -1;
         // Apply speech enhancement if enabled
         if (_speechEnhancement?.IsEnabled == true && _to16kResampler != null && _to48kResampler != null)
         {
-            // Convert byte buffer to float samples (48kHz)
-            var sampleCount = e.BytesRecorded / 2;
-            var samples48k = new float[sampleCount];
-            for (int i = 0; i < sampleCount; i++)
+            try
             {
-                samples48k[i] = (short)(e.Buffer[i * 2] | (e.Buffer[i * 2 + 1] << 8));
-            }
-
-            // Resample to 16kHz
-            var samples16k = _to16kResampler.Resample(samples48k);
-            
-            // Enhance
-            var enhanced16k = _speechEnhancement.Enhance(samples16k);
-            
-            if (enhanced16k != null)
-            {
-                // Resample back to 48kHz
-                var enhanced48k = _to48kResampler.Resample(enhanced16k);
-                
-                // Convert back to bytes
-                for (int i = 0; i < Math.Min(enhanced48k.Length, sampleCount); i++)
+                // Convert byte buffer to normalized float samples (48kHz, range [-1, 1])
+                var sampleCount = e.BytesRecorded / 2;
+                var samples48k = new float[sampleCount];
+                for (int i = 0; i < sampleCount; i++)
                 {
-                    var sample = (short)Math.Clamp(enhanced48k[i], short.MinValue, short.MaxValue);
-                    e.Buffer[i * 2] = (byte)(sample & 0xFF);
-                    e.Buffer[i * 2 + 1] = (byte)((sample >> 8) & 0xFF);
+                    samples48k[i] = (short)(e.Buffer[i * 2] | (e.Buffer[i * 2 + 1] << 8)) / 32768f;
                 }
+
+                // Resample to 16kHz
+                var samples16k = _to16kResampler.Resample(samples48k);
+
+                // Enhance
+                var enhanced16k = _speechEnhancement.Enhance(samples16k);
+
+                if (enhanced16k != null)
+                {
+                    // Resample back to 48kHz
+                    var enhanced48k = _to48kResampler.Resample(enhanced16k);
+
+                    // Convert normalized floats back to int16 bytes
+                    for (int i = 0; i < Math.Min(enhanced48k.Length, sampleCount); i++)
+                    {
+                        var sample = (short)Math.Clamp(enhanced48k[i] * 32768f, short.MinValue, short.MaxValue);
+                        e.Buffer[i * 2] = (byte)(sample & 0xFF);
+                        e.Buffer[i * 2 + 1] = (byte)((sample >> 8) & 0xFF);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // Enhancement failed — disable it so voice is never silenced by an error
+                AudioLog.Write($"[Audio] Speech enhancement error, disabling: {ex.Message}");
+                _speechEnhancement = null;
             }
         }
 

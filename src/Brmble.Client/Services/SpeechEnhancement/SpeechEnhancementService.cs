@@ -37,13 +37,12 @@ public sealed class SpeechEnhancementService : IDisposable
         }
     }
 
-    public float[]? Enhance(ReadOnlySpan<float> input16kHz)
+    public float[]? Enhance(float[] input16kHz)
     {
         if (!_enabled || _model == null)
             return null;
 
-        var output = _model.Process(input16kHz);
-        return output.ToArray();
+        return _model.Process(input16kHz);
     }
 
     public void Dispose()

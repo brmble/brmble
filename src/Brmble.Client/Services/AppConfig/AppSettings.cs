@@ -26,7 +26,7 @@ public record OverlaySettings(
 );
 
 public record SpeechEnhancementSettings(
-    bool Enabled = true,
+    bool Enabled = false,
     string Model = "dns3"
 );
 
