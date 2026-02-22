@@ -18,6 +18,7 @@ vi.mock('matrix-js-sdk', () => ({
   createClient: vi.fn(() => mockClient),
   RoomEvent: { Timeline: 'Room.timeline' },
   EventType: { RoomMessage: 'm.room.message' },
+  MsgType: { Text: 'm.text' },
 }));
 
 const creds: MatrixCredentials = {
@@ -51,7 +52,7 @@ describe('useMatrixClient', () => {
   it('calls stopClient and clears messages when credentials become null', () => {
     const { result, rerender } = renderHook(
       ({ c }: { c: MatrixCredentials | null }) => useMatrixClient(c),
-      { initialProps: { c: creds } }
+      { initialProps: { c: creds as MatrixCredentials | null } }
     );
     act(() => rerender({ c: null }));
     expect(mockClient.stopClient).toHaveBeenCalled();

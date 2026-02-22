@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { createClient, RoomEvent, EventType } from 'matrix-js-sdk';
+import { createClient, RoomEvent, EventType, MsgType } from 'matrix-js-sdk';
 import type { MatrixClient, MatrixEvent, Room } from 'matrix-js-sdk';
 import type { ChatMessage } from '../types';
 
@@ -72,7 +72,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     if (!credentials || !clientRef.current) return;
     const roomId = credentials.roomMap[channelId];
     if (!roomId) return;
-    await clientRef.current.sendMessage(roomId, { msgtype: 'm.text', body: text });
+    await clientRef.current.sendMessage(roomId, { msgtype: MsgType.Text, body: text });
   }, [credentials]);
 
   const fetchHistory = useCallback(async (channelId: string) => {
