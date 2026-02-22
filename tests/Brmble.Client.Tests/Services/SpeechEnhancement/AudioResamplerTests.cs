@@ -20,7 +20,5 @@ public class AudioResamplerTests
         
         // Should be ~320 samples at 16kHz
         Assert.IsTrue(output16k.Length >= 300 && output16k.Length <= 340);
-        
-        resampler.Dispose();
     }
 }

@@ -1,8 +1,6 @@
-using NAudio.Wave;
-
 namespace Brmble.Client.Services.SpeechEnhancement;
 
-public sealed class AudioResampler : IDisposable
+public sealed class AudioResampler
 {
     private readonly int _sourceRate;
     private readonly int _targetRate;
@@ -42,9 +40,5 @@ public sealed class AudioResampler : IDisposable
         }
 
         return output;
-    }
-
-    public void Dispose()
-    {
     }
 }
