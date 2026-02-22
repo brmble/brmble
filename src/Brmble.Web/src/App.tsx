@@ -131,6 +131,97 @@ function App() {
     }, 5000);
   }, []);
 
+  // Handle Push-to-Talk key detection via JavaScript when app is focused
+  // Keys naturally pass through to other apps when window loses focus
+  useEffect(() => {
+    let pttKey: string | null = null;
+    let pttPressed = false;
+
+    const updatePttKeyFromSettings = (settings: any) => {
+      const newMode = settings?.audio?.transmissionMode;
+      const newKey: string | null =
+        newMode === 'pushToTalk' ? (settings?.audio?.pushToTalkKey ?? null) : null;
+
+      if (
+        pttPressed &&
+        (
+          newMode !== 'pushToTalk' ||
+          !newKey ||
+          newKey !== pttKey
+        )
+      ) {
+        pttPressed = false;
+        bridge.send('voice.pttKey', { pressed: false });
+      }
+
+      pttKey = newKey;
+    };
+
+    // Listen for settings updates via bridge
+    const handleSettingsCurrent = (data: unknown) => {
+      const d = data as { settings?: any } | undefined;
+      if (d?.settings) {
+        updatePttKeyFromSettings(d.settings);
+      }
+    };
+
+    bridge.on('settings.current', handleSettingsCurrent);
+    bridge.on('settings.updated', handleSettingsCurrent);
+
+    // Also listen to storage changes as fallback
+    const handleStorage = () => {
+      try {
+        const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
+        if (stored) {
+          const settings = JSON.parse(stored);
+          updatePttKeyFromSettings(settings);
+        }
+      } catch {}
+    };
+    window.addEventListener('storage', handleStorage);
+
+    // Initial check
+    const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (stored) {
+      try {
+        const settings = JSON.parse(stored);
+        updatePttKeyFromSettings(settings);
+      } catch {}
+    }
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!pttKey) return;
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+      
+      const pressedKey = e.code;
+      if (pressedKey === pttKey && !pttPressed) {
+        pttPressed = true;
+        bridge.send('voice.pttKey', { pressed: true });
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (!pttKey) return;
+      const pressedKey = e.code;
+      if (pressedKey === pttKey && pttPressed) {
+        pttPressed = false;
+        bridge.send('voice.pttKey', { pressed: false });
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    return () => {
+      bridge.off('settings.current', handleSettingsCurrent);
+      bridge.off('settings.updated', handleSettingsCurrent);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, []);
+
   // Register all bridge handlers once on mount
   useEffect(() => {
     const onVoiceConnected = ((data: unknown) => {

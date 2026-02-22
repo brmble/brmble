@@ -23,7 +23,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private CancellationTokenSource? _cts;
     private Thread? _processThread;
     private AudioManager? _audioManager;
-    private PttKeyMonitor? _pttMonitor;
     private string? _lastWelcomeText;
     private readonly CertificateService? _certService;
     private uint? _previousChannelId;
@@ -152,9 +151,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _cts?.Cancel();
         _processThread?.Join(2000);
         _processThread = null;
-
-        _pttMonitor?.Dispose();
-        _pttMonitor = null;
 
         _audioManager?.Dispose();
         _audioManager = null;
@@ -488,23 +484,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _currentPttKey = key;
 
         _audioManager?.SetTransmissionMode(parsed, key, _hwnd);
-
-        // Manage key-up monitor for PTT release
-        _pttMonitor?.Unwatch();
-        if (parsed == TransmissionMode.PushToTalk && key != null)
-        {
-            _pttMonitor ??= new PttKeyMonitor(_ =>
-            {
-                var am = Volatile.Read(ref _audioManager);
-                if (am != null)
-                    Task.Run(() => am.HandleHotKey(AudioManager.PttHotkeyId, false));
-            });
-            var vk = AudioManager.KeyNameToVirtualKey(key);
-            if (vk != 0)
-                _pttMonitor.Watch(vk);
-            else
-                System.Diagnostics.Debug.WriteLine($"[MumbleAdapter] Unknown PTT key '{key}', monitor not started.");
-        }
     }
 
     public void ApplySettings(AppSettings settings)
@@ -615,6 +594,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             var action = data.TryGetProperty("action", out var a) ? a.GetString() ?? "" : "";
             var key = data.TryGetProperty("key", out var k) ? k.GetString() : null;
             _audioManager?.SetShortcut(action, key);
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.pttKey", data =>
+        {
+            var pressed = data.TryGetProperty("pressed", out var p) && p.GetBoolean();
+            _audioManager?.HandlePttKeyFromJs(pressed);
             return Task.CompletedTask;
         });
     }
