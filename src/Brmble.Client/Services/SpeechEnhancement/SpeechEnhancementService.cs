@@ -19,9 +19,12 @@ public sealed class SpeechEnhancementService : IDisposable
         _modelsPath = modelsPath;
         _enabled = enabled;
 
-        // Note: variant parameter reserved for future use. Currently only gtcrn_simple.onnx is available.
         if (!enabled)
             return;
+
+        if (variant != GtcrnModelVariant.Dns3)
+            throw new NotSupportedException(
+                $"Model variant '{variant}' is not supported. Only '{GtcrnModelVariant.Dns3}' is currently available.");
 
         var modelFile = "gtcrn_simple.onnx";
 
@@ -31,8 +34,11 @@ public sealed class SpeechEnhancementService : IDisposable
         {
             _model = new GtcrnModel(modelPath);
         }
-        catch (FileNotFoundException)
+        catch (FileNotFoundException ex)
         {
+            Console.Error.WriteLine(
+                $"Speech enhancement model file not found at '{modelPath}'. " +
+                $"Disabling speech enhancement. Details: {ex.Message}");
             _enabled = false;
         }
     }

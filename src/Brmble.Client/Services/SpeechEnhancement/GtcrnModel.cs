@@ -9,6 +9,11 @@ namespace Brmble.Client.Services.SpeechEnhancement;
 /// STFT parameters (n_fft=512, hop=256, window=hann_sqrt) are embedded in the model metadata.
 /// Cache tensors are carried between frames for streaming/real-time use.
 /// </summary>
+/// <remarks>
+/// Thread-safety: This class is not thread-safe. Each <see cref="GtcrnModel"/> instance is intended
+/// to be used from a single thread (for example, the audio callback thread). If an instance is
+/// accessed from multiple threads, callers must provide external synchronization.
+/// </remarks>
 public sealed class GtcrnModel : IDisposable
 {
     private readonly InferenceSession _session;

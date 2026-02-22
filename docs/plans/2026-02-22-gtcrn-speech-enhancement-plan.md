@@ -39,8 +39,9 @@ git commit -m "feat: add Microsoft.ML.OnnxRuntime package"
 ### Task 2: Download GTCRN ONNX models
 
 **Files:**
-- Download to: `src/Brmble.Client/models/gtcrn-dns3-raw.onnx`
-- Download to: `src/Brmble.Client/models/gtcrn-vctk-demand-raw.onnx`
+- Download to: `src/Brmble.Client/models/gtcrn_simple.onnx`
+
+**Note:** The plan originally specified `gtcrn-dns3-raw.onnx`, but the implementation uses `gtcrn_simple.onnx` from the sherpa-onnx releases (see https://github.com/k2-fsa/sherpa-onnx/releases/tag/speech-enhancement-models). The `gtcrn_simple.onnx` model is the DNS3 variant in a simplified format.
 
 **Step 1: Create models directory**
 
@@ -51,8 +52,7 @@ mkdir -p src/Brmble.Client/models
 **Step 2: Download models from sherpa-onnx releases**
 
 Download from: https://github.com/k2-fsa/sherpa-onnx/releases/tag/speech-enhancement-models
-- `gtcrn-dns3-raw.onnx` (~50KB)
-- `gtcrn-vctk-demand-raw.onnx` (~50KB)
+- `gtcrn_simple.onnx` (~50KB) - DNS3 variant (simplified format)
 
 **Step 3: Add to project**
 

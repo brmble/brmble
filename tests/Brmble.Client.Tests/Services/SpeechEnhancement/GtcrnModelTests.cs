@@ -1,7 +1,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Brmble.Client.Services.SpeechEnhancement;
 
-namespace Brmble.Client.Tests;
+namespace Brmble.Client.Tests.Services.SpeechEnhancement;
 
 [TestClass]
 public class GtcrnModelTests

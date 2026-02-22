@@ -4,13 +4,11 @@ public sealed class AudioResampler
 {
     private readonly int _sourceRate;
     private readonly int _targetRate;
-    private readonly int _channels;
 
     public AudioResampler(int sourceRate, int targetRate, int channels)
     {
         _sourceRate = sourceRate;
         _targetRate = targetRate;
-        _channels = channels;
     }
 
     public float[] Resample(ReadOnlySpan<float> input)

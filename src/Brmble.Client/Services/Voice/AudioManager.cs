@@ -204,19 +204,22 @@ private int _continuousHotkeyId = -1;
 
     public void ConfigureSpeechEnhancement(string modelsPath, bool enabled, GtcrnModelVariant variant)
     {
-        _speechEnhancement?.Dispose();
-        _to16kResampler = null;
-        _to48kResampler = null;
-
-        if (!enabled)
+        lock (_lock)
         {
-            _speechEnhancement = null;
-            return;
-        }
+            _speechEnhancement?.Dispose();
+            _to16kResampler = null;
+            _to48kResampler = null;
 
-        _speechEnhancement = new SpeechEnhancementService(modelsPath, enabled, variant);
-        _to16kResampler = new AudioResampler(48000, 16000, 1);
-        _to48kResampler = new AudioResampler(16000, 48000, 1);
+            if (!enabled)
+            {
+                _speechEnhancement = null;
+                return;
+            }
+
+            _speechEnhancement = new SpeechEnhancementService(modelsPath, enabled, variant);
+            _to16kResampler = new AudioResampler(48000, 16000, 1);
+            _to48kResampler = new AudioResampler(16000, 48000, 1);
+        }
     }
 
     public void SetOutputVolume(int percentage)
@@ -313,11 +316,22 @@ private int _continuousHotkeyId = -1;
                     var enhanced48k = _to48kResampler.Resample(enhanced16k);
 
                     // Convert normalized floats back to int16 bytes
-                    for (int i = 0; i < Math.Min(enhanced48k.Length, sampleCount); i++)
+                    int samplesToCopy = Math.Min(enhanced48k.Length, sampleCount);
+                    for (int i = 0; i < samplesToCopy; i++)
                     {
                         var sample = (short)Math.Clamp(enhanced48k[i] * 32768f, short.MinValue, short.MaxValue);
                         e.Buffer[i * 2] = (byte)(sample & 0xFF);
                         e.Buffer[i * 2 + 1] = (byte)((sample >> 8) & 0xFF);
+                    }
+
+                    // If the enhanced buffer is shorter than the original, zero-fill the remainder
+                    if (samplesToCopy < sampleCount)
+                    {
+                        for (int i = samplesToCopy; i < sampleCount; i++)
+                        {
+                            e.Buffer[i * 2] = 0;
+                            e.Buffer[i * 2 + 1] = 0;
+                        }
                     }
                 }
             }
