@@ -129,22 +129,23 @@ internal sealed class ServerlistService : IServerlistService
     private static ServerEntry? ParseServerEntry(JsonElement data)
     {
         if (!data.TryGetProperty("label", out var label) ||
-            !data.TryGetProperty("host", out var host) ||
-            !data.TryGetProperty("port", out var port) ||
             !data.TryGetProperty("username", out var username))
         {
             return null;
         }
 
-        var id = data.TryGetProperty("id", out var idEl) 
-            ? idEl.GetString() 
+        var id = data.TryGetProperty("id", out var idEl)
+            ? idEl.GetString()
             : Guid.NewGuid().ToString();
+
+        var apiUrl = data.TryGetProperty("apiUrl", out var apiEl) ? apiEl.GetString() : null;
 
         return new ServerEntry(
             id!,
             label.GetString() ?? "",
-            host.GetString() ?? "",
-            port.GetInt32(),
+            apiUrl,
+            data.TryGetProperty("host", out var hostEl) ? hostEl.GetString() : null,
+            data.TryGetProperty("port", out var portEl) ? portEl.GetInt32() : null,
             username.GetString() ?? ""
         );
     }

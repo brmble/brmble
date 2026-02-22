@@ -65,7 +65,7 @@ public class AppConfigServiceTests
     public void SavesAndReloads_Servers()
     {
         var svc = new AppConfigService(_tempDir);
-        var server = new ServerEntry("id1", "My Server", "localhost", 64738, "alice");
+        var server = new ServerEntry("id1", "My Server", null, "localhost", 64738, "alice");
 
         svc.AddServer(server);
         var svc2 = new AppConfigService(_tempDir);
