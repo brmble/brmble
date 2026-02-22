@@ -531,6 +531,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// <summary>
     /// Parses a Brmble API URL from a Mumble server welcome text.
     /// Looks for an HTML comment of the form: &lt;!--brmble:{"apiUrl":"..."}--&gt;
+    /// Also accepts single-quoted values: &lt;!--brmble:{'apiUrl':'...'}--&gt;
     /// </summary>
     internal static string? ParseBrmbleApiUrl(string? welcomeText)
     {
@@ -539,23 +540,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         var match = System.Text.RegularExpressions.Regex.Match(
             welcomeText,
-            @"<!--brmble:(\{.*?\})-->",
+            @"<!--brmble:\{[^}]*?['""]apiUrl['""]\s*:\s*['""]([^'""]+)['""]",
             System.Text.RegularExpressions.RegexOptions.Singleline);
 
-        if (!match.Success)
-            return null;
-
-        try
-        {
-            using var json = System.Text.Json.JsonDocument.Parse(match.Groups[1].Value);
-            return json.RootElement.TryGetProperty("apiUrl", out var apiUrl)
-                ? apiUrl.GetString()
-                : null;
-        }
-        catch
-        {
-            return null;
-        }
+        return match.Success ? match.Groups[1].Value : null;
     }
 
     /// <summary>

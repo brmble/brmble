@@ -37,4 +37,11 @@ public class MumbleAdapterParseTests
         var text = "<b>Welcome!</b>\n<!--brmble:{\"apiUrl\":\"https://example.com\"}-->\n<p>Enjoy</p>";
         Assert.AreEqual("https://example.com", MumbleAdapter.ParseBrmbleApiUrl(text));
     }
+
+    [TestMethod]
+    public void ParseBrmbleApiUrl_SingleQuotedJson_ReturnsUrl()
+    {
+        var text = "Welcome!<!--brmble:{'apiUrl':'https://noscope.it:1912'}-->";
+        Assert.AreEqual("https://noscope.it:1912", MumbleAdapter.ParseBrmbleApiUrl(text));
+    }
 }
