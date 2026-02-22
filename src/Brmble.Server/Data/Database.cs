@@ -24,6 +24,7 @@ public class Database
                 cert_hash       TEXT NOT NULL UNIQUE,
                 display_name    TEXT NOT NULL,
                 matrix_user_id  TEXT NOT NULL UNIQUE,
+                matrix_access_token TEXT,
                 created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS channel_room_map (
