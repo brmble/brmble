@@ -3,8 +3,9 @@ namespace Brmble.Client.Services.Serverlist;
 public record ServerEntry(
     string Id,
     string Label,
-    string Host,
-    int Port,
+    string? ApiUrl,
+    string? Host,
+    int? Port,
     string Username
 );
 

@@ -210,8 +210,6 @@ internal sealed class AppConfigService : IAppConfigService
     private static ServerEntry? ParseServerEntry(System.Text.Json.JsonElement data)
     {
         if (!data.TryGetProperty("label", out var label) ||
-            !data.TryGetProperty("host", out var host) ||
-            !data.TryGetProperty("port", out var port) ||
             !data.TryGetProperty("username", out var username))
             return null;
 
@@ -219,11 +217,14 @@ internal sealed class AppConfigService : IAppConfigService
             ? idEl.GetString()
             : Guid.NewGuid().ToString();
 
+        var apiUrl = data.TryGetProperty("apiUrl", out var apiEl) ? apiEl.GetString() : null;
+
         return new ServerEntry(
             id!,
             label.GetString() ?? "",
-            host.GetString() ?? "",
-            port.GetInt32(),
+            apiUrl,
+            data.TryGetProperty("host", out var hostEl) ? hostEl.GetString() : null,
+            data.TryGetProperty("port", out var portEl) && portEl.ValueKind == System.Text.Json.JsonValueKind.Number ? portEl.GetInt32() : null,
             username.GetString() ?? "");
     }
 

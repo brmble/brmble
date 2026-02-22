@@ -125,6 +125,21 @@ static class Program
 
             _mumbleClient = new MumbleAdapter(_bridge, _hwnd, _certService);
             _mumbleClient.ApplySettings(_appConfigService!.GetSettings());
+            _mumbleClient.OnApiUrlDiscovered = discoveredUrl =>
+            {
+                var servers = _appConfigService!.GetServers().ToList();
+                if (!servers.Any()) return;
+
+                var serverId = _mumbleClient.ActiveServerId;
+                var entry = serverId is not null
+                    ? servers.FirstOrDefault(s => s.Id == serverId)
+                    : servers.Count == 1
+                        ? servers[0]
+                        : servers.FirstOrDefault(s => string.IsNullOrEmpty(s.ApiUrl));
+
+                if (entry is null) return;
+                _appConfigService.UpdateServer(entry with { ApiUrl = discoveredUrl });
+            };
 
             SetupBridgeHandlers();
 

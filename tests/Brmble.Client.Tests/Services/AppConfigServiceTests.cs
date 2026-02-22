@@ -31,7 +31,7 @@ public class AppConfigServiceTests
         var settings = svc.GetSettings();
 
         Assert.AreEqual("voiceActivity", settings.Audio.TransmissionMode);
-        Assert.AreEqual(100, settings.Audio.InputVolume);
+        Assert.AreEqual(250, settings.Audio.InputVolume);
         Assert.IsNull(settings.Shortcuts.ToggleMuteKey);
         Assert.IsFalse(settings.Messages.TtsEnabled);
         Assert.IsFalse(settings.Overlay.OverlayEnabled);
@@ -65,7 +65,7 @@ public class AppConfigServiceTests
     public void SavesAndReloads_Servers()
     {
         var svc = new AppConfigService(_tempDir);
-        var server = new ServerEntry("id1", "My Server", "localhost", 64738, "alice");
+        var server = new ServerEntry("id1", "My Server", null, "localhost", 64738, "alice");
 
         svc.AddServer(server);
         var svc2 = new AppConfigService(_tempDir);
