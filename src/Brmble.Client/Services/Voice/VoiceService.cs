@@ -9,7 +9,7 @@ namespace Brmble.Client.Services.Voice;
 /// </summary>
 public interface VoiceService : IService
 {
-    void Connect(string host, int port, string username, string password = "");
+    void Connect(string host, int port, string username, string password = "", string? apiUrl = null);
     void Disconnect();
     void JoinChannel(uint channelId);
     void SendMessage(string message);

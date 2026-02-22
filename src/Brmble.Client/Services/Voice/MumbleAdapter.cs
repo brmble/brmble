@@ -39,8 +39,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private string? _reconnectPassword;
     private string? _currentPttKey;
     private readonly Stopwatch _notifyThrottle = Stopwatch.StartNew();
+    private string? _apiUrl;
 
     public string ServiceName => "mumble";
+
+    /// <summary>Optional callback invoked when a Brmble API URL is discovered from welcome text (Flow A).</summary>
+    public Action<string>? OnApiUrlDiscovered { get; set; }
 
     public MumbleAdapter(NativeBridge bridge, IntPtr hwnd, CertificateService? certService = null)
     {
@@ -63,8 +67,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     public void Initialize(NativeBridge bridge) { }
 
-    public void Connect(string host, int port, string username, string password = "")
+    public void Connect(string host, int port, string username, string password = "", string? apiUrl = null)
     {
+        if (apiUrl is not null)
+            _apiUrl = apiUrl;
+
         if (Connection?.State == ConnectionStates.Connected)
             throw new InvalidOperationException("Already connected");
 
@@ -533,21 +540,121 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         Connection.SendControl(PacketType.UserState, new UserState { ChannelId = channelId });
     }
 
+    /// <summary>
+    /// Parses a Brmble API URL from a Mumble server welcome text.
+    /// Looks for an HTML comment of the form: &lt;!--brmble:{"apiUrl":"..."}--&gt;
+    /// </summary>
+    internal static string? ParseBrmbleApiUrl(string? welcomeText)
+    {
+        if (string.IsNullOrEmpty(welcomeText))
+            return null;
+
+        var match = System.Text.RegularExpressions.Regex.Match(
+            welcomeText,
+            @"<!--brmble:(\{.*?\})-->",
+            System.Text.RegularExpressions.RegexOptions.Singleline);
+
+        if (!match.Success)
+            return null;
+
+        try
+        {
+            var json = System.Text.Json.JsonDocument.Parse(match.Groups[1].Value);
+            return json.RootElement.TryGetProperty("apiUrl", out var apiUrl)
+                ? apiUrl.GetString()
+                : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async Task FetchAndSendCredentials(string apiUrl)
+    {
+        var certHash = _certService?.GetCertHash();
+        if (certHash is null)
+        {
+            _bridge?.Send("voice.error", new { message = "No client certificate — cannot fetch Matrix credentials." });
+            return;
+        }
+
+        try
+        {
+            using var http = new System.Net.Http.HttpClient();
+            var body = System.Text.Json.JsonSerializer.Serialize(new { certHash });
+            var response = await http.PostAsync(
+                $"{apiUrl}/auth/token",
+                new System.Net.Http.StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+
+            response.EnsureSuccessStatusCode();
+            var json = await response.Content.ReadAsStringAsync();
+            var credentials = System.Text.Json.JsonDocument.Parse(json).RootElement;
+
+            _bridge?.Send("server.credentials", credentials);
+            _bridge?.NotifyUiThread();
+
+            _apiUrl = apiUrl;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Brmble] Failed to fetch credentials from {apiUrl}: {ex.Message}");
+        }
+    }
+
+    public async Task ConnectViaBrmbleServer(string apiUrl, string username, string password = "")
+    {
+        try
+        {
+            using var http = new System.Net.Http.HttpClient();
+            var response = await http.GetAsync($"{apiUrl}/server-info");
+            response.EnsureSuccessStatusCode();
+
+            var json = System.Text.Json.JsonDocument.Parse(
+                await response.Content.ReadAsStringAsync()).RootElement;
+
+            var host = json.GetProperty("mumbleHost").GetString()
+                ?? throw new InvalidOperationException("server-info missing mumbleHost");
+            var port = json.GetProperty("mumblePort").GetInt32();
+
+            _reconnectHost = host;
+            _reconnectPort = port;
+            _reconnectUsername = username;
+            _reconnectPassword = password;
+
+            Connect(host, port, username, password, apiUrl);
+        }
+        catch (Exception ex)
+        {
+            _bridge?.Send("voice.error", new { message = $"Failed to reach Brmble server: {ex.Message}" });
+            _bridge?.NotifyUiThread();
+        }
+    }
+
     public void RegisterHandlers(NativeBridge bridge)
     {
-        bridge.RegisterHandler("voice.connect", data =>
+        bridge.RegisterHandler("voice.connect", async data =>
         {
-            var h = data.TryGetProperty("host", out var host) ? host.GetString() ?? "localhost" : "localhost";
-            var p = data.TryGetProperty("port", out var port) ? port.GetInt32() : 64738;
-            var u = data.TryGetProperty("username", out var user) ? user.GetString() ?? "User" : "User";
-            var pw = data.TryGetProperty("password", out var pass) ? pass.GetString() ?? "" : "";
-            _reconnectHost = h;
-            _reconnectPort = p;
-            _reconnectUsername = u;
-            _reconnectPassword = pw;
+            var h      = data.TryGetProperty("host",     out var host) ? host.GetString()  ?? "" : "";
+            var p      = data.TryGetProperty("port",     out var port) ? port.GetInt32()        : 0;
+            var u      = data.TryGetProperty("username", out var user) ? user.GetString()  ?? "" : "";
+            var pw     = data.TryGetProperty("password", out var pass) ? pass.GetString()  ?? "" : "";
+            var apiUrl = data.TryGetProperty("apiUrl",   out var a)    ? a.GetString()          : null;
+
             _intentionalDisconnect = false;
-            Task.Run(() => Connect(h, p, u, pw));
-            return Task.CompletedTask;
+
+            if (!string.IsNullOrEmpty(apiUrl) && string.IsNullOrEmpty(h))
+            {
+                await ConnectViaBrmbleServer(apiUrl, u, pw);
+            }
+            else
+            {
+                _reconnectHost = h;
+                _reconnectPort = p;
+                _reconnectUsername = u;
+                _reconnectPassword = pw;
+                _ = Task.Run(() => Connect(h, p, u, pw, apiUrl));
+            }
         });
 
         bridge.RegisterHandler("voice.disconnect", _ =>
@@ -658,6 +765,24 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         {
             _lastWelcomeText = serverSync.WelcomeText;
             SendSystemMessage(serverSync.WelcomeText, "welcome", html: true);
+        }
+
+        // Flow A: discover Brmble API URL from welcome text
+        if (_apiUrl is null && serverSync.WelcomeText is not null)
+        {
+            var discovered = ParseBrmbleApiUrl(serverSync.WelcomeText);
+            if (discovered is not null)
+            {
+                _apiUrl = discovered;
+                OnApiUrlDiscovered?.Invoke(discovered);
+                Task.Run(() => FetchAndSendCredentials(discovered));
+            }
+        }
+        // Flow B: _apiUrl already set from /server-info call or voice.connect apiUrl field
+        else if (_apiUrl is not null)
+        {
+            var url = _apiUrl;
+            Task.Run(() => FetchAndSendCredentials(url));
         }
 
         // Reuse or recreated AudioManager (see Connect())
