@@ -26,5 +26,7 @@ public class GtcrnModelTests
         var result = service.Enhance(input);
         
         Assert.IsNull(result);
+        
+        service.Dispose();
     }
 }

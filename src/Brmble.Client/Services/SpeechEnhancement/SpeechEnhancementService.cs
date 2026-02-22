@@ -19,6 +19,7 @@ public sealed class SpeechEnhancementService : IDisposable
         _modelsPath = modelsPath;
         _enabled = enabled;
 
+        // Note: variant parameter reserved for future use. Currently only gtcrn_simple.onnx is available.
         if (!enabled)
             return;
 
