@@ -277,13 +277,19 @@ public sealed class GtcrnModel : IDisposable
         }
     }
 
-    /// <summary>Builds a hann_sqrt window: sqrt(0.5 * (1 - cos(2*pi*n/(N-1)))).</summary>
+    /// <summary>
+    /// Builds a hann_sqrt window using the PERIODIC form: sqrt(0.5 * (1 - cos(2*pi*n/N))).
+    /// The periodic (not symmetric) form is required for STFT so that the COLA (Constant
+    /// Overlap-Add) condition holds at 50% overlap: w[n]^2 + w[n+N/2]^2 = 1 for all n.
+    /// Using (N-1) in the denominator (symmetric form) breaks COLA and causes amplitude
+    /// ripple and jitter in the reconstructed audio.
+    /// </summary>
     private static float[] BuildHannSqrtWindow(int length)
     {
         var w = new float[length];
         for (int i = 0; i < length; i++)
         {
-            double hann = 0.5 * (1.0 - Math.Cos(2.0 * Math.PI * i / (length - 1)));
+            double hann = 0.5 * (1.0 - Math.Cos(2.0 * Math.PI * i / length));
             w[i] = (float)Math.Sqrt(hann);
         }
         return w;
