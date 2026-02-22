@@ -10,6 +10,7 @@ import type { ServerEntry } from './hooks/useServerlist';
 import { SettingsModal } from './components/SettingsModal/SettingsModal';
 import { CloseDialog } from './components/CloseDialog/CloseDialog';
 import { CertWizard } from './components/CertWizard/CertWizard';
+import { Version } from './components/Version/Version';
 import { useChatStore, addMessageToStore, loadDMContacts, upsertDMContact, markDMContactRead } from './hooks/useChatStore';
 import type { StoredDMContact } from './hooks/useChatStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
@@ -797,6 +798,8 @@ const handleConnect = (serverData: SavedServer) => {
         onMinimize={handleCloseMinimize}
         onQuit={handleCloseQuit}
       />
+
+      <Version />
     </div>
   );
 }
