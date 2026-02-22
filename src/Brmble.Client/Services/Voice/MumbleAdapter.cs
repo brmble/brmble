@@ -510,6 +510,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.SetShortcut("toggleMuteDeafen", settings.Shortcuts.ToggleMuteDeafenKey);
         _audioManager?.SetInputVolume(settings.Audio.InputVolume);
         _audioManager?.SetOutputVolume(settings.Audio.OutputVolume);
+        _audioManager?.SetMaxAmplification(settings.Audio.MaxAmplification);
     }
 
     /// <summary>Called from WndProc on WM_HOTKEY.</summary>

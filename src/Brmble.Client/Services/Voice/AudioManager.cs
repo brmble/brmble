@@ -156,6 +156,8 @@ private int _muteDeafenHotkeyId = -1;
 private int _continuousHotkeyId = -1;
     private IntPtr _hwnd;
     private const int RmsThreshold = 300; // ~1% of 16-bit max (32767)
+    private const float TargetRms = 1500f;  // Target RMS for AGC (quiet boost target)
+    private const float LoudRms = 8000f;     // Threshold for compression
 
     // Raw Input for PTT key detection (non-blocking)
     private int _pttVk;
@@ -174,6 +176,7 @@ private int _continuousHotkeyId = -1;
     // Volume controls
     private volatile float _inputVolume = 1.0f;
     private volatile float _outputVolume = 1.0f;
+    private volatile float _maxAmplification = 1.0f;
 
     public void SetLocalUserId(uint sessionId) => _localUserId = sessionId;
 
@@ -195,6 +198,7 @@ private int _continuousHotkeyId = -1;
     public TransmissionMode TransmissionMode => _transmissionMode;
 
     public void SetInputVolume(int percentage) => _inputVolume = Math.Clamp(percentage, 0, 250) / 100f;
+    public void SetMaxAmplification(int percentage) => _maxAmplification = Math.Clamp(percentage, 100, 400) / 100f;
     public void SetOutputVolume(int percentage)
     {
         _outputVolume = Math.Clamp(percentage, 0, 250) / 100f;
@@ -258,11 +262,17 @@ private int _continuousHotkeyId = -1;
     {
         if (_muted) return;
         if (_transmissionMode == TransmissionMode.PushToTalk && !_pttActive) return;
-        if (_transmissionMode == TransmissionMode.VoiceActivity && !IsAboveThreshold(e.Buffer, e.BytesRecorded)) return;
 
-        // Apply input volume
+        // Apply AGC first (boost quiet audio, compress loud before user gain)
+        if (_maxAmplification != 1.0f)
+            ApplyAGC(e.Buffer, e.BytesRecorded);
+
+        // Apply input volume (after AGC to avoid clipping on boost)
         if (_inputVolume != 1.0f)
             ApplyInputVolume(e.Buffer, e.BytesRecorded);
+
+        // Voice activity check on processed signal
+        if (_transmissionMode == TransmissionMode.VoiceActivity && !IsAboveThreshold(e.Buffer, e.BytesRecorded)) return;
 
         // Local speaking detection - track in _lastVoicePacket like remote users
         lock (_lock)
@@ -287,6 +297,50 @@ private int _continuousHotkeyId = -1;
             short clampedSample = (short)adjusted;
             buffer[i] = (byte)(clampedSample & 0xFF);
             buffer[i + 1] = (byte)((clampedSample >> 8) & 0xFF);
+        }
+    }
+
+    private void ApplyAGC(byte[] buffer, int bytesRecorded)
+    {
+        // Calculate RMS of the chunk
+        long sumSq = 0;
+        int samples = bytesRecorded / 2;
+        for (int i = 0; i < bytesRecorded - 1; i += 2)
+        {
+            short sample = (short)(buffer[i] | (buffer[i + 1] << 8));
+            sumSq += (long)sample * sample;
+        }
+        if (samples == 0) return;
+        float rms = (float)Math.Sqrt(sumSq / (double)samples);
+
+        float gain = 1.0f;
+
+        if (rms < TargetRms && rms > 0)
+        {
+            // Quiet audio: apply boost up to maxAmplification
+            float neededBoost = TargetRms / rms;
+            gain = Math.Min(neededBoost, _maxAmplification);
+        }
+        else if (rms > LoudRms)
+        {
+            // Loud audio: gentle compression
+            gain = LoudRms / rms;
+            // Soft knee: blend between 1 and gain
+            float excess = (rms - LoudRms) / LoudRms;
+            gain = 1.0f - (1.0f - gain) * Math.Min(excess * 2, 1.0f);
+        }
+
+        if (gain != 1.0f)
+        {
+            for (int i = 0; i < bytesRecorded - 1; i += 2)
+            {
+                short sample = (short)(buffer[i] | (buffer[i + 1] << 8));
+                float adjusted = sample * gain;
+                adjusted = Math.Clamp(adjusted, short.MinValue, short.MaxValue);
+                short clampedSample = (short)adjusted;
+                buffer[i] = (byte)(clampedSample & 0xFF);
+                buffer[i + 1] = (byte)((clampedSample >> 8) & 0xFF);
+            }
         }
     }
 

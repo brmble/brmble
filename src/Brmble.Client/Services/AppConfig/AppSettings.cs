@@ -4,6 +4,7 @@ public record AudioSettings(
     string InputDevice = "default",
     string OutputDevice = "default",
     int InputVolume = 250,
+    int MaxAmplification = 100,
     int OutputVolume = 250,
     string TransmissionMode = "voiceActivity",
     string? PushToTalkKey = null
