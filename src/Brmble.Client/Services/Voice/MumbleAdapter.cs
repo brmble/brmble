@@ -40,11 +40,15 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private string? _currentPttKey;
     private readonly Stopwatch _notifyThrottle = Stopwatch.StartNew();
     private string? _apiUrl;
+    private string? _activeServerId;
 
     public string ServiceName => "mumble";
 
     /// <summary>Optional callback invoked when a Brmble API URL is discovered from welcome text (Flow A).</summary>
     public Action<string>? OnApiUrlDiscovered { get; set; }
+
+    /// <summary>The ID of the ServerEntry that initiated the current connection, if any.</summary>
+    public string? ActiveServerId => _activeServerId;
 
     public MumbleAdapter(NativeBridge bridge, IntPtr hwnd, CertificateService? certService = null)
     {
@@ -186,6 +190,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         ChannelDictionary.Clear();
         _lastWelcomeText = null;
         _previousChannelId = null;
+        _apiUrl = null;
+        _activeServerId = null;
         _leftVoice = false;
         _leaveVoiceInProgress = false;
         EmitCanRejoin(false);
@@ -640,6 +646,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             var u      = data.TryGetProperty("username", out var user) ? user.GetString()  ?? "" : "";
             var pw     = data.TryGetProperty("password", out var pass) ? pass.GetString()  ?? "" : "";
             var apiUrl = data.TryGetProperty("apiUrl",   out var a)    ? a.GetString()          : null;
+            _activeServerId = data.TryGetProperty("id",  out var sid)  ? sid.GetString()         : null;
 
             _intentionalDisconnect = false;
 
