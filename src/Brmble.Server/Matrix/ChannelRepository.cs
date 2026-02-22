@@ -37,4 +37,12 @@ public class ChannelRepository
             "DELETE FROM channel_room_map WHERE mumble_channel_id = @id",
             new { id = mumbleChannelId });
     }
+
+    public List<ChannelRoomMapping> GetAll()
+    {
+        using var conn = _db.CreateConnection();
+        return conn.Query("SELECT mumble_channel_id, matrix_room_id FROM channel_room_map")
+            .Select(row => new ChannelRoomMapping((int)(long)row.mumble_channel_id, (string)row.matrix_room_id))
+            .ToList();
+    }
 }

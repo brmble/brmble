@@ -91,4 +91,25 @@ public class ChannelRepositoryTests
         var repo = new ChannelRepository(_db!);
         repo.Delete(999);
     }
+
+    [TestMethod]
+    public void GetAll_ReturnsAllMappings()
+    {
+        var repo = new ChannelRepository(_db!);
+        repo.Insert(1, "!room1:server");
+        repo.Insert(2, "!room2:server");
+
+        var all = repo.GetAll();
+
+        Assert.AreEqual(2, all.Count);
+        Assert.IsTrue(all.Any(m => m.MumbleChannelId == 1 && m.MatrixRoomId == "!room1:server"));
+        Assert.IsTrue(all.Any(m => m.MumbleChannelId == 2 && m.MatrixRoomId == "!room2:server"));
+    }
+
+    [TestMethod]
+    public void GetAll_Empty_ReturnsEmptyList()
+    {
+        var repo = new ChannelRepository(_db!);
+        Assert.AreEqual(0, repo.GetAll().Count);
+    }
 }
