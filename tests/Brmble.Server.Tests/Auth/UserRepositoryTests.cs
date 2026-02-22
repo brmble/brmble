@@ -79,4 +79,20 @@ public class UserRepositoryTests
         var user = await _repo!.Insert("hash2", null);
         Assert.AreEqual($"user_{user.Id}", user.DisplayName);
     }
+
+    [TestMethod]
+    public async Task UpdateMatrixToken_StoresToken()
+    {
+        var user = await _repo!.Insert("hash_token_test", "Alice");
+        await _repo.UpdateMatrixToken(user.Id, "syt_abc123");
+        var updated = await _repo.GetByCertHash("hash_token_test");
+        Assert.AreEqual("syt_abc123", updated!.MatrixAccessToken);
+    }
+
+    [TestMethod]
+    public async Task Insert_NewUser_MatrixAccessTokenIsNull()
+    {
+        var user = await _repo!.Insert("hash_null_token", "Bob");
+        Assert.IsNull(user.MatrixAccessToken);
+    }
 }
