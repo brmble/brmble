@@ -5,7 +5,7 @@ using Microsoft.Extensions.Options;
 
 namespace Brmble.Server.Auth;
 
-public record User(long Id, string CertHash, string DisplayName, string MatrixUserId);
+public record User(long Id, string CertHash, string DisplayName, string MatrixUserId, string? MatrixAccessToken);
 
 public class UserRepository
 {
@@ -23,7 +23,7 @@ public class UserRepository
         using var conn = _db.CreateConnection();
         return await conn.QuerySingleOrDefaultAsync<User>(
             """
-            SELECT id AS Id, cert_hash AS CertHash, display_name AS DisplayName, matrix_user_id AS MatrixUserId
+            SELECT id AS Id, cert_hash AS CertHash, display_name AS DisplayName, matrix_user_id AS MatrixUserId, matrix_access_token AS MatrixAccessToken
             FROM users
             WHERE cert_hash = @CertHash
             """,
@@ -51,7 +51,7 @@ public class UserRepository
             tx);
 
         tx.Commit();
-        return new User(id, certHash, finalDisplayName, matrixUserId);
+        return new User(id, certHash, finalDisplayName, matrixUserId, null);
     }
 
     public async Task UpdateDisplayName(long id, string displayName)
@@ -60,5 +60,13 @@ public class UserRepository
         await conn.ExecuteAsync(
             "UPDATE users SET display_name = @DisplayName WHERE id = @Id",
             new { DisplayName = displayName, Id = id });
+    }
+
+    public async Task UpdateMatrixToken(long id, string token)
+    {
+        using var conn = _db.CreateConnection();
+        await conn.ExecuteAsync(
+            "UPDATE users SET matrix_access_token = @Token WHERE id = @Id",
+            new { Token = token, Id = id });
     }
 }

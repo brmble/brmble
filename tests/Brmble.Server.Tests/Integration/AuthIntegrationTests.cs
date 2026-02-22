@@ -1,13 +1,16 @@
 // tests/Brmble.Server.Tests/Integration/AuthIntegrationTests.cs
 using System.Net;
 using Brmble.Server.Auth;
-using Brmble.Server.Tests.Auth;
+using Brmble.Server.Data;
+using Brmble.Server.Matrix;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Moq;
 
 namespace Brmble.Server.Tests.Integration;
 
@@ -15,15 +18,16 @@ namespace Brmble.Server.Tests.Integration;
 public class AuthIntegrationTests : IDisposable
 {
     private readonly SqliteConnection _keepAlive;
+    private readonly string _cs;
     private readonly WebApplicationFactory<Program> _factory;
     private readonly HttpClient _client;
 
     public AuthIntegrationTests()
     {
         var dbName = "auth_int_" + Guid.NewGuid().ToString("N");
-        var cs = $"Data Source={dbName};Mode=Memory;Cache=Shared";
+        _cs = $"Data Source={dbName};Mode=Memory;Cache=Shared";
 
-        _keepAlive = new SqliteConnection(cs);
+        _keepAlive = new SqliteConnection(_cs);
         _keepAlive.Open();
 
         _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
@@ -33,7 +37,6 @@ public class AuthIntegrationTests : IDisposable
             {
                 config.AddInMemoryCollection(new Dictionary<string, string?>
                 {
-                    ["ConnectionStrings:Default"] = cs,
                     ["Auth:ServerDomain"] = "test.local",
                     ["Matrix:ServerDomain"] = "test.local",
                     ["Matrix:HomeserverUrl"] = "http://localhost:1",
@@ -45,8 +48,30 @@ public class AuthIntegrationTests : IDisposable
             });
             builder.ConfigureServices(services =>
             {
-                services.AddSingleton<ICertificateHashExtractor>(
-                    new FakeCertificateHashExtractor("aabbccddeeff001122334455"));
+                // Replace eagerly-initialized Database with in-memory stub
+                var dbDescriptor = services.FirstOrDefault(d => d.ServiceType == typeof(Database));
+                if (dbDescriptor != null) services.Remove(dbDescriptor);
+                var db = new Database(_cs);
+                db.Initialize();
+                services.AddSingleton(db);
+
+                // Stub IMatrixAppService so no real HTTP calls are made
+                var matrixDescriptor = services.FirstOrDefault(d => d.ServiceType == typeof(IMatrixAppService));
+                if (matrixDescriptor != null) services.Remove(matrixDescriptor);
+                var mockMatrix = new Mock<IMatrixAppService>();
+                mockMatrix.Setup(m => m.RegisterUser(It.IsAny<string>(), It.IsAny<string>()))
+                          .ReturnsAsync("stub_matrix_token");
+                mockMatrix.Setup(m => m.LoginUser(It.IsAny<string>()))
+                          .ReturnsAsync("stub_matrix_token");
+                services.AddSingleton<IMatrixAppService>(mockMatrix.Object);
+
+                // Stub ICertificateHashExtractor — WebApplicationFactory bypasses TLS
+                var extDescriptor = services.FirstOrDefault(d => d.ServiceType == typeof(ICertificateHashExtractor));
+                if (extDescriptor != null) services.Remove(extDescriptor);
+                var mockExt = new Mock<ICertificateHashExtractor>();
+                mockExt.Setup(e => e.GetCertHash(It.IsAny<HttpContext>()))
+                       .Returns("aabbccddeeff001122334455");
+                services.AddSingleton<ICertificateHashExtractor>(mockExt.Object);
             });
         });
 
@@ -54,55 +79,40 @@ public class AuthIntegrationTests : IDisposable
     }
 
     [TestMethod]
-    public async Task PostToken_ValidRequest_ReturnsOk()
+    public async Task PostToken_WithClientCert_ReturnsOk()
     {
         var response = await _client.PostAsync("/auth/token", null);
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
     }
 
     [TestMethod]
-    public async Task PostToken_ValidRequest_ReturnsStubToken()
+    public async Task PostToken_WithClientCert_ReturnsCredentialsShape()
     {
         var response = await _client.PostAsync("/auth/token", null);
-        var body = await response.Content.ReadAsStringAsync();
-        StringAssert.Contains(body, "matrixAccessToken");
-        StringAssert.Contains(body, "stub_token_");
+        var json = await response.Content.ReadAsStringAsync();
+        Assert.IsTrue(json.Contains("matrix"));
+        Assert.IsTrue(json.Contains("accessToken"));
+        Assert.IsTrue(json.Contains("stub_matrix_token"));
     }
 
     [TestMethod]
-    public async Task PostToken_NoCertificate_ReturnsBadRequest()
+    public async Task PostToken_NoClientCert_ReturnsUnauthorized()
     {
-        var dbName2 = "auth_nocert_" + Guid.NewGuid().ToString("N");
-        using var keepAlive2 = new SqliteConnection($"Data Source={dbName2};Mode=Memory;Cache=Shared");
-        keepAlive2.Open();
-
-        using var noCertFactory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        // Re-register extractor to return null (simulates missing client certificate)
+        var factory = _factory.WithWebHostBuilder(builder =>
         {
-            builder.UseEnvironment("Testing");
-            builder.ConfigureAppConfiguration(config =>
-            {
-                config.AddInMemoryCollection(new Dictionary<string, string?>
-                {
-                    ["ConnectionStrings:Default"] = $"Data Source={dbName2};Mode=Memory;Cache=Shared",
-                    ["Auth:ServerDomain"] = "test.local",
-                    ["Matrix:ServerDomain"] = "test.local",
-                    ["Matrix:HomeserverUrl"] = "http://localhost:1",
-                    ["Matrix:AppServiceToken"] = "test-token",
-                    ["ReverseProxy:Routes:placeholder:ClusterId"] = "placeholder",
-                    ["ReverseProxy:Routes:placeholder:Match:Path"] = "/__placeholder/{**catch-all}",
-                    ["ReverseProxy:Clusters:placeholder:Destinations:d1:Address"] = "http://localhost:1",
-                });
-            });
             builder.ConfigureServices(services =>
             {
-                services.AddSingleton<ICertificateHashExtractor>(
-                    new FakeCertificateHashExtractor(null));
+                var desc = services.FirstOrDefault(d => d.ServiceType == typeof(ICertificateHashExtractor));
+                if (desc != null) services.Remove(desc);
+                var mockExt = new Mock<ICertificateHashExtractor>();
+                mockExt.Setup(e => e.GetCertHash(It.IsAny<HttpContext>())).Returns((string?)null);
+                services.AddSingleton<ICertificateHashExtractor>(mockExt.Object);
             });
         });
-
-        using var noCertClient = noCertFactory.CreateClient();
-        var response = await noCertClient.PostAsync("/auth/token", null);
-        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        using var client = factory.CreateClient();
+        var response = await client.PostAsync("/auth/token", null);
+        Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     public void Dispose()

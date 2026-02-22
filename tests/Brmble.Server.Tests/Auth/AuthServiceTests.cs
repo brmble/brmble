@@ -1,9 +1,11 @@
 // tests/Brmble.Server.Tests/Auth/AuthServiceTests.cs
 using Brmble.Server.Auth;
 using Brmble.Server.Data;
+using Brmble.Server.Matrix;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Moq;
 
 namespace Brmble.Server.Tests.Auth;
 
@@ -13,6 +15,7 @@ public class AuthServiceTests
     private SqliteConnection? _keepAlive;
     private AuthService? _svc;
     private UserRepository? _repo;
+    private Mock<IMatrixAppService>? _mockMatrix;
 
     [TestInitialize]
     public void Setup()
@@ -26,7 +29,12 @@ public class AuthServiceTests
         var settings = Options.Create(new AuthSettings { ServerDomain = "test.local" });
         var repo = new UserRepository(db, settings);
         _repo = repo;
-        _svc = new AuthService(repo);
+        _mockMatrix = new Mock<IMatrixAppService>();
+        _mockMatrix.Setup(m => m.RegisterUser(It.IsAny<string>(), It.IsAny<string>()))
+                   .ReturnsAsync("syt_new_token");
+        _mockMatrix.Setup(m => m.LoginUser(It.IsAny<string>()))
+                   .ReturnsAsync("syt_refresh_token");
+        _svc = new AuthService(repo, _mockMatrix.Object);
     }
 
     [TestCleanup]
@@ -55,13 +63,6 @@ public class AuthServiceTests
     {
         await _svc!.Authenticate("newhash");
         Assert.IsTrue(_svc.IsBrmbleClient("newhash"));
-    }
-
-    [TestMethod]
-    public async Task Authenticate_NewUser_ReturnsStubToken()
-    {
-        var result = await _svc!.Authenticate("somehash");
-        StringAssert.StartsWith(result.MatrixAccessToken, "stub_token_");
     }
 
     [TestMethod]
@@ -127,5 +128,36 @@ public class AuthServiceTests
         var user = await _repo!.GetByCertHash("placeholderhash");
         Assert.IsNotNull(user);
         Assert.AreEqual($"user_{user.Id}", user.DisplayName);
+    }
+
+    [TestMethod]
+    public async Task Authenticate_NewUser_CallsRegisterAndStoresToken()
+    {
+        var result = await _svc!.Authenticate("newhash_matrix");
+        Assert.AreEqual("syt_new_token", result.MatrixAccessToken);
+        _mockMatrix!.Verify(m => m.RegisterUser(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task Authenticate_ExistingUserWithToken_ReturnsStoredToken()
+    {
+        // First call provisions and stores token
+        await _svc!.Authenticate("existing_hash");
+
+        // Second call should return stored token, not call RegisterUser again
+        var result = await _svc.Authenticate("existing_hash");
+        Assert.AreEqual("syt_new_token", result.MatrixAccessToken);
+        _mockMatrix!.Verify(m => m.RegisterUser(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task Authenticate_ExistingUserWithoutToken_CallsLoginUser()
+    {
+        // Insert user directly without a token
+        await _repo!.Insert("notokhash", "TestUser");
+
+        var result = await _svc!.Authenticate("notokhash");
+        Assert.AreEqual("syt_refresh_token", result.MatrixAccessToken);
+        _mockMatrix!.Verify(m => m.LoginUser(It.IsAny<string>()), Times.Once);
     }
 }

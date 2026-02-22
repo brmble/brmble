@@ -1,9 +1,10 @@
 // src/Brmble.Server/Auth/AuthService.cs
 using System.Collections.Concurrent;
+using Brmble.Server.Matrix;
 
 namespace Brmble.Server.Auth;
 
-public record AuthResult(string MatrixAccessToken);
+public record AuthResult(string MatrixUserId, string MatrixAccessToken);
 
 public interface IActiveBrmbleSessions
 {
@@ -13,15 +14,17 @@ public interface IActiveBrmbleSessions
 public class AuthService : IActiveBrmbleSessions
 {
     private readonly UserRepository _userRepository;
+    private readonly IMatrixAppService _matrixAppService;
     private readonly HashSet<string> _activeSessions = [];
     private readonly object _lock = new();
     // Parks display names from Mumble UserState events that arrive before the user's first Authenticate call.
     // Entries are consumed atomically by Authenticate and are not persisted across restarts.
     private readonly ConcurrentDictionary<string, string> _pendingNames = new();
 
-    public AuthService(UserRepository userRepository)
+    public AuthService(UserRepository userRepository, IMatrixAppService matrixAppService)
     {
         _userRepository = userRepository;
+        _matrixAppService = matrixAppService;
     }
 
     public bool IsBrmbleClient(string certHash) => _activeSessions.Contains(certHash);
@@ -34,6 +37,15 @@ public class AuthService : IActiveBrmbleSessions
         {
             _pendingNames.TryRemove(certHash, out var pendingName);
             user = await _userRepository.Insert(certHash, pendingName);
+            var token = await _matrixAppService.RegisterUser(user.Id.ToString(), user.DisplayName);
+            await _userRepository.UpdateMatrixToken(user.Id, token);
+            user = user with { MatrixAccessToken = token };
+        }
+        else if (user.MatrixAccessToken is null)
+        {
+            var token = await _matrixAppService.LoginUser(user.Id.ToString());
+            await _userRepository.UpdateMatrixToken(user.Id, token);
+            user = user with { MatrixAccessToken = token };
         }
 
         lock (_lock)
@@ -41,7 +53,7 @@ public class AuthService : IActiveBrmbleSessions
             _activeSessions.Add(certHash);
         }
 
-        return new AuthResult($"stub_token_{user.Id}");
+        return new AuthResult(user.MatrixUserId, user.MatrixAccessToken!);
     }
 
     public void Deactivate(string certHash)

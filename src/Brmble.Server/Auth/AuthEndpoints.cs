@@ -1,4 +1,6 @@
-// src/Brmble.Server/Auth/AuthEndpoints.cs
+using Brmble.Server.Matrix;
+using Microsoft.Extensions.Options;
+
 namespace Brmble.Server.Auth;
 
 public static class AuthEndpoints
@@ -8,14 +10,30 @@ public static class AuthEndpoints
         app.MapPost("/auth/token", async (
             HttpContext httpContext,
             ICertificateHashExtractor certHashExtractor,
-            AuthService authService) =>
+            AuthService authService,
+            ChannelRepository channelRepository,
+            IOptions<MatrixSettings> matrixSettings) =>
         {
             var certHash = certHashExtractor.GetCertHash(httpContext);
-            if (certHash is null)
-                return Results.BadRequest("No client certificate presented.");
+            if (string.IsNullOrWhiteSpace(certHash))
+                return Results.Unauthorized();
 
             var result = await authService.Authenticate(certHash);
-            return Results.Ok(new { matrixAccessToken = result.MatrixAccessToken });
+
+            var roomMap = channelRepository.GetAll()
+                .ToDictionary(m => m.MumbleChannelId.ToString(), m => m.MatrixRoomId);
+
+            return Results.Ok(new
+            {
+                matrix = new
+                {
+                    homeserverUrl = matrixSettings.Value.HomeserverUrl,
+                    accessToken = result.MatrixAccessToken,
+                    userId = result.MatrixUserId,
+                    roomMap
+                },
+                livekit = (object?)null
+            });
         });
 
         return app;

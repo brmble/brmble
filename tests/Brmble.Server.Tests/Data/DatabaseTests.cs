@@ -69,4 +69,16 @@ public class DatabaseTests
         conn.Open();
         Assert.AreEqual(System.Data.ConnectionState.Open, conn.State);
     }
+
+    [TestMethod]
+    public void Initialize_CreatesUsersTableWithMatrixAccessTokenColumn()
+    {
+        _db!.Initialize();
+
+        using var conn = _db.CreateConnection();
+        var columns = conn.Query<string>(
+            "SELECT name FROM pragma_table_info('users')").ToList();
+
+        CollectionAssert.Contains(columns, "matrix_access_token");
+    }
 }
