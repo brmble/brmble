@@ -174,6 +174,7 @@ private int _continuousHotkeyId = -1;
     // Volume controls
     private volatile float _inputVolume = 1.0f;
     private volatile float _outputVolume = 1.0f;
+    private volatile float _maxAmplification = 1.0f;
 
     public void SetLocalUserId(uint sessionId) => _localUserId = sessionId;
 
@@ -195,6 +196,7 @@ private int _continuousHotkeyId = -1;
     public TransmissionMode TransmissionMode => _transmissionMode;
 
     public void SetInputVolume(int percentage) => _inputVolume = Math.Clamp(percentage, 0, 250) / 100f;
+    public void SetMaxAmplification(int percentage) => _maxAmplification = Math.Clamp(percentage, 100, 400) / 100f;
     public void SetOutputVolume(int percentage)
     {
         _outputVolume = Math.Clamp(percentage, 0, 250) / 100f;
