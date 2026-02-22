@@ -94,7 +94,9 @@ as_token: \"${MATRIX_APPSERVICE_TOKEN}\"
 hs_token: \"${MATRIX_APPSERVICE_TOKEN}\"
 sender_localpart: brmble
 namespaces:
-  users: []
+  users:
+    - exclusive: true
+      regex: '@[0-9]+:${MATRIX_SERVER_NAME}'
   rooms: []
   aliases: []
 rate_limited: false"
