@@ -9,6 +9,7 @@ using PacketType = MumbleSharp.Packets.PacketType;
 using Brmble.Client.Bridge;
 using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.Certificate;
+using Brmble.Client.Services.SpeechEnhancement;
 
 namespace Brmble.Client.Services.Voice;
 
@@ -511,6 +512,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.SetInputVolume(settings.Audio.InputVolume);
         _audioManager?.SetOutputVolume(settings.Audio.OutputVolume);
         _audioManager?.SetMaxAmplification(settings.Audio.MaxAmplification);
+
+        var modelVariant = settings.SpeechEnhancement.Model?.ToLowerInvariant() switch
+        {
+            "vctk-demand" => GtcrnModelVariant.VctkDemand,
+            _ => GtcrnModelVariant.Dns3
+        };
+        var modelsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "models");
+        _audioManager?.ConfigureSpeechEnhancement(modelsPath, settings.SpeechEnhancement.Enabled, modelVariant);
     }
 
     /// <summary>Called from WndProc on WM_HOTKEY.</summary>

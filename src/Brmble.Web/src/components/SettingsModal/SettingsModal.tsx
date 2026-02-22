@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import './SettingsModal.css';
 import bridge from '../../bridge';
-import { AudioSettingsTab, type AudioSettings, DEFAULT_SETTINGS as DEFAULT_AUDIO } from './AudioSettingsTab';
+import { AudioSettingsTab, type AudioSettings, type SpeechEnhancementSettings, DEFAULT_SETTINGS as DEFAULT_AUDIO, DEFAULT_SPEECH_ENHANCEMENT } from './AudioSettingsTab';
 import { ShortcutsSettingsTab, type ShortcutsSettings, DEFAULT_SHORTCUTS } from './ShortcutsSettingsTab';
 import { MessagesSettingsTab, type MessagesSettings, DEFAULT_MESSAGES } from './MessagesSettingsTab';
 import { OverlaySettingsTab, type OverlaySettings, DEFAULT_OVERLAY } from './OverlaySettingsTab';
@@ -19,6 +19,7 @@ interface AppSettings {
   shortcuts: ShortcutsSettings;
   messages: MessagesSettings;
   overlay: OverlaySettings;
+  speechEnhancement: SpeechEnhancementSettings;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -26,6 +27,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   shortcuts: DEFAULT_SHORTCUTS,
   messages: DEFAULT_MESSAGES,
   overlay: DEFAULT_OVERLAY,
+  speechEnhancement: DEFAULT_SPEECH_ENHANCEMENT,
 };
 
 export function SettingsModal(props: SettingsModalProps) {
@@ -103,6 +105,12 @@ export function SettingsModal(props: SettingsModalProps) {
     bridge.send('settings.set', { settings: newSettings });
   };
 
+  const handleSpeechEnhancementChange = (speechEnhancement: SpeechEnhancementSettings) => {
+    const newSettings = { ...settings, speechEnhancement };
+    setSettings(newSettings);
+    bridge.send('settings.set', { settings: newSettings });
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -154,7 +162,7 @@ export function SettingsModal(props: SettingsModalProps) {
         </div>
 
         <div className="settings-content">
-          {activeTab === 'audio' && <AudioSettingsTab settings={settings.audio} onChange={handleAudioChange} />}
+          {activeTab === 'audio' && <AudioSettingsTab settings={settings.audio} onChange={handleAudioChange} speechEnhancement={settings.speechEnhancement} onSpeechEnhancementChange={handleSpeechEnhancementChange} />}
           {activeTab === 'shortcuts' && <ShortcutsSettingsTab settings={settings.shortcuts} onChange={handleShortcutsChange} />}
           {activeTab === 'messages' && <MessagesSettingsTab settings={settings.messages} onChange={handleMessagesChange} />}
           {activeTab === 'overlay' && <OverlaySettingsTab settings={settings.overlay} onChange={handleOverlayChange} />}

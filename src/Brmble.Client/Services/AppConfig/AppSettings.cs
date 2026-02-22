@@ -26,13 +26,21 @@ public record OverlaySettings(
     bool OverlayEnabled = false
 );
 
+public record SpeechEnhancementSettings(
+    bool Enabled = false,
+    string Model = "dns3"
+);
+
 public record AppSettings(
     AudioSettings Audio,
     ShortcutsSettings Shortcuts,
     MessagesSettings Messages,
-    OverlaySettings Overlay
+    OverlaySettings Overlay,
+    SpeechEnhancementSettings? SpeechEnhancement = null
 )
 {
+    public SpeechEnhancementSettings SpeechEnhancement { get; init; } = SpeechEnhancement ?? new SpeechEnhancementSettings();
+
     public static AppSettings Default => new(
         new AudioSettings(),
         new ShortcutsSettings(),

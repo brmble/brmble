@@ -61,7 +61,7 @@ Microphone (48kHz) → [Resample to 16kHz] → [GTCRN ONNX] → [Resample back t
 
 ### Model Source
 - Download from sherpa-onnx releases: https://github.com/k2-fsa/sherpa-onnx/releases/tag/speech-enhancement-models
-- Models: `gtcrn-dns3-raw.onnx` and `gtcrn-vctk-demand-raw.onnx`
+- Model: `gtcrn_simple.onnx` (DNS3 variant in simplified format)
 
 ## File Structure
 

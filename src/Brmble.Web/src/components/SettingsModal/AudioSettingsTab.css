@@ -57,3 +57,15 @@
 .settings-slider input[type="range"]::-webkit-slider-thumb:hover {
   background: #5aafff;
 }
+
+.settings-section-divider {
+  height: 1px;
+  background: #3a3a3a;
+  margin: 12px 0;
+}
+
+.settings-hint-inline {
+  color: #888;
+  font-size: 12px;
+  font-weight: normal;
+}

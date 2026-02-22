@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using Brmble.Client.Services.SpeechEnhancement;
 using MumbleVoiceEngine.Pipeline;
 using NAudio.Wave;
 
@@ -178,6 +179,11 @@ private int _continuousHotkeyId = -1;
     private volatile float _outputVolume = 1.0f;
     private volatile float _maxAmplification = 1.0f;
 
+    // Speech enhancement
+    private SpeechEnhancementService? _speechEnhancement;
+    private AudioResampler? _to16kResampler;
+    private AudioResampler? _to48kResampler;
+
     public void SetLocalUserId(uint sessionId) => _localUserId = sessionId;
 
     /// <summary>Fired when an encoded voice packet is ready to send to the server.</summary>
@@ -199,6 +205,27 @@ private int _continuousHotkeyId = -1;
 
     public void SetInputVolume(int percentage) => _inputVolume = Math.Clamp(percentage, 0, 250) / 100f;
     public void SetMaxAmplification(int percentage) => _maxAmplification = Math.Clamp(percentage, 100, 400) / 100f;
+
+    public void ConfigureSpeechEnhancement(string modelsPath, bool enabled, GtcrnModelVariant variant)
+    {
+        lock (_lock)
+        {
+            _speechEnhancement?.Dispose();
+            _to16kResampler = null;
+            _to48kResampler = null;
+
+            if (!enabled)
+            {
+                _speechEnhancement = null;
+                return;
+            }
+
+            _speechEnhancement = new SpeechEnhancementService(modelsPath, enabled, variant);
+            _to16kResampler = new AudioResampler(48000, 16000, 1);
+            _to48kResampler = new AudioResampler(16000, 48000, 1);
+        }
+    }
+
     public void SetOutputVolume(int percentage)
     {
         _outputVolume = Math.Clamp(percentage, 0, 250) / 100f;
@@ -270,6 +297,58 @@ private int _continuousHotkeyId = -1;
         // Apply input volume (after AGC to avoid clipping on boost)
         if (_inputVolume != 1.0f)
             ApplyInputVolume(e.Buffer, e.BytesRecorded);
+
+        // Apply speech enhancement if enabled
+        if (_speechEnhancement?.IsEnabled == true && _to16kResampler != null && _to48kResampler != null)
+        {
+            try
+            {
+                // Convert byte buffer to normalized float samples (48kHz, range [-1, 1])
+                var sampleCount = e.BytesRecorded / 2;
+                var samples48k = new float[sampleCount];
+                for (int i = 0; i < sampleCount; i++)
+                {
+                    samples48k[i] = (short)(e.Buffer[i * 2] | (e.Buffer[i * 2 + 1] << 8)) / 32768f;
+                }
+
+                // Resample to 16kHz
+                var samples16k = _to16kResampler.Resample(samples48k);
+
+                // Enhance
+                var enhanced16k = _speechEnhancement.Enhance(samples16k);
+
+                if (enhanced16k != null)
+                {
+                    // Resample back to 48kHz
+                    var enhanced48k = _to48kResampler.Resample(enhanced16k);
+
+                    // Convert normalized floats back to int16 bytes
+                    int samplesToCopy = Math.Min(enhanced48k.Length, sampleCount);
+                    for (int i = 0; i < samplesToCopy; i++)
+                    {
+                        var sample = (short)Math.Clamp(enhanced48k[i] * 32768f, short.MinValue, short.MaxValue);
+                        e.Buffer[i * 2] = (byte)(sample & 0xFF);
+                        e.Buffer[i * 2 + 1] = (byte)((sample >> 8) & 0xFF);
+                    }
+
+                    // If the enhanced buffer is shorter than the original, zero-fill the remainder
+                    if (samplesToCopy < sampleCount)
+                    {
+                        for (int i = samplesToCopy; i < sampleCount; i++)
+                        {
+                            e.Buffer[i * 2] = 0;
+                            e.Buffer[i * 2 + 1] = 0;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // Enhancement failed — disable it so voice is never silenced by an error
+                AudioLog.Write($"[Audio] Speech enhancement error, disabling: {ex.Message}");
+                _speechEnhancement = null;
+            }
+        }
 
         // Voice activity check on processed signal
         if (_transmissionMode == TransmissionMode.VoiceActivity && !IsAboveThreshold(e.Buffer, e.BytesRecorded)) return;
@@ -914,6 +993,7 @@ private int _continuousHotkeyId = -1;
 
     public void Dispose()
     {
+        _speechEnhancement?.Dispose();
         _speakingTimer.Dispose();
         StopPttPolling();
         UnregisterRawInputKeyboard();

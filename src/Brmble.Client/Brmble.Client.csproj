@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3800.47" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.19.2" />
   </ItemGroup>
 
   <ItemGroup>
@@ -27,22 +28,29 @@
     <ProjectReference Include="..\..\lib\MumbleSharp\MumbleSharp\MumbleSharp.csproj" />
     <ProjectReference Include="..\..\lib\MumbleVoiceEngine\MumbleVoiceEngine.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <None Include="models\*.onnx">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
   <Target Name="FetchVersion" BeforeTargets="CopyWebDist">
     <PropertyGroup>
       <_PrJson>$(MSBuildProjectDirectory)/../.github/pr-version.json</_PrJson>
     </PropertyGroup>
-    <Exec Command="gh pr list --state merged --base main --limit 1 --json mergedAt" 
-          WorkingDirectory="$(MSBuildProjectDirectory)/../" 
-          ConsoleToMSBuild="True" 
+    <Exec Command="gh pr list --state merged --base main --limit 1 --json mergedAt"
+          WorkingDirectory="$(MSBuildProjectDirectory)/../"
+          ConsoleToMSBuild="True"
           IgnoreExitCode="True">
       <Output TaskParameter="ConsoleOutput" PropertyName="_PrListOutput" />
     </Exec>
     <PropertyGroup>
       <_ParsedDateTime>$([System.Text.RegularExpressions.Regex]::Match($(_PrListOutput), &quot;\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}&quot;).Value)</_ParsedDateTime>
     </PropertyGroup>
-    <WriteLinesToFile File="$(_PrJson)" 
-                      Lines="{&quot;version&quot;: &quot;$(_ParsedDateTime)&quot;}" 
-                      Overwrite="True" 
+    <WriteLinesToFile File="$(_PrJson)"
+                      Lines="{&quot;version&quot;: &quot;$(_ParsedDateTime)&quot;}"
+                      Overwrite="True"
                       Condition="'$(_ParsedDateTime)' != ''" />
   </Target>
 

@@ -3,7 +3,9 @@ import './AudioSettingsTab.css';
 
 interface AudioSettingsTabProps {
   settings: AudioSettings;
+  speechEnhancement: SpeechEnhancementSettings;
   onChange: (settings: AudioSettings) => void;
+  onSpeechEnhancementChange: (settings: SpeechEnhancementSettings) => void;
 }
 
 export type TransmissionMode = 'pushToTalk' | 'voiceActivity' | 'continuous';
@@ -18,6 +20,11 @@ export interface AudioSettings {
   pushToTalkKey: string | null;
 }
 
+export interface SpeechEnhancementSettings {
+  enabled: boolean;
+  model: string;
+}
+
 export const DEFAULT_SETTINGS: AudioSettings = {
   inputDevice: 'default',
   outputDevice: 'default',
@@ -28,7 +35,12 @@ export const DEFAULT_SETTINGS: AudioSettings = {
   pushToTalkKey: null,
 };
 
-export function AudioSettingsTab({ settings, onChange }: AudioSettingsTabProps) {
+export const DEFAULT_SPEECH_ENHANCEMENT: SpeechEnhancementSettings = {
+  enabled: false,
+  model: 'dns3',
+};
+
+export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpeechEnhancementChange }: AudioSettingsTabProps) {
   const [localSettings, setLocalSettings] = useState<AudioSettings>(settings);
   const [recording, setRecording] = useState(false);
 
@@ -161,6 +173,21 @@ export function AudioSettingsTab({ settings, onChange }: AudioSettingsTabProps) 
           </button>
         </div>
       )}
+
+      <div className="settings-section-divider" />
+
+      <div className="settings-item settings-toggle">
+        <label>
+          Speech Enhancement
+          <span className="settings-hint-inline"> — AI noise reduction (GTCRN)</span>
+        </label>
+        <input
+          type="checkbox"
+          className="toggle-input"
+          checked={speechEnhancement.enabled}
+          onChange={() => onSpeechEnhancementChange({ ...speechEnhancement, enabled: !speechEnhancement.enabled })}
+        />
+      </div>
     </div>
   );
 }
