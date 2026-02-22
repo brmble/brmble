@@ -31,7 +31,7 @@ public class AppConfigServiceTests
         var settings = svc.GetSettings();
 
         Assert.AreEqual("voiceActivity", settings.Audio.TransmissionMode);
-        Assert.AreEqual(100, settings.Audio.InputVolume);
+        Assert.AreEqual(250, settings.Audio.InputVolume);
         Assert.IsNull(settings.Shortcuts.ToggleMuteKey);
         Assert.IsFalse(settings.Messages.TtsEnabled);
         Assert.IsFalse(settings.Overlay.OverlayEnabled);
