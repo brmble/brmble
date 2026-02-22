@@ -558,10 +558,26 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         }
     }
 
+    /// <summary>
+    /// Pure HTTP helper: POSTs to /auth/token and returns the parsed response body.
+    /// Body is empty — identity comes from the TLS client certificate attached to <paramref name="httpClient"/>.
+    /// Returns null on any non-success status.
+    /// </summary>
+    internal static async Task<System.Text.Json.JsonElement?> FetchCredentials(string apiUrl, HttpClient httpClient)
+    {
+        var response = await httpClient.PostAsync($"{apiUrl}/auth/token", content: null);
+        if (!response.IsSuccessStatusCode)
+            return null;
+
+        var json = await response.Content.ReadAsStringAsync();
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        return doc.RootElement.Clone();
+    }
+
     private async Task FetchAndSendCredentials(string apiUrl)
     {
-        var certHash = _certService?.GetCertHash();
-        if (certHash is null)
+        var cert = _certService?.ActiveCertificate;
+        if (cert is null)
         {
             _bridge?.Send("voice.error", new { message = "No client certificate — cannot fetch Matrix credentials." });
             _bridge?.NotifyUiThread();
@@ -570,20 +586,21 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         try
         {
-            using var http = new System.Net.Http.HttpClient();
-            var body = System.Text.Json.JsonSerializer.Serialize(new { certHash });
-            var response = await http.PostAsync(
-                $"{apiUrl}/auth/token",
-                new System.Net.Http.StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+            var handler = new HttpClientHandler();
+            handler.ClientCertificates.Add(cert);
+            handler.ServerCertificateCustomValidationCallback =
+                HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
 
-            response.EnsureSuccessStatusCode();
-            var json = await response.Content.ReadAsStringAsync();
-            using var doc = System.Text.Json.JsonDocument.Parse(json);
-            var credentials = doc.RootElement.Clone();
+            using var http = new HttpClient(handler);
+            var credentials = await FetchCredentials(apiUrl, http);
+            if (credentials is null)
+            {
+                Debug.WriteLine($"[Brmble] Auth token request to {apiUrl} returned non-success");
+                return;
+            }
 
-            _bridge?.Send("server.credentials", credentials);
+            _bridge?.Send("server.credentials", credentials.Value);
             _bridge?.NotifyUiThread();
-
             _apiUrl = apiUrl;
         }
         catch (Exception ex)
