@@ -224,7 +224,7 @@ internal sealed class AppConfigService : IAppConfigService
             label.GetString() ?? "",
             apiUrl,
             data.TryGetProperty("host", out var hostEl) ? hostEl.GetString() : null,
-            data.TryGetProperty("port", out var portEl) ? portEl.GetInt32() : null,
+            data.TryGetProperty("port", out var portEl) && portEl.ValueKind == System.Text.Json.JsonValueKind.Number ? portEl.GetInt32() : null,
             username.GetString() ?? "");
     }
 

@@ -190,8 +190,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         ChannelDictionary.Clear();
         _lastWelcomeText = null;
         _previousChannelId = null;
-        _apiUrl = null;
-        _activeServerId = null;
+        if (_intentionalDisconnect || _reconnectHost == null)
+        {
+            _apiUrl = null;
+            _activeServerId = null;
+        }
         _leftVoice = false;
         _leaveVoiceInProgress = false;
         EmitCanRejoin(false);
@@ -565,7 +568,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         try
         {
-            var json = System.Text.Json.JsonDocument.Parse(match.Groups[1].Value);
+            using var json = System.Text.Json.JsonDocument.Parse(match.Groups[1].Value);
             return json.RootElement.TryGetProperty("apiUrl", out var apiUrl)
                 ? apiUrl.GetString()
                 : null;
@@ -582,6 +585,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (certHash is null)
         {
             _bridge?.Send("voice.error", new { message = "No client certificate — cannot fetch Matrix credentials." });
+            _bridge?.NotifyUiThread();
             return;
         }
 
@@ -595,7 +599,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
             response.EnsureSuccessStatusCode();
             var json = await response.Content.ReadAsStringAsync();
-            var credentials = System.Text.Json.JsonDocument.Parse(json).RootElement;
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var credentials = doc.RootElement.Clone();
 
             _bridge?.Send("server.credentials", credentials);
             _bridge?.NotifyUiThread();
@@ -628,7 +633,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _reconnectUsername = username;
             _reconnectPassword = password;
 
-            Connect(host, port, username, password, apiUrl);
+            await Task.Run(() => Connect(host, port, username, password, apiUrl));
         }
         catch (Exception ex)
         {
@@ -774,11 +779,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             SendSystemMessage(serverSync.WelcomeText, "welcome", html: true);
         }
 
-        // Flow A: discover Brmble API URL from welcome text
+        // Flow A: discover Brmble API URL from welcome text (restricted to matching host)
         if (_apiUrl is null && serverSync.WelcomeText is not null)
         {
             var discovered = ParseBrmbleApiUrl(serverSync.WelcomeText);
-            if (discovered is not null)
+            if (discovered is not null
+                && Uri.TryCreate(discovered, UriKind.Absolute, out var discoveredUri)
+                && string.Equals(discoveredUri.Host, _reconnectHost, StringComparison.OrdinalIgnoreCase))
             {
                 _apiUrl = discovered;
                 OnApiUrlDiscovered?.Invoke(discovered);
