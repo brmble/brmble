@@ -17,7 +17,8 @@ export function Version() {
       .then(data => {
         if (data?.version) {
           const date = new Date(data.version);
-          const formatted = `v${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, '0')}.${String(date.getDate()).padStart(2, '0')}.${String(date.getHours()).padStart(2, '0')}`;
+          if (isNaN(date.getTime())) return;
+          const formatted = `v${date.getUTCFullYear()}.${String(date.getUTCMonth() + 1).padStart(2, '0')}.${String(date.getUTCDate()).padStart(2, '0')}.${String(date.getUTCHours()).padStart(2, '0')}`;
           setVersion(formatted);
         }
       })

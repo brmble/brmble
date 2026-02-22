@@ -3,7 +3,7 @@
   bottom: 8px;
   right: 8px;
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.3);
+  color: var(--text-muted);
   pointer-events: none;
   z-index: 1000;
 }

@@ -44,12 +44,9 @@
                       Lines="{&quot;version&quot;: &quot;$(_ParsedDateTime)&quot;}" 
                       Overwrite="True" 
                       Condition="'$(_ParsedDateTime)' != ''" />
-    <PropertyGroup>
-      <_Version>$(_ParsedDate)</_Version>
-    </PropertyGroup>
   </Target>
 
-  <Target Name="CopyWebDist" AfterTargets="Build;FetchVersion" Condition="Exists('..\..\src\Brmble.Web\dist\index.html')">
+  <Target Name="CopyWebDist" AfterTargets="Build" Condition="Exists('..\..\src\Brmble.Web\dist\index.html')">
     <ItemGroup>
       <WebDistFiles Include="..\..\src\Brmble.Web\dist\**\*" />
     </ItemGroup>
