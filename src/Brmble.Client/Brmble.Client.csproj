@@ -27,11 +27,36 @@
     <ProjectReference Include="..\..\lib\MumbleSharp\MumbleSharp\MumbleSharp.csproj" />
     <ProjectReference Include="..\..\lib\MumbleVoiceEngine\MumbleVoiceEngine.csproj" />
   </ItemGroup>
-  <Target Name="CopyWebDist" AfterTargets="Build" Condition="Exists('..\..\src\Brmble.Web\dist\index.html')">
+  <Target Name="FetchVersion" BeforeTargets="CopyWebDist">
+    <PropertyGroup>
+      <_PrJson>$(MSBuildProjectDirectory)/../.github/pr-version.json</_PrJson>
+    </PropertyGroup>
+    <Exec Command="gh pr list --state merged --base main --limit 1 --json mergedAt" 
+          WorkingDirectory="$(MSBuildProjectDirectory)/../" 
+          ConsoleToMSBuild="True" 
+          IgnoreExitCode="True">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_PrListOutput" />
+    </Exec>
+    <PropertyGroup>
+      <_ParsedDateTime>$([System.Text.RegularExpressions.Regex]::Match($(_PrListOutput), &quot;\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}&quot;).Value)</_ParsedDateTime>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(_PrJson)" 
+                      Lines="{&quot;version&quot;: &quot;$(_ParsedDateTime)&quot;}" 
+                      Overwrite="True" 
+                      Condition="'$(_ParsedDateTime)' != ''" />
+    <PropertyGroup>
+      <_Version>$(_ParsedDate)</_Version>
+    </PropertyGroup>
+  </Target>
+
+  <Target Name="CopyWebDist" AfterTargets="Build;FetchVersion" Condition="Exists('..\..\src\Brmble.Web\dist\index.html')">
     <ItemGroup>
       <WebDistFiles Include="..\..\src\Brmble.Web\dist\**\*" />
     </ItemGroup>
     <Copy SourceFiles="@(WebDistFiles)" DestinationFolder="$(OutputPath)web\%(RecursiveDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="..\..\src\.github\pr-version.json" 
+          DestinationFiles="$(OutputPath)web\version.json" 
+          Condition="Exists('..\..\src\.github\pr-version.json')" />
   </Target>
 
   <Target Name="WarnWebDistMissing" AfterTargets="Build" Condition="!Exists('..\..\src\Brmble.Web\dist\index.html')">
