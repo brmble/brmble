@@ -262,15 +262,17 @@ private int _continuousHotkeyId = -1;
     {
         if (_muted) return;
         if (_transmissionMode == TransmissionMode.PushToTalk && !_pttActive) return;
-        if (_transmissionMode == TransmissionMode.VoiceActivity && !IsAboveThreshold(e.Buffer, e.BytesRecorded)) return;
 
-        // Apply input volume
+        // Apply AGC first (boost quiet audio, compress loud before user gain)
+        if (_maxAmplification != 1.0f)
+            ApplyAGC(e.Buffer, e.BytesRecorded);
+
+        // Apply input volume (after AGC to avoid clipping on boost)
         if (_inputVolume != 1.0f)
             ApplyInputVolume(e.Buffer, e.BytesRecorded);
 
-        // Apply AGC (max amplification)
-        if (_maxAmplification != 1.0f)
-            ApplyAGC(e.Buffer, e.BytesRecorded);
+        // Voice activity check on processed signal
+        if (_transmissionMode == TransmissionMode.VoiceActivity && !IsAboveThreshold(e.Buffer, e.BytesRecorded)) return;
 
         // Local speaking detection - track in _lastVoicePacket like remote users
         lock (_lock)

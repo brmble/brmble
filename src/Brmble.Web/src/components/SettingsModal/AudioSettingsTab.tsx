@@ -111,7 +111,7 @@ export function AudioSettingsTab({ settings, onChange }: AudioSettingsTabProps) 
           min="0"
           max="250"
           value={localSettings.inputVolume}
-          onChange={(e) => handleChange('inputVolume', parseInt(e.target.value))}
+          onChange={(e) => handleChange('inputVolume', parseInt(e.target.value, 10))}
         />
       </div>
 
@@ -122,7 +122,7 @@ export function AudioSettingsTab({ settings, onChange }: AudioSettingsTabProps) 
           min="100"
           max="400"
           value={localSettings.maxAmplification}
-          onChange={(e) => handleChange('maxAmplification', parseInt(e.target.value))}
+          onChange={(e) => handleChange('maxAmplification', parseInt(e.target.value, 10))}
         />
       </div>
 
@@ -133,7 +133,7 @@ export function AudioSettingsTab({ settings, onChange }: AudioSettingsTabProps) 
           min="0"
           max="250"
           value={localSettings.outputVolume}
-          onChange={(e) => handleChange('outputVolume', parseInt(e.target.value))}
+          onChange={(e) => handleChange('outputVolume', parseInt(e.target.value, 10))}
         />
       </div>
 
