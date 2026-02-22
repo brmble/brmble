@@ -38,6 +38,17 @@ public sealed class GtcrnModel : IDisposable
     private readonly float[] _olaBuffer; // WindowLength samples
     private readonly float[] _olaWindow; // synthesis window for OLA
 
+    // Persistent input queue: accumulates samples across Process() calls so we
+    // always drain in exact HopLength=256 increments — no raw samples ever spliced in.
+    private readonly Queue<float> _inputQueue = new();
+
+    // Analysis history: the last (WindowLength - HopLength) = 256 samples, used as
+    // the look-back window for the next frame's STFT. Carried across Process() calls.
+    private readonly float[] _analysisHistory; // length = WindowLength - HopLength
+
+    // Output queue: collects enhanced samples; flushed back to caller in batches.
+    private readonly Queue<float> _outputQueue = new();
+
     public GtcrnModel(string modelPath)
     {
         if (!File.Exists(modelPath))
@@ -58,50 +69,53 @@ public sealed class GtcrnModel : IDisposable
         // OLA synthesis buffer and window
         _olaBuffer = new float[WindowLength];
         _olaWindow = BuildHannSqrtWindow(WindowLength);
+
+        // Analysis look-back history (zeros = silence before first call)
+        _analysisHistory = new float[WindowLength - HopLength];
     }
 
     /// <summary>
     /// Process a block of 16kHz normalized float samples.
-    /// Input and output are the same length.
-    /// Internally processes HopLength=256 samples per model call with overlap-add.
+    /// Internally accumulates samples across calls and processes in exact HopLength=256
+    /// increments so no raw (unenhanced) samples are ever spliced into the output.
+    /// Returns exactly as many enhanced samples as were consumed from the input queue
+    /// (same length as input — there is one HopLength of latency on the very first call,
+    /// after which output and input stay aligned).
     /// </summary>
     public float[] Process(float[] input16kHz)
     {
         if (input16kHz.Length == 0)
             return [];
 
-        var output = new float[input16kHz.Length];
-        int pos = 0;
+        // Enqueue all new samples
+        foreach (var s in input16kHz)
+            _inputQueue.Enqueue(s);
 
-        // Process in hops of HopLength
-        // We need WindowLength samples to compute the first STFT frame.
-        // For streaming real-time, we process one hop at a time assuming
-        // the caller feeds exactly HopLength samples at a time, or we pad/buffer.
-        // Here we process as many complete hops as available and return aligned output.
-        while (pos + HopLength <= input16kHz.Length)
+        // Drain the input queue in HopLength=256 increments
+        while (_inputQueue.Count >= HopLength)
         {
-            // Extract analysis frame: HopLength new samples, zero-padded on the left if first call
-            // For simplicity, pad with zeros for the look-back (causal processing)
+            // Dequeue exactly one hop
+            var hop = new float[HopLength];
+            for (int i = 0; i < HopLength; i++)
+                hop[i] = _inputQueue.Dequeue();
+
+            // Build analysis frame: [history (256 samples) | hop (256 samples)]
             var frame = new float[WindowLength];
-            // look-back: samples before current position (zero for start)
-            int lookBack = WindowLength - HopLength;
-            for (int i = 0; i < lookBack; i++)
-            {
-                int srcIdx = pos - lookBack + i;
-                frame[i] = srcIdx >= 0 ? input16kHz[srcIdx] : 0f;
-            }
-            // current hop
-            Array.Copy(input16kHz, pos, frame, lookBack, HopLength);
+            Array.Copy(_analysisHistory, 0, frame, 0, _analysisHistory.Length);
+            Array.Copy(hop, 0, frame, _analysisHistory.Length, HopLength);
+
+            // Slide history forward: new history = last 256 samples of the frame = the hop
+            Array.Copy(hop, 0, _analysisHistory, 0, _analysisHistory.Length);
 
             // Apply analysis window
             var windowed = new float[WindowLength];
             for (int i = 0; i < WindowLength; i++)
                 windowed[i] = frame[i] * _window[i];
 
-            // STFT: compute complex spectrum via DFT (real FFT)
+            // STFT
             var (real, imag) = RealFFT(windowed);
 
-            // Pack into model input tensor [1, 257, 1, 2]
+            // Pack into model input [1, 257, 1, 2]
             var mix = new float[1 * NumBins * 1 * 2];
             for (int k = 0; k < NumBins; k++)
             {
@@ -112,7 +126,7 @@ public sealed class GtcrnModel : IDisposable
             // Run model
             var (enhReal, enhImag) = RunModel(mix);
 
-            // ISTFT: inverse FFT from enhanced spectrum
+            // ISTFT: mirror spectrum and inverse FFT
             var enhSpecReal = new float[NFft];
             var enhSpecImag = new float[NFft];
             for (int k = 0; k < NumBins; k++)
@@ -120,7 +134,6 @@ public sealed class GtcrnModel : IDisposable
                 enhSpecReal[k] = enhReal[k];
                 enhSpecImag[k] = enhImag[k];
             }
-            // Mirror for real IFFT
             for (int k = 1; k < NFft / 2; k++)
             {
                 enhSpecReal[NFft - k] =  enhSpecReal[k];
@@ -129,35 +142,33 @@ public sealed class GtcrnModel : IDisposable
 
             var timeDomain = IFFT(enhSpecReal, enhSpecImag);
 
-            // Apply synthesis window and overlap-add
+            // Apply synthesis window
             var synthFrame = new float[WindowLength];
             for (int i = 0; i < WindowLength; i++)
                 synthFrame[i] = timeDomain[i] * _olaWindow[i];
 
-            // Overlap-add: shift buffer by HopLength and add new frame
-            // The output for this hop is the first HopLength samples of the OLA buffer
+            // Overlap-add: output = front of OLA buffer + front of synthesis frame
+            int overlap = WindowLength - HopLength;
             for (int i = 0; i < HopLength; i++)
-                output[pos + i] = _olaBuffer[i] + synthFrame[i];
+                _outputQueue.Enqueue(_olaBuffer[i] + synthFrame[i]);
 
-            // Shift OLA buffer
-            int remaining = WindowLength - HopLength;
-            Array.Copy(_olaBuffer, HopLength, _olaBuffer, 0, remaining);
-            Array.Clear(_olaBuffer, remaining, HopLength);
-
-            // Accumulate tail of synthesis frame into OLA buffer
-            for (int i = 0; i < remaining; i++)
+            // Shift OLA buffer and accumulate tail
+            Array.Copy(_olaBuffer, HopLength, _olaBuffer, 0, overlap);
+            Array.Clear(_olaBuffer, overlap, HopLength);
+            for (int i = 0; i < overlap; i++)
                 _olaBuffer[i] += synthFrame[HopLength + i];
-
-            pos += HopLength;
         }
 
-        // Copy any leftover input samples unmodified (partial hop at end)
-        while (pos < input16kHz.Length)
+        // Return exactly input16kHz.Length samples from the output queue.
+        // On the very first call the queue may have fewer than input.Length samples
+        // (one hop of latency); pad with silence. After warmup it stays aligned.
+        var output = new float[input16kHz.Length];
+        for (int i = 0; i < output.Length; i++)
         {
-            output[pos] = input16kHz[pos];
-            pos++;
+            if (_outputQueue.Count > 0)
+                output[i] = _outputQueue.Dequeue();
+            // else: silence (zero) for the initial latency period
         }
-
         return output;
     }
 
