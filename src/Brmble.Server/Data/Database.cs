@@ -18,6 +18,7 @@ public class Database
     public void Initialize()
     {
         using var conn = CreateConnection();
+        conn.Open(); // Keep connection open so Dapper doesn't close between statements
         conn.Execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,5 +35,11 @@ public class Database
                 PRIMARY KEY (mumble_channel_id)
             );
             """);
+
+        // Migrate existing deployments: add matrix_access_token if the column is missing
+        var hasMatrixToken = conn.ExecuteScalar<int>(
+            "SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='matrix_access_token'");
+        if (hasMatrixToken == 0)
+            conn.Execute("ALTER TABLE users ADD COLUMN matrix_access_token TEXT");
     }
 }

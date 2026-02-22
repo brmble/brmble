@@ -1,8 +1,10 @@
 // tests/Brmble.Server.Tests/Integration/AuthIntegrationTests.cs
 using System.Net;
+using Brmble.Server.Auth;
 using Brmble.Server.Data;
 using Brmble.Server.Matrix;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
@@ -62,6 +64,14 @@ public class AuthIntegrationTests : IDisposable
                 mockMatrix.Setup(m => m.LoginUser(It.IsAny<string>()))
                           .ReturnsAsync("stub_matrix_token");
                 services.AddSingleton<IMatrixAppService>(mockMatrix.Object);
+
+                // Stub ICertificateHashExtractor — WebApplicationFactory bypasses TLS
+                var extDescriptor = services.FirstOrDefault(d => d.ServiceType == typeof(ICertificateHashExtractor));
+                if (extDescriptor != null) services.Remove(extDescriptor);
+                var mockExt = new Mock<ICertificateHashExtractor>();
+                mockExt.Setup(e => e.GetCertHash(It.IsAny<HttpContext>()))
+                       .Returns("aabbccddeeff001122334455");
+                services.AddSingleton<ICertificateHashExtractor>(mockExt.Object);
             });
         });
 
@@ -69,20 +79,16 @@ public class AuthIntegrationTests : IDisposable
     }
 
     [TestMethod]
-    public async Task PostToken_ValidCertHash_ReturnsOk()
+    public async Task PostToken_WithClientCert_ReturnsOk()
     {
-        var body = System.Text.Json.JsonSerializer.Serialize(new { certHash = "aabbccddeeff001122334455" });
-        var response = await _client.PostAsync("/auth/token",
-            new System.Net.Http.StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+        var response = await _client.PostAsync("/auth/token", null);
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
     }
 
     [TestMethod]
-    public async Task PostToken_ValidCertHash_ReturnsCredentialsShape()
+    public async Task PostToken_WithClientCert_ReturnsCredentialsShape()
     {
-        var body = System.Text.Json.JsonSerializer.Serialize(new { certHash = "aabbccddeeff001122334455" });
-        var response = await _client.PostAsync("/auth/token",
-            new System.Net.Http.StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+        var response = await _client.PostAsync("/auth/token", null);
         var json = await response.Content.ReadAsStringAsync();
         Assert.IsTrue(json.Contains("matrix"));
         Assert.IsTrue(json.Contains("accessToken"));
@@ -90,11 +96,23 @@ public class AuthIntegrationTests : IDisposable
     }
 
     [TestMethod]
-    public async Task PostToken_MissingCertHash_ReturnsBadRequest()
+    public async Task PostToken_NoClientCert_ReturnsUnauthorized()
     {
-        var response = await _client.PostAsync("/auth/token",
-            new System.Net.Http.StringContent("{}", System.Text.Encoding.UTF8, "application/json"));
-        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        // Re-register extractor to return null (simulates missing client certificate)
+        var factory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                var desc = services.FirstOrDefault(d => d.ServiceType == typeof(ICertificateHashExtractor));
+                if (desc != null) services.Remove(desc);
+                var mockExt = new Mock<ICertificateHashExtractor>();
+                mockExt.Setup(e => e.GetCertHash(It.IsAny<HttpContext>())).Returns((string?)null);
+                services.AddSingleton<ICertificateHashExtractor>(mockExt.Object);
+            });
+        });
+        using var client = factory.CreateClient();
+        var response = await client.PostAsync("/auth/token", null);
+        Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     public void Dispose()

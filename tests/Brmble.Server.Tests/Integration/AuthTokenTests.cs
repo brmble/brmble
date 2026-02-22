@@ -23,19 +23,20 @@ public class AuthTokenTests : IDisposable
     }
 
     [TestMethod]
-    public async Task PostAuthToken_MissingCertHash_ReturnsBadRequest()
+    public async Task PostAuthToken_NoClientCert_ReturnsUnauthorized()
     {
-        var response = await _client.PostAsync("/auth/token",
-            new StringContent("{}", Encoding.UTF8, "application/json"));
-        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        // Factory configured with certHash: null simulates no client certificate
+        using var factory = new BrmbleServerFactory(certHash: null);
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/auth/token", null);
+        Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     [TestMethod]
-    public async Task PostAuthToken_ValidCertHash_ReturnsCredentialsShape()
+    public async Task PostAuthToken_WithClientCert_ReturnsCredentialsShape()
     {
-        var body = JsonSerializer.Serialize(new { certHash = "testcerthash123" });
-        var response = await _client.PostAsync("/auth/token",
-            new StringContent(body, Encoding.UTF8, "application/json"));
+        var response = await _client.PostAsync("/auth/token", null);
         response.EnsureSuccessStatusCode();
 
         var json = await response.Content.ReadAsStringAsync();

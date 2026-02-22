@@ -1,6 +1,8 @@
+using Brmble.Server.Auth;
 using Brmble.Server.Data;
 using Brmble.Server.Matrix;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
@@ -13,9 +15,11 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
 {
     private readonly SqliteConnection _keepAlive;
     private readonly string _cs;
+    private readonly string? _certHash;
 
-    public BrmbleServerFactory()
+    public BrmbleServerFactory(string? certHash = "testcerthash123")
     {
+        _certHash = certHash;
         var dbName = "brmble_server_" + Guid.NewGuid().ToString("N");
         _cs = $"Data Source={dbName};Mode=Memory;Cache=Shared";
         _keepAlive = new SqliteConnection(_cs);
@@ -25,8 +29,6 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
-        // ConfigureAppConfiguration works for IOptions<T> (lazy) but not for services
-        // registered eagerly in Program.cs. Use it for Matrix/YARP settings.
         builder.ConfigureAppConfiguration(config =>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>
@@ -41,8 +43,6 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
         builder.ConfigureServices(services =>
         {
             // Replace the lazily-registered Database factory with a concrete in-memory instance.
-            // The factory in AddDatabase captures the connection string at registration time
-            // (from appsettings.json), so we must replace it here after Program.cs runs.
             var descriptor = services.FirstOrDefault(d => d.ServiceType == typeof(Database));
             if (descriptor != null) services.Remove(descriptor);
             var db = new Database(_cs);
@@ -58,6 +58,14 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
             mock.Setup(m => m.LoginUser(It.IsAny<string>()))
                 .ReturnsAsync("stub_matrix_token");
             services.AddSingleton<IMatrixAppService>(mock.Object);
+
+            // Stub ICertificateHashExtractor — WebApplicationFactory bypasses TLS so
+            // context.Connection.ClientCertificate is always null in tests.
+            var extDesc = services.FirstOrDefault(d => d.ServiceType == typeof(ICertificateHashExtractor));
+            if (extDesc != null) services.Remove(extDesc);
+            var mockExt = new Mock<ICertificateHashExtractor>();
+            mockExt.Setup(e => e.GetCertHash(It.IsAny<HttpContext>())).Returns(_certHash);
+            services.AddSingleton<ICertificateHashExtractor>(mockExt.Object);
         });
     }
 

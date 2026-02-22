@@ -8,15 +8,17 @@ public static class AuthEndpoints
     public static IEndpointRouteBuilder MapAuthEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapPost("/auth/token", async (
-            AuthTokenRequest request,
+            HttpContext httpContext,
+            ICertificateHashExtractor certHashExtractor,
             AuthService authService,
             ChannelRepository channelRepository,
             IOptions<MatrixSettings> matrixSettings) =>
         {
-            if (string.IsNullOrWhiteSpace(request.CertHash))
-                return Results.BadRequest("certHash is required.");
+            var certHash = certHashExtractor.GetCertHash(httpContext);
+            if (string.IsNullOrWhiteSpace(certHash))
+                return Results.Unauthorized();
 
-            var result = await authService.Authenticate(request.CertHash);
+            var result = await authService.Authenticate(certHash);
 
             var roomMap = channelRepository.GetAll()
                 .ToDictionary(m => m.MumbleChannelId.ToString(), m => m.MatrixRoomId);
@@ -36,6 +38,4 @@ public static class AuthEndpoints
 
         return app;
     }
-
-    private record AuthTokenRequest(string? CertHash);
 }

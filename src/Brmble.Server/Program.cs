@@ -1,5 +1,6 @@
 using Brmble.Server.Auth;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Brmble.Server.Data;
 using Brmble.Server.LiveKit;
 using Brmble.Server.Matrix;
@@ -7,6 +8,17 @@ using Brmble.Server.Mumble;
 using Brmble.Server.ServerInfo;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Accept client TLS certificates (e.g. Mumble self-signed certs) without requiring
+// a trusted CA chain. Application code enforces the presence of the certificate.
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.ConfigureHttpsDefaults(https =>
+    {
+        https.ClientCertificateMode = ClientCertificateMode.AllowCertificate;
+        https.ClientCertificateValidation = (_, _, _) => true;
+    });
+});
 
 builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo("/data/dataprotection-keys"));
