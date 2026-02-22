@@ -1,3 +1,4 @@
+using Brmble.Server;
 using Brmble.Server.Auth;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
@@ -9,14 +10,17 @@ using Brmble.Server.ServerInfo;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Accept client TLS certificates (e.g. Mumble self-signed certs) without requiring
-// a trusted CA chain. Application code enforces the presence of the certificate.
+// Listen on HTTPS port 8080. Port mapping to the outside world is handled by Docker.
+// Client certificates are accepted without CA validation (Mumble self-signed certs).
 builder.WebHost.ConfigureKestrel(options =>
 {
-    options.ConfigureHttpsDefaults(https =>
+    options.ListenAnyIP(8080, listen =>
     {
-        https.ClientCertificateMode = ClientCertificateMode.AllowCertificate;
-        https.ClientCertificateValidation = (_, _, _) => true;
+        listen.UseHttps(ServerCertificate.Get(), https =>
+        {
+            https.ClientCertificateMode = ClientCertificateMode.AllowCertificate;
+            https.ClientCertificateValidation = (_, _, _) => true;
+        });
     });
 });
 
