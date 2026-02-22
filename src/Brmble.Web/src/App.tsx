@@ -138,11 +138,23 @@ function App() {
     let pttPressed = false;
 
     const updatePttKeyFromSettings = (settings: any) => {
-      if (settings?.audio?.transmissionMode === 'pushToTalk') {
-        pttKey = settings.audio.pushToTalkKey;
-      } else {
-        pttKey = null;
+      const newMode = settings?.audio?.transmissionMode;
+      const newKey: string | null =
+        newMode === 'pushToTalk' ? (settings?.audio?.pushToTalkKey ?? null) : null;
+
+      if (
+        pttPressed &&
+        (
+          newMode !== 'pushToTalk' ||
+          !newKey ||
+          newKey !== pttKey
+        )
+      ) {
+        pttPressed = false;
+        bridge.send('voice.pttKey', { pressed: false });
       }
+
+      pttKey = newKey;
     };
 
     // Listen for settings updates via bridge

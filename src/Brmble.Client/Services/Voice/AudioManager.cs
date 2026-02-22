@@ -35,9 +35,10 @@ internal static class Win32RawInput
 {
     public const uint WM_INPUT = 0x00FF;
     public const uint RID_INPUT = 0x10000003;
+    public const uint RIDEV_REMOVE = 0x00000001;    // Remove device registration
     public const uint RIDEV_INPUTSINK = 0x00000100; // Receive input even when window not focused
-    public const uint RIDEV_NOLEGACY = 0x00000001;  // Don't receive legacy messages (blocks key)
-    public const uint RIM_TYPEKEYBOARD = 0x00010000;
+    public const uint RIDEV_NOLEGACY = 0x00000030;  // Don't receive legacy messages (blocks key)
+    public const uint RIM_TYPEKEYBOARD = 1;         // Matches RAWINPUTHEADER.dwType for keyboards
     public const ushort HID_USAGE_PAGE_GENERIC = 0x01;
     public const ushort HID_USAGE_GENERIC_KEYBOARD = 0x06;
     public const ushort HID_USAGE_GENERIC_MOUSE = 0x02;
@@ -390,9 +391,9 @@ private int _continuousHotkeyId = -1;
     }
 
     /// <summary>
-    /// Sets the transmission mode. For PTT, registers raw input for key detection.
-    /// Raw Input does NOT block keys from other apps (unlike RegisterHotKey).
-    /// Pass hwnd = IntPtr.Zero to skip registration (e.g. in tests).
+    /// Sets the transmission mode. For PTT, configures keyboard polling (via GetAsyncKeyState)
+    /// and mouse hooks for key/button detection, without blocking keys in other apps
+    /// (unlike RegisterHotKey). Pass hwnd = IntPtr.Zero to skip registration (e.g. in tests).
     /// </summary>
     public void SetTransmissionMode(TransmissionMode mode, string? key, IntPtr hwnd)
     {
@@ -422,6 +423,9 @@ private int _continuousHotkeyId = -1;
             AudioLog.Write($"[Audio] SetTransmissionMode PTT: key={key}, vk=0x{vk:X2}, hwnd={hwnd}");
 
             bool isMouseButton = key is "XButton1" or "XButton2" or "MouseLeft" or "MouseRight" or "MouseMiddle";
+
+            // Stop any existing polling before reconfiguring (switching from keyboard to mouse PTT)
+            StopPttPolling();
 
             if (isMouseButton)
             {
@@ -765,7 +769,7 @@ private int _continuousHotkeyId = -1;
             {
                 usUsagePage = Win32RawInput.HID_USAGE_PAGE_GENERIC,
                 usUsage = Win32RawInput.HID_USAGE_GENERIC_KEYBOARD,
-                dwFlags = Win32RawInput.RIDEV_INPUTSINK, // RIDEV_REMOVE to unregister
+                dwFlags = Win32RawInput.RIDEV_REMOVE, // Use RIDEV_REMOVE to unregister
                 hwndTarget = IntPtr.Zero
             };
             Win32RawInput.RegisterRawInputDevices(new[] { rid }, 1, (uint)Marshal.SizeOf<Win32RawInput.RAWINPUTDEVICE>());
@@ -827,6 +831,7 @@ private int _continuousHotkeyId = -1;
         StopPttPolling();
         UnregisterRawInputKeyboard();
         UnregisterMouseHook();
+        if (_hotkeyId >= 0 && _hwnd != IntPtr.Zero)
         {
             UnregisterHotKey(_hwnd, _hotkeyId);
             _hotkeyId = -1;
