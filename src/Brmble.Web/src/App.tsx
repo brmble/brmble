@@ -255,11 +255,16 @@ function App() {
       }
     });
 
-    const onVoiceDisconnected = () => {
+    const onVoiceDisconnected = (data: unknown) => {
       clearPendingAction();
-      setConnectionStatus('idle');
-      setServerAddress('');
-      setServerLabel('');
+      const d = data as { reconnectAvailable?: boolean } | null;
+      if (d?.reconnectAvailable) {
+        setConnectionStatus('disconnected');
+      } else {
+        setConnectionStatus('idle');
+        setServerAddress('');
+        setServerLabel('');
+      }
       setChannels([]);
       setUsers([]);
       setCurrentChannelId(undefined);
@@ -694,6 +699,20 @@ const handleConnect = (serverData: SavedServer) => {
     bridge.send('voice.cancelReconnect');
   };
 
+  const handleReconnect = () => {
+    const stored = localStorage.getItem('brmble-server');
+    if (stored) {
+      try {
+        const serverData = JSON.parse(stored) as SavedServer;
+        handleConnect(serverData);
+      } catch {
+        setConnectionStatus('idle');
+      }
+    } else {
+      setConnectionStatus('idle');
+    }
+  };
+
   const handleToggleMute = () => {
     bridge.send('voice.toggleMute', {});
   };
@@ -788,6 +807,7 @@ const handleConnect = (serverData: SavedServer) => {
           serverAddress={serverAddress}
           username={username}
           onDisconnect={handleDisconnect}
+          onReconnect={handleReconnect}
           onStartDM={handleSelectDMUser}
           speakingUsers={speakingUsers}
           connectionStatus={connectionStatus}
