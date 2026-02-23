@@ -1,7 +1,5 @@
 # Mumble 1.5.x Voice Protocol Upgrade Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
-
 **Goal:** Add support for Mumble 1.5.x Protobuf-based voice packets while maintaining backward compatibility with older servers.
 
 **Architecture:** 

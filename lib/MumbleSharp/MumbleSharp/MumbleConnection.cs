@@ -221,8 +221,17 @@ namespace MumbleSharp
                         var pingData = new byte[packet.Length - 1];
                         Array.Copy(packet, 1, pingData, 0, packet.Length - 1);
                         var ping = MumbleProto.UDP.Ping.ParseFrom(pingData);
+
+                        var legacyPacket = new byte[1 + sizeof(long)];
+                        legacyPacket[0] = packet[0];
+
                         var timestampBytes = BitConverter.GetBytes(ping.Timestamp);
-                        Protocol.UdpPing(timestampBytes);
+                        if (BitConverter.IsLittleEndian)
+                            Array.Reverse(timestampBytes);
+
+                        Array.Copy(timestampBytes, 0, legacyPacket, 1, timestampBytes.Length);
+
+                        Protocol.UdpPing(legacyPacket);
                     }
                     catch
                     {
@@ -238,7 +247,13 @@ namespace MumbleSharp
             {
                 if (_isServerVersion15OrHigher)
                 {
-                    _voicePacketHandler15.ProcessUDPPacket(packet, packet.Length);
+                    var payloadLength = packet.Length - 1;
+                    if (payloadLength > 0)
+                    {
+                        var payload = new byte[payloadLength];
+                        Array.Copy(packet, 1, payload, 0, payloadLength);
+                        _voicePacketHandler15.ProcessUDPPacket(payload, payloadLength);
+                    }
                 }
                 else
                 {
