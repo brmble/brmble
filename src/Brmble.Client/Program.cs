@@ -143,6 +143,12 @@ static class Program
 
             SetupBridgeHandlers();
 
+            // Auto-connect after frontend loads (frontend handles the voice.autoConnect message)
+            _controller.CoreWebView2.NavigationCompleted += (s, e) =>
+            {
+                if (e.IsSuccess) TryAutoConnect();
+            };
+
             if (useDevServer)
                 _controller.CoreWebView2.Navigate(DevServerUrl);
             else
@@ -225,6 +231,31 @@ static class Program
         });
     }
  
+    private static void TryAutoConnect()
+    {
+        var settings = _appConfigService!.GetSettings();
+        if (!settings.AutoConnectEnabled) return;
+
+        // Resolve target server
+        var targetId = settings.AutoConnectServerId ?? _appConfigService.GetLastConnectedServerId();
+        if (targetId is null) return;
+
+        var servers = _appConfigService.GetServers();
+        var server = servers.FirstOrDefault(s => s.Id == targetId);
+        if (server is null) return;
+
+        // Trigger connection via bridge — same path as manual connect
+        _bridge!.Send("voice.autoConnect", new
+        {
+            id = server.Id,
+            label = server.Label,
+            apiUrl = server.ApiUrl,
+            host = server.Host,
+            port = server.Port,
+            username = server.Username,
+        });
+    }
+
     private static bool IsDevServerRunning()
     {
         try
