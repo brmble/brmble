@@ -1,4 +1,4 @@
-﻿using MumbleProto;
+using MumbleProto;
 using MumbleSharp.Audio;
 using MumbleSharp.Audio.Codecs;
 using MumbleSharp.Packets;
@@ -45,6 +45,17 @@ namespace MumbleSharp
         }
 
         readonly CryptState _cryptState = new CryptState();
+
+        private bool _isServerVersion15OrHigher;
+        private ulong _serverProtocolVersion;
+
+        public bool IsServerVersion15OrHigher => _isServerVersion15OrHigher;
+
+        public void SetServerProtocolVersion(ulong version)
+        {
+            _serverProtocolVersion = version;
+            _isServerVersion15OrHigher = (version >= 0x105000);
+        }
 
         /// <summary>
         /// Creates a connection to the server using the given address and port.
