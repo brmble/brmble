@@ -181,4 +181,25 @@ public class AppConfigServiceTests
         Assert.AreEqual("srv1", svc2.GetSettings().AutoConnectServerId);
         Assert.AreEqual(0, svc2.GetServers().Count);
     }
+
+    [TestMethod]
+    public void DefaultSettings_HaveReconnectEnabled()
+    {
+        var svc = new AppConfigService(_tempDir);
+
+        var settings = svc.GetSettings();
+
+        Assert.IsTrue(settings.ReconnectEnabled);
+    }
+
+    [TestMethod]
+    public void SavesAndReloads_ReconnectEnabled()
+    {
+        var svc = new AppConfigService(_tempDir);
+        svc.SetSettings(svc.GetSettings() with { ReconnectEnabled = false });
+
+        var svc2 = new AppConfigService(_tempDir);
+
+        Assert.IsFalse(svc2.GetSettings().ReconnectEnabled);
+    }
 }

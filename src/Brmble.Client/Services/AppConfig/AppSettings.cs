@@ -38,7 +38,8 @@ public record AppSettings(
     OverlaySettings Overlay,
     SpeechEnhancementSettings? SpeechEnhancement = null,
     bool AutoConnectEnabled = false,
-    string? AutoConnectServerId = null
+    string? AutoConnectServerId = null,
+    bool ReconnectEnabled = true
 )
 {
     public SpeechEnhancementSettings SpeechEnhancement { get; init; } = SpeechEnhancement ?? new SpeechEnhancementSettings();
