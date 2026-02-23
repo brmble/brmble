@@ -244,9 +244,19 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         // Loop exited — either intentional (CTS cancelled) or unexpected connection drop.
         if (!_intentionalDisconnect && !ct.IsCancellationRequested && _reconnectHost != null && _reconnectCts == null)
         {
-            // Unexpected drop — clean up and start reconnect loop.
-            Disconnect();
-            Task.Run(() => ReconnectLoop());
+            var reconnectEnabled = _appConfigService?.GetSettings().ReconnectEnabled ?? true;
+            if (reconnectEnabled)
+            {
+                // Unexpected drop — clean up and start reconnect loop.
+                Disconnect();
+                Task.Run(() => ReconnectLoop());
+            }
+            else
+            {
+                // Reconnect disabled — emit disconnected with manual reconnect option.
+                _bridge?.Send("voice.disconnected", new { reconnectAvailable = true });
+                _bridge?.NotifyUiThread();
+            }
         }
         // If intentional or CTS was cancelled, Disconnect() was already called by the handler.
     }
