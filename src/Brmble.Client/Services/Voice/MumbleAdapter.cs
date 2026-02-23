@@ -758,7 +758,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     {
         base.Version(version);
         var is15 = _connection?.IsServerVersion15OrHigher ?? false;
-        _bridge?.Send("voice.serverVersion", new { is15, version = _connection?.IsServerVersion15OrHigher });
+        _bridge?.Send("voice.serverVersion", new { is15, v1 = version.VersionV1, v2 = version.VersionV2 });
     }
 
     public override void ServerSync(ServerSync serverSync)
