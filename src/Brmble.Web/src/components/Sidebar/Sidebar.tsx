@@ -44,6 +44,7 @@ export function Sidebar({
   pendingChannelAction
 }: SidebarProps) {
   const connected = connectionStatus === 'connected';
+  const isConnecting = connectionStatus === 'connecting';
   const isReconnecting = connectionStatus === 'reconnecting';
   const isDisconnected = connectionStatus === 'disconnected';
 
@@ -90,12 +91,12 @@ export function Sidebar({
                 Reconnect
               </button>
             )}
-            {(onDisconnect || onCancelReconnect) && (connected || isReconnecting || isDisconnected) && (
+            {(onDisconnect || onCancelReconnect) && (connected || isConnecting || isReconnecting || isDisconnected) && (
               <button
                 className="disconnect-btn"
                 onClick={(e) => { e.stopPropagation(); (isReconnecting ? onCancelReconnect : onDisconnect)?.(); }}
               >
-                {isReconnecting ? 'Cancel' : isDisconnected ? 'Back' : 'Disconnect'}
+                {(isConnecting || isReconnecting) ? 'Cancel' : isDisconnected ? 'Back' : 'Disconnect'}
               </button>
             )}
           </div>

@@ -24,8 +24,7 @@
   content: attr(data-tooltip);
   position: absolute;
   bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
+  left: 0;
   background: var(--bg-deep);
   color: var(--text-primary);
   padding: 8px 12px;
