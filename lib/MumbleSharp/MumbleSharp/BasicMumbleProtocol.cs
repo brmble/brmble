@@ -131,10 +131,12 @@ namespace MumbleSharp
             if (version.VersionV2 > 0)
             {
                 Connection.SetServerProtocolVersion(version.VersionV2);
+                MumbleSharp.Extensions.Log.Info("Server version (V2): " + version.VersionV2 + " - Is 1.5+: " + Connection.IsServerVersion15OrHigher);
             }
             else if (version.VersionV1 > 0)
             {
                 Connection.SetServerProtocolVersion(version.VersionV1);
+                MumbleSharp.Extensions.Log.Info("Server version (V1): " + version.VersionV1 + " - Is 1.5+: " + Connection.IsServerVersion15OrHigher);
             }
         }
 

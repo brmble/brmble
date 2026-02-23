@@ -238,10 +238,12 @@ namespace MumbleSharp
             {
                 if (_isServerVersion15OrHigher)
                 {
+                    MumbleSharp.Extensions.Log.Info("Voice: Using 1.5+ Protobuf handler");
                     _voicePacketHandler15.ProcessUDPPacket(packet, packet.Length);
                 }
                 else
                 {
+                    MumbleSharp.Extensions.Log.Info("Voice: Using legacy binary handler");
                     UnpackVoicePacket(packet, type);
                 }
             }
