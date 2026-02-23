@@ -487,6 +487,23 @@ function App() {
       setCertFingerprint(d?.fingerprint ?? '');
     };
 
+    const onAutoConnect = (data: unknown) => {
+      const server = data as { id: string; label: string; apiUrl?: string; host?: string; port?: number; username: string } | undefined;
+      if (server) {
+        setServerLabel(server.label || `${server.host}:${server.port}`);
+        setServerAddress(server.host && server.port ? `${server.host}:${server.port}` : '');
+        setConnectionStatus('connecting');
+        bridge.send('voice.connect', {
+          id: server.id,
+          apiUrl: server.apiUrl || '',
+          host: server.host || '',
+          port: server.port || 0,
+          username: server.username,
+          password: '',
+        });
+      }
+    };
+
     const onVoiceReconnecting = () => {
       setConnectionStatus('reconnecting');
     };
@@ -527,6 +544,7 @@ function App() {
     bridge.on('cert.status', onCertStatus);
     bridge.on('cert.generated', onCertGenerated);
     bridge.on('cert.imported', onCertImported);
+    bridge.on('voice.autoConnect', onAutoConnect);
     bridge.on('voice.reconnecting', onVoiceReconnecting);
     bridge.on('voice.reconnectFailed', onVoiceReconnectFailed);
     bridge.on('server.credentials', onServerCredentials);
@@ -552,6 +570,7 @@ function App() {
       bridge.off('cert.status', onCertStatus);
       bridge.off('cert.generated', onCertGenerated);
       bridge.off('cert.imported', onCertImported);
+      bridge.off('voice.autoConnect', onAutoConnect);
       bridge.off('voice.reconnecting', onVoiceReconnecting);
       bridge.off('voice.reconnectFailed', onVoiceReconnectFailed);
       bridge.off('server.credentials', onServerCredentials);
