@@ -41,6 +41,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private readonly Stopwatch _notifyThrottle = Stopwatch.StartNew();
     private string? _apiUrl;
     private string? _activeServerId;
+    private MumbleConnection? _connection;
 
     public string ServiceName => "mumble";
 
@@ -124,8 +125,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             SendSystemMessage($"Connecting to {host}:{port}...", "connecting");
             _bridge?.NotifyUiThread();
 
-            var connection = new MumbleConnection(host, port, this, voiceSupport: true);
-            connection.Connect(username, password, Array.Empty<string>(), "Brmble");
+            _connection = new MumbleConnection(host, port, this, voiceSupport: true);
+            _connection.Connect(username, password, Array.Empty<string>(), "Brmble");
 
             _cts = new CancellationTokenSource();
             _processThread = new Thread(() => ProcessLoop(_cts.Token))
@@ -753,6 +754,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     // --- MumbleSharp protocol overrides ---
 
+    public override void Version(MumbleProto.Version version)
+    {
+        base.Version(version);
+        var is15 = _connection?.IsServerVersion15OrHigher ?? false;
+        _bridge?.Send("voice.serverVersion", new { is15, version = _connection?.IsServerVersion15OrHigher });
+    }
+
     public override void ServerSync(ServerSync serverSync)
     {
         base.ServerSync(serverSync);
@@ -772,7 +780,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         {
             username = LocalUser?.Name,
             channels,
-            users
+            users,
+            serverVersion15 = _connection?.IsServerVersion15OrHigher ?? false
         });
 
         if (!string.IsNullOrEmpty(serverSync.WelcomeText))
