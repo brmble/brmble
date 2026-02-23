@@ -135,4 +135,16 @@ public class AppConfigServiceTests
         Assert.IsFalse(settings.AutoConnectEnabled);
         Assert.IsNull(settings.AutoConnectServerId);
     }
+
+    [TestMethod]
+    public void SavesAndReloads_LastConnectedServerId()
+    {
+        var svc = new AppConfigService(_tempDir);
+        Assert.IsNull(svc.GetLastConnectedServerId(), "No server connected yet — should be null");
+
+        svc.SaveLastConnectedServerId("server-abc");
+        var svc2 = new AppConfigService(_tempDir);
+
+        Assert.AreEqual("server-abc", svc2.GetLastConnectedServerId());
+    }
 }
