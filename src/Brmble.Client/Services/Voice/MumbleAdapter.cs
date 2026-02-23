@@ -41,6 +41,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private readonly Stopwatch _notifyThrottle = Stopwatch.StartNew();
     private string? _apiUrl;
     private string? _activeServerId;
+    private readonly IAppConfigService? _appConfigService;
 
     public string ServiceName => "mumble";
 
@@ -50,11 +51,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// <summary>The ID of the ServerEntry that initiated the current connection, if any.</summary>
     public string? ActiveServerId => _activeServerId;
 
-    public MumbleAdapter(NativeBridge bridge, IntPtr hwnd, CertificateService? certService = null)
+    public MumbleAdapter(NativeBridge bridge, IntPtr hwnd, CertificateService? certService = null, IAppConfigService? appConfigService = null)
     {
         _bridge = bridge;
         _hwnd = hwnd;
         _certService = certService;
+        _appConfigService = appConfigService;
         _audioManager = new AudioManager(_hwnd);
         _audioManager.ToggleMuteRequested += ToggleMute;
         _audioManager.ToggleDeafenRequested += ToggleDeaf;
@@ -774,6 +776,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             channels,
             users
         });
+
+        if (_activeServerId is not null)
+        {
+            _appConfigService?.SaveLastConnectedServerId(_activeServerId);
+        }
 
         if (!string.IsNullOrEmpty(serverSync.WelcomeText))
         {

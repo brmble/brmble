@@ -123,7 +123,7 @@ static class Program
             _certService = new CertificateService(_bridge);
             _certService.RegisterHandlers(_bridge);
 
-            _mumbleClient = new MumbleAdapter(_bridge, _hwnd, _certService);
+            _mumbleClient = new MumbleAdapter(_bridge, _hwnd, _certService, _appConfigService);
             _mumbleClient.ApplySettings(_appConfigService!.GetSettings());
             _mumbleClient.OnApiUrlDiscovered = discoveredUrl =>
             {
