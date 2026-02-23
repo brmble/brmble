@@ -22,6 +22,7 @@ interface AppSettings {
   messages: MessagesSettings;
   overlay: OverlaySettings;
   speechEnhancement: SpeechEnhancementSettings;
+  reconnectEnabled: boolean;
   autoConnectEnabled: boolean;
   autoConnectServerId: string | null;
 }
@@ -32,6 +33,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   messages: DEFAULT_MESSAGES,
   overlay: DEFAULT_OVERLAY,
   speechEnhancement: DEFAULT_SPEECH_ENHANCEMENT,
+  reconnectEnabled: true,
   autoConnectEnabled: false,
   autoConnectServerId: null,
 };
@@ -121,6 +123,7 @@ export function SettingsModal(props: SettingsModalProps) {
   const handleConnectionChange = (connection: ConnectionSettings) => {
     const newSettings = {
       ...settings,
+      reconnectEnabled: connection.reconnectEnabled,
       autoConnectEnabled: connection.autoConnectEnabled,
       autoConnectServerId: connection.autoConnectServerId,
     };
@@ -192,6 +195,7 @@ export function SettingsModal(props: SettingsModalProps) {
           {activeTab === 'connection' && (
             <ConnectionSettingsTab
               settings={{
+                reconnectEnabled: settings.reconnectEnabled,
                 autoConnectEnabled: settings.autoConnectEnabled,
                 autoConnectServerId: settings.autoConnectServerId,
               }}
