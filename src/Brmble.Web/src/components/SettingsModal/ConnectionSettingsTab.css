@@ -1,0 +1,62 @@
+.connection-settings-tab .settings-hint {
+  color: #666;
+  font-size: 12px;
+  margin-top: 12px;
+}
+
+.connection-settings-tab .tooltip-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--border-subtle);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: help;
+  margin-left: 6px;
+  position: relative;
+}
+
+.connection-settings-tab .tooltip-icon:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  white-space: normal;
+  width: 260px;
+  text-align: left;
+  border: 1px solid var(--border-subtle);
+  z-index: 10;
+  pointer-events: none;
+}
+
+.connection-settings-tab .server-dropdown-row {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 0;
+}
+
+.connection-settings-tab .server-dropdown-row label {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin-right: auto;
+}
+
+.connection-settings-tab .server-dropdown-row .settings-select {
+  flex-shrink: 0;
+}
+
+.connection-settings-tab .settings-select:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
