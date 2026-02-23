@@ -124,4 +124,15 @@ public class AppConfigServiceTests
 
         Assert.AreEqual("minimize", svc2.GetClosePreference());
     }
+
+    [TestMethod]
+    public void DefaultSettings_HaveAutoConnectDisabled()
+    {
+        var svc = new AppConfigService(_tempDir);
+
+        var settings = svc.GetSettings();
+
+        Assert.IsFalse(settings.AutoConnectEnabled);
+        Assert.IsNull(settings.AutoConnectServerId);
+    }
 }
