@@ -47,11 +47,12 @@
     </Exec>
     <PropertyGroup>
       <_ParsedDateTime>$([System.Text.RegularExpressions.Regex]::Match($(_PrListOutput), &quot;\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}&quot;).Value)</_ParsedDateTime>
+      <_VersionDateTime>$(_ParsedDateTime)</_VersionDateTime>
+      <_VersionDateTime Condition="'$(_VersionDateTime)' == ''">1970-01-01T00:00:00Z</_VersionDateTime>
     </PropertyGroup>
     <WriteLinesToFile File="$(_PrJson)"
-                      Lines="{&quot;version&quot;: &quot;$(_ParsedDateTime)&quot;}"
-                      Overwrite="True"
-                      Condition="'$(_ParsedDateTime)' != ''" />
+                      Lines="{&quot;version&quot;: &quot;$(_VersionDateTime)&quot;}"
+                      Overwrite="True" />
   </Target>
 
   <Target Name="CopyWebDist" AfterTargets="Build" Condition="Exists('..\..\src\Brmble.Web\dist\index.html')">
@@ -60,8 +61,7 @@
     </ItemGroup>
     <Copy SourceFiles="@(WebDistFiles)" DestinationFolder="$(OutputPath)web\%(RecursiveDir)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="..\..\src\.github\pr-version.json" 
-          DestinationFiles="$(OutputPath)web\version.json" 
-          Condition="Exists('..\..\src\.github\pr-version.json')" />
+          DestinationFiles="$(OutputPath)web\version.json" />
   </Target>
 
   <Target Name="WarnWebDistMissing" AfterTargets="Build" Condition="!Exists('..\..\src\Brmble.Web\dist\index.html')">
