@@ -3,7 +3,7 @@
   border: var(--glass-border);
   border-radius: 16px;
   width: 100%;
-  max-width: 520px;
+  max-width: 600px;
   max-height: 80vh;
   display: flex;
   flex-direction: column;
@@ -19,12 +19,12 @@
 }
 
 .settings-tab {
-  padding: 10px 16px;
+  padding: 10px 12px;
   background: transparent;
   border: none;
   color: #888;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
   border-bottom: 2px solid transparent;
   transition: all 0.2s;
 }
