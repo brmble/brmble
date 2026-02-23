@@ -128,7 +128,14 @@ namespace MumbleSharp
         /// <param name="version"></param>
         public virtual void Version(Version version)
         {
-            
+            if (version.VersionV2 > 0)
+            {
+                Connection.SetServerProtocolVersion(version.VersionV2);
+            }
+            else if (version.VersionV1 > 0)
+            {
+                Connection.SetServerProtocolVersion(version.VersionV1);
+            }
         }
 
         /// <summary>
