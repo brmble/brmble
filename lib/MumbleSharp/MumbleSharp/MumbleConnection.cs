@@ -57,6 +57,8 @@ namespace MumbleSharp
             _isServerVersion15OrHigher = (version >= 0x105000);
         }
 
+        private VoicePacketHandler15 _voicePacketHandler15;
+
         /// <summary>
         /// Creates a connection to the server using the given address and port.
         /// </summary>
@@ -81,6 +83,7 @@ namespace MumbleSharp
             State = ConnectionStates.Disconnected;
             Protocol = protocol;
             VoiceSupportEnabled = voiceSupport;
+            _voicePacketHandler15 = new VoicePacketHandler15(this);
         }
 
         public void Connect(string username, string password, string[] tokens, string serverName)
@@ -210,9 +213,38 @@ namespace MumbleSharp
             var type = packet[0] >> 5 & 0x7;
 
             if (type == 1)
-                Protocol.UdpPing(packet);
-            else if(VoiceSupportEnabled)
-                UnpackVoicePacket(packet, type);
+            {
+                if (_isServerVersion15OrHigher && packet.Length > 1)
+                {
+                    try
+                    {
+                        var pingData = new byte[packet.Length - 1];
+                        Array.Copy(packet, 1, pingData, 0, packet.Length - 1);
+                        var ping = MumbleProto.UDP.Ping.ParseFrom(pingData);
+                        var timestampBytes = BitConverter.GetBytes(ping.Timestamp);
+                        Protocol.UdpPing(timestampBytes);
+                    }
+                    catch
+                    {
+                        Protocol.UdpPing(packet);
+                    }
+                }
+                else
+                {
+                    Protocol.UdpPing(packet);
+                }
+            }
+            else if (VoiceSupportEnabled)
+            {
+                if (_isServerVersion15OrHigher)
+                {
+                    _voicePacketHandler15.ProcessUDPPacket(packet, packet.Length);
+                }
+                else
+                {
+                    UnpackVoicePacket(packet, type);
+                }
+            }
         }
 
         private void PackVoicePacket(ArraySegment<byte> packet)
