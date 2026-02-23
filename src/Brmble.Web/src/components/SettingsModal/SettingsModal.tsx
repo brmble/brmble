@@ -6,6 +6,8 @@ import { ShortcutsSettingsTab, type ShortcutsSettings, DEFAULT_SHORTCUTS } from 
 import { MessagesSettingsTab, type MessagesSettings, DEFAULT_MESSAGES } from './MessagesSettingsTab';
 import { OverlaySettingsTab, type OverlaySettings, DEFAULT_OVERLAY } from './OverlaySettingsTab';
 import { IdentitySettingsTab } from './IdentitySettingsTab';
+import { ConnectionSettingsTab, type ConnectionSettings } from './ConnectionSettingsTab';
+import { useServerlist } from '../../hooks/useServerlist';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -20,6 +22,8 @@ interface AppSettings {
   messages: MessagesSettings;
   overlay: OverlaySettings;
   speechEnhancement: SpeechEnhancementSettings;
+  autoConnectEnabled: boolean;
+  autoConnectServerId: string | null;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -28,12 +32,15 @@ const DEFAULT_SETTINGS: AppSettings = {
   messages: DEFAULT_MESSAGES,
   overlay: DEFAULT_OVERLAY,
   speechEnhancement: DEFAULT_SPEECH_ENHANCEMENT,
+  autoConnectEnabled: false,
+  autoConnectServerId: null,
 };
 
 export function SettingsModal(props: SettingsModalProps) {
   const { isOpen, onClose } = props;
-  const [activeTab, setActiveTab] = useState<'audio' | 'shortcuts' | 'messages' | 'overlay' | 'identity'>('audio');
+  const [activeTab, setActiveTab] = useState<'audio' | 'shortcuts' | 'messages' | 'overlay' | 'connection' | 'identity'>('audio');
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const { servers } = useServerlist();
 
   useEffect(() => {
     const handleCurrent = (data: unknown) => {
@@ -111,6 +118,16 @@ export function SettingsModal(props: SettingsModalProps) {
     bridge.send('settings.set', { settings: newSettings });
   };
 
+  const handleConnectionChange = (connection: ConnectionSettings) => {
+    const newSettings = {
+      ...settings,
+      autoConnectEnabled: connection.autoConnectEnabled,
+      autoConnectServerId: connection.autoConnectServerId,
+    };
+    setSettings(newSettings);
+    bridge.send('settings.set', { settings: newSettings });
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -154,6 +171,12 @@ export function SettingsModal(props: SettingsModalProps) {
             Overlay
           </button>
           <button
+            className={`settings-tab ${activeTab === 'connection' ? 'active' : ''}`}
+            onClick={() => setActiveTab('connection')}
+          >
+            Connection
+          </button>
+          <button
             className={`settings-tab ${activeTab === 'identity' ? 'active' : ''}`}
             onClick={() => setActiveTab('identity')}
           >
@@ -166,6 +189,16 @@ export function SettingsModal(props: SettingsModalProps) {
           {activeTab === 'shortcuts' && <ShortcutsSettingsTab settings={settings.shortcuts} onChange={handleShortcutsChange} />}
           {activeTab === 'messages' && <MessagesSettingsTab settings={settings.messages} onChange={handleMessagesChange} />}
           {activeTab === 'overlay' && <OverlaySettingsTab settings={settings.overlay} onChange={handleOverlayChange} />}
+          {activeTab === 'connection' && (
+            <ConnectionSettingsTab
+              settings={{
+                autoConnectEnabled: settings.autoConnectEnabled,
+                autoConnectServerId: settings.autoConnectServerId,
+              }}
+              onChange={handleConnectionChange}
+              servers={servers.map(s => ({ id: s.id, label: s.label }))}
+            />
+          )}
           {activeTab === 'identity' && (
             <IdentitySettingsTab
               fingerprint={props.certFingerprint ?? ''}
