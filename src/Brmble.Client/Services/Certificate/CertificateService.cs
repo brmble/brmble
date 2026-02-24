@@ -62,7 +62,7 @@ internal sealed class CertificateService : IService
         {
             try
             {
-                ActiveCertificate = X509CertificateLoader.LoadPkcs12FromFile(CertPath, password: null, keyStorageFlags: X509KeyStorageFlags.DefaultKeySet);
+                ActiveCertificate = X509CertificateLoader.LoadPkcs12FromFile(CertPath, password: null, keyStorageFlags: X509KeyStorageFlags.Exportable);
                 _bridge.Send("cert.status", new
                 {
                     exists = true,
@@ -99,7 +99,7 @@ internal sealed class CertificateService : IService
             File.WriteAllBytes(CertPath, pfxBytes);
 
             // Reload from file to get a clean X509Certificate2
-            ActiveCertificate = X509CertificateLoader.LoadPkcs12FromFile(CertPath, password: null, keyStorageFlags: X509KeyStorageFlags.DefaultKeySet);
+            ActiveCertificate = X509CertificateLoader.LoadPkcs12FromFile(CertPath, password: null, keyStorageFlags: X509KeyStorageFlags.Exportable);
 
             _bridge.Send("cert.generated", new
             {
@@ -119,7 +119,7 @@ internal sealed class CertificateService : IService
             var bytes = Convert.FromBase64String(base64Data);
 
             // Validate it loads before overwriting
-            var testCert = X509CertificateLoader.LoadPkcs12(bytes, password: null, keyStorageFlags: X509KeyStorageFlags.DefaultKeySet);
+            var testCert = X509CertificateLoader.LoadPkcs12(bytes, password: null, keyStorageFlags: X509KeyStorageFlags.Exportable);
 
             Directory.CreateDirectory(Path.GetDirectoryName(CertPath)!);
             File.WriteAllBytes(CertPath, bytes);
