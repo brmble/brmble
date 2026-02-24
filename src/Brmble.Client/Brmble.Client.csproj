@@ -37,7 +37,8 @@
 
   <Target Name="FetchVersion" BeforeTargets="CopyWebDist">
     <PropertyGroup>
-      <_PrJson>$(MSBuildProjectDirectory)/../.github/pr-version.json</_PrJson>
+      <_PrJson>$(MSBuildProjectDirectory)/../../.github/pr-version.json</_PrJson>
+      <_VersionDateTime Condition="'$(_VersionDateTime)' == ''">9999-12-31T00:00:00Z</_VersionDateTime>
     </PropertyGroup>
     <Exec Command="gh pr list --state merged --base main --limit 1 --json mergedAt"
           WorkingDirectory="$(MSBuildProjectDirectory)/../"
@@ -46,12 +47,13 @@
       <Output TaskParameter="ConsoleOutput" PropertyName="_PrListOutput" />
     </Exec>
     <PropertyGroup>
-      <_ParsedDateTime>$([System.Text.RegularExpressions.Regex]::Match($(_PrListOutput), &quot;\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}&quot;).Value)</_ParsedDateTime>
+      <_ParsedDateTime>$([System.Text.RegularExpressions.Regex]::Match($(_PrListOutput), "\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z?").Value)</_ParsedDateTime>
+      <_FinalDateTime Condition="'$(_ParsedDateTime)' != ''">$(_ParsedDateTime)</_FinalDateTime>
+      <_FinalDateTime Condition="'$(_ParsedDateTime)' == ''">$(_VersionDateTime)</_FinalDateTime>
     </PropertyGroup>
     <WriteLinesToFile File="$(_PrJson)"
-                      Lines="{&quot;version&quot;: &quot;$(_ParsedDateTime)&quot;}"
-                      Overwrite="True"
-                      Condition="'$(_ParsedDateTime)' != ''" />
+                      Lines="{"version": "$(_FinalDateTime)"}"
+                      Overwrite="True" />
   </Target>
 
   <Target Name="CopyWebDist" AfterTargets="Build" Condition="Exists('..\..\src\Brmble.Web\dist\index.html')">
@@ -59,9 +61,9 @@
       <WebDistFiles Include="..\..\src\Brmble.Web\dist\**\*" />
     </ItemGroup>
     <Copy SourceFiles="@(WebDistFiles)" DestinationFolder="$(OutputPath)web\%(RecursiveDir)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="..\..\src\.github\pr-version.json" 
+    <Copy SourceFiles="../../.github/pr-version.json" 
           DestinationFiles="$(OutputPath)web\version.json" 
-          Condition="Exists('..\..\src\.github\pr-version.json')" />
+          Condition="Exists('../../.github/pr-version.json')" />
   </Target>
 
   <Target Name="WarnWebDistMissing" AfterTargets="Build" Condition="!Exists('..\..\src\Brmble.Web\dist\index.html')">
