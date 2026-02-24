@@ -1,4 +1,4 @@
-﻿using MumbleProto;
+using MumbleProto;
 using MumbleSharp.Audio;
 using MumbleSharp.Audio.Codecs;
 using MumbleSharp.Packets;
@@ -46,6 +46,20 @@ namespace MumbleSharp
 
         readonly CryptState _cryptState = new CryptState();
 
+        private bool _isServerVersion15OrHigher;
+
+        public bool IsServerVersion15OrHigher => _isServerVersion15OrHigher;
+
+        public void SetServerProtocolVersion(ulong version)
+        {
+            // Version comparison: Use direct numeric threshold.
+            // Both VersionV1 (e.g., 0x10500 for 1.5.0) and VersionV2 (e.g., 0x105000 for 1.5.0)
+            // are below 0x105000, so this threshold correctly identifies 1.5+ in both formats.
+            _isServerVersion15OrHigher = (version >= 0x105000);
+        }
+
+        private VoicePacketHandler15 _voicePacketHandler15;
+
         /// <summary>
         /// Creates a connection to the server using the given address and port.
         /// </summary>
@@ -70,6 +84,7 @@ namespace MumbleSharp
             State = ConnectionStates.Disconnected;
             Protocol = protocol;
             VoiceSupportEnabled = voiceSupport;
+            _voicePacketHandler15 = new VoicePacketHandler15(this);
         }
 
         public void Connect(string username, string password, string[] tokens, string serverName)
@@ -199,17 +214,73 @@ namespace MumbleSharp
             var type = packet[0] >> 5 & 0x7;
 
             if (type == 1)
-                Protocol.UdpPing(packet);
-            else if(VoiceSupportEnabled)
-                UnpackVoicePacket(packet, type);
+            {
+                if (_isServerVersion15OrHigher && packet.Length > 1)
+                {
+                    try
+                    {
+                        var pingData = new byte[packet.Length - 1];
+                        Array.Copy(packet, 1, pingData, 0, packet.Length - 1);
+                        var ping = MumbleProto.UDP.Ping.ParseFrom(pingData);
+
+                        var legacyPacket = new byte[1 + sizeof(long)];
+                        legacyPacket[0] = packet[0];
+
+                        var timestampBytes = BitConverter.GetBytes(ping.Timestamp);
+                        if (BitConverter.IsLittleEndian)
+                            Array.Reverse(timestampBytes);
+
+                        Array.Copy(timestampBytes, 0, legacyPacket, 1, timestampBytes.Length);
+
+                        Protocol.UdpPing(legacyPacket);
+                    }
+                    catch (ProtoBuf.ProtoException)
+                    {
+                        Protocol.UdpPing(packet);
+                    }
+                    catch (IOException)
+                    {
+                        Protocol.UdpPing(packet);
+                    }
+                }
+                else
+                {
+                    Protocol.UdpPing(packet);
+                }
+            }
+            else if (VoiceSupportEnabled)
+            {
+                if (_isServerVersion15OrHigher)
+                {
+                    var payloadLength = packet.Length - 1;
+                    if (payloadLength > 0)
+                    {
+                        var payload = new byte[payloadLength];
+                        Array.Copy(packet, 1, payload, 0, payloadLength);
+                        // Try protobuf handler first, fall back to old handler if it fails
+                        bool handled = _voicePacketHandler15.ProcessUDPPacket(payload, payloadLength);
+                        if (!handled)
+                        {
+                            // Protobuf parsing failed, try old protocol handler
+                            UnpackVoicePacket(packet, type);
+                        }
+                    }
+                }
+                else
+                {
+                    UnpackVoicePacket(packet, type);
+                }
+            }
         }
 
         private void PackVoicePacket(ArraySegment<byte> packet)
         {
         }
 
-        private void UnpackVoicePacket(byte[] packet, int type)
+        internal void UnpackVoicePacket(byte[] packet, int type)
         {
+            // In the old protocol (pre-1.5), the packet type indicates the codec:
+            // type 0 = CELT Alpha, type 2 = Speex, type 3 = CELT Beta, type 4 = Opus
             var vType = (SpeechCodecs)type;
             var target = (SpeechTarget)(packet[0] & 0x1F);
 
@@ -219,8 +290,8 @@ namespace MumbleSharp
                 Int64 sequence = reader.ReadVarInt64();
 
                 //Null codec means the user was not found. This can happen if a user leaves while voice packets are still in flight
-                IVoiceCodec codec = Protocol.GetCodec(session, vType);
-                if (codec == null)
+                IVoiceCodec voiceCodec = Protocol.GetCodec(session, vType);
+                if (voiceCodec == null)
                     return;
 
                 if (vType == SpeechCodecs.Opus)
@@ -235,31 +306,7 @@ namespace MumbleSharp
                     if (data == null)
                         return;
 
-                    Protocol.EncodedVoice(data, session, sequence, codec, target);
-                }
-                else
-                {
-                    throw new NotImplementedException("Codec is not opus");
-
-                    //byte header;
-                    //do
-                    //{
-                    //    header = reader.ReadByte();
-                    //    int length = header & 0x7F;
-                    //    if (length > 0)
-                    //    {
-                    //        byte[] data = reader.ReadBytes(length);
-                    //        if (data == null)
-                    //            break;
-
-                    //        //TODO: Put *encoded* packets into a queue, then decode the head of the queue
-                    //        //TODO: This allows packets to come into late and be inserted into the correct place in the queue (if they arrive before decoding handles a later packet)
-                    //        byte[] decodedPcmData = codec.Decode(data);
-                    //        if (decodedPcmData != null)
-                    //            Protocol.Voice(decodedPcmData, session, sequence);
-                    //    }
-
-                    //} while ((header & 0x80) > 0);
+                    Protocol.EncodedVoice(data, session, sequence, voiceCodec, target);
                 }
             }
         }
