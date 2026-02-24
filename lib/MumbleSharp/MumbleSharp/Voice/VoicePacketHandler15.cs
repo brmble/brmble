@@ -32,9 +32,12 @@ namespace MumbleSharp
                     return ProcessAudio(audio);
                 }
             }
-            catch
+            catch (ProtoBuf.ProtoException)
             {
-                // Return false to indicate parsing failed, so we can fall back to old handler
+                return false;
+            }
+            catch (IOException)
+            {
                 return false;
             }
         }

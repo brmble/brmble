@@ -44,8 +44,8 @@ namespace MumbleSharpTest
             // Sequence = 100 (varint: 0x64)
             packet.Add(0x64);
             
-            // Opus data size = 3 bytes (varint: 0x03)
-            packet.Add(0x03);
+            // Opus data size = 4 bytes (varint: 0x04)
+            packet.Add(0x04);
             
             // Fake Opus data
             packet.Add(0x4F); // 'O'
@@ -56,7 +56,7 @@ namespace MumbleSharpTest
             byte[] packetBytes = packet.ToArray();
 
             // Act: Process the packet using old protocol handler
-            connection.TestUnpackVoicePacket(packetBytes, 4); // type = 4 (Opus)
+            connection.UnpackVoicePacket(packetBytes, 4); // type = 4 (Opus)
 
             // Assert: Verify GetCodec was called with Opus (4)
             Assert.IsTrue(mockProtocol.GetCodecCalled, "GetCodec should have been called");
@@ -80,7 +80,7 @@ namespace MumbleSharpTest
             var packet = new byte[] { 0x00, 0x02, 0x01, 0x01, 0x00 };
 
             // Act
-            connection.TestUnpackVoicePacket(packet, 0); // type = 0 (CELT Alpha)
+            connection.UnpackVoicePacket(packet, 0); // type = 0 (CELT Alpha)
 
             // Assert
             Assert.IsTrue(mockProtocol.GetCodecCalled);
@@ -102,7 +102,7 @@ namespace MumbleSharpTest
             var packet = new byte[] { 0x00, 0x02, 0x01, 0x01, 0x00 };
 
             // Act & Assert: Should not throw, just return silently
-            connection.TestUnpackVoicePacket(packet, 0);
+            connection.UnpackVoicePacket(packet, 0);
             // If we get here without exception, test passes
         }
 

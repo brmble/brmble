@@ -47,13 +47,14 @@ namespace MumbleSharp
         readonly CryptState _cryptState = new CryptState();
 
         private bool _isServerVersion15OrHigher;
-        private ulong _serverProtocolVersion;
 
         public bool IsServerVersion15OrHigher => _isServerVersion15OrHigher;
 
         public void SetServerProtocolVersion(ulong version)
         {
-            _serverProtocolVersion = version;
+            // Version comparison: Use direct numeric threshold.
+            // Both VersionV1 (e.g., 0x10500 for 1.5.0) and VersionV2 (e.g., 0x105000 for 1.5.0)
+            // are below 0x105000, so this threshold correctly identifies 1.5+ in both formats.
             _isServerVersion15OrHigher = (version >= 0x105000);
         }
 
@@ -233,7 +234,11 @@ namespace MumbleSharp
 
                         Protocol.UdpPing(legacyPacket);
                     }
-                    catch
+                    catch (ProtoBuf.ProtoException)
+                    {
+                        Protocol.UdpPing(packet);
+                    }
+                    catch (IOException)
                     {
                         Protocol.UdpPing(packet);
                     }
@@ -272,7 +277,7 @@ namespace MumbleSharp
         {
         }
 
-        private void UnpackVoicePacket(byte[] packet, int type)
+        internal void UnpackVoicePacket(byte[] packet, int type)
         {
             // In the old protocol (pre-1.5), the packet type indicates the codec:
             // type 0 = CELT Alpha, type 2 = Speex, type 3 = CELT Beta, type 4 = Opus
@@ -304,14 +309,6 @@ namespace MumbleSharp
                     Protocol.EncodedVoice(data, session, sequence, voiceCodec, target);
                 }
             }
-        }
-
-        /// <summary>
-        /// Test helper to directly call UnpackVoicePacket.
-        /// </summary>
-        internal void TestUnpackVoicePacket(byte[] packet, int type)
-        {
-            UnpackVoicePacket(packet, type);
         }
 
         internal void ProcessCryptState(CryptSetup cryptSetup)
