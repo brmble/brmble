@@ -102,6 +102,16 @@ export function ShortcutsSettingsTab({ settings, onChange }: ShortcutsSettingsTa
           {recordingKey === 'toggleMuteDeafenKey' ? 'Press any key...' : (localSettings.toggleMuteDeafenKey || 'Not bound')}
         </button>
       </div>
+
+      <div className="settings-item">
+        <label>Toggle DM Screen</label>
+        <button
+          className={`key-binding-btn ${recordingKey === 'toggleDMScreenKey' ? 'recording' : ''}`}
+          onClick={() => setRecordingKey(recordingKey === 'toggleDMScreenKey' ? null : 'toggleDMScreenKey')}
+        >
+          {recordingKey === 'toggleDMScreenKey' ? 'Press any key...' : (localSettings.toggleDMScreenKey || 'Not bound')}
+        </button>
+      </div>
       
       <p className="settings-hint">
         Click a button and press a key to set a shortcut.
