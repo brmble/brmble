@@ -116,6 +116,8 @@ function App() {
   selectedDMUserIdRef.current = selectedDMUserId;
   const appModeRef = useRef(appMode);
   appModeRef.current = appMode;
+  const setAppModeRef = useRef(setAppMode);
+  setAppModeRef.current = setAppMode;
   const addDMMessageRef = useRef(addDMMessage);
   addDMMessageRef.current = addDMMessage;
   const matrixCredentialsRef = useRef(matrixCredentials);
@@ -144,6 +146,7 @@ function App() {
   useEffect(() => {
     let pttKey: string | null = null;
     let pttPressed = false;
+    let toggleDMScreenKey: string | null = null;
 
     const updatePttKeyFromSettings = (settings: any) => {
       const newMode = settings?.audio?.transmissionMode;
@@ -163,6 +166,7 @@ function App() {
       }
 
       pttKey = newKey;
+      toggleDMScreenKey = settings?.shortcuts?.toggleDMScreenKey ?? null;
     };
 
     // Listen for settings updates via bridge
@@ -198,14 +202,23 @@ function App() {
     }
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!pttKey) return;
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
       
-      const pressedKey = e.code;
-      if (pressedKey === pttKey && !pttPressed) {
-        pttPressed = true;
-        bridge.send('voice.pttKey', { pressed: true });
+      // Handle PTT
+      if (pttKey) {
+        const pressedKey = e.code;
+        if (pressedKey === pttKey && !pttPressed) {
+          pttPressed = true;
+          bridge.send('voice.pttKey', { pressed: true });
+        }
+      }
+
+      // Handle toggle DM screen shortcut
+      if (toggleDMScreenKey) {
+        if (e.code === toggleDMScreenKey) {
+          setAppModeRef.current(prev => prev === 'channels' ? 'dm' : 'channels');
+        }
       }
     };
 
