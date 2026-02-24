@@ -146,6 +146,7 @@ function App() {
   useEffect(() => {
     let pttKey: string | null = null;
     let pttPressed = false;
+    let toggleDMScreenKey: string | null = null;
 
     const updatePttKeyFromSettings = (settings: any) => {
       const newMode = settings?.audio?.transmissionMode;
@@ -167,11 +168,16 @@ function App() {
       pttKey = newKey;
     };
 
+    const updateToggleDMScreenKeyFromSettings = (settings: any) => {
+      toggleDMScreenKey = settings?.shortcuts?.toggleDMScreenKey ?? null;
+    };
+
     // Listen for settings updates via bridge
     const handleSettingsCurrent = (data: unknown) => {
       const d = data as { settings?: any } | undefined;
       if (d?.settings) {
         updatePttKeyFromSettings(d.settings);
+        updateToggleDMScreenKeyFromSettings(d.settings);
       }
     };
 
@@ -185,6 +191,7 @@ function App() {
         if (stored) {
           const settings = JSON.parse(stored);
           updatePttKeyFromSettings(settings);
+          updateToggleDMScreenKeyFromSettings(settings);
         }
       } catch {}
     };
@@ -196,12 +203,15 @@ function App() {
       try {
         const settings = JSON.parse(stored);
         updatePttKeyFromSettings(settings);
+        updateToggleDMScreenKeyFromSettings(settings);
       } catch {}
     }
 
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+      if (e.defaultPrevented) return;
+      if (e.repeat) return;
       
       // Handle PTT
       if (pttKey) {
@@ -212,17 +222,10 @@ function App() {
         }
       }
 
-      // Handle toggle DM screen shortcut - read directly from localStorage
-      try {
-        const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
-        if (stored) {
-          const settings = JSON.parse(stored);
-          const dmKey = settings?.shortcuts?.toggleDMScreenKey;
-          if (dmKey && e.code === dmKey) {
-            setAppModeRef.current(prev => prev === 'channels' ? 'dm' : 'channels');
-          }
-        }
-      } catch {}
+      // Handle toggle DM screen shortcut
+      if (toggleDMScreenKey && e.code === toggleDMScreenKey) {
+        setAppModeRef.current(prev => prev === 'channels' ? 'dm' : 'channels');
+      }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
