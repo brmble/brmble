@@ -496,11 +496,7 @@ function App() {
       const server = data as { id: string; label: string; apiUrl?: string; host?: string; port?: number; username: string } | undefined;
       if (server) {
         setServerLabel(server.label || `${server.host}:${server.port}`);
-        setServerAddress(server.host && server.port ? `${server.host}:${server.port}` : '');
-        setConnectionStatus('connecting');
-        bridge.send('voice.connect', {
-          id: server.id,
-          apiUrl: server.apiUrl || '',
+        handleConnect({
           host: server.host || '',
           port: server.port || 0,
           username: server.username,

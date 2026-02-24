@@ -1,6 +1,6 @@
 # Reconnect-When-Disconnected Setting Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **Implementation note:** Follow this plan task-by-task, running and updating tests as described in each step.
 
 **Goal:** Add an opt-out "Automatically reconnect when disconnected" toggle to the Connection settings tab, controlling whether the existing `ReconnectLoop` activates on unexpected disconnection.
 

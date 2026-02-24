@@ -253,7 +253,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             }
             else
             {
-                // Reconnect disabled — emit disconnected with manual reconnect option.
+                // Reconnect disabled — clean up and emit disconnected with manual reconnect option.
+                Disconnect();
                 _bridge?.Send("voice.disconnected", new { reconnectAvailable = true });
                 _bridge?.NotifyUiThread();
             }

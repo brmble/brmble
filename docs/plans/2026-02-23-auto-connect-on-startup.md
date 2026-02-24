@@ -1,6 +1,6 @@
 # Auto-Connect on Startup Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **Implementation note:** This plan is intended to be executed step-by-step, completing each task in order.
 
 **Goal:** Add an opt-in auto-connect setting that connects to the last-used (or a specific) server on startup.
 

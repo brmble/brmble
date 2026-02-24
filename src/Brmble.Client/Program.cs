@@ -143,11 +143,17 @@ static class Program
 
             SetupBridgeHandlers();
 
-            // Auto-connect after frontend loads (frontend handles the voice.autoConnect message)
-            _controller.CoreWebView2.NavigationCompleted += (s, e) =>
+            // Auto-connect after frontend loads (one-shot: unsubscribe after first success)
+            EventHandler<Microsoft.Web.WebView2.Core.CoreWebView2NavigationCompletedEventArgs> onNavCompleted = null!;
+            onNavCompleted = (s, e) =>
             {
-                if (e.IsSuccess) TryAutoConnect();
+                if (e.IsSuccess)
+                {
+                    _controller.CoreWebView2.NavigationCompleted -= onNavCompleted;
+                    TryAutoConnect();
+                }
             };
+            _controller.CoreWebView2.NavigationCompleted += onNavCompleted;
 
             if (useDevServer)
                 _controller.CoreWebView2.Navigate(DevServerUrl);
