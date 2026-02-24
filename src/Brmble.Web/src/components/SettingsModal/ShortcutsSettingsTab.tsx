@@ -10,12 +10,14 @@ export interface ShortcutsSettings {
   toggleMuteKey: string | null;
   toggleDeafenKey: string | null;
   toggleMuteDeafenKey: string | null;
+  toggleDMScreenKey: string | null;
 }
 
 export const DEFAULT_SHORTCUTS: ShortcutsSettings = {
   toggleMuteKey: null,
   toggleDeafenKey: null,
   toggleMuteDeafenKey: null,
+  toggleDMScreenKey: null,
 };
 
 export function ShortcutsSettingsTab({ settings, onChange }: ShortcutsSettingsTabProps) {
