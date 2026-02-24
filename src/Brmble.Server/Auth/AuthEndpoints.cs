@@ -12,13 +12,30 @@ public static class AuthEndpoints
             ICertificateHashExtractor certHashExtractor,
             AuthService authService,
             ChannelRepository channelRepository,
-            IOptions<MatrixSettings> matrixSettings) =>
+            IOptions<MatrixSettings> matrixSettings,
+            ILogger<AuthService> logger) =>
         {
             var certHash = certHashExtractor.GetCertHash(httpContext);
+
             if (string.IsNullOrWhiteSpace(certHash))
+            {
+                logger.LogWarning(
+                    "Auth failed: no client certificate hash — RemoteIp={RemoteIp}",
+                    httpContext.Connection.RemoteIpAddress);
                 return Results.Unauthorized();
+            }
+
+            logger.LogInformation(
+                "Auth attempt: CertHash={CertHash}, RemoteIp={RemoteIp}",
+                certHash,
+                httpContext.Connection.RemoteIpAddress);
 
             var result = await authService.Authenticate(certHash);
+
+            logger.LogInformation(
+                "Auth succeeded: CertHash={CertHash}, MatrixUserId={MatrixUserId}",
+                certHash,
+                result.MatrixUserId);
 
             var roomMap = channelRepository.GetAll()
                 .ToDictionary(m => m.MumbleChannelId.ToString(), m => m.MatrixRoomId);
