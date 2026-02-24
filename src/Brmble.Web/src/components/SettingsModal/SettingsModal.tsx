@@ -7,6 +7,8 @@ import { MessagesSettingsTab, type MessagesSettings, DEFAULT_MESSAGES } from './
 import { OverlaySettingsTab, type OverlaySettings, DEFAULT_OVERLAY } from './OverlaySettingsTab';
 import { IdentitySettingsTab } from './IdentitySettingsTab';
 
+const SETTINGS_STORAGE_KEY = 'brmble-settings';
+
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -74,6 +76,7 @@ export function SettingsModal(props: SettingsModalProps) {
     setSettings(prev => {
       const newSettings = { ...prev, shortcuts };
       bridge.send('settings.set', { settings: newSettings });
+      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
 
       // Notify backend of each shortcut change
       const actions: { action: string; key: string | null }[] = [

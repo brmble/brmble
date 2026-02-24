@@ -146,7 +146,6 @@ function App() {
   useEffect(() => {
     let pttKey: string | null = null;
     let pttPressed = false;
-    let toggleDMScreenKey: string | null = null;
 
     const updatePttKeyFromSettings = (settings: any) => {
       const newMode = settings?.audio?.transmissionMode;
@@ -166,7 +165,6 @@ function App() {
       }
 
       pttKey = newKey;
-      toggleDMScreenKey = settings?.shortcuts?.toggleDMScreenKey ?? null;
     };
 
     // Listen for settings updates via bridge
@@ -180,7 +178,7 @@ function App() {
     bridge.on('settings.current', handleSettingsCurrent);
     bridge.on('settings.updated', handleSettingsCurrent);
 
-    // Also listen to storage changes as fallback
+    // Also listen to storage changes as fallback (for other tabs)
     const handleStorage = () => {
       try {
         const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
@@ -214,12 +212,17 @@ function App() {
         }
       }
 
-      // Handle toggle DM screen shortcut
-      if (toggleDMScreenKey) {
-        if (e.code === toggleDMScreenKey) {
-          setAppModeRef.current(prev => prev === 'channels' ? 'dm' : 'channels');
+      // Handle toggle DM screen shortcut - read directly from localStorage
+      try {
+        const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
+        if (stored) {
+          const settings = JSON.parse(stored);
+          const dmKey = settings?.shortcuts?.toggleDMScreenKey;
+          if (dmKey && e.code === dmKey) {
+            setAppModeRef.current(prev => prev === 'channels' ? 'dm' : 'channels');
+          }
         }
-      }
+      } catch {}
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
