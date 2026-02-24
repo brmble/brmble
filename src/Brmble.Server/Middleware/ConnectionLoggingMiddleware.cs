@@ -11,8 +11,16 @@ public class ConnectionLoggingMiddleware
         _logger = logger;
     }
 
+    private static readonly HashSet<string> SkippedPaths = ["/health"];
+
     public async Task InvokeAsync(HttpContext context)
     {
+        if (SkippedPaths.Contains(context.Request.Path))
+        {
+            await _next(context);
+            return;
+        }
+
         var connection = context.Connection;
         var clientCert = connection.ClientCertificate;
 

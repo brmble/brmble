@@ -30,7 +30,19 @@ public static class AuthEndpoints
                 certHash,
                 httpContext.Connection.RemoteIpAddress);
 
-            var result = await authService.Authenticate(certHash);
+            AuthResult result;
+            try
+            {
+                result = await authService.Authenticate(certHash);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex,
+                    "Auth failed: CertHash={CertHash}, RemoteIp={RemoteIp}",
+                    certHash,
+                    httpContext.Connection.RemoteIpAddress);
+                return Results.StatusCode(500);
+            }
 
             logger.LogInformation(
                 "Auth succeeded: CertHash={CertHash}, MatrixUserId={MatrixUserId}",
