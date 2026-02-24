@@ -13,7 +13,8 @@ public record AudioSettings(
 public record ShortcutsSettings(
     string? ToggleMuteKey = null,
     string? ToggleDeafenKey = null,
-    string? ToggleMuteDeafenKey = null
+    string? ToggleMuteDeafenKey = null,
+    string? ToggleDMScreenKey = null
 );
 
 public record MessagesSettings(
