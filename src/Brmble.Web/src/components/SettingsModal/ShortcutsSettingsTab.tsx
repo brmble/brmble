@@ -10,12 +10,14 @@ export interface ShortcutsSettings {
   toggleMuteKey: string | null;
   toggleDeafenKey: string | null;
   toggleMuteDeafenKey: string | null;
+  toggleDMScreenKey: string | null;
 }
 
 export const DEFAULT_SHORTCUTS: ShortcutsSettings = {
   toggleMuteKey: null,
   toggleDeafenKey: null,
   toggleMuteDeafenKey: null,
+  toggleDMScreenKey: null,
 };
 
 export function ShortcutsSettingsTab({ settings, onChange }: ShortcutsSettingsTabProps) {
@@ -98,6 +100,16 @@ export function ShortcutsSettingsTab({ settings, onChange }: ShortcutsSettingsTa
           onClick={() => setRecordingKey(recordingKey === 'toggleMuteDeafenKey' ? null : 'toggleMuteDeafenKey')}
         >
           {recordingKey === 'toggleMuteDeafenKey' ? 'Press any key...' : (localSettings.toggleMuteDeafenKey || 'Not bound')}
+        </button>
+      </div>
+
+      <div className="settings-item">
+        <label>Toggle DM Screen</label>
+        <button
+          className={`key-binding-btn ${recordingKey === 'toggleDMScreenKey' ? 'recording' : ''}`}
+          onClick={() => setRecordingKey(recordingKey === 'toggleDMScreenKey' ? null : 'toggleDMScreenKey')}
+        >
+          {recordingKey === 'toggleDMScreenKey' ? 'Press any key...' : (localSettings.toggleDMScreenKey || 'Not bound')}
         </button>
       </div>
       
