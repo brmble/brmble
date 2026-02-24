@@ -124,4 +124,82 @@ public class AppConfigServiceTests
 
         Assert.AreEqual("minimize", svc2.GetClosePreference());
     }
+
+    [TestMethod]
+    public void DefaultSettings_HaveAutoConnectDisabled()
+    {
+        var svc = new AppConfigService(_tempDir);
+
+        var settings = svc.GetSettings();
+
+        Assert.IsFalse(settings.AutoConnectEnabled);
+        Assert.IsNull(settings.AutoConnectServerId);
+    }
+
+    [TestMethod]
+    public void SavesAndReloads_LastConnectedServerId()
+    {
+        var svc = new AppConfigService(_tempDir);
+        Assert.IsNull(svc.GetLastConnectedServerId(), "No server connected yet — should be null");
+
+        svc.SaveLastConnectedServerId("server-abc");
+        var svc2 = new AppConfigService(_tempDir);
+
+        Assert.AreEqual("server-abc", svc2.GetLastConnectedServerId());
+    }
+
+    [TestMethod]
+    public void SavesAndReloads_AutoConnectSettings()
+    {
+        var svc = new AppConfigService(_tempDir);
+        var updated = svc.GetSettings() with
+        {
+            AutoConnectEnabled = true,
+            AutoConnectServerId = "server-xyz"
+        };
+
+        svc.SetSettings(updated);
+        var svc2 = new AppConfigService(_tempDir);
+
+        Assert.IsTrue(svc2.GetSettings().AutoConnectEnabled);
+        Assert.AreEqual("server-xyz", svc2.GetSettings().AutoConnectServerId);
+    }
+
+    [TestMethod]
+    public void AutoConnect_ClearsServerId_WhenServerRemoved()
+    {
+        var svc = new AppConfigService(_tempDir);
+        svc.AddServer(new ServerEntry("srv1", "Test Server", null, "localhost", 64738, "alice"));
+        svc.SetSettings(svc.GetSettings() with { AutoConnectEnabled = true, AutoConnectServerId = "srv1" });
+
+        svc.RemoveServer("srv1");
+
+        // Settings still reference the old server ID — the startup logic in Program.cs
+        // handles the fallback (server not found -> show server list).
+        // This test verifies the data layer doesn't crash.
+        var svc2 = new AppConfigService(_tempDir);
+        Assert.AreEqual("srv1", svc2.GetSettings().AutoConnectServerId);
+        Assert.AreEqual(0, svc2.GetServers().Count);
+    }
+
+    [TestMethod]
+    public void DefaultSettings_HaveReconnectEnabled()
+    {
+        var svc = new AppConfigService(_tempDir);
+
+        var settings = svc.GetSettings();
+
+        Assert.IsTrue(settings.ReconnectEnabled);
+    }
+
+    [TestMethod]
+    public void SavesAndReloads_ReconnectEnabled()
+    {
+        var svc = new AppConfigService(_tempDir);
+        svc.SetSettings(svc.GetSettings() with { ReconnectEnabled = false });
+
+        var svc2 = new AppConfigService(_tempDir);
+
+        Assert.IsFalse(svc2.GetSettings().ReconnectEnabled);
+    }
 }

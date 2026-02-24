@@ -41,6 +41,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private readonly Stopwatch _notifyThrottle = Stopwatch.StartNew();
     private string? _apiUrl;
     private string? _activeServerId;
+    private readonly IAppConfigService? _appConfigService;
 
     public string ServiceName => "mumble";
 
@@ -50,11 +51,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// <summary>The ID of the ServerEntry that initiated the current connection, if any.</summary>
     public string? ActiveServerId => _activeServerId;
 
-    public MumbleAdapter(NativeBridge bridge, IntPtr hwnd, CertificateService? certService = null)
+    public MumbleAdapter(NativeBridge bridge, IntPtr hwnd, CertificateService? certService = null, IAppConfigService? appConfigService = null)
     {
         _bridge = bridge;
         _hwnd = hwnd;
         _certService = certService;
+        _appConfigService = appConfigService;
         _audioManager = new AudioManager(_hwnd);
         _audioManager.ToggleMuteRequested += ToggleMute;
         _audioManager.ToggleDeafenRequested += ToggleDeaf;
@@ -242,9 +244,20 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         // Loop exited — either intentional (CTS cancelled) or unexpected connection drop.
         if (!_intentionalDisconnect && !ct.IsCancellationRequested && _reconnectHost != null && _reconnectCts == null)
         {
-            // Unexpected drop — clean up and start reconnect loop.
-            Disconnect();
-            Task.Run(() => ReconnectLoop());
+            var reconnectEnabled = _appConfigService?.GetSettings().ReconnectEnabled ?? true;
+            if (reconnectEnabled)
+            {
+                // Unexpected drop — clean up and start reconnect loop.
+                Disconnect();
+                Task.Run(() => ReconnectLoop());
+            }
+            else
+            {
+                // Reconnect disabled — clean up and emit disconnected with manual reconnect option.
+                Disconnect();
+                _bridge?.Send("voice.disconnected", new { reconnectAvailable = true });
+                _bridge?.NotifyUiThread();
+            }
         }
         // If intentional or CTS was cancelled, Disconnect() was already called by the handler.
     }
@@ -774,6 +787,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             channels,
             users
         });
+
+        if (_activeServerId is not null)
+        {
+            _appConfigService?.SaveLastConnectedServerId(_activeServerId);
+        }
 
         if (!string.IsNullOrEmpty(serverSync.WelcomeText))
         {

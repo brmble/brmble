@@ -255,11 +255,16 @@ function App() {
       }
     });
 
-    const onVoiceDisconnected = () => {
+    const onVoiceDisconnected = (data: unknown) => {
       clearPendingAction();
-      setConnectionStatus('idle');
-      setServerAddress('');
-      setServerLabel('');
+      const d = data as { reconnectAvailable?: boolean } | null;
+      if (d?.reconnectAvailable) {
+        setConnectionStatus('disconnected');
+      } else {
+        setConnectionStatus('idle');
+        setServerAddress('');
+        setServerLabel('');
+      }
       setChannels([]);
       setUsers([]);
       setCurrentChannelId(undefined);
@@ -487,6 +492,19 @@ function App() {
       setCertFingerprint(d?.fingerprint ?? '');
     };
 
+    const onAutoConnect = (data: unknown) => {
+      const server = data as { id: string; label: string; apiUrl?: string; host?: string; port?: number; username: string } | undefined;
+      if (server) {
+        setServerLabel(server.label || `${server.host}:${server.port}`);
+        handleConnect({
+          host: server.host || '',
+          port: server.port || 0,
+          username: server.username,
+          password: '',
+        });
+      }
+    };
+
     const onVoiceReconnecting = () => {
       setConnectionStatus('reconnecting');
     };
@@ -527,6 +545,7 @@ function App() {
     bridge.on('cert.status', onCertStatus);
     bridge.on('cert.generated', onCertGenerated);
     bridge.on('cert.imported', onCertImported);
+    bridge.on('voice.autoConnect', onAutoConnect);
     bridge.on('voice.reconnecting', onVoiceReconnecting);
     bridge.on('voice.reconnectFailed', onVoiceReconnectFailed);
     bridge.on('server.credentials', onServerCredentials);
@@ -552,6 +571,7 @@ function App() {
       bridge.off('cert.status', onCertStatus);
       bridge.off('cert.generated', onCertGenerated);
       bridge.off('cert.imported', onCertImported);
+      bridge.off('voice.autoConnect', onAutoConnect);
       bridge.off('voice.reconnecting', onVoiceReconnecting);
       bridge.off('voice.reconnectFailed', onVoiceReconnectFailed);
       bridge.off('server.credentials', onServerCredentials);
@@ -675,6 +695,20 @@ const handleConnect = (serverData: SavedServer) => {
     bridge.send('voice.cancelReconnect');
   };
 
+  const handleReconnect = () => {
+    const stored = localStorage.getItem('brmble-server');
+    if (stored) {
+      try {
+        const serverData = JSON.parse(stored) as SavedServer;
+        handleConnect(serverData);
+      } catch {
+        setConnectionStatus('idle');
+      }
+    } else {
+      setConnectionStatus('idle');
+    }
+  };
+
   const handleToggleMute = () => {
     bridge.send('voice.toggleMute', {});
   };
@@ -769,6 +803,7 @@ const handleConnect = (serverData: SavedServer) => {
           serverAddress={serverAddress}
           username={username}
           onDisconnect={handleDisconnect}
+          onReconnect={handleReconnect}
           onStartDM={handleSelectDMUser}
           speakingUsers={speakingUsers}
           connectionStatus={connectionStatus}

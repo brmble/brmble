@@ -98,6 +98,23 @@
   color: var(--text-primary);
 }
 
+.reconnect-btn {
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  cursor: pointer;
+  margin-left: auto;
+}
+.reconnect-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.status-dot--disconnected { background: var(--accent-berry); }
+
 .sidebar-divider {
   height: 1px;
   background: var(--border-subtle);

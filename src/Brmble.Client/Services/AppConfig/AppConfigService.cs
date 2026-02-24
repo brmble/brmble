@@ -18,6 +18,7 @@ internal sealed class AppConfigService : IAppConfigService
     private AppSettings _settings = AppSettings.Default;
     private WindowState? _windowState;
     private string? _closePreference;
+    private string? _lastConnectedServerId;
     private readonly object _lock = new();
 
     public string ServiceName => "appConfig";
@@ -167,6 +168,16 @@ internal sealed class AppConfigService : IAppConfigService
         lock (_lock) { _closePreference = preference; Save(); }
     }
 
+    public string? GetLastConnectedServerId()
+    {
+        lock (_lock) return _lastConnectedServerId;
+    }
+
+    public void SaveLastConnectedServerId(string? serverId)
+    {
+        lock (_lock) { _lastConnectedServerId = serverId; Save(); }
+    }
+
     private void Load()
     {
         try
@@ -179,6 +190,7 @@ internal sealed class AppConfigService : IAppConfigService
                 _settings = data?.Settings ?? AppSettings.Default;
                 _windowState = data?.Window;
                 _closePreference = data?.ClosePreference;
+                _lastConnectedServerId = data?.LastConnectedServerId;
                 return;
             }
 
@@ -198,12 +210,13 @@ internal sealed class AppConfigService : IAppConfigService
             _settings = AppSettings.Default;
             _windowState = null;
             _closePreference = null;
+            _lastConnectedServerId = null;
         }
     }
 
     private void Save()
     {
-        var data = new ConfigData { Servers = _servers, Settings = _settings, Window = _windowState, ClosePreference = _closePreference };
+        var data = new ConfigData { Servers = _servers, Settings = _settings, Window = _windowState, ClosePreference = _closePreference, LastConnectedServerId = _lastConnectedServerId };
         File.WriteAllText(_configPath, JsonSerializer.Serialize(data, _jsonOptions));
     }
 
@@ -234,6 +247,7 @@ internal sealed class AppConfigService : IAppConfigService
         public AppSettings Settings { get; init; } = AppSettings.Default;
         public WindowState? Window { get; init; } = null;
         public string? ClosePreference { get; init; } = null;
+        public string? LastConnectedServerId { get; init; } = null;
     }
 
     private record LegacyServerlistData

@@ -123,7 +123,7 @@ static class Program
             _certService = new CertificateService(_bridge);
             _certService.RegisterHandlers(_bridge);
 
-            _mumbleClient = new MumbleAdapter(_bridge, _hwnd, _certService);
+            _mumbleClient = new MumbleAdapter(_bridge, _hwnd, _certService, _appConfigService);
             _mumbleClient.ApplySettings(_appConfigService!.GetSettings());
             _mumbleClient.OnApiUrlDiscovered = discoveredUrl =>
             {
@@ -142,6 +142,18 @@ static class Program
             };
 
             SetupBridgeHandlers();
+
+            // Auto-connect after frontend loads (one-shot: unsubscribe after first success)
+            EventHandler<Microsoft.Web.WebView2.Core.CoreWebView2NavigationCompletedEventArgs> onNavCompleted = null!;
+            onNavCompleted = (s, e) =>
+            {
+                if (e.IsSuccess)
+                {
+                    _controller.CoreWebView2.NavigationCompleted -= onNavCompleted;
+                    TryAutoConnect();
+                }
+            };
+            _controller.CoreWebView2.NavigationCompleted += onNavCompleted;
 
             if (useDevServer)
                 _controller.CoreWebView2.Navigate(DevServerUrl);
@@ -225,6 +237,31 @@ static class Program
         });
     }
  
+    private static void TryAutoConnect()
+    {
+        var settings = _appConfigService!.GetSettings();
+        if (!settings.AutoConnectEnabled) return;
+
+        // Resolve target server
+        var targetId = settings.AutoConnectServerId ?? _appConfigService.GetLastConnectedServerId();
+        if (targetId is null) return;
+
+        var servers = _appConfigService.GetServers();
+        var server = servers.FirstOrDefault(s => s.Id == targetId);
+        if (server is null) return;
+
+        // Trigger connection via bridge — same path as manual connect
+        _bridge!.Send("voice.autoConnect", new
+        {
+            id = server.Id,
+            label = server.Label,
+            apiUrl = server.ApiUrl,
+            host = server.Host,
+            port = server.Port,
+            username = server.Username,
+        });
+    }
+
     private static bool IsDevServerRunning()
     {
         try

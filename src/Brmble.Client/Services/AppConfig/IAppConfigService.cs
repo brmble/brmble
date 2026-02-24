@@ -14,4 +14,6 @@ public interface IAppConfigService
     void SaveWindowState(WindowState state);
     string? GetClosePreference();
     void SaveClosePreference(string? preference);
+    string? GetLastConnectedServerId();
+    void SaveLastConnectedServerId(string? serverId);
 }

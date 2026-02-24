@@ -36,7 +36,10 @@ public record AppSettings(
     ShortcutsSettings Shortcuts,
     MessagesSettings Messages,
     OverlaySettings Overlay,
-    SpeechEnhancementSettings? SpeechEnhancement = null
+    SpeechEnhancementSettings? SpeechEnhancement = null,
+    bool AutoConnectEnabled = false,
+    string? AutoConnectServerId = null,
+    bool ReconnectEnabled = true
 )
 {
     public SpeechEnhancementSettings SpeechEnhancement { get; init; } = SpeechEnhancement ?? new SpeechEnhancementSettings();

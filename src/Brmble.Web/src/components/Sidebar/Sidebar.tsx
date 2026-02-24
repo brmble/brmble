@@ -18,6 +18,7 @@ interface SidebarProps {
   serverAddress?: string;
   username?: string;
   onDisconnect?: () => void;
+  onReconnect?: () => void;
   onStartDM?: (userId: string, userName: string) => void;
   speakingUsers?: Map<number, boolean>;
   pendingChannelAction?: number | 'leave' | null;
@@ -37,12 +38,15 @@ export function Sidebar({
   serverAddress,
   username,
   onDisconnect,
+  onReconnect,
   onStartDM,
   speakingUsers,
   pendingChannelAction
 }: SidebarProps) {
   const connected = connectionStatus === 'connected';
+  const isConnecting = connectionStatus === 'connecting';
   const isReconnecting = connectionStatus === 'reconnecting';
+  const isDisconnected = connectionStatus === 'disconnected';
 
   const rootChannel = channels.find(ch => ch.id === 0 || ch.parent === ch.id);
   const rootUsers = rootChannel ? users.filter(u => u.channelId === rootChannel.id) : [];
@@ -76,14 +80,23 @@ export function Sidebar({
                 {connectionStatus === 'connecting' && 'Connecting...'}
                 {connectionStatus === 'reconnecting' && 'Reconnecting...'}
                 {connectionStatus === 'failed' && 'Disconnected'}
+                {connectionStatus === 'disconnected' && 'Disconnected'}
               </span>
             )}
-            {(onDisconnect || onCancelReconnect) && (connected || isReconnecting) && (
+            {isDisconnected && onReconnect && (
+              <button
+                className="reconnect-btn"
+                onClick={(e) => { e.stopPropagation(); onReconnect(); }}
+              >
+                Reconnect
+              </button>
+            )}
+            {(onDisconnect || onCancelReconnect) && (connected || isConnecting || isReconnecting || isDisconnected) && (
               <button
                 className="disconnect-btn"
                 onClick={(e) => { e.stopPropagation(); (isReconnecting ? onCancelReconnect : onDisconnect)?.(); }}
               >
-                {isReconnecting ? 'Cancel' : 'Disconnect'}
+                {(isConnecting || isReconnecting) ? 'Cancel' : isDisconnected ? 'Back' : 'Disconnect'}
               </button>
             )}
           </div>
