@@ -1,5 +1,6 @@
 using Brmble.Server;
 using Brmble.Server.Auth;
+using Brmble.Server.Middleware;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Brmble.Server.Data;
@@ -38,6 +39,8 @@ builder.Services.AddReverseProxy()
     .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
 
 var app = builder.Build();
+
+app.UseMiddleware<ConnectionLoggingMiddleware>();
 
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
 app.MapAuthEndpoints();
