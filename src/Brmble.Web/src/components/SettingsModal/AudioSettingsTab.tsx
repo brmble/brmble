@@ -16,6 +16,7 @@ export interface AudioSettings {
   inputVolume: number;
   outputVolume: number;
   maxAmplification: number;
+  jitterBuffer: number;
   transmissionMode: TransmissionMode;
   pushToTalkKey: string | null;
 }
@@ -31,6 +32,7 @@ export const DEFAULT_SETTINGS: AudioSettings = {
   inputVolume: 250,
   outputVolume: 250,
   maxAmplification: 100,
+  jitterBuffer: 30,
   transmissionMode: 'pushToTalk',
   pushToTalkKey: null,
 };
@@ -146,6 +148,17 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
           max="250"
           value={localSettings.outputVolume}
           onChange={(e) => handleChange('outputVolume', parseInt(e.target.value, 10))}
+        />
+      </div>
+
+      <div className="settings-item settings-slider">
+        <label>Jitter Buffer: {localSettings.jitterBuffer}ms</label>
+        <input
+          type="range"
+          min="0"
+          max="100"
+          value={localSettings.jitterBuffer}
+          onChange={(e) => handleChange('jitterBuffer', parseInt(e.target.value, 10))}
         />
       </div>
 

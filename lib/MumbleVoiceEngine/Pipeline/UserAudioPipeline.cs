@@ -1,13 +1,14 @@
 namespace MumbleVoiceEngine.Pipeline;
 
+using System;
+using System.Collections.Generic;
 using System.Threading;
 using NAudio.Wave;
 using MumbleVoiceEngine.Codec;
 
 /// <summary>
-/// Per-user decode pipeline: Opus decode → PCM queue.
+/// Per-user decode pipeline with optional jitter buffer.
 /// Implements IWaveProvider so NAudio can play it directly.
-/// Decodes eagerly on the network thread, buffers PCM for the audio thread.
 /// </summary>
 public class UserAudioPipeline : IWaveProvider, IDisposable
 {
@@ -16,15 +17,25 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
     private readonly int _channels;
     private readonly int _bytesPerSample;
 
-    // Decoded PCM queue — written by network thread, read by audio thread
-    private readonly Queue<byte[]> _pcmQueue = new();
-    private byte[]? _currentFrame;
-    private int _currentFrameOffset;
-
     private readonly object _lock = new();
     private float _volume = 1.0f;
 
     public WaveFormat WaveFormat { get; }
+
+    public int JitterBufferMs
+    {
+        get => Volatile.Read(ref _jitterBufferMs);
+        set => Volatile.Write(ref _jitterBufferMs, value);
+    }
+    private int _jitterBufferMs = 30;
+
+    private long _nextExpectedSequence;
+    private readonly SortedDictionary<long, byte[]> _encodedBuffer = new();
+    private readonly Timer? _jitterTimer;
+
+    private readonly Queue<byte[]> _pcmQueue = new();
+    private byte[]? _currentFrame;
+    private int _currentFrameOffset;
 
     public float Volume
     {
@@ -39,32 +50,75 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
         _bytesPerSample = sizeof(short) * channels;
         WaveFormat = new WaveFormat(sampleRate, 16, channels);
         _decoder = new OpusDecoder(sampleRate, channels);
+
+        if (_jitterBufferMs > 0)
+        {
+            _jitterTimer = new Timer(ProcessJitterBuffer, null, Timeout.Infinite, Timeout.Infinite);
+        }
     }
 
-    /// <summary>
-    /// Feed an incoming Opus packet. Decodes immediately and queues PCM.
-    /// Called from the network/process thread.
-    /// </summary>
-    public void FeedEncodedPacket(byte[] opusData, long sequence)
+    private void ProcessJitterBuffer(object? state)
     {
-        // Query actual sample count — Mumble 1.5+ clients may send multi-frame
-        // or larger-frame packets that exceed the default 960-sample (20ms) size.
+        if (_jitterBufferMs <= 0) return;
+
+        lock (_lock)
+        {
+            TryReleasePackets();
+        }
+    }
+
+    private void TryReleasePackets()
+    {
+        while (_encodedBuffer.Count > 0)
+        {
+            if (!_encodedBuffer.TryGetValue(_nextExpectedSequence, out var opusData))
+            {
+                break;
+            }
+
+            _encodedBuffer.Remove(_nextExpectedSequence);
+            DecodeAndQueue(opusData);
+            _nextExpectedSequence++;
+        }
+    }
+
+    private void DecodeAndQueue(byte[] opusData)
+    {
         var samples = OpusDecoder.GetSamples(opusData, 0, opusData.Length, _sampleRate);
         if (samples <= 0) return;
 
         var decoded = new byte[samples * _bytesPerSample];
         _decoder.Decode(opusData, 0, opusData.Length, decoded, 0);
+        _pcmQueue.Enqueue(decoded);
+    }
+
+    public void FeedEncodedPacket(byte[] opusData, long sequence)
+    {
+        if (_jitterBufferMs <= 0)
+        {
+            DecodeAndQueue(opusData);
+            return;
+        }
 
         lock (_lock)
         {
-            _pcmQueue.Enqueue(decoded);
+            if (sequence < _nextExpectedSequence)
+            {
+                return;
+            }
+
+            if (sequence > _nextExpectedSequence + 10)
+            {
+                return;
+            }
+
+            _encodedBuffer[sequence] = opusData;
+            TryReleasePackets();
+
+            _jitterTimer?.Change(_jitterBufferMs, Timeout.Infinite);
         }
     }
 
-    /// <summary>
-    /// IWaveProvider.Read — called by NAudio playback device on its audio thread.
-    /// Pulls decoded PCM from the queue, returns silence if empty. Applies volume.
-    /// </summary>
     public int Read(byte[] buffer, int offset, int count)
     {
         float volume;
@@ -72,7 +126,6 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
         {
             int written = 0;
 
-            // Continue from partial frame left over from previous Read
             if (_currentFrame != null)
             {
                 int remaining = _currentFrame.Length - _currentFrameOffset;
@@ -88,12 +141,10 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
                 }
             }
 
-            // Pull decoded frames from queue
             while (written < count)
             {
                 if (!_pcmQueue.TryDequeue(out var frame))
                 {
-                    // No more data — fill remainder with silence
                     Array.Clear(buffer, offset + written, count - written);
                     written = count;
                     break;
@@ -107,7 +158,6 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
                 }
                 else
                 {
-                    // Partial frame — save remainder for next Read
                     Array.Copy(frame, 0, buffer, offset + written, needed);
                     written += needed;
                     _currentFrame = frame;
@@ -115,11 +165,9 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
                 }
             }
 
-            // Capture volume inside lock to ensure consistent read
             volume = Volatile.Read(ref _volume);
         }
 
-        // Apply volume outside lock to reduce contention
         if (volume != 1.0f)
             ApplyVolume(buffer, offset, count, volume);
         
@@ -141,6 +189,7 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
 
     public void Dispose()
     {
+        _jitterTimer?.Dispose();
         _decoder.Dispose();
     }
 }

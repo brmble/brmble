@@ -178,6 +178,7 @@ private int _continuousHotkeyId = -1;
     private volatile float _inputVolume = 1.0f;
     private volatile float _outputVolume = 1.0f;
     private volatile float _maxAmplification = 1.0f;
+    private volatile int _jitterBufferMs = 30;
 
     // Speech enhancement
     private SpeechEnhancementService? _speechEnhancement;
@@ -205,6 +206,16 @@ private int _continuousHotkeyId = -1;
 
     public void SetInputVolume(int percentage) => _inputVolume = Math.Clamp(percentage, 0, 250) / 100f;
     public void SetMaxAmplification(int percentage) => _maxAmplification = Math.Clamp(percentage, 100, 400) / 100f;
+
+    public void SetJitterBuffer(int ms)
+    {
+        _jitterBufferMs = Math.Clamp(ms, 0, 200);
+        lock (_lock)
+        {
+            foreach (var pipeline in _pipelines.Values)
+                pipeline.JitterBufferMs = _jitterBufferMs;
+        }
+    }
 
     public void ConfigureSpeechEnhancement(string modelsPath, bool enabled, GtcrnModelVariant variant)
     {
@@ -253,16 +264,18 @@ private int _continuousHotkeyId = -1;
                 sampleRate: 48000, channels: 1, bitrate: 72000,
                 onPacketReady: packet => SendVoicePacket?.Invoke(packet));
 
-            if (_waveIn == null)
+            if (_waveIn != null)
             {
-                _waveIn = new WaveInEvent
-                {
-                    DeviceNumber = -1,
-                    BufferMilliseconds = 20,
-                    WaveFormat = new WaveFormat(48000, 16, 1)
-                };
-                _waveIn.DataAvailable += OnMicData;
+                _waveIn.Dispose();
             }
+
+            _waveIn = new WaveInEvent
+            {
+                DeviceNumber = -1,
+                BufferMilliseconds = 20,
+                WaveFormat = new WaveFormat(48000, 16, 1)
+            };
+            _waveIn.DataAvailable += OnMicData;
 
             _waveIn.StartRecording();
             _micStarted = true;
