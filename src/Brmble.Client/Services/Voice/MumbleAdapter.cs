@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
+using Org.BouncyCastle.Tls;
 using MumbleSharp;
 using MumbleSharp.Audio;
 using MumbleSharp.Audio.Codecs;
@@ -570,175 +572,87 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     }
 
     /// <summary>
-    /// Finds the openssl executable from Git for Windows.
-    /// Returns null if not found.
+    /// Fetches credentials via BouncyCastle managed TLS, bypassing Windows SChannel
+    /// which silently refuses to present self-signed client certificates.
     /// </summary>
-    private static string? FindOpenSsl()
+    private static async Task<System.Text.Json.JsonElement?> FetchCredentialsViaBcTls(X509Certificate2 cert, Uri tokenUri)
     {
-        // Check common Git for Windows locations
-        string[] candidates =
-        [
-            @"C:\Program Files\Git\mingw64\bin\openssl.exe",
-            @"C:\Program Files (x86)\Git\mingw64\bin\openssl.exe",
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\Git\mingw64\bin\openssl.exe"),
-        ];
+        using var tcp = new TcpClient();
+        await tcp.ConnectAsync(tokenUri.Host, tokenUri.Port);
 
-        foreach (var path in candidates)
-        {
-            if (File.Exists(path))
-                return path;
-        }
-
-        // Try PATH
-        try
-        {
-            var psi = new System.Diagnostics.ProcessStartInfo("openssl", "version")
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            using var p = System.Diagnostics.Process.Start(psi);
-            p?.WaitForExit(3000);
-            if (p?.ExitCode == 0)
-                return "openssl";
-        }
-        catch { }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Exports a PFX cert to PEM cert+key files for use with OpenSSL.
-    /// Returns (certPemPath, keyPemPath).
-    /// </summary>
-    private static (string certPath, string keyPath) ExportToPem(string pfxPath)
-    {
-        var tempDir = Path.Combine(Path.GetTempPath(), "brmble-tls");
-        Directory.CreateDirectory(tempDir);
-        var certPem = Path.Combine(tempDir, "cert.pem");
-        var keyPem = Path.Combine(tempDir, "key.pem");
-
-        using var cert = X509CertificateLoader.LoadPkcs12FromFile(pfxPath, password: null,
-            keyStorageFlags: X509KeyStorageFlags.Exportable);
-
-        // Export certificate
-        File.WriteAllText(certPem,
-            "-----BEGIN CERTIFICATE-----\r\n" +
-            Convert.ToBase64String(cert.RawData, Base64FormattingOptions.InsertLineBreaks) +
-            "\r\n-----END CERTIFICATE-----\r\n");
-
-        // Export private key
-        using var rsa = cert.GetRSAPrivateKey();
-        if (rsa != null)
-        {
-            var keyBytes = rsa.ExportPkcs8PrivateKey();
-            File.WriteAllText(keyPem,
-                "-----BEGIN PRIVATE KEY-----\r\n" +
-                Convert.ToBase64String(keyBytes, Base64FormattingOptions.InsertLineBreaks) +
-                "\r\n-----END PRIVATE KEY-----\r\n");
-        }
-        else
-        {
-            using var ecdsa = cert.GetECDsaPrivateKey();
-            if (ecdsa != null)
-            {
-                var keyBytes = ecdsa.ExportPkcs8PrivateKey();
-                File.WriteAllText(keyPem,
-                    "-----BEGIN PRIVATE KEY-----\r\n" +
-                    Convert.ToBase64String(keyBytes, Base64FormattingOptions.InsertLineBreaks) +
-                    "\r\n-----END PRIVATE KEY-----\r\n");
-            }
-            else
-            {
-                throw new InvalidOperationException("Certificate has no RSA or ECDSA private key");
-            }
-        }
-
-        return (certPem, keyPem);
-    }
-
-    /// <summary>
-    /// Fetches credentials via OpenSSL s_client, bypassing Windows SChannel which
-    /// silently refuses to present self-signed client certificates.
-    /// </summary>
-    private static async Task<System.Text.Json.JsonElement?> FetchCredentialsViaOpenSsl(string pfxPath, Uri tokenUri)
-    {
-        var openssl = FindOpenSsl();
-        if (openssl is null)
-        {
-            Debug.WriteLine("[Brmble:mTLS] OpenSSL not found — cannot perform mTLS");
-            return null;
-        }
-
-        var (certPem, keyPem) = ExportToPem(pfxPath);
+        var tlsClient = new BrmbleTlsClient(cert);
+        var tlsProtocol = new TlsClientProtocol(tcp.GetStream());
+        tlsProtocol.Connect(tlsClient);
 
         try
         {
+            var stream = tlsProtocol.Stream;
             var httpRequest = $"POST {tokenUri.PathAndQuery} HTTP/1.1\r\nHost: {tokenUri.Host}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+            var requestBytes = System.Text.Encoding.ASCII.GetBytes(httpRequest);
+            await stream.WriteAsync(requestBytes, 0, requestBytes.Length);
+            await stream.FlushAsync();
 
-            var psi = new System.Diagnostics.ProcessStartInfo(openssl,
-                $"s_client -connect {tokenUri.Host}:{tokenUri.Port} -cert \"{certPem}\" -key \"{keyPem}\" -tls1_2 -quiet")
+            // Read the full response
+            using var ms = new MemoryStream();
+            var buf = new byte[4096];
+            int read;
+            while ((read = await stream.ReadAsync(buf, 0, buf.Length)) > 0)
+                ms.Write(buf, 0, read);
+
+            var response = System.Text.Encoding.UTF8.GetString(ms.ToArray());
+
+            // Parse HTTP status line
+            var statusEnd = response.IndexOf('\n');
+            if (statusEnd < 0)
             {
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-
-            using var proc = System.Diagnostics.Process.Start(psi)
-                ?? throw new InvalidOperationException("Failed to start openssl");
-
-            // Send HTTP request over the TLS connection
-            await proc.StandardInput.WriteAsync(httpRequest);
-            proc.StandardInput.Close();
-
-            var stdout = await proc.StandardOutput.ReadToEndAsync();
-            var stderr = await proc.StandardError.ReadToEndAsync();
-
-            if (!proc.WaitForExit(15000))
-            {
-                proc.Kill();
-                Debug.WriteLine("[Brmble:mTLS] OpenSSL timed out");
+                Debug.WriteLine("[Brmble:mTLS] No HTTP status line in response");
                 return null;
             }
 
-            Debug.WriteLine($"[Brmble:mTLS] OpenSSL response: {stdout.Split('\n').FirstOrDefault()?.Trim()}");
+            var statusLine = response[..statusEnd].Trim();
+            Debug.WriteLine($"[Brmble:mTLS] BC TLS response: {statusLine}");
 
-            // Parse HTTP response — find the JSON body after headers
-            var bodyStart = stdout.IndexOf("\r\n\r\n", StringComparison.Ordinal);
-            if (bodyStart < 0)
-                bodyStart = stdout.IndexOf("\n\n", StringComparison.Ordinal);
-            if (bodyStart < 0)
-            {
-                Debug.WriteLine($"[Brmble:mTLS] No HTTP body found. stderr: {stderr}");
-                return null;
-            }
-
-            var statusLine = stdout.Split('\n')[0];
             if (!statusLine.Contains("200"))
             {
-                Debug.WriteLine($"[Brmble:mTLS] Non-200 response: {statusLine.Trim()}");
+                Debug.WriteLine($"[Brmble:mTLS] Non-200 response: {statusLine}");
                 return null;
             }
 
-            var body = stdout[(bodyStart + (stdout[bodyStart + 1] == '\n' ? 2 : 4))..].Trim();
-
-            // Handle chunked transfer encoding — extract the JSON between chunk size markers
-            if (body.Length > 0 && char.IsLetterOrDigit(body[0]))
+            // Find body after header separator
+            var bodyStart = response.IndexOf("\r\n\r\n", StringComparison.Ordinal);
+            if (bodyStart < 0)
+                bodyStart = response.IndexOf("\n\n", StringComparison.Ordinal);
+            if (bodyStart < 0)
             {
-                var firstNewline = body.IndexOf('\n');
-                if (firstNewline > 0)
+                Debug.WriteLine("[Brmble:mTLS] No HTTP body found");
+                return null;
+            }
+
+            var body = response[(bodyStart + (response[bodyStart + 1] == '\n' ? 2 : 4))..].Trim();
+
+            // Handle chunked transfer encoding — reassemble chunk data
+            var headersSection = response[..bodyStart];
+            if (headersSection.Contains("Transfer-Encoding: chunked", StringComparison.OrdinalIgnoreCase))
+            {
+                var sb = new System.Text.StringBuilder();
+                var remaining = body;
+                while (remaining.Length > 0)
                 {
-                    var remaining = body[(firstNewline + 1)..];
-                    var lastNewline = remaining.LastIndexOf('\n');
-                    if (lastNewline > 0)
-                        body = remaining[..lastNewline].Trim();
-                    else
-                        body = remaining.Trim();
+                    var lineEnd = remaining.IndexOf("\r\n", StringComparison.Ordinal);
+                    if (lineEnd < 0) break;
+
+                    var chunkSizeHex = remaining[..lineEnd].Trim();
+                    if (!int.TryParse(chunkSizeHex, System.Globalization.NumberStyles.HexNumber, null, out var chunkSize) || chunkSize == 0)
+                        break;
+
+                    var chunkStart = lineEnd + 2;
+                    if (chunkStart + chunkSize > remaining.Length) break;
+                    sb.Append(remaining.AsSpan(chunkStart, chunkSize));
+                    remaining = remaining[(chunkStart + chunkSize)..];
+                    if (remaining.StartsWith("\r\n"))
+                        remaining = remaining[2..];
                 }
+                body = sb.ToString().Trim();
             }
 
             if (string.IsNullOrWhiteSpace(body))
@@ -749,9 +663,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         }
         finally
         {
-            // Clean up temp PEM files
-            try { File.Delete(certPem); } catch { }
-            try { File.Delete(keyPem); } catch { }
+            tlsProtocol.Close();
         }
     }
 
@@ -784,19 +696,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             return;
         }
 
-        var certPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "Brmble", "identity.pfx");
-
         try
         {
             var baseUri = new Uri(apiUrl, UriKind.Absolute);
             var tokenUri = new Uri(baseUri, "auth/token");
 
-            // SChannel on Windows silently refuses to present self-signed client certs
-            // during TLS handshake regardless of flags/callbacks/cert store. Use OpenSSL
-            // from Git for Windows which handles mTLS correctly.
-            var credentials = await FetchCredentialsViaOpenSsl(certPath, tokenUri);
+            var credentials = await FetchCredentialsViaBcTls(cert, tokenUri);
             if (credentials is null)
                 return;
 
@@ -807,7 +712,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[Brmble] Failed to fetch credentials from {apiUrl}: {ex}");
-
         }
     }
 

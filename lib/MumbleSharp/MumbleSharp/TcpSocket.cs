@@ -2,12 +2,12 @@ using MumbleProto;
 using MumbleSharp.Audio;
 using MumbleSharp.Audio.Codecs;
 using MumbleSharp.Packets;
+using Org.BouncyCastle.Tls;
 using ProtoBuf;
 using System;
 using System.IO;
 using System.Linq;
 using System.Net;
-using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
 
@@ -19,9 +19,11 @@ namespace MumbleSharp
         readonly IPEndPoint _host;
 
         NetworkStream _netStream;
-        SslStream _ssl;
+        TlsClientProtocol _tlsProtocol;
+        Stream _tlsStream;
         BinaryReader _reader;
         BinaryWriter _writer;
+        readonly object _sendLock = new object();
 
         readonly IMumbleProtocol _protocol;
         readonly MumbleConnection _connection;
@@ -34,34 +36,22 @@ namespace MumbleSharp
             _client = new TcpClient();
         }
 
-        private bool ValidateCertificate(object sender, X509Certificate certificate, X509Chain chain, SslPolicyErrors errors)
-        {
-            return _protocol.ValidateCertificate(sender, certificate, chain, errors);
-        }
-
-        private X509Certificate SelectCertificate(object sender, string targetHost, X509CertificateCollection localCertificates, X509Certificate remoteCertificate, string[] acceptableIssuers)
-        {
-            return _protocol.SelectCertificate(sender, targetHost, localCertificates, remoteCertificate, acceptableIssuers);
-        }
-
         public void Connect(string username, string password, string[] tokens, string serverName)
         {
             _client.Connect(_host);
 
             _netStream = _client.GetStream();
-            _ssl = new SslStream(_netStream, false, ValidateCertificate, SelectCertificate);
-            _ssl.AuthenticateAsClient(serverName);
-            _reader = new BinaryReader(_ssl);
-            _writer = new BinaryWriter(_ssl);
 
-            DateTime startWait = DateTime.UtcNow;
-            while (!_ssl.IsAuthenticated)
-            {
-                if (DateTime.UtcNow - startWait > TimeSpan.FromSeconds(2))
-                    throw new TimeoutException("Timed out waiting for ssl authentication");
+            // Get client cert from protocol (may be null for no-cert connections)
+            var cert = _protocol.SelectCertificate(null, serverName, null, null, null) as X509Certificate2;
 
-                System.Threading.Thread.Sleep(10);
-            }
+            var tlsClient = new BrmbleTlsClient(cert);
+            _tlsProtocol = new TlsClientProtocol(_netStream);
+            _tlsProtocol.Connect(tlsClient);
+            _tlsStream = _tlsProtocol.Stream;
+
+            _reader = new BinaryReader(_tlsStream);
+            _writer = new BinaryWriter(_tlsStream);
 
             Handshake(username, password, tokens);
         }
@@ -70,7 +60,7 @@ namespace MumbleSharp
         {
             _reader.Close();
             _writer.Close();
-            _ssl = null;
+            _tlsProtocol?.Close();
             _netStream.Close();
             _client.Close();
         }
@@ -101,27 +91,27 @@ namespace MumbleSharp
 
         public void Send<T>(PacketType type, T packet)
         {
-            lock (_ssl)
+            lock (_sendLock)
             {
                 _writer.Write(IPAddress.HostToNetworkOrder((short)type));
                 _writer.Flush();
 
-                Serializer.SerializeWithLengthPrefix<T>(_ssl, packet, PrefixStyle.Fixed32BigEndian);
-                _ssl.Flush();
+                Serializer.SerializeWithLengthPrefix<T>(_tlsStream, packet, PrefixStyle.Fixed32BigEndian);
+                _tlsStream.Flush();
                 _netStream.Flush();
             }
         }
 
         public void Send(PacketType type, ArraySegment<byte> packet)
         {
-            lock (_ssl)
+            lock (_sendLock)
             {
                 _writer.Write(IPAddress.HostToNetworkOrder((short)type));
                 _writer.Write(IPAddress.HostToNetworkOrder(packet.Count));
                 _writer.Write(packet.Array, packet.Offset, packet.Count);
 
                 _writer.Flush();
-                _ssl.Flush();
+                _tlsStream.Flush();
                 _netStream.Flush();
             }
         }
@@ -129,14 +119,14 @@ namespace MumbleSharp
         public void SendVoice(PacketType type, ArraySegment<byte> packet)
         {
             if (_connection.VoiceSupportEnabled)
-                lock (_ssl)
+                lock (_sendLock)
                 {
                     _writer.Write(IPAddress.HostToNetworkOrder((short)type));
                     _writer.Write(IPAddress.HostToNetworkOrder(packet.Count));
                     _writer.Write(packet.Array, packet.Offset, packet.Count);
 
                     _writer.Flush();
-                    _ssl.Flush();
+                    _tlsStream.Flush();
                     _netStream.Flush();
                 }
             else
@@ -145,14 +135,14 @@ namespace MumbleSharp
 
         public void SendBuffer(PacketType type, byte[] packet)
         {
-            lock (_ssl)
+            lock (_sendLock)
             {
                 _writer.Write(IPAddress.HostToNetworkOrder((short)type));
                 _writer.Write(IPAddress.HostToNetworkOrder(packet.Length));
                 _writer.Write(packet, 0, packet.Length);
 
                 _writer.Flush();
-                _ssl.Flush();
+                _tlsStream.Flush();
                 _netStream.Flush();
             }
         }
@@ -181,7 +171,7 @@ namespace MumbleSharp
                 ping.TcpPackets = _connection.TcpPingPackets.Value;
             }
 
-            lock (_ssl)
+            lock (_sendLock)
                 Send<Ping>(PacketType.Ping, ping);
         }
 
@@ -192,34 +182,10 @@ namespace MumbleSharp
             if (!_client.Connected)
                 throw new InvalidOperationException("Not connected");
 
-            // Check both the raw TCP buffer and attempt to read from SslStream.
-            // SslStream may have decrypted data buffered internally from a previous
-            // TLS record even when the underlying NetworkStream shows no new bytes.
             if (!_netStream.DataAvailable)
-            {
-                // No raw TCP data — but SslStream might still have buffered plaintext.
-                // Try a non-blocking read via a short timeout to detect this case.
-                lock (_ssl)
-                {
-                    var oldTimeout = _ssl.ReadTimeout;
-                    _ssl.ReadTimeout = 1;
-                    try
-                    {
-                        PacketType type = (PacketType)IPAddress.NetworkToHostOrder(_reader.ReadInt16());
-                        _ssl.ReadTimeout = oldTimeout;
-                        ProcessPacket(type);
-                        return true;
-                    }
-                    catch (IOException)
-                    {
-                        // Timeout or end-of-stream — no data in SslStream buffer either
-                        _ssl.ReadTimeout = oldTimeout;
-                        return false;
-                    }
-                }
-            }
+                return false;
 
-            lock (_ssl)
+            lock (_sendLock)
             {
                 PacketType type = (PacketType)IPAddress.NetworkToHostOrder(_reader.ReadInt16());
                 ProcessPacket(type);
@@ -233,35 +199,35 @@ namespace MumbleSharp
             switch (type)
             {
                     case PacketType.Version:
-                        _protocol.Version(Serializer.DeserializeWithLengthPrefix<MumbleProto.Version>(_ssl, PrefixStyle.Fixed32BigEndian));
+                        _protocol.Version(Serializer.DeserializeWithLengthPrefix<MumbleProto.Version>(_tlsStream, PrefixStyle.Fixed32BigEndian));
                         break;
                     case PacketType.CryptSetup:
                         {
-                            var cryptSetup = Serializer.DeserializeWithLengthPrefix<CryptSetup>(_ssl, PrefixStyle.Fixed32BigEndian);
+                            var cryptSetup = Serializer.DeserializeWithLengthPrefix<CryptSetup>(_tlsStream, PrefixStyle.Fixed32BigEndian);
                             _connection.ProcessCryptState(cryptSetup);
                             SendPing();
                         }
                         break;
                     case PacketType.ChannelState:
-                        _protocol.ChannelState(Serializer.DeserializeWithLengthPrefix<ChannelState>(_ssl, PrefixStyle.Fixed32BigEndian));
+                        _protocol.ChannelState(Serializer.DeserializeWithLengthPrefix<ChannelState>(_tlsStream, PrefixStyle.Fixed32BigEndian));
                         break;
                     case PacketType.UserState:
-                        _protocol.UserState(Serializer.DeserializeWithLengthPrefix<UserState>(_ssl, PrefixStyle.Fixed32BigEndian));
+                        _protocol.UserState(Serializer.DeserializeWithLengthPrefix<UserState>(_tlsStream, PrefixStyle.Fixed32BigEndian));
                         break;
                     case PacketType.CodecVersion:
-                        _protocol.CodecVersion(Serializer.DeserializeWithLengthPrefix<CodecVersion>(_ssl, PrefixStyle.Fixed32BigEndian));
+                        _protocol.CodecVersion(Serializer.DeserializeWithLengthPrefix<CodecVersion>(_tlsStream, PrefixStyle.Fixed32BigEndian));
                         break;
                     case PacketType.ContextAction:
-                        _protocol.ContextAction(Serializer.DeserializeWithLengthPrefix<ContextAction>(_ssl, PrefixStyle.Fixed32BigEndian));
+                        _protocol.ContextAction(Serializer.DeserializeWithLengthPrefix<ContextAction>(_tlsStream, PrefixStyle.Fixed32BigEndian));
                         break;
                     case PacketType.PermissionQuery:
-                        _protocol.PermissionQuery(Serializer.DeserializeWithLengthPrefix<PermissionQuery>(_ssl, PrefixStyle.Fixed32BigEndian));
+                        _protocol.PermissionQuery(Serializer.DeserializeWithLengthPrefix<PermissionQuery>(_tlsStream, PrefixStyle.Fixed32BigEndian));
                         break;
                     case PacketType.ServerSync:
-                        _protocol.ServerSync(Serializer.DeserializeWithLengthPrefix<ServerSync>(_ssl, PrefixStyle.Fixed32BigEndian));
+                        _protocol.ServerSync(Serializer.DeserializeWithLengthPrefix<ServerSync>(_tlsStream, PrefixStyle.Fixed32BigEndian));
                         break;
                     case PacketType.ServerConfig:
-                        _protocol.ServerConfig(Serializer.DeserializeWithLengthPrefix<ServerConfig>(_ssl, PrefixStyle.Fixed32BigEndian));
+                        _protocol.ServerConfig(Serializer.DeserializeWithLengthPrefix<ServerConfig>(_tlsStream, PrefixStyle.Fixed32BigEndian));
                         break;
                     case PacketType.UDPTunnel:
                         {
@@ -271,46 +237,46 @@ namespace MumbleSharp
                         break;
                     case PacketType.Ping:
                         {
-                            var ping = Serializer.DeserializeWithLengthPrefix<Ping>(_ssl, PrefixStyle.Fixed32BigEndian);
+                            var ping = Serializer.DeserializeWithLengthPrefix<Ping>(_tlsStream, PrefixStyle.Fixed32BigEndian);
                             _connection.ReceivePing(ping);
                             _protocol.Ping(ping);
                         }
                         break;
                     case PacketType.UserRemove:
-                        _protocol.UserRemove(Serializer.DeserializeWithLengthPrefix<UserRemove>(_ssl, PrefixStyle.Fixed32BigEndian));
+                        _protocol.UserRemove(Serializer.DeserializeWithLengthPrefix<UserRemove>(_tlsStream, PrefixStyle.Fixed32BigEndian));
                         break;
                     case PacketType.ChannelRemove:
-                        _protocol.ChannelRemove(Serializer.DeserializeWithLengthPrefix<ChannelRemove>(_ssl, PrefixStyle.Fixed32BigEndian));
+                        _protocol.ChannelRemove(Serializer.DeserializeWithLengthPrefix<ChannelRemove>(_tlsStream, PrefixStyle.Fixed32BigEndian));
                         break;
                     case PacketType.TextMessage:
                         {
-                            var message = Serializer.DeserializeWithLengthPrefix<TextMessage>(_ssl, PrefixStyle.Fixed32BigEndian);
+                            var message = Serializer.DeserializeWithLengthPrefix<TextMessage>(_tlsStream, PrefixStyle.Fixed32BigEndian);
                             _protocol.TextMessage(message);
                         }
                         break;
                     case PacketType.Reject:
-                        _protocol.Reject(Serializer.DeserializeWithLengthPrefix<Reject>(_ssl, PrefixStyle.Fixed32BigEndian));
+                        _protocol.Reject(Serializer.DeserializeWithLengthPrefix<Reject>(_tlsStream, PrefixStyle.Fixed32BigEndian));
                         break;
                     case PacketType.UserList:
-                        _protocol.UserList(Serializer.DeserializeWithLengthPrefix<UserList>(_ssl, PrefixStyle.Fixed32BigEndian));
+                        _protocol.UserList(Serializer.DeserializeWithLengthPrefix<UserList>(_tlsStream, PrefixStyle.Fixed32BigEndian));
                         break;
                     case PacketType.SuggestConfig:
-                        _protocol.SuggestConfig(Serializer.DeserializeWithLengthPrefix<SuggestConfig>(_ssl, PrefixStyle.Fixed32BigEndian));
+                        _protocol.SuggestConfig(Serializer.DeserializeWithLengthPrefix<SuggestConfig>(_tlsStream, PrefixStyle.Fixed32BigEndian));
                         break;
                     case PacketType.PermissionDenied:
-                        _protocol.PermissionDenied(Serializer.DeserializeWithLengthPrefix<PermissionDenied>(_ssl, PrefixStyle.Fixed32BigEndian));
+                        _protocol.PermissionDenied(Serializer.DeserializeWithLengthPrefix<PermissionDenied>(_tlsStream, PrefixStyle.Fixed32BigEndian));
                         break;
                     case PacketType.ACL:
-                        _protocol.Acl(Serializer.DeserializeWithLengthPrefix<Acl>(_ssl, PrefixStyle.Fixed32BigEndian));
+                        _protocol.Acl(Serializer.DeserializeWithLengthPrefix<Acl>(_tlsStream, PrefixStyle.Fixed32BigEndian));
                         break;
                     case PacketType.QueryUsers:
-                        _protocol.QueryUsers(Serializer.DeserializeWithLengthPrefix<QueryUsers>(_ssl, PrefixStyle.Fixed32BigEndian));
+                        _protocol.QueryUsers(Serializer.DeserializeWithLengthPrefix<QueryUsers>(_tlsStream, PrefixStyle.Fixed32BigEndian));
                         break;
                     case PacketType.UserStats:
-                        _protocol.UserStats(Serializer.DeserializeWithLengthPrefix<UserStats>(_ssl, PrefixStyle.Fixed32BigEndian));
+                        _protocol.UserStats(Serializer.DeserializeWithLengthPrefix<UserStats>(_tlsStream, PrefixStyle.Fixed32BigEndian));
                         break;
                     case PacketType.BanList:
-                        _protocol.BanList(Serializer.DeserializeWithLengthPrefix<BanList>(_ssl, PrefixStyle.Fixed32BigEndian));
+                        _protocol.BanList(Serializer.DeserializeWithLengthPrefix<BanList>(_tlsStream, PrefixStyle.Fixed32BigEndian));
                         break;
 
 
