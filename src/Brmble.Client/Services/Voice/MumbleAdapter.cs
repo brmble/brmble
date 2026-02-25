@@ -580,14 +580,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         using var tcp = new TcpClient();
         await tcp.ConnectAsync(tokenUri.Host, tokenUri.Port);
 
-        var tlsClient = new BrmbleTlsClient(cert);
+        // Pass DNS hostname for SNI so servers using virtual hosting pick the right cert
+        var sniName = tokenUri.HostNameType == UriHostNameType.Dns ? tokenUri.Host : null;
+        var tlsClient = new BrmbleTlsClient(cert, sniName);
         var tlsProtocol = new TlsClientProtocol(tcp.GetStream());
         tlsProtocol.Connect(tlsClient);
 
         try
         {
             var stream = tlsProtocol.Stream;
-            var httpRequest = $"POST {tokenUri.PathAndQuery} HTTP/1.1\r\nHost: {tokenUri.Host}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+            // RFC 7230: Host header must include port when non-default
+            var hostHeader = tokenUri.IsDefaultPort ? tokenUri.Host : $"{tokenUri.Host}:{tokenUri.Port}";
+            var httpRequest = $"POST {tokenUri.PathAndQuery} HTTP/1.1\r\nHost: {hostHeader}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
             var requestBytes = System.Text.Encoding.ASCII.GetBytes(httpRequest);
             await stream.WriteAsync(requestBytes, 0, requestBytes.Length);
             await stream.FlushAsync();
@@ -688,7 +692,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     private async Task FetchAndSendCredentials(string apiUrl)
     {
-        var cert = _certService?.ActiveCertificate;
+        // Load with Exportable so BouncyCastle can extract private key parameters for signing
+        using var cert = _certService?.GetExportableCertificate();
         if (cert is null)
         {
             _bridge?.Send("voice.error", new { message = "No client certificate — cannot fetch Matrix credentials." });
@@ -854,7 +859,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         X509Certificate remoteCertificate,
         string[] acceptableIssuers)
     {
-        return _certService?.ActiveCertificate
+        // Return exportable cert so BouncyCastle TlsClientProtocol can extract
+        // private key parameters for mTLS signing during TLS handshake.
+        return _certService?.GetExportableCertificate()
             ?? base.SelectCertificate(sender, targetHost, localCertificates, remoteCertificate, acceptableIssuers);
     }
 

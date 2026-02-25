@@ -1,4 +1,6 @@
+using System.Collections.Generic;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using Org.BouncyCastle.Crypto;
 using Org.BouncyCastle.Security;
 using Org.BouncyCastle.Tls;
@@ -15,15 +17,28 @@ namespace MumbleSharp
     public class BrmbleTlsClient : DefaultTlsClient
     {
         private readonly X509Certificate2 _clientCert;
+        private readonly string _serverName; // null means no SNI
 
         /// <param name="clientCert">
         /// Client certificate for mTLS, or null for server-only TLS.
         /// Private key must be exportable (X509KeyStorageFlags.Exportable).
         /// </param>
-        public BrmbleTlsClient(X509Certificate2 clientCert)
+        /// <param name="serverName">
+        /// Hostname sent in the TLS SNI extension. Pass the DNS hostname when
+        /// the server uses SNI-based virtual hosting or requires it for cert selection.
+        /// </param>
+        public BrmbleTlsClient(X509Certificate2 clientCert, string serverName = null)
             : base(new BcTlsCrypto(new SecureRandom()))
         {
             _clientCert = clientCert;
+            _serverName = serverName;
+        }
+
+        protected override IList<ServerName> GetSniServerNames()
+        {
+            if (_serverName != null)
+                return new List<ServerName> { new ServerName(NameType.host_name, Encoding.UTF8.GetBytes(_serverName)) };
+            return base.GetSniServerNames();
         }
 
         internal TlsContext TlsContext => m_context;

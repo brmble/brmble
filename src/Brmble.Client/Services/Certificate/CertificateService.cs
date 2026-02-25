@@ -56,13 +56,24 @@ internal sealed class CertificateService : IService
         });
     }
 
+    /// <summary>
+    /// Loads the identity PFX with <see cref="X509KeyStorageFlags.Exportable"/> for use in
+    /// BouncyCastle TLS, which needs to extract the private key parameters for signing.
+    /// Callers are responsible for disposing the returned instance.
+    /// Returns null if no certificate exists.
+    /// </summary>
+    internal X509Certificate2? GetExportableCertificate() =>
+        ActiveCertificate is not null && File.Exists(CertPath)
+            ? X509CertificateLoader.LoadPkcs12FromFile(CertPath, password: null, keyStorageFlags: X509KeyStorageFlags.Exportable)
+            : null;
+
     private void SendStatus()
     {
         if (File.Exists(CertPath))
         {
             try
             {
-                ActiveCertificate = X509CertificateLoader.LoadPkcs12FromFile(CertPath, password: null, keyStorageFlags: X509KeyStorageFlags.Exportable);
+                ActiveCertificate = X509CertificateLoader.LoadPkcs12FromFile(CertPath, password: null, keyStorageFlags: X509KeyStorageFlags.DefaultKeySet);
                 _bridge.Send("cert.status", new
                 {
                     exists = true,
@@ -98,8 +109,8 @@ internal sealed class CertificateService : IService
             var pfxBytes = cert.Export(X509ContentType.Pfx);
             File.WriteAllBytes(CertPath, pfxBytes);
 
-            // Reload from file to get a clean X509Certificate2
-            ActiveCertificate = X509CertificateLoader.LoadPkcs12FromFile(CertPath, password: null, keyStorageFlags: X509KeyStorageFlags.Exportable);
+            // Reload from file to get a clean X509Certificate2 (DefaultKeySet — exportable not needed for status display)
+            ActiveCertificate = X509CertificateLoader.LoadPkcs12FromFile(CertPath, password: null, keyStorageFlags: X509KeyStorageFlags.DefaultKeySet);
 
             _bridge.Send("cert.generated", new
             {
@@ -118,8 +129,8 @@ internal sealed class CertificateService : IService
         {
             var bytes = Convert.FromBase64String(base64Data);
 
-            // Validate it loads before overwriting
-            var testCert = X509CertificateLoader.LoadPkcs12(bytes, password: null, keyStorageFlags: X509KeyStorageFlags.Exportable);
+            // Validate it loads before overwriting (DefaultKeySet — no need for exportable during import validation)
+            var testCert = X509CertificateLoader.LoadPkcs12(bytes, password: null, keyStorageFlags: X509KeyStorageFlags.DefaultKeySet);
 
             Directory.CreateDirectory(Path.GetDirectoryName(CertPath)!);
             File.WriteAllBytes(CertPath, bytes);

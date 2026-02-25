@@ -45,7 +45,9 @@ namespace MumbleSharp
             // Get client cert from protocol (may be null for no-cert connections)
             var cert = _protocol.SelectCertificate(null, serverName, null, null, null) as X509Certificate2;
 
-            var tlsClient = new BrmbleTlsClient(cert);
+            // Pass serverName for SNI when it's a DNS hostname
+            var sniName = Uri.CheckHostName(serverName) == UriHostNameType.Dns ? serverName : null;
+            var tlsClient = new BrmbleTlsClient(cert, sniName);
             _tlsProtocol = new TlsClientProtocol(_netStream);
             _tlsProtocol.Connect(tlsClient);
             _tlsStream = _tlsProtocol.Stream;
