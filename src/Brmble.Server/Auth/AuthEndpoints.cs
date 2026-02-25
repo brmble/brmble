@@ -11,6 +11,7 @@ public static class AuthEndpoints
             HttpContext httpContext,
             ICertificateHashExtractor certHashExtractor,
             AuthService authService,
+            IMatrixAppService matrixAppService,
             ChannelRepository channelRepository,
             IOptions<MatrixSettings> matrixSettings,
             ILogger<AuthService> logger) =>
@@ -52,11 +53,24 @@ public static class AuthEndpoints
             var roomMap = channelRepository.GetAll()
                 .ToDictionary(m => m.MumbleChannelId.ToString(), m => m.MatrixRoomId);
 
+            // Ensure the user is a member of all channel rooms
+            var localpart = result.MatrixUserId.Split(':')[0].TrimStart('@');
+            await matrixAppService.EnsureUserInRooms(localpart, roomMap.Values);
+
+            // Clients reach the Matrix homeserver via YARP proxy on this same server.
+            // Use the public URL the client connected to (not the internal localhost URL).
+            var publicHomeserverUrl = matrixSettings.Value.PublicHomeserverUrl;
+            if (string.IsNullOrEmpty(publicHomeserverUrl))
+            {
+                var request = httpContext.Request;
+                publicHomeserverUrl = $"{request.Scheme}://{request.Host}";
+            }
+
             return Results.Ok(new
             {
                 matrix = new
                 {
-                    homeserverUrl = matrixSettings.Value.HomeserverUrl,
+                    homeserverUrl = publicHomeserverUrl,
                     accessToken = result.MatrixAccessToken,
                     userId = result.MatrixUserId,
                     roomMap

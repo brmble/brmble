@@ -572,6 +572,43 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     }
 
     /// <summary>
+    /// Rewrites the matrix.homeserverUrl in the credentials JSON to the public API URL
+    /// so clients can reach Matrix via the YARP proxy instead of the internal localhost address.
+    /// </summary>
+    internal static System.Text.Json.JsonElement RewriteMatrixHomeserverUrl(System.Text.Json.JsonElement credentials, string apiUrl)
+    {
+        using var ms = new MemoryStream();
+        using (var writer = new System.Text.Json.Utf8JsonWriter(ms))
+        {
+            writer.WriteStartObject();
+            foreach (var prop in credentials.EnumerateObject())
+            {
+                if (prop.Name == "matrix" && prop.Value.ValueKind == System.Text.Json.JsonValueKind.Object)
+                {
+                    writer.WritePropertyName("matrix");
+                    writer.WriteStartObject();
+                    foreach (var inner in prop.Value.EnumerateObject())
+                    {
+                        if (inner.Name == "homeserverUrl")
+                            writer.WriteString("homeserverUrl", apiUrl.TrimEnd('/'));
+                        else
+                            inner.WriteTo(writer);
+                    }
+                    writer.WriteEndObject();
+                }
+                else
+                {
+                    prop.WriteTo(writer);
+                }
+            }
+            writer.WriteEndObject();
+        }
+
+        using var doc = System.Text.Json.JsonDocument.Parse(ms.ToArray());
+        return doc.RootElement.Clone();
+    }
+
+    /// <summary>
     /// Fetches credentials via BouncyCastle managed TLS, bypassing Windows SChannel
     /// which silently refuses to present self-signed client certificates.
     /// </summary>
@@ -600,8 +637,16 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             using var ms = new MemoryStream();
             var buf = new byte[4096];
             int read;
-            while ((read = await stream.ReadAsync(buf, 0, buf.Length)) > 0)
-                ms.Write(buf, 0, read);
+            try
+            {
+                while ((read = await stream.ReadAsync(buf, 0, buf.Length)) > 0)
+                    ms.Write(buf, 0, read);
+            }
+            catch (Org.BouncyCastle.Tls.TlsNoCloseNotifyException)
+            {
+                // Many servers (nginx, caddy, etc.) close without sending close_notify.
+                // The response data already in ms is valid — treat as end-of-stream.
+            }
 
             var response = System.Text.Encoding.UTF8.GetString(ms.ToArray());
 
@@ -710,13 +755,17 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             if (credentials is null)
                 return;
 
-            _bridge?.Send("server.credentials", credentials.Value);
+            // The server returns its internal homeserverUrl (e.g. http://localhost:6167).
+            // Clients reach Matrix via the YARP proxy on the same Brmble API URL,
+            // so rewrite homeserverUrl to the API URL the client connected to.
+            var rewritten = RewriteMatrixHomeserverUrl(credentials.Value, apiUrl);
+            _bridge?.Send("server.credentials", rewritten);
             _bridge?.NotifyUiThread();
             _apiUrl = apiUrl;
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[Brmble] Failed to fetch credentials from {apiUrl}: {ex}");
+            Debug.WriteLine($"[Matrix] Failed to fetch credentials: {ex.Message}");
         }
     }
 
@@ -912,12 +961,20 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 OnApiUrlDiscovered?.Invoke(discovered);
                 Task.Run(() => FetchAndSendCredentials(discovered));
             }
+            else if (discovered is not null)
+            {
+                Debug.WriteLine($"[Matrix] API URL host mismatch: {discovered} vs {_reconnectHost}");
+            }
         }
         // Flow B: _apiUrl already set from /server-info call or voice.connect apiUrl field
         else if (_apiUrl is not null)
         {
             var url = _apiUrl;
             Task.Run(() => FetchAndSendCredentials(url));
+        }
+        else
+        {
+            // No API URL and no welcome text — credentials fetch not possible
         }
 
         // Reuse or recreated AudioManager (see Connect())
