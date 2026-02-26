@@ -89,12 +89,12 @@ export function UserInfoDialog({
 
   const handleVolumeChange = (newVolume: number) => {
     setVolume(newVolume);
+    bridge.send('voice.setVolume', { session, volume: newVolume });
     setSaved(false);
   };
 
   const handleSave = () => {
     localStorage.setItem(`volume_${session}`, String(volume));
-    bridge.send('voice.setVolume', { session, volume });
     setSaved(true);
   };
 
