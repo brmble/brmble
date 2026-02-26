@@ -147,7 +147,6 @@ function App() {
   useEffect(() => {
     let pttKey: string | null = null;
     let pttPressed = false;
-    let toggleDMScreenKey: string | null = null;
 
     const updatePttKeyFromSettings = (settings: any) => {
       const newMode = settings?.audio?.transmissionMode;
@@ -169,16 +168,11 @@ function App() {
       pttKey = newKey;
     };
 
-    const updateToggleDMScreenKeyFromSettings = (settings: any) => {
-      toggleDMScreenKey = settings?.shortcuts?.toggleDMScreenKey ?? null;
-    };
-
     // Listen for settings updates via bridge
     const handleSettingsCurrent = (data: unknown) => {
       const d = data as { settings?: any } | undefined;
       if (d?.settings) {
         updatePttKeyFromSettings(d.settings);
-        updateToggleDMScreenKeyFromSettings(d.settings);
       }
     };
 
@@ -192,7 +186,6 @@ function App() {
         if (stored) {
           const settings = JSON.parse(stored);
           updatePttKeyFromSettings(settings);
-          updateToggleDMScreenKeyFromSettings(settings);
         }
       } catch {}
     };
@@ -204,7 +197,6 @@ function App() {
       try {
         const settings = JSON.parse(stored);
         updatePttKeyFromSettings(settings);
-        updateToggleDMScreenKeyFromSettings(settings);
       } catch {}
     }
 
@@ -221,11 +213,6 @@ function App() {
           pttPressed = true;
           bridge.send('voice.pttKey', { pressed: true });
         }
-      }
-
-      // Handle toggle DM screen shortcut
-      if (toggleDMScreenKey && e.code === toggleDMScreenKey) {
-        setAppModeRef.current(prev => prev === 'channels' ? 'dm' : 'channels');
       }
     };
 
@@ -496,6 +483,7 @@ function App() {
       toggleMute: 'mute',
       toggleMuteDeafen: 'deaf',
       toggleLeaveVoice: 'leave',
+      toggleDmScreen: 'dm',
     };
 
     const onShortcutPressed = (data: unknown) => {
@@ -512,6 +500,10 @@ function App() {
         const btn = ACTION_TO_BTN[d.action];
         if (btn) setHotkeyPressedBtn(prev => prev === btn ? null : prev);
       }
+    };
+
+    const onToggleDmScreen = () => {
+      setAppModeRef.current(prev => prev === 'channels' ? 'dm' : 'channels');
     };
 
     const onShowCloseDialog = () => {
@@ -589,6 +581,7 @@ function App() {
     bridge.on('voice.userSilent', onVoiceUserSilent);
     bridge.on('voice.shortcutPressed', onShortcutPressed);
     bridge.on('voice.shortcutReleased', onShortcutReleased);
+    bridge.on('voice.toggleDmScreen', onToggleDmScreen);
     bridge.on('window.showCloseDialog', onShowCloseDialog);
     bridge.on('cert.status', onCertStatus);
     bridge.on('cert.generated', onCertGenerated);
@@ -617,6 +610,7 @@ function App() {
       bridge.off('voice.userSilent', onVoiceUserSilent);
       bridge.off('voice.shortcutPressed', onShortcutPressed);
       bridge.off('voice.shortcutReleased', onShortcutReleased);
+      bridge.off('voice.toggleDmScreen', onToggleDmScreen);
       bridge.off('window.showCloseDialog', onShowCloseDialog);
       bridge.off('cert.status', onCertStatus);
       bridge.off('cert.generated', onCertGenerated);

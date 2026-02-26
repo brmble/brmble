@@ -113,6 +113,7 @@ export function SettingsModal(props: SettingsModalProps) {
         { action: 'toggleMute', key: shortcuts.toggleMuteKey },
         { action: 'toggleMuteDeafen', key: shortcuts.toggleMuteDeafenKey },
         { action: 'toggleLeaveVoice', key: shortcuts.toggleLeaveVoiceKey },
+        { action: 'toggleDmScreen', key: shortcuts.toggleDMScreenKey },
       ];
 
       for (const { action, key } of actions) {
@@ -141,7 +142,14 @@ export function SettingsModal(props: SettingsModalProps) {
           ...newSettings,
           shortcuts: { ...prev.shortcuts, [bindingId]: null },
         };
-        const action = bindingId.replace('Key', '');
+        // Map binding IDs to backend action names (handles casing differences)
+        const BINDING_TO_ACTION: Record<string, string> = {
+          toggleMuteKey: 'toggleMute',
+          toggleMuteDeafenKey: 'toggleMuteDeafen',
+          toggleLeaveVoiceKey: 'toggleLeaveVoice',
+          toggleDMScreenKey: 'toggleDmScreen',
+        };
+        const action = BINDING_TO_ACTION[bindingId] ?? bindingId.replace('Key', '');
         bridge.send('voice.setShortcut', { action, key: null });
       }
       bridge.send('settings.set', { settings: newSettings });

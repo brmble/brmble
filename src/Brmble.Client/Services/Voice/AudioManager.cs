@@ -150,15 +150,18 @@ internal const int MuteHotkeyId = 2;
 internal const int MuteDeafenHotkeyId = 4;
 internal const int ContinuousHotkeyId = 5;
 internal const int LeaveVoiceHotkeyId = 6;
+internal const int DmScreenHotkeyId = 7;
 private int _hotkeyId = -1;
 private int _muteHotkeyId = -1;
 private int _muteDeafenHotkeyId = -1;
 private int _continuousHotkeyId = -1;
 private int _leaveVoiceHotkeyId = -1;
+private int _dmScreenHotkeyId = -1;
     // Stored key names for suspend/resume during shortcut recording
     private string? _muteKeyName;
     private string? _muteDeafenKeyName;
     private string? _leaveVoiceKeyName;
+    private string? _dmScreenKeyName;
     private IntPtr _hwnd;
     private const int RmsThreshold = 300; // ~1% of 16-bit max (32767)
     private const float TargetRms = 1500f;  // Target RMS for AGC (quiet boost target)
@@ -210,6 +213,7 @@ private int _leaveVoiceHotkeyId = -1;
     public event Action? ToggleDeafenRequested;
     public event Action? ToggleContinuousRequested;
     public event Action? ToggleLeaveVoiceRequested;
+    public event Action? ToggleDmScreenRequested;
 
     /// <summary>Fired when a shortcut key is first pressed down (for UI highlight).</summary>
     public event Action<string>? ShortcutPressed;
@@ -762,6 +766,9 @@ private int _leaveVoiceHotkeyId = -1;
             case "toggleLeaveVoice":
                 ToggleLeaveVoiceRequested?.Invoke();
                 break;
+            case "toggleDmScreen":
+                ToggleDmScreenRequested?.Invoke();
+                break;
         }
     }
 
@@ -798,6 +805,10 @@ private int _leaveVoiceHotkeyId = -1;
                 _leaveVoiceKeyName = key;
                 RegisterSingleHotkey(ref _leaveVoiceHotkeyId, LeaveVoiceHotkeyId, key, _hwnd);
                 break;
+            case "toggleDmScreen":
+                _dmScreenKeyName = key;
+                RegisterSingleHotkey(ref _dmScreenHotkeyId, DmScreenHotkeyId, key, _hwnd);
+                break;
         }
     }
 
@@ -817,6 +828,7 @@ private int _leaveVoiceHotkeyId = -1;
         if (_muteHotkeyId >= 0) { UnregisterHotKey(_hwnd, _muteHotkeyId); _muteHotkeyId = -1; }
         if (_muteDeafenHotkeyId >= 0) { UnregisterHotKey(_hwnd, _muteDeafenHotkeyId); _muteDeafenHotkeyId = -1; }
         if (_leaveVoiceHotkeyId >= 0) { UnregisterHotKey(_hwnd, _leaveVoiceHotkeyId); _leaveVoiceHotkeyId = -1; }
+        if (_dmScreenHotkeyId >= 0) { UnregisterHotKey(_hwnd, _dmScreenHotkeyId); _dmScreenHotkeyId = -1; }
     }
 
     /// <summary>
@@ -833,6 +845,8 @@ private int _leaveVoiceHotkeyId = -1;
             RegisterSingleHotkey(ref _muteDeafenHotkeyId, MuteDeafenHotkeyId, _muteDeafenKeyName, _hwnd);
         if (_leaveVoiceKeyName != null)
             RegisterSingleHotkey(ref _leaveVoiceHotkeyId, LeaveVoiceHotkeyId, _leaveVoiceKeyName, _hwnd);
+        if (_dmScreenKeyName != null)
+            RegisterSingleHotkey(ref _dmScreenHotkeyId, DmScreenHotkeyId, _dmScreenKeyName, _hwnd);
     }
 
     /// <summary>Called from WndProc when WM_HOTKEY fires.</summary>
@@ -861,6 +875,7 @@ private int _leaveVoiceHotkeyId = -1;
         else if (id == _muteDeafenHotkeyId) action = "toggleMuteDeafen";
         else if (id == _continuousHotkeyId) action = "continuousTransmission";
         else if (id == _leaveVoiceHotkeyId) action = "toggleLeaveVoice";
+        else if (id == _dmScreenHotkeyId) action = "toggleDmScreen";
 
         if (action != null)
         {
@@ -1176,6 +1191,11 @@ private int _leaveVoiceHotkeyId = -1;
         {
             UnregisterHotKey(_hwnd, _leaveVoiceHotkeyId);
             _leaveVoiceHotkeyId = -1;
+        }
+        if (_dmScreenHotkeyId >= 0 && _hwnd != IntPtr.Zero)
+        {
+            UnregisterHotKey(_hwnd, _dmScreenHotkeyId);
+            _dmScreenHotkeyId = -1;
         }
         StopMic();
         _waveIn?.Dispose();

@@ -61,6 +61,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager.ToggleMuteRequested += ToggleMute;
         _audioManager.ToggleDeafenRequested += ToggleDeaf;
         _audioManager.ToggleLeaveVoiceRequested += LeaveVoice;
+        _audioManager.ToggleDmScreenRequested += () => {
+            _bridge?.Send("voice.toggleDmScreen", null);
+            _bridge?.NotifyUiThread();
+        };
         _audioManager.ShortcutPressed += action => {
             _bridge?.Send("voice.shortcutPressed", new { action });
             _bridge?.NotifyUiThread();
@@ -120,6 +124,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _audioManager.ToggleMuteRequested += ToggleMute;
             _audioManager.ToggleDeafenRequested += ToggleDeaf;
             _audioManager.ToggleLeaveVoiceRequested += LeaveVoice;
+            _audioManager.ToggleDmScreenRequested += () => {
+                _bridge?.Send("voice.toggleDmScreen", null);
+                _bridge?.NotifyUiThread();
+            };
             _audioManager.ShortcutPressed += action => {
                 _bridge?.Send("voice.shortcutPressed", new { action });
                 _bridge?.NotifyUiThread();
@@ -397,6 +405,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     public void ToggleMute()
     {
         if (LocalUser == null) return;
+        // Block mute toggle when in leave-voice state or when deafened
+        // (same guards as the UI buttons)
+        if (_leftVoice || LocalUser.SelfDeaf) return;
 
         LocalUser.SelfMuted = !LocalUser.SelfMuted;
         if (!LocalUser.SelfMuted && LocalUser.SelfDeaf)
@@ -504,6 +515,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     public void ToggleDeaf()
     {
         if (LocalUser == null) return;
+        // Block deafen toggle when in leave-voice state
+        // (same guard as the UI button)
+        if (_leftVoice) return;
 
         LocalUser.SelfDeaf = !LocalUser.SelfDeaf;
         LocalUser.SelfMuted = LocalUser.SelfDeaf;
@@ -540,6 +554,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.SetShortcut("toggleMute", settings.Shortcuts.ToggleMuteKey);
         _audioManager?.SetShortcut("toggleMuteDeafen", settings.Shortcuts.ToggleMuteDeafenKey);
         _audioManager?.SetShortcut("toggleLeaveVoice", settings.Shortcuts.ToggleLeaveVoiceKey);
+        _audioManager?.SetShortcut("toggleDmScreen", settings.Shortcuts.ToggleDMScreenKey);
         _audioManager?.SetInputVolume(settings.Audio.InputVolume);
         _audioManager?.SetOutputVolume(settings.Audio.OutputVolume);
         _audioManager?.SetMaxAmplification(settings.Audio.MaxAmplification);
