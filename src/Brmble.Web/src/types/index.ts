@@ -21,6 +21,8 @@ export interface User {
   deafened?: boolean;
   self?: boolean;
   speaking?: boolean;
+  comment?: string;
+  prioritySpeaker?: boolean;
 }
 
 export interface ChatMessage {

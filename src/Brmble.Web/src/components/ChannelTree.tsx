@@ -1,5 +1,8 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { ContextMenu } from './ContextMenu/ContextMenu';
+import { UserInfoDialog } from './UserInfoDialog/UserInfoDialog';
+import { usePermissions } from '../hooks/usePermissions';
+import bridge from '../bridge';
 import './ChannelTree.css';
 
 interface User {
@@ -9,6 +12,8 @@ interface User {
   muted?: boolean;
   deafened?: boolean;
   self?: boolean;
+  prioritySpeaker?: boolean;
+  comment?: string;
 }
 
 interface Channel {
@@ -35,7 +40,15 @@ interface ChannelTreeProps {
 
 export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, speakingUsers, pendingChannelAction }: ChannelTreeProps) {
   const [sortByNamePerChannel, setSortByNamePerChannel] = useState<Record<number, boolean>>({});
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string; isSelf: boolean } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string; isSelf: boolean; channelId?: number } | null>(null);
+  const [infoDialogUser, setInfoDialogUser] = useState<{ userId: string; userName: string; isSelf: boolean } | null>(null);
+  const { hasPermission, Permission, requestPermissions } = usePermissions();
+
+  useEffect(() => {
+    if (currentChannelId) {
+      requestPermissions(currentChannelId);
+    }
+  }, [currentChannelId, requestPermissions]);
   const initialExpanded = useMemo(() => {
     const expanded = new Set<number>();
     channels.forEach(ch => {
@@ -183,7 +196,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                 title={getUserTooltip(user)}
                 onContextMenu={(e) => {
                   e.preventDefault();
-                  setContextMenu({ x: e.clientX, y: e.clientY, userId: String(user.session), userName: user.name, isSelf: !!user.self });
+                  setContextMenu({ x: e.clientX, y: e.clientY, userId: String(user.session), userName: user.name, isSelf: !!user.self, channelId: channel.id });
                 }}
               >
                 <span className="user-status">
@@ -233,6 +246,15 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
               onClick: () => onStartDM(contextMenu.userId, contextMenu.userName),
             }] : []),
             {
+              label: 'View Comment',
+              icon: (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
+              ),
+              onClick: () => setInfoDialogUser({ userId: contextMenu.userId, userName: contextMenu.userName, isSelf: contextMenu.isSelf }),
+            },
+            {
               label: 'Information',
               icon: (
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -241,12 +263,103 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                   <line x1="12" y1="12" x2="12" y2="16" />
                 </svg>
               ),
-              onClick: () => { /* placeholder — implement later */ },
+              onClick: () => setInfoDialogUser({ userId: contextMenu.userId, userName: contextMenu.userName, isSelf: contextMenu.isSelf }),
             },
+            {
+              label: 'Volume',
+              icon: (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                </svg>
+              ),
+              onClick: () => setInfoDialogUser({ userId: contextMenu.userId, userName: contextMenu.userName, isSelf: contextMenu.isSelf }),
+            },
+            ...(!contextMenu.isSelf && currentChannelId && hasPermission(currentChannelId, Permission.MuteDeafen) ? [
+              {
+                label: 'Mute',
+                icon: (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="1" y1="1" x2="23" y2="23"/>
+                    <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/>
+                  </svg>
+                ),
+                onClick: () => bridge.send('voice.mute', { session: parseInt(contextMenu.userId) }),
+              },
+              {
+                label: 'Deafen',
+                icon: (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="1" y1="1" x2="23" y2="23"/>
+                    <path d="M3 18v-6a9 9 0 0 1 18 0v6"/>
+                  </svg>
+                ),
+                onClick: () => bridge.send('voice.deafen', { session: parseInt(contextMenu.userId) }),
+              },
+              {
+                label: 'Priority Speaker',
+                icon: (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 2L15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2z"/>
+                  </svg>
+                ),
+                onClick: () => {
+                  const user = users.find(u => u.session === parseInt(contextMenu.userId));
+                  bridge.send('voice.setPrioritySpeaker', { session: parseInt(contextMenu.userId), enabled: !user?.prioritySpeaker });
+                },
+              },
+            ] : []),
+            ...(!contextMenu.isSelf && currentChannelId && hasPermission(currentChannelId, Permission.Move) ? [
+              {
+                label: 'Move to...',
+                icon: (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M5 12h14M12 5l7 7-7 7"/>
+                  </svg>
+                ),
+                onClick: () => { /* TODO: show channel picker */ },
+              },
+              {
+                label: 'Kick',
+                icon: (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M18 6L6 18M6 6l12 12"/>
+                  </svg>
+                ),
+                onClick: () => bridge.send('voice.kick', { session: parseInt(contextMenu.userId) }),
+              },
+            ] : []),
+            ...(!contextMenu.isSelf && currentChannelId === 0 && hasPermission(currentChannelId, Permission.Ban) ? [
+              {
+                label: 'Ban',
+                icon: (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+                  </svg>
+                ),
+                onClick: () => bridge.send('voice.ban', { session: parseInt(contextMenu.userId) }),
+              },
+            ] : []),
           ]}
           onClose={() => setContextMenu(null)}
         />
       )}
+      {infoDialogUser && (() => {
+        const user = users.find(u => u.session === parseInt(infoDialogUser.userId));
+        return (
+          <UserInfoDialog
+            isOpen={true}
+            onClose={() => setInfoDialogUser(null)}
+            userName={infoDialogUser.userName}
+            session={parseInt(infoDialogUser.userId)}
+            channelId={user?.channelId}
+            muted={user?.muted}
+            deafened={user?.deafened}
+            isSelf={infoDialogUser.isSelf}
+            comment={user?.comment}
+          />
+        );
+      })()}
     </div>
   );
 }
