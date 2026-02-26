@@ -40,9 +40,9 @@ export function UserInfoDialog({
       bridge.send('voice.setVolume', { session, volume: vol });
     }
     
-    const muted = localStorage.getItem(`localMute_${session}`) === 'true';
-    setLocalMuted(muted);
-    bridge.send('voice.setLocalMute', { session, muted });
+    const savedMuted = localStorage.getItem(`localMute_${session}`) === 'true';
+    setLocalMuted(savedMuted);
+    bridge.send('voice.setLocalMute', { session, muted: savedMuted });
   }, [isOpen, session]);
 
   useEffect(() => {
@@ -63,6 +63,8 @@ export function UserInfoDialog({
     const focusable = card.querySelectorAll<HTMLElement>(
       'button, [tabindex]:not([tabindex="-1"])'
     );
+    if (focusable.length === 0) return;
+    
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
 

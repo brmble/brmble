@@ -470,15 +470,12 @@ private int _continuousHotkeyId = -1;
     public void FeedVoice(uint userId, byte[] opusData, long sequence)
     {
         if (_deafened) return;
-        
-        lock (_lock)
-        {
-            if (_localMutes.Contains(userId)) return;
-        }
 
         bool startedSpeaking = false;
         lock (_lock)
         {
+            if (_localMutes.Contains(userId)) return;
+
             if (!_pipelines.TryGetValue(userId, out var pipeline))
             {
                 var userVolume = _userVolumes.TryGetValue(userId, out var v) ? v : _outputVolume;

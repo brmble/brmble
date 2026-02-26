@@ -344,19 +344,22 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
           onClose={() => setContextMenu(null)}
         />
       )}
-      {infoDialogUser && (
-        <UserInfoDialog
-          isOpen={true}
-          onClose={() => setInfoDialogUser(null)}
-          userName={infoDialogUser.userName}
-          session={parseInt(infoDialogUser.userId)}
-          channelId={users.find(u => u.session === parseInt(infoDialogUser.userId))?.channelId}
-          muted={users.find(u => u.session === parseInt(infoDialogUser.userId))?.muted}
-          deafened={users.find(u => u.session === parseInt(infoDialogUser.userId))?.deafened}
-          isSelf={infoDialogUser.isSelf}
-          comment={users.find(u => u.session === parseInt(infoDialogUser.userId))?.comment}
-        />
-      )}
+      {infoDialogUser && (() => {
+        const user = users.find(u => u.session === parseInt(infoDialogUser.userId));
+        return (
+          <UserInfoDialog
+            isOpen={true}
+            onClose={() => setInfoDialogUser(null)}
+            userName={infoDialogUser.userName}
+            session={parseInt(infoDialogUser.userId)}
+            channelId={user?.channelId}
+            muted={user?.muted}
+            deafened={user?.deafened}
+            isSelf={infoDialogUser.isSelf}
+            comment={user?.comment}
+          />
+        );
+      })()}
     </div>
   );
 }

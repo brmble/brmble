@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ChannelTree } from '../ChannelTree';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
 import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
@@ -66,7 +66,13 @@ export function Sidebar({
 
   const [infoDialogUser, setInfoDialogUser] = useState<{ userId: string; userName: string; isSelf: boolean } | null>(null);
 
-  const { hasPermission, Permission } = usePermissions();
+  const { hasPermission, Permission, requestPermissions } = usePermissions();
+
+  useEffect(() => {
+    if (connected) {
+      requestPermissions(0);
+    }
+  }, [connected, requestPermissions]);
 
   return (
     <aside className="sidebar">
@@ -256,7 +262,10 @@ export function Sidebar({
                     <path d="M12 2L15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2z"/>
                   </svg>
                 ),
-                onClick: () => bridge.send('voice.setPrioritySpeaker', { session: parseInt(contextMenu.userId), enabled: true }),
+                onClick: () => {
+                  const user = rootUsers.find(u => u.session === parseInt(contextMenu.userId));
+                  bridge.send('voice.setPrioritySpeaker', { session: parseInt(contextMenu.userId), enabled: !user?.prioritySpeaker });
+                },
               },
             ] : []),
             ...(!contextMenu.isSelf && hasPermission(0, Permission.Move) ? [
@@ -286,19 +295,22 @@ export function Sidebar({
           onClose={() => setContextMenu(null)}
         />
       )}
-      {infoDialogUser && (
-        <UserInfoDialog
-          isOpen={true}
-          onClose={() => setInfoDialogUser(null)}
-          userName={infoDialogUser.userName}
-          session={parseInt(infoDialogUser.userId)}
-          channelId={users.find(u => u.session === parseInt(infoDialogUser.userId))?.channelId}
-          muted={users.find(u => u.session === parseInt(infoDialogUser.userId))?.muted}
-          deafened={users.find(u => u.session === parseInt(infoDialogUser.userId))?.deafened}
-          isSelf={infoDialogUser.isSelf}
-          comment={users.find(u => u.session === parseInt(infoDialogUser.userId))?.comment}
-        />
-      )}
+      {infoDialogUser && (() => {
+        const user = users.find(u => u.session === parseInt(infoDialogUser.userId));
+        return (
+          <UserInfoDialog
+            isOpen={true}
+            onClose={() => setInfoDialogUser(null)}
+            userName={infoDialogUser.userName}
+            session={parseInt(infoDialogUser.userId)}
+            channelId={user?.channelId}
+            muted={user?.muted}
+            deafened={user?.deafened}
+            isSelf={infoDialogUser.isSelf}
+            comment={user?.comment}
+          />
+        );
+      })()}
     </aside>
   );
 }
