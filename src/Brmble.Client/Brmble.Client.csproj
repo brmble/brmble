@@ -52,7 +52,7 @@
       <_FinalDateTime Condition="'$(_ParsedDateTime)' == ''">$(_VersionDateTime)</_FinalDateTime>
     </PropertyGroup>
     <WriteLinesToFile File="$(_PrJson)"
-                      Lines="{"version": "$(_FinalDateTime)"}"
+                      Lines="[&quot;version&quot;: &quot;$(_FinalDateTime)&quot;]"
                       Overwrite="True" />
   </Target>
 
