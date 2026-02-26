@@ -135,6 +135,24 @@
   background: rgba(212, 20, 90, 0.2);
 }
 
+.user-panel-btn.leave-voice-btn.pressed {
+  color: #ff4444;
+  background: rgba(255, 68, 68, 0.25);
+  transform: scale(0.95);
+}
+
+.user-panel-btn.deaf-btn.pressed {
+  color: var(--accent-berry);
+  background: rgba(212, 20, 90, 0.3);
+  transform: scale(0.95);
+}
+
+.user-panel-btn.mute-btn.pressed {
+  color: var(--accent-berry);
+  background: rgba(212, 20, 90, 0.3);
+  transform: scale(0.95);
+}
+
 .user-avatar {
   width: 36px;
   height: 36px;

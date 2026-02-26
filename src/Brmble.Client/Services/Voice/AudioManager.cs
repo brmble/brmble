@@ -147,14 +147,18 @@ internal sealed class AudioManager : IDisposable
     private volatile bool _pttActive;
 internal const int PttHotkeyId = 1;
 internal const int MuteHotkeyId = 2;
-internal const int DeafenHotkeyId = 3;
 internal const int MuteDeafenHotkeyId = 4;
 internal const int ContinuousHotkeyId = 5;
+internal const int LeaveVoiceHotkeyId = 6;
 private int _hotkeyId = -1;
 private int _muteHotkeyId = -1;
-private int _deafenHotkeyId = -1;
 private int _muteDeafenHotkeyId = -1;
 private int _continuousHotkeyId = -1;
+private int _leaveVoiceHotkeyId = -1;
+    // Stored key names for suspend/resume during shortcut recording
+    private string? _muteKeyName;
+    private string? _muteDeafenKeyName;
+    private string? _leaveVoiceKeyName;
     private IntPtr _hwnd;
     private const int RmsThreshold = 300; // ~1% of 16-bit max (32767)
     private const float TargetRms = 1500f;  // Target RMS for AGC (quiet boost target)
@@ -198,6 +202,7 @@ private int _continuousHotkeyId = -1;
     public event Action? ToggleMuteRequested;
     public event Action? ToggleDeafenRequested;
     public event Action? ToggleContinuousRequested;
+    public event Action? ToggleLeaveVoiceRequested;
 
     public bool IsMuted => _muted;
     public bool IsDeafened => _deafened;
@@ -678,18 +683,51 @@ private int _continuousHotkeyId = -1;
                 RegisterMouseHookForButton(key);
                 break;
             case "toggleMute":
+                _muteKeyName = key;
                 RegisterSingleHotkey(ref _muteHotkeyId, MuteHotkeyId, key, _hwnd);
                 break;
-            case "toggleDeafen":
-                RegisterSingleHotkey(ref _deafenHotkeyId, DeafenHotkeyId, key, _hwnd);
-                break;
             case "toggleMuteDeafen":
+                _muteDeafenKeyName = key;
                 RegisterSingleHotkey(ref _muteDeafenHotkeyId, MuteDeafenHotkeyId, key, _hwnd);
                 break;
             case "continuousTransmission":
                 RegisterSingleHotkey(ref _continuousHotkeyId, ContinuousHotkeyId, key, _hwnd);
                 break;
+            case "toggleLeaveVoice":
+                _leaveVoiceKeyName = key;
+                RegisterSingleHotkey(ref _leaveVoiceHotkeyId, LeaveVoiceHotkeyId, key, _hwnd);
+                break;
         }
+    }
+
+    /// <summary>
+    /// Temporarily unregisters all shortcut hotkeys so the JS shortcut recorder
+    /// can capture keypresses that would otherwise be swallowed by RegisterHotKey.
+    /// </summary>
+    public void SuspendHotkeys()
+    {
+        AudioLog.Write("[Audio] SuspendHotkeys");
+        if (_hwnd == IntPtr.Zero) return;
+
+        if (_muteHotkeyId >= 0) { UnregisterHotKey(_hwnd, _muteHotkeyId); _muteHotkeyId = -1; }
+        if (_muteDeafenHotkeyId >= 0) { UnregisterHotKey(_hwnd, _muteDeafenHotkeyId); _muteDeafenHotkeyId = -1; }
+        if (_leaveVoiceHotkeyId >= 0) { UnregisterHotKey(_hwnd, _leaveVoiceHotkeyId); _leaveVoiceHotkeyId = -1; }
+    }
+
+    /// <summary>
+    /// Re-registers all shortcut hotkeys after the JS shortcut recorder is done.
+    /// </summary>
+    public void ResumeHotkeys()
+    {
+        AudioLog.Write("[Audio] ResumeHotkeys");
+        if (_hwnd == IntPtr.Zero) return;
+
+        if (_muteKeyName != null)
+            RegisterSingleHotkey(ref _muteHotkeyId, MuteHotkeyId, _muteKeyName, _hwnd);
+        if (_muteDeafenKeyName != null)
+            RegisterSingleHotkey(ref _muteDeafenHotkeyId, MuteDeafenHotkeyId, _muteDeafenKeyName, _hwnd);
+        if (_leaveVoiceKeyName != null)
+            RegisterSingleHotkey(ref _leaveVoiceHotkeyId, LeaveVoiceHotkeyId, _leaveVoiceKeyName, _hwnd);
     }
 
     /// <summary>Called from WndProc when WM_HOTKEY fires.</summary>
@@ -706,11 +744,6 @@ private int _continuousHotkeyId = -1;
             AudioLog.Write($"[Audio] ToggleMute hotkey");
             ToggleMuteRequested?.Invoke();
         }
-        else if (id == _deafenHotkeyId && keyDown)
-        {
-            AudioLog.Write($"[Audio] ToggleDeafen hotkey");
-            ToggleDeafenRequested?.Invoke();
-        }
         else if (id == _muteDeafenHotkeyId && keyDown)
         {
             AudioLog.Write($"[Audio] ToggleMuteDeafen hotkey");
@@ -721,6 +754,11 @@ private int _continuousHotkeyId = -1;
         {
             AudioLog.Write($"[Audio] ToggleContinuous hotkey");
             ToggleContinuousRequested?.Invoke();
+        }
+        else if (id == _leaveVoiceHotkeyId && keyDown)
+        {
+            AudioLog.Write($"[Audio] ToggleLeaveVoice hotkey");
+            ToggleLeaveVoiceRequested?.Invoke();
         }
     }
 
@@ -796,15 +834,15 @@ private int _continuousHotkeyId = -1;
                         case "toggleMute":
                             ToggleMuteRequested?.Invoke();
                             break;
-                        case "toggleDeafen":
-                            ToggleDeafenRequested?.Invoke();
-                            break;
                         case "toggleMuteDeafen":
                             ToggleMuteRequested?.Invoke();
                             ToggleDeafenRequested?.Invoke();
                             break;
                         case "continuousTransmission":
                             ToggleContinuousRequested?.Invoke();
+                            break;
+                        case "toggleLeaveVoice":
+                            ToggleLeaveVoiceRequested?.Invoke();
                             break;
                     }
                 }
@@ -1007,11 +1045,6 @@ private int _continuousHotkeyId = -1;
         {
             UnregisterHotKey(_hwnd, _muteHotkeyId);
             _muteHotkeyId = -1;
-        }
-        if (_deafenHotkeyId >= 0 && _hwnd != IntPtr.Zero)
-        {
-            UnregisterHotKey(_hwnd, _deafenHotkeyId);
-            _deafenHotkeyId = -1;
         }
         if (_muteDeafenHotkeyId >= 0 && _hwnd != IntPtr.Zero)
         {

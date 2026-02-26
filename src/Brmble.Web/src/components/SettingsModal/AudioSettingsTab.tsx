@@ -1,11 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
+import bridge from '../../bridge';
+import { type AllBindings, BINDING_LABELS } from './SettingsModal';
 import './AudioSettingsTab.css';
+import './ShortcutsSettingsTab.css';
 
 interface AudioSettingsTabProps {
   settings: AudioSettings;
   speechEnhancement: SpeechEnhancementSettings;
   onChange: (settings: AudioSettings) => void;
   onSpeechEnhancementChange: (settings: SpeechEnhancementSettings) => void;
+  allBindings: AllBindings;
+  onClearBinding: (bindingId: string) => void;
 }
 
 export type TransmissionMode = 'pushToTalk' | 'voiceActivity' | 'continuous';
@@ -40,9 +45,15 @@ export const DEFAULT_SPEECH_ENHANCEMENT: SpeechEnhancementSettings = {
   model: 'dns3',
 };
 
-export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpeechEnhancementChange }: AudioSettingsTabProps) {
+interface AudioConflictState {
+  key: string;
+  conflictBindingId: string;
+}
+
+export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpeechEnhancementChange, allBindings, onClearBinding }: AudioSettingsTabProps) {
   const [localSettings, setLocalSettings] = useState<AudioSettings>(settings);
   const [recording, setRecording] = useState(false);
+  const [conflict, setConflict] = useState<AudioConflictState | null>(null);
 
   useEffect(() => {
     setLocalSettings(settings);
@@ -56,9 +67,35 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
 
   const handleInput = useCallback((key: string) => {
     if (!recording) return;
-    handleChange('pushToTalkKey', key);
+
+    // Check for conflicts across ALL bindings (including Shortcuts tab)
+    const conflictEntry = Object.entries(allBindings).find(
+      ([id, v]) => id !== 'pushToTalkKey' && v === key
+    );
+
+    if (conflictEntry) {
+      const [conflictBindingId] = conflictEntry;
+      setConflict({ key, conflictBindingId });
+    } else {
+      handleChange('pushToTalkKey', key);
+      setRecording(false);
+    }
+  }, [recording, allBindings, handleChange]);
+
+  const handleConflictConfirm = useCallback(() => {
+    if (!conflict) return;
+    // Delegate to parent to clear the conflicting binding
+    // (handles bridge messages, settings persistence, etc.)
+    onClearBinding(conflict.conflictBindingId);
+    handleChange('pushToTalkKey', conflict.key);
+    setConflict(null);
     setRecording(false);
-  }, [recording, handleChange]);
+  }, [conflict, handleChange, onClearBinding]);
+
+  const handleConflictCancel = useCallback(() => {
+    setConflict(null);
+    setRecording(false);
+  }, []);
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     e.preventDefault();
@@ -82,15 +119,17 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
   }, [handleInput]);
 
   useEffect(() => {
-    if (recording) {
+    if (recording && !conflict) {
+      bridge.send('voice.suspendHotkeys');
       window.addEventListener('keydown', handleKeyDown);
       window.addEventListener('mousedown', handleMouseDown);
       return () => {
         window.removeEventListener('keydown', handleKeyDown);
         window.removeEventListener('mousedown', handleMouseDown);
+        bridge.send('voice.resumeHotkeys');
       };
     }
-  }, [recording, handleKeyDown, handleMouseDown]);
+  }, [recording, conflict, handleKeyDown, handleMouseDown]);
 
   return (
     <div className="audio-settings-tab">
@@ -188,6 +227,26 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
           onChange={() => onSpeechEnhancementChange({ ...speechEnhancement, enabled: !speechEnhancement.enabled })}
         />
       </div>
+
+      {conflict && (
+        <div className="shortcut-conflict-overlay">
+          <div className="shortcut-conflict-card" role="dialog" aria-modal="true" aria-labelledby="audio-conflict-title">
+            <h3 id="audio-conflict-title" className="shortcut-conflict-title">Key already in use</h3>
+            <p className="shortcut-conflict-message">
+              This key is already bound to <strong>{BINDING_LABELS[conflict.conflictBindingId] ?? conflict.conflictBindingId}</strong>.
+              Rebind it to <strong>Push to Talk</strong>?
+            </p>
+            <div className="shortcut-conflict-buttons">
+              <button className="shortcut-conflict-btn confirm" onClick={handleConflictConfirm} autoFocus>
+                Rebind
+              </button>
+              <button className="shortcut-conflict-btn cancel" onClick={handleConflictCancel}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

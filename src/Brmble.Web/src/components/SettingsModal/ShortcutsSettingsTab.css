@@ -32,3 +32,107 @@
   font-size: 12px;
   margin-top: 12px;
 }
+
+/* Shortcut conflict confirmation dialog */
+.shortcut-conflict-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 10, 20, 0.80);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10001;
+  animation: shortcut-overlay-fade-in 150ms ease;
+}
+
+@keyframes shortcut-overlay-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.shortcut-conflict-card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  box-shadow:
+    0 0 0 1px rgba(212, 20, 90, 0.15),
+    0 8px 32px rgba(15, 10, 20, 0.6),
+    0 0 60px rgba(212, 20, 90, 0.08);
+  padding: 32px 40px 28px;
+  width: 380px;
+  max-width: 90vw;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  animation: shortcut-card-slide-in 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes shortcut-card-slide-in {
+  from { opacity: 0; transform: translateY(-12px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.shortcut-conflict-title {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 12px;
+  text-align: center;
+}
+
+.shortcut-conflict-message {
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin: 0 0 24px;
+  text-align: center;
+  line-height: 1.5;
+}
+
+.shortcut-conflict-message strong {
+  color: var(--text-primary);
+}
+
+.shortcut-conflict-buttons {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+}
+
+.shortcut-conflict-btn {
+  flex: 1;
+  padding: 10px 20px;
+  border-radius: 8px;
+  border: none;
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.shortcut-conflict-btn.confirm {
+  background: var(--accent-berry);
+  color: #fff;
+  box-shadow: 0 0 16px var(--accent-berry-glow);
+}
+
+.shortcut-conflict-btn.confirm:hover {
+  background: #e8185f;
+  box-shadow: 0 0 24px rgba(212, 20, 90, 0.55);
+  transform: translateY(-1px);
+}
+
+.shortcut-conflict-btn.cancel {
+  background: rgba(61, 42, 92, 0.4);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+}
+
+.shortcut-conflict-btn.cancel:hover {
+  background: rgba(61, 42, 92, 0.6);
+  color: var(--text-primary);
+  border-color: rgba(212, 20, 90, 0.3);
+}

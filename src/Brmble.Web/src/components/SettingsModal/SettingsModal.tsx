@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import './SettingsModal.css';
 import bridge from '../../bridge';
 import { AudioSettingsTab, type AudioSettings, type SpeechEnhancementSettings, DEFAULT_SETTINGS as DEFAULT_AUDIO, DEFAULT_SPEECH_ENHANCEMENT } from './AudioSettingsTab';
@@ -8,6 +8,18 @@ import { OverlaySettingsTab, type OverlaySettings, DEFAULT_OVERLAY } from './Ove
 import { IdentitySettingsTab } from './IdentitySettingsTab';
 import { ConnectionSettingsTab, type ConnectionSettings } from './ConnectionSettingsTab';
 import { useServerlist } from '../../hooks/useServerlist';
+
+/** A flat map of every key binding in the app: bindingId → bound key code (or null). */
+export type AllBindings = Record<string, string | null>;
+
+/** Human-readable labels for every binding ID. */
+export const BINDING_LABELS: Record<string, string> = {
+  pushToTalkKey: 'Push to Talk',
+  toggleLeaveVoiceKey: 'Toggle Leave Voice',
+  toggleMuteDeafenKey: 'Toggle Mute & Deafen',
+  toggleMuteKey: 'Toggle Mute',
+  toggleDMScreenKey: 'Toggle Direct Messages Screen',
+};
 
 const SETTINGS_STORAGE_KEY = 'brmble-settings';
 
@@ -45,6 +57,15 @@ export function SettingsModal(props: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<'audio' | 'shortcuts' | 'messages' | 'overlay' | 'connection' | 'identity'>('audio');
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const { servers } = useServerlist();
+
+  // Flat map of ALL key bindings across all tabs for cross-tab conflict detection
+  const allBindings: AllBindings = useMemo(() => ({
+    pushToTalkKey: settings.audio.pushToTalkKey,
+    toggleLeaveVoiceKey: settings.shortcuts.toggleLeaveVoiceKey,
+    toggleMuteDeafenKey: settings.shortcuts.toggleMuteDeafenKey,
+    toggleMuteKey: settings.shortcuts.toggleMuteKey,
+    toggleDMScreenKey: settings.shortcuts.toggleDMScreenKey,
+  }), [settings.audio.pushToTalkKey, settings.shortcuts]);
 
   useEffect(() => {
     const handleCurrent = (data: unknown) => {
@@ -90,8 +111,8 @@ export function SettingsModal(props: SettingsModalProps) {
       // Notify backend of each shortcut change
       const actions: { action: string; key: string | null }[] = [
         { action: 'toggleMute', key: shortcuts.toggleMuteKey },
-        { action: 'toggleDeafen', key: shortcuts.toggleDeafenKey },
         { action: 'toggleMuteDeafen', key: shortcuts.toggleMuteDeafenKey },
+        { action: 'toggleLeaveVoice', key: shortcuts.toggleLeaveVoiceKey },
       ];
 
       for (const { action, key } of actions) {
@@ -101,6 +122,30 @@ export function SettingsModal(props: SettingsModalProps) {
         }
       }
       
+      return newSettings;
+    });
+  };
+
+  /** Clear any binding by its ID — used for cross-tab conflict resolution */
+  const handleClearBinding = (bindingId: string) => {
+    setSettings(prev => {
+      let newSettings = { ...prev };
+      if (bindingId === 'pushToTalkKey') {
+        newSettings = { ...newSettings, audio: { ...prev.audio, pushToTalkKey: null } };
+        bridge.send('voice.setTransmissionMode', {
+          mode: prev.audio.transmissionMode,
+          key: null,
+        });
+      } else if (bindingId in prev.shortcuts) {
+        newSettings = {
+          ...newSettings,
+          shortcuts: { ...prev.shortcuts, [bindingId]: null },
+        };
+        const action = bindingId.replace('Key', '');
+        bridge.send('voice.setShortcut', { action, key: null });
+      }
+      bridge.send('settings.set', { settings: newSettings });
+      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
       return newSettings;
     });
   };
@@ -191,8 +236,8 @@ export function SettingsModal(props: SettingsModalProps) {
         </div>
 
         <div className="settings-content">
-          {activeTab === 'audio' && <AudioSettingsTab settings={settings.audio} onChange={handleAudioChange} speechEnhancement={settings.speechEnhancement} onSpeechEnhancementChange={handleSpeechEnhancementChange} />}
-          {activeTab === 'shortcuts' && <ShortcutsSettingsTab settings={settings.shortcuts} onChange={handleShortcutsChange} />}
+          {activeTab === 'audio' && <AudioSettingsTab settings={settings.audio} onChange={handleAudioChange} speechEnhancement={settings.speechEnhancement} onSpeechEnhancementChange={handleSpeechEnhancementChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}
+          {activeTab === 'shortcuts' && <ShortcutsSettingsTab settings={settings.shortcuts} onChange={handleShortcutsChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}
           {activeTab === 'messages' && <MessagesSettingsTab settings={settings.messages} onChange={handleMessagesChange} />}
           {activeTab === 'overlay' && <OverlaySettingsTab settings={settings.overlay} onChange={handleOverlayChange} />}
           {activeTab === 'connection' && (

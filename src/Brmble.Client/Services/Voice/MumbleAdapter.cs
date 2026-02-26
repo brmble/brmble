@@ -60,6 +60,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager = new AudioManager(_hwnd);
         _audioManager.ToggleMuteRequested += ToggleMute;
         _audioManager.ToggleDeafenRequested += ToggleDeaf;
+        _audioManager.ToggleLeaveVoiceRequested += LeaveVoice;
         _audioManager.ToggleContinuousRequested += () => {
             if (_audioManager == null) return;
             var current = _audioManager.TransmissionMode;
@@ -520,8 +521,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     {
         SetTransmissionMode(settings.Audio.TransmissionMode, settings.Audio.PushToTalkKey);
         _audioManager?.SetShortcut("toggleMute", settings.Shortcuts.ToggleMuteKey);
-        _audioManager?.SetShortcut("toggleDeafen", settings.Shortcuts.ToggleDeafenKey);
         _audioManager?.SetShortcut("toggleMuteDeafen", settings.Shortcuts.ToggleMuteDeafenKey);
+        _audioManager?.SetShortcut("toggleLeaveVoice", settings.Shortcuts.ToggleLeaveVoiceKey);
         _audioManager?.SetInputVolume(settings.Audio.InputVolume);
         _audioManager?.SetOutputVolume(settings.Audio.OutputVolume);
         _audioManager?.SetMaxAmplification(settings.Audio.MaxAmplification);
@@ -742,6 +743,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             var action = data.TryGetProperty("action", out var a) ? a.GetString() ?? "" : "";
             var key = data.TryGetProperty("key", out var k) ? k.GetString() : null;
             _audioManager?.SetShortcut(action, key);
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.suspendHotkeys", _ =>
+        {
+            _audioManager?.SuspendHotkeys();
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.resumeHotkeys", _ =>
+        {
+            _audioManager?.ResumeHotkeys();
             return Task.CompletedTask;
         });
 

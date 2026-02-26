@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import './UserPanel.css';
 
 interface UserPanelProps {
@@ -18,12 +19,52 @@ interface UserPanelProps {
 }
 
 export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, speaking, pendingChannelAction }: UserPanelProps) {
+  const [pressedBtn, setPressedBtn] = useState<string | null>(null);
+
+  const handleMouseDown = (btn: string) => (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    setPressedBtn(btn);
+  };
+
+  const handleMouseUp = (btn: string, action?: () => void) => (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    if (pressedBtn === btn && action) {
+      action();
+    }
+    setPressedBtn(null);
+  };
+
+  const handleMouseLeave = () => {
+    if (pressedBtn) setPressedBtn(null);
+  };
+
+  const handleKeyDown = (btn: string) => (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      setPressedBtn(btn);
+    }
+  };
+
+  const handleKeyUp = (btn: string, action?: () => void) => (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      if (pressedBtn === btn && action) {
+        action();
+      }
+      setPressedBtn(null);
+    }
+  };
+
   return (
     <div className="user-panel">
       {onLeaveVoice && (
         <button 
-          className={`user-panel-btn leave-voice-btn ${leftVoice ? 'active' : ''} ${(!!leftVoice && !canRejoin) || pendingChannelAction !== null ? 'disabled' : ''}`}
-          onClick={onLeaveVoice}
+          className={`user-panel-btn leave-voice-btn ${leftVoice ? 'active' : ''} ${pressedBtn === 'leave' ? 'pressed' : ''} ${(!!leftVoice && !canRejoin) || pendingChannelAction !== null ? 'disabled' : ''}`}
+          onMouseDown={handleMouseDown('leave')}
+          onMouseUp={handleMouseUp('leave', onLeaveVoice)}
+          onMouseLeave={handleMouseLeave}
+          onKeyDown={handleKeyDown('leave')}
+          onKeyUp={handleKeyUp('leave', onLeaveVoice)}
           disabled={(!!leftVoice && !canRejoin) || pendingChannelAction !== null}
           title={leftVoice ? 'Rejoin Voice' : 'Leave Voice'}
         >
@@ -36,8 +77,12 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
 
       {onToggleDeaf && (
         <button 
-          className={`user-panel-btn deaf-btn ${(deafened || leftVoice) ? 'active' : ''} ${leftVoice ? 'disabled' : ''}`}
-          onClick={onToggleDeaf}
+          className={`user-panel-btn deaf-btn ${(deafened || leftVoice) ? 'active' : ''} ${pressedBtn === 'deaf' ? 'pressed' : ''} ${leftVoice ? 'disabled' : ''}`}
+          onMouseDown={handleMouseDown('deaf')}
+          onMouseUp={handleMouseUp('deaf', onToggleDeaf)}
+          onMouseLeave={handleMouseLeave}
+          onKeyDown={handleKeyDown('deaf')}
+          onKeyUp={handleKeyUp('deaf', onToggleDeaf)}
           disabled={leftVoice}
           title={deafened ? 'Undeafen' : 'Deafen'}
         >
@@ -60,8 +105,12 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
 
       {onToggleMute && (
         <button 
-          className={`user-panel-btn mute-btn ${(muted || leftVoice || deafened) ? 'active' : ''} ${(leftVoice || deafened) ? 'disabled' : ''}`}
-          onClick={onToggleMute}
+          className={`user-panel-btn mute-btn ${(muted || leftVoice || deafened) ? 'active' : ''} ${pressedBtn === 'mute' ? 'pressed' : ''} ${(leftVoice || deafened) ? 'disabled' : ''}`}
+          onMouseDown={handleMouseDown('mute')}
+          onMouseUp={handleMouseUp('mute', onToggleMute)}
+          onMouseLeave={handleMouseLeave}
+          onKeyDown={handleKeyDown('mute')}
+          onKeyUp={handleKeyUp('mute', onToggleMute)}
           disabled={leftVoice || deafened}
           title={muted ? 'Unmute' : deafened ? 'Muted (deafened)' : 'Mute'}
         >

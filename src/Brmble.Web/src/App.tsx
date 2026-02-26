@@ -455,6 +455,9 @@ function App() {
       const d = data as { leftVoice: boolean } | undefined;
       if (d?.leftVoice !== undefined) {
         setSelfLeftVoice(d.leftVoice);
+        if (d.leftVoice) {
+          handleSelectServer();
+        }
       }
     });
 
@@ -739,9 +742,6 @@ const handleConnect = (serverData: SavedServer) => {
   const handleLeaveVoice = () => {
     startPendingAction('leave');
     bridge.send('voice.leaveVoice', {});
-    if (!selfLeftVoice) {
-      handleSelectServer();
-    }
   };
 
   const handleCloseMinimize = useCallback((dontAskAgain: boolean) => {
