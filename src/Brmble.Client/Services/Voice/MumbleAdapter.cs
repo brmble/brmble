@@ -60,6 +60,19 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager = new AudioManager(_hwnd);
         _audioManager.ToggleMuteRequested += ToggleMute;
         _audioManager.ToggleDeafenRequested += ToggleDeaf;
+        _audioManager.ToggleLeaveVoiceRequested += LeaveVoice;
+        _audioManager.ToggleDmScreenRequested += () => {
+            _bridge?.Send("voice.toggleDmScreen", null);
+            _bridge?.NotifyUiThread();
+        };
+        _audioManager.ShortcutPressed += action => {
+            _bridge?.Send("voice.shortcutPressed", new { action });
+            _bridge?.NotifyUiThread();
+        };
+        _audioManager.ShortcutReleased += action => {
+            _bridge?.Send("voice.shortcutReleased", new { action });
+            _bridge?.NotifyUiThread();
+        };
         _audioManager.ToggleContinuousRequested += () => {
             if (_audioManager == null) return;
             var current = _audioManager.TransmissionMode;
@@ -110,6 +123,19 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _audioManager = new AudioManager(_hwnd);
             _audioManager.ToggleMuteRequested += ToggleMute;
             _audioManager.ToggleDeafenRequested += ToggleDeaf;
+            _audioManager.ToggleLeaveVoiceRequested += LeaveVoice;
+            _audioManager.ToggleDmScreenRequested += () => {
+                _bridge?.Send("voice.toggleDmScreen", null);
+                _bridge?.NotifyUiThread();
+            };
+            _audioManager.ShortcutPressed += action => {
+                _bridge?.Send("voice.shortcutPressed", new { action });
+                _bridge?.NotifyUiThread();
+            };
+            _audioManager.ShortcutReleased += action => {
+                _bridge?.Send("voice.shortcutReleased", new { action });
+                _bridge?.NotifyUiThread();
+            };
             _audioManager.ToggleContinuousRequested += () => {
                 if (_audioManager == null) return;
                 var current = _audioManager.TransmissionMode;
@@ -379,6 +405,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     public void ToggleMute()
     {
         if (LocalUser == null) return;
+        // Block mute toggle when in leave-voice state or when deafened
+        // (same guards as the UI buttons)
+        if (_leftVoice || LocalUser.SelfDeaf) return;
 
         LocalUser.SelfMuted = !LocalUser.SelfMuted;
         if (!LocalUser.SelfMuted && LocalUser.SelfDeaf)
@@ -388,7 +417,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         _bridge?.Send("voice.selfMuteChanged", new { muted = LocalUser.SelfMuted });
         _bridge?.Send("voice.selfDeafChanged", new { deafened = LocalUser.SelfDeaf });
-        _bridge?.Flush();
+        _bridge?.NotifyUiThread();
     }
 
     /// <summary>
@@ -453,7 +482,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _previousChannelId = LocalUser.Channel?.Id ?? 0;
             JoinChannel(0);
             ActivateLeaveVoice(channelMoveInProgress: true);
-            _bridge?.Flush();
+            _bridge?.NotifyUiThread();
         }
         else
         {
@@ -479,13 +508,16 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _bridge?.Send("voice.selfMuteChanged", new { muted = false });
             _bridge?.Send("voice.selfDeafChanged", new { deafened = false });
             _bridge?.Send("voice.leftVoiceChanged", new { leftVoice = false });
-            _bridge?.Flush();
+            _bridge?.NotifyUiThread();
         }
     }
 
     public void ToggleDeaf()
     {
         if (LocalUser == null) return;
+        // Block deafen toggle when in leave-voice state
+        // (same guard as the UI button)
+        if (_leftVoice) return;
 
         LocalUser.SelfDeaf = !LocalUser.SelfDeaf;
         LocalUser.SelfMuted = LocalUser.SelfDeaf;
@@ -495,7 +527,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         _bridge?.Send("voice.selfDeafChanged", new { deafened = LocalUser.SelfDeaf });
         _bridge?.Send("voice.selfMuteChanged", new { muted = LocalUser.SelfMuted });
-        _bridge?.Flush();
+        _bridge?.NotifyUiThread();
     }
 
     public void SetTransmissionMode(string mode, string? key)
@@ -520,8 +552,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     {
         SetTransmissionMode(settings.Audio.TransmissionMode, settings.Audio.PushToTalkKey);
         _audioManager?.SetShortcut("toggleMute", settings.Shortcuts.ToggleMuteKey);
-        _audioManager?.SetShortcut("toggleDeafen", settings.Shortcuts.ToggleDeafenKey);
         _audioManager?.SetShortcut("toggleMuteDeafen", settings.Shortcuts.ToggleMuteDeafenKey);
+        _audioManager?.SetShortcut("toggleLeaveVoice", settings.Shortcuts.ToggleLeaveVoiceKey);
+        _audioManager?.SetShortcut("toggleDmScreen", settings.Shortcuts.ToggleDMScreenKey);
         _audioManager?.SetInputVolume(settings.Audio.InputVolume);
         _audioManager?.SetOutputVolume(settings.Audio.OutputVolume);
         _audioManager?.SetMaxAmplification(settings.Audio.MaxAmplification);
@@ -815,6 +848,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             var action = data.TryGetProperty("action", out var a) ? a.GetString() ?? "" : "";
             var key = data.TryGetProperty("key", out var k) ? k.GetString() : null;
             _audioManager?.SetShortcut(action, key);
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.suspendHotkeys", _ =>
+        {
+            _audioManager?.SuspendHotkeys();
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.resumeHotkeys", _ =>
+        {
+            _audioManager?.ResumeHotkeys();
             return Task.CompletedTask;
         });
 

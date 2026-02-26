@@ -26,7 +26,7 @@
 }
 
 .user-panel-btn.dm-btn:hover {
-  color: var(--accent-lemon);
+  color: var(--accent-berry);
 }
 
 .user-panel-btn.dm-btn.active {
@@ -133,6 +133,30 @@
 .user-panel-btn.leave-voice-btn.active {
   color: var(--accent-berry);
   background: rgba(212, 20, 90, 0.2);
+}
+
+.user-panel-btn.leave-voice-btn.pressed {
+  color: var(--accent-lemon);
+  background: rgba(255, 230, 0, 0.15);
+  transform: scale(0.95);
+}
+
+.user-panel-btn.deaf-btn.pressed {
+  color: var(--accent-lemon);
+  background: rgba(255, 230, 0, 0.15);
+  transform: scale(0.95);
+}
+
+.user-panel-btn.mute-btn.pressed {
+  color: var(--accent-lemon);
+  background: rgba(255, 230, 0, 0.15);
+  transform: scale(0.95);
+}
+
+.user-panel-btn.dm-btn.pressed {
+  color: var(--accent-lemon);
+  background: rgba(255, 230, 0, 0.15);
+  transform: scale(0.95);
 }
 
 .user-avatar {

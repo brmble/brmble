@@ -17,9 +17,10 @@ interface HeaderProps {
   onLeaveVoice?: () => void;
   speaking?: boolean;
   pendingChannelAction?: number | 'leave' | null;
+  hotkeyPressedBtn?: string | null;
 }
 
-export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, speaking, pendingChannelAction }: HeaderProps) {
+export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, speaking, pendingChannelAction, hotkeyPressedBtn }: HeaderProps) {
   return (
     <header className="header">
       <div className="header-left">
@@ -42,6 +43,7 @@ export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSe
           onLeaveVoice={onLeaveVoice}
           speaking={speaking}
           pendingChannelAction={pendingChannelAction}
+          hotkeyPressedBtn={hotkeyPressedBtn}
         />
       </div>
 
