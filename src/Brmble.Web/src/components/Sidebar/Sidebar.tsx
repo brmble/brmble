@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ChannelTree } from '../ChannelTree';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
+import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
 import { usePermissions } from '../../hooks/usePermissions';
 import bridge from '../../bridge';
 import type { Channel, User, ConnectionStatus } from '../../types';
@@ -62,6 +63,8 @@ export function Sidebar({
     userName: string;
     isSelf: boolean;
   } | null>(null);
+
+  const [infoDialogUser, setInfoDialogUser] = useState<{ userId: string; userName: string; isSelf: boolean } | null>(null);
 
   const { hasPermission, Permission } = usePermissions();
 
@@ -203,7 +206,7 @@ export function Sidebar({
                   <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                 </svg>
               ),
-              onClick: () => { /* TODO: show comment dialog */ },
+              onClick: () => setInfoDialogUser({ userId: contextMenu.userId, userName: contextMenu.userName, isSelf: contextMenu.isSelf }),
             },
             {
               label: 'Information',
@@ -214,7 +217,16 @@ export function Sidebar({
                   <line x1="12" y1="12" x2="12" y2="16" />
                 </svg>
               ),
-              onClick: () => { /* TODO: show info dialog */ },
+              onClick: () => setInfoDialogUser({ userId: contextMenu.userId, userName: contextMenu.userName, isSelf: contextMenu.isSelf }),
+            },
+            {
+              label: 'Volume',
+              icon: (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                </svg>
+              ),
+              onClick: () => setInfoDialogUser({ userId: contextMenu.userId, userName: contextMenu.userName, isSelf: contextMenu.isSelf }),
             },
             ...(!contextMenu.isSelf && hasPermission(0, Permission.MuteDeafen) ? [
               {
@@ -272,6 +284,19 @@ export function Sidebar({
             ] : []),
           ]}
           onClose={() => setContextMenu(null)}
+        />
+      )}
+      {infoDialogUser && (
+        <UserInfoDialog
+          isOpen={true}
+          onClose={() => setInfoDialogUser(null)}
+          userName={infoDialogUser.userName}
+          session={parseInt(infoDialogUser.userId)}
+          channelId={users.find(u => u.session === parseInt(infoDialogUser.userId))?.channelId}
+          muted={users.find(u => u.session === parseInt(infoDialogUser.userId))?.muted}
+          deafened={users.find(u => u.session === parseInt(infoDialogUser.userId))?.deafened}
+          isSelf={infoDialogUser.isSelf}
+          comment={users.find(u => u.session === parseInt(infoDialogUser.userId))?.comment}
         />
       )}
     </aside>

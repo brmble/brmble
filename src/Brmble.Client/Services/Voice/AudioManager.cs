@@ -177,6 +177,8 @@ private int _continuousHotkeyId = -1;
     // Volume controls
     private volatile float _inputVolume = 1.0f;
     private volatile float _outputVolume = 1.0f;
+    private readonly Dictionary<uint, float> _userVolumes = new();
+    private readonly HashSet<uint> _localMutes = new();
     private volatile float _maxAmplification = 1.0f;
 
     // Speech enhancement
@@ -233,6 +235,28 @@ private int _continuousHotkeyId = -1;
         {
             foreach (var pipeline in _pipelines.Values)
                 pipeline.Volume = _outputVolume;
+        }
+    }
+
+    public void SetUserVolume(uint userId, int percentage)
+    {
+        var volume = Math.Clamp(percentage, 0, 200) / 100f;
+        lock (_lock)
+        {
+            _userVolumes[userId] = volume;
+            if (_pipelines.TryGetValue(userId, out var pipeline))
+                pipeline.Volume = volume;
+        }
+    }
+
+    public void SetLocalMute(uint userId, bool muted)
+    {
+        lock (_lock)
+        {
+            if (muted)
+                _localMutes.Add(userId);
+            else
+                _localMutes.Remove(userId);
         }
     }
 
@@ -446,14 +470,20 @@ private int _continuousHotkeyId = -1;
     public void FeedVoice(uint userId, byte[] opusData, long sequence)
     {
         if (_deafened) return;
+        
+        lock (_lock)
+        {
+            if (_localMutes.Contains(userId)) return;
+        }
 
         bool startedSpeaking = false;
         lock (_lock)
         {
             if (!_pipelines.TryGetValue(userId, out var pipeline))
             {
+                var userVolume = _userVolumes.TryGetValue(userId, out var v) ? v : _outputVolume;
                 pipeline = new UserAudioPipeline(sampleRate: 48000, channels: 1);
-                pipeline.Volume = _outputVolume;
+                pipeline.Volume = userVolume;
                 _pipelines[userId] = pipeline;
 
                 var player = new WaveOutEvent

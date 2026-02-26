@@ -893,6 +893,34 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 RequestPermissions(channelId.GetUInt32());
             return Task.CompletedTask;
         });
+
+        bridge.RegisterHandler("voice.setVolume", data =>
+        {
+            if (data.TryGetProperty("session", out var session) && data.TryGetProperty("volume", out var volume))
+            {
+                SetUserVolume(session.GetUInt32(), volume.GetInt32());
+            }
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.setLocalMute", data =>
+        {
+            if (data.TryGetProperty("session", out var session) && data.TryGetProperty("muted", out var muted))
+            {
+                SetLocalMute(session.GetUInt32(), muted.GetBoolean());
+            }
+            return Task.CompletedTask;
+        });
+    }
+
+    public void SetUserVolume(uint session, int volume)
+    {
+        _audioManager?.SetUserVolume(session, volume);
+    }
+
+    public void SetLocalMute(uint session, bool muted)
+    {
+        _audioManager?.SetLocalMute(session, muted);
     }
 
     public override X509Certificate SelectCertificate(
