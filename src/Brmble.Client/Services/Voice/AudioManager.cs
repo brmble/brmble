@@ -160,6 +160,7 @@ private int _dmScreenHotkeyId = -1;
     // Stored key names for suspend/resume during shortcut recording
     private string? _muteKeyName;
     private string? _muteDeafenKeyName;
+    private string? _continuousKeyName;
     private string? _leaveVoiceKeyName;
     private string? _dmScreenKeyName;
     private IntPtr _hwnd;
@@ -799,6 +800,7 @@ private int _dmScreenHotkeyId = -1;
                 RegisterSingleHotkey(ref _muteDeafenHotkeyId, MuteDeafenHotkeyId, key, _hwnd);
                 break;
             case "continuousTransmission":
+                _continuousKeyName = key;
                 RegisterSingleHotkey(ref _continuousHotkeyId, ContinuousHotkeyId, key, _hwnd);
                 break;
             case "toggleLeaveVoice":
@@ -827,6 +829,7 @@ private int _dmScreenHotkeyId = -1;
 
         if (_muteHotkeyId >= 0) { UnregisterHotKey(_hwnd, _muteHotkeyId); _muteHotkeyId = -1; }
         if (_muteDeafenHotkeyId >= 0) { UnregisterHotKey(_hwnd, _muteDeafenHotkeyId); _muteDeafenHotkeyId = -1; }
+        if (_continuousHotkeyId >= 0) { UnregisterHotKey(_hwnd, _continuousHotkeyId); _continuousHotkeyId = -1; }
         if (_leaveVoiceHotkeyId >= 0) { UnregisterHotKey(_hwnd, _leaveVoiceHotkeyId); _leaveVoiceHotkeyId = -1; }
         if (_dmScreenHotkeyId >= 0) { UnregisterHotKey(_hwnd, _dmScreenHotkeyId); _dmScreenHotkeyId = -1; }
     }
@@ -843,6 +846,8 @@ private int _dmScreenHotkeyId = -1;
             RegisterSingleHotkey(ref _muteHotkeyId, MuteHotkeyId, _muteKeyName, _hwnd);
         if (_muteDeafenKeyName != null)
             RegisterSingleHotkey(ref _muteDeafenHotkeyId, MuteDeafenHotkeyId, _muteDeafenKeyName, _hwnd);
+        if (_continuousKeyName != null)
+            RegisterSingleHotkey(ref _continuousHotkeyId, ContinuousHotkeyId, _continuousKeyName, _hwnd);
         if (_leaveVoiceKeyName != null)
             RegisterSingleHotkey(ref _leaveVoiceHotkeyId, LeaveVoiceHotkeyId, _leaveVoiceKeyName, _hwnd);
         if (_dmScreenKeyName != null)
