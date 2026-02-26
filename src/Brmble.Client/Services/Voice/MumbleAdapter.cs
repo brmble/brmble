@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
+using Org.BouncyCastle.Tls;
 using MumbleSharp;
 using MumbleSharp.Audio;
 using MumbleSharp.Audio.Codecs;
@@ -676,6 +678,151 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     }
 
     /// <summary>
+    /// Rewrites the matrix.homeserverUrl in the credentials JSON to the public API URL
+    /// so clients can reach Matrix via the YARP proxy instead of the internal localhost address.
+    /// </summary>
+    internal static System.Text.Json.JsonElement RewriteMatrixHomeserverUrl(System.Text.Json.JsonElement credentials, string apiUrl)
+    {
+        using var ms = new MemoryStream();
+        using (var writer = new System.Text.Json.Utf8JsonWriter(ms))
+        {
+            writer.WriteStartObject();
+            foreach (var prop in credentials.EnumerateObject())
+            {
+                if (prop.Name == "matrix" && prop.Value.ValueKind == System.Text.Json.JsonValueKind.Object)
+                {
+                    writer.WritePropertyName("matrix");
+                    writer.WriteStartObject();
+                    foreach (var inner in prop.Value.EnumerateObject())
+                    {
+                        if (inner.Name == "homeserverUrl")
+                            writer.WriteString("homeserverUrl", apiUrl.TrimEnd('/'));
+                        else
+                            inner.WriteTo(writer);
+                    }
+                    writer.WriteEndObject();
+                }
+                else
+                {
+                    prop.WriteTo(writer);
+                }
+            }
+            writer.WriteEndObject();
+        }
+
+        using var doc = System.Text.Json.JsonDocument.Parse(ms.ToArray());
+        return doc.RootElement.Clone();
+    }
+
+    /// <summary>
+    /// Fetches credentials via BouncyCastle managed TLS, bypassing Windows SChannel
+    /// which silently refuses to present self-signed client certificates.
+    /// </summary>
+    private static async Task<System.Text.Json.JsonElement?> FetchCredentialsViaBcTls(X509Certificate2 cert, Uri tokenUri)
+    {
+        using var tcp = new TcpClient();
+        await tcp.ConnectAsync(tokenUri.Host, tokenUri.Port);
+
+        // Pass DNS hostname for SNI so servers using virtual hosting pick the right cert
+        var sniName = tokenUri.HostNameType == UriHostNameType.Dns ? tokenUri.Host : null;
+        var tlsClient = new BrmbleTlsClient(cert, sniName);
+        var tlsProtocol = new TlsClientProtocol(tcp.GetStream());
+        tlsProtocol.Connect(tlsClient);
+
+        try
+        {
+            var stream = tlsProtocol.Stream;
+            // RFC 7230: Host header must include port when non-default
+            var hostHeader = tokenUri.IsDefaultPort ? tokenUri.Host : $"{tokenUri.Host}:{tokenUri.Port}";
+            var httpRequest = $"POST {tokenUri.PathAndQuery} HTTP/1.1\r\nHost: {hostHeader}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+            var requestBytes = System.Text.Encoding.ASCII.GetBytes(httpRequest);
+            await stream.WriteAsync(requestBytes, 0, requestBytes.Length);
+            await stream.FlushAsync();
+
+            // Read the full response
+            using var ms = new MemoryStream();
+            var buf = new byte[4096];
+            int read;
+            try
+            {
+                while ((read = await stream.ReadAsync(buf, 0, buf.Length)) > 0)
+                    ms.Write(buf, 0, read);
+            }
+            catch (Org.BouncyCastle.Tls.TlsNoCloseNotifyException)
+            {
+                // Many servers (nginx, caddy, etc.) close without sending close_notify.
+                // The response data already in ms is valid — treat as end-of-stream.
+            }
+
+            var response = System.Text.Encoding.UTF8.GetString(ms.ToArray());
+
+            // Parse HTTP status line
+            var statusEnd = response.IndexOf('\n');
+            if (statusEnd < 0)
+            {
+                Debug.WriteLine("[Brmble:mTLS] No HTTP status line in response");
+                return null;
+            }
+
+            var statusLine = response[..statusEnd].Trim();
+            Debug.WriteLine($"[Brmble:mTLS] BC TLS response: {statusLine}");
+
+            if (!statusLine.Contains("200"))
+            {
+                Debug.WriteLine($"[Brmble:mTLS] Non-200 response: {statusLine}");
+                return null;
+            }
+
+            // Find body after header separator
+            var bodyStart = response.IndexOf("\r\n\r\n", StringComparison.Ordinal);
+            if (bodyStart < 0)
+                bodyStart = response.IndexOf("\n\n", StringComparison.Ordinal);
+            if (bodyStart < 0)
+            {
+                Debug.WriteLine("[Brmble:mTLS] No HTTP body found");
+                return null;
+            }
+
+            var body = response[(bodyStart + (response[bodyStart + 1] == '\n' ? 2 : 4))..].Trim();
+
+            // Handle chunked transfer encoding — reassemble chunk data
+            var headersSection = response[..bodyStart];
+            if (headersSection.Contains("Transfer-Encoding: chunked", StringComparison.OrdinalIgnoreCase))
+            {
+                var sb = new System.Text.StringBuilder();
+                var remaining = body;
+                while (remaining.Length > 0)
+                {
+                    var lineEnd = remaining.IndexOf("\r\n", StringComparison.Ordinal);
+                    if (lineEnd < 0) break;
+
+                    var chunkSizeHex = remaining[..lineEnd].Trim();
+                    if (!int.TryParse(chunkSizeHex, System.Globalization.NumberStyles.HexNumber, null, out var chunkSize) || chunkSize == 0)
+                        break;
+
+                    var chunkStart = lineEnd + 2;
+                    if (chunkStart + chunkSize > remaining.Length) break;
+                    sb.Append(remaining.AsSpan(chunkStart, chunkSize));
+                    remaining = remaining[(chunkStart + chunkSize)..];
+                    if (remaining.StartsWith("\r\n"))
+                        remaining = remaining[2..];
+                }
+                body = sb.ToString().Trim();
+            }
+
+            if (string.IsNullOrWhiteSpace(body))
+                return null;
+
+            using var doc = System.Text.Json.JsonDocument.Parse(body);
+            return doc.RootElement.Clone();
+        }
+        finally
+        {
+            tlsProtocol.Close();
+        }
+    }
+
+    /// <summary>
     /// Pure HTTP helper: POSTs to /auth/token and returns the parsed response body.
     /// Body is empty — identity comes from the TLS client certificate attached to <paramref name="httpClient"/>.
     /// Returns null on any non-success status.
@@ -696,7 +843,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     private async Task FetchAndSendCredentials(string apiUrl)
     {
-        var cert = _certService?.ActiveCertificate;
+        // Load with Exportable so BouncyCastle can extract private key parameters for signing
+        using var cert = _certService?.GetExportableCertificate();
         if (cert is null)
         {
             _bridge?.Send("voice.error", new { message = "No client certificate — cannot fetch Matrix credentials." });
@@ -706,24 +854,24 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         try
         {
-            var handler = new HttpClientHandler();
-            handler.ClientCertificates.Add(cert);
-            handler.ServerCertificateCustomValidationCallback =
-                HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
+            var baseUri = new Uri(apiUrl, UriKind.Absolute);
+            var tokenUri = new Uri(baseUri, "auth/token");
 
-            using var http = new HttpClient(handler);
-            var credentials = await FetchCredentials(apiUrl, http);
+            var credentials = await FetchCredentialsViaBcTls(cert, tokenUri);
             if (credentials is null)
                 return;
 
-            _bridge?.Send("server.credentials", credentials.Value);
+            // The server returns its internal homeserverUrl (e.g. http://localhost:6167).
+            // Clients reach Matrix via the YARP proxy on the same Brmble API URL,
+            // so rewrite homeserverUrl to the API URL the client connected to.
+            var rewritten = RewriteMatrixHomeserverUrl(credentials.Value, apiUrl);
+            _bridge?.Send("server.credentials", rewritten);
             _bridge?.NotifyUiThread();
             _apiUrl = apiUrl;
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[Brmble] Failed to fetch credentials from {apiUrl}: {ex}");
-
+            Debug.WriteLine($"[Matrix] Failed to fetch credentials: {ex.Message}");
         }
     }
 
@@ -975,7 +1123,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         X509Certificate remoteCertificate,
         string[] acceptableIssuers)
     {
-        return _certService?.ActiveCertificate
+        // Return exportable cert so BouncyCastle TlsClientProtocol can extract
+        // private key parameters for mTLS signing during TLS handshake.
+        return _certService?.GetExportableCertificate()
             ?? base.SelectCertificate(sender, targetHost, localCertificates, remoteCertificate, acceptableIssuers);
     }
 
@@ -1026,12 +1176,20 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 OnApiUrlDiscovered?.Invoke(discovered);
                 Task.Run(() => FetchAndSendCredentials(discovered));
             }
+            else if (discovered is not null)
+            {
+                Debug.WriteLine($"[Matrix] API URL host mismatch: {discovered} vs {_reconnectHost}");
+            }
         }
         // Flow B: _apiUrl already set from /server-info call or voice.connect apiUrl field
         else if (_apiUrl is not null)
         {
             var url = _apiUrl;
             Task.Run(() => FetchAndSendCredentials(url));
+        }
+        else
+        {
+            // No API URL and no welcome text — credentials fetch not possible
         }
 
         // Reuse or recreated AudioManager (see Connect())

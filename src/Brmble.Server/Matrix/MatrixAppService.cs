@@ -13,6 +13,7 @@ public interface IMatrixAppService
     Task SetRoomName(string roomId, string name);
     Task<string> RegisterUser(string localpart, string displayName);
     Task<string> LoginUser(string localpart);
+    Task EnsureUserInRooms(string localpart, IEnumerable<string> roomIds);
 }
 
 public class MatrixAppService : IMatrixAppService
@@ -89,6 +90,37 @@ public class MatrixAppService : IMatrixAppService
         var json = JsonSerializer.Deserialize<JsonElement>(response);
         return json.GetProperty("access_token").GetString()
             ?? throw new InvalidOperationException("Matrix did not return an access_token");
+    }
+
+    public async Task EnsureUserInRooms(string localpart, IEnumerable<string> roomIds)
+    {
+        var userId = $"@{localpart}:{_serverDomain}";
+        foreach (var roomId in roomIds)
+        {
+            try
+            {
+                // Invite via appservice bot
+                var inviteUrl = $"{_homeserverUrl}/_matrix/client/v3/rooms/{Uri.EscapeDataString(roomId)}/invite";
+                var inviteBody = JsonSerializer.Serialize(new { user_id = userId });
+                await SendRequest(HttpMethod.Post, inviteUrl, inviteBody);
+            }
+            catch (Exception ex)
+            {
+                // Already invited or joined — ignore
+                _logger.LogDebug("Invite {UserId} to {RoomId} skipped: {Error}", userId, roomId, ex.Message);
+            }
+
+            try
+            {
+                // Join as the user (appservice can act on behalf of managed users)
+                var joinUrl = $"{_homeserverUrl}/_matrix/client/v3/join/{Uri.EscapeDataString(roomId)}?user_id={Uri.EscapeDataString(userId)}";
+                await SendRequest(HttpMethod.Post, joinUrl, "{}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Failed to join {UserId} to {RoomId}: {Error}", userId, roomId, ex.Message);
+            }
+        }
     }
 
     private async Task<string> SendRequest(HttpMethod method, string url, string jsonBody)
