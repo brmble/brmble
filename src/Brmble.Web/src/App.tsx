@@ -74,6 +74,7 @@ function App() {
   const [selfSession, setSelfSession] = useState<number>(0);
   const [speakingUsers, setSpeakingUsers] = useState<Map<number, boolean>>(new Map());
   const [pendingChannelAction, setPendingChannelAction] = useState<number | 'leave' | null>(null);
+  const [hotkeyPressedBtn, setHotkeyPressedBtn] = useState<string | null>(null);
   const pendingChannelActionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [showConnectModal, setShowConnectModal] = useState(false);
@@ -146,7 +147,6 @@ function App() {
   useEffect(() => {
     let pttKey: string | null = null;
     let pttPressed = false;
-    let toggleDMScreenKey: string | null = null;
 
     const updatePttKeyFromSettings = (settings: any) => {
       const newMode = settings?.audio?.transmissionMode;
@@ -168,16 +168,11 @@ function App() {
       pttKey = newKey;
     };
 
-    const updateToggleDMScreenKeyFromSettings = (settings: any) => {
-      toggleDMScreenKey = settings?.shortcuts?.toggleDMScreenKey ?? null;
-    };
-
     // Listen for settings updates via bridge
     const handleSettingsCurrent = (data: unknown) => {
       const d = data as { settings?: any } | undefined;
       if (d?.settings) {
         updatePttKeyFromSettings(d.settings);
-        updateToggleDMScreenKeyFromSettings(d.settings);
       }
     };
 
@@ -191,7 +186,6 @@ function App() {
         if (stored) {
           const settings = JSON.parse(stored);
           updatePttKeyFromSettings(settings);
-          updateToggleDMScreenKeyFromSettings(settings);
         }
       } catch {}
     };
@@ -203,7 +197,6 @@ function App() {
       try {
         const settings = JSON.parse(stored);
         updatePttKeyFromSettings(settings);
-        updateToggleDMScreenKeyFromSettings(settings);
       } catch {}
     }
 
@@ -220,11 +213,6 @@ function App() {
           pttPressed = true;
           bridge.send('voice.pttKey', { pressed: true });
         }
-      }
-
-      // Handle toggle DM screen shortcut
-      if (toggleDMScreenKey && e.code === toggleDMScreenKey) {
-        setAppModeRef.current(prev => prev === 'channels' ? 'dm' : 'channels');
       }
     };
 
@@ -455,6 +443,9 @@ function App() {
       const d = data as { leftVoice: boolean } | undefined;
       if (d?.leftVoice !== undefined) {
         setSelfLeftVoice(d.leftVoice);
+        if (d.leftVoice) {
+          handleSelectServer();
+        }
       }
     });
 
@@ -486,6 +477,34 @@ function App() {
         });
       }
     });
+
+    // Map shortcut action names to UserPanel button names
+    const ACTION_TO_BTN: Record<string, string> = {
+      toggleMute: 'mute',
+      toggleMuteDeafen: 'deaf',
+      toggleLeaveVoice: 'leave',
+      toggleDmScreen: 'dm',
+    };
+
+    const onShortcutPressed = (data: unknown) => {
+      const d = data as { action: string } | undefined;
+      if (d?.action) {
+        const btn = ACTION_TO_BTN[d.action];
+        if (btn) setHotkeyPressedBtn(btn);
+      }
+    };
+
+    const onShortcutReleased = (data: unknown) => {
+      const d = data as { action: string } | undefined;
+      if (d?.action) {
+        const btn = ACTION_TO_BTN[d.action];
+        if (btn) setHotkeyPressedBtn(prev => prev === btn ? null : prev);
+      }
+    };
+
+    const onToggleDmScreen = () => {
+      setAppModeRef.current(prev => prev === 'channels' ? 'dm' : 'channels');
+    };
 
     const onShowCloseDialog = () => {
       setShowCloseDialog(true);
@@ -560,6 +579,9 @@ function App() {
     bridge.on('voice.canRejoinChanged', onCanRejoinChanged);
     bridge.on('voice.userSpeaking', onVoiceUserSpeaking);
     bridge.on('voice.userSilent', onVoiceUserSilent);
+    bridge.on('voice.shortcutPressed', onShortcutPressed);
+    bridge.on('voice.shortcutReleased', onShortcutReleased);
+    bridge.on('voice.toggleDmScreen', onToggleDmScreen);
     bridge.on('window.showCloseDialog', onShowCloseDialog);
     bridge.on('cert.status', onCertStatus);
     bridge.on('cert.generated', onCertGenerated);
@@ -586,6 +608,9 @@ function App() {
       bridge.off('voice.canRejoinChanged', onCanRejoinChanged);
       bridge.off('voice.userSpeaking', onVoiceUserSpeaking);
       bridge.off('voice.userSilent', onVoiceUserSilent);
+      bridge.off('voice.shortcutPressed', onShortcutPressed);
+      bridge.off('voice.shortcutReleased', onShortcutReleased);
+      bridge.off('voice.toggleDmScreen', onToggleDmScreen);
       bridge.off('window.showCloseDialog', onShowCloseDialog);
       bridge.off('cert.status', onCertStatus);
       bridge.off('cert.generated', onCertGenerated);
@@ -739,9 +764,6 @@ const handleConnect = (serverData: SavedServer) => {
   const handleLeaveVoice = () => {
     startPendingAction('leave');
     bridge.send('voice.leaveVoice', {});
-    if (!selfLeftVoice) {
-      handleSelectServer();
-    }
   };
 
   const handleCloseMinimize = useCallback((dontAskAgain: boolean) => {
@@ -807,6 +829,7 @@ const handleConnect = (serverData: SavedServer) => {
         onLeaveVoice={connected ? handleLeaveVoice : undefined}
         speaking={speakingUsers.has(selfSession) || false}
         pendingChannelAction={pendingChannelAction}
+        hotkeyPressedBtn={hotkeyPressedBtn}
       />
       
       <div className="app-body">

@@ -62,6 +62,19 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager = new AudioManager(_hwnd);
         _audioManager.ToggleMuteRequested += ToggleMute;
         _audioManager.ToggleDeafenRequested += ToggleDeaf;
+        _audioManager.ToggleLeaveVoiceRequested += LeaveVoice;
+        _audioManager.ToggleDmScreenRequested += () => {
+            _bridge?.Send("voice.toggleDmScreen", null);
+            _bridge?.NotifyUiThread();
+        };
+        _audioManager.ShortcutPressed += action => {
+            _bridge?.Send("voice.shortcutPressed", new { action });
+            _bridge?.NotifyUiThread();
+        };
+        _audioManager.ShortcutReleased += action => {
+            _bridge?.Send("voice.shortcutReleased", new { action });
+            _bridge?.NotifyUiThread();
+        };
         _audioManager.ToggleContinuousRequested += () => {
             if (_audioManager == null) return;
             var current = _audioManager.TransmissionMode;
@@ -112,6 +125,19 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _audioManager = new AudioManager(_hwnd);
             _audioManager.ToggleMuteRequested += ToggleMute;
             _audioManager.ToggleDeafenRequested += ToggleDeaf;
+            _audioManager.ToggleLeaveVoiceRequested += LeaveVoice;
+            _audioManager.ToggleDmScreenRequested += () => {
+                _bridge?.Send("voice.toggleDmScreen", null);
+                _bridge?.NotifyUiThread();
+            };
+            _audioManager.ShortcutPressed += action => {
+                _bridge?.Send("voice.shortcutPressed", new { action });
+                _bridge?.NotifyUiThread();
+            };
+            _audioManager.ShortcutReleased += action => {
+                _bridge?.Send("voice.shortcutReleased", new { action });
+                _bridge?.NotifyUiThread();
+            };
             _audioManager.ToggleContinuousRequested += () => {
                 if (_audioManager == null) return;
                 var current = _audioManager.TransmissionMode;
@@ -381,6 +407,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     public void ToggleMute()
     {
         if (LocalUser == null) return;
+        // Block mute toggle when in leave-voice state or when deafened
+        // (same guards as the UI buttons)
+        if (_leftVoice || LocalUser.SelfDeaf) return;
 
         LocalUser.SelfMuted = !LocalUser.SelfMuted;
         if (!LocalUser.SelfMuted && LocalUser.SelfDeaf)
@@ -390,7 +419,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         _bridge?.Send("voice.selfMuteChanged", new { muted = LocalUser.SelfMuted });
         _bridge?.Send("voice.selfDeafChanged", new { deafened = LocalUser.SelfDeaf });
-        _bridge?.Flush();
+        _bridge?.NotifyUiThread();
     }
 
     /// <summary>
@@ -455,7 +484,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _previousChannelId = LocalUser.Channel?.Id ?? 0;
             JoinChannel(0);
             ActivateLeaveVoice(channelMoveInProgress: true);
-            _bridge?.Flush();
+            _bridge?.NotifyUiThread();
         }
         else
         {
@@ -481,13 +510,16 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _bridge?.Send("voice.selfMuteChanged", new { muted = false });
             _bridge?.Send("voice.selfDeafChanged", new { deafened = false });
             _bridge?.Send("voice.leftVoiceChanged", new { leftVoice = false });
-            _bridge?.Flush();
+            _bridge?.NotifyUiThread();
         }
     }
 
     public void ToggleDeaf()
     {
         if (LocalUser == null) return;
+        // Block deafen toggle when in leave-voice state
+        // (same guard as the UI button)
+        if (_leftVoice) return;
 
         LocalUser.SelfDeaf = !LocalUser.SelfDeaf;
         LocalUser.SelfMuted = LocalUser.SelfDeaf;
@@ -497,7 +529,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         _bridge?.Send("voice.selfDeafChanged", new { deafened = LocalUser.SelfDeaf });
         _bridge?.Send("voice.selfMuteChanged", new { muted = LocalUser.SelfMuted });
-        _bridge?.Flush();
+        _bridge?.NotifyUiThread();
     }
 
     public void SetTransmissionMode(string mode, string? key)
@@ -522,8 +554,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     {
         SetTransmissionMode(settings.Audio.TransmissionMode, settings.Audio.PushToTalkKey);
         _audioManager?.SetShortcut("toggleMute", settings.Shortcuts.ToggleMuteKey);
-        _audioManager?.SetShortcut("toggleDeafen", settings.Shortcuts.ToggleDeafenKey);
         _audioManager?.SetShortcut("toggleMuteDeafen", settings.Shortcuts.ToggleMuteDeafenKey);
+        _audioManager?.SetShortcut("toggleLeaveVoice", settings.Shortcuts.ToggleLeaveVoiceKey);
+        _audioManager?.SetShortcut("toggleDmScreen", settings.Shortcuts.ToggleDMScreenKey);
         _audioManager?.SetInputVolume(settings.Audio.InputVolume);
         _audioManager?.SetOutputVolume(settings.Audio.OutputVolume);
         _audioManager?.SetMaxAmplification(settings.Audio.MaxAmplification);
@@ -551,6 +584,79 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             return;
 
         Connection.SendControl(PacketType.UserState, new UserState { ChannelId = channelId });
+        SendPermissionQuery(new PermissionQuery { ChannelId = channelId });
+    }
+
+    public void RequestPermissions(uint channelId)
+    {
+        if (Connection is not { State: ConnectionStates.Connected })
+            return;
+
+        SendPermissionQuery(new PermissionQuery { ChannelId = channelId });
+    }
+
+    public void MuteUser(uint session)
+    {
+        if (Connection is not { State: ConnectionStates.Connected })
+            return;
+
+        Connection.SendControl(PacketType.UserState, new UserState { Session = session, Mute = true });
+    }
+
+    public void UnmuteUser(uint session)
+    {
+        if (Connection is not { State: ConnectionStates.Connected })
+            return;
+
+        Connection.SendControl(PacketType.UserState, new UserState { Session = session, Mute = false });
+    }
+
+    public void DeafenUser(uint session)
+    {
+        if (Connection is not { State: ConnectionStates.Connected })
+            return;
+
+        Connection.SendControl(PacketType.UserState, new UserState { Session = session, Deaf = true });
+    }
+
+    public void UndeafenUser(uint session)
+    {
+        if (Connection is not { State: ConnectionStates.Connected })
+            return;
+
+        Connection.SendControl(PacketType.UserState, new UserState { Session = session, Deaf = false });
+    }
+
+    public void SetPrioritySpeaker(uint session, bool enabled)
+    {
+        if (Connection is not { State: ConnectionStates.Connected })
+            return;
+
+        Connection.SendControl(PacketType.UserState, new UserState { Session = session, PrioritySpeaker = enabled });
+    }
+
+    public void MoveUser(uint session, uint channelId)
+    {
+        if (Connection is not { State: ConnectionStates.Connected })
+            return;
+
+        Connection.SendControl(PacketType.UserState, new UserState { Session = session, ChannelId = channelId });
+    }
+
+    public void KickUser(uint session, string? reason = null)
+    {
+        if (Connection is not { State: ConnectionStates.Connected })
+            return;
+
+        Connection.SendControl(PacketType.UserRemove, new UserRemove { Session = session, Reason = reason ?? "" });
+    }
+
+    public void BanUser(uint session, string? reason = null)
+    {
+        if (Connection is not { State: ConnectionStates.Connected })
+            return;
+
+        Connection.SendControl(PacketType.UserRemove, new UserRemove { Session = session, Reason = reason ?? "", Ban = true });
     }
 
     /// <summary>
@@ -844,12 +950,121 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             return Task.CompletedTask;
         });
 
+        bridge.RegisterHandler("voice.suspendHotkeys", _ =>
+        {
+            _audioManager?.SuspendHotkeys();
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.resumeHotkeys", _ =>
+        {
+            _audioManager?.ResumeHotkeys();
+            return Task.CompletedTask;
+        });
+
         bridge.RegisterHandler("voice.pttKey", data =>
         {
             var pressed = data.TryGetProperty("pressed", out var p) && p.GetBoolean();
             _audioManager?.HandlePttKeyFromJs(pressed);
             return Task.CompletedTask;
         });
+
+        bridge.RegisterHandler("voice.mute", data =>
+        {
+            if (data.TryGetProperty("session", out var session))
+                MuteUser(session.GetUInt32());
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.unmute", data =>
+        {
+            if (data.TryGetProperty("session", out var session))
+                UnmuteUser(session.GetUInt32());
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.deafen", data =>
+        {
+            if (data.TryGetProperty("session", out var session))
+                DeafenUser(session.GetUInt32());
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.undeafen", data =>
+        {
+            if (data.TryGetProperty("session", out var session))
+                UndeafenUser(session.GetUInt32());
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.setPrioritySpeaker", data =>
+        {
+            if (data.TryGetProperty("session", out var session) && data.TryGetProperty("enabled", out var enabled))
+                SetPrioritySpeaker(session.GetUInt32(), enabled.GetBoolean());
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.move", data =>
+        {
+            if (data.TryGetProperty("session", out var session) && data.TryGetProperty("channelId", out var channelId))
+                MoveUser(session.GetUInt32(), channelId.GetUInt32());
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.kick", data =>
+        {
+            if (data.TryGetProperty("session", out var session))
+            {
+                var reason = data.TryGetProperty("reason", out var r) ? r.GetString() : null;
+                KickUser(session.GetUInt32(), reason);
+            }
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.ban", data =>
+        {
+            if (data.TryGetProperty("session", out var session))
+            {
+                var reason = data.TryGetProperty("reason", out var r) ? r.GetString() : null;
+                BanUser(session.GetUInt32(), reason);
+            }
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.requestPermissions", data =>
+        {
+            if (data.TryGetProperty("channelId", out var channelId))
+                RequestPermissions(channelId.GetUInt32());
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.setVolume", data =>
+        {
+            if (data.TryGetProperty("session", out var session) && data.TryGetProperty("volume", out var volume))
+            {
+                SetUserVolume(session.GetUInt32(), volume.GetInt32());
+            }
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.setLocalMute", data =>
+        {
+            if (data.TryGetProperty("session", out var session) && data.TryGetProperty("muted", out var muted))
+            {
+                SetLocalMute(session.GetUInt32(), muted.GetBoolean());
+            }
+            return Task.CompletedTask;
+        });
+    }
+
+    public void SetUserVolume(uint session, int volume)
+    {
+        _audioManager?.SetUserVolume(session, volume);
+    }
+
+    public void SetLocalMute(uint session, bool muted)
+    {
+        _audioManager?.SetLocalMute(session, muted);
     }
 
     public override X509Certificate SelectCertificate(
@@ -1123,6 +1338,20 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             : $"Permission denied: {permissionDenied.Type}";
 
         _bridge?.Send("voice.error", new { message = reason, type = "permissionDenied" });
+    }
+
+    public override void PermissionQuery(PermissionQuery permissionQuery)
+    {
+        base.PermissionQuery(permissionQuery);
+
+        if (permissionQuery.ShouldSerializeChannelId() && permissionQuery.ShouldSerializePermissions())
+        {
+            _bridge?.Send("voice.permissions", new
+            {
+                channelId = permissionQuery.ChannelId,
+                permissions = permissionQuery.Permissions
+            });
+        }
     }
 
     public override void EncodedVoice(byte[] data, uint userId, long sequence,

@@ -12,8 +12,8 @@ public record AudioSettings(
 
 public record ShortcutsSettings(
     string? ToggleMuteKey = null,
-    string? ToggleDeafenKey = null,
     string? ToggleMuteDeafenKey = null,
+    string? ToggleLeaveVoiceKey = null,
     string? ToggleDMScreenKey = null
 );
 
