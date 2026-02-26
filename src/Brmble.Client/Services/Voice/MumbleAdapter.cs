@@ -61,6 +61,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager.ToggleMuteRequested += ToggleMute;
         _audioManager.ToggleDeafenRequested += ToggleDeaf;
         _audioManager.ToggleLeaveVoiceRequested += LeaveVoice;
+        _audioManager.ShortcutPressed += action => {
+            _bridge?.Send("voice.shortcutPressed", new { action });
+            _bridge?.NotifyUiThread();
+        };
+        _audioManager.ShortcutReleased += action => {
+            _bridge?.Send("voice.shortcutReleased", new { action });
+            _bridge?.NotifyUiThread();
+        };
         _audioManager.ToggleContinuousRequested += () => {
             if (_audioManager == null) return;
             var current = _audioManager.TransmissionMode;
@@ -111,6 +119,15 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _audioManager = new AudioManager(_hwnd);
             _audioManager.ToggleMuteRequested += ToggleMute;
             _audioManager.ToggleDeafenRequested += ToggleDeaf;
+            _audioManager.ToggleLeaveVoiceRequested += LeaveVoice;
+            _audioManager.ShortcutPressed += action => {
+                _bridge?.Send("voice.shortcutPressed", new { action });
+                _bridge?.NotifyUiThread();
+            };
+            _audioManager.ShortcutReleased += action => {
+                _bridge?.Send("voice.shortcutReleased", new { action });
+                _bridge?.NotifyUiThread();
+            };
             _audioManager.ToggleContinuousRequested += () => {
                 if (_audioManager == null) return;
                 var current = _audioManager.TransmissionMode;
@@ -389,7 +406,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         _bridge?.Send("voice.selfMuteChanged", new { muted = LocalUser.SelfMuted });
         _bridge?.Send("voice.selfDeafChanged", new { deafened = LocalUser.SelfDeaf });
-        _bridge?.Flush();
+        _bridge?.NotifyUiThread();
     }
 
     /// <summary>
@@ -454,7 +471,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _previousChannelId = LocalUser.Channel?.Id ?? 0;
             JoinChannel(0);
             ActivateLeaveVoice(channelMoveInProgress: true);
-            _bridge?.Flush();
+            _bridge?.NotifyUiThread();
         }
         else
         {
@@ -480,7 +497,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _bridge?.Send("voice.selfMuteChanged", new { muted = false });
             _bridge?.Send("voice.selfDeafChanged", new { deafened = false });
             _bridge?.Send("voice.leftVoiceChanged", new { leftVoice = false });
-            _bridge?.Flush();
+            _bridge?.NotifyUiThread();
         }
     }
 
@@ -496,7 +513,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         _bridge?.Send("voice.selfDeafChanged", new { deafened = LocalUser.SelfDeaf });
         _bridge?.Send("voice.selfMuteChanged", new { muted = LocalUser.SelfMuted });
-        _bridge?.Flush();
+        _bridge?.NotifyUiThread();
     }
 
     public void SetTransmissionMode(string mode, string? key)

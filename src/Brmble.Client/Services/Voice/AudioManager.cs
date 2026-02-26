@@ -172,6 +172,13 @@ private int _leaveVoiceHotkeyId = -1;
     private System.Threading.Timer? _pttPollingTimer;
     private bool _pttKeyWasDown;
 
+    // Shortcut key hold/release tracking (toggle shortcuts fire on release, not press)
+    private readonly Dictionary<int, string> _heldShortcuts = new(); // hotkeyId → action name
+    private readonly Dictionary<int, int> _hotkeyVkMap = new(); // hotkeyId → virtual key code
+    private System.Threading.Timer? _shortcutReleaseTimer;
+    private string? _heldMouseAction; // action name for mouse shortcut currently held
+    private int _shortcutMouseVk; // VK code for the mouse button bound to a toggle shortcut
+
     // Speaking detection
     private readonly Dictionary<uint, DateTime> _lastVoicePacket = new();
     private readonly Timer _speakingTimer;
@@ -203,6 +210,11 @@ private int _leaveVoiceHotkeyId = -1;
     public event Action? ToggleDeafenRequested;
     public event Action? ToggleContinuousRequested;
     public event Action? ToggleLeaveVoiceRequested;
+
+    /// <summary>Fired when a shortcut key is first pressed down (for UI highlight).</summary>
+    public event Action<string>? ShortcutPressed;
+    /// <summary>Fired when a shortcut key is released (action should fire on release).</summary>
+    public event Action<string>? ShortcutReleased;
 
     public bool IsMuted => _muted;
     public bool IsDeafened => _deafened;
@@ -549,6 +561,8 @@ private int _leaveVoiceHotkeyId = -1;
         if (hotkeyId >= 0 && hwnd != IntPtr.Zero)
         {
             UnregisterHotKey(hwnd, hotkeyId);
+            _hotkeyVkMap.Remove(hotkeyId);
+            _heldShortcuts.Remove(hotkeyId);
             hotkeyId = -1;
         }
         
@@ -558,7 +572,10 @@ private int _leaveVoiceHotkeyId = -1;
         if (vk == 0) return false;
         
         hotkeyId = id;
-        return RegisterHotKey(hwnd, hotkeyId, 0, (uint)vk);
+        _hotkeyVkMap[id] = vk;
+        var result = RegisterHotKey(hwnd, hotkeyId, 0, (uint)vk);
+        StartShortcutReleasePolling();
+        return result;
     }
 
     /// <summary>
@@ -664,6 +681,90 @@ private int _leaveVoiceHotkeyId = -1;
         }
     }
 
+    // --- Shortcut release polling (for toggle shortcuts that fire on release) ---
+
+    private void StartShortcutReleasePolling()
+    {
+        // Start polling timer if not already running and we have hotkeys with known VKs
+        if (_shortcutReleaseTimer == null && _hotkeyVkMap.Count > 0)
+        {
+            _shortcutReleaseTimer = new System.Threading.Timer(ShortcutReleasePollCallback, null, 0, 30);
+        }
+    }
+
+    private void StopShortcutReleasePolling()
+    {
+        _shortcutReleaseTimer?.Dispose();
+        _shortcutReleaseTimer = null;
+    }
+
+    private void ShortcutReleasePollCallback(object? state)
+    {
+        // Check each held shortcut to see if its key has been released
+        List<int>? released = null;
+        foreach (var (hotkeyId, action) in _heldShortcuts)
+        {
+            if (!_hotkeyVkMap.TryGetValue(hotkeyId, out var vk)) continue;
+            short keyState = GetAsyncKeyState(vk);
+            bool isKeyDown = (keyState & 0x8000) != 0;
+
+            if (!isKeyDown)
+            {
+                released ??= new List<int>();
+                released.Add(hotkeyId);
+            }
+        }
+
+        if (released != null)
+        {
+            foreach (var hotkeyId in released)
+            {
+                if (_heldShortcuts.Remove(hotkeyId, out var action))
+                {
+                    AudioLog.Write($"[Audio] Shortcut released: {action}");
+                    FireShortcutAction(action);
+                    ShortcutReleased?.Invoke(action);
+                }
+            }
+        }
+
+        // Also check held mouse shortcut
+        if (_heldMouseAction != null && _shortcutMouseVk > 0)
+        {
+            short mouseState = GetAsyncKeyState(_shortcutMouseVk);
+            bool isDown = (mouseState & 0x8000) != 0;
+            if (!isDown)
+            {
+                var action = _heldMouseAction;
+                _heldMouseAction = null;
+                AudioLog.Write($"[Audio] Mouse shortcut released: {action}");
+                FireShortcutAction(action);
+                ShortcutReleased?.Invoke(action);
+            }
+        }
+    }
+
+    /// <summary>Fires the actual toggle action for a shortcut (called on key release).</summary>
+    private void FireShortcutAction(string action)
+    {
+        switch (action)
+        {
+            case "toggleMute":
+                ToggleMuteRequested?.Invoke();
+                break;
+            case "toggleMuteDeafen":
+                ToggleMuteRequested?.Invoke();
+                ToggleDeafenRequested?.Invoke();
+                break;
+            case "continuousTransmission":
+                ToggleContinuousRequested?.Invoke();
+                break;
+            case "toggleLeaveVoice":
+                ToggleLeaveVoiceRequested?.Invoke();
+                break;
+        }
+    }
+
     public void SetShortcut(string action, string? key)
     {
         AudioLog.Write($"[Audio] SetShortcut: action={action}, key={key}, _hwnd={_hwnd}");
@@ -709,6 +810,10 @@ private int _leaveVoiceHotkeyId = -1;
         AudioLog.Write("[Audio] SuspendHotkeys");
         if (_hwnd == IntPtr.Zero) return;
 
+        // Clear any held shortcut state to prevent stale releases
+        _heldShortcuts.Clear();
+        _heldMouseAction = null;
+
         if (_muteHotkeyId >= 0) { UnregisterHotKey(_hwnd, _muteHotkeyId); _muteHotkeyId = -1; }
         if (_muteDeafenHotkeyId >= 0) { UnregisterHotKey(_hwnd, _muteDeafenHotkeyId); _muteDeafenHotkeyId = -1; }
         if (_leaveVoiceHotkeyId >= 0) { UnregisterHotKey(_hwnd, _leaveVoiceHotkeyId); _leaveVoiceHotkeyId = -1; }
@@ -738,27 +843,30 @@ private int _leaveVoiceHotkeyId = -1;
         {
             AudioLog.Write($"[Audio] PTT activated: keyDown={keyDown}");
             SetPttActive(keyDown);
+            return;
         }
-        else if (id == _muteHotkeyId && keyDown)
+
+        // For toggle shortcuts: debounce auto-repeat.
+        // WM_HOTKEY fires repeatedly while key is held — only act on the first press.
+        // The actual toggle action fires on key RELEASE (detected by polling).
+        if (_heldShortcuts.ContainsKey(id))
         {
-            AudioLog.Write($"[Audio] ToggleMute hotkey");
-            ToggleMuteRequested?.Invoke();
+            // Already tracking this key as held — ignore auto-repeat
+            return;
         }
-        else if (id == _muteDeafenHotkeyId && keyDown)
+
+        // First press — determine the action and mark as held
+        string? action = null;
+        if (id == _muteHotkeyId) action = "toggleMute";
+        else if (id == _muteDeafenHotkeyId) action = "toggleMuteDeafen";
+        else if (id == _continuousHotkeyId) action = "continuousTransmission";
+        else if (id == _leaveVoiceHotkeyId) action = "toggleLeaveVoice";
+
+        if (action != null)
         {
-            AudioLog.Write($"[Audio] ToggleMuteDeafen hotkey");
-            ToggleMuteRequested?.Invoke();
-            ToggleDeafenRequested?.Invoke();
-        }
-        else if (id == _continuousHotkeyId && keyDown)
-        {
-            AudioLog.Write($"[Audio] ToggleContinuous hotkey");
-            ToggleContinuousRequested?.Invoke();
-        }
-        else if (id == _leaveVoiceHotkeyId && keyDown)
-        {
-            AudioLog.Write($"[Audio] ToggleLeaveVoice hotkey");
-            ToggleLeaveVoiceRequested?.Invoke();
+            AudioLog.Write($"[Audio] Shortcut pressed: {action}");
+            _heldShortcuts[id] = action;
+            ShortcutPressed?.Invoke(action);
         }
     }
 
@@ -825,31 +933,34 @@ private int _leaveVoiceHotkeyId = -1;
                 {
                     AudioLog.Write($"[Audio] Mouse hook: action={_shortcutActionForMouse}, button={buttonNumber}");
 
-                    switch (_shortcutActionForMouse)
+                    if (_shortcutActionForMouse == "pushToTalk")
                     {
-                        case "pushToTalk":
-                            if (_transmissionMode == TransmissionMode.PushToTalk)
-                                SetPttActive(true);
-                            break;
-                        case "toggleMute":
-                            ToggleMuteRequested?.Invoke();
-                            break;
-                        case "toggleMuteDeafen":
-                            ToggleMuteRequested?.Invoke();
-                            ToggleDeafenRequested?.Invoke();
-                            break;
-                        case "continuousTransmission":
-                            ToggleContinuousRequested?.Invoke();
-                            break;
-                        case "toggleLeaveVoice":
-                            ToggleLeaveVoiceRequested?.Invoke();
-                            break;
+                        if (_transmissionMode == TransmissionMode.PushToTalk)
+                            SetPttActive(true);
+                    }
+                    else if (_shortcutActionForMouse != null)
+                    {
+                        // Toggle shortcuts: mark as held, fire ShortcutPressed, action fires on release
+                        _heldMouseAction = _shortcutActionForMouse;
+                        ShortcutPressed?.Invoke(_shortcutActionForMouse);
+                        StartShortcutReleasePolling();
                     }
                 }
-                else if (buttonNumber == expectedButton && !isButtonDown && _shortcutActionForMouse == "pushToTalk")
+                else if (buttonNumber == expectedButton && isButtonUp)
                 {
-                    if (_transmissionMode == TransmissionMode.PushToTalk)
-                        SetPttActive(false);
+                    if (_shortcutActionForMouse == "pushToTalk")
+                    {
+                        if (_transmissionMode == TransmissionMode.PushToTalk)
+                            SetPttActive(false);
+                    }
+                    else if (_heldMouseAction != null)
+                    {
+                        var action = _heldMouseAction;
+                        _heldMouseAction = null;
+                        AudioLog.Write($"[Audio] Mouse shortcut released (hook): {action}");
+                        FireShortcutAction(action);
+                        ShortcutReleased?.Invoke(action);
+                    }
                 }
             }
         }
@@ -862,13 +973,15 @@ private int _leaveVoiceHotkeyId = -1;
         UnregisterMouseHook();
         _shortcutActionForMouse = null;
         _shortcutKeyForMouse = null;
+        _shortcutMouseVk = 0;
 
         if (key == null || _hwnd == IntPtr.Zero)
             return;
 
         _shortcutActionForMouse = action;
         _shortcutKeyForMouse = key;
-        AudioLog.Write($"[Audio] Registering mouse hook for action={action}, key={key}");
+        _shortcutMouseVk = KeyNameToVirtualKey(key);
+        AudioLog.Write($"[Audio] Registering mouse hook for action={action}, key={key}, vk=0x{_shortcutMouseVk:X2}");
 
         _mouseHookProc = MouseHookCallback;
         IntPtr hModule = Win32RawInput.GetModuleHandle(null);
@@ -1034,6 +1147,9 @@ private int _leaveVoiceHotkeyId = -1;
         _speechEnhancement?.Dispose();
         _speakingTimer.Dispose();
         StopPttPolling();
+        StopShortcutReleasePolling();
+        _heldShortcuts.Clear();
+        _heldMouseAction = null;
         UnregisterRawInputKeyboard();
         UnregisterMouseHook();
         if (_hotkeyId >= 0 && _hwnd != IntPtr.Zero)
@@ -1055,6 +1171,11 @@ private int _leaveVoiceHotkeyId = -1;
         {
             UnregisterHotKey(_hwnd, _continuousHotkeyId);
             _continuousHotkeyId = -1;
+        }
+        if (_leaveVoiceHotkeyId >= 0 && _hwnd != IntPtr.Zero)
+        {
+            UnregisterHotKey(_hwnd, _leaveVoiceHotkeyId);
+            _leaveVoiceHotkeyId = -1;
         }
         StopMic();
         _waveIn?.Dispose();

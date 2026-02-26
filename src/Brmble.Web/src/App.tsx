@@ -74,6 +74,7 @@ function App() {
   const [selfSession, setSelfSession] = useState<number>(0);
   const [speakingUsers, setSpeakingUsers] = useState<Map<number, boolean>>(new Map());
   const [pendingChannelAction, setPendingChannelAction] = useState<number | 'leave' | null>(null);
+  const [hotkeyPressedBtn, setHotkeyPressedBtn] = useState<string | null>(null);
   const pendingChannelActionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [showConnectModal, setShowConnectModal] = useState(false);
@@ -490,6 +491,29 @@ function App() {
       }
     });
 
+    // Map shortcut action names to UserPanel button names
+    const ACTION_TO_BTN: Record<string, string> = {
+      toggleMute: 'mute',
+      toggleMuteDeafen: 'deaf',
+      toggleLeaveVoice: 'leave',
+    };
+
+    const onShortcutPressed = (data: unknown) => {
+      const d = data as { action: string } | undefined;
+      if (d?.action) {
+        const btn = ACTION_TO_BTN[d.action];
+        if (btn) setHotkeyPressedBtn(btn);
+      }
+    };
+
+    const onShortcutReleased = (data: unknown) => {
+      const d = data as { action: string } | undefined;
+      if (d?.action) {
+        const btn = ACTION_TO_BTN[d.action];
+        if (btn) setHotkeyPressedBtn(prev => prev === btn ? null : prev);
+      }
+    };
+
     const onShowCloseDialog = () => {
       setShowCloseDialog(true);
     };
@@ -563,6 +587,8 @@ function App() {
     bridge.on('voice.canRejoinChanged', onCanRejoinChanged);
     bridge.on('voice.userSpeaking', onVoiceUserSpeaking);
     bridge.on('voice.userSilent', onVoiceUserSilent);
+    bridge.on('voice.shortcutPressed', onShortcutPressed);
+    bridge.on('voice.shortcutReleased', onShortcutReleased);
     bridge.on('window.showCloseDialog', onShowCloseDialog);
     bridge.on('cert.status', onCertStatus);
     bridge.on('cert.generated', onCertGenerated);
@@ -589,6 +615,8 @@ function App() {
       bridge.off('voice.canRejoinChanged', onCanRejoinChanged);
       bridge.off('voice.userSpeaking', onVoiceUserSpeaking);
       bridge.off('voice.userSilent', onVoiceUserSilent);
+      bridge.off('voice.shortcutPressed', onShortcutPressed);
+      bridge.off('voice.shortcutReleased', onShortcutReleased);
       bridge.off('window.showCloseDialog', onShowCloseDialog);
       bridge.off('cert.status', onCertStatus);
       bridge.off('cert.generated', onCertGenerated);
@@ -807,6 +835,7 @@ const handleConnect = (serverData: SavedServer) => {
         onLeaveVoice={connected ? handleLeaveVoice : undefined}
         speaking={speakingUsers.has(selfSession) || false}
         pendingChannelAction={pendingChannelAction}
+        hotkeyPressedBtn={hotkeyPressedBtn}
       />
       
       <div className="app-body">
