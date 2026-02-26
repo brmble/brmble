@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { ChannelTree } from '../ChannelTree';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
+import { usePermissions } from '../../hooks/usePermissions';
+import bridge from '../../bridge';
 import type { Channel, User, ConnectionStatus } from '../../types';
 import './Sidebar.css';
 
@@ -60,6 +62,8 @@ export function Sidebar({
     userName: string;
     isSelf: boolean;
   } | null>(null);
+
+  const { hasPermission, Permission } = usePermissions();
 
   return (
     <aside className="sidebar">
@@ -193,6 +197,15 @@ export function Sidebar({
               onClick: () => onStartDM(contextMenu.userId, contextMenu.userName),
             }] : []),
             {
+              label: 'View Comment',
+              icon: (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
+              ),
+              onClick: () => { /* TODO: show comment dialog */ },
+            },
+            {
               label: 'Information',
               icon: (
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -201,8 +214,62 @@ export function Sidebar({
                   <line x1="12" y1="12" x2="12" y2="16" />
                 </svg>
               ),
-              onClick: () => { /* placeholder — implement later */ },
+              onClick: () => { /* TODO: show info dialog */ },
             },
+            ...(!contextMenu.isSelf && hasPermission(0, Permission.MuteDeafen) ? [
+              {
+                label: 'Mute',
+                icon: (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="1" y1="1" x2="23" y2="23"/>
+                    <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/>
+                  </svg>
+                ),
+                onClick: () => bridge.send('voice.mute', { session: parseInt(contextMenu.userId) }),
+              },
+              {
+                label: 'Deafen',
+                icon: (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="1" y1="1" x2="23" y2="23"/>
+                    <path d="M3 18v-6a9 9 0 0 1 18 0v6"/>
+                  </svg>
+                ),
+                onClick: () => bridge.send('voice.deafen', { session: parseInt(contextMenu.userId) }),
+              },
+              {
+                label: 'Priority Speaker',
+                icon: (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 2L15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2z"/>
+                  </svg>
+                ),
+                onClick: () => bridge.send('voice.setPrioritySpeaker', { session: parseInt(contextMenu.userId), enabled: true }),
+              },
+            ] : []),
+            ...(!contextMenu.isSelf && hasPermission(0, Permission.Move) ? [
+              {
+                label: 'Kick',
+                icon: (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M18 6L6 18M6 6l12 12"/>
+                  </svg>
+                ),
+                onClick: () => bridge.send('voice.kick', { session: parseInt(contextMenu.userId) }),
+              },
+            ] : []),
+            ...(!contextMenu.isSelf && hasPermission(0, Permission.Ban) ? [
+              {
+                label: 'Ban',
+                icon: (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+                  </svg>
+                ),
+                onClick: () => bridge.send('voice.ban', { session: parseInt(contextMenu.userId) }),
+              },
+            ] : []),
           ]}
           onClose={() => setContextMenu(null)}
         />
