@@ -110,6 +110,21 @@ static class Program
             // Enable CSS app-region: drag/no-drag for window dragging
             _controller.CoreWebView2.Settings.IsNonClientRegionSupportEnabled = true;
 
+            // Accept self-signed server certificates so the matrix-js-sdk can
+            // reach the Brmble API server (which uses a self-signed TLS cert).
+            _controller.CoreWebView2.ServerCertificateErrorDetected += (_, args) =>
+            {
+                args.Action = CoreWebView2ServerCertificateErrorAction.AlwaysAllow;
+            };
+
+            // Suppress the client certificate prompt for Matrix SDK requests.
+            // The Brmble server uses AllowCertificate mode, but only /auth/token
+            // needs a cert (handled by BouncyCastle). All other requests work without one.
+            _controller.CoreWebView2.ClientCertificateRequested += (_, args) =>
+            {
+                args.Handled = true; // Don't show prompt, don't send a cert
+            };
+
             var webRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "web");
             _controller.CoreWebView2.SetVirtualHostNameToFolderMapping(
                 "brmble.local", webRoot, CoreWebView2HostResourceAccessKind.Allow);
