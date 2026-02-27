@@ -86,4 +86,62 @@ describe('useMatrixClient', () => {
     await act(() => result.current.fetchHistory('42'));
     expect(mockClient.scrollback).toHaveBeenCalledWith(mockRoom, 50);
   });
+
+  it('timeline handler uses member display name as sender', () => {
+    const { result } = renderHook(() => useMatrixClient(creds));
+
+    // Extract the registered timeline handler
+    const onCall = mockClient.on.mock.calls.find(
+      (c: unknown[]) => c[0] === 'Room.timeline'
+    );
+    expect(onCall).toBeDefined();
+    const handler = onCall![1] as (event: unknown, room: unknown) => void;
+
+    const mockEvent = {
+      getType: () => 'm.room.message',
+      getSender: () => '@1:example.com',
+      getId: () => 'evt1',
+      getContent: () => ({ body: 'hello' }),
+      getTs: () => Date.now(),
+    };
+    const mockRoom = {
+      roomId: '!room:example.com',
+      getMember: (userId: string) =>
+        userId === '@1:example.com'
+          ? { name: 'Alice', rawDisplayName: 'Alice' }
+          : null,
+    };
+
+    act(() => handler(mockEvent, mockRoom));
+    const msgs = result.current.messages.get('42');
+    expect(msgs).toHaveLength(1);
+    expect(msgs![0].sender).toBe('Alice');
+  });
+
+  it('timeline handler falls back to senderId when member has no display name', () => {
+    const { result } = renderHook(() => useMatrixClient(creds));
+
+    const onCall = mockClient.on.mock.calls.find(
+      (c: unknown[]) => c[0] === 'Room.timeline'
+    );
+    const handler = onCall![1] as (event: unknown, room: unknown) => void;
+
+    const mockEvent = {
+      getType: () => 'm.room.message',
+      getSender: () => '@99:example.com',
+      getId: () => 'evt2',
+      getContent: () => ({ body: 'hi' }),
+      getTs: () => Date.now(),
+    };
+    const mockRoom = {
+      roomId: '!room:example.com',
+      getMember: () => null,
+    };
+
+    act(() => handler(mockEvent, mockRoom));
+    const msgs = result.current.messages.get('42');
+    expect(msgs).toBeDefined();
+    const last = msgs![msgs!.length - 1];
+    expect(last.sender).toBe('@99:example.com');
+  });
 });

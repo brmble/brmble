@@ -77,13 +77,20 @@ public class MatrixAppService : IMatrixAppService
         var accessToken = json.GetProperty("access_token").GetString()
             ?? throw new InvalidOperationException("Matrix did not return an access_token");
 
-        // Set display name on the Matrix profile
+        // Set display name on the Matrix profile (best-effort; don't fail registration if this fails)
         if (!string.IsNullOrEmpty(displayName))
         {
             var userId = $"@{localpart}:{_serverDomain}";
             var nameUrl = $"{_homeserverUrl}/_matrix/client/v3/profile/{Uri.EscapeDataString(userId)}/displayname";
             var nameBody = JsonSerializer.Serialize(new { displayname = displayName });
-            await SendRequest(HttpMethod.Put, nameUrl, nameBody, actAs: userId);
+            try
+            {
+                await SendRequest(HttpMethod.Put, nameUrl, nameBody, actAs: userId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to set Matrix display name for user {UserId}", userId);
+            }
         }
 
         return accessToken;
