@@ -811,7 +811,7 @@ const handleConnect = (serverData: SavedServer) => {
   const activeChannelId = currentChannelId && currentChannelId !== 'server-root'
     ? currentChannelId
     : undefined;
-  const isMatrixActive = activeChannelId && matrixCredentials?.roomMap[activeChannelId] !== undefined;
+  const isMatrixActive = !!activeChannelId && matrixCredentials?.roomMap[activeChannelId] !== undefined;
   const matrixMessages = activeChannelId
     ? matrixClient.messages.get(activeChannelId)
     : undefined;

@@ -115,16 +115,34 @@ public class MatrixAppService : IMatrixAppService
     {
         var userId = $"@{localpart}:{_serverDomain}";
 
-        // Ensure the user exists on the homeserver (idempotent — ignores "already exists")
-        try
+        // Ensure the user exists on the homeserver (idempotent — skips if already registered)
         {
             var regUrl = $"{_homeserverUrl}/_matrix/client/v3/register?kind=user";
-            var regBody = JsonSerializer.Serialize(new { username = localpart });
-            await SendRequestCore(HttpMethod.Post, regUrl, regBody, userId: null);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug("User registration for {UserId} skipped (likely already exists): {Error}", userId, ex.Message);
+            var regBody = JsonSerializer.Serialize(new { username = localpart, inhibit_login = true });
+            var client = _httpClientFactory.CreateClient();
+            var request = new HttpRequestMessage(HttpMethod.Post, regUrl)
+            {
+                Content = new StringContent(regBody, Encoding.UTF8, "application/json")
+            };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _appServiceToken);
+            var response = await client.SendAsync(request);
+            if (response.IsSuccessStatusCode)
+            {
+                _logger.LogInformation("Registered missing Matrix user {UserId} on homeserver", userId);
+            }
+            else
+            {
+                var body = await response.Content.ReadAsStringAsync();
+                if (body.Contains("M_USER_IN_USE"))
+                {
+                    _logger.LogDebug("User {UserId} already exists on homeserver", userId);
+                }
+                else
+                {
+                    _logger.LogWarning("Failed to ensure Matrix user {UserId} exists: {Status} {Body}",
+                        userId, (int)response.StatusCode, body);
+                }
+            }
         }
 
         foreach (var roomId in roomIds)
