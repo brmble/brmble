@@ -1,7 +1,7 @@
 .settings-modal {
   background: var(--bg-primary);
   border: var(--glass-border);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   width: 100%;
   max-width: 600px;
   max-height: 80vh;
@@ -15,14 +15,14 @@
   display: flex;
   gap: 4px;
   padding: 0 1.5rem;
-  border-bottom: 1px solid #3a3a3a;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .settings-tab {
   padding: 10px 12px;
   background: transparent;
   border: none;
-  color: #888;
+  color: var(--text-muted);
   cursor: pointer;
   font-size: 13px;
   border-bottom: 2px solid transparent;
@@ -30,12 +30,12 @@
 }
 
 .settings-tab:hover {
-  color: #ccc;
+  color: var(--text-secondary);
 }
 
 .settings-tab.active {
-  color: #fff;
-  border-bottom-color: #4a9eff;
+  color: var(--text-primary);
+  border-bottom-color: var(--accent-berry);
 }
 
 .settings-content {
@@ -84,7 +84,7 @@
   padding: 0.5rem 0.75rem;
   background: var(--bg-glass);
   border: 1px solid var(--border-subtle);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 0.8125rem;
   color: var(--text-primary);
   cursor: pointer;
@@ -105,7 +105,7 @@
   width: 44px;
   height: 24px;
   background: var(--border-subtle);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   position: relative;
   cursor: pointer;
   transition: background var(--transition-fast);
@@ -119,7 +119,7 @@
   width: 20px;
   height: 20px;
   background: var(--text-primary);
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   transition: transform var(--transition-fast);
 }
 
@@ -141,7 +141,7 @@
 
 .settings-btn {
   padding: 0.625rem 1.25rem;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 0.875rem;
   font-weight: 500;
   transition: all var(--transition-fast);

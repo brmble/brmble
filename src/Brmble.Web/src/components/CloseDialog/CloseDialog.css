@@ -1,7 +1,7 @@
 .close-dialog-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(15, 10, 20, 0.80);
+  background: var(--bg-overlay);
   backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
@@ -18,11 +18,8 @@
 .close-dialog-card {
   background: var(--bg-primary);
   border: 1px solid var(--border-subtle);
-  border-radius: 12px;
-  box-shadow:
-    0 0 0 1px rgba(212, 20, 90, 0.15),
-    0 8px 32px rgba(15, 10, 20, 0.6),
-    0 0 60px rgba(212, 20, 90, 0.08);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-dialog);
   padding: 40px 48px 32px;
   width: 380px;
   max-width: 90vw;
@@ -65,7 +62,7 @@
 .close-dialog-btn {
   flex: 1;
   padding: 12px 20px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   border: none;
   font-family: var(--font-body);
   font-size: 0.9rem;
@@ -77,26 +74,26 @@
 
 .close-dialog-btn.minimize {
   background: var(--accent-berry);
-  color: #fff;
+  color: var(--text-primary);
   box-shadow: 0 0 16px var(--accent-berry-glow);
 }
 
 .close-dialog-btn.minimize:hover {
-  background: #e8185f;
-  box-shadow: 0 0 24px rgba(212, 20, 90, 0.55);
+  background: var(--accent-berry-hover);
+  box-shadow: 0 0 24px var(--accent-berry-glow-strong);
   transform: translateY(-1px);
 }
 
 .close-dialog-btn.quit {
-  background: rgba(61, 42, 92, 0.4);
+  background: var(--bg-hover-strong);
   color: var(--text-secondary);
   border: 1px solid var(--border-subtle);
 }
 
 .close-dialog-btn.quit:hover {
-  background: rgba(180, 30, 60, 0.25);
-  color: #ff6b8a;
-  border-color: rgba(212, 20, 90, 0.4);
+  background: var(--accent-danger-bg);
+  color: var(--accent-danger-text);
+  border-color: var(--accent-berry-glow);
 }
 
 .close-dialog-checkbox-row {

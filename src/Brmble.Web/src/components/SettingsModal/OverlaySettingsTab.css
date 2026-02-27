@@ -1,5 +1,5 @@
 .overlay-settings-tab .settings-hint {
-  color: #666;
+  color: var(--text-muted);
   font-size: 12px;
   margin-top: 12px;
 }

@@ -2,7 +2,7 @@
   display: flex;
   gap: 0.75rem;
   padding: 0.5rem;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   transition: background var(--transition-fast);
 }
 
@@ -14,8 +14,8 @@
   width: 40px;
   height: 40px;
   min-width: 40px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--border-subtle) 0%, var(--accent-purple, #6b2d5c) 100%);
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, var(--border-subtle) 0%, var(--accent-purple) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -73,7 +73,7 @@
 
 /* System message variant */
 .message-bubble--system .message-avatar {
-  background: linear-gradient(135deg, var(--bg-elevated, #2a2a3e) 0%, var(--border-subtle, #3a3a4e) 100%);
+  background: linear-gradient(135deg, var(--bg-elevated) 0%, var(--border-subtle) 100%);
 }
 
 .message-bubble--system .message-sender {

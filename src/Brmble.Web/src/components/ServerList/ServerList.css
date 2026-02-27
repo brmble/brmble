@@ -11,11 +11,11 @@
   max-width: 520px;
   background: var(--bg-glass);
   border: 1px solid var(--border-subtle);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   padding: 2rem;
   box-shadow: 
-    0 24px 64px rgba(0, 0, 0, 0.4),
-    0 0 0 1px rgba(212, 20, 90, 0.1) inset;
+    var(--shadow-elevated),
+    0 0 0 1px var(--accent-berry-ghost-strong) inset;
   backdrop-filter: var(--glass-blur);
   animation: serverListSlideIn 400ms ease backwards;
 }
@@ -82,9 +82,9 @@
   align-items: center;
   gap: 1rem;
   padding: 1rem;
-  background: rgba(61, 42, 92, 0.2);
+  background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   transition: all var(--transition-normal);
   animation: serverItemFadeIn 300ms ease backwards;
 }
@@ -101,7 +101,7 @@
 }
 
 .server-list-item:hover {
-  background: rgba(61, 42, 92, 0.35);
+  background: var(--bg-surface-hover);
   border-color: var(--accent-berry);
   transform: translateX(4px);
 }
@@ -109,8 +109,8 @@
 .server-list-icon {
   width: 44px;
   height: 44px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, var(--accent-berry) 0%, #b8124d 100%);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, var(--accent-berry) 0%, var(--accent-berry-dark) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -155,8 +155,8 @@
 
 .server-list-connect-btn {
   padding: 0.5rem 1rem;
-  background: linear-gradient(135deg, var(--accent-berry) 0%, #b8124d 100%);
-  border-radius: 8px;
+  background: linear-gradient(135deg, var(--accent-berry) 0%, var(--accent-berry-dark) 100%);
+  border-radius: var(--radius-md);
   font-size: 0.8125rem;
   font-weight: 600;
   color: var(--text-primary);
@@ -173,7 +173,7 @@
   padding: 0.5rem 0.75rem;
   background: transparent;
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 0.75rem;
   font-weight: 500;
   color: var(--text-secondary);
@@ -194,14 +194,14 @@
   justify-content: center;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 1.25rem;
   color: var(--text-muted);
   transition: all var(--transition-fast);
 }
 
 .server-list-delete-btn:hover {
-  background: rgba(212, 20, 90, 0.2);
+  background: var(--accent-berry-wash);
   border-color: var(--accent-berry);
   color: var(--accent-berry);
 }
@@ -232,9 +232,9 @@
 .server-list-form {
   margin-top: 1.5rem;
   padding: 1.5rem;
-  background: rgba(15, 10, 20, 0.4);
+  background: var(--bg-deep-glass);
   border: 1px solid var(--border-subtle);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   animation: formSlideIn 250ms ease;
 }
 
@@ -272,9 +272,9 @@
 .server-list-input {
   width: 100%;
   padding: 0.875rem 1rem;
-  background: rgba(26, 16, 37, 0.6);
+  background: var(--bg-input);
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 0.9375rem;
   color: var(--text-primary);
   transition: all var(--transition-fast);
@@ -307,8 +307,8 @@
 .server-list-submit-btn {
   flex: 1;
   padding: 0.875rem 1.5rem;
-  background: linear-gradient(135deg, var(--accent-berry) 0%, #b8124d 100%);
-  border-radius: 8px;
+  background: linear-gradient(135deg, var(--accent-berry) 0%, var(--accent-berry-dark) 100%);
+  border-radius: var(--radius-md);
   font-size: 0.9375rem;
   font-weight: 600;
   color: var(--text-primary);
@@ -326,7 +326,7 @@
   padding: 0.875rem 1.5rem;
   background: transparent;
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 0.9375rem;
   font-weight: 500;
   color: var(--text-secondary);
@@ -349,7 +349,7 @@
   padding: 1rem;
   background: transparent;
   border: 2px dashed var(--border-subtle);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   font-size: 0.9375rem;
   font-weight: 500;
   color: var(--text-secondary);
@@ -357,7 +357,7 @@
 }
 
 .server-list-add-btn:hover {
-  background: rgba(61, 42, 92, 0.2);
+  background: var(--bg-surface);
   border-color: var(--accent-berry);
   border-style: solid;
   color: var(--text-primary);

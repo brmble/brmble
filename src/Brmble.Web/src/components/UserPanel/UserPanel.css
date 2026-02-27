@@ -10,7 +10,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: var(--text-secondary);
   background: transparent;
   transition: all var(--transition-fast);
@@ -31,7 +31,7 @@
 
 .user-panel-btn.dm-btn.active {
   color: var(--accent-berry);
-  background: rgba(212, 20, 90, 0.15);
+  background: var(--accent-berry-subtle);
 }
 
 .dm-unread-badge {
@@ -41,8 +41,8 @@
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
-  border-radius: 8px;
-  background: linear-gradient(135deg, var(--accent-berry) 0%, #e8326e 100%);
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, var(--accent-berry) 0%, var(--accent-berry-light) 100%);
   color: var(--text-primary);
   font-family: var(--font-body);
   font-size: 0.625rem;
@@ -104,7 +104,7 @@
 
 .user-panel-btn.mute-btn.active {
   color: var(--accent-berry);
-  background: rgba(212, 20, 90, 0.2);
+  background: var(--accent-berry-wash);
 }
 
 .user-panel-btn.deaf-btn:hover {
@@ -113,7 +113,7 @@
 
 .user-panel-btn.deaf-btn.active {
   color: var(--accent-berry);
-  background: rgba(212, 20, 90, 0.2);
+  background: var(--accent-berry-wash);
 }
 
 .user-panel-btn.disabled {
@@ -126,59 +126,59 @@
 }
 
 .user-panel-btn.leave-voice-btn:hover {
-  color: #ff4444;
-  background: rgba(255, 68, 68, 0.15);
+  color: var(--accent-danger);
+  background: var(--accent-danger-subtle);
 }
 
 .user-panel-btn.leave-voice-btn.active {
   color: var(--accent-berry);
-  background: rgba(212, 20, 90, 0.2);
+  background: var(--accent-berry-wash);
 }
 
 .user-panel-btn.leave-voice-btn.pressed {
   color: var(--accent-lemon);
-  background: rgba(255, 230, 0, 0.15);
+  background: var(--accent-lemon-subtle);
   transform: scale(0.95);
 }
 
 .user-panel-btn.deaf-btn.pressed {
   color: var(--accent-lemon);
-  background: rgba(255, 230, 0, 0.15);
+  background: var(--accent-lemon-subtle);
   transform: scale(0.95);
 }
 
 .user-panel-btn.mute-btn.pressed {
   color: var(--accent-lemon);
-  background: rgba(255, 230, 0, 0.15);
+  background: var(--accent-lemon-subtle);
   transform: scale(0.95);
 }
 
 .user-panel-btn.dm-btn.pressed {
   color: var(--accent-lemon);
-  background: rgba(255, 230, 0, 0.15);
+  background: var(--accent-lemon-subtle);
   transform: scale(0.95);
 }
 
 .user-avatar {
   width: 36px;
   height: 36px;
-  border-radius: 50%;
-  background: linear-gradient(180deg, #4a1a6b 0%, #2d0f45 100%);
+  border-radius: var(--radius-full);
+  background: linear-gradient(180deg, var(--bg-avatar-start) 0%, var(--bg-avatar-end) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   transition: transform var(--transition-fast), box-shadow var(--transition-fast);
-  color: #7b4dff;
+  color: var(--accent-purple);
 }
 
 .user-avatar:hover {
   transform: scale(1.1);
-  box-shadow: 0 0 20px rgba(123, 77, 255, 0.5);
+  box-shadow: 0 0 20px var(--accent-purple-glow);
 }
 
 .user-avatar svg {
-  filter: drop-shadow(0 1px 1px rgba(0,0,0,0.3));
+  filter: var(--shadow-drop-subtle);
 }
 
 .user-avatar.speaking {

@@ -1,42 +1,107 @@
 @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 :root {
-  /* Bramble Cocktail Palette - Vintage Lounge */
+  /* ═══════════════════════════════════════════════════
+     Bramble Cocktail Palette — Vintage Lounge
+     ═══════════════════════════════════════════════════ */
+
+  /* Backgrounds */
   --bg-deep: #0f0a14;
   --bg-primary: #1a1025;
   --bg-glass: rgba(26, 16, 37, 0.85);
   --bg-hover: rgba(61, 42, 92, 0.3);
-  
-  /* Accent Colors */
+  --bg-hover-strong: rgba(100, 70, 150, 0.4);
+  --bg-surface: rgba(61, 42, 92, 0.15);
+  --bg-surface-hover: rgba(61, 42, 92, 0.35);
+  --bg-overlay: rgba(15, 10, 20, 0.80);
+  --bg-elevated: rgba(26, 16, 37, 0.6);
+  --bg-input: rgba(26, 16, 37, 0.6);
+  --bg-deep-glass: rgba(15, 10, 20, 0.4);
+  --bg-hover-light: rgba(255, 255, 255, 0.08);
+  --bg-surface-active: rgba(61, 42, 92, 0.6);
+
+  /* Accent: Berry */
   --accent-berry: #d4145a;
+  --accent-berry-dark: #b8124d;
+  --accent-berry-hover: #e8185f;
+  --accent-berry-light: #e8326e;
   --accent-berry-glow: rgba(212, 20, 90, 0.4);
+  --accent-berry-glow-strong: rgba(212, 20, 90, 0.55);
+  --accent-berry-subtle: rgba(212, 20, 90, 0.15);
+  --accent-berry-wash: rgba(212, 20, 90, 0.2);
+  --accent-berry-ghost: rgba(212, 20, 90, 0.06);
+  --accent-berry-ghost-strong: rgba(212, 20, 90, 0.1);
+  --accent-berry-muted: rgba(212, 20, 90, 0.45);
+
+  /* Accent: Lemon */
   --accent-lemon: #f4d03f;
   --accent-lemon-glow: rgba(244, 208, 63, 0.3);
+  --accent-lemon-subtle: rgba(255, 230, 0, 0.15);
+
+  /* Accent: Mint */
   --accent-mint: #50c878;
   --accent-mint-glow: rgba(80, 200, 120, 0.3);
-  
+  --accent-mint-subtle: rgba(80, 200, 120, 0.15);
+
+  /* Accent: Purple */
+  --accent-purple: #7b4dff;
+  --accent-purple-glow: rgba(123, 77, 255, 0.5);
+  --bg-avatar-start: #4a1a6b;
+  --bg-avatar-end: #2d0f45;
+
+  /* Accent: Danger */
+  --accent-danger: #ff6b6b;
+  --accent-danger-strong: #ff4f5e;
+  --accent-danger-text: #ff6b7a;
+  --accent-danger-subtle: rgba(220, 53, 69, 0.12);
+  --accent-danger-border: rgba(220, 53, 69, 0.4);
+  --accent-danger-bg: rgba(180, 30, 60, 0.25);
+
+  /* Status */
+  --status-connected: #50c878;
+
   /* Text */
   --text-primary: #f5f0e8;
   --text-secondary: #a89fb8;
+  --text-secondary-dim: rgba(168, 159, 184, 0.55);
+  --text-secondary-muted: rgba(168, 159, 184, 0.7);
   --text-muted: #6b5f7a;
-  
+  --text-muted-dim: rgba(107, 95, 122, 0.5);
+  --text-muted-strong: rgba(107, 95, 122, 0.85);
+
   /* Borders & Effects */
   --border-subtle: #3d2a5c;
   --border-glow: rgba(212, 20, 90, 0.3);
-  
+
   /* Glass Effect */
   --glass-blur: blur(12px);
   --glass-border: 1px solid rgba(61, 42, 92, 0.5);
-  
+
+  /* Shadows */
+  --shadow-dialog:
+    0 0 0 1px var(--accent-berry-subtle),
+    0 8px 32px rgba(15, 10, 20, 0.6),
+    0 0 60px rgba(212, 20, 90, 0.08);
+  --shadow-elevated: 0 8px 32px rgba(0, 0, 0, 0.4);
+  --shadow-drop-subtle: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.3));
+
+  /* Border Radius Scale */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 50%;
+
   /* Typography */
   --font-display: 'Cormorant Garamond', Georgia, serif;
   --font-body: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
-  
-  /* Spacing */
+
+  /* Layout */
   --sidebar-width: 280px;
   --header-height: 60px;
-  
+
   /* Transitions */
   --transition-fast: 150ms ease;
   --transition-normal: 250ms ease;
