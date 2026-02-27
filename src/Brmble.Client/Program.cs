@@ -22,8 +22,8 @@ static class Program
     private static CertificateService? _certService;
     private static MumbleAdapter? _mumbleClient;
     private static IntPtr _hwnd;
-    private static bool _muted;
-    private static bool _deafened;
+    private static volatile bool _muted;
+    private static volatile bool _deafened;
     private static volatile string? _closeAction; // null = ask, "minimize", "quit"
 
     private static readonly string LogPath = Path.Combine(
@@ -364,7 +364,6 @@ static class Program
                         {
                             _mumbleClient?.ToggleMute();
                             _muted = !_muted;
-                            if (!_muted) _deafened = false;
                             TrayIcon.UpdateState(_muted, _deafened);
                         }
                         break;

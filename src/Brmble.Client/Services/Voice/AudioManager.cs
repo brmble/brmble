@@ -993,6 +993,13 @@ private int _dmScreenHotkeyId = -1;
                     }
                     else if (_shortcutActionForMouse != null)
                     {
+                        // Suppress mute shortcut visual feedback when deafened (#156)
+                        if (_shortcutActionForMouse == "toggleMute" && _deafened)
+                        {
+                            AudioLog.Write($"[Audio] Mouse shortcut suppressed (deafened): {_shortcutActionForMouse}");
+                            return Win32RawInput.CallNextHookEx(_mouseHookHandle, nCode, wParam, lParam);
+                        }
+
                         // Toggle shortcuts: mark as held, fire ShortcutPressed, action fires on release
                         _heldMouseAction = _shortcutActionForMouse;
                         ShortcutPressed?.Invoke(_shortcutActionForMouse);
