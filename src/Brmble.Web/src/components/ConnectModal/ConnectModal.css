@@ -13,11 +13,6 @@
   animation: fadeIn 200ms ease;
 }
 
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
 .connect-modal {
   background: var(--bg-primary);
   border: var(--glass-border);
@@ -27,17 +22,6 @@
   max-width: 420px;
   position: relative;
   animation: slideUp 300ms ease;
-}
-
-@keyframes slideUp {
-  from { 
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to { 
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 
 .modal-close {
