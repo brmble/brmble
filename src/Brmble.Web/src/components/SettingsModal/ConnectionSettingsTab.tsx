@@ -61,17 +61,19 @@ export function ConnectionSettingsTab({ settings, onChange, servers }: Connectio
           Connect to
           <span className="tooltip-icon" data-tooltip={tooltipText}>?</span>
         </label>
-        <select
-          className="brmble-input"
-          value={settings.autoConnectServerId ?? ''}
-          onChange={handleServerChange}
-          disabled={!settings.autoConnectEnabled}
-        >
-          <option value="">Last connected server</option>
-          {servers.map(s => (
-            <option key={s.id} value={s.id}>{s.label}</option>
-          ))}
-        </select>
+        <div className="select-wrapper">
+          <select
+            className="brmble-input"
+            value={settings.autoConnectServerId ?? ''}
+            onChange={handleServerChange}
+            disabled={!settings.autoConnectEnabled}
+          >
+            <option value="">Last connected server</option>
+            {servers.map(s => (
+              <option key={s.id} value={s.id}>{s.label}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {servers.length === 0 && (

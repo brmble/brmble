@@ -285,10 +285,36 @@ select.brmble-input {
   cursor: pointer;
   min-width: 150px;
   appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23c0c0c0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 0.75rem center;
+  background-image: none;
   padding-right: 2rem;
+  position: relative;
+}
+
+/* Theme-adaptive dropdown arrow using CSS border triangle.
+   Inherits --text-secondary so it adapts to every theme. */
+select.brmble-input + .select-arrow,
+select.brmble-input::after {
+  /* ::after won't work on <select>, so we use a wrapper approach below */
+}
+
+/* Wrapper pattern: .select-wrapper > select.brmble-input */
+.select-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.select-wrapper::after {
+  content: '';
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 5px solid var(--text-secondary);
+  pointer-events: none;
 }
 
 select.brmble-input option {

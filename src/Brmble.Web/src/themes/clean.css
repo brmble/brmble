@@ -5,6 +5,26 @@
    prefer a cleaner aesthetic without the vintage
    cocktail-lounge atmosphere. No noise grain or
    mesh gradients.
+
+   THEME DEPENDENCY NOTE
+   ---------------------
+   This Clean theme intentionally overrides only a subset
+   of CSS custom properties (backgrounds, borders, text,
+   shadows, and selected theme features).
+
+   It relies on the Classic theme's base :root definition
+   for all other tokens, including but not limited to:
+   - Accent color tokens (--accent-primary*, --accent-secondary*,
+     --accent-success*, --accent-decorative*, --accent-danger*)
+   - Typography tokens (--font-display, --font-body, --font-mono)
+   - Glass / blur tokens (--glass-blur)
+   - Shadow utilities (--shadow-elevated, --shadow-drop-subtle)
+   - Status tokens (--status-connected)
+
+   For Clean to render correctly, the Classic theme's base
+   :root must continue to define these tokens, and its CSS
+   must be loaded before this file so that variables cascade
+   as expected.
    ═══════════════════════════════════════════════════ */
 
 :root[data-theme="clean"] {

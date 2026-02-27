@@ -41,15 +41,17 @@ export function InterfaceSettingsTab({
         <h3 className="settings-section-title">Theme</h3>
         <div className="settings-item">
           <label>Aesthetic</label>
-          <select
-            className="brmble-input"
-            value={localAppearance.theme}
-            onChange={(e) => handleThemeChange(e.target.value)}
-          >
-            {themes.map(t => (
-              <option key={t.id} value={t.id}>{t.name}</option>
-            ))}
-          </select>
+          <div className="select-wrapper">
+            <select
+              className="brmble-input"
+              value={localAppearance.theme}
+              onChange={(e) => handleThemeChange(e.target.value)}
+            >
+              {themes.map(t => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 

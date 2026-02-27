@@ -6,7 +6,8 @@
    with subtle noise grain and mesh gradients.
    ═══════════════════════════════════════════════════ */
 
-:root {
+:root[data-theme="classic"],
+:root:not([data-theme]) {
   /* Backgrounds */
   --bg-deep: #0f0a14;
   --bg-primary: #1a1025;
