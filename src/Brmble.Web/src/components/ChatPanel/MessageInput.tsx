@@ -35,7 +35,7 @@ export function MessageInput({ onSend, placeholder = 'Type a message...' }: Mess
           rows={1}
         />
         <button 
-          className="send-button"
+          className="btn btn-primary btn-icon send-button"
           onClick={handleSend}
           disabled={!message.trim()}
           title="Send message"

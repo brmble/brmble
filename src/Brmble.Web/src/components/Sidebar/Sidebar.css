@@ -86,15 +86,9 @@
 
 .disconnect-btn {
   margin-left: auto;
-  padding: 0.2rem 0.5rem;
   background: var(--accent-berry-wash);
   border: 1px solid var(--accent-berry);
-  border-radius: var(--radius-xs);
-  font-size: 0.625rem;
-  font-weight: 500;
   color: var(--accent-berry);
-  cursor: pointer;
-  transition: all var(--transition-fast);
   flex-shrink: 0;
 }
 
@@ -108,13 +102,9 @@
 }
 
 .reconnect-btn {
-  font-size: 0.7rem;
-  padding: 2px 8px;
-  border-radius: var(--radius-xs);
   border: 1px solid var(--border-subtle);
   background: var(--bg-elevated);
   color: var(--text-secondary);
-  cursor: pointer;
   margin-left: auto;
 }
 .reconnect-btn:hover {

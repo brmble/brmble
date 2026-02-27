@@ -45,14 +45,6 @@
 .send-button {
   width: 40px;
   height: 40px;
-  min-width: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--accent-berry);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  transition: all var(--transition-fast);
 }
 
 .send-button:hover:not(:disabled) {
@@ -60,9 +52,4 @@
   color: var(--bg-deep);
   transform: scale(1.05);
   box-shadow: 0 0 16px var(--accent-lemon-glow);
-}
-
-.send-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }

@@ -1,8 +1,8 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
-import { ContextMenu } from './ContextMenu/ContextMenu';
-import { UserInfoDialog } from './UserInfoDialog/UserInfoDialog';
-import { usePermissions } from '../hooks/usePermissions';
-import bridge from '../bridge';
+import { ContextMenu } from '../ContextMenu/ContextMenu';
+import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
+import { usePermissions } from '../../hooks/usePermissions';
+import bridge from '../../bridge';
 import './ChannelTree.css';
 
 interface User {

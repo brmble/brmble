@@ -61,7 +61,7 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
     <div className="user-panel">
       {onLeaveVoice && (
         <button 
-          className={`user-panel-btn leave-voice-btn ${leftVoice ? 'active' : ''} ${activeBtn === 'leave' ? 'pressed' : ''} ${(!!leftVoice && !canRejoin) || pendingChannelAction !== null ? 'disabled' : ''}`}
+          className={`btn btn-ghost btn-icon user-panel-btn leave-voice-btn ${leftVoice ? 'active' : ''} ${activeBtn === 'leave' ? 'pressed' : ''} ${(!!leftVoice && !canRejoin) || pendingChannelAction !== null ? 'disabled' : ''}`}
           onMouseDown={handleMouseDown('leave')}
           onMouseUp={handleMouseUp('leave', onLeaveVoice)}
           onMouseLeave={handleMouseLeave}
@@ -79,7 +79,7 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
 
       {onToggleDeaf && (
         <button 
-          className={`user-panel-btn deaf-btn ${(deafened || leftVoice) ? 'active' : ''} ${activeBtn === 'deaf' ? 'pressed' : ''} ${leftVoice ? 'disabled' : ''}`}
+          className={`btn btn-ghost btn-icon user-panel-btn deaf-btn ${(deafened || leftVoice) ? 'active' : ''} ${activeBtn === 'deaf' ? 'pressed' : ''} ${leftVoice ? 'disabled' : ''}`}
           onMouseDown={handleMouseDown('deaf')}
           onMouseUp={handleMouseUp('deaf', onToggleDeaf)}
           onMouseLeave={handleMouseLeave}
@@ -107,7 +107,7 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
 
       {onToggleMute && (
         <button 
-          className={`user-panel-btn mute-btn ${(muted || leftVoice || deafened) ? 'active' : ''} ${activeBtn === 'mute' ? 'pressed' : ''} ${(leftVoice || deafened) ? 'disabled' : ''}`}
+          className={`btn btn-ghost btn-icon user-panel-btn mute-btn ${(muted || leftVoice || deafened) ? 'active' : ''} ${activeBtn === 'mute' ? 'pressed' : ''} ${(leftVoice || deafened) ? 'disabled' : ''}`}
           onMouseDown={handleMouseDown('mute')}
           onMouseUp={handleMouseUp('mute', onToggleMute)}
           onMouseLeave={handleMouseLeave}
@@ -133,7 +133,7 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
       )}
 
       <button 
-        className={`user-panel-btn dm-btn ${dmActive ? 'active' : ''} ${activeBtn === 'dm' ? 'pressed' : ''}`}
+        className={`btn btn-ghost btn-icon user-panel-btn dm-btn ${dmActive ? 'active' : ''} ${activeBtn === 'dm' ? 'pressed' : ''}`}
         onMouseDown={handleMouseDown('dm')}
         onMouseUp={handleMouseUp('dm', onToggleDM)}
         onMouseLeave={handleMouseLeave}
@@ -152,7 +152,7 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
       </button>
       
       <button 
-        className="user-panel-btn user-settings-btn" 
+        className="btn btn-ghost btn-icon user-panel-btn user-settings-btn" 
         onClick={onOpenSettings}
         title="Settings"
       >

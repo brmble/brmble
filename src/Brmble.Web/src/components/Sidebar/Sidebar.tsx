@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ChannelTree } from '../ChannelTree';
+import { ChannelTree } from './ChannelTree';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
 import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -98,7 +98,7 @@ export function Sidebar({
             )}
             {isDisconnected && onReconnect && (
               <button
-                className="reconnect-btn"
+                className="btn btn-sm reconnect-btn"
                 onClick={(e) => { e.stopPropagation(); onReconnect(); }}
               >
                 Reconnect
@@ -106,7 +106,7 @@ export function Sidebar({
             )}
             {(onDisconnect || onCancelReconnect) && (connected || isConnecting || isReconnecting || isDisconnected) && (
               <button
-                className="disconnect-btn"
+                className="btn btn-sm disconnect-btn"
                 onClick={(e) => { e.stopPropagation(); (isReconnecting ? onCancelReconnect : onDisconnect)?.(); }}
               >
                 {(isConnecting || isReconnecting) ? 'Cancel' : isDisconnected ? 'Back' : 'Disconnect'}
