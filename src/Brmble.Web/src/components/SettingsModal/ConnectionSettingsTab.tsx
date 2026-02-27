@@ -38,22 +38,26 @@ export function ConnectionSettingsTab({ settings, onChange, servers }: Connectio
     <div className="connection-settings-tab">
       <div className="settings-item settings-toggle">
         <label>Automatically reconnect when disconnected</label>
-        <input
-          type="checkbox"
-          className="toggle-input"
-          checked={settings.reconnectEnabled}
-          onChange={handleReconnectToggle}
-        />
+        <label className="brmble-toggle">
+          <input
+            type="checkbox"
+            checked={settings.reconnectEnabled}
+            onChange={handleReconnectToggle}
+          />
+          <span className="brmble-toggle-slider"></span>
+        </label>
       </div>
 
       <div className="settings-item settings-toggle">
         <label>Auto-connect on startup</label>
-        <input
-          type="checkbox"
-          className="toggle-input"
-          checked={settings.autoConnectEnabled}
-          onChange={handleAutoConnectToggle}
-        />
+        <label className="brmble-toggle">
+          <input
+            type="checkbox"
+            checked={settings.autoConnectEnabled}
+            onChange={handleAutoConnectToggle}
+          />
+          <span className="brmble-toggle-slider"></span>
+        </label>
       </div>
 
       <div className="server-dropdown-row">

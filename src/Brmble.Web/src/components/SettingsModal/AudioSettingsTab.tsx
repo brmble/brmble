@@ -226,12 +226,14 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
           Speech Enhancement
           <span className="settings-hint-inline"> — AI noise reduction (GTCRN)</span>
         </label>
-        <input
-          type="checkbox"
-          className="toggle-input"
-          checked={speechEnhancement.enabled}
-          onChange={() => onSpeechEnhancementChange({ ...speechEnhancement, enabled: !speechEnhancement.enabled })}
-        />
+        <label className="brmble-toggle">
+          <input
+            type="checkbox"
+            checked={speechEnhancement.enabled}
+            onChange={() => onSpeechEnhancementChange({ ...speechEnhancement, enabled: !speechEnhancement.enabled })}
+          />
+          <span className="brmble-toggle-slider"></span>
+        </label>
       </div>
 
       {conflict && (

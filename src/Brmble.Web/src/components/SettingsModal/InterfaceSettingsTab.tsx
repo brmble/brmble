@@ -60,12 +60,14 @@ export function InterfaceSettingsTab({
         <h3 className="settings-section-title">In-Game Overlay</h3>
         <div className="settings-item settings-toggle">
           <label>Enable Overlay</label>
-          <input
-            type="checkbox"
-            className="toggle-input"
-            checked={overlaySettings.overlayEnabled}
-            onChange={handleOverlayToggle}
-          />
+          <label className="brmble-toggle">
+            <input
+              type="checkbox"
+              checked={overlaySettings.overlayEnabled}
+              onChange={handleOverlayToggle}
+            />
+            <span className="brmble-toggle-slider"></span>
+          </label>
         </div>
         <p className="settings-hint">
           Overlay feature coming soon. This will allow you to see status information over other applications.

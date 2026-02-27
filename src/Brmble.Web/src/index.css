@@ -352,55 +352,6 @@ a:hover {
   cursor: not-allowed;
 }
 
-/* Legacy toggle-input support (direct checkbox styling) */
-.toggle-input {
-  appearance: none;
-  width: 44px;
-  height: 24px;
-  background: var(--border-subtle);
-  border-radius: var(--radius-lg);
-  position: relative;
-  cursor: pointer;
-  transition: background var(--transition-fast);
-}
-
-.toggle-input::after {
-  content: '';
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 20px;
-  height: 20px;
-  background: var(--text-primary);
-  border-radius: var(--radius-full);
-  transition: transform var(--transition-fast);
-}
-
-.toggle-input:checked {
-  background: var(--accent-primary);
-}
-
-.toggle-input:checked::after {
-  transform: translateX(20px);
-}
-
-.toggle-input:active::after {
-  width: 24px;
-}
-
-.toggle-input:checked:active::after {
-  transform: translateX(16px);
-}
-
-.toggle-input:focus-visible {
-  box-shadow: 0 0 0 2px var(--bg-deep), 0 0 0 4px var(--accent-primary);
-}
-
-.toggle-input:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 /* Base Inputs */
 .brmble-input {
   background: var(--bg-input);
