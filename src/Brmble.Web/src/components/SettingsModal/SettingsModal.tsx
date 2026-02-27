@@ -4,8 +4,8 @@ import bridge from '../../bridge';
 import { AudioSettingsTab, type AudioSettings, type SpeechEnhancementSettings, DEFAULT_SETTINGS as DEFAULT_AUDIO, DEFAULT_SPEECH_ENHANCEMENT } from './AudioSettingsTab';
 import { ShortcutsSettingsTab, type ShortcutsSettings, DEFAULT_SHORTCUTS } from './ShortcutsSettingsTab';
 import { MessagesSettingsTab, type MessagesSettings, DEFAULT_MESSAGES } from './MessagesSettingsTab';
-import { AppearanceSettingsTab, type AppearanceSettings, DEFAULT_APPEARANCE } from './AppearanceSettingsTab';
-import { OverlaySettingsTab, type OverlaySettings, DEFAULT_OVERLAY } from './OverlaySettingsTab';
+import { InterfaceSettingsTab } from './InterfaceSettingsTab';
+import { type AppearanceSettings, type OverlaySettings, DEFAULT_APPEARANCE, DEFAULT_OVERLAY } from './InterfaceSettingsTypes';
 import { IdentitySettingsTab } from './IdentitySettingsTab';
 import { ConnectionSettingsTab, type ConnectionSettings } from './ConnectionSettingsTab';
 import { useServerlist } from '../../hooks/useServerlist';
@@ -57,7 +57,7 @@ const DEFAULT_SETTINGS: AppSettings = {
 
 export function SettingsModal(props: SettingsModalProps) {
   const { isOpen, onClose } = props;
-  const [activeTab, setActiveTab] = useState<'audio' | 'shortcuts' | 'messages' | 'appearance' | 'overlay' | 'connection' | 'identity'>('audio');
+  const [activeTab, setActiveTab] = useState<'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'identity'>('audio');
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const { servers } = useServerlist();
 
@@ -240,13 +240,7 @@ export function SettingsModal(props: SettingsModalProps) {
             className={`settings-tab ${activeTab === 'appearance' ? 'active' : ''}`}
             onClick={() => setActiveTab('appearance')}
           >
-            Appearance
-          </button>
-          <button
-            className={`settings-tab ${activeTab === 'overlay' ? 'active' : ''}`}
-            onClick={() => setActiveTab('overlay')}
-          >
-            Overlay
+            Interface
           </button>
           <button
             className={`settings-tab ${activeTab === 'connection' ? 'active' : ''}`}
@@ -266,8 +260,14 @@ export function SettingsModal(props: SettingsModalProps) {
           {activeTab === 'audio' && <AudioSettingsTab settings={settings.audio} onChange={handleAudioChange} speechEnhancement={settings.speechEnhancement} onSpeechEnhancementChange={handleSpeechEnhancementChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}
           {activeTab === 'shortcuts' && <ShortcutsSettingsTab settings={settings.shortcuts} onChange={handleShortcutsChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}
           {activeTab === 'messages' && <MessagesSettingsTab settings={settings.messages} onChange={handleMessagesChange} />}
-          {activeTab === 'appearance' && <AppearanceSettingsTab settings={settings.appearance || DEFAULT_APPEARANCE} onChange={handleAppearanceChange} />}
-          {activeTab === 'overlay' && <OverlaySettingsTab settings={settings.overlay} onChange={handleOverlayChange} />}
+          {activeTab === 'appearance' && (
+            <InterfaceSettingsTab 
+              appearanceSettings={settings.appearance || DEFAULT_APPEARANCE} 
+              overlaySettings={settings.overlay || DEFAULT_OVERLAY}
+              onAppearanceChange={handleAppearanceChange} 
+              onOverlayChange={handleOverlayChange}
+            />
+          )}
           {activeTab === 'connection' && (
             <ConnectionSettingsTab
               settings={{
