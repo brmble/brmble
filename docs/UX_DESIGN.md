@@ -65,9 +65,5 @@ A great interface is tactile. Elements should react predictably and delightfully
 
 The following aesthetic improvements are scheduled to be implemented to fully realize the "Brmble Classic" vision:
 
-- **[TODO] Atmospheric Depth (Gradient Mesh & Theme-scoped Grain):** 
-  We need to replace the completely flat, solid `#0f0a14` global background with a subtle, fixed radial gradient mesh (deep berry and purple glows in the corners). This will enhance spatial depth and make the glassmorphic panels (`--bg-glass`) look incredibly premium. 
-  *Important Architecture Note:* Because a future "Brmble Clean" theme will *not* have noise grain, the graining effect and gradient mesh must be refactored to be scoped via data attributes (e.g., `[data-theme="classic"]`) or injected via theme-specific CSS variables.
-
 - **[TODO] Custom Cursors:**
   Implement a custom CSS cursor (e.g., a subtle berry-colored dot or a stylized pointer) that reacts to hover states (`:hover`, `:active`). This aligns with the guidelines for art-directed details, giving the app an immediate tactile and distinctive feel.

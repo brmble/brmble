@@ -4,6 +4,7 @@ import bridge from '../../bridge';
 import { AudioSettingsTab, type AudioSettings, type SpeechEnhancementSettings, DEFAULT_SETTINGS as DEFAULT_AUDIO, DEFAULT_SPEECH_ENHANCEMENT } from './AudioSettingsTab';
 import { ShortcutsSettingsTab, type ShortcutsSettings, DEFAULT_SHORTCUTS } from './ShortcutsSettingsTab';
 import { MessagesSettingsTab, type MessagesSettings, DEFAULT_MESSAGES } from './MessagesSettingsTab';
+import { AppearanceSettingsTab, type AppearanceSettings, DEFAULT_APPEARANCE } from './AppearanceSettingsTab';
 import { OverlaySettingsTab, type OverlaySettings, DEFAULT_OVERLAY } from './OverlaySettingsTab';
 import { IdentitySettingsTab } from './IdentitySettingsTab';
 import { ConnectionSettingsTab, type ConnectionSettings } from './ConnectionSettingsTab';
@@ -34,6 +35,7 @@ interface AppSettings {
   audio: AudioSettings;
   shortcuts: ShortcutsSettings;
   messages: MessagesSettings;
+  appearance: AppearanceSettings;
   overlay: OverlaySettings;
   speechEnhancement: SpeechEnhancementSettings;
   reconnectEnabled: boolean;
@@ -45,6 +47,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   audio: DEFAULT_AUDIO,
   shortcuts: DEFAULT_SHORTCUTS,
   messages: DEFAULT_MESSAGES,
+  appearance: DEFAULT_APPEARANCE,
   overlay: DEFAULT_OVERLAY,
   speechEnhancement: DEFAULT_SPEECH_ENHANCEMENT,
   reconnectEnabled: true,
@@ -54,7 +57,7 @@ const DEFAULT_SETTINGS: AppSettings = {
 
 export function SettingsModal(props: SettingsModalProps) {
   const { isOpen, onClose } = props;
-  const [activeTab, setActiveTab] = useState<'audio' | 'shortcuts' | 'messages' | 'overlay' | 'connection' | 'identity'>('audio');
+  const [activeTab, setActiveTab] = useState<'audio' | 'shortcuts' | 'messages' | 'appearance' | 'overlay' | 'connection' | 'identity'>('audio');
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const { servers } = useServerlist();
 
@@ -72,6 +75,9 @@ export function SettingsModal(props: SettingsModalProps) {
       const d = data as { settings?: AppSettings } | undefined;
       if (d?.settings) {
         setSettings({ ...DEFAULT_SETTINGS, ...d.settings });
+        if (d.settings.appearance?.theme) {
+          document.documentElement.setAttribute('data-theme', d.settings.appearance.theme);
+        }
       }
     };
 
@@ -164,6 +170,13 @@ export function SettingsModal(props: SettingsModalProps) {
     bridge.send('settings.set', { settings: newSettings });
   };
 
+  const handleAppearanceChange = (appearance: AppearanceSettings) => {
+    const newSettings = { ...settings, appearance };
+    setSettings(newSettings);
+    bridge.send('settings.set', { settings: newSettings });
+    document.documentElement.setAttribute('data-theme', appearance.theme);
+  };
+
   const handleOverlayChange = (overlay: OverlaySettings) => {
     const newSettings = { ...settings, overlay };
     setSettings(newSettings);
@@ -223,6 +236,12 @@ export function SettingsModal(props: SettingsModalProps) {
           >
             Messages
           </button>
+          <button 
+            className={`settings-tab ${activeTab === 'appearance' ? 'active' : ''}`}
+            onClick={() => setActiveTab('appearance')}
+          >
+            Appearance
+          </button>
           <button
             className={`settings-tab ${activeTab === 'overlay' ? 'active' : ''}`}
             onClick={() => setActiveTab('overlay')}
@@ -247,6 +266,7 @@ export function SettingsModal(props: SettingsModalProps) {
           {activeTab === 'audio' && <AudioSettingsTab settings={settings.audio} onChange={handleAudioChange} speechEnhancement={settings.speechEnhancement} onSpeechEnhancementChange={handleSpeechEnhancementChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}
           {activeTab === 'shortcuts' && <ShortcutsSettingsTab settings={settings.shortcuts} onChange={handleShortcutsChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}
           {activeTab === 'messages' && <MessagesSettingsTab settings={settings.messages} onChange={handleMessagesChange} />}
+          {activeTab === 'appearance' && <AppearanceSettingsTab settings={settings.appearance || DEFAULT_APPEARANCE} onChange={handleAppearanceChange} />}
           {activeTab === 'overlay' && <OverlaySettingsTab settings={settings.overlay} onChange={handleOverlayChange} />}
           {activeTab === 'connection' && (
             <ConnectionSettingsTab
