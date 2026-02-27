@@ -81,6 +81,13 @@ export function addMessageToStore(storeKey: string, sender: string, content: str
   localStorage.setItem(fullKey, JSON.stringify(messages));
 }
 
+/** Clear all chat messages and DM contacts from localStorage. */
+export function clearChatStorage() {
+  Object.keys(localStorage)
+    .filter(k => k.startsWith(STORAGE_KEY_PREFIX) || k === DM_CONTACTS_KEY)
+    .forEach(k => localStorage.removeItem(k));
+}
+
 export function useAllChats() {
   const getAllChannelIds = useCallback(() => {
     const keys = Object.keys(localStorage).filter(k => k.startsWith(STORAGE_KEY_PREFIX));

@@ -41,11 +41,15 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       const channelId = roomIdToChannelId.get(room?.roomId ?? '');
       if (!channelId) return;
 
+      const senderId = event.getSender() ?? 'Unknown';
+      const senderMember = room?.getMember(senderId);
+      const displayName = senderMember?.name || senderMember?.rawDisplayName || senderId;
+
       const content = event.getContent() as { body?: string };
       const message: ChatMessage = {
         id: event.getId() ?? crypto.randomUUID(),
         channelId,
-        sender: event.getSender() ?? 'Unknown',
+        sender: displayName,
         content: content.body ?? '',
         timestamp: new Date(event.getTs()),
       };

@@ -14,7 +14,7 @@ import { SettingsModal } from './components/SettingsModal/SettingsModal';
 import { CloseDialog } from './components/CloseDialog/CloseDialog';
 import { CertWizard } from './components/CertWizard/CertWizard';
 import { Version } from './components/Version/Version';
-import { useChatStore, addMessageToStore, loadDMContacts, upsertDMContact, markDMContactRead } from './hooks/useChatStore';
+import { useChatStore, addMessageToStore, clearChatStorage, loadDMContacts, upsertDMContact, markDMContactRead } from './hooks/useChatStore';
 import type { StoredDMContact } from './hooks/useChatStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
 import './App.css';
@@ -290,6 +290,8 @@ function App() {
       const wrapped = data as { matrix?: MatrixCredentials } | undefined;
       const d = wrapped?.matrix;
       if (d?.homeserverUrl && d.accessToken && d.userId && d.roomMap) {
+        // Clear stale chat data from previous sessions
+        clearChatStorage();
         setMatrixCredentials(d);
       }
     };
