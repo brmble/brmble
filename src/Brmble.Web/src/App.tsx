@@ -811,6 +811,7 @@ const handleConnect = (serverData: SavedServer) => {
   const activeChannelId = currentChannelId && currentChannelId !== 'server-root'
     ? currentChannelId
     : undefined;
+  const isMatrixActive = activeChannelId && matrixCredentials?.roomMap[activeChannelId] !== undefined;
   const matrixMessages = activeChannelId
     ? matrixClient.messages.get(activeChannelId)
     : undefined;
@@ -862,7 +863,7 @@ const handleConnect = (serverData: SavedServer) => {
               <ChatPanel
                 channelId={currentChannelId || undefined}
                 channelName={currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName}
-                messages={matrixMessages ?? messages}
+                messages={isMatrixActive ? (matrixMessages ?? []) : messages}
                 currentUsername={username}
                 onSendMessage={handleSendMessage}
               />

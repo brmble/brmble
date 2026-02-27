@@ -14,6 +14,7 @@ public interface IMatrixAppService
     Task<string> RegisterUser(string localpart, string displayName);
     Task<string> LoginUser(string localpart);
     Task EnsureUserInRooms(string localpart, IEnumerable<string> roomIds);
+    Task SetDisplayName(string localpart, string displayName);
 }
 
 public class MatrixAppService : IMatrixAppService
@@ -72,7 +73,7 @@ public class MatrixAppService : IMatrixAppService
     {
         var url = $"{_homeserverUrl}/_matrix/client/v3/register?kind=user";
         var body = JsonSerializer.Serialize(new { username = localpart });
-        var response = await SendRequest(HttpMethod.Post, url, body);
+        var response = await SendRequestCore(HttpMethod.Post, url, body, userId: null);
         var json = JsonSerializer.Deserialize<JsonElement>(response);
         var accessToken = json.GetProperty("access_token").GetString()
             ?? throw new InvalidOperationException("Matrix did not return an access_token");
@@ -113,6 +114,19 @@ public class MatrixAppService : IMatrixAppService
     public async Task EnsureUserInRooms(string localpart, IEnumerable<string> roomIds)
     {
         var userId = $"@{localpart}:{_serverDomain}";
+
+        // Ensure the user exists on the homeserver (idempotent — ignores "already exists")
+        try
+        {
+            var regUrl = $"{_homeserverUrl}/_matrix/client/v3/register?kind=user";
+            var regBody = JsonSerializer.Serialize(new { username = localpart });
+            await SendRequestCore(HttpMethod.Post, regUrl, regBody, userId: null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("User registration for {UserId} skipped (likely already exists): {Error}", userId, ex.Message);
+        }
+
         foreach (var roomId in roomIds)
         {
             try
@@ -141,11 +155,23 @@ public class MatrixAppService : IMatrixAppService
         }
     }
 
-    private async Task<string> SendRequest(HttpMethod method, string url, string jsonBody, string? actAs = null)
+    public async Task SetDisplayName(string localpart, string displayName)
+    {
+        var userId = $"@{localpart}:{_serverDomain}";
+        var url = $"{_homeserverUrl}/_matrix/client/v3/profile/{Uri.EscapeDataString(userId)}/displayname";
+        var body = JsonSerializer.Serialize(new { displayname = displayName });
+        await SendRequest(HttpMethod.Put, url, body, actAs: userId);
+    }
+
+    private Task<string> SendRequest(HttpMethod method, string url, string jsonBody, string? actAs = null)
+        => SendRequestCore(method, url, jsonBody, actAs ?? _botUserId);
+
+    private async Task<string> SendRequestCore(HttpMethod method, string url, string jsonBody, string? userId)
     {
         var client = _httpClientFactory.CreateClient();
-        var effectiveUser = actAs ?? _botUserId;
-        var urlWithUser = $"{url}{(url.Contains('?') ? '&' : '?')}user_id={Uri.EscapeDataString(effectiveUser)}";
+        var urlWithUser = userId is not null
+            ? $"{url}{(url.Contains('?') ? '&' : '?')}user_id={Uri.EscapeDataString(userId)}"
+            : url;
         var request = new HttpRequestMessage(method, urlWithUser)
         {
             Content = new StringContent(jsonBody, Encoding.UTF8, "application/json")
