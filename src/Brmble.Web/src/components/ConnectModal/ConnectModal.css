@@ -10,7 +10,7 @@
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  animation: fadeIn 200ms ease;
+  animation: fadeIn var(--transition-fast);
 }
 
 .connect-modal {
@@ -18,7 +18,6 @@
   width: 100%;
   max-width: 420px;
   position: relative;
-  animation: slideUp 300ms ease;
 }
 
 .modal-close {

@@ -56,7 +56,7 @@ export function CloseDialog({ isOpen, onMinimize, onQuit }: CloseDialogProps) {
     <div className="close-dialog-overlay">
       {/* Fix 2: ARIA dialog semantics */}
       <div
-        className="close-dialog-card glass-panel"
+        className="close-dialog-card glass-panel animate-slide-up"
         role="dialog"
         aria-modal="true"
         aria-labelledby="close-dialog-title"

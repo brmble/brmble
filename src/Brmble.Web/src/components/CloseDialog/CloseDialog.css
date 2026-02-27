@@ -7,7 +7,7 @@
   align-items: center;
   justify-content: center;
   z-index: 10000;
-  animation: overlay-fade-in 150ms ease;
+  animation: overlay-fade-in var(--transition-fast);
 }
 
 .close-dialog-card {
@@ -17,7 +17,6 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  animation: slideUp var(--transition-normal);
 }
 
 .close-dialog-title {

@@ -111,7 +111,7 @@ export function UserInfoDialog({
     <div className="user-info-overlay" onClick={onClose}>
       <div
         ref={dialogRef}
-        className="user-info-card glass-panel"
+        className="user-info-card glass-panel animate-slide-up"
         role="dialog"
         aria-modal="true"
         aria-labelledby="user-info-title"

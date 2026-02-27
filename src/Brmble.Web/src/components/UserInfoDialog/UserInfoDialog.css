@@ -7,7 +7,7 @@
   align-items: center;
   justify-content: center;
   z-index: 10000;
-  animation: overlay-fade-in 150ms ease;
+  animation: overlay-fade-in var(--transition-fast);
 }
 
 .user-info-card {
@@ -16,7 +16,6 @@
   max-width: 90vw;
   display: flex;
   flex-direction: column;
-  animation: slideUp var(--transition-normal);
 }
 
 .user-info-header {
