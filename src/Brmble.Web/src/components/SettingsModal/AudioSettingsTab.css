@@ -7,7 +7,7 @@
   background: var(--accent-danger-subtle);
   border-color: var(--accent-danger);
   color: var(--accent-danger);
-  animation: pulse 1s infinite;
+  animation: pulse var(--animation-pulse) infinite;
 }
 
 .settings-slider {

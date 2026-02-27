@@ -146,9 +146,9 @@
 }
 
 .status-dot--idle        { background: var(--text-muted); opacity: 0.4; }
-.status-dot--connecting  { background: var(--accent-secondary); animation: status-blink 0.5s ease-in-out infinite alternate; }
+.status-dot--connecting  { background: var(--accent-secondary); animation: status-blink var(--animation-blink) ease-in-out infinite alternate; }
 .status-dot--connected   { background: var(--status-connected); }
-.status-dot--reconnecting{ background: var(--accent-secondary); animation: status-blink 0.5s ease-in-out infinite alternate; }
+.status-dot--reconnecting{ background: var(--accent-secondary); animation: status-blink var(--animation-blink) ease-in-out infinite alternate; }
 .status-dot--failed      { background: var(--accent-primary); }
 
 @keyframes status-blink {

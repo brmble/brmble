@@ -171,7 +171,7 @@
 .user-row.speaking {
   background: var(--accent-success-subtle);
   box-shadow: 0 0 12px var(--accent-success-glow);
-  animation: speaking-pulse 1.5s ease-in-out infinite;
+  animation: speaking-pulse var(--animation-speaking-pulse) ease-in-out infinite;
 }
 
 .channel-item--pending .channel-row {

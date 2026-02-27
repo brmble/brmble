@@ -38,7 +38,7 @@
 
 .loading-dots::after {
   content: '';
-  animation: loadingDots 1.5s infinite;
+  animation: loadingDots var(--animation-loading-dots) infinite;
 }
 
 @keyframes loadingDots {
