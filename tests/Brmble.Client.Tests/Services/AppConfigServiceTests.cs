@@ -202,4 +202,19 @@ public class AppConfigServiceTests
 
         Assert.IsFalse(svc2.GetSettings().ReconnectEnabled);
     }
+
+    [TestMethod]
+    public void SavesAndReloads_AppearanceSettings()
+    {
+        var svc = new AppConfigService(_tempDir);
+        var updated = AppSettings.Default with
+        {
+            Appearance = new AppearanceSettings(Theme: "blue-lagoon")
+        };
+
+        svc.SetSettings(updated);
+        var svc2 = new AppConfigService(_tempDir);
+
+        Assert.AreEqual("blue-lagoon", svc2.GetSettings().Appearance.Theme);
+    }
 }

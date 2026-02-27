@@ -32,6 +32,10 @@ public record SpeechEnhancementSettings(
     string Model = "dns3"
 );
 
+public record AppearanceSettings(
+    string Theme = "classic"
+);
+
 public record AppSettings(
     AudioSettings Audio,
     ShortcutsSettings Shortcuts,
@@ -40,10 +44,12 @@ public record AppSettings(
     SpeechEnhancementSettings? SpeechEnhancement = null,
     bool AutoConnectEnabled = false,
     string? AutoConnectServerId = null,
-    bool ReconnectEnabled = true
+    bool ReconnectEnabled = true,
+    AppearanceSettings? Appearance = null
 )
 {
     public SpeechEnhancementSettings SpeechEnhancement { get; init; } = SpeechEnhancement ?? new SpeechEnhancementSettings();
+    public AppearanceSettings Appearance { get; init; } = Appearance ?? new AppearanceSettings();
 
     public static AppSettings Default => new(
         new AudioSettings(),
