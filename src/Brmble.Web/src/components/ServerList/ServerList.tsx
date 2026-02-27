@@ -150,7 +150,7 @@ export function ServerList({ onConnect }: ServerListProps) {
                   Cancel
                 </button>
                 <button type="submit" className="btn btn-primary server-list-submit-btn">
-                  {editing ? 'Save Changes' : 'Add Server'}
+                  {editing ? 'Save' : 'Add Server'}
                 </button>
               </div>
             </form>
