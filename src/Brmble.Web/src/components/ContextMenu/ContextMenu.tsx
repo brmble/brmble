@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 import './ContextMenu.css';
 
+const MOUSE_LEAVE_CLOSE_DELAY = 400;
+
 interface ContextMenuItem {
   label: string;
   onClick: () => void;
@@ -12,12 +14,14 @@ interface ContextMenuProps {
   y: number;
   items: ContextMenuItem[];
   onClose: () => void;
+  mouseLeaveDelay?: number;
 }
 
 export type { ContextMenuItem };
 
-export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
+export function ContextMenu({ x, y, items, onClose, mouseLeaveDelay = MOUSE_LEAVE_CLOSE_DELAY }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -37,6 +41,13 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
     };
   }, [onClose]);
 
+  // Clean up leave timer on unmount
+  useEffect(() => {
+    return () => {
+      if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
+    };
+  }, []);
+
   // Adjust position to keep menu within viewport
   useEffect(() => {
     if (menuRef.current) {
@@ -48,11 +59,26 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
     }
   }, [x, y]);
 
+  const handleMouseEnter = () => {
+    if (leaveTimerRef.current) {
+      clearTimeout(leaveTimerRef.current);
+      leaveTimerRef.current = null;
+    }
+  };
+
+  const handleMouseLeave = () => {
+    leaveTimerRef.current = setTimeout(() => {
+      onClose();
+    }, mouseLeaveDelay);
+  };
+
   return (
     <div
       ref={menuRef}
       className="context-menu"
       style={{ left: x, top: y }}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
     >
       {items.map((item, i) => (
         <button
