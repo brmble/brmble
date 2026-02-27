@@ -37,17 +37,17 @@
   -webkit-appearance: none;
   width: 16px;
   height: 16px;
-  background: var(--accent-berry);
+  background: var(--accent-primary);
   border-radius: var(--radius-full);
   cursor: pointer;
-  box-shadow: 0 0 8px var(--accent-berry-glow);
+  box-shadow: 0 0 8px var(--accent-primary-glow);
   transition: transform var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .settings-slider input[type="range"]::-webkit-slider-thumb:hover {
-  background: var(--accent-berry-hover);
+  background: var(--accent-primary-hover);
   transform: scale(1.15);
-  box-shadow: 0 0 12px var(--accent-berry-glow);
+  box-shadow: 0 0 12px var(--accent-primary-glow);
 }
 
 .settings-section-divider {

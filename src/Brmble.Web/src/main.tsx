@@ -1,6 +1,8 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
+import './themes/classic.css'
+import './themes/clean.css'
 import App from './App.tsx'
 
 // Apply theme before render to prevent flash

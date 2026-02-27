@@ -16,8 +16,8 @@
 }
 
 .message-input-wrapper:focus-within {
-  border-color: var(--accent-berry);
-  box-shadow: 0 0 20px var(--accent-berry-glow);
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 20px var(--accent-primary-glow);
 }
 
 .message-input {
@@ -48,8 +48,8 @@
 }
 
 .send-button:hover:not(:disabled) {
-  background: var(--accent-lemon);
+  background: var(--accent-secondary);
   color: var(--bg-deep);
   transform: scale(1.05);
-  box-shadow: 0 0 16px var(--accent-lemon-glow);
+  box-shadow: 0 0 16px var(--accent-secondary-glow);
 }

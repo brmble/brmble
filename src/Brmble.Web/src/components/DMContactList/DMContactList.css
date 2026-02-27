@@ -91,7 +91,7 @@
 }
 
 .dm-contact-entry.active {
-  background: var(--accent-berry-wash);
+  background: var(--accent-primary-wash);
 }
 
 .dm-contact-avatar {
@@ -99,7 +99,7 @@
   height: 32px;
   min-width: 32px;
   border-radius: var(--radius-full);
-  background: linear-gradient(135deg, var(--accent-berry) 0%, var(--accent-lemon) 100%);
+  background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -154,7 +154,7 @@
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
-  background: var(--accent-berry);
+  background: var(--accent-primary);
   border-radius: var(--radius-md);
   font-size: 0.625rem;
   font-weight: 600;

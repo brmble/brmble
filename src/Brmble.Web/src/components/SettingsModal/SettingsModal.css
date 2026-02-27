@@ -48,7 +48,7 @@
 
 .settings-tab.active {
   color: var(--text-primary);
-  border-bottom-color: var(--accent-berry);
+  border-bottom-color: var(--accent-primary);
 }
 
 .settings-content {
@@ -124,7 +124,7 @@
 }
 
 .toggle-input:checked {
-  background: var(--accent-berry);
+  background: var(--accent-primary);
 }
 
 .toggle-input:checked::after {

@@ -47,11 +47,11 @@
 
 .server-info-active {
   background: var(--bg-hover);
-  border-color: var(--accent-lemon);
+  border-color: var(--accent-secondary);
 }
 
 .server-info-active .server-info-name {
-  color: var(--accent-lemon);
+  color: var(--accent-secondary);
 }
 
 .server-status-panel {
@@ -86,14 +86,14 @@
 
 .disconnect-btn {
   margin-left: auto;
-  background: var(--accent-berry-wash);
-  border: 1px solid var(--accent-berry);
-  color: var(--accent-berry);
+  background: var(--accent-primary-wash);
+  border: 1px solid var(--accent-primary);
+  color: var(--accent-primary);
   flex-shrink: 0;
 }
 
 .disconnect-btn:hover {
-  background: var(--accent-berry);
+  background: var(--accent-primary);
   color: var(--text-primary);
 }
 
@@ -116,7 +116,7 @@
   transform: scale(0.95);
 }
 
-.status-dot--disconnected { background: var(--accent-berry); }
+.status-dot--disconnected { background: var(--accent-primary); }
 
 .sidebar-divider {
   height: 1px;
@@ -146,10 +146,10 @@
 }
 
 .status-dot--idle        { background: var(--text-muted); opacity: 0.4; }
-.status-dot--connecting  { background: var(--accent-lemon); animation: status-blink 0.5s ease-in-out infinite alternate; }
+.status-dot--connecting  { background: var(--accent-secondary); animation: status-blink 0.5s ease-in-out infinite alternate; }
 .status-dot--connected   { background: var(--status-connected); }
-.status-dot--reconnecting{ background: var(--accent-lemon); animation: status-blink 0.5s ease-in-out infinite alternate; }
-.status-dot--failed      { background: var(--accent-berry); }
+.status-dot--reconnecting{ background: var(--accent-secondary); animation: status-blink 0.5s ease-in-out infinite alternate; }
+.status-dot--failed      { background: var(--accent-primary); }
 
 @keyframes status-blink {
   from { opacity: 1; }
@@ -182,7 +182,7 @@
   font-weight: 600;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--accent-berry-glow);
+  color: var(--accent-primary-glow);
   font-style: italic;
 }
 
@@ -211,7 +211,7 @@
 }
 
 .root-user-row:hover {
-  background: var(--accent-berry-ghost);
+  background: var(--accent-primary-ghost);
 }
 
 .root-user-status {
@@ -223,7 +223,7 @@
 
 .root-user-status .status-icon--deaf,
 .root-user-status .status-icon--muted {
-  color: color-mix(in srgb, var(--accent-berry) 55%, transparent);
+  color: color-mix(in srgb, var(--accent-primary) 55%, transparent);
 }
 
 .root-user-status .status-icon--hidden {
@@ -259,7 +259,7 @@
 .root-self-badge {
   font-size: 0.5625rem;
   font-family: var(--font-mono);
-  color: var(--accent-berry-glow);
+  color: var(--accent-primary-glow);
   letter-spacing: 0.04em;
   flex-shrink: 0;
   text-transform: lowercase;
@@ -302,7 +302,7 @@
   font-weight: 600;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--accent-berry-glow);
+  color: var(--accent-primary-glow);
   font-style: italic;
 }
 
