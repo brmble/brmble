@@ -62,11 +62,13 @@ export function SettingsModal(props: SettingsModalProps) {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const { servers } = useServerlist();
 
-  // Close on Escape key
+  // Close on Escape key (skip if a key-binding button is recording)
   useEffect(() => {
     if (!isOpen) return;
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape' && !document.querySelector('.key-binding-btn.recording')) {
+        onClose();
+      }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);

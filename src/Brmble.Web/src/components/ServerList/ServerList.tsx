@@ -49,7 +49,11 @@ export function ServerList({ onConnect }: ServerListProps) {
   useEffect(() => {
     if (!isAdding && !editing) return;
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') handleCancel();
+      if (e.key === 'Escape') {
+        setEditing(null);
+        setIsAdding(false);
+        setForm({ label: '', host: '', port: '64738', username: '' });
+      }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);

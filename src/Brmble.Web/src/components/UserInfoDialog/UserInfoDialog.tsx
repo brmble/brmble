@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import bridge from '../../bridge';
 import './UserInfoDialog.css';
 
@@ -82,10 +82,23 @@ export function UserInfoDialog({
     return () => window.removeEventListener('keydown', handleTrap);
   }, [isOpen]);
 
+  const volumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const persistVolume = useCallback((vol: number) => {
+    if (volumeTimerRef.current) clearTimeout(volumeTimerRef.current);
+    volumeTimerRef.current = setTimeout(() => {
+      localStorage.setItem(`volume_${session}`, String(vol));
+    }, 300);
+  }, [session]);
+
+  useEffect(() => {
+    return () => { if (volumeTimerRef.current) clearTimeout(volumeTimerRef.current); };
+  }, []);
+
   const handleVolumeChange = (newVolume: number) => {
     setVolume(newVolume);
-    localStorage.setItem(`volume_${session}`, String(newVolume));
     bridge.send('voice.setVolume', { session, volume: newVolume });
+    persistVolume(newVolume);
   };
 
   const toggleLocalMute = () => {
