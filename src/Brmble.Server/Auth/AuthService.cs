@@ -4,7 +4,7 @@ using Brmble.Server.Matrix;
 
 namespace Brmble.Server.Auth;
 
-public record AuthResult(string MatrixUserId, string MatrixAccessToken);
+public record AuthResult(string MatrixUserId, string MatrixAccessToken, string DisplayName);
 
 public interface IActiveBrmbleSessions
 {
@@ -53,7 +53,7 @@ public class AuthService : IActiveBrmbleSessions
             _activeSessions.Add(certHash);
         }
 
-        return new AuthResult(user.MatrixUserId, user.MatrixAccessToken!);
+        return new AuthResult(user.MatrixUserId, user.MatrixAccessToken!, user.DisplayName);
     }
 
     public void Deactivate(string certHash)

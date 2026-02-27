@@ -53,9 +53,17 @@ public static class AuthEndpoints
             var roomMap = channelRepository.GetAll()
                 .ToDictionary(m => m.MumbleChannelId.ToString(), m => m.MatrixRoomId);
 
-            // Ensure the user is a member of all channel rooms
+            // Ensure user exists and is in all rooms, then sync display name
             var localpart = result.MatrixUserId.Split(':')[0].TrimStart('@');
             await matrixAppService.EnsureUserInRooms(localpart, roomMap.Values);
+            try
+            {
+                await matrixAppService.SetDisplayName(localpart, result.DisplayName);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to sync display name for {UserId}", result.MatrixUserId);
+            }
 
             // Clients reach the Matrix homeserver via YARP proxy on this same server.
             // Use the public URL the client connected to (not the internal localhost URL).
