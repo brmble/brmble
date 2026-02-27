@@ -718,7 +718,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// Fetches credentials via BouncyCastle managed TLS, bypassing Windows SChannel
     /// which silently refuses to present self-signed client certificates.
     /// </summary>
-    private static async Task<System.Text.Json.JsonElement?> FetchCredentialsViaBcTls(X509Certificate2 cert, Uri tokenUri)
+    private static async Task<System.Text.Json.JsonElement?> FetchCredentialsViaBcTls(X509Certificate2 cert, Uri tokenUri, string? mumbleUsername = null)
     {
         using var tcp = new TcpClient();
         await tcp.ConnectAsync(tokenUri.Host, tokenUri.Port);
@@ -734,8 +734,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             var stream = tlsProtocol.Stream;
             // RFC 7230: Host header must include port when non-default
             var hostHeader = tokenUri.IsDefaultPort ? tokenUri.Host : $"{tokenUri.Host}:{tokenUri.Port}";
-            var httpRequest = $"POST {tokenUri.PathAndQuery} HTTP/1.1\r\nHost: {hostHeader}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-            var requestBytes = System.Text.Encoding.ASCII.GetBytes(httpRequest);
+            var bodyJson = mumbleUsername is not null
+                ? System.Text.Json.JsonSerializer.Serialize(new { mumbleUsername })
+                : "";
+            var contentLength = System.Text.Encoding.UTF8.GetByteCount(bodyJson);
+            var contentTypeHeader = contentLength > 0 ? "Content-Type: application/json\r\n" : "";
+            var httpRequest = $"POST {tokenUri.PathAndQuery} HTTP/1.1\r\nHost: {hostHeader}\r\n{contentTypeHeader}Content-Length: {contentLength}\r\nConnection: close\r\n\r\n{bodyJson}";
+            var requestBytes = System.Text.Encoding.UTF8.GetBytes(httpRequest);
             await stream.WriteAsync(requestBytes, 0, requestBytes.Length);
             await stream.FlushAsync();
 
@@ -857,7 +862,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             var baseUri = new Uri(apiUrl, UriKind.Absolute);
             var tokenUri = new Uri(baseUri, "auth/token");
 
-            var credentials = await FetchCredentialsViaBcTls(cert, tokenUri);
+            var credentials = await FetchCredentialsViaBcTls(cert, tokenUri, _reconnectUsername);
             if (credentials is null)
                 return;
 
