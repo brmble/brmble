@@ -178,12 +178,3 @@
   cursor: not-allowed;
   opacity: 0.6;
 }
-
-@keyframes speaking-pulse {
-  0%, 100% { 
-    box-shadow: 0 0 8px var(--accent-success-glow);
-  }
-  50% { 
-    box-shadow: 0 0 16px var(--accent-success-glow);
-  }
-}
