@@ -43,9 +43,6 @@ public static class AuthEndpoints
             }
             catch { /* empty or non-JSON body — OK */ }
 
-            if (!string.IsNullOrEmpty(mumbleUsername))
-                authService.TrackMumbleName(mumbleUsername);
-
             AuthResult result;
             try
             {
@@ -59,6 +56,9 @@ public static class AuthEndpoints
                     httpContext.Connection.RemoteIpAddress);
                 return Results.StatusCode(500);
             }
+
+            if (!string.IsNullOrEmpty(mumbleUsername))
+                authService.TrackMumbleName(mumbleUsername);
 
             logger.LogInformation(
                 "Auth succeeded: CertHash={CertHash}, MatrixUserId={MatrixUserId}, MumbleName={MumbleName}",
