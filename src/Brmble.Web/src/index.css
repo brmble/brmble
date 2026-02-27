@@ -427,3 +427,36 @@ select.brmble-input option {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* Accessibility: Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    /* Disable one-shot entrance animations */
+    --animation-fast: 0ms;
+    --animation-normal: 0ms;
+    --animation-slow: 0ms;
+    --stagger-step: 0ms;
+
+    /* Disable continuous animations */
+    --animation-blink: 0ms;
+    --animation-spin: 0ms;
+    --animation-pulse: 0ms;
+    --animation-speaking-pulse: 0ms;
+    --animation-loading-dots: 0ms;
+    --animation-badge-pop: 0ms;
+    --animation-badge-pulse: 0ms;
+    --animation-badge-pulse-delay: 0ms;
+
+    /* Disable transitions */
+    --transition-fast: 0ms;
+    --transition-normal: 0ms;
+    --transition-slow: 0ms;
+  }
+
+  /* Catch any animations not using tokens */
+  *, *::before, *::after {
+    animation-duration: 0ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0ms !important;
+  }
+}
