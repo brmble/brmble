@@ -111,11 +111,12 @@
   color: var(--text-primary);
   cursor: pointer;
   min-width: 150px;
+  outline: none;
 }
 
+.settings-select:focus,
 .settings-select:focus-visible {
-  border-color: transparent;
-  /* Global :focus-visible will provide the berry outline */
+  border-color: var(--accent-berry);
 }
 
 .settings-select option {
