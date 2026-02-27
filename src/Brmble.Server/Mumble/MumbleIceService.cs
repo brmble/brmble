@@ -1,6 +1,5 @@
 using Brmble.Server.Matrix;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Brmble.Server.Mumble;
 
@@ -8,25 +7,19 @@ public class MumbleIceService : IHostedService
 {
     private readonly MumbleServerCallback _callback;
     private readonly MatrixService _matrixService;
-    private readonly string _host;
-    private readonly int _port;
-    private readonly string _secret;
-    private readonly string _callbackHost;
+    private readonly IceSettings _settings;
     private readonly ILogger<MumbleIceService> _logger;
     private Ice.Communicator? _communicator;
 
     public MumbleIceService(
         MumbleServerCallback callback,
         MatrixService matrixService,
-        IConfiguration configuration,
+        IOptions<IceSettings> settings,
         ILogger<MumbleIceService> logger)
     {
         _callback = callback;
         _matrixService = matrixService;
-        _host = configuration["Ice:Host"] ?? "mumble-server";
-        _port = int.Parse(configuration["Ice:Port"] ?? "6502");
-        _secret = configuration["Ice:Secret"] ?? string.Empty;
-        _callbackHost = configuration["Ice:CallbackHost"] ?? System.Net.Dns.GetHostName();
+        _settings = settings.Value;
         _logger = logger;
     }
 
@@ -41,8 +34,8 @@ public class MumbleIceService : IHostedService
             var initData = new Ice.InitializationData { properties = properties };
             _communicator = new Ice.Communicator(initData);
 
-            var context = new Dictionary<string, string> { ["secret"] = _secret };
-            var proxy = (_communicator.stringToProxy($"s/1 -e 1.0:tcp -h {_host} -p {_port}")
+            var context = new Dictionary<string, string> { ["secret"] = _settings.Secret };
+            var proxy = (_communicator.stringToProxy($"s/1 -e 1.0:tcp -h {_settings.Host} -p {_settings.Port}")
                 ?? throw new InvalidOperationException("stringToProxy returned null"))
                 .ice_context(context);
             var serverProxy = MumbleServer.ServerPrxHelper.checkedCast(proxy)
@@ -67,21 +60,22 @@ public class MumbleIceService : IHostedService
             // Configurable via Ice:CallbackHost; falls back to the container's hostname so
             // Mumble can reach us across Docker networks. 127.0.0.1 only works when both
             // processes share the same network namespace.
+            var callbackHost = _settings.CallbackHost ?? System.Net.Dns.GetHostName();
             var adapter = _communicator.createObjectAdapterWithEndpoints(
-                "MumbleCallback", $"tcp -h {_callbackHost}");
+                "MumbleCallback", $"tcp -h {callbackHost}");
             var callbackPrx = MumbleServer.ServerCallbackPrxHelper.uncheckedCast(
                 adapter.addWithUUID(_callback));
             adapter.activate();
             serverProxy.addCallback(callbackPrx);
 
-            _logger.LogInformation("Connected to Mumble server at {Host}:{Port}", _host, _port);
+            _logger.LogInformation("Connected to Mumble server at {Host}:{Port}", _settings.Host, _settings.Port);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex,
                 "Failed to connect to Mumble server at {Host}:{Port} — " +
                 "OG client message persistence is unavailable; Brmble chat is unaffected",
-                _host, _port);
+                _settings.Host, _settings.Port);
         }
     }
 
