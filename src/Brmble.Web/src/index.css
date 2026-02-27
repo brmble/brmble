@@ -12,10 +12,9 @@
   --bg-hover: rgba(61, 42, 92, 0.3);
   --bg-hover-strong: rgba(100, 70, 150, 0.4);
   --bg-surface: rgba(61, 42, 92, 0.15);
-  --bg-surface-hover: rgba(61, 42, 92, 0.35);
   --bg-overlay: rgba(15, 10, 20, 0.80);
   --bg-elevated: rgba(26, 16, 37, 0.6);
-  --bg-input: rgba(26, 16, 37, 0.6);
+  --bg-input: var(--bg-elevated);
   --bg-deep-glass: rgba(15, 10, 20, 0.4);
   --bg-hover-light: rgba(255, 255, 255, 0.08);
   --bg-surface-active: rgba(61, 42, 92, 0.6);
@@ -26,17 +25,13 @@
   --accent-berry-hover: #e8185f;
   --accent-berry-light: #e8326e;
   --accent-berry-glow: rgba(212, 20, 90, 0.4);
-  --accent-berry-glow-strong: rgba(212, 20, 90, 0.55);
-  --accent-berry-subtle: rgba(212, 20, 90, 0.15);
   --accent-berry-wash: rgba(212, 20, 90, 0.2);
-  --accent-berry-ghost: rgba(212, 20, 90, 0.06);
-  --accent-berry-ghost-strong: rgba(212, 20, 90, 0.1);
-  --accent-berry-muted: rgba(212, 20, 90, 0.45);
+  --accent-berry-ghost: rgba(212, 20, 90, 0.1);
 
   /* Accent: Lemon */
   --accent-lemon: #f4d03f;
   --accent-lemon-glow: rgba(244, 208, 63, 0.3);
-  --accent-lemon-subtle: rgba(255, 230, 0, 0.15);
+  --accent-lemon-subtle: rgba(244, 208, 63, 0.15);
 
   /* Accent: Mint */
   --accent-mint: #50c878;
@@ -53,9 +48,9 @@
   --accent-danger: #ff6b6b;
   --accent-danger-strong: #ff4f5e;
   --accent-danger-text: #ff6b7a;
-  --accent-danger-subtle: rgba(220, 53, 69, 0.12);
-  --accent-danger-border: rgba(220, 53, 69, 0.4);
-  --accent-danger-bg: rgba(180, 30, 60, 0.25);
+  --accent-danger-subtle: rgba(255, 107, 107, 0.12);
+  --accent-danger-border: rgba(255, 107, 107, 0.4);
+  --accent-danger-bg: rgba(255, 107, 107, 0.25);
 
   /* Status */
   --status-connected: #50c878;

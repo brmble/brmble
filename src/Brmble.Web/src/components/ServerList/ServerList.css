@@ -15,7 +15,7 @@
   padding: 2rem;
   box-shadow: 
     var(--shadow-elevated),
-    0 0 0 1px var(--accent-berry-ghost-strong) inset;
+    0 0 0 1px var(--accent-berry-ghost) inset;
   backdrop-filter: var(--glass-blur);
   animation: serverListSlideIn 400ms ease backwards;
 }
@@ -101,7 +101,7 @@
 }
 
 .server-list-item:hover {
-  background: var(--bg-surface-hover);
+  background: var(--bg-hover);
   border-color: var(--accent-berry);
   transform: translateX(4px);
 }

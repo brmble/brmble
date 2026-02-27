@@ -80,7 +80,7 @@
 
 .close-dialog-btn.minimize:hover {
   background: var(--accent-berry-hover);
-  box-shadow: 0 0 24px var(--accent-berry-glow-strong);
+  box-shadow: 0 0 24px var(--accent-berry-glow);
   transform: translateY(-1px);
 }
 

@@ -71,7 +71,7 @@
   font-size: 0.7rem;
   font-weight: 500;
   color: var(--accent-berry);
-  background: var(--accent-berry-subtle);
+  background: var(--accent-berry-wash);
   padding: 2px 8px;
   border-radius: var(--radius-xs);
   width: fit-content;
@@ -157,7 +157,7 @@
 
 .user-info-btn.primary:hover {
   background: var(--accent-berry-hover);
-  box-shadow: 0 0 24px var(--accent-berry-glow-strong);
+  box-shadow: 0 0 24px var(--accent-berry-glow);
   transform: translateY(-1px);
 }
 
@@ -204,7 +204,7 @@
 
 .user-info-volume-slider::-webkit-slider-thumb:hover {
   transform: scale(1.15);
-  box-shadow: 0 0 16px var(--accent-berry-glow-strong);
+  box-shadow: 0 0 16px var(--accent-berry-glow);
 }
 
 .user-info-volume-slider::-moz-range-thumb {
@@ -263,7 +263,7 @@
 
 .user-info-mute-btn.muted:hover {
   background: var(--accent-berry-hover);
-  box-shadow: 0 0 20px var(--accent-berry-glow-strong);
+  box-shadow: 0 0 20px var(--accent-berry-glow);
 }
 
 .user-info-btn.save {

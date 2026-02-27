@@ -59,7 +59,7 @@
 .settings-slider input[type="range"]::-webkit-slider-thumb:hover {
   background: var(--accent-berry-hover);
   transform: scale(1.15);
-  box-shadow: 0 0 12px var(--accent-berry-glow-strong);
+  box-shadow: 0 0 12px var(--accent-berry-glow);
 }
 
 .settings-section-divider {

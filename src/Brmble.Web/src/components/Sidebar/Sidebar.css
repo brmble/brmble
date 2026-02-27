@@ -179,7 +179,7 @@
   font-weight: 600;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--accent-berry-muted);
+  color: var(--accent-berry-glow);
   font-style: italic;
 }
 
@@ -299,7 +299,7 @@
   font-weight: 600;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--accent-berry-muted);
+  color: var(--accent-berry-glow);
   font-style: italic;
 }
 

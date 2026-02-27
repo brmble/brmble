@@ -31,7 +31,7 @@
 
 .user-panel-btn.dm-btn.active {
   color: var(--accent-berry);
-  background: var(--accent-berry-subtle);
+  background: var(--accent-berry-wash);
 }
 
 .dm-unread-badge {
