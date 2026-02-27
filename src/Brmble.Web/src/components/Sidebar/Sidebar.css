@@ -33,11 +33,16 @@
 
 .server-info-clickable {
   cursor: pointer;
+  transition: transform var(--transition-fast), background var(--transition-fast);
 }
 
 .server-info-clickable:hover {
   background: var(--bg-hover);
   border-color: var(--border-default);
+}
+
+.server-info-clickable:active {
+  transform: scale(0.98);
 }
 
 .server-info-active {
@@ -98,6 +103,10 @@
   color: var(--text-primary);
 }
 
+.disconnect-btn:active {
+  transform: scale(0.95);
+}
+
 .reconnect-btn {
   font-size: 0.7rem;
   padding: 2px 8px;
@@ -111,6 +120,10 @@
 .reconnect-btn:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+.reconnect-btn:active {
+  transform: scale(0.95);
 }
 
 .status-dot--disconnected { background: var(--accent-berry); }

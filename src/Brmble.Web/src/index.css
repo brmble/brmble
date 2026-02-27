@@ -140,13 +140,18 @@ body::before {
 }
 
 /* Scrollbar styling */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-subtle) transparent;
+}
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--bg-deep);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
@@ -172,7 +177,6 @@ body::before {
 :focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px var(--bg-deep), 0 0 0 4px var(--accent-berry);
-  border-radius: inherit; /* Inherits radius from the focused element if possible */
   transition: box-shadow var(--transition-fast);
 }
 

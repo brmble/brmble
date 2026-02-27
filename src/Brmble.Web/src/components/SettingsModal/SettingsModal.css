@@ -23,10 +23,29 @@
   background: transparent;
   border: none;
   color: var(--text-muted);
+  font-size: 0.8125rem;
+  font-weight: 500;
   cursor: pointer;
-  font-size: 13px;
-  border-bottom: 2px solid transparent;
-  transition: all 0.2s;
+  position: relative;
+  transition: color var(--transition-fast), background var(--transition-fast), transform var(--transition-fast);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  opacity: 0;
+  animation: content-fade-in 300ms ease forwards;
+}
+
+/* Stagger tabs slightly */
+.settings-tab:nth-child(1) { animation-delay: 50ms; }
+.settings-tab:nth-child(2) { animation-delay: 100ms; }
+.settings-tab:nth-child(3) { animation-delay: 150ms; }
+.settings-tab:nth-child(4) { animation-delay: 200ms; }
+
+.settings-tab:hover {
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+}
+
+.settings-tab:active {
+  transform: translateY(1px);
 }
 
 .settings-tab:hover {
@@ -45,8 +64,11 @@
 }
 
 .settings-section {
-  padding: 1rem 0;
+  padding: 1.5rem 0;
   border-bottom: 1px solid var(--border-subtle);
+  opacity: 0;
+  animation: content-fade-in 300ms ease forwards;
+  animation-delay: 200ms;
 }
 
 .settings-section:last-child {
@@ -91,9 +113,14 @@
   min-width: 150px;
 }
 
-.settings-select:focus {
-  outline: none;
-  border-color: var(--accent-berry);
+.settings-select:focus-visible {
+  border-color: transparent;
+  /* Global :focus-visible will provide the berry outline */
+}
+
+.settings-select option {
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 .settings-toggle {
@@ -124,11 +151,19 @@
 }
 
 .toggle-input:checked {
-  background: var(--accent-mint);
+  background: var(--accent-berry);
 }
 
 .toggle-input:checked::after {
   transform: translateX(20px);
+}
+
+.toggle-input:active::after {
+  width: 24px;
+}
+
+.toggle-input:checked:active::after {
+  transform: translateX(16px);
 }
 
 .settings-footer {
@@ -137,6 +172,9 @@
   gap: 0.75rem;
   padding: 1.5rem;
   border-top: var(--glass-border);
+  opacity: 0;
+  animation: content-fade-in 300ms ease forwards;
+  animation-delay: 250ms;
 }
 
 .settings-btn {
@@ -165,4 +203,24 @@
 .settings-btn.primary:hover {
   background: var(--accent-lemon);
   color: var(--bg-deep);
+}
+
+.settings-btn:active {
+  transform: scale(0.96);
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes content-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
 }

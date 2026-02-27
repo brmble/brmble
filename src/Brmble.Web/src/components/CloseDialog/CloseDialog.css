@@ -30,7 +30,7 @@
 }
 
 @keyframes card-slide-in {
-  from { opacity: 0; transform: translateY(-12px) scale(0.97); }
+  from { opacity: 0; transform: translateY(20px) scale(0.97); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
@@ -42,6 +42,9 @@
   margin: 0 0 8px;
   text-align: center;
   letter-spacing: 0.01em;
+  opacity: 0;
+  animation: content-fade-in 300ms ease forwards;
+  animation-delay: 100ms;
 }
 
 .close-dialog-subtitle {
@@ -51,12 +54,23 @@
   margin: 0 0 32px;
   text-align: center;
   line-height: 1.5;
+  opacity: 0;
+  animation: content-fade-in 300ms ease forwards;
+  animation-delay: 150ms;
 }
 
 .close-dialog-buttons {
   display: flex;
   gap: 12px;
   width: 100%;
+  opacity: 0;
+  animation: content-fade-in 300ms ease forwards;
+  animation-delay: 200ms;
+}
+
+@keyframes content-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 .close-dialog-btn {
@@ -84,6 +98,10 @@
   transform: translateY(-1px);
 }
 
+.close-dialog-btn.minimize:active {
+  transform: translateY(1px) scale(0.96);
+}
+
 .close-dialog-btn.quit {
   background: var(--bg-hover-strong);
   color: var(--text-secondary);
@@ -94,6 +112,11 @@
   background: var(--accent-danger-bg);
   color: var(--accent-danger-text);
   border-color: var(--accent-berry-glow);
+  transform: translateY(-1px);
+}
+
+.close-dialog-btn.quit:active {
+  transform: translateY(1px) scale(0.96);
 }
 
 .close-dialog-checkbox-row {

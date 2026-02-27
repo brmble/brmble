@@ -159,6 +159,10 @@
   transform: scale(0.95);
 }
 
+.user-panel-btn:active:not(.disabled) {
+  transform: scale(0.92);
+}
+
 .user-avatar {
   width: 36px;
   height: 36px;
@@ -175,6 +179,10 @@
 .user-avatar:hover {
   transform: scale(1.1);
   box-shadow: 0 0 20px var(--accent-purple-glow);
+}
+
+.user-avatar:active {
+  transform: scale(1.02);
 }
 
 .user-avatar svg {
