@@ -264,11 +264,10 @@ a:hover {
 .btn-primary:hover:not(:disabled) {
   background: var(--accent-primary-hover);
   box-shadow: 0 0 24px var(--accent-primary-glow);
-  transform: translateY(-1px);
 }
 
 .btn-primary:active:not(:disabled) {
-  transform: translateY(1px) scale(0.98);
+  opacity: 0.9;
 }
 
 .btn-secondary {
