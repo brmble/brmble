@@ -5,7 +5,17 @@ using Microsoft.Extensions.Logging;
 
 namespace Brmble.Server.Auth;
 
-public record AuthResult(string MatrixUserId, string MatrixAccessToken, string DisplayName);
+public record AuthResult(string MatrixUserId, string MatrixAccessToken, string DisplayName)
+{
+    /// <summary>Extracts the localpart (e.g. "1") from a full Matrix user ID (e.g. "@1:server").</summary>
+    public string Localpart => MatrixUserIdHelper.GetLocalpart(MatrixUserId);
+}
+
+internal static class MatrixUserIdHelper
+{
+    /// <summary>Extracts the localpart (e.g. "1") from a full Matrix user ID (e.g. "@1:server").</summary>
+    public static string GetLocalpart(string matrixUserId) => matrixUserId.Split(':')[0].TrimStart('@');
+}
 
 public interface IActiveBrmbleSessions
 {
@@ -135,8 +145,7 @@ public class AuthService : IActiveBrmbleSessions
             if (user.DisplayName != displayName)
             {
                 await _userRepository.UpdateDisplayName(user.Id, displayName);
-                var localpart = user.MatrixUserId.Split(':')[0].TrimStart('@');
-                try { await _matrixAppService.SetDisplayName(localpart, displayName); }
+                try { await _matrixAppService.SetDisplayName(MatrixUserIdHelper.GetLocalpart(user.MatrixUserId), displayName); }
                 catch (Exception ex) { _logger.LogDebug(ex, "Failed to sync display name for {UserId}", user.MatrixUserId); }
             }
         }
