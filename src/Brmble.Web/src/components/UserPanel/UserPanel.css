@@ -8,7 +8,7 @@
   position: relative;
 }
 
-.user-panel-btn.dm-btn:hover {
+.user-panel-btn.dm-btn:hover:not(:disabled) {
   color: var(--accent-primary);
 }
 
@@ -77,11 +77,11 @@
   }
 }
 
-.user-panel-btn.user-settings-btn:hover {
+.user-panel-btn.user-settings-btn:hover:not(:disabled) {
   color: var(--accent-primary);
 }
 
-.user-panel-btn.mute-btn:hover {
+.user-panel-btn.mute-btn:hover:not(:disabled) {
   color: var(--accent-primary);
 }
 
@@ -90,7 +90,7 @@
   background: var(--accent-primary-wash);
 }
 
-.user-panel-btn.deaf-btn:hover {
+.user-panel-btn.deaf-btn:hover:not(:disabled) {
   color: var(--accent-primary);
 }
 
@@ -108,9 +108,8 @@
   color: var(--text-secondary);
 }
 
-.user-panel-btn.leave-voice-btn:hover {
-  color: var(--accent-danger);
-  background: var(--accent-danger-subtle);
+.user-panel-btn.leave-voice-btn:hover:not(:disabled) {
+  color: var(--accent-primary);
 }
 
 .user-panel-btn.leave-voice-btn.active {

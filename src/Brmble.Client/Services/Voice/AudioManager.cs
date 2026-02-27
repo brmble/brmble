@@ -753,6 +753,12 @@ private int _dmScreenHotkeyId = -1;
             {
                 if (_heldShortcuts.Remove(hotkeyId, out var action))
                 {
+                    // Discard suppressed mute action on release (#156 review)
+                    if (action == "toggleMute" && _deafened)
+                    {
+                        AudioLog.Write($"[Audio] Shortcut release discarded (deafened): {action}");
+                        continue;
+                    }
                     AudioLog.Write($"[Audio] Shortcut released: {action}");
                     FireShortcutAction(action);
                     ShortcutReleased?.Invoke(action);
@@ -911,8 +917,16 @@ private int _dmScreenHotkeyId = -1;
 
         if (action != null)
         {
-            AudioLog.Write($"[Audio] Shortcut pressed: {action}");
+            // Always mark as held to prevent auto-repeat re-entry (#156 review)
             _heldShortcuts[id] = action;
+
+            // Suppress mute shortcut visual feedback when deafened (#156)
+            if (action == "toggleMute" && _deafened)
+            {
+                AudioLog.Write($"[Audio] Shortcut suppressed (deafened): {action}");
+                return;
+            }
+            AudioLog.Write($"[Audio] Shortcut pressed: {action}");
             ShortcutPressed?.Invoke(action);
         }
     }
@@ -987,6 +1001,13 @@ private int _dmScreenHotkeyId = -1;
                     }
                     else if (_shortcutActionForMouse != null)
                     {
+                        // Suppress mute shortcut visual feedback when deafened (#156)
+                        if (_shortcutActionForMouse == "toggleMute" && _deafened)
+                        {
+                            AudioLog.Write($"[Audio] Mouse shortcut suppressed (deafened): {_shortcutActionForMouse}");
+                            return Win32RawInput.CallNextHookEx(_mouseHookHandle, nCode, wParam, lParam);
+                        }
+
                         // Toggle shortcuts: mark as held, fire ShortcutPressed, action fires on release
                         _heldMouseAction = _shortcutActionForMouse;
                         ShortcutPressed?.Invoke(_shortcutActionForMouse);

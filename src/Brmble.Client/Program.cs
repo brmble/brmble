@@ -22,8 +22,8 @@ static class Program
     private static CertificateService? _certService;
     private static MumbleAdapter? _mumbleClient;
     private static IntPtr _hwnd;
-    private static bool _muted;
-    private static bool _deafened;
+    private static volatile bool _muted;
+    private static volatile bool _deafened;
     private static volatile string? _closeAction; // null = ask, "minimize", "quit"
 
     private static readonly string LogPath = Path.Combine(
@@ -360,16 +360,21 @@ static class Program
                         Win32Window.SetForegroundWindow(hwnd);
                         break;
                     case TrayIcon.IDM_MUTE:
-                        _mumbleClient?.ToggleMute();
-                        _muted = !_muted;
-                        if (!_muted) _deafened = false; // unmute also undeafens
-                        TrayIcon.UpdateState(_muted, _deafened);
+                        if (_mumbleClient != null && !_deafened)
+                        {
+                            _mumbleClient.ToggleMute();
+                            _muted = !_muted;
+                            TrayIcon.UpdateState(_muted, _deafened);
+                        }
                         break;
                     case TrayIcon.IDM_DEAFEN:
-                        _mumbleClient?.ToggleDeaf();
-                        _deafened = !_deafened;
-                        _muted = _deafened; // deafen implies mute
-                        TrayIcon.UpdateState(_muted, _deafened);
+                        if (_mumbleClient != null)
+                        {
+                            _mumbleClient.ToggleDeaf();
+                            _deafened = !_deafened;
+                            _muted = _deafened; // deafen implies mute
+                            TrayIcon.UpdateState(_muted, _deafened);
+                        }
                         break;
                     case TrayIcon.IDM_CONSOLE:
                         Win32Window.AllocConsole();
