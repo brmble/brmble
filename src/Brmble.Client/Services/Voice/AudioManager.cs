@@ -753,6 +753,12 @@ private int _dmScreenHotkeyId = -1;
             {
                 if (_heldShortcuts.Remove(hotkeyId, out var action))
                 {
+                    // Discard suppressed mute action on release (#156 review)
+                    if (action == "toggleMute" && _deafened)
+                    {
+                        AudioLog.Write($"[Audio] Shortcut release discarded (deafened): {action}");
+                        continue;
+                    }
                     AudioLog.Write($"[Audio] Shortcut released: {action}");
                     FireShortcutAction(action);
                     ShortcutReleased?.Invoke(action);
@@ -911,6 +917,9 @@ private int _dmScreenHotkeyId = -1;
 
         if (action != null)
         {
+            // Always mark as held to prevent auto-repeat re-entry (#156 review)
+            _heldShortcuts[id] = action;
+
             // Suppress mute shortcut visual feedback when deafened (#156)
             if (action == "toggleMute" && _deafened)
             {
@@ -918,7 +927,6 @@ private int _dmScreenHotkeyId = -1;
                 return;
             }
             AudioLog.Write($"[Audio] Shortcut pressed: {action}");
-            _heldShortcuts[id] = action;
             ShortcutPressed?.Invoke(action);
         }
     }
