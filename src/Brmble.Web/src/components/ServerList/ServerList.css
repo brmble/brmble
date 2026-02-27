@@ -17,7 +17,7 @@
     var(--shadow-elevated),
     0 0 0 1px var(--accent-primary-ghost) inset;
   backdrop-filter: var(--glass-blur);
-  animation: serverListSlideIn 400ms ease backwards;
+  animation: serverListSlideIn var(--animation-slow) ease backwards;
 }
 
 @keyframes serverListSlideIn {
@@ -86,7 +86,7 @@
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
   transition: all var(--transition-normal);
-  animation: serverItemFadeIn 300ms ease backwards;
+  animation: serverItemFadeIn var(--animation-normal) ease backwards;
 }
 
 @keyframes serverItemFadeIn {
@@ -199,7 +199,7 @@
   background: var(--bg-deep-glass);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  animation: formSlideIn 250ms ease;
+  animation: formSlideIn var(--animation-normal) ease;
 }
 
 @keyframes formSlideIn {

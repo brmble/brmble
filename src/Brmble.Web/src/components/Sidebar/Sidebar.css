@@ -165,7 +165,7 @@
 .root-users-panel {
   margin: 0.125rem 0 0.125rem;
   padding: 0.375rem 0.5rem 0.375rem 0.5rem;
-  animation: lobby-fade-in 300ms ease backwards;
+  animation: lobby-fade-in var(--animation-normal) ease backwards;
 }
 
 .root-users-header {
@@ -206,7 +206,7 @@
   padding: 4px 8px;
   border-radius: var(--radius-sm);
   transition: background var(--transition-fast);
-  animation: root-user-appear 200ms ease backwards;
+  animation: root-user-appear var(--animation-fast) ease backwards;
   margin: 2px 0;
 }
 

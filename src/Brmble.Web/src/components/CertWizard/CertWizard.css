@@ -12,7 +12,7 @@
   width: 100%;
   max-width: 480px;
   padding: 2.5rem;
-  animation: slideUp 300ms ease;
+  animation: slideUp var(--animation-normal) ease;
 }
 
 .cert-wizard-step-indicator {

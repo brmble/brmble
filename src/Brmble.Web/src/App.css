@@ -85,7 +85,7 @@
   align-items: center;
   justify-content: center;
   z-index: 50;
-  animation: fadeIn 300ms ease;
+  animation: fadeIn var(--animation-normal) ease;
 }
 
 .connect-overlay-btn {
@@ -117,15 +117,15 @@
 
 /* Page load animations */
 .app-body > * {
-  animation: slideInLeft 400ms ease backwards;
+  animation: slideInLeft var(--animation-slow) ease backwards;
 }
 
 .sidebar {
-  animation-delay: 100ms;
+  animation-delay: calc(2 * var(--stagger-step));
 }
 
 .main-content {
-  animation-delay: 200ms;
+  animation-delay: calc(4 * var(--stagger-step));
 }
 
 @keyframes slideInLeft {
