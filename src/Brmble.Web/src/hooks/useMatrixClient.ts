@@ -56,7 +56,26 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
 
       setMessages(prev => {
         const next = new Map(prev);
-        next.set(channelId, [...(next.get(channelId) ?? []), message]);
+        const existing = next.get(channelId) ?? [];
+        // Deduplicate by id (scrollback can re-emit events already in state)
+        if (existing.some(m => m.id === message.id)) return prev;
+        const last = existing[existing.length - 1];
+        // Fast path: live messages are newer than everything in state — just append
+        if (!last || message.timestamp.getTime() >= last.timestamp.getTime()) {
+          next.set(channelId, [...existing, message]);
+        } else {
+          // Historical message from scrollback — binary insert at correct position
+          const ts = message.timestamp.getTime();
+          let lo = 0, hi = existing.length;
+          while (lo < hi) {
+            const mid = (lo + hi) >>> 1;
+            if (existing[mid].timestamp.getTime() <= ts) lo = mid + 1;
+            else hi = mid;
+          }
+          const updated = [...existing];
+          updated.splice(lo, 0, message);
+          next.set(channelId, updated);
+        }
         return next;
       });
     };
