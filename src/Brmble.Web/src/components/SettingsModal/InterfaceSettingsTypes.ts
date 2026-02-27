@@ -1,5 +1,5 @@
 export interface AppearanceSettings {
-  theme: 'classic' | 'clean';
+  theme: string;
 }
 
 export const DEFAULT_APPEARANCE: AppearanceSettings = {

@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import './themes/classic.css'
 import './themes/clean.css'
+import { applyTheme } from './themes/theme-loader'
 import App from './App.tsx'
 
 // Apply theme before render to prevent flash
@@ -11,7 +12,7 @@ try {
   if (stored) {
     const settings = JSON.parse(stored);
     if (settings?.appearance?.theme) {
-      document.documentElement.setAttribute('data-theme', settings.appearance.theme);
+      applyTheme(settings.appearance.theme);
     }
   }
 } catch {}
