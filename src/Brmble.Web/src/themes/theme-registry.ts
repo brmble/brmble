@@ -48,6 +48,12 @@ export const themes: ThemeDefinition[] = [
     description: 'Bright lemon gold — premium optimism',
     fontUrl: 'https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap',
   },
+  {
+    id: 'retro-terminal',
+    name: 'Retro Terminal',
+    description: 'Phosphor green CRT — monochrome hacker aesthetic',
+    fontUrl: 'https://fonts.googleapis.com/css2?family=VT323&family=IBM+Plex+Mono:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap',
+  },
 ];
 
 export function getTheme(id: string): ThemeDefinition | undefined {
