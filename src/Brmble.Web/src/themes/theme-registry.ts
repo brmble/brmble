@@ -36,6 +36,12 @@ export const themes: ThemeDefinition[] = [
     description: 'Mediterranean sunset warmth — golden hour amber',
     fontUrl: 'https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Nunito:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap',
   },
+  {
+    id: 'midori-sour',
+    name: 'Midori Sour',
+    description: 'Neon emerald energy — cyberpunk Tokyo nights',
+    fontUrl: 'https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Lexend:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap',
+  },
 ];
 
 export function getTheme(id: string): ThemeDefinition | undefined {
