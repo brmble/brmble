@@ -1141,7 +1141,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             session = u.Id,
             name = u.Name,
             channelId = u.Channel?.Id ?? 0,
-            muted = u.Muted || u.SelfMuted,
+            muted = u.Muted || u.SelfMuted || u.Deaf || u.SelfDeaf,
             deafened = u.Deaf || u.SelfDeaf,
             self = u == LocalUser
         }).ToList();
@@ -1251,7 +1251,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             session = userState.Session,
             name = user?.Name ?? userState.Name,
             channelId = user?.Channel?.Id ?? userState.ChannelId,
-            muted = user != null ? (user.Muted || user.SelfMuted) : (userState.Mute || userState.SelfMute),
+            muted = user != null ? (user.Muted || user.SelfMuted || user.Deaf || user.SelfDeaf) : (userState.Mute || userState.SelfMute || userState.Deaf || userState.SelfDeaf),
             deafened = user != null ? (user.Deaf || user.SelfDeaf) : (userState.Deaf || userState.SelfDeaf),
             self = isSelf
         });
