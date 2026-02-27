@@ -3,9 +3,12 @@ using Brmble.Server.Auth;
 using Brmble.Server.Data;
 using Brmble.Server.Matrix;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
+
+#pragma warning disable CS8618 // Non-nullable field uninitialized in constructor (test class uses TestInitialize)
 
 namespace Brmble.Server.Tests.Auth;
 
@@ -26,7 +29,7 @@ public class AuthServiceTests
         _keepAlive.Open();
         var db = new Database(cs);
         db.Initialize();
-        var settings = Options.Create(new AuthSettings { ServerDomain = "test.local" });
+        var settings = Options.Create(new MatrixSettings { HomeserverUrl = "http://localhost", AppServiceToken = "test", ServerDomain = "test.local" });
         var repo = new UserRepository(db, settings);
         _repo = repo;
         _mockMatrix = new Mock<IMatrixAppService>();
@@ -34,7 +37,7 @@ public class AuthServiceTests
                    .ReturnsAsync("syt_new_token");
         _mockMatrix.Setup(m => m.LoginUser(It.IsAny<string>()))
                    .ReturnsAsync("syt_refresh_token");
-        _svc = new AuthService(repo, _mockMatrix.Object);
+        _svc = new AuthService(repo, _mockMatrix.Object, NullLogger<AuthService>.Instance);
     }
 
     [TestCleanup]

@@ -143,10 +143,9 @@ public class MatrixAppServiceTests
         var token = await _svc.RegisterUser("1", "Alice");
 
         Assert.AreEqual("syt_test", token);
-        var req = _capturedRequests.Single();
-        Assert.AreEqual(HttpMethod.Post, req.Method);
-        StringAssert.Contains(req.RequestUri!.AbsoluteUri, "register");
-        StringAssert.Contains(req.RequestUri.Query, "kind=user");
+        var regReq = _capturedRequests.First(r => r.RequestUri!.AbsoluteUri.Contains("register"));
+        Assert.AreEqual(HttpMethod.Post, regReq.Method);
+        StringAssert.Contains(regReq.RequestUri!.Query, "kind=user");
     }
 
     [TestMethod]

@@ -73,8 +73,10 @@ For each unresolved thread:
 1. Read the comment body to understand the feedback
 2. Identify the file path and line number
 3. Read the relevant file section to understand the context
-4. Categorize the type of feedback:
+4. **Carefully consider whether the reviewer's suggestion is actually the best solution.** The reviewer may not have full context. Evaluate alternatives — sometimes the existing code is already correct or a different approach is better.
+5. Categorize the type of feedback:
    - **Code change needed** — requires file modification
+   - **Resolved with comment** — the suggestion isn't the best approach; reply explaining why and resolve without changing code. This is perfectly valid.
    - **Documentation** — needs comment/doc update
    - **Question** — requires explanation only, no code change
    - **Disagree/Won't fix** — ASK THE USER before responding
@@ -84,6 +86,9 @@ Present a summary to the user showing:
 - Number of comments found
 - File paths affected
 - Brief description of each comment
+- Which comments you plan to address with code changes vs. resolve with an explanation
+
+**IMPORTANT**: Not every review comment warrants a code change. If the existing code is correct or the reviewer's suggestion would make things worse, a clear reply explaining the reasoning and resolving the thread is the right response. Don't make changes just to be agreeable.
 
 **IMPORTANT**: For any comment where you disagree or think "won't fix" is appropriate, use AskUserQuestion to get user confirmation before replying. Never auto-resolve disagreements.
 

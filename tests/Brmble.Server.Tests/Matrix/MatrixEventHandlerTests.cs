@@ -34,13 +34,13 @@ public class MatrixEventHandlerTests
         var (db, keepAlive) = CreateDb();
         using var _ = keepAlive;
         var channelRepo = new ChannelRepository(db);
-        channelRepo.Insert(1, "!room:server");
+        await channelRepo.InsertAsync(1, "!room:server");
 
         var sessions = new Mock<Brmble.Server.Auth.IActiveBrmbleSessions>();
         sessions.Setup(s => s.IsBrmbleClient("og")).Returns(false);
 
         var svc = new MatrixService(channelRepo, appService.Object, sessions.Object, NullLogger<MatrixService>.Instance);
-        _handler = new MatrixEventHandler(svc);
+        _handler = new MatrixEventHandler(svc, sessions.Object);
 
         await _handler.OnUserTextMessage(new MumbleUser("Bob", "og", 1), "hi", 1);
 
@@ -58,7 +58,7 @@ public class MatrixEventHandlerTests
         var channelRepo = new ChannelRepository(db);
         var sessions = new Mock<Brmble.Server.Auth.IActiveBrmbleSessions>();
         var svc = new MatrixService(channelRepo, appService.Object, sessions.Object, NullLogger<MatrixService>.Instance);
-        _handler = new MatrixEventHandler(svc);
+        _handler = new MatrixEventHandler(svc, sessions.Object);
 
         await _handler.OnChannelCreated(new MumbleChannel(99, "Test"));
 
@@ -72,14 +72,14 @@ public class MatrixEventHandlerTests
         var (db, keepAlive) = CreateDb();
         using var _ = keepAlive;
         var channelRepo = new ChannelRepository(db);
-        channelRepo.Insert(5, "!room:server");
+        await channelRepo.InsertAsync(5, "!room:server");
         var sessions = new Mock<Brmble.Server.Auth.IActiveBrmbleSessions>();
         var svc = new MatrixService(channelRepo, appService.Object, sessions.Object, NullLogger<MatrixService>.Instance);
-        _handler = new MatrixEventHandler(svc);
+        _handler = new MatrixEventHandler(svc, sessions.Object);
 
         await _handler.OnChannelRemoved(new MumbleChannel(5, "OldChannel"));
 
-        Assert.IsNull(channelRepo.GetRoomId(5));
+        Assert.IsNull(await channelRepo.GetRoomIdAsync(5));
     }
 
     [TestMethod]
@@ -92,10 +92,10 @@ public class MatrixEventHandlerTests
         var (db, keepAlive) = CreateDb();
         using var _ = keepAlive;
         var channelRepo = new ChannelRepository(db);
-        channelRepo.Insert(3, "!room:server");
+        await channelRepo.InsertAsync(3, "!room:server");
         var sessions = new Mock<Brmble.Server.Auth.IActiveBrmbleSessions>();
         var svc = new MatrixService(channelRepo, appService.Object, sessions.Object, NullLogger<MatrixService>.Instance);
-        _handler = new MatrixEventHandler(svc);
+        _handler = new MatrixEventHandler(svc, sessions.Object);
 
         await _handler.OnChannelRenamed(new MumbleChannel(3, "NewName"));
 
@@ -107,12 +107,13 @@ public class MatrixEventHandlerTests
     {
         var (db, keepAlive) = CreateDb();
         using var _ = keepAlive;
+        var sessions = new Mock<Brmble.Server.Auth.IActiveBrmbleSessions>();
         var svc = new MatrixService(
             new ChannelRepository(db),
             new Mock<IMatrixAppService>().Object,
-            new Mock<Brmble.Server.Auth.IActiveBrmbleSessions>().Object,
+            sessions.Object,
             NullLogger<MatrixService>.Instance);
-        _handler = new MatrixEventHandler(svc);
+        _handler = new MatrixEventHandler(svc, sessions.Object);
 
         await _handler.OnUserConnected(new MumbleUser("Alice", "abc", 1));
     }
@@ -122,12 +123,13 @@ public class MatrixEventHandlerTests
     {
         var (db, keepAlive) = CreateDb();
         using var _ = keepAlive;
+        var sessions = new Mock<Brmble.Server.Auth.IActiveBrmbleSessions>();
         var svc = new MatrixService(
             new ChannelRepository(db),
             new Mock<IMatrixAppService>().Object,
-            new Mock<Brmble.Server.Auth.IActiveBrmbleSessions>().Object,
+            sessions.Object,
             NullLogger<MatrixService>.Instance);
-        _handler = new MatrixEventHandler(svc);
+        _handler = new MatrixEventHandler(svc, sessions.Object);
 
         await _handler.OnUserDisconnected(new MumbleUser("Alice", "abc", 1));
     }

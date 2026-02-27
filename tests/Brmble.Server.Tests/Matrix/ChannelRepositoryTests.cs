@@ -8,8 +8,6 @@ namespace Brmble.Server.Tests.Matrix;
 [TestClass]
 public class ChannelRepositoryTests
 {
-
-
     private SqliteConnection? _keepAlive;
     private Database? _db;
 
@@ -35,71 +33,71 @@ public class ChannelRepositoryTests
     }
 
     [TestMethod]
-    public void GetRoomId_ExistingMapping_ReturnsRoomId()
+    public async Task GetRoomIdAsync_ExistingMapping_ReturnsRoomId()
     {
         var repo = new ChannelRepository(_db!);
-        repo.Insert(42, "!room:server");
+        await repo.InsertAsync(42, "!room:server");
 
-        var result = repo.GetRoomId(42);
+        var result = await repo.GetRoomIdAsync(42);
 
         Assert.AreEqual("!room:server", result);
     }
 
     [TestMethod]
-    public void GetRoomId_UnknownChannel_ReturnsNull()
+    public async Task GetRoomIdAsync_UnknownChannel_ReturnsNull()
     {
         var repo = new ChannelRepository(_db!);
 
-        var result = repo.GetRoomId(99);
+        var result = await repo.GetRoomIdAsync(99);
 
         Assert.IsNull(result);
     }
 
     [TestMethod]
-    public void Insert_NewMapping_PersistsToDatabase()
+    public async Task InsertAsync_NewMapping_PersistsToDatabase()
     {
         var repo = new ChannelRepository(_db!);
-        repo.Insert(1, "!abc:server");
+        await repo.InsertAsync(1, "!abc:server");
 
-        var result = repo.GetRoomId(1);
+        var result = await repo.GetRoomIdAsync(1);
 
         Assert.AreEqual("!abc:server", result);
     }
 
     [TestMethod]
-    public void Insert_DuplicateChannelId_DoesNotThrow()
+    public async Task InsertAsync_DuplicateChannelId_DoesNotThrow()
     {
         var repo = new ChannelRepository(_db!);
-        repo.Insert(1, "!abc:server");
-        repo.Insert(1, "!xyz:server"); // INSERT OR IGNORE — no throw
+        await repo.InsertAsync(1, "!abc:server");
+        await repo.InsertAsync(1, "!xyz:server"); // INSERT OR IGNORE — no throw
     }
 
     [TestMethod]
-    public void Delete_ExistingMapping_RemovesRecord()
+    public async Task DeleteAsync_ExistingMapping_RemovesRecord()
     {
         var repo = new ChannelRepository(_db!);
-        repo.Insert(5, "!room:server");
+        await repo.InsertAsync(5, "!room:server");
 
-        repo.Delete(5);
+        await repo.DeleteAsync(5);
 
-        Assert.IsNull(repo.GetRoomId(5));
+        Assert.IsNull(await repo.GetRoomIdAsync(5));
     }
 
     [TestMethod]
-    public void Delete_NonExistentMapping_DoesNotThrow()
+    public async Task DeleteAsync_NonExistentMapping_DoesNotThrow()
     {
         var repo = new ChannelRepository(_db!);
-        repo.Delete(999);
+        await repo.DeleteAsync(999);
     }
 
     [TestMethod]
-    public void GetAll_ReturnsAllMappings()
+    public async Task GetAllAsync_ReturnsAllMappings()
     {
         var repo = new ChannelRepository(_db!);
-        repo.Insert(1, "!room1:server");
-        repo.Insert(2, "!room2:server");
+        await repo.InsertAsync(1, "!room1:server");
+        await repo.InsertAsync(2, "!room2:server");
 
-        var all = repo.GetAll();
+        var all = await repo.GetAllAsync();
 
         Assert.AreEqual(2, all.Count);
         Assert.IsTrue(all.Any(m => m.MumbleChannelId == 1 && m.MatrixRoomId == "!room1:server"));
@@ -107,9 +105,9 @@ public class ChannelRepositoryTests
     }
 
     [TestMethod]
-    public void GetAll_Empty_ReturnsEmptyList()
+    public async Task GetAllAsync_Empty_ReturnsEmptyList()
     {
         var repo = new ChannelRepository(_db!);
-        Assert.AreEqual(0, repo.GetAll().Count);
+        Assert.AreEqual(0, (await repo.GetAllAsync()).Count);
     }
 }

@@ -8,6 +8,12 @@ public static class MatrixExtensions
     {
         services.AddOptions<MatrixSettings>()
             .BindConfiguration("Matrix")
+            .PostConfigure(settings =>
+            {
+                // Fall back to MATRIX_SERVER_NAME (used by entrypoint for Conduwuit config)
+                if (settings.ServerDomain == "localhost")
+                    settings.ServerDomain = Environment.GetEnvironmentVariable("MATRIX_SERVER_NAME") ?? settings.ServerDomain;
+            })
             .ValidateDataAnnotations()
             .ValidateOnStart();
 

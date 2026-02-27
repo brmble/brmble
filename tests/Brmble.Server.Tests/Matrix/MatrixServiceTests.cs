@@ -77,7 +77,7 @@ public class MatrixServiceTests
     public async Task RelayMessage_MappedChannel_PostsMessage()
     {
         _sessions.Setup(s => s.IsBrmbleClient("og-hash")).Returns(false);
-        _channelRepo.Insert(42, "!room:server");
+        await _channelRepo.InsertAsync(42, "!room:server");
 
         await _svc.RelayMessage(new MumbleUser("Bob", "og-hash", 2), "hello", 42);
 
@@ -88,7 +88,7 @@ public class MatrixServiceTests
     public async Task RelayMessage_HtmlInText_StripsTagsBeforePosting()
     {
         _sessions.Setup(s => s.IsBrmbleClient("og-hash")).Returns(false);
-        _channelRepo.Insert(1, "!room:server");
+        await _channelRepo.InsertAsync(1, "!room:server");
 
         await _svc.RelayMessage(
             new MumbleUser("Bob", "og-hash", 1),
@@ -104,7 +104,7 @@ public class MatrixServiceTests
     public async Task RelayMessage_HtmlEntitiesInText_DecodesEntities()
     {
         _sessions.Setup(s => s.IsBrmbleClient("og-hash")).Returns(false);
-        _channelRepo.Insert(1, "!room:server");
+        await _channelRepo.InsertAsync(1, "!room:server");
 
         await _svc.RelayMessage(
             new MumbleUser("Bob", "og-hash", 1),
@@ -125,13 +125,13 @@ public class MatrixServiceTests
         await _svc.EnsureChannelRoom(new MumbleChannel(10, "General"));
 
         _appService.Verify(a => a.CreateRoom("General"), Times.Once);
-        Assert.AreEqual("!newroom:server", _channelRepo.GetRoomId(10));
+        Assert.AreEqual("!newroom:server", await _channelRepo.GetRoomIdAsync(10));
     }
 
     [TestMethod]
     public async Task EnsureChannelRoom_ExistingChannel_DoesNotCreateRoom()
     {
-        _channelRepo.Insert(10, "!existing:server");
+        await _channelRepo.InsertAsync(10, "!existing:server");
 
         await _svc.EnsureChannelRoom(new MumbleChannel(10, "General"));
 

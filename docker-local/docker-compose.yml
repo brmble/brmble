@@ -1,0 +1,42 @@
+services:
+  mumble:
+    container_name: mumble
+    image: 'mumblevoip/mumble-server:latest'
+    ports:
+      - '1911:1911'
+      - '1911:1911/udp'
+    volumes:
+      - mumble-data:/data
+    restart: unless-stopped
+    environment:
+      MUMBLE_CONFIG_WELCOMETEXT: "<br />Finaly updated the one and only linux mumble servert <b>noscope.it</b>.<br />Enjoy your stay!<br />  <!--brmble:{'apiUrl':'https://localhost:1912'}-->"
+      MUMBLE_CONFIG_PORT: "1911"
+      MUMBLE_CONFIG_ALLOWHTML: "true"
+      MUMBLE_ACCEPT_UNKNOWN_SETTINGS: "true"
+      MUMBLE_CONFIG_IMAGEMESSAGELENGHT: "0"
+      MUMBLE_CONFIG_TEXTMESSAGELENGHT: "0"
+      MUMBLE_CONFIG_ICE: "tcp -h 0.0.0.0 -p 6502"
+
+  brmble:
+    container_name: mumble-brmble
+    build:
+      context: ..
+      dockerfile: src/Brmble.Server/Dockerfile
+    ports:
+      - "1912:8080"
+      - "7881:7881"
+      - "50100-50200:50100-50200/udp"
+    volumes:
+      - brmble-data:/data
+    environment:
+      MATRIX_SERVER_NAME: '${MATRIX_SERVER_NAME}'
+      MATRIX_APPSERVICE_TOKEN: '${MATRIX_APPSERVICE_TOKEN}'
+      Matrix__AppServiceToken: '${MATRIX_APPSERVICE_TOKEN}'
+      Ice__Host: mumble
+    restart: unless-stopped
+    depends_on:
+      - mumble
+
+volumes:
+  mumble-data:
+  brmble-data:

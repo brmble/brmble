@@ -2,7 +2,6 @@ using System.Text.RegularExpressions;
 using System.Web;
 using Brmble.Server.Auth;
 using Brmble.Server.Mumble;
-using Microsoft.Extensions.Logging;
 
 namespace Brmble.Server.Matrix;
 
@@ -27,13 +26,13 @@ public class MatrixService
 
     public async Task RelayMessage(MumbleUser sender, string text, int channelId)
     {
-        if (_activeSessions.IsBrmbleClient(sender.CertHash))
+        if (_activeSessions.IsBrmbleClient(sender.CertHash) || _activeSessions.IsBrmbleClientByName(sender.Name))
         {
             _logger.LogDebug("Skipping relay for Brmble client {User}", sender.Name);
             return;
         }
 
-        var roomId = _channelRepository.GetRoomId(channelId);
+        var roomId = await _channelRepository.GetRoomIdAsync(channelId);
         if (roomId is null)
         {
             _logger.LogWarning("No Matrix room mapped for Mumble channel {ChannelId} — message from {User} dropped", channelId, sender.Name);
@@ -47,23 +46,23 @@ public class MatrixService
 
     public async Task EnsureChannelRoom(MumbleChannel channel)
     {
-        if (_channelRepository.GetRoomId(channel.Id) is not null)
+        if (await _channelRepository.GetRoomIdAsync(channel.Id) is not null)
             return;
 
         _logger.LogInformation("Creating Matrix room for Mumble channel {Name} (id={Id})", channel.Name, channel.Id);
         var roomId = await _appService.CreateRoom(channel.Name);
-        _channelRepository.Insert(channel.Id, roomId);
+        await _channelRepository.InsertAsync(channel.Id, roomId);
         _logger.LogInformation("Created Matrix room {RoomId} for channel {Name}", roomId, channel.Name);
     }
 
-    public void DeleteChannelRoom(int channelId)
+    public async Task DeleteChannelRoomAsync(int channelId)
     {
-        _channelRepository.Delete(channelId);
+        await _channelRepository.DeleteAsync(channelId);
     }
 
     public async Task RenameChannelRoom(MumbleChannel channel)
     {
-        var roomId = _channelRepository.GetRoomId(channel.Id);
+        var roomId = await _channelRepository.GetRoomIdAsync(channel.Id);
         if (roomId is null)
             return;
         await _appService.SetRoomName(roomId, channel.Name);

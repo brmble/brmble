@@ -2,8 +2,8 @@ using Brmble.Server.Auth;
 using Brmble.Server.Data;
 using Brmble.Server.Matrix;
 using Brmble.Server.Mumble;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -16,15 +16,7 @@ public class MumbleIceServiceTests
     {
         var callback = new MumbleServerCallback(Enumerable.Empty<IMumbleEventHandler>(), NullLogger<MumbleServerCallback>.Instance);
 
-        var config = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Ice:Host"] = host,
-                ["Ice:Port"] = port.ToString(),
-                ["Ice:Secret"] = "test-secret",
-                ["Ice:ConnectTimeoutMs"] = "200"
-            })
-            .Build();
+        var iceSettings = Options.Create(new IceSettings { Host = host, Port = port, Secret = "test-secret" });
 
         var db = new Database("Data Source=:memory:");
         db.Initialize();
@@ -36,7 +28,7 @@ public class MumbleIceServiceTests
         return new MumbleIceService(
             callback,
             matrixService,
-            config,
+            iceSettings,
             NullLogger<MumbleIceService>.Instance);
     }
 

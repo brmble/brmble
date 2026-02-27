@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Brmble.Server.Matrix;
 using Microsoft.Extensions.Options;
 
@@ -31,10 +32,21 @@ public static class AuthEndpoints
                 certHash,
                 httpContext.Connection.RemoteIpAddress);
 
+            // Read optional Mumble username from request body BEFORE Authenticate
+            // so the name is available when creating a new user record.
+            string? mumbleUsername = null;
+            try
+            {
+                using var doc = await JsonDocument.ParseAsync(httpContext.Request.Body);
+                mumbleUsername = doc.RootElement.TryGetProperty("mumbleUsername", out var prop)
+                    ? prop.GetString() : null;
+            }
+            catch { /* empty or non-JSON body — OK */ }
+
             AuthResult result;
             try
             {
-                result = await authService.Authenticate(certHash);
+                result = await authService.Authenticate(certHash, mumbleUsername);
             }
             catch (Exception ex)
             {
@@ -45,20 +57,23 @@ public static class AuthEndpoints
                 return Results.StatusCode(500);
             }
 
-            logger.LogInformation(
-                "Auth succeeded: CertHash={CertHash}, MatrixUserId={MatrixUserId}",
-                certHash,
-                result.MatrixUserId);
+            if (!string.IsNullOrEmpty(mumbleUsername))
+                authService.TrackMumbleName(mumbleUsername);
 
-            var roomMap = channelRepository.GetAll()
+            logger.LogInformation(
+                "Auth succeeded: CertHash={CertHash}, MatrixUserId={MatrixUserId}, MumbleName={MumbleName}",
+                certHash,
+                result.MatrixUserId,
+                mumbleUsername ?? "(none)");
+
+            var roomMap = (await channelRepository.GetAllAsync())
                 .ToDictionary(m => m.MumbleChannelId.ToString(), m => m.MatrixRoomId);
 
-            // Ensure user exists and is in all rooms, then sync display name
-            var localpart = result.MatrixUserId.Split(':')[0].TrimStart('@');
-            await matrixAppService.EnsureUserInRooms(localpart, roomMap.Values);
+            // Ensure user is in all rooms, then sync display name
+            await matrixAppService.EnsureUserInRooms(result.Localpart, roomMap.Values);
             try
             {
-                await matrixAppService.SetDisplayName(localpart, result.DisplayName);
+                await matrixAppService.SetDisplayName(result.Localpart, result.DisplayName);
             }
             catch (Exception ex)
             {

@@ -1,6 +1,7 @@
 // src/Brmble.Server/Auth/UserRepository.cs
 using Dapper;
 using Brmble.Server.Data;
+using Brmble.Server.Matrix;
 using Microsoft.Extensions.Options;
 
 namespace Brmble.Server.Auth;
@@ -12,7 +13,7 @@ public class UserRepository
     private readonly Database _db;
     private readonly string _serverDomain;
 
-    public UserRepository(Database db, IOptions<AuthSettings> settings)
+    public UserRepository(Database db, IOptions<MatrixSettings> settings)
     {
         _db = db;
         _serverDomain = settings.Value.ServerDomain;
