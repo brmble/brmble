@@ -1,6 +1,7 @@
 // tests/Brmble.Server.Tests/Auth/UserRepositoryTests.cs
 using Brmble.Server.Auth;
 using Brmble.Server.Data;
+using Brmble.Server.Matrix;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -23,7 +24,7 @@ public class UserRepositoryTests
         _keepAlive.Open();
         _db = new Database(cs);
         _db.Initialize();
-        var settings = Options.Create(new AuthSettings { ServerDomain = "test.local" });
+        var settings = Options.Create(new MatrixSettings { HomeserverUrl = "http://localhost", AppServiceToken = "test", ServerDomain = "test.local" });
         _repo = new UserRepository(_db, settings);
     }
 

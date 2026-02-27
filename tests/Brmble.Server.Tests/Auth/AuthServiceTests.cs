@@ -8,6 +8,8 @@ using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
 
+#pragma warning disable CS8618 // Non-nullable field uninitialized in constructor (test class uses TestInitialize)
+
 namespace Brmble.Server.Tests.Auth;
 
 [TestClass]
@@ -27,7 +29,7 @@ public class AuthServiceTests
         _keepAlive.Open();
         var db = new Database(cs);
         db.Initialize();
-        var settings = Options.Create(new AuthSettings { ServerDomain = "test.local" });
+        var settings = Options.Create(new MatrixSettings { HomeserverUrl = "http://localhost", AppServiceToken = "test", ServerDomain = "test.local" });
         var repo = new UserRepository(db, settings);
         _repo = repo;
         _mockMatrix = new Mock<IMatrixAppService>();
