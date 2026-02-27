@@ -35,6 +35,22 @@
   --transition-fast: 150ms ease;
   --transition-normal: 250ms ease;
   --transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Animation Durations — one-shot entrance animations */
+  --animation-fast: 150ms;
+  --animation-normal: 300ms;
+  --animation-slow: 400ms;
+  --stagger-step: 50ms;
+
+  /* Animation Durations — continuous/looping UI animations */
+  --animation-blink: 0.5s;
+  --animation-spin: 0.8s;
+  --animation-pulse: 1s;
+  --animation-speaking-pulse: 1.5s;
+  --animation-loading-dots: 1.5s;
+  --animation-badge-pop: 400ms;
+  --animation-badge-pulse: 2.4s;
+  --animation-badge-pulse-delay: 600ms;
 }
 
 * {
@@ -152,19 +168,53 @@ a:hover {
 }
 
 @keyframes slideUp {
-  from { 
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to { 
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes speaking-pulse {
+  0%, 100% { box-shadow: 0 0 8px var(--accent-success-glow); }
+  50%      { box-shadow: 0 0 16px var(--accent-success-glow); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.7; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Animation Utility Classes */
+.animate-slide-up   { animation: slideUp var(--animation-normal) backwards; }
 
 /* ═══════════════════════════════════════════════════
    Global Component Classes
    ═══════════════════════════════════════════════════ */
+
+/* Key Binding Buttons */
+.key-binding-btn {
+  min-width: 120px;
+  text-transform: none; /* override .btn uppercase to preserve key names */
+}
+
+.key-binding-btn.recording {
+  background: var(--accent-danger-subtle);
+  border-color: var(--accent-danger);
+  color: var(--accent-danger);
+  animation: pulse var(--animation-pulse) infinite;
+}
 
 /* Buttons */
 .btn {
@@ -263,6 +313,70 @@ a:hover {
   box-shadow: var(--shadow-dialog);
 }
 
+/* Global Toggle Switch */
+.brmble-toggle {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.brmble-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.brmble-toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--border-subtle);
+  transition: background var(--transition-fast);
+  border-radius: 24px;
+}
+
+.brmble-toggle-slider::before {
+  position: absolute;
+  content: '';
+  height: 20px;
+  width: 20px;
+  left: 2px;
+  top: 2px;
+  background-color: var(--text-primary);
+  transition: transform var(--transition-fast), width var(--transition-fast);
+  border-radius: 50%;
+}
+
+.brmble-toggle input:checked + .brmble-toggle-slider {
+  background-color: var(--accent-primary);
+}
+
+.brmble-toggle input:checked + .brmble-toggle-slider::before {
+  transform: translateX(20px);
+}
+
+.brmble-toggle input:active + .brmble-toggle-slider::before {
+  width: 24px;
+}
+
+.brmble-toggle input:checked:active + .brmble-toggle-slider::before {
+  transform: translateX(16px);
+}
+
+.brmble-toggle input:focus-visible + .brmble-toggle-slider {
+  box-shadow: 0 0 0 2px var(--bg-deep), 0 0 0 4px var(--accent-primary);
+}
+
+.brmble-toggle input:disabled + .brmble-toggle-slider {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Base Inputs */
 .brmble-input {
   background: var(--bg-input);
@@ -326,4 +440,37 @@ select.brmble-input option {
 @keyframes content-fade-in {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Accessibility: Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    /* Disable one-shot entrance animations */
+    --animation-fast: 0ms;
+    --animation-normal: 0ms;
+    --animation-slow: 0ms;
+    --stagger-step: 0ms;
+
+    /* Disable continuous animations */
+    --animation-blink: 0ms;
+    --animation-spin: 0ms;
+    --animation-pulse: 0ms;
+    --animation-speaking-pulse: 0ms;
+    --animation-loading-dots: 0ms;
+    --animation-badge-pop: 0ms;
+    --animation-badge-pulse: 0ms;
+    --animation-badge-pulse-delay: 0ms;
+
+    /* Disable transitions */
+    --transition-fast: 0ms;
+    --transition-normal: 0ms;
+    --transition-slow: 0ms;
+  }
+
+  /* Catch any animations not using tokens */
+  *, *::before, *::after {
+    animation-duration: 0ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0ms !important;
+  }
 }

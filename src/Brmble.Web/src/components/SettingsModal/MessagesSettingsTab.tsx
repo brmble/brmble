@@ -35,12 +35,14 @@ export function MessagesSettingsTab({ settings, onChange }: MessagesSettingsTabP
     <div className="messages-settings-tab">
       <div className="settings-item settings-toggle">
         <label>Text-to-Speech</label>
-        <input
-          type="checkbox"
-          className="toggle-input"
-          checked={localSettings.ttsEnabled}
-          onChange={(e) => handleChange('ttsEnabled', e.target.checked)}
-        />
+        <label className="brmble-toggle">
+          <input
+            type="checkbox"
+            checked={localSettings.ttsEnabled}
+            onChange={(e) => handleChange('ttsEnabled', e.target.checked)}
+          />
+          <span className="brmble-toggle-slider"></span>
+        </label>
       </div>
 
       {localSettings.ttsEnabled && (
@@ -58,12 +60,14 @@ export function MessagesSettingsTab({ settings, onChange }: MessagesSettingsTabP
 
       <div className="settings-item settings-toggle">
         <label>Message Notifications</label>
-        <input
-          type="checkbox"
-          className="toggle-input"
-          checked={localSettings.notificationsEnabled}
-          onChange={(e) => handleChange('notificationsEnabled', e.target.checked)}
-        />
+        <label className="brmble-toggle">
+          <input
+            type="checkbox"
+            checked={localSettings.notificationsEnabled}
+            onChange={(e) => handleChange('notificationsEnabled', e.target.checked)}
+          />
+          <span className="brmble-toggle-slider"></span>
+        </label>
       </div>
     </div>
   );

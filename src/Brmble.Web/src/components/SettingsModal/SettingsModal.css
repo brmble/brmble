@@ -5,7 +5,11 @@
   display: flex;
   flex-direction: column;
   position: relative;
-  animation: slideUp 300ms ease;
+}
+
+.settings-modal .modal-subtitle {
+  opacity: 1;
+  animation: none;
 }
 
 .settings-tabs {
@@ -27,15 +31,7 @@
   position: relative;
   transition: color var(--transition-fast), background var(--transition-fast), transform var(--transition-fast);
   border-radius: var(--radius-md) var(--radius-md) 0 0;
-  opacity: 0;
-  animation: content-fade-in 300ms ease forwards;
 }
-
-/* Stagger tabs slightly */
-.settings-tab:nth-child(1) { animation-delay: 50ms; }
-.settings-tab:nth-child(2) { animation-delay: 100ms; }
-.settings-tab:nth-child(3) { animation-delay: 150ms; }
-.settings-tab:nth-child(4) { animation-delay: 200ms; }
 
 .settings-tab:hover {
   color: var(--text-secondary);
@@ -57,12 +53,14 @@
   padding: 0 1.5rem;
 }
 
+/* Shared entrance animation for all tab pages */
+.settings-content > * {
+  animation: content-fade-in var(--animation-normal) ease backwards;
+}
+
 .settings-section {
   padding: 1.5rem 0;
   border-bottom: 1px solid var(--border-subtle);
-  opacity: 0;
-  animation: content-fade-in 300ms ease forwards;
-  animation-delay: 200ms;
 }
 
 .settings-section:last-child {
@@ -100,52 +98,10 @@
   cursor: pointer;
 }
 
-.toggle-input {
-  appearance: none;
-  width: 44px;
-  height: 24px;
-  background: var(--border-subtle);
-  border-radius: var(--radius-lg);
-  position: relative;
-  cursor: pointer;
-  transition: background var(--transition-fast);
-}
-
-.toggle-input::after {
-  content: '';
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 20px;
-  height: 20px;
-  background: var(--text-primary);
-  border-radius: var(--radius-full);
-  transition: transform var(--transition-fast);
-}
-
-.toggle-input:checked {
-  background: var(--accent-primary);
-}
-
-.toggle-input:checked::after {
-  transform: translateX(20px);
-}
-
-.toggle-input:active::after {
-  width: 24px;
-}
-
-.toggle-input:checked:active::after {
-  transform: translateX(16px);
-}
-
 .settings-footer {
   display: flex;
   justify-content: flex-end;
   gap: 0.75rem;
   padding: 1.5rem;
   border-top: var(--glass-border);
-  opacity: 0;
-  animation: content-fade-in 300ms ease forwards;
-  animation-delay: 250ms;
 }

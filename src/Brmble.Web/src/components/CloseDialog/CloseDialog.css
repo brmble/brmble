@@ -7,12 +7,7 @@
   align-items: center;
   justify-content: center;
   z-index: 10000;
-  animation: overlay-fade-in 150ms ease;
-}
-
-@keyframes overlay-fade-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+  animation: fadeIn var(--animation-fast) ease backwards;
 }
 
 .close-dialog-card {
@@ -22,7 +17,6 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  animation: slideUp var(--transition-normal);
 }
 
 .close-dialog-title {
@@ -34,8 +28,8 @@
   text-align: center;
   letter-spacing: 0.01em;
   opacity: 0;
-  animation: content-fade-in 300ms ease forwards;
-  animation-delay: 100ms;
+  animation: content-fade-in var(--animation-normal) ease forwards;
+  animation-delay: calc(2 * var(--stagger-step));
 }
 
 .close-dialog-subtitle {
@@ -46,8 +40,8 @@
   text-align: center;
   line-height: 1.5;
   opacity: 0;
-  animation: content-fade-in 300ms ease forwards;
-  animation-delay: 150ms;
+  animation: content-fade-in var(--animation-normal) ease forwards;
+  animation-delay: calc(3 * var(--stagger-step));
 }
 
 .close-dialog-buttons {
@@ -55,8 +49,8 @@
   gap: var(--space-sm);
   width: 100%;
   opacity: 0;
-  animation: content-fade-in 300ms ease forwards;
-  animation-delay: 200ms;
+  animation: content-fade-in var(--animation-normal) ease forwards;
+  animation-delay: calc(4 * var(--stagger-step));
 }
 
 .close-dialog-buttons .btn {

@@ -1,21 +1,4 @@
-.key-binding-btn {
-  min-width: 120px;
-  text-transform: none; /* override .btn uppercase to preserve key names */
-}
-
-.key-binding-btn.recording {
-  background: var(--accent-danger-subtle);
-  border-color: var(--accent-danger);
-  color: var(--accent-danger);
-  animation: pulse 1s infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
-}
-
-.settings-hint {
+.shortcuts-settings-tab .settings-hint {
   color: var(--text-muted);
   font-size: 12px;
   margin-top: 12px;
@@ -31,12 +14,7 @@
   align-items: center;
   justify-content: center;
   z-index: 10001;
-  animation: shortcut-overlay-fade-in 150ms ease;
-}
-
-@keyframes shortcut-overlay-fade-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+  animation: fadeIn var(--animation-fast) ease backwards;
 }
 
 .shortcut-conflict-card {
@@ -46,7 +24,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  animation: shortcut-card-slide-in 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  animation: shortcut-card-slide-in var(--animation-fast) cubic-bezier(0.4, 0, 0.2, 1) backwards;
 }
 
 @keyframes shortcut-card-slide-in {

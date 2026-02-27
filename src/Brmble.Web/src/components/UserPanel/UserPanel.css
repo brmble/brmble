@@ -37,7 +37,7 @@
     0 0 0 2px var(--bg-deep),
     0 2px 8px var(--accent-primary-glow);
   pointer-events: none;
-  animation: badgePop 400ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation: badgePop var(--animation-badge-pop) cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
 .dm-unread-badge::after {
@@ -47,7 +47,7 @@
   border-radius: inherit;
   background: var(--accent-primary);
   opacity: 0;
-  animation: badgePulse 2.4s ease-in-out 600ms infinite;
+  animation: badgePulse var(--animation-badge-pulse) ease-in-out var(--animation-badge-pulse-delay) infinite;
   z-index: -1;
 }
 
@@ -174,14 +174,5 @@
 
 .user-avatar.speaking {
   box-shadow: 0 0 12px var(--accent-success-glow);
-  animation: speaking-pulse 1.5s ease-in-out infinite;
-}
-
-@keyframes speaking-pulse {
-  0%, 100% { 
-    box-shadow: 0 0 8px var(--accent-success-glow);
-  }
-  50% { 
-    box-shadow: 0 0 16px var(--accent-success-glow);
-  }
+  animation: speaking-pulse var(--animation-speaking-pulse) ease-in-out infinite;
 }
