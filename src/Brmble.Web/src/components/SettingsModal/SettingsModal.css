@@ -7,6 +7,11 @@
   position: relative;
 }
 
+.settings-modal .modal-subtitle {
+  opacity: 1;
+  animation: none;
+}
+
 .settings-tabs {
   display: flex;
   gap: 4px;
@@ -26,15 +31,7 @@
   position: relative;
   transition: color var(--transition-fast), background var(--transition-fast), transform var(--transition-fast);
   border-radius: var(--radius-md) var(--radius-md) 0 0;
-  opacity: 0;
-  animation: content-fade-in var(--animation-normal) ease forwards;
 }
-
-/* Stagger tabs slightly */
-.settings-tab:nth-child(1) { animation-delay: calc(1 * var(--stagger-step)); }
-.settings-tab:nth-child(2) { animation-delay: calc(2 * var(--stagger-step)); }
-.settings-tab:nth-child(3) { animation-delay: calc(3 * var(--stagger-step)); }
-.settings-tab:nth-child(4) { animation-delay: calc(4 * var(--stagger-step)); }
 
 .settings-tab:hover {
   color: var(--text-secondary);
@@ -56,12 +53,14 @@
   padding: 0 1.5rem;
 }
 
+/* Shared entrance animation for all tab pages */
+.settings-content > * {
+  animation: content-fade-in var(--animation-normal) ease backwards;
+}
+
 .settings-section {
   padding: 1.5rem 0;
   border-bottom: 1px solid var(--border-subtle);
-  opacity: 0;
-  animation: content-fade-in var(--animation-normal) ease forwards;
-  animation-delay: calc(4 * var(--stagger-step));
 }
 
 .settings-section:last-child {
@@ -105,7 +104,4 @@
   gap: 0.75rem;
   padding: 1.5rem;
   border-top: var(--glass-border);
-  opacity: 0;
-  animation: content-fade-in var(--animation-normal) ease forwards;
-  animation-delay: calc(5 * var(--stagger-step));
 }

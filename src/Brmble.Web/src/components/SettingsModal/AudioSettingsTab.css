@@ -1,15 +1,3 @@
-.key-binding-btn {
-  min-width: 120px;
-  text-transform: none; /* override .btn uppercase to preserve key names */
-}
-
-.key-binding-btn.recording {
-  background: var(--accent-danger-subtle);
-  border-color: var(--accent-danger);
-  color: var(--accent-danger);
-  animation: pulse var(--animation-pulse) infinite;
-}
-
 .settings-slider {
   flex-direction: column;
   align-items: flex-start;

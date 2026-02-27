@@ -12,7 +12,7 @@
   width: 100%;
   max-width: 480px;
   padding: 2.5rem;
-  animation: slideUp var(--animation-normal) ease;
+  animation: slideUp var(--animation-normal) ease backwards;
 }
 
 .cert-wizard-step-indicator {
@@ -168,8 +168,4 @@
   padding: 0.5rem 0.75rem;
   border-radius: var(--radius-sm);
   margin-bottom: 1rem;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }

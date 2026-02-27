@@ -199,7 +199,7 @@
   background: var(--bg-deep-glass);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  animation: formSlideIn var(--animation-normal) ease;
+  animation: formSlideIn var(--animation-normal) ease backwards;
 }
 
 @keyframes formSlideIn {

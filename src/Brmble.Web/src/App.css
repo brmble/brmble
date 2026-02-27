@@ -85,7 +85,7 @@
   align-items: center;
   justify-content: center;
   z-index: 50;
-  animation: fadeIn var(--animation-normal) ease;
+  animation: fadeIn var(--animation-normal) ease backwards;
 }
 
 .connect-overlay-btn {
