@@ -169,10 +169,16 @@ body::before {
   color: var(--text-primary);
 }
 
-/* Focus styles */
+/* Focus styles - Global Accessibility */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
 :focus-visible {
-  outline: 2px solid var(--accent-lemon);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: 0 0 0 2px var(--bg-deep), 0 0 0 4px var(--accent-berry);
+  border-radius: inherit; /* Inherits radius from the focused element if possible */
+  transition: box-shadow var(--transition-fast);
 }
 
 /* Button reset */
