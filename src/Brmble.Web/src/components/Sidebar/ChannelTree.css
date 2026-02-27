@@ -12,7 +12,7 @@
   gap: 6px;
   padding: 6px 10px;
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   transition: all var(--transition-fast);
 }
 
@@ -21,7 +21,7 @@
 }
 
 .channel-row.current {
-  background: rgba(212, 20, 90, 0.2);
+  background: var(--accent-berry-wash);
 }
 
 .channel-row.current .channel-name {
@@ -73,7 +73,7 @@
   color: var(--text-muted);
   padding: 2px 6px;
   background: var(--bg-hover);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   flex-shrink: 0;
 }
 
@@ -82,7 +82,7 @@
   border: 1px solid var(--border-subtle);
   color: var(--text-muted);
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   font-size: 0.625rem;
   cursor: pointer;
   transition: all var(--transition-fast);
@@ -106,7 +106,7 @@
   gap: 8px;
   padding: 4px 8px;
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   transition: background var(--transition-fast);
   margin: 2px 0;
 }
@@ -162,14 +162,14 @@
   font-size: 0.625rem;
   color: var(--accent-mint);
   padding: 1px 6px;
-  background: rgba(80, 200, 120, 0.15);
-  border-radius: 8px;
+  background: var(--accent-mint-subtle);
+  border-radius: var(--radius-md);
   margin-left: 4px;
   flex-shrink: 0;
 }
 
 .user-row.speaking {
-  background: rgba(80, 200, 120, 0.15);
+  background: var(--accent-mint-subtle);
   box-shadow: 0 0 12px var(--accent-mint-glow);
   animation: speaking-pulse 1.5s ease-in-out infinite;
 }

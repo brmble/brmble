@@ -1,5 +1,5 @@
 .connection-settings-tab .settings-hint {
-  color: #666;
+  color: var(--text-muted);
   font-size: 12px;
   margin-top: 12px;
 }
@@ -10,7 +10,7 @@
   justify-content: center;
   width: 16px;
   height: 16px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   background: var(--border-subtle);
   color: var(--text-muted);
   font-size: 10px;
@@ -28,7 +28,7 @@
   background: var(--bg-deep);
   color: var(--text-primary);
   padding: 8px 12px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
   font-weight: 400;
   white-space: normal;

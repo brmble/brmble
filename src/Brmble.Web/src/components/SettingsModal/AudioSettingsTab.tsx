@@ -136,7 +136,7 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
       <div className="settings-item">
         <label>Input Device</label>
         <select
-          className="settings-select"
+          className="brmble-input"
           value={localSettings.inputDevice}
           onChange={(e) => handleChange('inputDevice', e.target.value)}
         >
@@ -147,7 +147,7 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
       <div className="settings-item">
         <label>Output Device</label>
         <select
-          className="settings-select"
+          className="brmble-input"
           value={localSettings.outputDevice}
           onChange={(e) => handleChange('outputDevice', e.target.value)}
         >
@@ -191,7 +191,7 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
       <div className="settings-item">
         <label>Transmission Mode</label>
         <select
-          className="settings-select"
+          className="brmble-input"
           value={localSettings.transmissionMode}
           onChange={(e) => handleChange('transmissionMode', e.target.value as TransmissionMode)}
         >
@@ -205,7 +205,7 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
         <div className="settings-item">
           <label>Push to Talk Key</label>
           <button
-            className={`key-binding-btn ${recording ? 'recording' : ''}`}
+            className={`btn btn-secondary key-binding-btn ${recording ? 'recording' : ''}`}
             onClick={() => setRecording(!recording)}
           >
             {recording ? 'Press any key...' : (localSettings.pushToTalkKey || 'Not bound')}

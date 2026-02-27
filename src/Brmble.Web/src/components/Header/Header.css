@@ -56,19 +56,19 @@
   height: 100%;
   border: none;
   background: transparent;
-  color: var(--text-secondary, #999);
+  color: var(--text-secondary);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: all var(--transition-fast);
   padding: 0;
   outline: none;
 }
 
 .window-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-primary, #fff);
+  background: var(--bg-hover-light);
+  color: var(--text-primary);
 }
 
 .window-btn-close:hover {
-  background: var(--accent-berry, #d4145a);
-  color: #fff;
+  background: var(--accent-berry);
+  color: var(--text-primary);
 }

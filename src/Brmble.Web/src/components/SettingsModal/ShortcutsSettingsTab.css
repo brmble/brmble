@@ -1,24 +1,12 @@
 .key-binding-btn {
-  padding: 8px 16px;
-  background: #2a2a2a;
-  border: 1px solid #4a4a4a;
-  border-radius: 4px;
-  color: #ccc;
-  cursor: pointer;
-  font-size: 14px;
   min-width: 120px;
-  transition: all 0.2s;
-}
-
-.key-binding-btn:hover {
-  background: #3a3a3a;
-  border-color: #5a5a5a;
+  text-transform: none; /* override .btn uppercase to preserve key names */
 }
 
 .key-binding-btn.recording {
-  background: #4a2a2a;
-  border-color: #ff6b6b;
-  color: #ff6b6b;
+  background: var(--accent-danger-subtle);
+  border-color: var(--accent-danger);
+  color: var(--accent-danger);
   animation: pulse 1s infinite;
 }
 
@@ -28,7 +16,7 @@
 }
 
 .settings-hint {
-  color: #666;
+  color: var(--text-muted);
   font-size: 12px;
   margin-top: 12px;
 }
@@ -37,7 +25,7 @@
 .shortcut-conflict-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(15, 10, 20, 0.80);
+  background: var(--bg-overlay);
   backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
@@ -52,13 +40,6 @@
 }
 
 .shortcut-conflict-card {
-  background: var(--bg-primary);
-  border: 1px solid var(--border-subtle);
-  border-radius: 12px;
-  box-shadow:
-    0 0 0 1px rgba(212, 20, 90, 0.15),
-    0 8px 32px rgba(15, 10, 20, 0.6),
-    0 0 60px rgba(212, 20, 90, 0.08);
   padding: 32px 40px 28px;
   width: 380px;
   max-width: 90vw;
@@ -101,38 +82,3 @@
   width: 100%;
 }
 
-.shortcut-conflict-btn {
-  flex: 1;
-  padding: 10px 20px;
-  border-radius: 8px;
-  border: none;
-  font-family: var(--font-body);
-  font-size: 0.875rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
-}
-
-.shortcut-conflict-btn.confirm {
-  background: var(--accent-berry);
-  color: #fff;
-  box-shadow: 0 0 16px var(--accent-berry-glow);
-}
-
-.shortcut-conflict-btn.confirm:hover {
-  background: #e8185f;
-  box-shadow: 0 0 24px rgba(212, 20, 90, 0.55);
-  transform: translateY(-1px);
-}
-
-.shortcut-conflict-btn.cancel {
-  background: rgba(61, 42, 92, 0.4);
-  color: var(--text-secondary);
-  border: 1px solid var(--border-subtle);
-}
-
-.shortcut-conflict-btn.cancel:hover {
-  background: rgba(61, 42, 92, 0.6);
-  color: var(--text-primary);
-  border-color: rgba(212, 20, 90, 0.3);
-}

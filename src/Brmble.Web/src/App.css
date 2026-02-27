@@ -78,8 +78,8 @@
   bottom: 0;
   background: linear-gradient(
     135deg,
-    rgba(15, 10, 20, 0.7) 0%,
-    rgba(26, 16, 37, 0.85) 100%
+    var(--bg-overlay) 0%,
+    var(--bg-glass) 100%
   );
   display: flex;
   align-items: center;
@@ -93,8 +93,8 @@
   align-items: center;
   gap: 0.75rem;
   padding: 1rem 2rem;
-  background: linear-gradient(135deg, var(--accent-berry) 0%, #b8124d 100%);
-  border-radius: 12px;
+  background: linear-gradient(135deg, var(--accent-berry) 0%, var(--accent-berry-dark) 100%);
+  border-radius: var(--radius-lg);
   font-size: 1.125rem;
   font-weight: 600;
   color: var(--text-primary);
@@ -137,9 +137,4 @@
     opacity: 1;
     transform: translateX(0);
   }
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
 }

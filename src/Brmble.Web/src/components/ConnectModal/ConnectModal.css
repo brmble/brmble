@@ -4,7 +4,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(15, 10, 20, 0.85);
+  background: var(--bg-overlay);
   backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
@@ -13,31 +13,12 @@
   animation: fadeIn 200ms ease;
 }
 
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
 .connect-modal {
-  background: var(--bg-primary);
-  border: var(--glass-border);
-  border-radius: 16px;
   padding: 2rem;
   width: 100%;
   max-width: 420px;
   position: relative;
   animation: slideUp 300ms ease;
-}
-
-@keyframes slideUp {
-  from { 
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to { 
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 
 .modal-close {
@@ -49,7 +30,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: var(--text-muted);
   transition: all var(--transition-fast);
 }
@@ -70,18 +51,27 @@
   font-weight: 600;
   color: var(--text-primary);
   margin: 0 0 0.5rem;
+  opacity: 0;
+  animation: content-fade-in 300ms ease forwards;
+  animation-delay: 50ms;
 }
 
 .modal-subtitle {
   color: var(--text-muted);
   margin: 0;
   font-size: 0.875rem;
+  opacity: 0;
+  animation: content-fade-in 300ms ease forwards;
+  animation-delay: 100ms;
 }
 
 .connect-form {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+  opacity: 0;
+  animation: content-fade-in 300ms ease forwards;
+  animation-delay: 150ms;
 }
 
 .form-group {
@@ -103,23 +93,6 @@
 
 .form-group input {
   width: 100%;
-  padding: 0.875rem 1rem;
-  background: var(--bg-glass);
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  font-size: 0.9375rem;
-  color: var(--text-primary);
-  transition: all var(--transition-fast);
-}
-
-.form-group input:focus {
-  outline: none;
-  border-color: var(--accent-berry);
-  box-shadow: 0 0 12px var(--accent-berry-glow);
-}
-
-.form-group input::placeholder {
-  color: var(--text-muted);
 }
 
 .input-row {
@@ -138,20 +111,4 @@
 .connect-btn {
   width: 100%;
   padding: 1rem;
-  background: linear-gradient(135deg, var(--accent-berry) 0%, #b8124d 100%);
-  border-radius: 8px;
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-top: 0.5rem;
-  transition: all var(--transition-fast);
-}
-
-.connect-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px var(--accent-berry-glow);
-}
-
-.connect-btn:active {
-  transform: translateY(0);
 }

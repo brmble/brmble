@@ -62,7 +62,7 @@ export function ConnectionSettingsTab({ settings, onChange, servers }: Connectio
           <span className="tooltip-icon" data-tooltip={tooltipText}>?</span>
         </label>
         <select
-          className="settings-select"
+          className="brmble-input"
           value={settings.autoConnectServerId ?? ''}
           onChange={handleServerChange}
           disabled={!settings.autoConnectEnabled}

@@ -4,7 +4,8 @@ import bridge from '../../bridge';
 import { AudioSettingsTab, type AudioSettings, type SpeechEnhancementSettings, DEFAULT_SETTINGS as DEFAULT_AUDIO, DEFAULT_SPEECH_ENHANCEMENT } from './AudioSettingsTab';
 import { ShortcutsSettingsTab, type ShortcutsSettings, DEFAULT_SHORTCUTS } from './ShortcutsSettingsTab';
 import { MessagesSettingsTab, type MessagesSettings, DEFAULT_MESSAGES } from './MessagesSettingsTab';
-import { OverlaySettingsTab, type OverlaySettings, DEFAULT_OVERLAY } from './OverlaySettingsTab';
+import { InterfaceSettingsTab } from './InterfaceSettingsTab';
+import { type AppearanceSettings, type OverlaySettings, DEFAULT_APPEARANCE, DEFAULT_OVERLAY } from './InterfaceSettingsTypes';
 import { IdentitySettingsTab } from './IdentitySettingsTab';
 import { ConnectionSettingsTab, type ConnectionSettings } from './ConnectionSettingsTab';
 import { useServerlist } from '../../hooks/useServerlist';
@@ -34,6 +35,7 @@ interface AppSettings {
   audio: AudioSettings;
   shortcuts: ShortcutsSettings;
   messages: MessagesSettings;
+  appearance: AppearanceSettings;
   overlay: OverlaySettings;
   speechEnhancement: SpeechEnhancementSettings;
   reconnectEnabled: boolean;
@@ -45,6 +47,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   audio: DEFAULT_AUDIO,
   shortcuts: DEFAULT_SHORTCUTS,
   messages: DEFAULT_MESSAGES,
+  appearance: DEFAULT_APPEARANCE,
   overlay: DEFAULT_OVERLAY,
   speechEnhancement: DEFAULT_SPEECH_ENHANCEMENT,
   reconnectEnabled: true,
@@ -54,7 +57,7 @@ const DEFAULT_SETTINGS: AppSettings = {
 
 export function SettingsModal(props: SettingsModalProps) {
   const { isOpen, onClose } = props;
-  const [activeTab, setActiveTab] = useState<'audio' | 'shortcuts' | 'messages' | 'overlay' | 'connection' | 'identity'>('audio');
+  const [activeTab, setActiveTab] = useState<'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'identity'>('audio');
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const { servers } = useServerlist();
 
@@ -72,6 +75,9 @@ export function SettingsModal(props: SettingsModalProps) {
       const d = data as { settings?: AppSettings } | undefined;
       if (d?.settings) {
         setSettings({ ...DEFAULT_SETTINGS, ...d.settings });
+        if (d.settings.appearance?.theme) {
+          document.documentElement.setAttribute('data-theme', d.settings.appearance.theme);
+        }
       }
     };
 
@@ -164,6 +170,13 @@ export function SettingsModal(props: SettingsModalProps) {
     bridge.send('settings.set', { settings: newSettings });
   };
 
+  const handleAppearanceChange = (appearance: AppearanceSettings) => {
+    const newSettings = { ...settings, appearance };
+    setSettings(newSettings);
+    bridge.send('settings.set', { settings: newSettings });
+    document.documentElement.setAttribute('data-theme', appearance.theme);
+  };
+
   const handleOverlayChange = (overlay: OverlaySettings) => {
     const newSettings = { ...settings, overlay };
     setSettings(newSettings);
@@ -191,7 +204,7 @@ export function SettingsModal(props: SettingsModalProps) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="settings-modal glass-panel" onClick={(e) => e.stopPropagation()}>
         <button className="modal-close" onClick={onClose}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -223,11 +236,11 @@ export function SettingsModal(props: SettingsModalProps) {
           >
             Messages
           </button>
-          <button
-            className={`settings-tab ${activeTab === 'overlay' ? 'active' : ''}`}
-            onClick={() => setActiveTab('overlay')}
+          <button 
+            className={`settings-tab ${activeTab === 'appearance' ? 'active' : ''}`}
+            onClick={() => setActiveTab('appearance')}
           >
-            Overlay
+            Interface
           </button>
           <button
             className={`settings-tab ${activeTab === 'connection' ? 'active' : ''}`}
@@ -247,7 +260,14 @@ export function SettingsModal(props: SettingsModalProps) {
           {activeTab === 'audio' && <AudioSettingsTab settings={settings.audio} onChange={handleAudioChange} speechEnhancement={settings.speechEnhancement} onSpeechEnhancementChange={handleSpeechEnhancementChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}
           {activeTab === 'shortcuts' && <ShortcutsSettingsTab settings={settings.shortcuts} onChange={handleShortcutsChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}
           {activeTab === 'messages' && <MessagesSettingsTab settings={settings.messages} onChange={handleMessagesChange} />}
-          {activeTab === 'overlay' && <OverlaySettingsTab settings={settings.overlay} onChange={handleOverlayChange} />}
+          {activeTab === 'appearance' && (
+            <InterfaceSettingsTab 
+              appearanceSettings={settings.appearance || DEFAULT_APPEARANCE} 
+              overlaySettings={settings.overlay || DEFAULT_OVERLAY}
+              onAppearanceChange={handleAppearanceChange} 
+              onOverlayChange={handleOverlayChange}
+            />
+          )}
           {activeTab === 'connection' && (
             <ConnectionSettingsTab
               settings={{
@@ -268,10 +288,10 @@ export function SettingsModal(props: SettingsModalProps) {
         </div>
 
         <div className="settings-footer">
-          <button className="settings-btn secondary" onClick={onClose}>
+          <button className="btn btn-secondary" onClick={onClose}>
             Cancel
           </button>
-          <button className="settings-btn primary" onClick={onClose}>
+          <button className="btn btn-primary" onClick={onClose}>
             Save Changes
           </button>
         </div>
