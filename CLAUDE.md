@@ -108,6 +108,14 @@ This project supports modular bridge architecture. The following guidelines help
 - Voice: MumbleSharp
 - Text: Matrix (via Continuwity)
 
+## Running Docker (local dev)
+
+Docker runs in WSL. Use `wsl` to execute docker commands:
+```bash
+wsl docker compose -f docker-local/docker-compose.yml up -d --build brmble
+wsl docker compose -f docker-local/docker-compose.yml logs -f brmble
+```
+
 ## Build & Test (repeatable commands)
 - Build all: dotnet build
 - Build frontend: (cd src/Brmble.Web && npm run build)
