@@ -7,7 +7,7 @@
   align-items: center;
   justify-content: center;
   z-index: 10000;
-  animation: overlay-fade-in var(--transition-fast);
+  animation: fadeIn var(--transition-fast);
 }
 
 .close-dialog-card {

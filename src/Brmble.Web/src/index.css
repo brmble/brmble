@@ -182,11 +182,6 @@ a:hover {
   to   { opacity: 1; transform: scale(1); }
 }
 
-@keyframes overlay-fade-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
 @keyframes speaking-pulse {
   0%, 100% { box-shadow: 0 0 8px var(--accent-success-glow); }
   50%      { box-shadow: 0 0 16px var(--accent-success-glow); }
