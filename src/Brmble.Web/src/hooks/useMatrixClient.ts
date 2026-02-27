@@ -56,7 +56,13 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
 
       setMessages(prev => {
         const next = new Map(prev);
-        next.set(channelId, [...(next.get(channelId) ?? []), message]);
+        const existing = next.get(channelId) ?? [];
+        // Deduplicate by id (scrollback can re-emit events already in state)
+        if (existing.some(m => m.id === message.id)) return prev;
+        const updated = [...existing, message].sort(
+          (a, b) => a.timestamp.getTime() - b.timestamp.getTime()
+        );
+        next.set(channelId, updated);
         return next;
       });
     };
