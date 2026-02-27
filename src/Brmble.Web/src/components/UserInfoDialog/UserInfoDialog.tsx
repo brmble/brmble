@@ -7,11 +7,9 @@ export interface UserInfoDialogProps {
   onClose: () => void;
   userName: string;
   session: number;
-  channelId?: number;
-  muted?: boolean;
-  deafened?: boolean;
   isSelf: boolean;
   comment?: string;
+  onStartDM?: (userId: string, userName: string) => void;
 }
 
 export function UserInfoDialog({
@@ -19,11 +17,9 @@ export function UserInfoDialog({
   onClose,
   userName,
   session,
-  channelId,
-  muted,
-  deafened,
   isSelf,
   comment,
+  onStartDM,
 }: UserInfoDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const [volume, setVolume] = useState(100);
@@ -131,28 +127,20 @@ export function UserInfoDialog({
         </div>
 
         <div className="user-info-content">
-          <div className="user-info-row">
-            <span className="user-info-label">Session</span>
-            <span className="user-info-value">{session}</span>
-          </div>
-          {channelId !== undefined && (
-            <div className="user-info-row">
-              <span className="user-info-label">Channel</span>
-              <span className="user-info-value">{channelId}</span>
-            </div>
+          {!isSelf && onStartDM && (
+            <button
+              className="btn btn-primary user-info-dm-btn"
+              onClick={() => {
+                onStartDM(String(session), userName);
+                onClose();
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              </svg>
+              Send Direct Message
+            </button>
           )}
-          <div className="user-info-row">
-            <span className="user-info-label">Muted</span>
-            <span className={`user-info-value ${muted ? 'status-active' : ''}`}>
-              {muted ? 'Yes' : 'No'}
-            </span>
-          </div>
-          <div className="user-info-row">
-            <span className="user-info-label">Deafened</span>
-            <span className={`user-info-value ${deafened ? 'status-active' : ''}`}>
-              {deafened ? 'Yes' : 'No'}
-            </span>
-          </div>
         </div>
 
         <div className="user-info-volume-section">
