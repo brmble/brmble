@@ -360,10 +360,13 @@ static class Program
                         Win32Window.SetForegroundWindow(hwnd);
                         break;
                     case TrayIcon.IDM_MUTE:
-                        _mumbleClient?.ToggleMute();
-                        _muted = !_muted;
-                        if (!_muted) _deafened = false; // unmute also undeafens
-                        TrayIcon.UpdateState(_muted, _deafened);
+                        if (!_deafened)
+                        {
+                            _mumbleClient?.ToggleMute();
+                            _muted = !_muted;
+                            if (!_muted) _deafened = false;
+                            TrayIcon.UpdateState(_muted, _deafened);
+                        }
                         break;
                     case TrayIcon.IDM_DEAFEN:
                         _mumbleClient?.ToggleDeaf();

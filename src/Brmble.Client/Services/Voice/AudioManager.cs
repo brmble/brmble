@@ -911,6 +911,12 @@ private int _dmScreenHotkeyId = -1;
 
         if (action != null)
         {
+            // Suppress mute shortcut visual feedback when deafened (#156)
+            if (action == "toggleMute" && _deafened)
+            {
+                AudioLog.Write($"[Audio] Shortcut suppressed (deafened): {action}");
+                return;
+            }
             AudioLog.Write($"[Audio] Shortcut pressed: {action}");
             _heldShortcuts[id] = action;
             ShortcutPressed?.Invoke(action);
