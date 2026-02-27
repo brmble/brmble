@@ -3,6 +3,7 @@ using Brmble.Server.Auth;
 using Brmble.Server.Data;
 using Brmble.Server.Matrix;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
@@ -34,7 +35,7 @@ public class AuthServiceTests
                    .ReturnsAsync("syt_new_token");
         _mockMatrix.Setup(m => m.LoginUser(It.IsAny<string>()))
                    .ReturnsAsync("syt_refresh_token");
-        _svc = new AuthService(repo, _mockMatrix.Object);
+        _svc = new AuthService(repo, _mockMatrix.Object, NullLogger<AuthService>.Instance);
     }
 
     [TestCleanup]
