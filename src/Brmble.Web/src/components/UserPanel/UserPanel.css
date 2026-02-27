@@ -9,12 +9,12 @@
 }
 
 .user-panel-btn.dm-btn:hover {
-  color: var(--accent-berry);
+  color: var(--accent-primary);
 }
 
 .user-panel-btn.dm-btn.active {
-  color: var(--accent-berry);
-  background: var(--accent-berry-wash);
+  color: var(--accent-primary);
+  background: var(--accent-primary-wash);
 }
 
 .dm-unread-badge {
@@ -25,7 +25,7 @@
   height: 16px;
   padding: 0 4px;
   border-radius: var(--radius-md);
-  background: linear-gradient(135deg, var(--accent-berry) 0%, var(--accent-berry-light) 100%);
+  background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-primary-light) 100%);
   color: var(--text-primary);
   font-family: var(--font-body);
   font-size: 0.625rem;
@@ -35,7 +35,7 @@
   letter-spacing: 0.02em;
   box-shadow:
     0 0 0 2px var(--bg-deep),
-    0 2px 8px var(--accent-berry-glow);
+    0 2px 8px var(--accent-primary-glow);
   pointer-events: none;
   animation: badgePop 400ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
@@ -45,7 +45,7 @@
   position: absolute;
   inset: -1px;
   border-radius: inherit;
-  background: var(--accent-berry);
+  background: var(--accent-primary);
   opacity: 0;
   animation: badgePulse 2.4s ease-in-out 600ms infinite;
   z-index: -1;
@@ -78,25 +78,25 @@
 }
 
 .user-panel-btn.user-settings-btn:hover {
-  color: var(--accent-berry);
+  color: var(--accent-primary);
 }
 
 .user-panel-btn.mute-btn:hover {
-  color: var(--accent-berry);
+  color: var(--accent-primary);
 }
 
 .user-panel-btn.mute-btn.active {
-  color: var(--accent-berry);
-  background: var(--accent-berry-wash);
+  color: var(--accent-primary);
+  background: var(--accent-primary-wash);
 }
 
 .user-panel-btn.deaf-btn:hover {
-  color: var(--accent-berry);
+  color: var(--accent-primary);
 }
 
 .user-panel-btn.deaf-btn.active {
-  color: var(--accent-berry);
-  background: var(--accent-berry-wash);
+  color: var(--accent-primary);
+  background: var(--accent-primary-wash);
 }
 
 .user-panel-btn.disabled {
@@ -114,31 +114,31 @@
 }
 
 .user-panel-btn.leave-voice-btn.active {
-  color: var(--accent-berry);
-  background: var(--accent-berry-wash);
+  color: var(--accent-primary);
+  background: var(--accent-primary-wash);
 }
 
 .user-panel-btn.leave-voice-btn.pressed {
-  color: var(--accent-lemon);
-  background: var(--accent-lemon-subtle);
+  color: var(--accent-secondary);
+  background: var(--accent-secondary-subtle);
   transform: scale(0.95);
 }
 
 .user-panel-btn.deaf-btn.pressed {
-  color: var(--accent-lemon);
-  background: var(--accent-lemon-subtle);
+  color: var(--accent-secondary);
+  background: var(--accent-secondary-subtle);
   transform: scale(0.95);
 }
 
 .user-panel-btn.mute-btn.pressed {
-  color: var(--accent-lemon);
-  background: var(--accent-lemon-subtle);
+  color: var(--accent-secondary);
+  background: var(--accent-secondary-subtle);
   transform: scale(0.95);
 }
 
 .user-panel-btn.dm-btn.pressed {
-  color: var(--accent-lemon);
-  background: var(--accent-lemon-subtle);
+  color: var(--accent-secondary);
+  background: var(--accent-secondary-subtle);
   transform: scale(0.95);
 }
 
@@ -156,12 +156,12 @@
   justify-content: center;
   cursor: pointer;
   transition: transform var(--transition-fast), box-shadow var(--transition-fast);
-  color: var(--accent-purple);
+  color: var(--accent-decorative);
 }
 
 .user-avatar:hover {
   transform: scale(1.1);
-  box-shadow: 0 0 20px var(--accent-purple-glow);
+  box-shadow: 0 0 20px var(--accent-decorative-glow);
 }
 
 .user-avatar:active {
@@ -173,15 +173,15 @@
 }
 
 .user-avatar.speaking {
-  box-shadow: 0 0 12px var(--accent-mint-glow);
+  box-shadow: 0 0 12px var(--accent-success-glow);
   animation: speaking-pulse 1.5s ease-in-out infinite;
 }
 
 @keyframes speaking-pulse {
   0%, 100% { 
-    box-shadow: 0 0 8px var(--accent-mint-glow);
+    box-shadow: 0 0 8px var(--accent-success-glow);
   }
   50% { 
-    box-shadow: 0 0 16px var(--accent-mint-glow);
+    box-shadow: 0 0 16px var(--accent-success-glow);
   }
 }

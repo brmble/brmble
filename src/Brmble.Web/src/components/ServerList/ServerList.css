@@ -15,7 +15,7 @@
   padding: 2rem;
   box-shadow: 
     var(--shadow-elevated),
-    0 0 0 1px var(--accent-berry-ghost) inset;
+    0 0 0 1px var(--accent-primary-ghost) inset;
   backdrop-filter: var(--glass-blur);
   animation: serverListSlideIn 400ms ease backwards;
 }
@@ -102,7 +102,7 @@
 
 .server-list-item:hover {
   background: var(--bg-hover);
-  border-color: var(--accent-berry);
+  border-color: var(--accent-primary);
   transform: translateX(4px);
 }
 
@@ -110,7 +110,7 @@
   width: 44px;
   height: 44px;
   border-radius: var(--radius-lg);
-  background: linear-gradient(135deg, var(--accent-berry) 0%, var(--accent-berry-dark) 100%);
+  background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-primary-dark) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -119,7 +119,7 @@
   font-weight: 600;
   color: var(--text-primary);
   flex-shrink: 0;
-  box-shadow: 0 4px 12px var(--accent-berry-glow);
+  box-shadow: 0 4px 12px var(--accent-primary-glow);
 }
 
 .server-list-info {
@@ -268,12 +268,12 @@
 }
 
 .server-list-add-btn:hover {
-  border-color: var(--accent-berry);
+  border-color: var(--accent-primary);
   border-style: solid;
 }
 
 .server-list-add-icon {
   font-size: 1.25rem;
   font-weight: 300;
-  color: var(--accent-berry);
+  color: var(--accent-primary);
 }

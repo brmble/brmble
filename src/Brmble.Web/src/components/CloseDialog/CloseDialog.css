@@ -72,7 +72,7 @@
 }
 
 .close-dialog-checkbox-row input[type="checkbox"] {
-  accent-color: var(--accent-berry);
+  accent-color: var(--accent-primary);
   width: 14px;
   height: 14px;
   cursor: pointer;

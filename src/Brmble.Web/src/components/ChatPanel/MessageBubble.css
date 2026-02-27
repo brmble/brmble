@@ -15,14 +15,14 @@
   height: 40px;
   min-width: 40px;
   border-radius: var(--radius-full);
-  background: linear-gradient(135deg, var(--border-subtle) 0%, var(--accent-purple) 100%);
+  background: linear-gradient(135deg, var(--border-subtle) 0%, var(--accent-decorative) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .message-bubble.own .message-avatar {
-  background: linear-gradient(135deg, var(--accent-berry) 0%, var(--accent-lemon) 100%);
+  background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
 }
 
 .message-avatar .avatar-letter {
@@ -55,7 +55,7 @@
 }
 
 .message-bubble.own .message-sender {
-  color: var(--accent-lemon);
+  color: var(--accent-secondary);
 }
 
 .message-time {

@@ -1,85 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-
 :root {
-  /* ═══════════════════════════════════════════════════
-     Bramble Cocktail Palette — Vintage Lounge
-     ═══════════════════════════════════════════════════ */
-
-  /* Backgrounds */
-  --bg-deep: #0f0a14;
-  --bg-primary: #1a1025;
-  --bg-glass: rgba(26, 16, 37, 0.85);
-  --bg-hover: rgba(61, 42, 92, 0.3);
-  --bg-hover-strong: rgba(100, 70, 150, 0.4);
-  --bg-surface: rgba(61, 42, 92, 0.15);
-  --bg-overlay: rgba(15, 10, 20, 0.80);
-  --bg-elevated: rgba(26, 16, 37, 0.6);
-  --bg-input: var(--bg-elevated);
-  --bg-deep-glass: rgba(15, 10, 20, 0.4);
-  --bg-hover-light: rgba(255, 255, 255, 0.08);
-  --bg-surface-active: rgba(61, 42, 92, 0.6);
-
-  /* Accent: Berry */
-  --accent-berry: #d4145a;
-  --accent-berry-dark: #b8124d;
-  --accent-berry-hover: #e8185f;
-  --accent-berry-light: #e8326e;
-  --accent-berry-glow: rgba(212, 20, 90, 0.4);
-  --accent-berry-wash: rgba(212, 20, 90, 0.2);
-  --accent-berry-ghost: rgba(212, 20, 90, 0.1);
-
-  /* Accent: Lemon */
-  --accent-lemon: #f4d03f;
-  --accent-lemon-glow: rgba(244, 208, 63, 0.3);
-  --accent-lemon-subtle: rgba(244, 208, 63, 0.15);
-
-  /* Accent: Mint */
-  --accent-mint: #50c878;
-  --accent-mint-glow: rgba(80, 200, 120, 0.3);
-  --accent-mint-subtle: rgba(80, 200, 120, 0.15);
-
-  /* Accent: Purple */
-  --accent-purple: #7b4dff;
-  --accent-purple-glow: rgba(123, 77, 255, 0.5);
-  --bg-avatar-start: #4a1a6b;
-  --bg-avatar-end: #2d0f45;
-
-  /* Accent: Danger */
-  --accent-danger: #ff6b6b;
-  --accent-danger-strong: #ff4f5e;
-  --accent-danger-text: #ff6b7a;
-  --accent-danger-subtle: rgba(255, 107, 107, 0.12);
-  --accent-danger-border: rgba(255, 107, 107, 0.4);
-  --accent-danger-bg: rgba(255, 107, 107, 0.25);
-
-  /* Status */
-  --status-connected: #50c878;
-
-  /* Text */
-  --text-primary: #f5f0e8;
-  --text-secondary: #a89fb8;
-  --text-secondary-dim: rgba(168, 159, 184, 0.55);
-  --text-secondary-muted: rgba(168, 159, 184, 0.7);
-  --text-muted: #6b5f7a;
-  --text-muted-dim: rgba(107, 95, 122, 0.5);
-  --text-muted-strong: rgba(107, 95, 122, 0.85);
-
-  /* Borders & Effects */
-  --border-subtle: #3d2a5c;
-  --border-glow: rgba(212, 20, 90, 0.3);
-
-  /* Glass Effect */
-  --glass-blur: blur(12px);
-  --glass-border: 1px solid rgba(61, 42, 92, 0.5);
-
-  /* Shadows */
-  --shadow-dialog:
-    0 0 0 1px var(--accent-berry-ghost),
-    0 8px 32px rgba(15, 10, 20, 0.6),
-    0 0 60px rgba(212, 20, 90, 0.08);
-  --shadow-elevated: 0 8px 32px rgba(0, 0, 0, 0.4);
-  --shadow-drop-subtle: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.3));
-
   /* Border Radius Scale */
   --radius-xs: 4px;
   --radius-sm: 6px;
@@ -98,11 +17,6 @@
   --space-2xl: 3rem;    /* 48px */
   --space-3xl: 4rem;    /* 64px */
 
-  /* Typography */
-  --font-display: 'Cormorant Garamond', Georgia, serif;
-  --font-body: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
-  
   /* Font Size Scale */
   --text-xs: 0.75rem;    /* 12px */
   --text-sm: 0.875rem;   /* 14px */
@@ -121,49 +35,6 @@
   --transition-fast: 150ms ease;
   --transition-normal: 250ms ease;
   --transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
-
-  /* Theme Features (Classic Default) */
-  --theme-noise-opacity: 0.03;
-  --theme-mesh-bg: 
-    radial-gradient(circle at 15% 15%, rgba(212, 20, 90, 0.08) 0%, transparent 40%),
-    radial-gradient(circle at 85% 85%, rgba(123, 77, 255, 0.08) 0%, transparent 40%);
-}
-
-:root[data-theme="clean"] {
-  --theme-noise-opacity: 0;
-  --theme-mesh-bg: none;
-  
-  /* Desaturate Backgrounds for Clean Dark Mode */
-  --bg-deep: #0a0a0a;
-  --bg-primary: #121212;
-  --bg-glass: rgba(18, 18, 18, 0.85);
-  --bg-hover: rgba(255, 255, 255, 0.05);
-  --bg-hover-strong: rgba(255, 255, 255, 0.1);
-  --bg-surface: rgba(255, 255, 255, 0.03);
-  --bg-overlay: rgba(10, 10, 10, 0.85);
-  --bg-elevated: rgba(30, 30, 30, 0.9);
-  --bg-input: rgba(30, 30, 30, 0.5);
-  --bg-deep-glass: rgba(10, 10, 10, 0.5);
-  --bg-hover-light: rgba(255, 255, 255, 0.08);
-  --bg-surface-active: rgba(255, 255, 255, 0.08);
-
-  /* Subtle Borders for Clean Mode */
-  --border-subtle: #2a2a2a;
-  --glass-border: 1px solid rgba(255, 255, 255, 0.1);
-
-  /* Neutral Text Colors */
-  --text-primary: #ffffff;
-  --text-secondary: #a0a0a0;
-  --text-secondary-dim: rgba(160, 160, 160, 0.55);
-  --text-secondary-muted: rgba(160, 160, 160, 0.7);
-  --text-muted: #6b6b6b;
-  --text-muted-dim: rgba(107, 107, 107, 0.5);
-  --text-muted-strong: rgba(107, 107, 107, 0.85);
-
-  /* Shadows for Clean Mode */
-  --shadow-dialog:
-    0 0 0 1px rgba(255, 255, 255, 0.1),
-    0 12px 40px rgba(0, 0, 0, 0.8);
 }
 
 * {
@@ -226,12 +97,12 @@ body::before {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--accent-berry);
+  background: var(--accent-primary);
 }
 
 /* Selection */
 ::selection {
-  background: var(--accent-berry);
+  background: var(--accent-primary);
   color: var(--text-primary);
 }
 
@@ -242,7 +113,7 @@ body::before {
 
 :focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--bg-deep), 0 0 0 4px var(--accent-berry);
+  box-shadow: 0 0 0 2px var(--bg-deep), 0 0 0 4px var(--accent-primary);
   transition: box-shadow var(--transition-fast);
 }
 
@@ -265,7 +136,7 @@ input, textarea {
 
 /* Link reset */
 a {
-  color: var(--accent-lemon);
+  color: var(--accent-secondary);
   text-decoration: none;
   transition: color var(--transition-fast);
 }
@@ -334,15 +205,15 @@ a:hover {
 }
 
 .btn-primary {
-  background: var(--accent-berry);
+  background: var(--accent-primary);
   color: #ffffff;
   border: 1px solid transparent;
-  box-shadow: 0 0 16px var(--accent-berry-glow);
+  box-shadow: 0 0 16px var(--accent-primary-glow);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: var(--accent-berry-hover);
-  box-shadow: 0 0 24px var(--accent-berry-glow);
+  background: var(--accent-primary-hover);
+  box-shadow: 0 0 24px var(--accent-primary-glow);
   transform: translateY(-1px);
 }
 
@@ -406,18 +277,44 @@ a:hover {
 }
 
 .brmble-input:focus {
-  border-color: var(--accent-berry);
-  box-shadow: 0 0 0 1px var(--accent-berry-glow);
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 1px var(--accent-primary-glow);
 }
 
 select.brmble-input {
   cursor: pointer;
   min-width: 150px;
   appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23f5f0e8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 0.75rem center;
+  background-image: none;
   padding-right: 2rem;
+  position: relative;
+}
+
+/* Theme-adaptive dropdown arrow using CSS border triangle.
+   Inherits --text-secondary so it adapts to every theme. */
+select.brmble-input + .select-arrow,
+select.brmble-input::after {
+  /* ::after won't work on <select>, so we use a wrapper approach below */
+}
+
+/* Wrapper pattern: .select-wrapper > select.brmble-input */
+.select-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.select-wrapper::after {
+  content: '';
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 5px solid var(--text-secondary);
+  pointer-events: none;
 }
 
 select.brmble-input option {

@@ -1,0 +1,128 @@
+/* ═══════════════════════════════════════════════════
+   Brmble Midori Sour Theme — Cyberpunk Neon Tokyo
+
+   Cocktail:   Midori Sour (Midori melon liqueur + lemon juice)
+   Vibe:       Cyberpunk neon Tokyo nights — energetic, slightly
+               techy. Bright green on dark emerald. Electric
+               signs flickering through rain-slicked streets.
+
+   THE 3 DECISIONS:
+     1. BASE HUE:       145° (deep emerald-green)
+     2. PRIMARY ACCENT:  #00c853 (electric Midori green)
+     3. TEXT WARMTH:     Cool-neutral — clean white with green-tinted grays
+   ═══════════════════════════════════════════════════ */
+
+:root[data-theme="midori-sour"] {
+
+  /* ── Backgrounds (12 tokens) ─────────────────────
+     Tinted with hue 145° at medium saturation.
+     bg-deep:    hsl(145, 30%, 5%)
+     bg-primary: hsl(145, 28%, 9%)
+     mid-tone:   hsl(145, 22%, 22%) ≈ rgb(44, 68, 54)
+     ──────────────────────────────────────────────── */
+  --bg-deep:           #081210;
+  --bg-primary:        #0e1f18;
+  --bg-glass:          rgba(14, 31, 24, 0.88);
+  --bg-hover:          rgba(44, 68, 54, 0.30);
+  --bg-hover-strong:   rgba(55, 88, 68, 0.40);
+  --bg-surface:        rgba(44, 68, 54, 0.16);
+  --bg-overlay:        rgba(8, 18, 16, 0.86);
+  --bg-elevated:       rgba(14, 31, 24, 0.62);
+  --bg-input:          var(--bg-elevated);
+  --bg-deep-glass:     rgba(8, 18, 16, 0.42);
+  --bg-hover-light:    rgba(255, 255, 255, 0.07);
+  --bg-surface-active: rgba(44, 68, 54, 0.55);
+
+  /* ── Primary Accent — Electric Midori Green (7 tokens)
+     Base: #00c853 → hsl(145, 100%, 39%)
+     ──────────────────────────────────────────────── */
+  --accent-primary:       #00c853;
+  --accent-primary-dark:  #00a344;
+  --accent-primary-hover: #1ad968;
+  --accent-primary-light: #45e885;
+  --accent-primary-glow:  rgba(0, 200, 83, 0.40);
+  --accent-primary-wash:  rgba(0, 200, 83, 0.20);
+  --accent-primary-ghost: rgba(0, 200, 83, 0.10);
+
+  /* ── Secondary Accent — Teal (3 tokens)
+     hsl(175, 60%, 45%) ≈ #2db8a8
+     ──────────────────────────────────────────────── */
+  --accent-secondary:        #2db8a8;
+  --accent-secondary-glow:   rgba(45, 184, 168, 0.32);
+  --accent-secondary-subtle: rgba(45, 184, 168, 0.15);
+
+  /* ── Success Accent — Bright Lime (3 tokens)
+     hsl(80, 70%, 55%) ≈ #a3d942
+     IMPORTANT: Lime hue 80° is visually distinct from
+     primary green hue 145° — yellow-green vs blue-green.
+     ──────────────────────────────────────────────── */
+  --accent-success:        #a3d942;
+  --accent-success-glow:   rgba(163, 217, 66, 0.30);
+  --accent-success-subtle: rgba(163, 217, 66, 0.14);
+
+  /* ── Decorative Accent — Deep Teal (4 tokens)
+     hsl(180, 55%, 30%) ≈ #226e6e
+     Avatar gradient uses base hue 145°.
+     ──────────────────────────────────────────────── */
+  --accent-decorative:      #226e6e;
+  --accent-decorative-glow: rgba(34, 110, 110, 0.50);
+  --bg-avatar-start:        #1a6b42;
+  --bg-avatar-end:          #0d3d24;
+
+  /* ── Danger Accent (6 tokens)
+     hsl(0, 85%, 65%) — vivid red, clearly distinct
+     from the green primary accent
+     ──────────────────────────────────────────────── */
+  --accent-danger:        #ef5050;
+  --accent-danger-strong: #e03838;
+  --accent-danger-text:   #f06868;
+  --accent-danger-subtle: rgba(239, 80, 80, 0.12);
+  --accent-danger-border: rgba(239, 80, 80, 0.42);
+  --accent-danger-bg:     rgba(239, 80, 80, 0.24);
+
+  /* ── Status (1 token) ────────────────────────── */
+  --status-connected: #a3d942;
+
+  /* ── Text — Cool-neutral white with green-tinted grays (7 tokens)
+     Primary: #eaf5ef ≈ hsl(145, 30%, 94%) — faint green-white
+     Secondary: hsl(145, 12%, 65%) ≈ #94b0a0
+     Muted: hsl(145, 10%, 42%) ≈ #617368
+     ──────────────────────────────────────────────── */
+  --text-primary:         #eaf5ef;
+  --text-secondary:       #94b0a0;
+  --text-secondary-dim:   rgba(148, 176, 160, 0.55);
+  --text-secondary-muted: rgba(148, 176, 160, 0.72);
+  --text-muted:           #617368;
+  --text-muted-dim:       rgba(97, 115, 104, 0.50);
+  --text-muted-strong:    rgba(97, 115, 104, 0.85);
+
+  /* ── Borders & Effects (2 tokens)
+     Tinted with hue 145°.
+     ──────────────────────────────────────────────── */
+  --border-subtle: #1c3d2c;
+  --border-glow:   rgba(0, 200, 83, 0.30);
+
+  /* ── Glass Effect (2 tokens) ─────────────────── */
+  --glass-blur:   blur(12px);
+  --glass-border: 1px solid rgba(44, 68, 54, 0.48);
+
+  /* ── Shadows (3 tokens) ──────────────────────── */
+  --shadow-dialog:
+    0 0 0 1px var(--accent-primary-ghost),
+    0 8px 32px rgba(8, 18, 16, 0.65),
+    0 0 60px rgba(0, 200, 83, 0.10);
+  --shadow-elevated: 0 8px 32px rgba(0, 0, 0, 0.45);
+  --shadow-drop-subtle: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35));
+
+  /* ── Typography (3 tokens) ───────────────────── */
+  --font-display: 'Space Mono', 'Courier New', monospace;
+  --font-body:    'Lexend', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono:    'JetBrains Mono', monospace;
+
+  /* ── Theme Features (2 tokens) ───────────────── */
+  --theme-noise-opacity: 0.03;
+  --theme-mesh-bg:
+    radial-gradient(circle at 10% 20%, rgba(0, 200, 83, 0.10) 0%, transparent 35%),
+    radial-gradient(circle at 90% 80%, rgba(34, 110, 110, 0.08) 0%, transparent 35%),
+    radial-gradient(circle at 50% 50%, rgba(45, 184, 168, 0.05) 0%, transparent 50%);
+}

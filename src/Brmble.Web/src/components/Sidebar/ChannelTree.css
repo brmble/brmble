@@ -21,11 +21,11 @@
 }
 
 .channel-row.current {
-  background: var(--accent-berry-wash);
+  background: var(--accent-primary-wash);
 }
 
 .channel-row.current .channel-name {
-  color: var(--accent-berry);
+  color: var(--accent-primary);
   font-weight: 500;
 }
 
@@ -90,8 +90,8 @@
 }
 
 .channel-sort-btn:hover {
-  background: var(--accent-lemon);
-  border-color: var(--accent-lemon);
+  background: var(--accent-secondary);
+  border-color: var(--accent-secondary);
   color: var(--bg-deep);
 }
 
@@ -116,7 +116,7 @@
 }
 
 .user-row.self .user-name {
-  color: var(--accent-mint);
+  color: var(--accent-success);
 }
 
 .user-status {
@@ -128,7 +128,7 @@
 
 .status-icon--deaf,
 .status-icon--muted {
-  color: color-mix(in srgb, var(--accent-berry) 55%, transparent);
+  color: color-mix(in srgb, var(--accent-primary) 55%, transparent);
   flex-shrink: 0;
 }
 
@@ -142,7 +142,7 @@
 }
 
 .user-row.self .status-icon--mic {
-  color: var(--accent-mint);
+  color: var(--accent-success);
 }
 
 .user-name {
@@ -160,17 +160,17 @@
 
 .self-badge {
   font-size: 0.625rem;
-  color: var(--accent-mint);
+  color: var(--accent-success);
   padding: 1px 6px;
-  background: var(--accent-mint-subtle);
+  background: var(--accent-success-subtle);
   border-radius: var(--radius-md);
   margin-left: 4px;
   flex-shrink: 0;
 }
 
 .user-row.speaking {
-  background: var(--accent-mint-subtle);
-  box-shadow: 0 0 12px var(--accent-mint-glow);
+  background: var(--accent-success-subtle);
+  box-shadow: 0 0 12px var(--accent-success-glow);
   animation: speaking-pulse 1.5s ease-in-out infinite;
 }
 
@@ -181,9 +181,9 @@
 
 @keyframes speaking-pulse {
   0%, 100% { 
-    box-shadow: 0 0 8px var(--accent-mint-glow);
+    box-shadow: 0 0 8px var(--accent-success-glow);
   }
   50% { 
-    box-shadow: 0 0 16px var(--accent-mint-glow);
+    box-shadow: 0 0 16px var(--accent-success-glow);
   }
 }

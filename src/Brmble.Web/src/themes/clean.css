@@ -1,0 +1,65 @@
+/* ═══════════════════════════════════════════════════
+   Brmble Clean Theme — Minimal Dark
+   
+   A desaturated, neutral dark mode for users who
+   prefer a cleaner aesthetic without the vintage
+   cocktail-lounge atmosphere. No noise grain or
+   mesh gradients.
+
+   THEME DEPENDENCY NOTE
+   ---------------------
+   This Clean theme intentionally overrides only a subset
+   of CSS custom properties (backgrounds, borders, text,
+   shadows, and selected theme features).
+
+   It relies on the Classic theme's base :root definition
+   for all other tokens, including but not limited to:
+   - Accent color tokens (--accent-primary*, --accent-secondary*,
+     --accent-success*, --accent-decorative*, --accent-danger*)
+   - Typography tokens (--font-display, --font-body, --font-mono)
+   - Glass / blur tokens (--glass-blur)
+   - Shadow utilities (--shadow-elevated, --shadow-drop-subtle)
+   - Status tokens (--status-connected)
+
+   For Clean to render correctly, the Classic theme's base
+   :root must continue to define these tokens, and its CSS
+   must be loaded before this file so that variables cascade
+   as expected.
+   ═══════════════════════════════════════════════════ */
+
+:root[data-theme="clean"] {
+  --theme-noise-opacity: 0;
+  --theme-mesh-bg: none;
+  
+  /* Desaturate Backgrounds for Clean Dark Mode */
+  --bg-deep: #0a0a0a;
+  --bg-primary: #121212;
+  --bg-glass: rgba(18, 18, 18, 0.85);
+  --bg-hover: rgba(255, 255, 255, 0.05);
+  --bg-hover-strong: rgba(255, 255, 255, 0.1);
+  --bg-surface: rgba(255, 255, 255, 0.03);
+  --bg-overlay: rgba(10, 10, 10, 0.85);
+  --bg-elevated: rgba(30, 30, 30, 0.9);
+  --bg-input: rgba(30, 30, 30, 0.5);
+  --bg-deep-glass: rgba(10, 10, 10, 0.5);
+  --bg-hover-light: rgba(255, 255, 255, 0.08);
+  --bg-surface-active: rgba(255, 255, 255, 0.08);
+
+  /* Subtle Borders for Clean Mode */
+  --border-subtle: #2a2a2a;
+  --glass-border: 1px solid rgba(255, 255, 255, 0.1);
+
+  /* Neutral Text Colors */
+  --text-primary: #ffffff;
+  --text-secondary: #a0a0a0;
+  --text-secondary-dim: rgba(160, 160, 160, 0.55);
+  --text-secondary-muted: rgba(160, 160, 160, 0.7);
+  --text-muted: #6b6b6b;
+  --text-muted-dim: rgba(107, 107, 107, 0.5);
+  --text-muted-strong: rgba(107, 107, 107, 0.85);
+
+  /* Shadows for Clean Mode */
+  --shadow-dialog:
+    0 0 0 1px rgba(255, 255, 255, 0.1),
+    0 12px 40px rgba(0, 0, 0, 0.8);
+}

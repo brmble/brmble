@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import './InterfaceSettingsTab.css';
 import type { OverlaySettings, AppearanceSettings } from './InterfaceSettingsTypes';
+import { themes } from '../../themes/theme-registry';
 
 interface InterfaceSettingsTabProps {
   appearanceSettings: AppearanceSettings;
@@ -22,7 +23,7 @@ export function InterfaceSettingsTab({
     setLocalAppearance(appearanceSettings);
   }, [appearanceSettings]);
 
-  const handleThemeChange = (theme: 'classic' | 'clean') => {
+  const handleThemeChange = (theme: string) => {
     const newSettings = { ...localAppearance, theme };
     setLocalAppearance(newSettings);
     onAppearanceChange(newSettings);
@@ -40,14 +41,17 @@ export function InterfaceSettingsTab({
         <h3 className="settings-section-title">Theme</h3>
         <div className="settings-item">
           <label>Aesthetic</label>
-          <select
-            className="brmble-input"
-            value={localAppearance.theme}
-            onChange={(e) => handleThemeChange(e.target.value as 'classic' | 'clean')}
-          >
-            <option value="classic">Brmble Classic</option>
-            <option value="clean">Brmble Clean</option>
-          </select>
+          <div className="select-wrapper">
+            <select
+              className="brmble-input"
+              value={localAppearance.theme}
+              onChange={(e) => handleThemeChange(e.target.value)}
+            >
+              {themes.map(t => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 

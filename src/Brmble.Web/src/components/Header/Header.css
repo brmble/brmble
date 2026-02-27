@@ -25,7 +25,7 @@
   letter-spacing: 0.15em;
   color: var(--text-primary);
   margin: 0;
-  background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent-lemon) 100%);
+  background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent-secondary) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -69,6 +69,6 @@
 }
 
 .window-btn-close:hover {
-  background: var(--accent-berry);
+  background: var(--accent-primary);
   color: var(--text-primary);
 }

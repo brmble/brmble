@@ -1,0 +1,96 @@
+/* ═══════════════════════════════════════════════════
+   Brmble Classic Theme — Vintage Lounge
+   
+   The original Brmble experience: deep purple tones,
+   berry pink accents, and warm cocktail-bar ambiance
+   with subtle noise grain and mesh gradients.
+   ═══════════════════════════════════════════════════ */
+
+:root[data-theme="classic"],
+:root:not([data-theme]) {
+  /* Backgrounds */
+  --bg-deep: #0f0a14;
+  --bg-primary: #1a1025;
+  --bg-glass: rgba(26, 16, 37, 0.85);
+  --bg-hover: rgba(61, 42, 92, 0.3);
+  --bg-hover-strong: rgba(100, 70, 150, 0.4);
+  --bg-surface: rgba(61, 42, 92, 0.15);
+  --bg-overlay: rgba(15, 10, 20, 0.80);
+  --bg-elevated: rgba(26, 16, 37, 0.6);
+  --bg-input: var(--bg-elevated);
+  --bg-deep-glass: rgba(15, 10, 20, 0.4);
+  --bg-hover-light: rgba(255, 255, 255, 0.08);
+  --bg-surface-active: rgba(61, 42, 92, 0.6);
+
+  /* Primary Accent (Berry Pink) */
+  --accent-primary: #d4145a;
+  --accent-primary-dark: #b8124d;
+  --accent-primary-hover: #e8185f;
+  --accent-primary-light: #e8326e;
+  --accent-primary-glow: rgba(212, 20, 90, 0.4);
+  --accent-primary-wash: rgba(212, 20, 90, 0.2);
+  --accent-primary-ghost: rgba(212, 20, 90, 0.1);
+
+  /* Secondary Accent (Lemon Yellow) */
+  --accent-secondary: #f4d03f;
+  --accent-secondary-glow: rgba(244, 208, 63, 0.3);
+  --accent-secondary-subtle: rgba(244, 208, 63, 0.15);
+
+  /* Success Accent (Mint Green) */
+  --accent-success: #50c878;
+  --accent-success-glow: rgba(80, 200, 120, 0.3);
+  --accent-success-subtle: rgba(80, 200, 120, 0.15);
+
+  /* Decorative Accent (Purple) */
+  --accent-decorative: #7b4dff;
+  --accent-decorative-glow: rgba(123, 77, 255, 0.5);
+  --bg-avatar-start: #4a1a6b;
+  --bg-avatar-end: #2d0f45;
+
+  /* Accent: Danger */
+  --accent-danger: #ff6b6b;
+  --accent-danger-strong: #ff4f5e;
+  --accent-danger-text: #ff6b7a;
+  --accent-danger-subtle: rgba(255, 107, 107, 0.12);
+  --accent-danger-border: rgba(255, 107, 107, 0.4);
+  --accent-danger-bg: rgba(255, 107, 107, 0.25);
+
+  /* Status */
+  --status-connected: #50c878;
+
+  /* Text */
+  --text-primary: #f5f0e8;
+  --text-secondary: #a89fb8;
+  --text-secondary-dim: rgba(168, 159, 184, 0.55);
+  --text-secondary-muted: rgba(168, 159, 184, 0.7);
+  --text-muted: #6b5f7a;
+  --text-muted-dim: rgba(107, 95, 122, 0.5);
+  --text-muted-strong: rgba(107, 95, 122, 0.85);
+
+  /* Borders & Effects */
+  --border-subtle: #3d2a5c;
+  --border-glow: rgba(212, 20, 90, 0.3);
+
+  /* Glass Effect */
+  --glass-blur: blur(12px);
+  --glass-border: 1px solid rgba(61, 42, 92, 0.5);
+
+  /* Shadows */
+  --shadow-dialog:
+    0 0 0 1px var(--accent-primary-ghost),
+    0 8px 32px rgba(15, 10, 20, 0.6),
+    0 0 60px rgba(212, 20, 90, 0.08);
+  --shadow-elevated: 0 8px 32px rgba(0, 0, 0, 0.4);
+  --shadow-drop-subtle: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.3));
+
+  /* Typography */
+  --font-display: 'Cormorant Garamond', Georgia, serif;
+  --font-body: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Theme Features (Classic Default) */
+  --theme-noise-opacity: 0.03;
+  --theme-mesh-bg: 
+    radial-gradient(circle at 15% 15%, rgba(212, 20, 90, 0.08) 0%, transparent 40%),
+    radial-gradient(circle at 85% 85%, rgba(123, 77, 255, 0.08) 0%, transparent 40%);
+}

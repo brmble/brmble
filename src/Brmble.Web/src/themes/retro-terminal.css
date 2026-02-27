@@ -1,0 +1,138 @@
+/* ═══════════════════════════════════════════════════
+   Brmble Retro Terminal Theme — CRT Phosphor Green
+
+   Vibe:       Phosphor green CRT monitor, hacker aesthetic.
+               Flat black backgrounds, scanline grain, everything
+               monospaced. A glowing terminal in a dark room.
+
+   THE 3 DECISIONS:
+     1. BASE HUE:       0° (pure neutral — no tint, raw black)
+     2. PRIMARY ACCENT:  #33ff00 (phosphor green)
+     3. TEXT WARMTH:     Cold — green-on-black CRT
+   ═══════════════════════════════════════════════════ */
+
+:root[data-theme="retro-terminal"] {
+
+  /* ── Backgrounds (12 tokens) ─────────────────────
+     Pure black and near-black. No hue tinting.
+     CRTs are flat black when off, deep black when on.
+     bg-deep:    #000000 (true black)
+     bg-primary: #0a0a0a (near-black)
+     mid-tone:   #1a1a1a (dark gray for hover states)
+     ──────────────────────────────────────────────── */
+  --bg-deep:           #000000;
+  --bg-primary:        #0a0a0a;
+  --bg-glass:          rgba(10, 10, 10, 0.92);
+  --bg-hover:          rgba(51, 255, 0, 0.10);
+  --bg-hover-strong:   rgba(51, 255, 0, 0.18);
+  --bg-surface:        rgba(51, 255, 0, 0.05);
+  --bg-overlay:        rgba(0, 0, 0, 0.92);
+  --bg-elevated:       rgba(15, 15, 15, 0.72);
+  --bg-input:          var(--bg-elevated);
+  --bg-deep-glass:     rgba(0, 0, 0, 0.50);
+  --bg-hover-light:    rgba(51, 255, 0, 0.06);
+  --bg-surface-active: rgba(51, 255, 0, 0.14);
+
+  /* ── Primary Accent — Phosphor Green (7 tokens)
+     Base: #33ff00 → hsl(108, 100%, 50%)
+     The dominant color. Bright, saturated, electric.
+     Everything glows green like a VT220.
+     ──────────────────────────────────────────────── */
+  --accent-primary:       #33ff00;
+  --accent-primary-dark:  #28cc00;
+  --accent-primary-hover: #55ff33;
+  --accent-primary-light: #77ff55;
+  --accent-primary-glow:  rgba(51, 255, 0, 0.45);
+  --accent-primary-wash:  rgba(51, 255, 0, 0.20);
+  --accent-primary-ghost: rgba(51, 255, 0, 0.08);
+
+  /* ── Secondary Accent — Terminal Amber (3 tokens)
+     #ffb000 — classic amber terminal color.
+     Used sparingly as a second voice alongside green.
+     ──────────────────────────────────────────────── */
+  --accent-secondary:        #ffb000;
+  --accent-secondary-glow:   rgba(255, 176, 0, 0.35);
+  --accent-secondary-subtle: rgba(255, 176, 0, 0.15);
+
+  /* ── Success Accent — Bright Green (3 tokens)
+     #00ff41 — slightly different hue from primary
+     to remain distinguishable as a status indicator.
+     ──────────────────────────────────────────────── */
+  --accent-success:        #00ff41;
+  --accent-success-glow:   rgba(0, 255, 65, 0.35);
+  --accent-success-subtle: rgba(0, 255, 65, 0.12);
+
+  /* ── Decorative Accent — Dark Green (4 tokens)
+     #0a4a0a — deep phosphor shadow.
+     Avatar gradient stays in the green channel.
+     ──────────────────────────────────────────────── */
+  --accent-decorative:      #0a4a0a;
+  --accent-decorative-glow: rgba(10, 74, 10, 0.55);
+  --bg-avatar-start:        #1a6b1a;
+  --bg-avatar-end:          #0a3a0a;
+
+  /* ── Danger Accent (6 tokens)
+     hsl(0, 85%, 55%) — red alarm on a CRT.
+     Bright and harsh against the black.
+     ──────────────────────────────────────────────── */
+  --accent-danger:        #e03030;
+  --accent-danger-strong: #cc2020;
+  --accent-danger-text:   #ff4444;
+  --accent-danger-subtle: rgba(224, 48, 48, 0.14);
+  --accent-danger-border: rgba(224, 48, 48, 0.45);
+  --accent-danger-bg:     rgba(224, 48, 48, 0.22);
+
+  /* ── Status (1 token) ────────────────────────── */
+  --status-connected: #00ff41;
+
+  /* ── Text — Green-tinted CRT phosphor (7 tokens)
+     Primary: #d0f0c0 — bright green-white phosphor
+     Secondary: #6aaa5a — dimmer green, not gray
+     Muted: #3a7a2a — faded phosphor, still green
+     ──────────────────────────────────────────────── */
+  --text-primary:         #d0f0c0;
+  --text-secondary:       #6aaa5a;
+  --text-secondary-dim:   rgba(106, 170, 90, 0.55);
+  --text-secondary-muted: rgba(106, 170, 90, 0.72);
+  --text-muted:           #3a7a2a;
+  --text-muted-dim:       rgba(58, 122, 42, 0.50);
+  --text-muted-strong:    rgba(58, 122, 42, 0.85);
+
+  /* ── Borders & Effects (2 tokens)
+     Green-tinted borders. No neutral grays.
+     ──────────────────────────────────────────────── */
+  --border-subtle: #1a3a1a;
+  --border-glow:   rgba(51, 255, 0, 0.35);
+
+  /* ── Glass Effect (2 tokens)
+     Flat CRT — no frosted glass, no blur.
+     Border is phosphor green, not tinted neutral.
+     ──────────────────────────────────────────────── */
+  --glass-blur:   blur(0px);
+  --glass-border: 1px solid rgba(51, 255, 0, 0.30);
+
+  /* ── Shadows (3 tokens)
+     Green-tinted shadows — phosphor glow, not neutral.
+     ──────────────────────────────────────────────── */
+  --shadow-dialog:
+    0 0 0 1px var(--accent-primary-ghost),
+    0 8px 32px rgba(0, 0, 0, 0.70),
+    0 0 60px rgba(51, 255, 0, 0.10);
+  --shadow-elevated: 0 8px 32px rgba(0, 10, 0, 0.55);
+  --shadow-drop-subtle: drop-shadow(0 1px 1px rgba(0, 10, 0, 0.45));
+
+  /* ── Typography (3 tokens)
+     Everything monospaced. VT323 for display headings,
+     IBM Plex Mono for body and code. No sans-serif.
+     ──────────────────────────────────────────────── */
+  --font-display: 'VT323', monospace;
+  --font-body:    'IBM Plex Mono', 'JetBrains Mono', monospace;
+  --font-mono:    'JetBrains Mono', 'IBM Plex Mono', monospace;
+
+  /* ── Theme Features (2 tokens)
+     Highest noise for scanline effect. No mesh —
+     CRTs don't produce ambient color gradients.
+     ──────────────────────────────────────────────── */
+  --theme-noise-opacity: 0.06;
+  --theme-mesh-bg: none;
+}

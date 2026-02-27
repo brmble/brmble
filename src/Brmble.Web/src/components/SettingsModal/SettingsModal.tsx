@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import './SettingsModal.css';
 import bridge from '../../bridge';
+import { applyTheme } from '../../themes/theme-loader';
 import { AudioSettingsTab, type AudioSettings, type SpeechEnhancementSettings, DEFAULT_SETTINGS as DEFAULT_AUDIO, DEFAULT_SPEECH_ENHANCEMENT } from './AudioSettingsTab';
 import { ShortcutsSettingsTab, type ShortcutsSettings, DEFAULT_SHORTCUTS } from './ShortcutsSettingsTab';
 import { MessagesSettingsTab, type MessagesSettings, DEFAULT_MESSAGES } from './MessagesSettingsTab';
@@ -76,7 +77,7 @@ export function SettingsModal(props: SettingsModalProps) {
       if (d?.settings) {
         setSettings({ ...DEFAULT_SETTINGS, ...d.settings });
         if (d.settings.appearance?.theme) {
-          document.documentElement.setAttribute('data-theme', d.settings.appearance.theme);
+          applyTheme(d.settings.appearance.theme);
         }
       }
     };
@@ -174,7 +175,8 @@ export function SettingsModal(props: SettingsModalProps) {
     const newSettings = { ...settings, appearance };
     setSettings(newSettings);
     bridge.send('settings.set', { settings: newSettings });
-    document.documentElement.setAttribute('data-theme', appearance.theme);
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
+    applyTheme(appearance.theme);
   };
 
   const handleOverlayChange = (overlay: OverlaySettings) => {
