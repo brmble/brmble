@@ -136,17 +136,14 @@ export function CertWizard({ onComplete }: CertWizardProps) {
               <strong>chat history</strong>, and <strong>screen sharing</strong>. It is
               unique to you and lives on this computer.
             </p>
-              <div className="cert-wizard-actions">
-                <button className="btn btn-ghost" onClick={() => setStep('warning')}>
-                  Back
-                </button>
-                <button
-                  className="btn btn-primary"
-                  onClick={handleImportClick}
-                >
-                  Select File
-                </button>
-              </div>
+            <div className="cert-wizard-actions">
+              <button
+                className="btn btn-primary"
+                onClick={() => setStep('choose')}
+              >
+                Get Started
+              </button>
+            </div>
           </>
         )}
 

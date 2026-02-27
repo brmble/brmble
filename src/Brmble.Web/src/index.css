@@ -74,7 +74,7 @@
 
   /* Shadows */
   --shadow-dialog:
-    0 0 0 1px var(--accent-berry-subtle),
+    0 0 0 1px var(--accent-berry-ghost),
     0 8px 32px rgba(15, 10, 20, 0.6),
     0 0 60px rgba(212, 20, 90, 0.08);
   --shadow-elevated: 0 8px 32px rgba(0, 0, 0, 0.4);
@@ -423,4 +423,10 @@ select.brmble-input {
 select.brmble-input option {
   background: var(--bg-primary);
   color: var(--text-primary);
+}
+
+/* Global Animations */
+@keyframes content-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
 }

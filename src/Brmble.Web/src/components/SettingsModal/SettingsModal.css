@@ -19,6 +19,7 @@
   padding: 10px 12px;
   background: transparent;
   border: none;
+  border-bottom: 2px solid transparent;
   color: var(--text-muted);
   font-size: 0.8125rem;
   font-weight: 500;
@@ -43,10 +44,6 @@
 
 .settings-tab:active {
   transform: translateY(1px);
-}
-
-.settings-tab:hover {
-  color: var(--text-secondary);
 }
 
 .settings-tab.active {
@@ -151,9 +148,4 @@
   opacity: 0;
   animation: content-fade-in 300ms ease forwards;
   animation-delay: 250ms;
-}
-
-@keyframes content-fade-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
 }

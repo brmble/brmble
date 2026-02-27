@@ -28,7 +28,7 @@ Typography is a primary driver of the Brmble aesthetic. We pair a highly charact
 Brmble uses a strict **Design Token** system driven by CSS Custom Properties (`:root` variables in `index.css`). 
 
 - **NO HARDCODED VALUES:** Hex codes, `rgba()`, and explicit `border-radius` pixels are strictly forbidden in component CSS files.
-- **Semantic Mapping:** Colors are mapped to intention (`--text-primary`, `--bg-hover`, `--accent-berry-subtle`) rather than literal names in component files.
+- **Semantic Mapping:** Colors are mapped to intention (`--text-primary`, `--bg-hover`, `--accent-berry-wash`) rather than literal names in component files.
 
 ### Preparing for Multiple Themes
 The token system is designed to support future themes (e.g., "Brmble Clean", "Lightmode", "Cyberpunk"). To achieve this:
@@ -50,7 +50,7 @@ A great interface is tactile. Elements should react predictably and delightfully
 ### Accessibility: Focus Visibility
 - Keyboard navigation is a first-class citizen. 
 - Elements should NOT show focus rings on mouse click (to keep the UI clean), but MUST show clear focus rings on keyboard navigation.
-- We rely on `:focus-visible` globally. The standard Brmble focus ring is a 2px solid outline of `--accent-berry`, offset by 2px to ensure contrast against any background.
+- We rely on `:focus-visible` globally. The standard Brmble focus ring is a dual-ring box-shadow (2px background color, 4px accent berry) to ensure contrast against any background.
 
 ### Motion
 - **Page Loads:** Use staggered, slide-in animations (e.g., sidebar loading 100ms before main content) to make the app feel alive upon opening.
