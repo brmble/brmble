@@ -1,0 +1,125 @@
+/* ═══════════════════════════════════════════════════
+   Brmble Aperol Spritz Theme — Mediterranean Sunset
+
+   Cocktail:   Aperol Spritz (Aperol, prosecco, soda)
+   Vibe:       Mediterranean sunset warmth — golden hour
+               amber glow, soft and inviting. The warmest
+               theme — every surface sun-kissed. Strong film grain.
+
+   THE 3 DECISIONS:
+     1. BASE HUE:       25° (burnt orange-amber)
+     2. PRIMARY ACCENT:  #e8651a (Aperol orange)
+     3. TEXT WARMTH:     Very warm — amber-tinted cream (#faf0e0)
+   ═══════════════════════════════════════════════════ */
+
+:root[data-theme="aperol-spritz"] {
+
+  /* ── Backgrounds (12 tokens) ─────────────────────
+     Tinted with hue 25° at warm saturation.
+     bg-deep:    hsl(25, 30%, 6%)
+     bg-primary: hsl(25, 28%, 10%)
+     mid-tone:   hsl(25, 22%, 24%) ≈ rgb(75, 58, 48)
+     ──────────────────────────────────────────────── */
+  --bg-deep:           #140e08;
+  --bg-primary:        #211710;
+  --bg-glass:          rgba(33, 23, 16, 0.88);
+  --bg-hover:          rgba(75, 58, 48, 0.30);
+  --bg-hover-strong:   rgba(95, 72, 55, 0.40);
+  --bg-surface:        rgba(75, 58, 48, 0.16);
+  --bg-overlay:        rgba(20, 14, 8, 0.86);
+  --bg-elevated:       rgba(33, 23, 16, 0.62);
+  --bg-input:          var(--bg-elevated);
+  --bg-deep-glass:     rgba(20, 14, 8, 0.42);
+  --bg-hover-light:    rgba(255, 255, 255, 0.07);
+  --bg-surface-active: rgba(75, 58, 48, 0.55);
+
+  /* ── Primary Accent — Aperol Orange (7 tokens)
+     Base: #e8651a → hsl(25, 83%, 50%)
+     ──────────────────────────────────────────────── */
+  --accent-primary:       #e8651a;
+  --accent-primary-dark:  #c45416;
+  --accent-primary-hover: #f07a35;
+  --accent-primary-light: #f49455;
+  --accent-primary-glow:  rgba(232, 101, 26, 0.38);
+  --accent-primary-wash:  rgba(232, 101, 26, 0.20);
+  --accent-primary-ghost: rgba(232, 101, 26, 0.10);
+
+  /* ── Secondary Accent — Warm Amber (3 tokens)
+     hsl(40, 70%, 55%) ≈ #d9a532
+     ──────────────────────────────────────────────── */
+  --accent-secondary:        #d9a532;
+  --accent-secondary-glow:   rgba(217, 165, 50, 0.32);
+  --accent-secondary-subtle: rgba(217, 165, 50, 0.15);
+
+  /* ── Success Accent — Olive Green (3 tokens)
+     hsl(90, 40%, 50%) ≈ #7ab34d
+     ──────────────────────────────────────────────── */
+  --accent-success:        #7ab34d;
+  --accent-success-glow:   rgba(122, 179, 77, 0.30);
+  --accent-success-subtle: rgba(122, 179, 77, 0.14);
+
+  /* ── Decorative Accent — Terracotta (4 tokens)
+     hsl(15, 50%, 40%) ≈ #994d33
+     Avatar gradient uses base hue 25°.
+     ──────────────────────────────────────────────── */
+  --accent-decorative:      #994d33;
+  --accent-decorative-glow: rgba(153, 77, 51, 0.50);
+  --bg-avatar-start:        #8c4a20;
+  --bg-avatar-end:          #4d2810;
+
+  /* ── Danger Accent (6 tokens)
+     hsl(355, 80%, 62%) — warm crimson-red, clearly
+     distinct from the orange primary accent
+     ──────────────────────────────────────────────── */
+  --accent-danger:        #e04858;
+  --accent-danger-strong: #d43345;
+  --accent-danger-text:   #e8606e;
+  --accent-danger-subtle: rgba(224, 72, 88, 0.12);
+  --accent-danger-border: rgba(224, 72, 88, 0.42);
+  --accent-danger-bg:     rgba(224, 72, 88, 0.24);
+
+  /* ── Status (1 token) ────────────────────────── */
+  --status-connected: #7ab34d;
+
+  /* ── Text — Very warm amber-tinted cream (7 tokens)
+     Primary: #faf0e0 ≈ hsl(37, 81%, 93%) — amber cream
+     Secondary: hsl(25, 14%, 65%) ≈ #b0a090
+     Muted: hsl(25, 12%, 42%) ≈ #78685c
+     ──────────────────────────────────────────────── */
+  --text-primary:         #faf0e0;
+  --text-secondary:       #b0a090;
+  --text-secondary-dim:   rgba(176, 160, 144, 0.55);
+  --text-secondary-muted: rgba(176, 160, 144, 0.72);
+  --text-muted:           #78685c;
+  --text-muted-dim:       rgba(120, 104, 92, 0.50);
+  --text-muted-strong:    rgba(120, 104, 92, 0.85);
+
+  /* ── Borders & Effects (2 tokens)
+     Tinted with hue 25°.
+     ──────────────────────────────────────────────── */
+  --border-subtle: #3d2a1c;
+  --border-glow:   rgba(232, 101, 26, 0.30);
+
+  /* ── Glass Effect (2 tokens) ─────────────────── */
+  --glass-blur:   blur(12px);
+  --glass-border: 1px solid rgba(75, 58, 48, 0.48);
+
+  /* ── Shadows (3 tokens) ──────────────────────── */
+  --shadow-dialog:
+    0 0 0 1px var(--accent-primary-ghost),
+    0 8px 32px rgba(20, 14, 8, 0.65),
+    0 0 60px rgba(232, 101, 26, 0.08);
+  --shadow-elevated: 0 8px 32px rgba(0, 0, 0, 0.45);
+  --shadow-drop-subtle: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35));
+
+  /* ── Typography (3 tokens) ───────────────────── */
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-body:    'Nunito', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono:    'JetBrains Mono', monospace;
+
+  /* ── Theme Features (2 tokens) ───────────────── */
+  --theme-noise-opacity: 0.045;
+  --theme-mesh-bg:
+    radial-gradient(circle at 15% 15%, rgba(232, 101, 26, 0.10) 0%, transparent 40%),
+    radial-gradient(circle at 85% 85%, rgba(153, 77, 51, 0.08) 0%, transparent 40%);
+}

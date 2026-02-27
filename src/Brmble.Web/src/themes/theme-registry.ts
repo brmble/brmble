@@ -30,6 +30,12 @@ export const themes: ThemeDefinition[] = [
     description: 'Glamorous cranberry-rose — fashion-editorial elegance',
     fontUrl: 'https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Manrope:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap',
   },
+  {
+    id: 'aperol-spritz',
+    name: 'Aperol Spritz',
+    description: 'Mediterranean sunset warmth — golden hour amber',
+    fontUrl: 'https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Nunito:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap',
+  },
 ];
 
 export function getTheme(id: string): ThemeDefinition | undefined {
