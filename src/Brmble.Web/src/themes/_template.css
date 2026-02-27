@@ -1,0 +1,606 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Brmble Theme Template — THEME_NAME
+   
+   Cocktail:   [Name of the cocktail this theme channels]
+   Vibe:       [One-line description of the mood and atmosphere]
+   
+   ═══════════════════════════════════════════════════════════════════════════
+   
+   THE 3 DECISIONS
+   ───────────────
+   Every Brmble theme derives from exactly 3 starting choices. Once these
+   are locked, all ~55 tokens can be mechanically produced.
+   
+   ┌──────────────────┬──────────────────────────────────────────────────────┐
+   │ 1. BASE HUE      │ An HSL degree (0-360) that tints backgrounds,      │
+   │                   │ borders, glass overlays, and text grays. This is   │
+   │                   │ the "atmosphere" of the theme — it makes neutral   │
+   │                   │ surfaces feel cohesive rather than dead gray.      │
+   │                   │                                                    │
+   │                   │ Classic: 270° (purple)                             │
+   │                   │ Blue Lagoon: 200° · Cosmo: 345° · Aperol: 25°     │
+   ├──────────────────┼──────────────────────────────────────────────────────┤
+   │ 2. PRIMARY ACCENT │ A single hex color — the hero of the theme. Used  │
+   │                   │ for buttons, links, active states, and the glow   │
+   │                   │ that bleeds into shadows and mesh gradients. All   │
+   │                   │ 7 primary accent tokens derive from this one hex. │
+   │                   │                                                    │
+   │                   │ Classic: #d4145a (berry pink)                      │
+   │                   │ Blue Lagoon: #00b4d8 · Cosmo: #e63962             │
+   ├──────────────────┼──────────────────────────────────────────────────────┤
+   │ 3. TEXT WARMTH    │ Controls --text-primary and the tinting of all    │
+   │                   │ gray text. Three presets:                          │
+   │                   │                                                    │
+   │                   │   warm  → off-white with yellow/cream undertones  │
+   │                   │           e.g. #f5f0e8 (Classic)                  │
+   │                   │   cool  → blue-white, clinical                    │
+   │                   │           e.g. #e8f0f5                            │
+   │                   │   tinted → off-white shifted toward base hue      │
+   │                   │           e.g. hsl(BASE_HUE, 15%, 95%)           │
+   │                   │                                                    │
+   │                   │ Classic: warm                                      │
+   └──────────────────┴──────────────────────────────────────────────────────┘
+   
+   Fill in your 3 decisions here, then work through each section below.
+   
+   MY DECISIONS:
+     Base Hue ........... ___°
+     Primary Accent ..... #______
+     Text Warmth ........ warm / cool / tinted
+   
+   ═══════════════════════════════════════════════════════════════════════════
+   
+   HOW TINTING WORKS
+   ─────────────────
+   Pure neutral grays (#1a1a1a, #6b6b6b, etc.) feel sterile. Tinting shifts
+   them toward BASE_HUE so every surface carries the theme's atmosphere:
+   
+     neutral gray:  hsl(0,   0%, 10%)  →  #1a1a1a  (lifeless)
+     tinted gray:   hsl(270, 20%, 10%) →  #1a1025  (Classic's --bg-primary)
+   
+   The saturation amount is the "tint strength":
+     Soft tint:   8-15% saturation  (subtle, professional)
+     Medium tint: 15-30% saturation (the Brmble sweet spot)
+     Heavy tint:  30-50% saturation (bold, experimental)
+   
+   Classic uses medium tinting at ~20-30% saturation in the purple range.
+   
+   ═══════════════════════════════════════════════════════════════════════════
+   
+   SOFT ↔ HARD SPECTRUM
+   ────────────────────
+   Many tokens sit on a soft-to-hard intensity scale. Softer values feel
+   more subdued and elegant; harder values feel more vibrant and punchy.
+   
+     Soft ◄──────────────────────────────────────────────► Hard
+     
+     Alpha overlays:    0.05 - 0.15          0.3 - 0.6
+     Glow alphas:       0.15 - 0.25          0.4 - 0.6
+     Hover alphas:      0.1  - 0.2           0.3 - 0.5
+     Noise opacity:     0.01 - 0.02          0.03 - 0.06
+     Mesh gradient α:   0.03 - 0.05          0.08 - 0.15
+     Glass blur:        8px  - 12px          14px - 20px
+     Border saturation: 10%  - 20%           30%  - 50%
+   
+   Classic sits slightly toward the "hard" end for a rich, immersive feel.
+   Clean themes should lean toward "soft" for a more minimal aesthetic.
+   
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+
+:root[data-theme="THEME_SLUG"] {
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     BACKGROUNDS (12 tokens)
+     ─────────────────────────────────────────────────────────────────────────
+     All backgrounds derive from BASE_HUE. Start with --bg-deep as the
+     darkest surface, then build lighter layers on top.
+     
+     FORMULA:
+       --bg-deep:    hsl(BASE_HUE, 20-35%, 5-7%)    — darkest base layer
+       --bg-primary: hsl(BASE_HUE, 20-35%, 8-12%)   — main app background
+     
+     For rgba variants, take the --bg-primary RGB values and vary alpha:
+       --bg-glass:          rgba(bg-primary, 0.80-0.90)
+       --bg-hover:          rgba(mid-tone, 0.2-0.4)
+       --bg-hover-strong:   rgba(mid-tone, 0.3-0.5)   — more opaque hover
+       --bg-surface:        rgba(mid-tone, 0.10-0.20)  — card/panel fill
+       --bg-overlay:        rgba(bg-deep, 0.75-0.90)   — modal backdrops
+       --bg-elevated:       rgba(bg-primary, 0.50-0.70) — floating panels
+       --bg-input:          var(--bg-elevated) or custom — form inputs
+       --bg-deep-glass:     rgba(bg-deep, 0.30-0.50)   — deep glass panels
+       --bg-hover-light:    rgba(255,255,255, 0.05-0.10) — universal light hover
+       --bg-surface-active: rgba(mid-tone, 0.4-0.7)    — active/selected state
+     
+     "mid-tone" = a color between bg-primary and the accent area, tinted
+     with BASE_HUE. In Classic this is hsl(270, 22%, 26%) ≈ rgb(61,42,92).
+     
+     CLASSIC WORKED EXAMPLE (Base Hue: 270°):
+       --bg-deep:           hsl(270, 25%, 5.5%)       → #0f0a14
+       --bg-primary:        hsl(270, 28%, 10%)        → #1a1025
+       mid-tone:            hsl(270, 22%, 26%)        → rgb(61,42,92)
+       --bg-glass:          rgba(26, 16, 37, 0.85)
+       --bg-hover:          rgba(61, 42, 92, 0.3)
+       --bg-hover-strong:   rgba(100, 70, 150, 0.4)     (brighter mid-tone)
+       --bg-surface:        rgba(61, 42, 92, 0.15)
+       --bg-overlay:        rgba(15, 10, 20, 0.80)
+       --bg-elevated:       rgba(26, 16, 37, 0.6)
+       --bg-input:          var(--bg-elevated)
+       --bg-deep-glass:     rgba(15, 10, 20, 0.4)
+       --bg-hover-light:    rgba(255, 255, 255, 0.08)
+       --bg-surface-active: rgba(61, 42, 92, 0.6)
+     
+     SOFT ↔ HARD:
+       Softer → lower alpha on hover/surface (0.1-0.2), lighter bg-deep
+       Harder → higher alpha (0.3-0.5), darker bg-deep, more saturation
+     ───────────────────────────────────────────────────────────────────── */
+
+  --bg-deep:           /* hsl(BASE_HUE, 20-35%, 5-7%) */;
+  --bg-primary:        /* hsl(BASE_HUE, 20-35%, 8-12%) */;
+  --bg-glass:          /* rgba(bg-primary-rgb, 0.80-0.90) */;
+  --bg-hover:          /* rgba(mid-tone-rgb, 0.2-0.4) */;
+  --bg-hover-strong:   /* rgba(bright-mid-rgb, 0.3-0.5) */;
+  --bg-surface:        /* rgba(mid-tone-rgb, 0.10-0.20) */;
+  --bg-overlay:        /* rgba(bg-deep-rgb, 0.75-0.90) */;
+  --bg-elevated:       /* rgba(bg-primary-rgb, 0.50-0.70) */;
+  --bg-input:          /* var(--bg-elevated) or custom */;
+  --bg-deep-glass:     /* rgba(bg-deep-rgb, 0.30-0.50) */;
+  --bg-hover-light:    /* rgba(255, 255, 255, 0.05-0.10) */;
+  --bg-surface-active: /* rgba(mid-tone-rgb, 0.4-0.7) */;
+
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     PRIMARY ACCENT (7 tokens)
+     ─────────────────────────────────────────────────────────────────────────
+     This is Decision #2 — the hero color. All 7 variants derive from a
+     single hex value via the derivation chain below.
+     
+     DERIVATION CHAIN (start with your chosen accent hex):
+     ┌─────────────────────────┬──────────────────────────────────────────────┐
+     │ --accent-primary        │ Your chosen hex as-is                       │
+     │ --accent-primary-dark   │ Darken 10-15% (pressed/active states)       │
+     │ --accent-primary-hover  │ Lighten 8-10% (hover feedback)              │
+     │ --accent-primary-light  │ Lighten 15-20% (softer inline variant)      │
+     │ --accent-primary-glow   │ base at alpha 0.3-0.5 (box-shadow halos)   │
+     │ --accent-primary-wash   │ base at alpha 0.15-0.25 (background tints)  │
+     │ --accent-primary-ghost  │ base at alpha 0.08-0.12 (faint outlines)    │
+     └─────────────────────────┴──────────────────────────────────────────────┘
+     
+     HOW TO DARKEN/LIGHTEN:
+       Convert hex → HSL. To darken, reduce L by 10-15%. To lighten,
+       increase L by 8-20%. Keep H and S constant (or nudge S ±3% for
+       vibrancy control).
+     
+     CLASSIC WORKED EXAMPLE (Primary Accent: #d4145a → hsl(340, 82%, 46%)):
+       --accent-primary:       #d4145a   hsl(340, 82%, 46%)  — base
+       --accent-primary-dark:  #b8124d   hsl(340, 82%, 40%)  — L -6%
+       --accent-primary-hover: #e8185f   hsl(344, 83%, 50%)  — L +4%, H +4°
+       --accent-primary-light: #e8326e   hsl(345, 79%, 55%)  — L +9%
+       --accent-primary-glow:  rgba(212, 20, 90, 0.4)        — α 0.4
+       --accent-primary-wash:  rgba(212, 20, 90, 0.2)        — α 0.2
+       --accent-primary-ghost: rgba(212, 20, 90, 0.1)        — α 0.1
+     
+     SOFT ↔ HARD:
+       Softer → lower glow alpha (0.2), less lightening on hover
+       Harder → higher glow alpha (0.5), more contrast between dark/light
+     ───────────────────────────────────────────────────────────────────── */
+
+  --accent-primary:       /* #HEX — your Decision #2 */;
+  --accent-primary-dark:  /* darken 10-15% */;
+  --accent-primary-hover: /* lighten 8-10% */;
+  --accent-primary-light: /* lighten 15-20% */;
+  --accent-primary-glow:  /* rgba(R, G, B, 0.3-0.5) */;
+  --accent-primary-wash:  /* rgba(R, G, B, 0.15-0.25) */;
+  --accent-primary-ghost: /* rgba(R, G, B, 0.08-0.12) */;
+
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     SECONDARY ACCENT (3 tokens)
+     ─────────────────────────────────────────────────────────────────────────
+     A complementary or contrasting color used for badges, highlights,
+     notifications. Pick a hue that harmonizes with your primary accent:
+     
+       Complementary:  PRIMARY_HUE + 180°
+       Analogous:      PRIMARY_HUE ± 30-60°
+       Triadic:        PRIMARY_HUE + 120°
+     
+     Classic uses lemon yellow (hue ~48°) against berry pink (hue ~340°),
+     which is roughly a triadic relationship (340 + 120 ≈ 100, shifted warm).
+     
+     FORMULA:
+       --accent-secondary:        Full saturation hex
+       --accent-secondary-glow:   rgba(base, 0.25-0.35)
+       --accent-secondary-subtle: rgba(base, 0.10-0.20)
+     
+     CLASSIC WORKED EXAMPLE:
+       --accent-secondary:        #f4d03f   hsl(48, 89%, 60%)
+       --accent-secondary-glow:   rgba(244, 208, 63, 0.3)
+       --accent-secondary-subtle: rgba(244, 208, 63, 0.15)
+     ───────────────────────────────────────────────────────────────────── */
+
+  --accent-secondary:        /* #HEX — complementary/triadic color */;
+  --accent-secondary-glow:   /* rgba(R, G, B, 0.25-0.35) */;
+  --accent-secondary-subtle: /* rgba(R, G, B, 0.10-0.20) */;
+
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     SUCCESS ACCENT (3 tokens)
+     ─────────────────────────────────────────────────────────────────────────
+     Used for connection status, success messages, online indicators.
+     Typically a green in the 120-160° hue range. Should be distinct from
+     both primary and secondary accents.
+     
+     FORMULA:
+       --accent-success:        hsl(140-150, 50-70%, 50-60%)
+       --accent-success-glow:   rgba(base, 0.25-0.35)
+       --accent-success-subtle: rgba(base, 0.10-0.20)
+     
+     TIP: If your primary accent is already green (e.g. Midori Sour),
+     shift success to a distinctly different green shade or use a
+     blue-green (hue ~170°) to maintain visual separation.
+     
+     CLASSIC WORKED EXAMPLE:
+       --accent-success:        #50c878   hsl(145, 51%, 55%)
+       --accent-success-glow:   rgba(80, 200, 120, 0.3)
+       --accent-success-subtle: rgba(80, 200, 120, 0.15)
+     ───────────────────────────────────────────────────────────────────── */
+
+  --accent-success:        /* hsl(140-160, 50-70%, 50-60%) */;
+  --accent-success-glow:   /* rgba(R, G, B, 0.25-0.35) */;
+  --accent-success-subtle: /* rgba(R, G, B, 0.10-0.20) */;
+
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     DECORATIVE ACCENT (4 tokens)
+     ─────────────────────────────────────────────────────────────────────────
+     Used for avatar gradient backgrounds, decorative flourishes, and visual
+     flair. Often a "wildcard" color that complements the palette. The avatar
+     tokens create a gradient for default user avatars.
+     
+     FORMULA:
+       --accent-decorative:      A vibrant hue distinct from primary
+       --accent-decorative-glow: rgba(base, 0.4-0.6) — generous glow
+       --bg-avatar-start:        hsl(BASE_HUE, 50-70%, 25-30%) — rich dark
+       --bg-avatar-end:          hsl(BASE_HUE, 55-75%, 15-20%) — deeper end
+     
+     The avatar gradient typically uses BASE_HUE (not the decorative hue)
+     to keep avatars feeling grounded in the theme atmosphere.
+     
+     CLASSIC WORKED EXAMPLE:
+       --accent-decorative:      #7b4dff   hsl(258, 100%, 65%)
+       --accent-decorative-glow: rgba(123, 77, 255, 0.5)
+       --bg-avatar-start:        #4a1a6b   hsl(277, 61%, 26%)
+       --bg-avatar-end:          #2d0f45   hsl(277, 65%, 16%)
+     
+     TINTING RATIONALE:
+       The decorative accent often sits opposite or perpendicular to the
+       primary on the color wheel, creating visual tension that makes the
+       UI feel dynamic. In Classic, purple (258°) against pink (340°) gives
+       an analogous-cool pairing.
+     ───────────────────────────────────────────────────────────────────── */
+
+  --accent-decorative:      /* #HEX — vibrant wildcard */;
+  --accent-decorative-glow: /* rgba(R, G, B, 0.4-0.6) */;
+  --bg-avatar-start:        /* hsl(BASE_HUE, 50-70%, 25-30%) */;
+  --bg-avatar-end:          /* hsl(BASE_HUE, 55-75%, 15-20%) */;
+
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     DANGER ACCENT (6 tokens)
+     ─────────────────────────────────────────────────────────────────────────
+     Used for errors, destructive actions, warnings. Typically red-range
+     (hue 0-15°). Danger tokens need enough variants for text, borders,
+     backgrounds, and emphasis states.
+     
+     FORMULA:
+       --accent-danger:        hsl(0-10, 80-100%, 65-75%)   — base
+       --accent-danger-strong: hsl(0-10, 90-100%, 60-70%)   — stronger emphasis
+       --accent-danger-text:   hsl(0-10, 80-100%, 68-78%)   — readable on dark bg
+       --accent-danger-subtle: rgba(base, 0.08-0.15)        — faint bg tint
+       --accent-danger-border: rgba(base, 0.30-0.50)        — visible border
+       --accent-danger-bg:     rgba(base, 0.20-0.30)        — error panel bg
+     
+     TIP: If your primary accent is already in the red range (e.g. Cosmo),
+     make danger distinctly more orange-red or use a different lightness
+     to ensure clear visual separation.
+     
+     CLASSIC WORKED EXAMPLE:
+       --accent-danger:        #ff6b6b   hsl(0, 100%, 71%)
+       --accent-danger-strong: #ff4f5e   hsl(354, 100%, 65%)
+       --accent-danger-text:   #ff6b7a   hsl(354, 100%, 71%)
+       --accent-danger-subtle: rgba(255, 107, 107, 0.12)
+       --accent-danger-border: rgba(255, 107, 107, 0.4)
+       --accent-danger-bg:     rgba(255, 107, 107, 0.25)
+     
+     SOFT ↔ HARD:
+       Softer → lower alpha for subtle/border/bg (0.08, 0.25, 0.15)
+       Harder → higher alpha (0.15, 0.50, 0.35) for more alarming feel
+     ───────────────────────────────────────────────────────────────────── */
+
+  --accent-danger:        /* hsl(0-10, 80-100%, 65-75%) */;
+  --accent-danger-strong: /* hsl(0-10, 90-100%, 60-70%) */;
+  --accent-danger-text:   /* hsl(0-10, 80-100%, 68-78%) */;
+  --accent-danger-subtle: /* rgba(R, G, B, 0.08-0.15) */;
+  --accent-danger-border: /* rgba(R, G, B, 0.30-0.50) */;
+  --accent-danger-bg:     /* rgba(R, G, B, 0.20-0.30) */;
+
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     STATUS (1 token)
+     ─────────────────────────────────────────────────────────────────────────
+     Typically mirrors --accent-success. Separated as its own token so
+     themes can decouple connection status from general success coloring
+     if desired (e.g. a blue "connected" indicator on a green theme).
+     
+     CLASSIC WORKED EXAMPLE:
+       --status-connected: #50c878  (same as --accent-success)
+     ───────────────────────────────────────────────────────────────────── */
+
+  --status-connected: /* same as --accent-success, or custom */;
+
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     TEXT (7 tokens)
+     ─────────────────────────────────────────────────────────────────────────
+     Text colors derive from Decision #3 (Text Warmth) and BASE_HUE.
+     
+     The key insight: tinted text grays feel more "designed" than pure
+     neutral grays. By shifting gray toward BASE_HUE, text harmonizes
+     with the background it sits on.
+     
+     HIERARCHY (brightest → dimmest):
+       --text-primary        Main body text, headings
+       --text-secondary      Subheadings, secondary info
+       --text-secondary-dim  De-emphasized secondary (timestamps, etc.)
+       --text-secondary-muted  Slightly faded secondary
+       --text-muted          Tertiary info, placeholders
+       --text-muted-dim      Very faint text (disabled states)
+       --text-muted-strong   Muted but still legible (active muted)
+     
+     FORMULA:
+       Start with --text-primary from your warmth decision:
+         warm:   hsl(40-50,  30-40%, 93-95%)  — cream/ivory
+         cool:   hsl(200-210, 20-30%, 93-95%)  — ice blue-white
+         tinted: hsl(BASE_HUE, 15-25%, 93-95%) — hue-shifted white
+       
+       --text-secondary:      hsl(BASE_HUE, 10-15%, 60-70%)
+       --text-secondary-dim:  rgba(text-secondary-rgb, 0.50-0.60)
+       --text-secondary-muted: rgba(text-secondary-rgb, 0.65-0.75)
+       --text-muted:          hsl(BASE_HUE, 8-15%, 40-48%)
+       --text-muted-dim:      rgba(text-muted-rgb, 0.45-0.55)
+       --text-muted-strong:   rgba(text-muted-rgb, 0.80-0.90)
+     
+     CLASSIC WORKED EXAMPLE (warm, BASE_HUE: 270°):
+       --text-primary:        #f5f0e8   hsl(36, 38%, 93%)   — warm cream
+       --text-secondary:      #a89fb8   hsl(268, 14%, 67%)  — tinted lavender-gray
+       --text-secondary-dim:  rgba(168, 159, 184, 0.55)
+       --text-secondary-muted: rgba(168, 159, 184, 0.7)
+       --text-muted:          #6b5f7a   hsl(268, 13%, 42%)  — deep tinted gray
+       --text-muted-dim:      rgba(107, 95, 122, 0.5)
+       --text-muted-strong:   rgba(107, 95, 122, 0.85)
+     
+     TINTING RATIONALE:
+       Classic's text-secondary #a89fb8 has hue 268° (near BASE_HUE 270°)
+       with 14% saturation. This is enough tint to feel warm and cohesive
+       without making the text look colored. Pure #a0a0a0 (0% saturation)
+       would feel cold and disconnected against purple backgrounds.
+     
+     SOFT ↔ HARD:
+       Softer → less contrast between primary/secondary, higher dim alphas
+       Harder → sharper contrast, lower dim alphas for more visual hierarchy
+     ───────────────────────────────────────────────────────────────────── */
+
+  --text-primary:        /* Decision #3 — see warmth formula above */;
+  --text-secondary:      /* hsl(BASE_HUE, 10-15%, 60-70%) */;
+  --text-secondary-dim:  /* rgba(text-secondary-rgb, 0.50-0.60) */;
+  --text-secondary-muted: /* rgba(text-secondary-rgb, 0.65-0.75) */;
+  --text-muted:          /* hsl(BASE_HUE, 8-15%, 40-48%) */;
+  --text-muted-dim:      /* rgba(text-muted-rgb, 0.45-0.55) */;
+  --text-muted-strong:   /* rgba(text-muted-rgb, 0.80-0.90) */;
+
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     BORDERS & EFFECTS (2 tokens)
+     ─────────────────────────────────────────────────────────────────────────
+     Borders use BASE_HUE tinting to stay cohesive. The glow border picks
+     up the primary accent color for interactive feedback.
+     
+     FORMULA:
+       --border-subtle: hsl(BASE_HUE, 20-35%, 20-30%)  — structural dividers
+       --border-glow:   rgba(accent-primary-rgb, 0.25-0.35) — accent halos
+     
+     CLASSIC WORKED EXAMPLE:
+       --border-subtle: #3d2a5c   hsl(270, 37%, 26%)
+       --border-glow:   rgba(212, 20, 90, 0.3)
+     
+     TINTING RATIONALE:
+       A pure gray border like #3a3a3a would clash with tinted backgrounds.
+       By giving --border-subtle the same hue as the backgrounds, it
+       integrates seamlessly. The saturation (37% in Classic) should be
+       close to or slightly above the background saturation.
+     ───────────────────────────────────────────────────────────────────── */
+
+  --border-subtle: /* hsl(BASE_HUE, 20-35%, 20-30%) */;
+  --border-glow:   /* rgba(accent-primary-rgb, 0.25-0.35) */;
+
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     GLASS EFFECT (2 tokens)
+     ─────────────────────────────────────────────────────────────────────────
+     Glass effects create frosted-panel aesthetics. The blur value and
+     border work together — more blur needs a more visible border to
+     maintain panel edges.
+     
+     FORMULA:
+       --glass-blur:   blur(8-20px)
+       --glass-border: 1px solid rgba(mid-tone-rgb, 0.3-0.6)
+     
+     For dark themes, the glass border color is typically the mid-tone
+     (same as used in --bg-hover) at moderate alpha.
+     
+     CLASSIC WORKED EXAMPLE:
+       --glass-blur:   blur(12px)
+       --glass-border: 1px solid rgba(61, 42, 92, 0.5)
+     
+     SOFT ↔ HARD:
+       Softer → less blur (8px), lower border alpha (0.3)
+       Harder → more blur (16-20px), higher border alpha (0.5-0.6)
+     ───────────────────────────────────────────────────────────────────── */
+
+  --glass-blur:   /* blur(8-20px) */;
+  --glass-border: /* 1px solid rgba(mid-tone-rgb, 0.3-0.6) */;
+
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     SHADOWS (3 tokens)
+     ─────────────────────────────────────────────────────────────────────────
+     Shadows anchor floating elements and add depth. The dialog shadow is
+     the most complex — it combines a thin accent outline, a deep drop
+     shadow, and an optional accent glow.
+     
+     FORMULA:
+       --shadow-dialog:
+         0 0 0 1px var(--accent-primary-ghost),        — thin accent ring
+         0 8px 32px rgba(bg-deep-rgb, 0.5-0.7),       — main drop shadow
+         0 0 60px rgba(accent-primary-rgb, 0.05-0.10); — subtle accent glow
+       
+       --shadow-elevated: 0 8px 32px rgba(0, 0, 0, 0.3-0.5)
+       --shadow-drop-subtle: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.2-0.4))
+     
+     CLASSIC WORKED EXAMPLE:
+       --shadow-dialog:
+         0 0 0 1px var(--accent-primary-ghost),
+         0 8px 32px rgba(15, 10, 20, 0.6),
+         0 0 60px rgba(212, 20, 90, 0.08);
+       --shadow-elevated: 0 8px 32px rgba(0, 0, 0, 0.4);
+       --shadow-drop-subtle: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.3));
+     
+     SOFT ↔ HARD:
+       Softer → smaller spread, lower alpha, no accent glow
+       Harder → larger spread, higher alpha, visible accent glow halo
+     ───────────────────────────────────────────────────────────────────── */
+
+  --shadow-dialog:
+    /* 0 0 0 1px var(--accent-primary-ghost),
+       0 8px 32px rgba(bg-deep-rgb, 0.5-0.7),
+       0 0 60px rgba(accent-primary-rgb, 0.05-0.10) */;
+  --shadow-elevated:   /* 0 8px 32px rgba(0, 0, 0, 0.3-0.5) */;
+  --shadow-drop-subtle: /* drop-shadow(0 1px 1px rgba(0, 0, 0, 0.2-0.4)) */;
+
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     TYPOGRAPHY (3 tokens)
+     ─────────────────────────────────────────────────────────────────────────
+     Each theme can specify its own font stack. Choose fonts that match
+     the cocktail's personality:
+     
+       --font-display: Used for headings, hero text, server names.
+                        Typically a serif or display face with character.
+       --font-body:    Used for all body text, UI labels, messages.
+                        Should be highly readable at small sizes.
+       --font-mono:    Used for code snippets, technical info.
+                        A monospace face.
+     
+     Always include system fallbacks in the stack. If using Google Fonts
+     or custom fonts, they must be loaded separately (see theme-loader.ts).
+     
+     CLASSIC WORKED EXAMPLE:
+       --font-display: 'Cormorant Garamond', Georgia, serif;
+       --font-body:    'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+       --font-mono:    'JetBrains Mono', monospace;
+     
+     COCKTAIL THEME FONT PAIRINGS (for reference):
+       Blue Lagoon:       Playfair Display + DM Sans
+       Cosmopolitan:      Bodoni Moda + Manrope
+       Aperol Spritz:     Fraunces + Nunito
+       Midori Sour:       Space Mono + Lexend
+       Lemon Drop Martini: Sora + Plus Jakarta Sans
+       Retro Terminal:    VT323 + IBM Plex Mono
+     ───────────────────────────────────────────────────────────────────── */
+
+  --font-display: /* 'Display Font', fallback-serif */;
+  --font-body:    /* 'Body Font', -apple-system, BlinkMacSystemFont, sans-serif */;
+  --font-mono:    /* 'Mono Font', monospace */;
+
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     THEME FEATURES (2 tokens)
+     ─────────────────────────────────────────────────────────────────────────
+     These control atmospheric effects layered over the UI.
+     
+     --theme-noise-opacity:
+       Controls a subtle noise grain texture overlay. Set to 0 to disable.
+       Classic uses 0.03 for a faint film-grain effect.
+       Range: 0 (none) → 0.06 (heavy grain)
+     
+     --theme-mesh-bg:
+       A CSS background-image value (typically radial-gradient layers) that
+       creates soft colored ambient light behind the UI. Set to 'none' to
+       disable. Uses accent colors at very low alpha for a subtle glow.
+     
+     FORMULA:
+       --theme-mesh-bg:
+         radial-gradient(circle at 15% 15%, rgba(accent-primary-rgb, 0.05-0.12) 0%, transparent 40%),
+         radial-gradient(circle at 85% 85%, rgba(accent-decorative-rgb, 0.05-0.12) 0%, transparent 40%);
+     
+     You can adjust the positions (15%/85%), spread (40%), and add more
+     gradient layers. Some themes may use 3-4 layers for richer ambiance.
+     
+     CLASSIC WORKED EXAMPLE:
+       --theme-noise-opacity: 0.03;
+       --theme-mesh-bg:
+         radial-gradient(circle at 15% 15%, rgba(212, 20, 90, 0.08) 0%, transparent 40%),
+         radial-gradient(circle at 85% 85%, rgba(123, 77, 255, 0.08) 0%, transparent 40%);
+     
+     SOFT ↔ HARD:
+       Softer → noise 0.01, mesh alpha 0.03-0.05
+       Harder → noise 0.04-0.06, mesh alpha 0.10-0.15
+     ───────────────────────────────────────────────────────────────────── */
+
+  --theme-noise-opacity: /* 0 - 0.06 */;
+  --theme-mesh-bg:
+    /* radial-gradient(circle at 15% 15%, rgba(accent-primary-rgb, 0.05-0.12) 0%, transparent 40%),
+       radial-gradient(circle at 85% 85%, rgba(accent-decorative-rgb, 0.05-0.12) 0%, transparent 40%) */;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   QUICK-START CHECKLIST
+   ═══════════════════════════════════════════════════════════════════════════
+   
+   Before shipping your theme, verify:
+   
+   □  All 55 tokens are defined (no remaining placeholder comments)
+   □  Replace THEME_SLUG with your theme's ID (lowercase, hyphenated)
+   □  Replace THEME_NAME with the display name
+   □  Update the cocktail name and vibe description in the header
+   □  Backgrounds are tinted with BASE_HUE (not pure neutral grays)
+   □  All 7 primary accent variants derive from the same base hex
+   □  Text colors use the chosen warmth and are tinted with BASE_HUE
+   □  Borders are tinted (not pure gray)
+   □  Glass border uses mid-tone color consistent with bg-hover
+   □  Shadow dialog references var(--accent-primary-ghost) for the ring
+   □  Font stacks include system fallbacks
+   □  Mesh gradient uses your accent colors (or set to 'none')
+   □  Register theme in theme-registry.ts
+   □  Test contrast: text-primary on bg-primary should be ≥ 7:1 (WCAG AAA)
+   □  Test contrast: text-secondary on bg-primary should be ≥ 4.5:1 (AA)
+   
+   TOKEN COUNT BY GROUP:
+     Backgrounds .......... 12
+     Primary Accent ........ 7
+     Secondary Accent ...... 3
+     Success Accent ........ 3
+     Decorative Accent ..... 4
+     Danger Accent ......... 6
+     Status ................ 1
+     Text .................. 7
+     Borders & Effects ..... 2
+     Glass Effect .......... 2
+     Shadows ............... 3
+     Typography ............ 3
+     Theme Features ........ 2
+                            ──
+     Total                  55
+   
+   ═══════════════════════════════════════════════════════════════════════════ */
