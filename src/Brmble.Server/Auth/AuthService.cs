@@ -1,7 +1,6 @@
 // src/Brmble.Server/Auth/AuthService.cs
 using System.Collections.Concurrent;
 using Brmble.Server.Matrix;
-using Microsoft.Extensions.Logging;
 
 namespace Brmble.Server.Auth;
 

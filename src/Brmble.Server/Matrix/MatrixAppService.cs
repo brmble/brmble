@@ -1,7 +1,6 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Brmble.Server.Matrix;
@@ -72,7 +71,7 @@ public class MatrixAppService : IMatrixAppService
     public async Task<string> RegisterUser(string localpart, string displayName)
     {
         var url = $"{_homeserverUrl}/_matrix/client/v3/register?kind=user";
-        var body = JsonSerializer.Serialize(new { username = localpart });
+        var body = JsonSerializer.Serialize(new { type = "m.login.application_service", username = localpart });
         var response = await SendRequestCore(HttpMethod.Post, url, body, userId: null);
         var json = JsonSerializer.Deserialize<JsonElement>(response);
         var accessToken = json.GetProperty("access_token").GetString()
@@ -115,38 +114,35 @@ public class MatrixAppService : IMatrixAppService
     {
         var userId = $"@{localpart}:{_serverDomain}";
 
-        // Ensure the user exists on the homeserver (idempotent — skips if already registered)
+        // Fetch rooms the user has already joined to avoid redundant invite+join calls
+        var alreadyJoined = new HashSet<string>();
+        try
         {
-            var regUrl = $"{_homeserverUrl}/_matrix/client/v3/register?kind=user";
-            var regBody = JsonSerializer.Serialize(new { username = localpart, inhibit_login = true });
-            var client = _httpClientFactory.CreateClient();
-            var request = new HttpRequestMessage(HttpMethod.Post, regUrl)
+            var joinedRoomsUrl = $"{_homeserverUrl}/_matrix/client/v3/joined_rooms";
+            var joinedResponse = await SendRequest(HttpMethod.Get, joinedRoomsUrl, "{}", actAs: userId);
+            var joinedJson = JsonSerializer.Deserialize<JsonElement>(joinedResponse);
+            if (joinedJson.TryGetProperty("joined_rooms", out var arr))
             {
-                Content = new StringContent(regBody, Encoding.UTF8, "application/json")
-            };
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _appServiceToken);
-            var response = await client.SendAsync(request);
-            if (response.IsSuccessStatusCode)
-            {
-                _logger.LogInformation("Registered missing Matrix user {UserId} on homeserver", userId);
-            }
-            else
-            {
-                var body = await response.Content.ReadAsStringAsync();
-                if (body.Contains("M_USER_IN_USE"))
+                foreach (var r in arr.EnumerateArray())
                 {
-                    _logger.LogDebug("User {UserId} already exists on homeserver", userId);
-                }
-                else
-                {
-                    _logger.LogWarning("Failed to ensure Matrix user {UserId} exists: {Status} {Body}",
-                        userId, (int)response.StatusCode, body);
+                    var id = r.GetString();
+                    if (id is not null) alreadyJoined.Add(id);
                 }
             }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("Could not fetch joined rooms for {UserId}, will attempt all invites: {Error}", userId, ex.Message);
         }
 
         foreach (var roomId in roomIds)
         {
+            if (alreadyJoined.Contains(roomId))
+            {
+                _logger.LogDebug("User {UserId} already in {RoomId}, skipping invite+join", userId, roomId);
+                continue;
+            }
+
             try
             {
                 // Invite via appservice bot

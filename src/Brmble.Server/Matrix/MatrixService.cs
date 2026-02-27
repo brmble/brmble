@@ -2,7 +2,6 @@ using System.Text.RegularExpressions;
 using System.Web;
 using Brmble.Server.Auth;
 using Brmble.Server.Mumble;
-using Microsoft.Extensions.Logging;
 
 namespace Brmble.Server.Matrix;
 

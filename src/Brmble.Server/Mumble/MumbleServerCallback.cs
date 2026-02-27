@@ -1,5 +1,3 @@
-using Microsoft.Extensions.Logging;
-
 namespace Brmble.Server.Mumble;
 
 public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
