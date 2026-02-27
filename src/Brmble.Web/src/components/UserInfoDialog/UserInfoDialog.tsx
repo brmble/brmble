@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import bridge from '../../bridge';
 import './UserInfoDialog.css';
 
@@ -23,7 +23,6 @@ export function UserInfoDialog({
 }: UserInfoDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const [volume, setVolume] = useState(100);
-  const [saved, setSaved] = useState(false);
   const [localMuted, setLocalMuted] = useState(false);
 
   useEffect(() => {
@@ -83,15 +82,23 @@ export function UserInfoDialog({
     return () => window.removeEventListener('keydown', handleTrap);
   }, [isOpen]);
 
+  const volumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const persistVolume = useCallback((vol: number) => {
+    if (volumeTimerRef.current) clearTimeout(volumeTimerRef.current);
+    volumeTimerRef.current = setTimeout(() => {
+      localStorage.setItem(`volume_${session}`, String(vol));
+    }, 300);
+  }, [session]);
+
+  useEffect(() => {
+    return () => { if (volumeTimerRef.current) clearTimeout(volumeTimerRef.current); };
+  }, []);
+
   const handleVolumeChange = (newVolume: number) => {
     setVolume(newVolume);
-    setSaved(false);
-  };
-
-  const handleSave = () => {
-    localStorage.setItem(`volume_${session}`, String(volume));
-    bridge.send('voice.setVolume', { session, volume });
-    setSaved(true);
+    bridge.send('voice.setVolume', { session, volume: newVolume });
+    persistVolume(newVolume);
   };
 
   const toggleLocalMute = () => {
@@ -181,11 +188,6 @@ export function UserInfoDialog({
         </div>
 
         <div className="user-info-actions">
-          {volume !== 100 && (
-            <button className="btn btn-secondary" onClick={handleSave}>
-              {saved ? 'Saved!' : 'Save'}
-            </button>
-          )}
           <button className="btn btn-primary" onClick={onClose} autoFocus>
             Close
           </button>
