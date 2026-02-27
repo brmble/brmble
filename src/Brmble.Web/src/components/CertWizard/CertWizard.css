@@ -26,7 +26,7 @@
   height: 6px;
   border-radius: var(--radius-full);
   background: var(--border-subtle);
-  transition: background 0.3s;
+  transition: background var(--transition-normal);
 }
 
 .cert-wizard-dot.active {
@@ -110,7 +110,7 @@
   border-radius: var(--radius-md);
   cursor: pointer;
   text-align: left;
-  transition: all 0.2s;
+  transition: all var(--transition-fast);
   color: var(--text-primary);
 }
 
