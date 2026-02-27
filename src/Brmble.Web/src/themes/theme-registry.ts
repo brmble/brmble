@@ -18,6 +18,12 @@ export const themes: ThemeDefinition[] = [
     description: 'Stripped-down dark mode — neutral and modern',
     fontUrl: 'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap',
   },
+  {
+    id: 'blue-lagoon',
+    name: 'Blue Lagoon',
+    description: 'Tropical electric cyan — poolside cool',
+    fontUrl: 'https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400&family=DM+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap',
+  },
 ];
 
 export function getTheme(id: string): ThemeDefinition | undefined {

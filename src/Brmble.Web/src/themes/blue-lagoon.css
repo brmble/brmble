@@ -1,0 +1,123 @@
+/* ═══════════════════════════════════════════════════
+   Brmble Blue Lagoon Theme — Poolside Cool
+
+   Cocktail:   Blue Lagoon (vodka, blue curacao, lemonade)
+   Vibe:       Tropical electric cyan — crisp blue-tinted
+               darks with cyan and deep navy mesh gradients,
+               like moonlit water in a resort pool.
+
+   BASE HUE:       200° (ocean blue)
+   PRIMARY ACCENT: #00b4d8 (electric cyan-blue)
+   TEXT WARMTH:    Cool (pure white with blue-tinted grays)
+   ═══════════════════════════════════════════════════ */
+
+:root[data-theme="blue-lagoon"] {
+
+  /* ── Backgrounds (12 tokens) ─────────────────────
+     Tinted with hue 200° at medium saturation.
+     bg-deep:    hsl(200, 30%, 6%)
+     bg-primary: hsl(200, 28%, 10%)
+     mid-tone:   hsl(200, 25%, 26%) ≈ rgb(50, 69, 83)
+     ──────────────────────────────────────────────── */
+  --bg-deep:           #0b1318;
+  --bg-primary:        #121e26;
+  --bg-glass:          rgba(18, 30, 38, 0.85);
+  --bg-hover:          rgba(50, 69, 83, 0.3);
+  --bg-hover-strong:   rgba(60, 90, 115, 0.4);
+  --bg-surface:        rgba(50, 69, 83, 0.15);
+  --bg-overlay:        rgba(11, 19, 24, 0.82);
+  --bg-elevated:       rgba(18, 30, 38, 0.6);
+  --bg-input:          var(--bg-elevated);
+  --bg-deep-glass:     rgba(11, 19, 24, 0.4);
+  --bg-hover-light:    rgba(255, 255, 255, 0.07);
+  --bg-surface-active: rgba(50, 69, 83, 0.55);
+
+  /* ── Primary Accent — Electric Cyan-Blue (7 tokens)
+     Base: #00b4d8 → hsl(190, 100%, 42%)
+     ──────────────────────────────────────────────── */
+  --accent-primary:       #00b4d8;
+  --accent-primary-dark:  #00899e;
+  --accent-primary-hover: #14cbf0;
+  --accent-primary-light: #4dd8ee;
+  --accent-primary-glow:  rgba(0, 180, 216, 0.4);
+  --accent-primary-wash:  rgba(0, 180, 216, 0.2);
+  --accent-primary-ghost: rgba(0, 180, 216, 0.1);
+
+  /* ── Secondary Accent — Coral (3 tokens)
+     Warm complement: hsl(15, 80%, 60%) ≈ #e87040
+     ──────────────────────────────────────────────── */
+  --accent-secondary:        #e87040;
+  --accent-secondary-glow:   rgba(232, 112, 64, 0.3);
+  --accent-secondary-subtle: rgba(232, 112, 64, 0.15);
+
+  /* ── Success Accent — Seafoam (3 tokens)
+     hsl(160, 50%, 55%) ≈ #5cc9a5
+     ──────────────────────────────────────────────── */
+  --accent-success:        #5cc9a5;
+  --accent-success-glow:   rgba(92, 201, 165, 0.3);
+  --accent-success-subtle: rgba(92, 201, 165, 0.15);
+
+  /* ── Decorative Accent — Deep Navy (4 tokens)
+     hsl(220, 60%, 45%) ≈ #2e52b3
+     Avatar gradient uses base hue 200°.
+     ──────────────────────────────────────────────── */
+  --accent-decorative:      #2e52b3;
+  --accent-decorative-glow: rgba(46, 82, 179, 0.5);
+  --bg-avatar-start:        #1a4d66;
+  --bg-avatar-end:          #0f2e3d;
+
+  /* ── Danger Accent (6 tokens)
+     hsl(5, 90%, 68%) — warm red, distinct from coral
+     ──────────────────────────────────────────────── */
+  --accent-danger:        #ff6b6b;
+  --accent-danger-strong: #ff4f5e;
+  --accent-danger-text:   #ff7a7a;
+  --accent-danger-subtle: rgba(255, 107, 107, 0.12);
+  --accent-danger-border: rgba(255, 107, 107, 0.4);
+  --accent-danger-bg:     rgba(255, 107, 107, 0.25);
+
+  /* ── Status (1 token) ────────────────────────── */
+  --status-connected: #5cc9a5;
+
+  /* ── Text — Cool warmth (7 tokens)
+     Primary: blue-white #f0f5f8 ≈ hsl(205, 30%, 96%)
+     Secondary: hsl(200, 14%, 65%) ≈ #95a8b4
+     Muted: hsl(200, 12%, 42%) ≈ #5e6f7a
+     ──────────────────────────────────────────────── */
+  --text-primary:         #f0f5f8;
+  --text-secondary:       #95a8b4;
+  --text-secondary-dim:   rgba(149, 168, 180, 0.55);
+  --text-secondary-muted: rgba(149, 168, 180, 0.7);
+  --text-muted:           #5e6f7a;
+  --text-muted-dim:       rgba(94, 111, 122, 0.5);
+  --text-muted-strong:    rgba(94, 111, 122, 0.85);
+
+  /* ── Borders & Effects (2 tokens)
+     Tinted with hue 200°.
+     ──────────────────────────────────────────────── */
+  --border-subtle: #243848;
+  --border-glow:   rgba(0, 180, 216, 0.3);
+
+  /* ── Glass Effect (2 tokens) ─────────────────── */
+  --glass-blur:   blur(12px);
+  --glass-border: 1px solid rgba(50, 69, 83, 0.5);
+
+  /* ── Shadows (3 tokens) ──────────────────────── */
+  --shadow-dialog:
+    0 0 0 1px var(--accent-primary-ghost),
+    0 8px 32px rgba(11, 19, 24, 0.6),
+    0 0 60px rgba(0, 180, 216, 0.08);
+  --shadow-elevated: 0 8px 32px rgba(0, 0, 0, 0.4);
+  --shadow-drop-subtle: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.3));
+
+  /* ── Typography (3 tokens) ───────────────────── */
+  --font-display: 'Playfair Display', Georgia, serif;
+  --font-body:    'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono:    'JetBrains Mono', monospace;
+
+  /* ── Theme Features (2 tokens) ───────────────── */
+  --theme-noise-opacity: 0.02;
+  --theme-mesh-bg:
+    radial-gradient(circle at 15% 15%, rgba(0, 180, 216, 0.08) 0%, transparent 40%),
+    radial-gradient(circle at 85% 85%, rgba(46, 82, 179, 0.08) 0%, transparent 40%);
+}
