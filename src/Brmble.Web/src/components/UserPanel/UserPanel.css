@@ -108,7 +108,7 @@
   color: var(--text-secondary);
 }
 
-.user-panel-btn.leave-voice-btn:hover {
+.user-panel-btn.leave-voice-btn:hover:not(:disabled) {
   color: var(--accent-danger);
   background: var(--accent-danger-subtle);
 }
