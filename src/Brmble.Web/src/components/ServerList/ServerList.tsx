@@ -146,11 +146,11 @@ export function ServerList({ onConnect }: ServerListProps) {
                 />
               </div>
               <div className="server-list-form-actions">
+                <button type="button" className="btn btn-secondary server-list-cancel-btn" onClick={handleCancel}>
+                  Cancel
+                </button>
                 <button type="submit" className="btn btn-primary server-list-submit-btn">
                   {editing ? 'Save Changes' : 'Add Server'}
-                </button>
-                <button type="button" className="btn btn-ghost server-list-cancel-btn" onClick={handleCancel}>
-                  Cancel
                 </button>
               </div>
             </form>
