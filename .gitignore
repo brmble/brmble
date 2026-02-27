@@ -6,6 +6,10 @@
 # dotenv files
 .env
 
+# Local Docker volumes
+brmble-data/
+data/
+
 # User-specific files
 *.rsuser
 *.suo
