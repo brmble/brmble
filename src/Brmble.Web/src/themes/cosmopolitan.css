@@ -1,0 +1,125 @@
+/* ═══════════════════════════════════════════════════
+   Brmble Cosmopolitan Theme — Fashion-Editorial Elegance
+
+   Cocktail:   Cosmopolitan (vodka, Cointreau, cranberry, lime)
+   Vibe:       Glamorous cranberry-rose — clean luxury
+               with high contrast and minimal grain, like
+               a fashion editorial shot in a dim cocktail bar.
+
+   THE 3 DECISIONS:
+     1. BASE HUE:       345° (deep cranberry-rose)
+     2. PRIMARY ACCENT:  #e63962 (cranberry pink)
+     3. TEXT WARMTH:     Warm — rose-tinted cream (#f8f0f0)
+   ═══════════════════════════════════════════════════ */
+
+:root[data-theme="cosmopolitan"] {
+
+  /* ── Backgrounds (12 tokens) ─────────────────────
+     Tinted with hue 345° at medium saturation.
+     bg-deep:    hsl(345, 25%, 6%)
+     bg-primary: hsl(345, 22%, 10%)
+     mid-tone:   hsl(345, 18%, 24%) ≈ rgb(72, 50, 56)
+     ──────────────────────────────────────────────── */
+  --bg-deep:           #140a0d;
+  --bg-primary:        #1f1317;
+  --bg-glass:          rgba(31, 19, 23, 0.87);
+  --bg-hover:          rgba(72, 50, 56, 0.28);
+  --bg-hover-strong:   rgba(90, 60, 70, 0.38);
+  --bg-surface:        rgba(72, 50, 56, 0.14);
+  --bg-overlay:        rgba(20, 10, 13, 0.84);
+  --bg-elevated:       rgba(31, 19, 23, 0.6);
+  --bg-input:          var(--bg-elevated);
+  --bg-deep-glass:     rgba(20, 10, 13, 0.4);
+  --bg-hover-light:    rgba(255, 255, 255, 0.06);
+  --bg-surface-active: rgba(72, 50, 56, 0.52);
+
+  /* ── Primary Accent — Cranberry Pink (7 tokens)
+     Base: #e63962 → hsl(345, 78%, 56%)
+     ──────────────────────────────────────────────── */
+  --accent-primary:       #e63962;
+  --accent-primary-dark:  #c42e52;
+  --accent-primary-hover: #ed5278;
+  --accent-primary-light: #f27a98;
+  --accent-primary-glow:  rgba(230, 57, 98, 0.35);
+  --accent-primary-wash:  rgba(230, 57, 98, 0.18);
+  --accent-primary-ghost: rgba(230, 57, 98, 0.09);
+
+  /* ── Secondary Accent — Rose Gold (3 tokens)
+     hsl(20, 60%, 65%) ≈ #d9956a
+     ──────────────────────────────────────────────── */
+  --accent-secondary:        #d9956a;
+  --accent-secondary-glow:   rgba(217, 149, 106, 0.3);
+  --accent-secondary-subtle: rgba(217, 149, 106, 0.14);
+
+  /* ── Success Accent — Lime (3 tokens)
+     hsl(120, 50%, 55%) ≈ #55c855
+     ──────────────────────────────────────────────── */
+  --accent-success:        #55c855;
+  --accent-success-glow:   rgba(85, 200, 85, 0.3);
+  --accent-success-subtle: rgba(85, 200, 85, 0.14);
+
+  /* ── Decorative Accent — Deep Rose (4 tokens)
+     hsl(330, 50%, 35%) ≈ #8c2d6a
+     Avatar gradient uses base hue 345°.
+     ──────────────────────────────────────────────── */
+  --accent-decorative:      #8c2d6a;
+  --accent-decorative-glow: rgba(140, 45, 106, 0.5);
+  --bg-avatar-start:        #6b2040;
+  --bg-avatar-end:          #3d1225;
+
+  /* ── Danger Accent (6 tokens)
+     hsl(25, 90%, 62%) — orange-red, distinct from
+     cranberry-pink primary
+     ──────────────────────────────────────────────── */
+  --accent-danger:        #f08030;
+  --accent-danger-strong: #e86a18;
+  --accent-danger-text:   #f49050;
+  --accent-danger-subtle: rgba(240, 128, 48, 0.12);
+  --accent-danger-border: rgba(240, 128, 48, 0.4);
+  --accent-danger-bg:     rgba(240, 128, 48, 0.22);
+
+  /* ── Status (1 token) ────────────────────────── */
+  --status-connected: #55c855;
+
+  /* ── Text — Warm rose-tinted cream (7 tokens)
+     Primary: #f8f0f0 ≈ hsl(0, 47%, 96%) — rose cream
+     Secondary: hsl(345, 12%, 65%) ≈ #ae98a0
+     Muted: hsl(345, 10%, 42%) ≈ #756068
+     ──────────────────────────────────────────────── */
+  --text-primary:         #f8f0f0;
+  --text-secondary:       #ae98a0;
+  --text-secondary-dim:   rgba(174, 152, 160, 0.55);
+  --text-secondary-muted: rgba(174, 152, 160, 0.7);
+  --text-muted:           #756068;
+  --text-muted-dim:       rgba(117, 96, 104, 0.5);
+  --text-muted-strong:    rgba(117, 96, 104, 0.85);
+
+  /* ── Borders & Effects (2 tokens)
+     Tinted with hue 345°.
+     ──────────────────────────────────────────────── */
+  --border-subtle: #3d2430;
+  --border-glow:   rgba(230, 57, 98, 0.28);
+
+  /* ── Glass Effect (2 tokens) ─────────────────── */
+  --glass-blur:   blur(12px);
+  --glass-border: 1px solid rgba(72, 50, 56, 0.45);
+
+  /* ── Shadows (3 tokens) ──────────────────────── */
+  --shadow-dialog:
+    0 0 0 1px var(--accent-primary-ghost),
+    0 8px 32px rgba(20, 10, 13, 0.6),
+    0 0 60px rgba(230, 57, 98, 0.06);
+  --shadow-elevated: 0 8px 32px rgba(0, 0, 0, 0.4);
+  --shadow-drop-subtle: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.3));
+
+  /* ── Typography (3 tokens) ───────────────────── */
+  --font-display: 'Bodoni Moda', Georgia, serif;
+  --font-body:    'Manrope', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono:    'JetBrains Mono', monospace;
+
+  /* ── Theme Features (2 tokens) ───────────────── */
+  --theme-noise-opacity: 0.015;
+  --theme-mesh-bg:
+    radial-gradient(circle at 15% 15%, rgba(230, 57, 98, 0.05) 0%, transparent 40%),
+    radial-gradient(circle at 85% 85%, rgba(140, 45, 106, 0.05) 0%, transparent 40%);
+}

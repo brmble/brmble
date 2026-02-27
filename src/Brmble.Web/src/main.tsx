@@ -4,6 +4,7 @@ import './index.css'
 import './themes/classic.css'
 import './themes/clean.css'
 import './themes/blue-lagoon.css'
+import './themes/cosmopolitan.css'
 import { applyTheme } from './themes/theme-loader'
 import App from './App.tsx'
 
