@@ -66,7 +66,7 @@ public static class AuthEndpoints
                 result.MatrixUserId,
                 mumbleUsername ?? "(none)");
 
-            var roomMap = channelRepository.GetAll()
+            var roomMap = (await channelRepository.GetAllAsync())
                 .ToDictionary(m => m.MumbleChannelId.ToString(), m => m.MatrixRoomId);
 
             // Ensure user is in all rooms, then sync display name

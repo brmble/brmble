@@ -34,7 +34,7 @@ public class MatrixEventHandlerTests
         var (db, keepAlive) = CreateDb();
         using var _ = keepAlive;
         var channelRepo = new ChannelRepository(db);
-        channelRepo.Insert(1, "!room:server");
+        await channelRepo.InsertAsync(1, "!room:server");
 
         var sessions = new Mock<Brmble.Server.Auth.IActiveBrmbleSessions>();
         sessions.Setup(s => s.IsBrmbleClient("og")).Returns(false);
@@ -72,14 +72,14 @@ public class MatrixEventHandlerTests
         var (db, keepAlive) = CreateDb();
         using var _ = keepAlive;
         var channelRepo = new ChannelRepository(db);
-        channelRepo.Insert(5, "!room:server");
+        await channelRepo.InsertAsync(5, "!room:server");
         var sessions = new Mock<Brmble.Server.Auth.IActiveBrmbleSessions>();
         var svc = new MatrixService(channelRepo, appService.Object, sessions.Object, NullLogger<MatrixService>.Instance);
         _handler = new MatrixEventHandler(svc, sessions.Object);
 
         await _handler.OnChannelRemoved(new MumbleChannel(5, "OldChannel"));
 
-        Assert.IsNull(channelRepo.GetRoomId(5));
+        Assert.IsNull(await channelRepo.GetRoomIdAsync(5));
     }
 
     [TestMethod]
@@ -92,7 +92,7 @@ public class MatrixEventHandlerTests
         var (db, keepAlive) = CreateDb();
         using var _ = keepAlive;
         var channelRepo = new ChannelRepository(db);
-        channelRepo.Insert(3, "!room:server");
+        await channelRepo.InsertAsync(3, "!room:server");
         var sessions = new Mock<Brmble.Server.Auth.IActiveBrmbleSessions>();
         var svc = new MatrixService(channelRepo, appService.Object, sessions.Object, NullLogger<MatrixService>.Instance);
         _handler = new MatrixEventHandler(svc, sessions.Object);

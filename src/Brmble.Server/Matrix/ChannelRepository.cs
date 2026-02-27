@@ -14,35 +14,36 @@ public class ChannelRepository
         _db = db;
     }
 
-    public string? GetRoomId(int mumbleChannelId)
+    public async Task<string?> GetRoomIdAsync(int mumbleChannelId)
     {
         using var conn = _db.CreateConnection();
-        return conn.QuerySingleOrDefault<string>(
+        return await conn.QuerySingleOrDefaultAsync<string>(
             "SELECT matrix_room_id FROM channel_room_map WHERE mumble_channel_id = @id",
             new { id = mumbleChannelId });
     }
 
-    public void Insert(int mumbleChannelId, string matrixRoomId)
+    public async Task InsertAsync(int mumbleChannelId, string matrixRoomId)
     {
         using var conn = _db.CreateConnection();
-        conn.Execute(
+        await conn.ExecuteAsync(
             "INSERT OR IGNORE INTO channel_room_map (mumble_channel_id, matrix_room_id) VALUES (@channelId, @roomId)",
             new { channelId = mumbleChannelId, roomId = matrixRoomId });
     }
 
-    public void Delete(int mumbleChannelId)
+    public async Task DeleteAsync(int mumbleChannelId)
     {
         using var conn = _db.CreateConnection();
-        conn.Execute(
+        await conn.ExecuteAsync(
             "DELETE FROM channel_room_map WHERE mumble_channel_id = @id",
             new { id = mumbleChannelId });
     }
 
-    public List<ChannelRoomMapping> GetAll()
+    public async Task<List<ChannelRoomMapping>> GetAllAsync()
     {
         using var conn = _db.CreateConnection();
-        return conn.Query("SELECT mumble_channel_id, matrix_room_id FROM channel_room_map")
-            .Select(row => new ChannelRoomMapping((int)(long)row.mumble_channel_id, (string)row.matrix_room_id))
-            .ToList();
+        // SQLite INTEGER maps to Int64; cast to int for the public record
+        var rows = await conn.QueryAsync(
+            "SELECT mumble_channel_id, matrix_room_id FROM channel_room_map");
+        return rows.Select(r => new ChannelRoomMapping((int)(long)r.mumble_channel_id, (string)r.matrix_room_id)).ToList();
     }
 }
