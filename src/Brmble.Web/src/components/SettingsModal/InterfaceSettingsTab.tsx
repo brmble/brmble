@@ -41,7 +41,7 @@ export function InterfaceSettingsTab({
         <div className="settings-item">
           <label>Aesthetic</label>
           <select
-            className="settings-select"
+            className="brmble-input"
             value={localAppearance.theme}
             onChange={(e) => handleThemeChange(e.target.value as 'classic' | 'clean')}
           >

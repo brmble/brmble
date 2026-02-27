@@ -131,7 +131,7 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
       <div className="settings-item">
         <label>Toggle Leave Voice</label>
         <button
-          className={`key-binding-btn ${recordingKey === 'toggleLeaveVoiceKey' ? 'recording' : ''}`}
+          className={`btn btn-secondary key-binding-btn ${recordingKey === 'toggleLeaveVoiceKey' ? 'recording' : ''}`}
           onClick={() => setRecordingKey(recordingKey === 'toggleLeaveVoiceKey' ? null : 'toggleLeaveVoiceKey')}
         >
           {recordingKey === 'toggleLeaveVoiceKey' ? 'Press any key...' : (localSettings.toggleLeaveVoiceKey || 'Not bound')}
@@ -141,7 +141,7 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
       <div className="settings-item">
         <label>Toggle Mute & Deafen</label>
         <button
-          className={`key-binding-btn ${recordingKey === 'toggleMuteDeafenKey' ? 'recording' : ''}`}
+          className={`btn btn-secondary key-binding-btn ${recordingKey === 'toggleMuteDeafenKey' ? 'recording' : ''}`}
           onClick={() => setRecordingKey(recordingKey === 'toggleMuteDeafenKey' ? null : 'toggleMuteDeafenKey')}
         >
           {recordingKey === 'toggleMuteDeafenKey' ? 'Press any key...' : (localSettings.toggleMuteDeafenKey || 'Not bound')}
@@ -151,7 +151,7 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
       <div className="settings-item">
         <label>Toggle Mute</label>
         <button
-          className={`key-binding-btn ${recordingKey === 'toggleMuteKey' ? 'recording' : ''}`}
+          className={`btn btn-secondary key-binding-btn ${recordingKey === 'toggleMuteKey' ? 'recording' : ''}`}
           onClick={() => setRecordingKey(recordingKey === 'toggleMuteKey' ? null : 'toggleMuteKey')}
         >
           {recordingKey === 'toggleMuteKey' ? 'Press any key...' : (localSettings.toggleMuteKey || 'Not bound')}
@@ -161,7 +161,7 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
       <div className="settings-item">
         <label>Toggle Direct Messages Screen</label>
         <button
-          className={`key-binding-btn ${recordingKey === 'toggleDMScreenKey' ? 'recording' : ''}`}
+          className={`btn btn-secondary key-binding-btn ${recordingKey === 'toggleDMScreenKey' ? 'recording' : ''}`}
           onClick={() => setRecordingKey(recordingKey === 'toggleDMScreenKey' ? null : 'toggleDMScreenKey')}
         >
           {recordingKey === 'toggleDMScreenKey' ? 'Press any key...' : (localSettings.toggleDMScreenKey || 'Not bound')}

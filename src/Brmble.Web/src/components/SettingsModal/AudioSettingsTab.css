@@ -1,18 +1,6 @@
 .key-binding-btn {
-  padding: 8px 16px;
-  background: var(--bg-glass);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-xs);
-  color: var(--text-secondary);
-  cursor: pointer;
-  font-size: 14px;
   min-width: 120px;
-  transition: all 0.2s;
-}
-
-.key-binding-btn:hover {
-  background: var(--bg-hover);
-  border-color: var(--text-muted);
+  text-transform: none; /* override .btn uppercase to preserve key names */
 }
 
 .key-binding-btn.recording {

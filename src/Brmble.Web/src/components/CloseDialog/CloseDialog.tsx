@@ -56,7 +56,7 @@ export function CloseDialog({ isOpen, onMinimize, onQuit }: CloseDialogProps) {
     <div className="close-dialog-overlay">
       {/* Fix 2: ARIA dialog semantics */}
       <div
-        className="close-dialog-card"
+        className="close-dialog-card glass-panel"
         role="dialog"
         aria-modal="true"
         aria-labelledby="close-dialog-title"
@@ -68,14 +68,14 @@ export function CloseDialog({ isOpen, onMinimize, onQuit }: CloseDialogProps) {
         <div className="close-dialog-buttons">
           {/* Fix 3: autoFocus so keyboard lands inside the dialog */}
           <button
-            className="close-dialog-btn minimize"
+            className="btn btn-primary"
             onClick={() => onMinimize(dontAskAgain)}
             autoFocus
           >
             Minimize to tray
           </button>
           <button
-            className="close-dialog-btn quit"
+            className="btn btn-danger"
             onClick={() => onQuit(dontAskAgain)}
           >
             Quit

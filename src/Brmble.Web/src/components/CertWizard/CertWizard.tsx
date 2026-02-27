@@ -117,7 +117,7 @@ export function CertWizard({ onComplete }: CertWizardProps) {
         onChange={handleFileChange}
       />
 
-      <div className="cert-wizard">
+      <div className="cert-wizard glass-panel">
         {/* Step dots */}
         <div className="cert-wizard-step-indicator">
           {STEPS.map((s, i) => (
@@ -136,11 +136,17 @@ export function CertWizard({ onComplete }: CertWizardProps) {
               <strong>chat history</strong>, and <strong>screen sharing</strong>. It is
               unique to you and lives on this computer.
             </p>
-            <div className="cert-wizard-actions">
-              <button className="cert-wizard-btn primary" onClick={() => setStep('choose')}>
-                Get Started
-              </button>
-            </div>
+              <div className="cert-wizard-actions">
+                <button className="btn btn-ghost" onClick={() => setStep('warning')}>
+                  Back
+                </button>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleImportClick}
+                >
+                  Select File
+                </button>
+              </div>
           </>
         )}
 
@@ -191,15 +197,15 @@ export function CertWizard({ onComplete }: CertWizardProps) {
               </span>
             </label>
             <div className="cert-wizard-actions">
-              <button className="cert-wizard-btn ghost" onClick={() => setStep('choose')}>
+              <button className="btn btn-ghost" onClick={() => setStep('choose')}>
                 Back
               </button>
               <button
-                className="cert-wizard-btn primary"
+                className="btn btn-primary"
                 disabled={!acknowledged}
                 onClick={() => setStep('action')}
               >
-                I Understand, Continue
+                Continue
               </button>
             </div>
           </>
@@ -219,18 +225,18 @@ export function CertWizard({ onComplete }: CertWizardProps) {
               </div>
             )}
             {error && <p style={{ color: '#ff6b7a', fontSize: '0.85rem', marginBottom: '1rem' }}>{error}</p>}
-            <div className="cert-wizard-actions">
-              <button className="cert-wizard-btn ghost" onClick={() => setStep('warning')} disabled={generating}>
-                Back
-              </button>
-              <button
-                className="cert-wizard-btn primary"
-                onClick={handleGenerate}
-                disabled={generating}
-              >
-                Generate
-              </button>
-            </div>
+              <div className="cert-wizard-actions">
+                <button className="btn btn-ghost" onClick={() => setStep('warning')}>
+                  Back
+                </button>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleGenerate}
+                  disabled={generating}
+                >
+                  {generating ? 'Generating...' : 'Generate Now'}
+                </button>
+              </div>
           </>
         )}
 
@@ -263,11 +269,11 @@ export function CertWizard({ onComplete }: CertWizardProps) {
             </p>
             <div className="cert-wizard-fingerprint">{fingerprint}</div>
             <div className="cert-wizard-actions">
-              <button className="cert-wizard-btn ghost" onClick={() => onComplete(fingerprint)}>
-                Skip for now
+              <button className="btn btn-ghost" onClick={() => onComplete(fingerprint)}>
+                Skip Backup (Not Recommended)
               </button>
-              <button className="cert-wizard-btn primary" onClick={handleExportNow}>
-                Export Now
+              <button className="btn btn-primary" onClick={handleExportNow}>
+                Export & Continue
               </button>
             </div>
           </>

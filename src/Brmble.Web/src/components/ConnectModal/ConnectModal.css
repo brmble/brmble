@@ -14,9 +14,6 @@
 }
 
 .connect-modal {
-  background: var(--bg-primary);
-  border: var(--glass-border);
-  border-radius: var(--radius-xl);
   padding: 2rem;
   width: 100%;
   max-width: 420px;
@@ -96,23 +93,6 @@
 
 .form-group input {
   width: 100%;
-  padding: 0.875rem 1rem;
-  background: var(--bg-glass);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  font-size: 0.9375rem;
-  color: var(--text-primary);
-  transition: all var(--transition-fast);
-}
-
-.form-group input:focus {
-  outline: none;
-  border-color: var(--accent-berry);
-  /* The global :focus-visible ring will handle the glow, no need for custom box-shadow clash */
-}
-
-.form-group input::placeholder {
-  color: var(--text-muted);
 }
 
 .input-row {
@@ -131,25 +111,4 @@
 .connect-btn {
   width: 100%;
   padding: 1rem;
-  background: linear-gradient(135deg, var(--accent-berry) 0%, var(--accent-berry-dark) 100%);
-  border-radius: var(--radius-md);
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-top: 0.5rem;
-  transition: all var(--transition-fast);
-}
-
-.connect-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px var(--accent-berry-glow);
-}
-
-.connect-btn:active {
-  transform: translateY(1px) scale(0.98);
-}
-
-@keyframes content-fade-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
 }

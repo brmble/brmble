@@ -9,9 +9,6 @@
 }
 
 .cert-wizard {
-  background: var(--bg-primary);
-  border: var(--glass-border);
-  border-radius: var(--radius-xl);
   width: 100%;
   max-width: 480px;
   padding: 2.5rem;
@@ -143,38 +140,6 @@
   justify-content: flex-end;
 }
 
-.cert-wizard-btn {
-  padding: 0.625rem 1.25rem;
-  border-radius: var(--radius-md);
-  font-size: 0.875rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  border: none;
-}
-
-.cert-wizard-btn.primary {
-  background: var(--accent-berry);
-  color: var(--text-primary);
-}
-
-.cert-wizard-btn.primary:hover {
-  opacity: 0.9;
-}
-
-.cert-wizard-btn.primary:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.cert-wizard-btn.ghost {
-  background: transparent;
-  color: var(--text-muted);
-}
-
-.cert-wizard-btn.ghost:hover {
-  color: var(--text-secondary);
-}
 
 .cert-wizard-generating {
   display: flex;

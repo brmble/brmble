@@ -111,7 +111,7 @@ export function UserInfoDialog({
     <div className="user-info-overlay" onClick={onClose}>
       <div
         ref={dialogRef}
-        className="user-info-card"
+        className="user-info-card glass-panel"
         role="dialog"
         aria-modal="true"
         aria-labelledby="user-info-title"
@@ -194,11 +194,11 @@ export function UserInfoDialog({
 
         <div className="user-info-actions">
           {volume !== 100 && (
-            <button className="user-info-btn save" onClick={handleSave}>
+            <button className="btn btn-secondary" onClick={handleSave}>
               {saved ? 'Saved!' : 'Save'}
             </button>
           )}
-          <button className="user-info-btn primary" onClick={onClose} autoFocus>
+          <button className="btn btn-primary" onClick={onClose} autoFocus>
             Close
           </button>
         </div>

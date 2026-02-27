@@ -88,10 +88,30 @@
   --radius-xl: 16px;
   --radius-full: 50%;
 
+  /* Spacing Scale */
+  --space-2xs: 0.25rem; /* 4px */
+  --space-xs: 0.5rem;   /* 8px */
+  --space-sm: 0.75rem;  /* 12px */
+  --space-md: 1rem;     /* 16px */
+  --space-lg: 1.5rem;   /* 24px */
+  --space-xl: 2rem;     /* 32px */
+  --space-2xl: 3rem;    /* 48px */
+  --space-3xl: 4rem;    /* 64px */
+
   /* Typography */
   --font-display: 'Cormorant Garamond', Georgia, serif;
   --font-body: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
+  
+  /* Font Size Scale */
+  --text-xs: 0.75rem;    /* 12px */
+  --text-sm: 0.875rem;   /* 14px */
+  --text-base: 1rem;     /* 16px */
+  --text-lg: 1.125rem;   /* 18px */
+  --text-xl: 1.25rem;    /* 20px */
+  --text-2xl: 1.5rem;    /* 24px */
+  --text-3xl: 2rem;      /* 32px */
+  --text-4xl: 2.5rem;    /* 40px */
 
   /* Layout */
   --sidebar-width: 280px;
@@ -112,6 +132,38 @@
 :root[data-theme="clean"] {
   --theme-noise-opacity: 0;
   --theme-mesh-bg: none;
+  
+  /* Desaturate Backgrounds for Clean Dark Mode */
+  --bg-deep: #0a0a0a;
+  --bg-primary: #121212;
+  --bg-glass: rgba(18, 18, 18, 0.85);
+  --bg-hover: rgba(255, 255, 255, 0.05);
+  --bg-hover-strong: rgba(255, 255, 255, 0.1);
+  --bg-surface: rgba(255, 255, 255, 0.03);
+  --bg-overlay: rgba(10, 10, 10, 0.85);
+  --bg-elevated: rgba(30, 30, 30, 0.9);
+  --bg-input: rgba(30, 30, 30, 0.5);
+  --bg-deep-glass: rgba(10, 10, 10, 0.5);
+  --bg-hover-light: rgba(255, 255, 255, 0.08);
+  --bg-surface-active: rgba(255, 255, 255, 0.08);
+
+  /* Subtle Borders for Clean Mode */
+  --border-subtle: #2a2a2a;
+  --glass-border: 1px solid rgba(255, 255, 255, 0.1);
+
+  /* Neutral Text Colors */
+  --text-primary: #ffffff;
+  --text-secondary: #a0a0a0;
+  --text-secondary-dim: rgba(160, 160, 160, 0.55);
+  --text-secondary-muted: rgba(160, 160, 160, 0.7);
+  --text-muted: #6b6b6b;
+  --text-muted-dim: rgba(107, 107, 107, 0.5);
+  --text-muted-strong: rgba(107, 107, 107, 0.85);
+
+  /* Shadows for Clean Mode */
+  --shadow-dialog:
+    0 0 0 1px rgba(255, 255, 255, 0.1),
+    0 12px 40px rgba(0, 0, 0, 0.8);
 }
 
 * {
@@ -237,4 +289,124 @@ a:hover {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* ═══════════════════════════════════════════════════
+   Global Component Classes
+   ═══════════════════════════════════════════════════ */
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  padding: 0.75rem 1.5rem;
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.btn-primary {
+  background: var(--accent-berry);
+  color: #ffffff;
+  border: 1px solid transparent;
+  box-shadow: 0 0 16px var(--accent-berry-glow);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-berry-hover);
+  box-shadow: 0 0 24px var(--accent-berry-glow);
+  transform: translateY(-1px);
+}
+
+.btn-primary:active:not(:disabled) {
+  transform: translateY(1px) scale(0.98);
+}
+
+.btn-secondary {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--bg-hover-strong);
+  border-color: var(--text-muted);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid transparent;
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.btn-danger {
+  background: var(--accent-danger-bg);
+  color: var(--accent-danger-text);
+  border: 1px solid var(--accent-danger-border);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: var(--accent-danger-subtle);
+  border-color: var(--accent-danger);
+  color: var(--accent-danger);
+}
+
+/* Glass Panels (Modals, Dialogs, Cards) */
+.glass-panel {
+  background: var(--bg-primary);
+  border: var(--glass-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-dialog);
+}
+
+/* Base Inputs */
+.brmble-input {
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem var(--space-sm);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  transition: all var(--transition-fast);
+  outline: none;
+}
+
+.brmble-input:focus {
+  border-color: var(--accent-berry);
+  box-shadow: 0 0 0 1px var(--accent-berry-glow);
+}
+
+select.brmble-input {
+  cursor: pointer;
+  min-width: 150px;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23f5f0e8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  padding-right: 2rem;
+}
+
+select.brmble-input option {
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }

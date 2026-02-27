@@ -1,7 +1,4 @@
 .settings-modal {
-  background: var(--bg-primary);
-  border: var(--glass-border);
-  border-radius: var(--radius-xl);
   width: 100%;
   max-width: 600px;
   max-height: 80vh;
@@ -102,28 +99,6 @@
   font-weight: 500;
 }
 
-.settings-select {
-  padding: 0.5rem 0.75rem;
-  background: var(--bg-glass);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  font-size: 0.8125rem;
-  color: var(--text-primary);
-  cursor: pointer;
-  min-width: 150px;
-  outline: none;
-}
-
-.settings-select:focus,
-.settings-select:focus-visible {
-  border-color: var(--accent-berry);
-}
-
-.settings-select option {
-  background: var(--bg-primary);
-  color: var(--text-primary);
-}
-
 .settings-toggle {
   cursor: pointer;
 }
@@ -176,38 +151,6 @@
   opacity: 0;
   animation: content-fade-in 300ms ease forwards;
   animation-delay: 250ms;
-}
-
-.settings-btn {
-  padding: 0.625rem 1.25rem;
-  border-radius: var(--radius-md);
-  font-size: 0.875rem;
-  font-weight: 500;
-  transition: all var(--transition-fast);
-}
-
-.settings-btn.secondary {
-  background: var(--bg-hover);
-  color: var(--text-secondary);
-}
-
-.settings-btn.secondary:hover {
-  background: var(--border-subtle);
-  color: var(--text-primary);
-}
-
-.settings-btn.primary {
-  background: var(--accent-berry);
-  color: var(--text-primary);
-}
-
-.settings-btn.primary:hover {
-  background: var(--accent-lemon);
-  color: var(--bg-deep);
-}
-
-.settings-btn:active {
-  transform: scale(0.96);
 }
 
 @keyframes content-fade-in {

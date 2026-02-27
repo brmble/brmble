@@ -1,18 +1,6 @@
 .key-binding-btn {
-  padding: 8px 16px;
-  background: var(--bg-glass);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-xs);
-  color: var(--text-secondary);
-  cursor: pointer;
-  font-size: 14px;
   min-width: 120px;
-  transition: all 0.2s;
-}
-
-.key-binding-btn:hover {
-  background: var(--bg-hover);
-  border-color: var(--text-muted);
+  text-transform: none; /* override .btn uppercase to preserve key names */
 }
 
 .key-binding-btn.recording {
@@ -52,10 +40,6 @@
 }
 
 .shortcut-conflict-card {
-  background: var(--bg-primary);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-dialog);
   padding: 32px 40px 28px;
   width: 380px;
   max-width: 90vw;
@@ -98,38 +82,3 @@
   width: 100%;
 }
 
-.shortcut-conflict-btn {
-  flex: 1;
-  padding: 10px 20px;
-  border-radius: var(--radius-md);
-  border: none;
-  font-family: var(--font-body);
-  font-size: 0.875rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
-}
-
-.shortcut-conflict-btn.confirm {
-  background: var(--accent-berry);
-  color: var(--text-primary);
-  box-shadow: 0 0 16px var(--accent-berry-glow);
-}
-
-.shortcut-conflict-btn.confirm:hover {
-  background: var(--accent-berry-hover);
-  box-shadow: 0 0 24px var(--accent-berry-glow);
-  transform: translateY(-1px);
-}
-
-.shortcut-conflict-btn.cancel {
-  background: var(--bg-hover-strong);
-  color: var(--text-secondary);
-  border: 1px solid var(--border-subtle);
-}
-
-.shortcut-conflict-btn.cancel:hover {
-  background: var(--bg-surface-active);
-  color: var(--text-primary);
-  border-color: var(--border-glow);
-}

@@ -155,55 +155,19 @@
 
 .server-list-connect-btn {
   padding: 0.5rem 1rem;
-  background: linear-gradient(135deg, var(--accent-berry) 0%, var(--accent-berry-dark) 100%);
-  border-radius: var(--radius-md);
   font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  transition: all var(--transition-fast);
-  box-shadow: 0 2px 8px var(--accent-berry-glow);
-}
-
-.server-list-connect-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 16px var(--accent-berry-glow);
 }
 
 .server-list-edit-btn {
   padding: 0.5rem 0.75rem;
-  background: transparent;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
   font-size: 0.75rem;
-  font-weight: 500;
-  color: var(--text-secondary);
-  transition: all var(--transition-fast);
-}
-
-.server-list-edit-btn:hover {
-  background: var(--bg-hover);
-  border-color: var(--text-muted);
-  color: var(--text-primary);
 }
 
 .server-list-delete-btn {
   width: 32px;
   height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
+  padding: 0;
   font-size: 1.25rem;
-  color: var(--text-muted);
-  transition: all var(--transition-fast);
-}
-
-.server-list-delete-btn:hover {
-  background: var(--accent-berry-wash);
-  border-color: var(--accent-berry);
-  color: var(--accent-berry);
 }
 
 .server-list-empty {
@@ -271,23 +235,6 @@
 
 .server-list-input {
   width: 100%;
-  padding: 0.875rem 1rem;
-  background: var(--bg-input);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  font-size: 0.9375rem;
-  color: var(--text-primary);
-  transition: all var(--transition-fast);
-}
-
-.server-list-input::placeholder {
-  color: var(--text-muted);
-}
-
-.server-list-input:focus {
-  outline: none;
-  border-color: var(--accent-berry);
-  box-shadow: 0 0 0 3px var(--accent-berry-glow);
 }
 
 .server-list-input-host {
@@ -306,61 +253,23 @@
 
 .server-list-submit-btn {
   flex: 1;
-  padding: 0.875rem 1.5rem;
-  background: linear-gradient(135deg, var(--accent-berry) 0%, var(--accent-berry-dark) 100%);
-  border-radius: var(--radius-md);
-  font-size: 0.9375rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  transition: all var(--transition-fast);
-  box-shadow: 0 4px 12px var(--accent-berry-glow);
-}
-
-.server-list-submit-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px var(--accent-berry-glow);
 }
 
 .server-list-cancel-btn {
   flex: 1;
-  padding: 0.875rem 1.5rem;
-  background: transparent;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  font-size: 0.9375rem;
-  font-weight: 500;
-  color: var(--text-secondary);
-  transition: all var(--transition-fast);
-}
-
-.server-list-cancel-btn:hover {
-  background: var(--bg-hover);
-  border-color: var(--text-muted);
-  color: var(--text-primary);
 }
 
 .server-list-add-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
   width: 100%;
   margin-top: 1.5rem;
   padding: 1rem;
-  background: transparent;
   border: 2px dashed var(--border-subtle);
   border-radius: var(--radius-lg);
-  font-size: 0.9375rem;
-  font-weight: 500;
-  color: var(--text-secondary);
-  transition: all var(--transition-fast);
 }
 
 .server-list-add-btn:hover {
-  background: var(--bg-surface);
   border-color: var(--accent-berry);
   border-style: solid;
-  color: var(--text-primary);
 }
 
 .server-list-add-icon {

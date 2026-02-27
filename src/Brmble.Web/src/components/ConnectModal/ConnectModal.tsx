@@ -23,7 +23,7 @@ export function ConnectModal({ isOpen, onClose, onConnect }: ConnectModalProps) 
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="connect-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="connect-modal glass-panel" onClick={(e) => e.stopPropagation()}>
         <button className="modal-close" onClick={onClose}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -42,6 +42,7 @@ export function ConnectModal({ isOpen, onClose, onConnect }: ConnectModalProps) 
             <div className="input-row">
               <input
                 id="host"
+                className="brmble-input"
                 type="text"
                 value={host}
                 onChange={(e) => setHost(e.target.value)}
@@ -50,11 +51,11 @@ export function ConnectModal({ isOpen, onClose, onConnect }: ConnectModalProps) 
               />
               <input
                 id="port"
+                className="brmble-input port-input"
                 type="number"
                 value={port}
                 onChange={(e) => setPort(parseInt(e.target.value) || 64738)}
                 placeholder="Port"
-                className="port-input"
                 required
               />
             </div>
@@ -64,6 +65,7 @@ export function ConnectModal({ isOpen, onClose, onConnect }: ConnectModalProps) 
             <label htmlFor="username">Username</label>
             <input
               id="username"
+              className="brmble-input"
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
@@ -76,6 +78,7 @@ export function ConnectModal({ isOpen, onClose, onConnect }: ConnectModalProps) 
             <label htmlFor="password">Password <span className="optional">(optional)</span></label>
             <input
               id="password"
+              className="brmble-input"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -83,7 +86,7 @@ export function ConnectModal({ isOpen, onClose, onConnect }: ConnectModalProps) 
             />
           </div>
 
-          <button type="submit" className="connect-btn">
+          <button type="submit" className="btn btn-primary connect-btn">
             Connect
           </button>
         </form>

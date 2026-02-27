@@ -204,7 +204,7 @@ export function SettingsModal(props: SettingsModalProps) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="settings-modal glass-panel" onClick={(e) => e.stopPropagation()}>
         <button className="modal-close" onClick={onClose}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -288,10 +288,10 @@ export function SettingsModal(props: SettingsModalProps) {
         </div>
 
         <div className="settings-footer">
-          <button className="settings-btn secondary" onClick={onClose}>
+          <button className="btn btn-secondary" onClick={onClose}>
             Cancel
           </button>
-          <button className="settings-btn primary" onClick={onClose}>
+          <button className="btn btn-primary" onClick={onClose}>
             Save Changes
           </button>
         </div>

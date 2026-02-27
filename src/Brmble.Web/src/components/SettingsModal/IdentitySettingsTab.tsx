@@ -89,14 +89,14 @@ export function IdentitySettingsTab({ fingerprint, connectedUsername }: Identity
             <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Export Certificate</div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Save a backup of your identity to a file</div>
           </div>
-          <button className="settings-btn primary" onClick={handleExport}>Export</button>
+          <button className="btn btn-primary" onClick={handleExport}>Export</button>
         </div>
         <div className="settings-item">
           <div>
             <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Import Different Certificate</div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Takes effect on next launch</div>
           </div>
-          <button className="settings-btn secondary" onClick={handleImportClick}>Import</button>
+          <button className="btn btn-secondary" onClick={handleImportClick}>Import</button>
         </div>
       </div>
     </div>

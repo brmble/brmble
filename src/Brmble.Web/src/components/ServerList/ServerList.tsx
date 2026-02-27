@@ -57,7 +57,7 @@ export function ServerList({ onConnect }: ServerListProps) {
 
   return (
     <div className="server-list-overlay">
-      <div className="server-list-container">
+      <div className="server-list-container glass-panel">
         <div className="server-list-header">
           <h2 className="server-list-title">Choose a Server</h2>
           <p className="server-list-subtitle">Select a server to connect to voice chat</p>
@@ -79,26 +79,26 @@ export function ServerList({ onConnect }: ServerListProps) {
                     <span className="server-list-name">{server.label}</span>
                     <span className="server-list-address">{server.host}:{server.port}</span>
                   </div>
-                  <div className="server-list-actions">
-                    <button 
-                      className="server-list-connect-btn"
-                      onClick={() => onConnect(server)}
-                    >
-                      Connect
-                    </button>
-                    <button 
-                      className="server-list-edit-btn"
-                      onClick={() => handleEdit(server)}
-                    >
-                      Edit
-                    </button>
-                    <button 
-                      className="server-list-delete-btn"
-                      onClick={() => removeServer(server.id)}
-                    >
-                      ×
-                    </button>
-                  </div>
+                    <div className="server-list-actions">
+                      <button 
+                        className="btn btn-primary server-list-connect-btn"
+                        onClick={() => onConnect(server)}
+                      >
+                        Connect
+                      </button>
+                      <button 
+                        className="btn btn-secondary server-list-edit-btn"
+                        onClick={() => handleEdit(server)}
+                      >
+                        Edit
+                      </button>
+                      <button 
+                        className="btn btn-ghost server-list-delete-btn"
+                        onClick={() => removeServer(server.id)}
+                      >
+                        ×
+                      </button>
+                    </div>
                 </div>
               ))}
             </div>
@@ -117,7 +117,7 @@ export function ServerList({ onConnect }: ServerListProps) {
               </div>
               <div className="server-list-form-fields">
                 <input
-                  className="server-list-input"
+                  className="brmble-input server-list-input"
                   placeholder="Server Name"
                   value={form.label}
                   onChange={e => setForm(f => ({ ...f, label: e.target.value }))}
@@ -125,13 +125,13 @@ export function ServerList({ onConnect }: ServerListProps) {
                 />
                 <div className="server-list-form-row">
                   <input
-                    className="server-list-input server-list-input-host"
+                    className="brmble-input server-list-input server-list-input-host"
                     placeholder="Host"
                     value={form.host}
                     onChange={e => setForm(f => ({ ...f, host: e.target.value }))}
                   />
                   <input
-                    className="server-list-input server-list-input-port"
+                    className="brmble-input server-list-input server-list-input-port"
                     placeholder="Port"
                     type="number"
                     value={form.port}
@@ -139,17 +139,17 @@ export function ServerList({ onConnect }: ServerListProps) {
                   />
                 </div>
                 <input
-                  className="server-list-input"
+                  className="brmble-input server-list-input"
                   placeholder="Username"
                   value={form.username}
                   onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
                 />
               </div>
               <div className="server-list-form-actions">
-                <button type="submit" className="server-list-submit-btn">
+                <button type="submit" className="btn btn-primary server-list-submit-btn">
                   {editing ? 'Save Changes' : 'Add Server'}
                 </button>
-                <button type="button" className="server-list-cancel-btn" onClick={handleCancel}>
+                <button type="button" className="btn btn-ghost server-list-cancel-btn" onClick={handleCancel}>
                   Cancel
                 </button>
               </div>
@@ -158,7 +158,7 @@ export function ServerList({ onConnect }: ServerListProps) {
         </div>
 
         {!isAdding && !editing && (
-          <button className="server-list-add-btn" onClick={() => setIsAdding(true)}>
+          <button className="btn btn-ghost server-list-add-btn" onClick={() => setIsAdding(true)}>
             <span className="server-list-add-icon">+</span>
             Add Server
           </button>
