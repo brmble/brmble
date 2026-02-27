@@ -27,14 +27,14 @@
   transition: color var(--transition-fast), background var(--transition-fast), transform var(--transition-fast);
   border-radius: var(--radius-md) var(--radius-md) 0 0;
   opacity: 0;
-  animation: content-fade-in 300ms ease forwards;
+  animation: content-fade-in var(--animation-normal) ease forwards;
 }
 
 /* Stagger tabs slightly */
-.settings-tab:nth-child(1) { animation-delay: 50ms; }
-.settings-tab:nth-child(2) { animation-delay: 100ms; }
-.settings-tab:nth-child(3) { animation-delay: 150ms; }
-.settings-tab:nth-child(4) { animation-delay: 200ms; }
+.settings-tab:nth-child(1) { animation-delay: calc(1 * var(--stagger-step)); }
+.settings-tab:nth-child(2) { animation-delay: calc(2 * var(--stagger-step)); }
+.settings-tab:nth-child(3) { animation-delay: calc(3 * var(--stagger-step)); }
+.settings-tab:nth-child(4) { animation-delay: calc(4 * var(--stagger-step)); }
 
 .settings-tab:hover {
   color: var(--text-secondary);
@@ -60,8 +60,8 @@
   padding: 1.5rem 0;
   border-bottom: 1px solid var(--border-subtle);
   opacity: 0;
-  animation: content-fade-in 300ms ease forwards;
-  animation-delay: 200ms;
+  animation: content-fade-in var(--animation-normal) ease forwards;
+  animation-delay: calc(4 * var(--stagger-step));
 }
 
 .settings-section:last-child {
@@ -106,6 +106,6 @@
   padding: 1.5rem;
   border-top: var(--glass-border);
   opacity: 0;
-  animation: content-fade-in 300ms ease forwards;
-  animation-delay: 250ms;
+  animation: content-fade-in var(--animation-normal) ease forwards;
+  animation-delay: calc(5 * var(--stagger-step));
 }

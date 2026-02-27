@@ -51,8 +51,8 @@
   color: var(--text-primary);
   margin: 0 0 0.5rem;
   opacity: 0;
-  animation: content-fade-in 300ms ease forwards;
-  animation-delay: 50ms;
+  animation: content-fade-in var(--animation-normal) ease forwards;
+  animation-delay: calc(1 * var(--stagger-step));
 }
 
 .modal-subtitle {
@@ -60,8 +60,8 @@
   margin: 0;
   font-size: 0.875rem;
   opacity: 0;
-  animation: content-fade-in 300ms ease forwards;
-  animation-delay: 100ms;
+  animation: content-fade-in var(--animation-normal) ease forwards;
+  animation-delay: calc(2 * var(--stagger-step));
 }
 
 .connect-form {
@@ -69,8 +69,8 @@
   flex-direction: column;
   gap: 1.25rem;
   opacity: 0;
-  animation: content-fade-in 300ms ease forwards;
-  animation-delay: 150ms;
+  animation: content-fade-in var(--animation-normal) ease forwards;
+  animation-delay: calc(3 * var(--stagger-step));
 }
 
 .form-group {
