@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useServerlist } from '../../hooks/useServerlist';
 import type { ServerEntry } from '../../hooks/useServerlist';
 import './ServerList.css';
@@ -44,6 +44,16 @@ export function ServerList({ onConnect }: ServerListProps) {
     setIsAdding(false);
     setForm({ label: '', host: '', port: '64738', username: '' });
   };
+
+  // Cancel add/edit form on Escape key
+  useEffect(() => {
+    if (!isAdding && !editing) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') handleCancel();
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [isAdding, editing]);
 
   if (loading) {
     return (
@@ -150,7 +160,7 @@ export function ServerList({ onConnect }: ServerListProps) {
                   Cancel
                 </button>
                 <button type="submit" className="btn btn-primary server-list-submit-btn">
-                  {editing ? 'Save' : 'Add Server'}
+                  Save
                 </button>
               </div>
             </form>
