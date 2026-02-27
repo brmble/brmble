@@ -69,6 +69,34 @@
   margin-bottom: 20px;
 }
 
+.user-info-dm-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 16px;
+  background: var(--accent-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  box-shadow: 0 0 12px var(--accent-primary-glow);
+}
+
+.user-info-dm-btn:hover {
+  background: var(--accent-primary-hover);
+  box-shadow: 0 0 20px var(--accent-primary-glow);
+  transform: translateY(-1px);
+}
+
+.user-info-dm-btn svg {
+  flex-shrink: 0;
+}
+
 .user-info-row {
   display: flex;
   justify-content: space-between;
