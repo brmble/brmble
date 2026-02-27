@@ -23,7 +23,6 @@ export function UserInfoDialog({
 }: UserInfoDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const [volume, setVolume] = useState(100);
-  const [saved, setSaved] = useState(false);
   const [localMuted, setLocalMuted] = useState(false);
 
   useEffect(() => {
@@ -85,13 +84,8 @@ export function UserInfoDialog({
 
   const handleVolumeChange = (newVolume: number) => {
     setVolume(newVolume);
-    setSaved(false);
-  };
-
-  const handleSave = () => {
-    localStorage.setItem(`volume_${session}`, String(volume));
-    bridge.send('voice.setVolume', { session, volume });
-    setSaved(true);
+    localStorage.setItem(`volume_${session}`, String(newVolume));
+    bridge.send('voice.setVolume', { session, volume: newVolume });
   };
 
   const toggleLocalMute = () => {
@@ -181,11 +175,6 @@ export function UserInfoDialog({
         </div>
 
         <div className="user-info-actions">
-          {volume !== 100 && (
-            <button className="btn btn-secondary" onClick={handleSave}>
-              {saved ? 'Saved!' : 'Save'}
-            </button>
-          )}
           <button className="btn btn-primary" onClick={onClose} autoFocus>
             Close
           </button>
