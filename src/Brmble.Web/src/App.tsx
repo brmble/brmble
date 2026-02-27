@@ -290,6 +290,10 @@ function App() {
       const wrapped = data as { matrix?: MatrixCredentials } | undefined;
       const d = wrapped?.matrix;
       if (d?.homeserverUrl && d.accessToken && d.userId && d.roomMap) {
+        // Clear stale chat data from previous sessions
+        Object.keys(localStorage)
+          .filter(k => k.startsWith('brmble_chat_') || k === 'brmble_dm_contacts')
+          .forEach(k => localStorage.removeItem(k));
         setMatrixCredentials(d);
       }
     };

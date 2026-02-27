@@ -13,6 +13,8 @@ public class ConnectionLoggingMiddleware
 
     private static readonly HashSet<string> SkippedPaths = ["/health"];
 
+    private static readonly string[] ProxiedPrefixes = ["/_matrix/", "/livekit/"];
+
     public async Task InvokeAsync(HttpContext context)
     {
         if (SkippedPaths.Contains(context.Request.Path))
@@ -23,6 +25,8 @@ public class ConnectionLoggingMiddleware
 
         var connection = context.Connection;
         var clientCert = connection.ClientCertificate;
+        var path = context.Request.Path.Value ?? "";
+        var isProxiedRoute = ProxiedPrefixes.Any(p => path.StartsWith(p, StringComparison.OrdinalIgnoreCase));
 
         if (clientCert is not null)
         {
@@ -36,7 +40,7 @@ public class ConnectionLoggingMiddleware
                 clientCert.Thumbprint,
                 clientCert.NotAfter);
         }
-        else
+        else if (!isProxiedRoute)
         {
             _logger.LogWarning(
                 "Request {Method} {Path} from {RemoteIp}:{RemotePort} — no client certificate presented",

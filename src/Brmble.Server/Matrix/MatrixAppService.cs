@@ -74,8 +74,19 @@ public class MatrixAppService : IMatrixAppService
         var body = JsonSerializer.Serialize(new { username = localpart });
         var response = await SendRequest(HttpMethod.Post, url, body);
         var json = JsonSerializer.Deserialize<JsonElement>(response);
-        return json.GetProperty("access_token").GetString()
+        var accessToken = json.GetProperty("access_token").GetString()
             ?? throw new InvalidOperationException("Matrix did not return an access_token");
+
+        // Set display name on the Matrix profile
+        if (!string.IsNullOrEmpty(displayName))
+        {
+            var userId = $"@{localpart}:{_serverDomain}";
+            var nameUrl = $"{_homeserverUrl}/_matrix/client/v3/profile/{Uri.EscapeDataString(userId)}/displayname";
+            var nameBody = JsonSerializer.Serialize(new { displayname = displayName });
+            await SendRequest(HttpMethod.Put, nameUrl, nameBody, actAs: userId);
+        }
+
+        return accessToken;
     }
 
     public async Task<string> LoginUser(string localpart)
@@ -113,8 +124,8 @@ public class MatrixAppService : IMatrixAppService
             try
             {
                 // Join as the user (appservice can act on behalf of managed users)
-                var joinUrl = $"{_homeserverUrl}/_matrix/client/v3/join/{Uri.EscapeDataString(roomId)}?user_id={Uri.EscapeDataString(userId)}";
-                await SendRequest(HttpMethod.Post, joinUrl, "{}");
+                var joinUrl = $"{_homeserverUrl}/_matrix/client/v3/join/{Uri.EscapeDataString(roomId)}";
+                await SendRequest(HttpMethod.Post, joinUrl, "{}", actAs: userId);
             }
             catch (Exception ex)
             {
@@ -123,10 +134,11 @@ public class MatrixAppService : IMatrixAppService
         }
     }
 
-    private async Task<string> SendRequest(HttpMethod method, string url, string jsonBody)
+    private async Task<string> SendRequest(HttpMethod method, string url, string jsonBody, string? actAs = null)
     {
         var client = _httpClientFactory.CreateClient();
-        var urlWithUser = $"{url}{(url.Contains('?') ? '&' : '?')}user_id={Uri.EscapeDataString(_botUserId)}";
+        var effectiveUser = actAs ?? _botUserId;
+        var urlWithUser = $"{url}{(url.Contains('?') ? '&' : '?')}user_id={Uri.EscapeDataString(effectiveUser)}";
         var request = new HttpRequestMessage(method, urlWithUser)
         {
             Content = new StringContent(jsonBody, Encoding.UTF8, "application/json")
