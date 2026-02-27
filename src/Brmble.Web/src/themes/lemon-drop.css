@@ -1,0 +1,129 @@
+/* ═══════════════════════════════════════════════════
+   Brmble Lemon Drop Martini Theme — Premium Gold
+
+   Cocktail:   Lemon Drop Martini (vodka, triple sec, lemon juice)
+   Vibe:       Bright optimism, premium gold — the brightest,
+               most cheerful theme. Golden accent against warm
+               darks. A sugar-rimmed glass catching candlelight.
+
+   THE 3 DECISIONS:
+     1. BASE HUE:       50° (deep warm gold-amber)
+     2. PRIMARY ACCENT:  #f5c518 (bright lemon gold)
+     3. TEXT WARMTH:     Warm — golden cream
+   ═══════════════════════════════════════════════════ */
+
+:root[data-theme="lemon-drop"] {
+
+  /* ── Backgrounds (12 tokens) ─────────────────────
+     Tinted with hue 50° at warm saturation.
+     bg-deep:    hsl(50, 25%, 5%)
+     bg-primary: hsl(50, 22%, 9%)
+     mid-tone:   hsl(50, 18%, 22%) ≈ rgb(66, 62, 46)
+     ──────────────────────────────────────────────── */
+  --bg-deep:           #131108;
+  --bg-primary:        #1f1c10;
+  --bg-glass:          rgba(31, 28, 16, 0.88);
+  --bg-hover:          rgba(66, 62, 46, 0.30);
+  --bg-hover-strong:   rgba(85, 80, 55, 0.40);
+  --bg-surface:        rgba(66, 62, 46, 0.16);
+  --bg-overlay:        rgba(19, 17, 8, 0.86);
+  --bg-elevated:       rgba(31, 28, 16, 0.62);
+  --bg-input:          var(--bg-elevated);
+  --bg-deep-glass:     rgba(19, 17, 8, 0.42);
+  --bg-hover-light:    rgba(255, 255, 255, 0.07);
+  --bg-surface-active: rgba(66, 62, 46, 0.55);
+
+  /* ── Primary Accent — Bright Lemon Gold (7 tokens)
+     Base: #f5c518 → hsl(48, 91%, 53%)
+     Gold on dark backgrounds needs careful luminance handling.
+     Hover/light variants pushed brighter to stay vivid.
+     ──────────────────────────────────────────────── */
+  --accent-primary:       #f5c518;
+  --accent-primary-dark:  #d4a80e;
+  --accent-primary-hover: #f7d240;
+  --accent-primary-light: #f9de6a;
+  --accent-primary-glow:  rgba(245, 197, 24, 0.40);
+  --accent-primary-wash:  rgba(245, 197, 24, 0.20);
+  --accent-primary-ghost: rgba(245, 197, 24, 0.10);
+
+  /* ── Secondary Accent — Warm White (3 tokens)
+     hsl(45, 20%, 80%) ≈ #d4cebf
+     ──────────────────────────────────────────────── */
+  --accent-secondary:        #d4cebf;
+  --accent-secondary-glow:   rgba(212, 206, 191, 0.30);
+  --accent-secondary-subtle: rgba(212, 206, 191, 0.15);
+
+  /* ── Success Accent — Spring Green (3 tokens)
+     hsl(140, 55%, 55%) ≈ #50c878
+     Distinct from the gold primary — a fresh green.
+     ──────────────────────────────────────────────── */
+  --accent-success:        #50c878;
+  --accent-success-glow:   rgba(80, 200, 120, 0.30);
+  --accent-success-subtle: rgba(80, 200, 120, 0.14);
+
+  /* ── Decorative Accent — Amber Dark (4 tokens)
+     hsl(35, 60%, 30%) ≈ #7a5a1f
+     Avatar gradient uses base hue 50°.
+     ──────────────────────────────────────────────── */
+  --accent-decorative:      #7a5a1f;
+  --accent-decorative-glow: rgba(122, 90, 31, 0.50);
+  --bg-avatar-start:        #8a6d20;
+  --bg-avatar-end:          #4d3c10;
+
+  /* ── Danger Accent (6 tokens)
+     hsl(5, 80%, 62%) — warm red, clearly distinct
+     from the gold primary accent
+     ──────────────────────────────────────────────── */
+  --accent-danger:        #e04c4c;
+  --accent-danger-strong: #d43838;
+  --accent-danger-text:   #e86464;
+  --accent-danger-subtle: rgba(224, 76, 76, 0.12);
+  --accent-danger-border: rgba(224, 76, 76, 0.42);
+  --accent-danger-bg:     rgba(224, 76, 76, 0.24);
+
+  /* ── Status (1 token) ────────────────────────── */
+  --status-connected: #50c878;
+
+  /* ── Text — Warm golden cream (7 tokens)
+     Primary: #f8f0dc ≈ hsl(45, 68%, 92%) — golden cream
+     Secondary: hsl(50, 12%, 65%) ≈ #b0a888
+     Muted: hsl(50, 10%, 42%) ≈ #726c5e
+     ──────────────────────────────────────────────── */
+  --text-primary:         #f8f0dc;
+  --text-secondary:       #b0a888;
+  --text-secondary-dim:   rgba(176, 168, 136, 0.55);
+  --text-secondary-muted: rgba(176, 168, 136, 0.72);
+  --text-muted:           #726c5e;
+  --text-muted-dim:       rgba(114, 108, 94, 0.50);
+  --text-muted-strong:    rgba(114, 108, 94, 0.85);
+
+  /* ── Borders & Effects (2 tokens)
+     Tinted with hue 50°.
+     ──────────────────────────────────────────────── */
+  --border-subtle: #3d3620;
+  --border-glow:   rgba(245, 197, 24, 0.30);
+
+  /* ── Glass Effect (2 tokens) ─────────────────── */
+  --glass-blur:   blur(12px);
+  --glass-border: 1px solid rgba(66, 62, 46, 0.48);
+
+  /* ── Shadows (3 tokens) ──────────────────────── */
+  --shadow-dialog:
+    0 0 0 1px var(--accent-primary-ghost),
+    0 8px 32px rgba(19, 17, 8, 0.65),
+    0 0 60px rgba(245, 197, 24, 0.08);
+  --shadow-elevated: 0 8px 32px rgba(0, 0, 0, 0.45);
+  --shadow-drop-subtle: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35));
+
+  /* ── Typography (3 tokens) ───────────────────── */
+  --font-display: 'Sora', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-body:    'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono:    'JetBrains Mono', monospace;
+
+  /* ── Theme Features (2 tokens) ───────────────── */
+  --theme-noise-opacity: 0.025;
+  --theme-mesh-bg:
+    radial-gradient(circle at 10% 20%, rgba(245, 197, 24, 0.10) 0%, transparent 35%),
+    radial-gradient(circle at 90% 80%, rgba(122, 90, 31, 0.08) 0%, transparent 35%),
+    radial-gradient(circle at 50% 50%, rgba(212, 206, 191, 0.05) 0%, transparent 50%);
+}

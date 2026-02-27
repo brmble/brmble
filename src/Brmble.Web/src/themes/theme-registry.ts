@@ -42,6 +42,12 @@ export const themes: ThemeDefinition[] = [
     description: 'Neon emerald energy — cyberpunk Tokyo nights',
     fontUrl: 'https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Lexend:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap',
   },
+  {
+    id: 'lemon-drop',
+    name: 'Lemon Drop Martini',
+    description: 'Bright lemon gold — premium optimism',
+    fontUrl: 'https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap',
+  },
 ];
 
 export function getTheme(id: string): ThemeDefinition | undefined {

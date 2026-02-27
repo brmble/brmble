@@ -7,6 +7,7 @@ import './themes/blue-lagoon.css'
 import './themes/cosmopolitan.css'
 import './themes/aperol-spritz.css'
 import './themes/midori-sour.css'
+import './themes/lemon-drop.css'
 import { applyTheme } from './themes/theme-loader'
 import App from './App.tsx'
 
