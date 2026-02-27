@@ -7,7 +7,7 @@
   align-items: center;
   justify-content: center;
   z-index: 10000;
-  animation: fadeIn var(--animation-fast) ease;
+  animation: fadeIn var(--animation-fast) ease backwards;
 }
 
 .close-dialog-card {
