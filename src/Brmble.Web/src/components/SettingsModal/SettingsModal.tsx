@@ -290,11 +290,8 @@ export function SettingsModal(props: SettingsModalProps) {
         </div>
 
         <div className="settings-footer">
-          <button className="btn btn-secondary" onClick={onClose}>
-            Cancel
-          </button>
           <button className="btn btn-primary" onClick={onClose}>
-            Save Changes
+            Close
           </button>
         </div>
       </div>
