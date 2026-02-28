@@ -46,4 +46,14 @@ public class AuthTokenTests : IDisposable
         Assert.IsTrue(json.Contains("userId"));
         Assert.IsTrue(json.Contains("roomMap"));
     }
+
+    [TestMethod]
+    public async Task PostAuthToken_WithClientCert_IncludesUserMappings()
+    {
+        var response = await _client.PostAsync("/auth/token", null);
+        response.EnsureSuccessStatusCode();
+
+        var json = await response.Content.ReadAsStringAsync();
+        Assert.IsTrue(json.Contains("userMappings"), "Response should contain userMappings field");
+    }
 }
