@@ -178,9 +178,12 @@ export function SettingsModal(props: SettingsModalProps) {
   };
 
   const handleMessagesChange = (messages: MessagesSettings) => {
-    const newSettings = { ...settings, messages };
-    setSettings(newSettings);
-    bridge.send('settings.set', { settings: newSettings });
+    setSettings(prev => {
+      const newSettings = { ...prev, messages };
+      bridge.send('settings.set', { settings: newSettings });
+      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
+      return newSettings;
+    });
   };
 
   const handleAppearanceChange = (appearance: AppearanceSettings) => {

@@ -21,6 +21,63 @@ import './App.css';
 
 const SETTINGS_STORAGE_KEY = 'brmble-settings';
 
+const DEFAULT_TTS_VOICE = 'Zira';
+
+function getDefaultVoice(voices: SpeechSynthesisVoice[]) {
+  return voices.find(v => v.name.includes(DEFAULT_TTS_VOICE)) || voices[0] || null;
+}
+
+function speakText(text: string) {
+  const doSpeak = (voices: SpeechSynthesisVoice[]) => {
+    try {
+      if (!window.speechSynthesis) {
+        return;
+      }
+      const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
+      if (stored) {
+        const settings = JSON.parse(stored);
+        if (settings.messages?.ttsEnabled) {
+          window.speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.volume = (settings.messages.ttsVolume ?? 100) / 100;
+          utterance.rate = 1.0;
+          let voiceSelected = false;
+          if (voices.length > 0) {
+            const selectedVoiceName = settings.messages.ttsVoice;
+            if (selectedVoiceName) {
+              const selectedVoice = voices.find(v => v.name === selectedVoiceName);
+              if (selectedVoice) {
+                utterance.voice = selectedVoice;
+                voiceSelected = true;
+              }
+            }
+            if (!voiceSelected) {
+              const defaultVoice = getDefaultVoice(voices);
+              if (defaultVoice) {
+                utterance.voice = defaultVoice;
+              }
+            }
+          }
+          window.speechSynthesis.speak(utterance);
+        }
+      }
+    } catch (e) {
+      console.warn('TTS error:', e);
+    }
+  };
+
+  const voices = window.speechSynthesis?.getVoices() ?? [];
+  if (voices.length > 0) {
+    doSpeak(voices);
+  } else {
+    const onVoicesChanged = () => {
+      window.speechSynthesis?.removeEventListener('voiceschanged', onVoicesChanged);
+      doSpeak(window.speechSynthesis?.getVoices() ?? []);
+    };
+    window.speechSynthesis?.addEventListener('voiceschanged', onVoicesChanged);
+  }
+}
+
 interface SavedServer {
   host: string;
   port: number;
@@ -106,6 +163,7 @@ function App() {
   // Refs to avoid re-registering bridge handlers on every state change
   const usersRef = useRef(users);
   usersRef.current = users;
+  const previousChannelIdRef = useRef<Map<number, number | undefined>>(new Map());
   const channelsRef = useRef(channels);
   channelsRef.current = channels;
   const addMessageRef = useRef(addMessage);
@@ -372,6 +430,8 @@ function App() {
     const onVoiceUserJoined = ((data: unknown) => {
       const d = data as { session: number; name: string; channelId?: number; muted?: boolean; deafened?: boolean; self?: boolean; matrixUserId?: string } | undefined;
       if (d?.session && d.channelId !== undefined) {
+        const previousChannelId = previousChannelIdRef.current.get(d.session);
+        
         setUsers(prev => {
           const existing = prev.find(u => u.session === d.session);
           if (existing) {
@@ -380,6 +440,16 @@ function App() {
           }
           return [...prev, d];
         });
+
+        if (!d.self) {
+          const selfUser = usersRef.current.find(u => u.self);
+          const selfChannelId = selfUser?.channelId;
+          if (selfChannelId !== undefined && d.channelId === selfChannelId && previousChannelId !== selfChannelId) {
+            speakText(`${d.name} joined`);
+          }
+        }
+        
+        previousChannelIdRef.current.set(d.session, d.channelId);
       }
     });
 
@@ -423,8 +493,19 @@ function App() {
     });
 
     const onVoiceUserLeft = ((data: unknown) => {
-      const d = data as { session: number } | undefined;
+      const d = data as { session: number; name?: string; channelId?: number } | undefined;
       if (d?.session) {
+        const selfUser = usersRef.current.find(u => u.self);
+        const userName = d.name;
+        if (
+          userName &&
+          selfUser &&
+          d.session !== selfUser.session &&
+          selfUser.channelId !== undefined &&
+          d.channelId === selfUser.channelId
+        ) {
+          speakText(`${userName} left`);
+        }
         setUsers(prev => prev.filter(u => u.session !== d.session));
       }
     });
