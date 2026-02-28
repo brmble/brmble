@@ -14,6 +14,7 @@ public static class AuthEndpoints
             AuthService authService,
             IMatrixAppService matrixAppService,
             ChannelRepository channelRepository,
+            UserRepository userRepository,
             IOptions<MatrixSettings> matrixSettings,
             ILogger<AuthService> logger) =>
         {
@@ -69,6 +70,12 @@ public static class AuthEndpoints
             var roomMap = (await channelRepository.GetAllAsync())
                 .ToDictionary(m => m.MumbleChannelId.ToString(), m => m.MatrixRoomId);
 
+            var allUsers = await userRepository.GetAllAsync();
+            // Group by display name and pick the most recently created user to handle duplicates
+            var userMappings = allUsers
+                .GroupBy(u => u.DisplayName)
+                .ToDictionary(g => g.Key, g => g.OrderByDescending(u => u.Id).First().MatrixUserId);
+
             // Ensure user is in all rooms, then sync display name
             await matrixAppService.EnsureUserInRooms(result.Localpart, roomMap.Values);
             try
@@ -98,6 +105,7 @@ public static class AuthEndpoints
                     userId = result.MatrixUserId,
                     roomMap
                 },
+                userMappings,
                 livekit = (object?)null
             });
         });
