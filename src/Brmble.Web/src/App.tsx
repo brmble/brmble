@@ -568,6 +568,34 @@ function App() {
       setSpeakingUsers(new Map());
     };
 
+    const onUserMappingUpdated = (data: unknown) => {
+      const d = data as { sessionId: number; matrixUserId?: string; action: string } | undefined;
+      if (d?.sessionId !== undefined) {
+        setUsers(prev => prev.map(u =>
+          u.session === d.sessionId
+            ? { ...u, matrixUserId: d.action === 'added' ? d.matrixUserId : undefined }
+            : u
+        ));
+      }
+    };
+
+    const onSessionMappingSnapshot = (data: unknown) => {
+      const d = data as { mappings: Record<string, { MatrixUserId: string; MumbleName: string }> } | undefined;
+      if (d?.mappings && typeof d.mappings === 'object') {
+        setUsers(prev => {
+          const mappingMap = new Map<number, string>();
+          for (const [sid, entry] of Object.entries(d.mappings)) {
+            mappingMap.set(Number(sid), entry.MatrixUserId);
+          }
+          return prev.map(u =>
+            mappingMap.has(u.session)
+              ? { ...u, matrixUserId: mappingMap.get(u.session) }
+              : u
+          );
+        });
+      }
+    };
+
     bridge.on('voice.connected', onVoiceConnected);
     bridge.on('voice.disconnected', onVoiceDisconnected);
     bridge.on('voice.error', onVoiceError);
@@ -595,6 +623,8 @@ function App() {
     bridge.on('voice.reconnecting', onVoiceReconnecting);
     bridge.on('voice.reconnectFailed', onVoiceReconnectFailed);
     bridge.on('server.credentials', onServerCredentials);
+    bridge.on('voice.userMappingUpdated', onUserMappingUpdated);
+    bridge.on('voice.sessionMappingSnapshot', onSessionMappingSnapshot);
 
     return () => {
       bridge.off('voice.connected', onVoiceConnected);
@@ -624,6 +654,8 @@ function App() {
       bridge.off('voice.reconnecting', onVoiceReconnecting);
       bridge.off('voice.reconnectFailed', onVoiceReconnectFailed);
       bridge.off('server.credentials', onServerCredentials);
+      bridge.off('voice.userMappingUpdated', onUserMappingUpdated);
+      bridge.off('voice.sessionMappingSnapshot', onSessionMappingSnapshot);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
