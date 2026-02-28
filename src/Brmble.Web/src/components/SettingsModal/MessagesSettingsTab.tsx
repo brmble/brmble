@@ -57,6 +57,17 @@ export function MessagesSettingsTab({ settings, onChange }: MessagesSettingsTabP
     };
   }, []);
 
+  useEffect(() => {
+    if (localSettings.ttsEnabled && !localSettings.ttsVoice && voices.length > 0) {
+      const ziraVoice = voices.find(v => v.name.includes('Zira'));
+      if (ziraVoice) {
+        const newSettings = { ...localSettings, ttsVoice: ziraVoice.name };
+        setLocalSettings(newSettings);
+        onChange(newSettings);
+      }
+    }
+  }, [voices, localSettings.ttsEnabled, localSettings.ttsVoice]);
+
   const handleChange = (key: keyof MessagesSettings, value: boolean | number | string) => {
     let newSettings = { ...localSettings, [key]: value };
     if (key === 'ttsEnabled' && value === true && !localSettings.ttsVoice) {

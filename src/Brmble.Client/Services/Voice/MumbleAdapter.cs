@@ -1278,7 +1278,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             previousUserChannel == previousChannel && currentChannelId != previousChannel)
         {
             var leftUserName = user?.Name ?? userState.Name;
-            _bridge?.Send("voice.userLeft", new { session = userState.Session, name = leftUserName, channelId = previousUserChannel });
+            _bridge?.Send("voice.userLeft", new { 
+                session = userState.Session, 
+                name = leftUserName, 
+                channelId = previousUserChannel,
+                previousChannelId = previousUserChannel,
+                currentChannelId = currentChannelId,
+                moved = true
+            });
             Debug.WriteLine($"[Mumble] User left our channel: {leftUserName} (session: {userState.Session})");
         }
 
@@ -1356,7 +1363,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         _audioManager?.RemoveUser(userRemove.Session);
         var channelId = user?.Channel?.Id;
-        _bridge?.Send("voice.userLeft", new { session = userRemove.Session, name = userName, channelId });
+        _bridge?.Send("voice.userLeft", new { session = userRemove.Session, name = userName, channelId, moved = false });
 
         // Emit system message
         if (isSelf)

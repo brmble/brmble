@@ -151,6 +151,7 @@ function App() {
   // Refs to avoid re-registering bridge handlers on every state change
   const usersRef = useRef(users);
   usersRef.current = users;
+  const previousChannelIdRef = useRef<Map<number, number | undefined>>(new Map());
   const channelsRef = useRef(channels);
   channelsRef.current = channels;
   const addMessageRef = useRef(addMessage);
@@ -417,6 +418,8 @@ function App() {
     const onVoiceUserJoined = ((data: unknown) => {
       const d = data as { session: number; name: string; channelId?: number; muted?: boolean; deafened?: boolean; self?: boolean; matrixUserId?: string } | undefined;
       if (d?.session && d.channelId !== undefined) {
+        const previousChannelId = previousChannelIdRef.current.get(d.session);
+        
         setUsers(prev => {
           const existing = prev.find(u => u.session === d.session);
           if (existing) {
@@ -429,10 +432,12 @@ function App() {
         if (!d.self) {
           const selfUser = usersRef.current.find(u => u.self);
           const selfChannelId = selfUser?.channelId;
-          if (selfChannelId !== undefined && d.channelId === selfChannelId) {
+          if (selfChannelId !== undefined && d.channelId === selfChannelId && previousChannelId !== selfChannelId) {
             speakText(`${d.name} joined`);
           }
         }
+        
+        previousChannelIdRef.current.set(d.session, d.channelId);
       }
     });
 
@@ -480,7 +485,13 @@ function App() {
       if (d?.session) {
         const selfUser = usersRef.current.find(u => u.self);
         const userName = d.name;
-        if (userName && selfUser?.channelId !== undefined && d.channelId === selfUser.channelId) {
+        if (
+          userName &&
+          selfUser &&
+          d.session !== selfUser.session &&
+          selfUser.channelId !== undefined &&
+          d.channelId === selfUser.channelId
+        ) {
           speakText(`${userName} left`);
         }
         setUsers(prev => prev.filter(u => u.session !== d.session));
