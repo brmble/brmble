@@ -1274,7 +1274,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             muted = user != null ? (user.Muted || user.SelfMuted || user.Deaf || user.SelfDeaf) : (userState.Mute || userState.SelfMute || userState.Deaf || userState.SelfDeaf),
             deafened = user != null ? (user.Deaf || user.SelfDeaf) : (userState.Deaf || userState.SelfDeaf),
             self = isSelf,
-            matrixUserId = joinedUserName is not null ? _userMappings.GetValueOrDefault(joinedUserName) : null
+            matrixUserId = _userMappings.GetValueOrDefault(joinedUserName)
         });
 
         // Emit system message for genuinely new users (not initial sync, not self)

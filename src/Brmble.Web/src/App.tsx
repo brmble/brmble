@@ -642,20 +642,20 @@ function App() {
   useEffect(() => {
     if (!matrixDmMessages || matrixDmMessages.size === 0) return;
 
+    let updated = false;
     for (const [matrixUserId, msgs] of matrixDmMessages.entries()) {
       if (msgs.length === 0) continue;
       const lastMsg = msgs[msgs.length - 1];
 
-      // Find the Mumble user matching this Matrix user ID
       const matchedUser = users.find(u => u.matrixUserId === matrixUserId);
       if (!matchedUser) continue;
 
       const sessionKey = String(matchedUser.session);
       const isViewing = appMode === 'dm' && selectedDMUserId === sessionKey;
-
       upsertDMContact(sessionKey, matchedUser.name, lastMsg.content, !isViewing);
+      updated = true;
     }
-    setDmContacts(mapStoredContacts(loadDMContacts()));
+    if (updated) setDmContacts(mapStoredContacts(loadDMContacts()));
   }, [matrixDmMessages, users, appMode, selectedDMUserId]);
 
   useEffect(() => {
@@ -751,7 +751,7 @@ const handleConnect = (serverData: SavedServer) => {
     const targetUser = users.find(u => String(u.session) === selectedDMUserId);
     const targetMatrixId = targetUser?.matrixUserId;
 
-    if (targetMatrixId && sendMatrixDM) {
+    if (targetMatrixId) {
       // Matrix path: send via Matrix DM room
       sendMatrixDM(targetMatrixId, content).catch(console.error);
     } else {
@@ -858,9 +858,8 @@ const handleConnect = (serverData: SavedServer) => {
   // Determine which DM messages to display: Matrix or localStorage
   const selectedUser = selectedDMUserId ? users.find(u => String(u.session) === selectedDMUserId) : undefined;
   const selectedMatrixId = selectedUser?.matrixUserId;
-  const activeDmMessages = selectedMatrixId && matrixDmMessages?.get(selectedMatrixId)?.length
-    ? matrixDmMessages.get(selectedMatrixId)!
-    : dmMessages;
+  const matrixMsgsForSelected = selectedMatrixId ? matrixDmMessages?.get(selectedMatrixId) : undefined;
+  const activeDmMessages = matrixMsgsForSelected?.length ? matrixMsgsForSelected : dmMessages;
 
   return (
     <div className="app">

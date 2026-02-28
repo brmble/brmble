@@ -1,7 +1,26 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { createClient, RoomEvent, ClientEvent, EventType, MsgType } from 'matrix-js-sdk';
+import { createClient, RoomEvent, ClientEvent, EventType, MsgType, Preset } from 'matrix-js-sdk';
 import type { MatrixClient, MatrixEvent, Room } from 'matrix-js-sdk';
 import type { ChatMessage } from '../types';
+
+/** Insert a message into a chronologically sorted array, deduplicating by id. Returns the same array if already present. */
+function insertMessage(existing: ChatMessage[], msg: ChatMessage): ChatMessage[] {
+  if (existing.some(m => m.id === msg.id)) return existing;
+  const last = existing[existing.length - 1];
+  if (!last || msg.timestamp.getTime() >= last.timestamp.getTime()) {
+    return [...existing, msg];
+  }
+  const ts = msg.timestamp.getTime();
+  let lo = 0, hi = existing.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (existing[mid].timestamp.getTime() <= ts) lo = mid + 1;
+    else hi = mid;
+  }
+  const updated = [...existing];
+  updated.splice(lo, 0, msg);
+  return updated;
+}
 
 export interface MatrixCredentials {
   homeserverUrl: string;
@@ -65,28 +84,10 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
         };
 
         setMessages(prev => {
-          const next = new Map(prev);
-          const existing = next.get(channelId) ?? [];
-          // Deduplicate by id (scrollback can re-emit events already in state)
-          if (existing.some(m => m.id === message.id)) return prev;
-          const last = existing[existing.length - 1];
-          // Fast path: live messages are newer than everything in state — just append
-          if (!last || message.timestamp.getTime() >= last.timestamp.getTime()) {
-            next.set(channelId, [...existing, message]);
-          } else {
-            // Historical message from scrollback — binary insert at correct position
-            const ts = message.timestamp.getTime();
-            let lo = 0, hi = existing.length;
-            while (lo < hi) {
-              const mid = (lo + hi) >>> 1;
-              if (existing[mid].timestamp.getTime() <= ts) lo = mid + 1;
-              else hi = mid;
-            }
-            const updated = [...existing];
-            updated.splice(lo, 0, message);
-            next.set(channelId, updated);
-          }
-          return next;
+          const existing = prev.get(channelId) ?? [];
+          const updated = insertMessage(existing, message);
+          if (updated === existing) return prev;
+          return new Map(prev).set(channelId, updated);
         });
         return;
       }
@@ -110,24 +111,9 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
 
       setDmMessages(prev => {
         const existing = prev.get(dmUserId) ?? [];
-        if (existing.some(m => m.id === dmMessage.id)) return prev;
-        const next = new Map(prev);
-        const last = existing[existing.length - 1];
-        if (!last || dmMessage.timestamp.getTime() >= last.timestamp.getTime()) {
-          next.set(dmUserId, [...existing, dmMessage]);
-        } else {
-          const ts = dmMessage.timestamp.getTime();
-          let lo = 0, hi = existing.length;
-          while (lo < hi) {
-            const mid = (lo + hi) >>> 1;
-            if (existing[mid].timestamp.getTime() <= ts) lo = mid + 1;
-            else hi = mid;
-          }
-          const updated = [...existing];
-          updated.splice(lo, 0, dmMessage);
-          next.set(dmUserId, updated);
-        }
-        return next;
+        const updated = insertMessage(existing, dmMessage);
+        if (updated === existing) return prev;
+        return new Map(prev).set(dmUserId, updated);
       });
     };
 
@@ -135,7 +121,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     client.startClient({ initialSyncLimit: 20 });
     clientRef.current = client;
 
-    client.once(ClientEvent.Sync, (state: string) => {
+    const onSync = (state: string) => {
       if (state === 'PREPARED') {
         const directEvent = client.getAccountData('m.direct');
         if (directEvent) {
@@ -153,10 +139,12 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
           roomIdToDMUserIdRef.current = newRoomIdToDMUserId;
         }
       }
-    });
+    };
+    client.once(ClientEvent.Sync, onSync);
 
     return () => {
       client.off(RoomEvent.Timeline, onTimeline);
+      client.off(ClientEvent.Sync, onSync);
       client.stopClient();
       clientRef.current = null;
     };
@@ -189,7 +177,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       const createResult = await client.createRoom({
         is_direct: true,
         invite: [targetMatrixUserId],
-        preset: 'trusted_private_chat' as any,
+        preset: Preset.TrustedPrivateChat,
       });
       roomId = createResult.room_id;
 
