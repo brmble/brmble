@@ -43,6 +43,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private readonly Stopwatch _notifyThrottle = Stopwatch.StartNew();
     private string? _apiUrl;
     private string? _activeServerId;
+    private Dictionary<string, string> _userMappings = new();
     private readonly IAppConfigService? _appConfigService;
 
     public string ServiceName => "mumble";
@@ -866,6 +867,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             if (credentials is null)
                 return;
 
+            // Parse user mappings (displayName -> matrixUserId) from the auth response
+            if (credentials.Value.TryGetProperty("userMappings", out var mappingsElement))
+            {
+                _userMappings = new Dictionary<string, string>();
+                foreach (var prop in mappingsElement.EnumerateObject())
+                {
+                    var matrixId = prop.Value.GetString();
+                    if (matrixId is not null)
+                        _userMappings[prop.Name] = matrixId;
+                }
+            }
+
             // The server returns its internal homeserverUrl (e.g. http://localhost:6167).
             // Clients reach Matrix via the YARP proxy on the same Brmble API URL,
             // so rewrite homeserverUrl to the API URL the client connected to.
@@ -1148,7 +1161,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             channelId = u.Channel?.Id ?? 0,
             muted = u.Muted || u.SelfMuted || u.Deaf || u.SelfDeaf,
             deafened = u.Deaf || u.SelfDeaf,
-            self = u == LocalUser
+            self = u == LocalUser,
+            matrixUserId = _userMappings.GetValueOrDefault(u.Name)
         }).ToList();
 
         _bridge?.Send("voice.connected", new
@@ -1251,14 +1265,16 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         var isSelf = LocalUser != null && userState.Session == LocalUser.Id;
 
+        var joinedUserName = user?.Name ?? userState.Name;
         _bridge?.Send("voice.userJoined", new
         {
             session = userState.Session,
-            name = user?.Name ?? userState.Name,
+            name = joinedUserName,
             channelId = user?.Channel?.Id ?? userState.ChannelId,
             muted = user != null ? (user.Muted || user.SelfMuted || user.Deaf || user.SelfDeaf) : (userState.Mute || userState.SelfMute || userState.Deaf || userState.SelfDeaf),
             deafened = user != null ? (user.Deaf || user.SelfDeaf) : (userState.Deaf || userState.SelfDeaf),
-            self = isSelf
+            self = isSelf,
+            matrixUserId = joinedUserName is not null ? _userMappings.GetValueOrDefault(joinedUserName) : null
         });
 
         // Emit system message for genuinely new users (not initial sync, not self)
