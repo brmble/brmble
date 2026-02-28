@@ -8,6 +8,7 @@ using Brmble.Server.LiveKit;
 using Brmble.Server.Matrix;
 using Brmble.Server.Mumble;
 using Brmble.Server.ServerInfo;
+using Brmble.Server.WebSockets;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -40,10 +41,12 @@ builder.Services.AddReverseProxy()
 
 var app = builder.Build();
 
+app.UseWebSockets();
 app.UseMiddleware<ConnectionLoggingMiddleware>();
 
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
 app.MapAuthEndpoints();
+app.Map("/ws", BrmbleWebSocketHandler.HandleAsync);
 app.MapServerInfoEndpoints();
 app.MapLiveKitEndpoints();
 app.MapReverseProxy();
