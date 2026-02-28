@@ -478,6 +478,11 @@ function App() {
     const onVoiceUserLeft = ((data: unknown) => {
       const d = data as { session: number } | undefined;
       if (d?.session) {
+        const leavingUser = usersRef.current.find(u => u.session === d.session);
+        const selfUser = usersRef.current.find(u => u.self);
+        if (leavingUser && !leavingUser.self && selfUser?.channelId !== undefined && leavingUser.channelId === selfUser.channelId) {
+          speakText(`${leavingUser.name} left`);
+        }
         setUsers(prev => prev.filter(u => u.session !== d.session));
       }
     });
