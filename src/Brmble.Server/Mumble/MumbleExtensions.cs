@@ -10,6 +10,7 @@ public static class MumbleExtensions
             .BindConfiguration("Ice");
         services.AddSingleton<ISessionMappingService, SessionMappingService>();
         services.AddSingleton<IBrmbleEventBus, BrmbleEventBus>();
+        services.AddSingleton<IMumbleEventHandler, SessionMappingHandler>();
         services.AddSingleton<MumbleServerCallback>();
         services.AddHostedService<MumbleIceService>();
         return services;
