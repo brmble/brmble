@@ -96,4 +96,24 @@ public class UserRepositoryTests
         var user = await _repo!.Insert("hash_null_token", "Bob");
         Assert.IsNull(user.MatrixAccessToken);
     }
+
+    [TestMethod]
+    public async Task GetAllAsync_ReturnsAllInsertedUsers()
+    {
+        await _repo!.Insert("hash1", "Alice");
+        await _repo!.Insert("hash2", "Bob");
+
+        var users = await _repo.GetAllAsync();
+
+        Assert.AreEqual(2, users.Count);
+        Assert.IsTrue(users.Any(u => u.DisplayName == "Alice"));
+        Assert.IsTrue(users.Any(u => u.DisplayName == "Bob"));
+    }
+
+    [TestMethod]
+    public async Task GetAllAsync_EmptyDatabase_ReturnsEmptyList()
+    {
+        var users = await _repo!.GetAllAsync();
+        Assert.AreEqual(0, users.Count);
+    }
 }
