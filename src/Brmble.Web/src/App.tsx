@@ -91,6 +91,7 @@ function App() {
 
   const [matrixCredentials, setMatrixCredentials] = useState<MatrixCredentials | null>(null);
   const matrixClient = useMatrixClient(matrixCredentials);
+  const { dmMessages: matrixDmMessages, sendDMMessage: sendMatrixDM, fetchDMHistory } = matrixClient;
 
   const channelKey = currentChannelId === 'server-root' ? 'server-root' : currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
   const { messages, addMessage } = useChatStore(channelKey);
@@ -637,6 +638,26 @@ function App() {
     }
   }, [currentChannelId, matrixCredentials]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Update DM contacts when Matrix DM messages arrive
+  useEffect(() => {
+    if (!matrixDmMessages || matrixDmMessages.size === 0) return;
+
+    for (const [matrixUserId, msgs] of matrixDmMessages.entries()) {
+      if (msgs.length === 0) continue;
+      const lastMsg = msgs[msgs.length - 1];
+
+      // Find the Mumble user matching this Matrix user ID
+      const matchedUser = users.find(u => u.matrixUserId === matrixUserId);
+      if (!matchedUser) continue;
+
+      const sessionKey = String(matchedUser.session);
+      const isViewing = appMode === 'dm' && selectedDMUserId === sessionKey;
+
+      upsertDMContact(sessionKey, matchedUser.name, lastMsg.content, !isViewing);
+    }
+    setDmContacts(mapStoredContacts(loadDMContacts()));
+  }, [matrixDmMessages, users, appMode, selectedDMUserId]);
+
   useEffect(() => {
     return () => {
       if (pendingChannelActionTimeoutRef.current) {
@@ -724,15 +745,26 @@ const handleConnect = (serverData: SavedServer) => {
   };
 
   const handleSendDMMessage = (content: string) => {
-    if (username && content && selectedDMUserId) {
+    if (!username || !content || !selectedDMUserId) return;
+
+    // Find the selected user to check for matrixUserId
+    const targetUser = users.find(u => String(u.session) === selectedDMUserId);
+    const targetMatrixId = targetUser?.matrixUserId;
+
+    if (targetMatrixId && sendMatrixDM) {
+      // Matrix path: send via Matrix DM room
+      sendMatrixDM(targetMatrixId, content).catch(console.error);
+    } else {
+      // Mumble fallback: send via bridge + localStorage
       addDMMessage(username, content);
       bridge.send('voice.sendPrivateMessage', {
         message: content,
         targetSession: Number(selectedDMUserId),
       });
-      const updated = upsertDMContact(selectedDMUserId, selectedDMUserName, content);
-      setDmContacts(mapStoredContacts(updated));
     }
+
+    const updated = upsertDMContact(selectedDMUserId, selectedDMUserName, content);
+    setDmContacts(mapStoredContacts(updated));
   };
 
   const handleDisconnect = () => {
@@ -800,6 +832,12 @@ const handleConnect = (serverData: SavedServer) => {
     markDMContactRead(userId);
     const updated = upsertDMContact(userId, userName);
     setDmContacts(mapStoredContacts(updated));
+
+    // Fetch Matrix DM history if available
+    const targetUser = users.find(u => String(u.session) === userId);
+    if (targetUser?.matrixUserId && fetchDMHistory) {
+      fetchDMHistory(targetUser.matrixUserId).catch(console.error);
+    }
   };
 
   const availableUsers = users
@@ -816,6 +854,13 @@ const handleConnect = (serverData: SavedServer) => {
   const matrixMessages = activeChannelId
     ? matrixClient.messages.get(activeChannelId)
     : undefined;
+
+  // Determine which DM messages to display: Matrix or localStorage
+  const selectedUser = selectedDMUserId ? users.find(u => String(u.session) === selectedDMUserId) : undefined;
+  const selectedMatrixId = selectedUser?.matrixUserId;
+  const activeDmMessages = selectedMatrixId && matrixDmMessages?.get(selectedMatrixId)?.length
+    ? matrixDmMessages.get(selectedMatrixId)!
+    : dmMessages;
 
   return (
     <div className="app">
@@ -873,7 +918,7 @@ const handleConnect = (serverData: SavedServer) => {
               <ChatPanel
                 channelId={selectedDMUserId ? `dm-${selectedDMUserId}` : undefined}
                 channelName={selectedDMUserName}
-                messages={dmMessages}
+                messages={activeDmMessages}
                 currentUsername={username}
                 onSendMessage={handleSendDMMessage}
                 isDM={true}
