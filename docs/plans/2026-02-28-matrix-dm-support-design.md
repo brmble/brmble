@@ -22,7 +22,7 @@ Add `matrixUserId` to user payloads:
 
 - Include in `voice.connected` -> `users[]` array
 - Include in `voice.userJoined` events
-- Lookup by cert hash from the auth database at sync time
+- Lookup by display name via `userMappings` from the `/auth/token` response
 - Users without a Matrix account get `matrixUserId: null`
 
 ## Frontend Changes
@@ -41,8 +41,8 @@ Add `matrixUserId` to user payloads:
 
 ### DM Contact List
 
-- Matrix users: contacts derived from `m.direct` rooms (no localStorage)
-- Mumble-only users: contacts stay in localStorage (existing path)
+- Matrix users: messages from `m.direct` rooms, contact metadata in localStorage
+- Mumble-only users: messages and contacts in localStorage (existing path)
 - Merge both lists in UI, sorted by most recent message
 
 ### Message History

@@ -57,6 +57,10 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       clientRef.current?.stopClient();
       clientRef.current = null;
       setMessages(new Map());
+      setDmRoomMap(new Map());
+      setDmMessages(new Map());
+      dmRoomMapRef.current = new Map();
+      roomIdToDMUserIdRef.current = new Map();
       return;
     }
 
@@ -121,30 +125,41 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     client.startClient({ initialSyncLimit: 20 });
     clientRef.current = client;
 
+    const refreshDMRoomMaps = (directContent: Record<string, string[]>) => {
+      const newDmRoomMap = new Map<string, string>();
+      const newRoomIdToDMUserId = new Map<string, string>();
+      for (const [userId, roomIds] of Object.entries(directContent)) {
+        if (roomIds && roomIds.length > 0) {
+          newDmRoomMap.set(userId, roomIds[0]);
+          newRoomIdToDMUserId.set(roomIds[0], userId);
+        }
+      }
+      setDmRoomMap(newDmRoomMap);
+      dmRoomMapRef.current = newDmRoomMap;
+      roomIdToDMUserIdRef.current = newRoomIdToDMUserId;
+    };
+
     const onSync = (state: string) => {
       if (state === 'PREPARED') {
-        const directEvent = client.getAccountData('m.direct');
+        const directEvent = client.getAccountData(EventType.Direct);
         if (directEvent) {
-          const directContent = directEvent.getContent() as Record<string, string[]>;
-          const newDmRoomMap = new Map<string, string>();
-          const newRoomIdToDMUserId = new Map<string, string>();
-          for (const [userId, roomIds] of Object.entries(directContent)) {
-            if (roomIds && roomIds.length > 0) {
-              newDmRoomMap.set(userId, roomIds[0]);
-              newRoomIdToDMUserId.set(roomIds[0], userId);
-            }
-          }
-          setDmRoomMap(newDmRoomMap);
-          dmRoomMapRef.current = newDmRoomMap;
-          roomIdToDMUserIdRef.current = newRoomIdToDMUserId;
+          refreshDMRoomMaps(directEvent.getContent() as Record<string, string[]>);
         }
       }
     };
+
+    const onAccountData = (event: MatrixEvent) => {
+      if (event.getType() !== EventType.Direct) return;
+      refreshDMRoomMaps(event.getContent() as Record<string, string[]>);
+    };
+
     client.once(ClientEvent.Sync, onSync);
+    client.on(ClientEvent.AccountData, onAccountData);
 
     return () => {
       client.off(RoomEvent.Timeline, onTimeline);
       client.off(ClientEvent.Sync, onSync);
+      client.off(ClientEvent.AccountData, onAccountData);
       client.stopClient();
       clientRef.current = null;
     };

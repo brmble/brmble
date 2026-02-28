@@ -71,7 +71,10 @@ public static class AuthEndpoints
                 .ToDictionary(m => m.MumbleChannelId.ToString(), m => m.MatrixRoomId);
 
             var allUsers = await userRepository.GetAllAsync();
-            var userMappings = allUsers.ToDictionary(u => u.DisplayName, u => u.MatrixUserId);
+            // Group by display name and pick the most recently created user to handle duplicates
+            var userMappings = allUsers
+                .GroupBy(u => u.DisplayName)
+                .ToDictionary(g => g.Key, g => g.OrderByDescending(u => u.Id).First().MatrixUserId);
 
             // Ensure user is in all rooms, then sync display name
             await matrixAppService.EnsureUserInRooms(result.Localpart, roomMap.Values);

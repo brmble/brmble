@@ -858,8 +858,9 @@ const handleConnect = (serverData: SavedServer) => {
   // Determine which DM messages to display: Matrix or localStorage
   const selectedUser = selectedDMUserId ? users.find(u => String(u.session) === selectedDMUserId) : undefined;
   const selectedMatrixId = selectedUser?.matrixUserId;
-  const matrixMsgsForSelected = selectedMatrixId ? matrixDmMessages?.get(selectedMatrixId) : undefined;
-  const activeDmMessages = matrixMsgsForSelected?.length ? matrixMsgsForSelected : dmMessages;
+  const activeDmMessages = selectedMatrixId
+    ? (matrixDmMessages?.get(selectedMatrixId) ?? [])
+    : dmMessages;
 
   return (
     <div className="app">
