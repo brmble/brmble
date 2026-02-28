@@ -28,41 +28,53 @@ function getDefaultVoice(voices: SpeechSynthesisVoice[]) {
 }
 
 function speakText(text: string) {
-  try {
-    if (!window.speechSynthesis) {
-      return;
-    }
-    const voices = window.speechSynthesis.getVoices();
-    const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
-    if (stored) {
-      const settings = JSON.parse(stored);
-      if (settings.messages?.ttsEnabled) {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.volume = (settings.messages.ttsVolume ?? 100) / 100;
-        utterance.rate = 1.0;
-        let voiceSelected = false;
-        if (voices.length > 0) {
-          const selectedVoiceName = settings.messages.ttsVoice;
-          if (selectedVoiceName) {
-            const selectedVoice = voices.find(v => v.name === selectedVoiceName);
-            if (selectedVoice) {
-              utterance.voice = selectedVoice;
-              voiceSelected = true;
-            }
-          }
-          if (!voiceSelected) {
-            const defaultVoice = getDefaultVoice(voices);
-            if (defaultVoice) {
-              utterance.voice = defaultVoice;
-            }
-          }
-        }
-        window.speechSynthesis.speak(utterance);
+  const doSpeak = (voices: SpeechSynthesisVoice[]) => {
+    try {
+      if (!window.speechSynthesis) {
+        return;
       }
+      const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
+      if (stored) {
+        const settings = JSON.parse(stored);
+        if (settings.messages?.ttsEnabled) {
+          window.speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.volume = (settings.messages.ttsVolume ?? 100) / 100;
+          utterance.rate = 1.0;
+          let voiceSelected = false;
+          if (voices.length > 0) {
+            const selectedVoiceName = settings.messages.ttsVoice;
+            if (selectedVoiceName) {
+              const selectedVoice = voices.find(v => v.name === selectedVoiceName);
+              if (selectedVoice) {
+                utterance.voice = selectedVoice;
+                voiceSelected = true;
+              }
+            }
+            if (!voiceSelected) {
+              const defaultVoice = getDefaultVoice(voices);
+              if (defaultVoice) {
+                utterance.voice = defaultVoice;
+              }
+            }
+          }
+          window.speechSynthesis.speak(utterance);
+        }
+      }
+    } catch (e) {
+      console.warn('TTS error:', e);
     }
-  } catch (e) {
-    console.warn('TTS error:', e);
+  };
+
+  const voices = window.speechSynthesis?.getVoices() ?? [];
+  if (voices.length > 0) {
+    doSpeak(voices);
+  } else {
+    const onVoicesChanged = () => {
+      window.speechSynthesis?.removeEventListener('voiceschanged', onVoicesChanged);
+      doSpeak(window.speechSynthesis?.getVoices() ?? []);
+    };
+    window.speechSynthesis?.addEventListener('voiceschanged', onVoicesChanged);
   }
 }
 
