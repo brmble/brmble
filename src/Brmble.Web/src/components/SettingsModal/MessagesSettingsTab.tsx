@@ -21,20 +21,40 @@ export const DEFAULT_MESSAGES: MessagesSettings = {
 };
 
 export function MessagesSettingsTab({ settings, onChange }: MessagesSettingsTabProps) {
-  const [localSettings, setLocalSettings] = useState<MessagesSettings>(settings);
+  const [localSettings, setLocalSettings] = useState<MessagesSettings>({ ...DEFAULT_MESSAGES, ...settings });
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
 
   useEffect(() => {
-    setLocalSettings(settings);
+    setLocalSettings({ ...DEFAULT_MESSAGES, ...settings });
   }, [settings]);
 
   useEffect(() => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+      return;
+    }
+
+    const synth = window.speechSynthesis;
     const loadVoices = () => {
-      const availableVoices = window.speechSynthesis.getVoices();
+      const availableVoices = synth.getVoices();
       setVoices(availableVoices);
     };
     loadVoices();
-    window.speechSynthesis.onvoiceschanged = loadVoices;
+
+    if (typeof synth.addEventListener === 'function') {
+      synth.addEventListener('voiceschanged', loadVoices);
+      return () => {
+        synth.removeEventListener('voiceschanged', loadVoices);
+      };
+    }
+
+    const previousHandler = synth.onvoiceschanged;
+    synth.onvoiceschanged = loadVoices;
+
+    return () => {
+      if (synth.onvoiceschanged === loadVoices) {
+        synth.onvoiceschanged = previousHandler || null;
+      }
+    };
   }, []);
 
   const handleChange = (key: keyof MessagesSettings, value: boolean | number | string) => {
