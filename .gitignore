@@ -498,3 +498,4 @@ $RECYCLE.BIN/
 .worktrees/
 src/Brmble.Server/generated/
 src/.github/
+.github/pr-version.json
