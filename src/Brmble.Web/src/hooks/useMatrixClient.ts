@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { createClient, RoomEvent, EventType, MsgType } from 'matrix-js-sdk';
+import { createClient, RoomEvent, ClientEvent, EventType, MsgType } from 'matrix-js-sdk';
 import type { MatrixClient, MatrixEvent, Room } from 'matrix-js-sdk';
 import type { ChatMessage } from '../types';
 
@@ -13,6 +13,17 @@ export interface MatrixCredentials {
 export function useMatrixClient(credentials: MatrixCredentials | null) {
   const clientRef = useRef<MatrixClient | null>(null);
   const [messages, setMessages] = useState<Map<string, ChatMessage[]>>(new Map());
+
+  // DM room tracking: matrixUserId -> roomId
+  const [dmRoomMap, setDmRoomMap] = useState<Map<string, string>>(new Map());
+  // DM messages: matrixUserId -> ChatMessage[]
+  const [dmMessages, setDmMessages] = useState<Map<string, ChatMessage[]>>(new Map());
+
+  const dmRoomMapRef = useRef<Map<string, string>>(new Map());
+  // Keep ref in sync
+  useEffect(() => { dmRoomMapRef.current = dmRoomMap; }, [dmRoomMap]);
+
+  const roomIdToDMUserIdRef = useRef<Map<string, string>>(new Map());
 
   // Reverse lookup: matrixRoomId → mumbleChannelId
   const roomIdToChannelId = useMemo(() => {
@@ -39,33 +50,73 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     const onTimeline = (event: MatrixEvent, room: Room | undefined) => {
       if (event.getType() !== EventType.RoomMessage) return;
       const channelId = roomIdToChannelId.get(room?.roomId ?? '');
-      if (!channelId) return;
+      if (channelId) {
+        const senderId = event.getSender() ?? 'Unknown';
+        const senderMember = room?.getMember(senderId);
+        const displayName = senderMember?.name || senderMember?.rawDisplayName || senderId;
 
-      const senderId = event.getSender() ?? 'Unknown';
-      const senderMember = room?.getMember(senderId);
-      const displayName = senderMember?.name || senderMember?.rawDisplayName || senderId;
+        const content = event.getContent() as { body?: string };
+        const message: ChatMessage = {
+          id: event.getId() ?? crypto.randomUUID(),
+          channelId,
+          sender: displayName,
+          content: content.body ?? '',
+          timestamp: new Date(event.getTs()),
+        };
 
-      const content = event.getContent() as { body?: string };
-      const message: ChatMessage = {
+        setMessages(prev => {
+          const next = new Map(prev);
+          const existing = next.get(channelId) ?? [];
+          // Deduplicate by id (scrollback can re-emit events already in state)
+          if (existing.some(m => m.id === message.id)) return prev;
+          const last = existing[existing.length - 1];
+          // Fast path: live messages are newer than everything in state — just append
+          if (!last || message.timestamp.getTime() >= last.timestamp.getTime()) {
+            next.set(channelId, [...existing, message]);
+          } else {
+            // Historical message from scrollback — binary insert at correct position
+            const ts = message.timestamp.getTime();
+            let lo = 0, hi = existing.length;
+            while (lo < hi) {
+              const mid = (lo + hi) >>> 1;
+              if (existing[mid].timestamp.getTime() <= ts) lo = mid + 1;
+              else hi = mid;
+            }
+            const updated = [...existing];
+            updated.splice(lo, 0, message);
+            next.set(channelId, updated);
+          }
+          return next;
+        });
+        return;
+      }
+
+      // DM message handling
+      const dmUserId = roomIdToDMUserIdRef.current.get(room?.roomId ?? '');
+      if (!dmUserId) return;
+
+      const dmSenderId = event.getSender() ?? 'Unknown';
+      const dmSenderMember = room?.getMember(dmSenderId);
+      const dmDisplayName = dmSenderMember?.name || dmSenderMember?.rawDisplayName || dmSenderId;
+
+      const dmContent = event.getContent() as { body?: string };
+      const dmMessage: ChatMessage = {
         id: event.getId() ?? crypto.randomUUID(),
-        channelId,
-        sender: displayName,
-        content: content.body ?? '',
+        channelId: dmUserId, // use matrixUserId as channelId key
+        sender: dmDisplayName,
+        content: dmContent.body ?? '',
         timestamp: new Date(event.getTs()),
       };
 
-      setMessages(prev => {
+      setDmMessages(prev => {
+        const existing = prev.get(dmUserId) ?? [];
+        if (existing.some(m => m.id === dmMessage.id)) return prev;
         const next = new Map(prev);
-        const existing = next.get(channelId) ?? [];
-        // Deduplicate by id (scrollback can re-emit events already in state)
-        if (existing.some(m => m.id === message.id)) return prev;
         const last = existing[existing.length - 1];
-        // Fast path: live messages are newer than everything in state — just append
-        if (!last || message.timestamp.getTime() >= last.timestamp.getTime()) {
-          next.set(channelId, [...existing, message]);
+        if (!last || dmMessage.timestamp.getTime() >= last.timestamp.getTime()) {
+          next.set(dmUserId, [...existing, dmMessage]);
         } else {
-          // Historical message from scrollback — binary insert at correct position
-          const ts = message.timestamp.getTime();
+          const ts = dmMessage.timestamp.getTime();
           let lo = 0, hi = existing.length;
           while (lo < hi) {
             const mid = (lo + hi) >>> 1;
@@ -73,8 +124,8 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
             else hi = mid;
           }
           const updated = [...existing];
-          updated.splice(lo, 0, message);
-          next.set(channelId, updated);
+          updated.splice(lo, 0, dmMessage);
+          next.set(dmUserId, updated);
         }
         return next;
       });
@@ -83,6 +134,26 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     client.on(RoomEvent.Timeline, onTimeline);
     client.startClient({ initialSyncLimit: 20 });
     clientRef.current = client;
+
+    client.once(ClientEvent.Sync, (state: string) => {
+      if (state === 'PREPARED') {
+        const directEvent = client.getAccountData('m.direct');
+        if (directEvent) {
+          const directContent = directEvent.getContent() as Record<string, string[]>;
+          const newDmRoomMap = new Map<string, string>();
+          const newRoomIdToDMUserId = new Map<string, string>();
+          for (const [userId, roomIds] of Object.entries(directContent)) {
+            if (roomIds && roomIds.length > 0) {
+              newDmRoomMap.set(userId, roomIds[0]);
+              newRoomIdToDMUserId.set(roomIds[0], userId);
+            }
+          }
+          setDmRoomMap(newDmRoomMap);
+          dmRoomMapRef.current = newDmRoomMap;
+          roomIdToDMUserIdRef.current = newRoomIdToDMUserId;
+        }
+      }
+    });
 
     return () => {
       client.off(RoomEvent.Timeline, onTimeline);
@@ -107,5 +178,48 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     await clientRef.current.scrollback(room, 50);
   }, [credentials]);
 
-  return { messages, sendMessage, fetchHistory };
+  const sendDMMessage = useCallback(async (targetMatrixUserId: string, text: string) => {
+    const client = clientRef.current;
+    if (!client || !credentials) return;
+
+    let roomId = dmRoomMapRef.current.get(targetMatrixUserId);
+
+    // Create DM room if it doesn't exist
+    if (!roomId) {
+      const createResult = await client.createRoom({
+        is_direct: true,
+        invite: [targetMatrixUserId],
+        preset: 'trusted_private_chat' as any,
+      });
+      roomId = createResult.room_id;
+
+      // Update m.direct account data
+      const directEvent = client.getAccountData('m.direct');
+      const directContent = (directEvent?.getContent() ?? {}) as Record<string, string[]>;
+      directContent[targetMatrixUserId] = [roomId, ...(directContent[targetMatrixUserId] ?? [])];
+      await client.setAccountData('m.direct', directContent);
+
+      // Update local state
+      setDmRoomMap(prev => new Map(prev).set(targetMatrixUserId, roomId!));
+      dmRoomMapRef.current = new Map(dmRoomMapRef.current).set(targetMatrixUserId, roomId);
+      roomIdToDMUserIdRef.current = new Map(roomIdToDMUserIdRef.current).set(roomId, targetMatrixUserId);
+    }
+
+    await client.sendMessage(roomId, { msgtype: MsgType.Text, body: text });
+  }, [credentials]);
+
+  const fetchDMHistory = useCallback(async (targetMatrixUserId: string) => {
+    const client = clientRef.current;
+    if (!client) return;
+
+    const roomId = dmRoomMapRef.current.get(targetMatrixUserId);
+    if (!roomId) return;
+
+    const room = client.getRoom(roomId);
+    if (!room) return;
+
+    await client.scrollback(room, 50);
+  }, []);
+
+  return { messages, sendMessage, fetchHistory, dmMessages, dmRoomMap, sendDMMessage, fetchDMHistory };
 }
