@@ -47,7 +47,7 @@ public static class BrmbleWebSocketHandler
                 .ToDictionary(
                     kvp => kvp.Key.ToString(),
                     kvp => new { matrixUserId = kvp.Value.MatrixUserId, mumbleName = kvp.Value.MumbleName });
-            var snapshotJson = JsonSerializer.Serialize(new { type = "snapshot", mappings = snapshot }, JsonOptions);
+            var snapshotJson = JsonSerializer.Serialize(new { type = "sessionMappingSnapshot", mappings = snapshot }, JsonOptions);
             var snapshotBytes = Encoding.UTF8.GetBytes(snapshotJson);
             await ws.SendAsync(snapshotBytes, WebSocketMessageType.Text, true, CancellationToken.None);
 

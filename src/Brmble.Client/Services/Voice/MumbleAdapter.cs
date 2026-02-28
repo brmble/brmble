@@ -221,6 +221,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         catch { /* best effort */ }
 
         _wsCts?.Cancel();
+        _wsCts?.Dispose();
         _wsCts = null;
         _sessionMappings.Clear();
 
@@ -924,9 +925,16 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     private void StartWebSocketConnection(string apiUrl)
     {
-        _wsCts?.Cancel();
+        var old = _wsCts;
+        old?.Cancel();
+        old?.Dispose();
         _wsCts = new CancellationTokenSource();
         var ct = _wsCts.Token;
+
+        var builder = new UriBuilder(apiUrl);
+        builder.Scheme = builder.Scheme == "https" ? "wss" : "ws";
+        builder.Path = builder.Path.TrimEnd('/') + "/ws";
+        var wsUri = builder.Uri;
 
         _ = Task.Run(async () =>
         {
@@ -938,10 +946,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 try
                 {
                     using var cert = _certService?.GetExportableCertificate();
-                    if (cert is null) return;
-
-                    var wsUri = new Uri(apiUrl.Replace("https://", "wss://").Replace("http://", "ws://"));
-                    wsUri = new Uri(wsUri, "ws");
+                    if (cert is null)
+                    {
+                        Debug.WriteLine("[WS] No client certificate available, retrying...");
+                        continue; // cert may become available on next attempt
+                    }
 
                     using var ws = new ClientWebSocket();
                     ws.Options.RemoteCertificateValidationCallback = (_, _, _, _) => true;
@@ -952,14 +961,21 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
                     Debug.WriteLine("[WS] Connected to Brmble WebSocket");
 
+                    // Accumulate frames until EndOfMessage for large messages
                     var buffer = new byte[4096];
+                    using var ms = new MemoryStream();
                     while (ws.State == WebSocketState.Open && !ct.IsCancellationRequested)
                     {
                         var result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), ct);
                         if (result.MessageType == WebSocketMessageType.Close)
                             break;
 
-                        var json = System.Text.Encoding.UTF8.GetString(buffer, 0, result.Count);
+                        ms.Write(buffer, 0, result.Count);
+                        if (!result.EndOfMessage)
+                            continue;
+
+                        var json = System.Text.Encoding.UTF8.GetString(ms.GetBuffer(), 0, (int)ms.Length);
+                        ms.SetLength(0);
                         HandleWebSocketMessage(json);
                     }
                 }
@@ -1009,9 +1025,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     break;
 
                 case "userMappingAdded":
-                    var addSid = root.TryGetProperty("sessionId", out var as1) ? as1.GetUInt32() : 0u;
-                    var addMatrixId = root.TryGetProperty("matrixUserId", out var am) ? am.GetString() : null;
-                    var addName = root.TryGetProperty("mumbleName", out var an) ? an.GetString() : null;
+                    var addSid = root.TryGetProperty("sessionId", out var sidProp) ? sidProp.GetUInt32() : 0u;
+                    var addMatrixId = root.TryGetProperty("matrixUserId", out var matrixProp) ? matrixProp.GetString() : null;
+                    var addName = root.TryGetProperty("mumbleName", out var nameProp) ? nameProp.GetString() : null;
                     if (addSid > 0 && addMatrixId is not null && addName is not null)
                     {
                         _sessionMappings[addSid] = new SessionMappingEntry(addMatrixId, addName);
@@ -1021,7 +1037,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     break;
 
                 case "userMappingRemoved":
-                    var rmSid = root.TryGetProperty("sessionId", out var rs) ? rs.GetUInt32() : 0u;
+                    var rmSid = root.TryGetProperty("sessionId", out var rmSidProp) ? rmSidProp.GetUInt32() : 0u;
                     if (rmSid > 0)
                     {
                         _sessionMappings.TryRemove(rmSid, out _);
