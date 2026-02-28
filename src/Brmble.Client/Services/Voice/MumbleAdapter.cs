@@ -1257,20 +1257,37 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         var previousChannel = LocalUser?.Channel?.Id;
         var isNewUser = !UserDictionary.ContainsKey(userState.Session);
 
+        // Track previous channel for all users to detect when they leave our channel
+        uint? previousUserChannel = null;
+        if (UserDictionary.TryGetValue(userState.Session, out var existingUser))
+        {
+            previousUserChannel = existingUser.Channel?.Id;
+        }
+
         base.UserState(userState);
 
         UserDictionary.TryGetValue(userState.Session, out var user);
 
-        Debug.WriteLine($"[Mumble] UserState: {user?.Name ?? userState.Name} (session: {userState.Session}), isNew: {isNewUser}");
+        Debug.WriteLine($"[Mumble] UserState: {user?.Name ?? userState.Name} (session: {userState.Session}), isNew: {isNewUser}, prevChannel: {previousUserChannel}");
 
         var isSelf = LocalUser != null && userState.Session == LocalUser.Id;
+        var currentChannelId = user?.Channel?.Id ?? userState.ChannelId;
+
+        // Check if a user left our channel (moved from our channel to a different one)
+        if (!isSelf && previousUserChannel.HasValue && previousChannel.HasValue && 
+            previousUserChannel == previousChannel && currentChannelId != previousChannel)
+        {
+            var leftUserName = user?.Name ?? userState.Name;
+            _bridge?.Send("voice.userLeft", new { session = userState.Session, name = leftUserName, channelId = previousUserChannel });
+            Debug.WriteLine($"[Mumble] User left our channel: {leftUserName} (session: {userState.Session})");
+        }
 
         var joinedUserName = user?.Name ?? userState.Name;
         _bridge?.Send("voice.userJoined", new
         {
             session = userState.Session,
             name = joinedUserName,
-            channelId = user?.Channel?.Id ?? userState.ChannelId,
+            channelId = currentChannelId,
             muted = user != null ? (user.Muted || user.SelfMuted || user.Deaf || user.SelfDeaf) : (userState.Mute || userState.SelfMute || userState.Deaf || userState.SelfDeaf),
             deafened = user != null ? (user.Deaf || user.SelfDeaf) : (userState.Deaf || userState.SelfDeaf),
             self = isSelf,
@@ -1284,7 +1301,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             SendSystemMessage($"{userName} connected to the server", "userJoined");
         }
 
-        var currentChannelId = user?.Channel?.Id ?? userState.ChannelId;
         if (previousChannel.HasValue && currentChannelId != previousChannel && isSelf)
         {
             _bridge?.Send("voice.channelChanged", new { channelId = currentChannelId });
