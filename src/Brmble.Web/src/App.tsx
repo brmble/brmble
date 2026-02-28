@@ -41,6 +41,7 @@ interface User {
   muted?: boolean;
   deafened?: boolean;
   self?: boolean;
+  matrixUserId?: string;
 }
 
 
@@ -368,7 +369,7 @@ function App() {
     });
 
     const onVoiceUserJoined = ((data: unknown) => {
-      const d = data as { session: number; name: string; channelId?: number; muted?: boolean; deafened?: boolean; self?: boolean } | undefined;
+      const d = data as { session: number; name: string; channelId?: number; muted?: boolean; deafened?: boolean; self?: boolean; matrixUserId?: string } | undefined;
       if (d?.session && d.channelId !== undefined) {
         setUsers(prev => {
           const existing = prev.find(u => u.session === d.session);
