@@ -21,6 +21,51 @@ import './App.css';
 
 const SETTINGS_STORAGE_KEY = 'brmble-settings';
 
+const DEFAULT_TTS_VOICE = 'Zira';
+
+function getDefaultVoice(voices: SpeechSynthesisVoice[]) {
+  return voices.find(v => v.name.includes(DEFAULT_TTS_VOICE)) || voices[0] || null;
+}
+
+function speakText(text: string) {
+  try {
+    if (!window.speechSynthesis) {
+      return;
+    }
+    const voices = window.speechSynthesis.getVoices();
+    const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (stored) {
+      const settings = JSON.parse(stored);
+      if (settings.messages?.ttsEnabled) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.volume = (settings.messages.ttsVolume ?? 100) / 100;
+        utterance.rate = 1.0;
+        let voiceSelected = false;
+        if (voices.length > 0) {
+          const selectedVoiceName = settings.messages.ttsVoice;
+          if (selectedVoiceName) {
+            const selectedVoice = voices.find(v => v.name === selectedVoiceName);
+            if (selectedVoice) {
+              utterance.voice = selectedVoice;
+              voiceSelected = true;
+            }
+          }
+          if (!voiceSelected) {
+            const defaultVoice = getDefaultVoice(voices);
+            if (defaultVoice) {
+              utterance.voice = defaultVoice;
+            }
+          }
+        }
+        window.speechSynthesis.speak(utterance);
+      }
+    }
+  } catch (e) {
+    console.warn('TTS error:', e);
+  }
+}
+
 interface SavedServer {
   host: string;
   port: number;
@@ -380,6 +425,14 @@ function App() {
           }
           return [...prev, d];
         });
+
+        if (!d.self) {
+          const selfUser = usersRef.current.find(u => u.self);
+          const selfChannelId = selfUser?.channelId;
+          if (selfChannelId !== undefined && d.channelId === selfChannelId) {
+            speakText(`${d.name} joined`);
+          }
+        }
       }
     });
 

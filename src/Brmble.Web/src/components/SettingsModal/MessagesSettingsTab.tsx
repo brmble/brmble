@@ -9,24 +9,42 @@ interface MessagesSettingsTabProps {
 export interface MessagesSettings {
   ttsEnabled: boolean;
   ttsVolume: number;
+  ttsVoice: string;
   notificationsEnabled: boolean;
 }
 
 export const DEFAULT_MESSAGES: MessagesSettings = {
   ttsEnabled: false,
   ttsVolume: 100,
+  ttsVoice: '',
   notificationsEnabled: true,
 };
 
 export function MessagesSettingsTab({ settings, onChange }: MessagesSettingsTabProps) {
   const [localSettings, setLocalSettings] = useState<MessagesSettings>(settings);
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
 
   useEffect(() => {
     setLocalSettings(settings);
   }, [settings]);
 
-  const handleChange = (key: keyof MessagesSettings, value: boolean | number) => {
-    const newSettings = { ...localSettings, [key]: value };
+  useEffect(() => {
+    const loadVoices = () => {
+      const availableVoices = window.speechSynthesis.getVoices();
+      setVoices(availableVoices);
+    };
+    loadVoices();
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+  }, []);
+
+  const handleChange = (key: keyof MessagesSettings, value: boolean | number | string) => {
+    let newSettings = { ...localSettings, [key]: value };
+    if (key === 'ttsEnabled' && value === true && !localSettings.ttsVoice) {
+      const ziraVoice = voices.find(v => v.name.includes('Zira'));
+      if (ziraVoice) {
+        newSettings = { ...newSettings, ttsVoice: ziraVoice.name };
+      }
+    }
     setLocalSettings(newSettings);
     onChange(newSettings);
   };
@@ -46,16 +64,34 @@ export function MessagesSettingsTab({ settings, onChange }: MessagesSettingsTabP
       </div>
 
       {localSettings.ttsEnabled && (
-        <div className="settings-item settings-slider">
-          <label>TTS Volume: {localSettings.ttsVolume}%</label>
-          <input
-            type="range"
-            min="0"
-            max="100"
-            value={localSettings.ttsVolume}
-            onChange={(e) => handleChange('ttsVolume', parseInt(e.target.value))}
-          />
-        </div>
+        <>
+          <div className="settings-item settings-slider">
+            <label>TTS Volume: {localSettings.ttsVolume}%</label>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={localSettings.ttsVolume}
+              onChange={(e) => handleChange('ttsVolume', parseInt(e.target.value))}
+            />
+          </div>
+
+          <div className="settings-item">
+            <label>TTS Voice</label>
+            <select
+              value={localSettings.ttsVoice}
+              onChange={(e) => handleChange('ttsVoice', e.target.value)}
+              className="settings-select"
+            >
+              <option value="">Default</option>
+              {voices.map((voice) => (
+                <option key={voice.name} value={voice.name}>
+                  {voice.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </>
       )}
 
       <div className="settings-item settings-toggle">

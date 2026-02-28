@@ -181,6 +181,7 @@ export function SettingsModal(props: SettingsModalProps) {
     const newSettings = { ...settings, messages };
     setSettings(newSettings);
     bridge.send('settings.set', { settings: newSettings });
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
   };
 
   const handleAppearanceChange = (appearance: AppearanceSettings) => {
