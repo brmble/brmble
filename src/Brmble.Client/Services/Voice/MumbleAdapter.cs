@@ -1339,7 +1339,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         Debug.WriteLine($"[Mumble] UserRemove: session {userRemove.Session}, name: {userName}, isSelf: {isSelf}");
 
         _audioManager?.RemoveUser(userRemove.Session);
-        _bridge?.Send("voice.userLeft", new { session = userRemove.Session, name = userName });
+        var channelId = user?.Channel?.Id;
+        _bridge?.Send("voice.userLeft", new { session = userRemove.Session, name = userName, channelId });
 
         // Emit system message
         if (isSelf)

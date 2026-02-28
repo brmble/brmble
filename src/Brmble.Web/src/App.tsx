@@ -476,12 +476,11 @@ function App() {
     });
 
     const onVoiceUserLeft = ((data: unknown) => {
-      const d = data as { session: number; name?: string } | undefined;
+      const d = data as { session: number; name?: string; channelId?: number } | undefined;
       if (d?.session) {
-        const leavingUser = usersRef.current.find(u => u.session === d.session);
         const selfUser = usersRef.current.find(u => u.self);
-        const userName = d.name || leavingUser?.name;
-        if (userName && !leavingUser?.self && selfUser?.channelId !== undefined && leavingUser?.channelId === selfUser.channelId) {
+        const userName = d.name;
+        if (userName && selfUser?.channelId !== undefined && d.channelId === selfUser.channelId) {
           speakText(`${userName} left`);
         }
         setUsers(prev => prev.filter(u => u.session !== d.session));
