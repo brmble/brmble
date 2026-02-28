@@ -197,10 +197,10 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       roomId = createResult.room_id;
 
       // Update m.direct account data
-      const directEvent = client.getAccountData('m.direct');
+      const directEvent = client.getAccountData(EventType.Direct);
       const directContent = (directEvent?.getContent() ?? {}) as Record<string, string[]>;
       directContent[targetMatrixUserId] = [roomId, ...(directContent[targetMatrixUserId] ?? [])];
-      await client.setAccountData('m.direct', directContent);
+      await client.setAccountData(EventType.Direct, directContent);
 
       // Update local state
       setDmRoomMap(prev => new Map(prev).set(targetMatrixUserId, roomId!));
