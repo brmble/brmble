@@ -1,0 +1,39 @@
+/* ═══════════════════════════════════════════════════
+   Heading System — 3-tier unified heading classes
+   
+   Tier 1: .heading-title   — Page/modal/dialog titles (28px)
+   Tier 2: .heading-section  — Section headers (14px)
+   Tier 3: .heading-label    — Sidebar/field labels (10px)
+   
+   All sizes and colors are theme-customizable via tokens.
+   ═══════════════════════════════════════════════════ */
+
+.heading-title {
+  font-family: var(--font-display);
+  font-size: var(--heading-title-size);
+  font-weight: 600;
+  color: var(--heading-title-color);
+  letter-spacing: 0.02em;
+  margin: 0;
+}
+
+.heading-section {
+  font-family: var(--font-display);
+  font-size: var(--heading-section-size);
+  font-weight: 600;
+  color: var(--heading-section-color);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0;
+}
+
+.heading-label {
+  font-family: var(--font-display);
+  font-size: var(--heading-label-size);
+  font-weight: 600;
+  color: var(--heading-label-color);
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-style: italic;
+  margin: 0;
+}
