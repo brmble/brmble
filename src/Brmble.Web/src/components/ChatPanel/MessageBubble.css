@@ -27,7 +27,7 @@
 
 .message-avatar .avatar-letter {
   font-family: var(--font-display);
-  font-size: 1rem;
+  font-size: var(--text-base);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -50,7 +50,7 @@
 
 .message-sender {
   font-weight: 600;
-  font-size: 0.9375rem;
+  font-size: var(--text-base);
   color: var(--text-primary);
 }
 
@@ -59,13 +59,13 @@
 }
 
 .message-time {
-  font-size: 0.6875rem;
+  font-size: var(--text-xs);
   color: var(--text-muted);
 }
 
 .message-text {
   margin: 0;
-  font-size: 0.9375rem;
+  font-size: var(--text-base);
   color: var(--text-secondary);
   line-height: 1.5;
   word-wrap: break-word;

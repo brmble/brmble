@@ -26,7 +26,7 @@
   border: none;
   resize: none;
   font-family: var(--font-body);
-  font-size: 0.9375rem;
+  font-size: var(--text-base);
   color: var(--text-primary);
   line-height: 1.5;
   max-height: 150px;
