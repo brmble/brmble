@@ -1,3 +1,7 @@
+import { useState } from 'react';
+import type { MediaAttachment } from '../../types';
+import { ImageAttachment } from './ImageAttachment';
+import { ImageLightbox } from './ImageLightbox';
 import './MessageBubble.css';
 
 interface MessageBubbleProps {
@@ -7,9 +11,12 @@ interface MessageBubbleProps {
   isOwnMessage?: boolean;
   isSystem?: boolean;
   html?: boolean;
+  media?: MediaAttachment[];
 }
 
-export function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html }: MessageBubbleProps) {
+export function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media }: MessageBubbleProps) {
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
@@ -32,12 +39,28 @@ export function MessageBubble({ sender, content, timestamp, isOwnMessage, isSyst
           <span className="message-sender">{sender}</span>
           <span className="message-time">{formatTime(timestamp)}</span>
         </div>
-        {html ? (
-          <div className="message-text" dangerouslySetInnerHTML={{ __html: content }} />
-        ) : (
-          <p className="message-text">{content}</p>
+        {content && (
+          html ? (
+            <div className="message-text" dangerouslySetInnerHTML={{ __html: content }} />
+          ) : (
+            <p className="message-text">{content}</p>
+          )
+        )}
+        {media && media.length > 0 && (
+          <div className="message-media">
+            {media.map((attachment, i) => (
+              <ImageAttachment
+                key={i}
+                attachment={attachment}
+                onOpenLightbox={setLightboxUrl}
+              />
+            ))}
+          </div>
         )}
       </div>
+      {lightboxUrl && (
+        <ImageLightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />
+      )}
     </div>
   );
 }
