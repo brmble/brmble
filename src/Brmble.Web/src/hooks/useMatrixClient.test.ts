@@ -8,17 +8,23 @@ const mockClient = {
   startClient: vi.fn(),
   stopClient: vi.fn(),
   on: vi.fn(),
+  once: vi.fn(),
   off: vi.fn(),
   getRoom: vi.fn(),
   scrollback: vi.fn().mockResolvedValue(undefined),
   sendMessage: vi.fn().mockResolvedValue({}),
+  createRoom: vi.fn(),
+  getAccountData: vi.fn(),
+  setAccountData: vi.fn(),
 };
 
 vi.mock('matrix-js-sdk', () => ({
   createClient: vi.fn(() => mockClient),
   RoomEvent: { Timeline: 'Room.timeline' },
-  EventType: { RoomMessage: 'm.room.message' },
+  ClientEvent: { Sync: 'Sync', AccountData: 'AccountData' },
+  EventType: { RoomMessage: 'm.room.message', Direct: 'm.direct' },
   MsgType: { Text: 'm.text' },
+  Preset: { TrustedPrivateChat: 'trusted_private_chat' },
 }));
 
 const creds: MatrixCredentials = {
@@ -143,5 +149,26 @@ describe('useMatrixClient', () => {
     expect(msgs).toBeDefined();
     const last = msgs![msgs!.length - 1];
     expect(last.sender).toBe('@99:example.com');
+  });
+
+  it('does not create duplicate rooms for concurrent DM sends', async () => {
+    mockClient.createRoom.mockResolvedValue({ room_id: '!dm:example.com' });
+    mockClient.getAccountData.mockReturnValue({ getContent: () => ({}) });
+    mockClient.setAccountData.mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useMatrixClient(creds));
+
+    // Send two DMs concurrently to the same user
+    await act(async () => {
+      await Promise.all([
+        result.current.sendDMMessage('@bob:example.com', 'hello'),
+        result.current.sendDMMessage('@bob:example.com', 'world'),
+      ]);
+    });
+
+    // Only one room should be created
+    expect(mockClient.createRoom).toHaveBeenCalledTimes(1);
+    // Both messages should be sent
+    expect(mockClient.sendMessage).toHaveBeenCalledTimes(2);
   });
 });

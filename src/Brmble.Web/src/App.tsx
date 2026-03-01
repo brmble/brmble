@@ -14,8 +14,8 @@ import { SettingsModal } from './components/SettingsModal/SettingsModal';
 import { CloseDialog } from './components/CloseDialog/CloseDialog';
 import { CertWizard } from './components/CertWizard/CertWizard';
 import { Version } from './components/Version/Version';
-import { useChatStore, addMessageToStore, clearChatStorage, loadDMContacts, upsertDMContact, markDMContactRead } from './hooks/useChatStore';
-import type { StoredDMContact } from './hooks/useChatStore';
+import { useChatStore, addMessageToStore } from './hooks/useChatStore';
+import { useDMStore } from './hooks/useDMStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
 import './App.css';
 
@@ -102,15 +102,6 @@ interface User {
 }
 
 
-const mapStoredContacts = (contacts: StoredDMContact[]) =>
-  contacts.map(c => ({
-    userId: c.userId,
-    userName: c.userName,
-    lastMessage: c.lastMessage,
-    lastMessageTime: c.lastMessageTime ? new Date(c.lastMessageTime) : undefined,
-    unread: c.unread,
-  }));
-
 function App() {
   // null = status not yet received, false = no cert, true = cert exists
   const [certExists, setCertExists] = useState<boolean | null>(null);
@@ -137,10 +128,6 @@ function App() {
   const pendingChannelActionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [showConnectModal, setShowConnectModal] = useState(false);
-  const [dmContacts, setDmContacts] = useState(() => mapStoredContacts(loadDMContacts()));
-  const [appMode, setAppMode] = useState<'channels' | 'dm'>('channels');
-  const [selectedDMUserId, setSelectedDMUserId] = useState<string | null>(null);
-  const [selectedDMUserName, setSelectedDMUserName] = useState<string>('');
   const [showSettings, setShowSettings] = useState(false);
   const [showCloseDialog, setShowCloseDialog] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -150,11 +137,16 @@ function App() {
   const matrixClient = useMatrixClient(matrixCredentials);
   const { dmMessages: matrixDmMessages, sendDMMessage: sendMatrixDM, fetchDMHistory } = matrixClient;
 
+  const dmStore = useDMStore({
+    bridge,
+    users,
+    username,
+    sendMatrixDM: sendMatrixDM ?? null,
+    fetchDMHistory: fetchDMHistory ?? null,
+  });
+
   const channelKey = currentChannelId === 'server-root' ? 'server-root' : currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
   const { messages, addMessage } = useChatStore(channelKey);
-
-  const dmKey = selectedDMUserId ? `dm-${selectedDMUserId}` : 'no-dm';
-  const { messages: dmMessages, addMessage: addDMMessage } = useChatStore(dmKey);
 
   const updateBadge = (unread: number, invite: boolean) => {
     bridge.send('notification.badge', { unreadDMs: unread > 0, pendingInvite: invite });
@@ -174,14 +166,8 @@ function App() {
   unreadCountRef.current = unreadCount;
   const hasPendingInviteRef = useRef(hasPendingInvite);
   hasPendingInviteRef.current = hasPendingInvite;
-  const selectedDMUserIdRef = useRef(selectedDMUserId);
-  selectedDMUserIdRef.current = selectedDMUserId;
-  const appModeRef = useRef(appMode);
-  appModeRef.current = appMode;
-  const setAppModeRef = useRef(setAppMode);
-  setAppModeRef.current = setAppMode;
-  const addDMMessageRef = useRef(addDMMessage);
-  addDMMessageRef.current = addDMMessage;
+  const dmStoreRef = useRef(dmStore);
+  dmStoreRef.current = dmStore;
   const matrixCredentialsRef = useRef(matrixCredentials);
   matrixCredentialsRef.current = matrixCredentials;
 
@@ -350,8 +336,6 @@ function App() {
       const wrapped = data as { matrix?: MatrixCredentials } | undefined;
       const d = wrapped?.matrix;
       if (d?.homeserverUrl && d.accessToken && d.userId && d.roomMap) {
-        // Clear stale chat data from previous sessions
-        clearChatStorage();
         setMatrixCredentials(d);
       }
     };
@@ -399,20 +383,9 @@ function App() {
         return;
       }
 
-      const senderSession = String(d.senderSession);
-      const dmStoreKey = `dm-${senderSession}`;
-
-      const isViewingThisDM = appModeRef.current === 'dm' &&
-        selectedDMUserIdRef.current === senderSession;
-
-      if (isViewingThisDM) {
-        addDMMessageRef.current(senderName, d.message);
-      } else {
-        addMessageToStore(dmStoreKey, senderName, d.message);
-      }
-
-      const updated = upsertDMContact(senderSession, senderName, d.message, !isViewingThisDM);
-      setDmContacts(mapStoredContacts(updated));
+      // Skip Mumble DMs from Brmble users — Matrix will deliver these
+      if (senderUser?.matrixUserId) return;
+      dmStoreRef.current.receiveDM(d.senderSession!, senderName, d.message);
     });
 
     const onVoiceSystem = ((data: unknown) => {
@@ -589,7 +562,7 @@ function App() {
     };
 
     const onToggleDmScreen = () => {
-      setAppModeRef.current(prev => prev === 'channels' ? 'dm' : 'channels');
+      dmStoreRef.current.setAppModeRef.current(prev => prev === 'channels' ? 'dm' : 'channels');
     };
 
     const onShowCloseDialog = () => {
@@ -754,22 +727,11 @@ function App() {
   // Update DM contacts when Matrix DM messages arrive
   useEffect(() => {
     if (!matrixDmMessages || matrixDmMessages.size === 0) return;
-
-    let updated = false;
     for (const [matrixUserId, msgs] of matrixDmMessages.entries()) {
       if (msgs.length === 0) continue;
-      const lastMsg = msgs[msgs.length - 1];
-
-      const matchedUser = users.find(u => u.matrixUserId === matrixUserId);
-      if (!matchedUser) continue;
-
-      const sessionKey = String(matchedUser.session);
-      const isViewing = appMode === 'dm' && selectedDMUserId === sessionKey;
-      upsertDMContact(sessionKey, matchedUser.name, lastMsg.content, !isViewing);
-      updated = true;
+      dmStore.receiveMatrixDMUpdate(matrixUserId, msgs);
     }
-    if (updated) setDmContacts(mapStoredContacts(loadDMContacts()));
-  }, [matrixDmMessages, users, appMode, selectedDMUserId]);
+  }, [matrixDmMessages, dmStore]);
 
   useEffect(() => {
     return () => {
@@ -857,29 +819,6 @@ const handleConnect = (serverData: SavedServer) => {
     updateBadge(0, hasPendingInvite);
   };
 
-  const handleSendDMMessage = (content: string) => {
-    if (!username || !content || !selectedDMUserId) return;
-
-    // Find the selected user to check for matrixUserId
-    const targetUser = users.find(u => String(u.session) === selectedDMUserId);
-    const targetMatrixId = targetUser?.matrixUserId;
-
-    if (targetMatrixId) {
-      // Matrix path: send via Matrix DM room
-      sendMatrixDM(targetMatrixId, content).catch(console.error);
-    } else {
-      // Mumble fallback: send via bridge + localStorage
-      addDMMessage(username, content);
-      bridge.send('voice.sendPrivateMessage', {
-        message: content,
-        targetSession: Number(selectedDMUserId),
-      });
-    }
-
-    const updated = upsertDMContact(selectedDMUserId, selectedDMUserName, content);
-    setDmContacts(mapStoredContacts(updated));
-  };
-
   const handleDisconnect = () => {
     bridge.send('voice.disconnect');
   };
@@ -931,35 +870,6 @@ const handleConnect = (serverData: SavedServer) => {
     bridge.send('window.quit');
   }, []);
 
-  const toggleDMMode = () => {
-    setAppMode(prev => prev === 'channels' ? 'dm' : 'channels');
-  };
-
-  const unreadDMUserCount = dmContacts.filter(c => c.unread > 0).length;
-
-  const handleSelectDMUser = (userId: string, userName: string) => {
-    setSelectedDMUserId(userId);
-    setSelectedDMUserName(userName);
-    setAppMode('dm');
-    // Mark this contact as read, then upsert to ensure contact exists
-    markDMContactRead(userId);
-    const updated = upsertDMContact(userId, userName);
-    setDmContacts(mapStoredContacts(updated));
-
-    // Fetch Matrix DM history if available
-    const targetUser = users.find(u => String(u.session) === userId);
-    if (targetUser?.matrixUserId && fetchDMHistory) {
-      fetchDMHistory(targetUser.matrixUserId).catch(console.error);
-    }
-  };
-
-  const availableUsers = users
-    .filter(u => !u.self)
-    .map(u => ({ id: String(u.session), name: u.name }));
-
-  // Suppress unused warnings — these are wired up in subsequent DM tasks
-  void availableUsers;
-
   const activeChannelId = currentChannelId && currentChannelId !== 'server-root'
     ? currentChannelId
     : undefined;
@@ -969,19 +879,21 @@ const handleConnect = (serverData: SavedServer) => {
     : undefined;
 
   // Determine which DM messages to display: Matrix or localStorage
-  const selectedUser = selectedDMUserId ? users.find(u => String(u.session) === selectedDMUserId) : undefined;
+  const selectedUser = dmStore.selectedDMUserId
+    ? users.find(u => String(u.session) === dmStore.selectedDMUserId)
+    : undefined;
   const selectedMatrixId = selectedUser?.matrixUserId;
   const activeDmMessages = selectedMatrixId
     ? (matrixDmMessages?.get(selectedMatrixId) ?? [])
-    : dmMessages;
+    : dmStore.activeDMMessages;
 
   return (
     <div className="app">
       <Header
         username={username}
-        onToggleDM={toggleDMMode}
-        dmActive={appMode === 'dm'}
-        unreadDMCount={unreadDMUserCount}
+        onToggleDM={dmStore.toggleDMMode}
+        dmActive={dmStore.appMode === 'dm'}
+        unreadDMCount={dmStore.unreadDMUserCount}
         onOpenSettings={() => setShowSettings(true)}
         muted={selfMuted}
         deafened={selfDeafened}
@@ -1009,7 +921,7 @@ const handleConnect = (serverData: SavedServer) => {
           username={username}
           onDisconnect={handleDisconnect}
           onReconnect={handleReconnect}
-          onStartDM={handleSelectDMUser}
+          onStartDM={dmStore.selectDM}
           speakingUsers={speakingUsers}
           connectionStatus={connectionStatus}
           onCancelReconnect={handleCancelReconnect}
@@ -1017,7 +929,7 @@ const handleConnect = (serverData: SavedServer) => {
         />
         
         <main className="main-content">
-          <div className={`content-slider ${appMode === 'dm' ? 'dm-active' : ''}`}>
+          <div className={`content-slider ${dmStore.appMode === 'dm' ? 'dm-active' : ''}`}>
             <div className="content-slide">
               <ChatPanel
                 channelId={currentChannelId || undefined}
@@ -1029,11 +941,11 @@ const handleConnect = (serverData: SavedServer) => {
             </div>
             <div className="content-slide">
               <ChatPanel
-                channelId={selectedDMUserId ? `dm-${selectedDMUserId}` : undefined}
-                channelName={selectedDMUserName}
+                channelId={dmStore.selectedDMUserId ? `dm-${dmStore.selectedDMUserId}` : undefined}
+                channelName={dmStore.selectedDMUserName}
                 messages={activeDmMessages}
                 currentUsername={username}
-                onSendMessage={handleSendDMMessage}
+                onSendMessage={dmStore.sendDM}
                 isDM={true}
               />
             </div>
@@ -1041,10 +953,10 @@ const handleConnect = (serverData: SavedServer) => {
         </main>
 
         <DMContactList
-          contacts={dmContacts}
-          selectedUserId={selectedDMUserId}
-          onSelectContact={handleSelectDMUser}
-          visible={appMode === 'dm'}
+          contacts={dmStore.dmContacts}
+          selectedUserId={dmStore.selectedDMUserId}
+          onSelectContact={dmStore.selectDM}
+          visible={dmStore.appMode === 'dm'}
         />
       </div>
 
