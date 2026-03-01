@@ -129,7 +129,7 @@
   /* ─── Heading Scale ─── */
   --heading-title-size:    1.75rem;
   --heading-title-color:   var(--text-primary);
-  --heading-section-size:  0.875rem;
+  --heading-section-size:  1.125rem;
   --heading-section-color: var(--accent-secondary);
   --heading-label-size:    0.625rem;
   --heading-label-color:   var(--text-muted);

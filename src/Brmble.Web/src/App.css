@@ -36,7 +36,7 @@
 
 .sidebar-placeholder p {
   color: var(--text-muted);
-  font-size: 0.875rem;
+  font-size: var(--text-sm);
 }
 
 .main-content {
@@ -95,7 +95,7 @@
   padding: 1rem 2rem;
   background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-primary-dark) 100%);
   border-radius: var(--radius-lg);
-  font-size: 1.125rem;
+  font-size: var(--text-lg);
   font-weight: 600;
   color: var(--text-primary);
   transition: all var(--transition-normal);

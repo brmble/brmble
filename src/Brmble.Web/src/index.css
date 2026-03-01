@@ -10,7 +10,8 @@
   --space-3xl: 4rem;    /* 64px */
 
   /* Font Size Scale */
-  --text-xs: 0.75rem;    /* 12px */
+  --text-2xs: 0.625rem;   /* 10px */
+  --text-xs: 0.75rem;     /* 12px */
   --text-sm: 0.875rem;   /* 14px */
   --text-base: 1rem;     /* 16px */
   --text-lg: 1.125rem;   /* 18px */
@@ -47,7 +48,7 @@
   /* Heading Scale */
   --heading-title-size:    1.75rem;   /* 28px */
   --heading-title-color:   var(--text-primary);
-  --heading-section-size:  0.875rem;  /* 14px */
+  --heading-section-size:  1.125rem;  /* 18px */
   --heading-section-color: var(--accent-secondary);
   --heading-label-size:    0.625rem;  /* 10px */
   --heading-label-color:   var(--text-muted);
@@ -110,7 +111,7 @@ body::before {
 
 ::-webkit-scrollbar-thumb {
   background: var(--border-subtle);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -237,7 +238,7 @@ a:hover {
 
 .btn-sm {
   padding: 0.25rem 0.75rem;
-  font-size: 0.6875rem;
+  font-size: var(--text-2xs);
   border-radius: var(--radius-sm);
   gap: var(--space-2xs);
 }
@@ -337,7 +338,7 @@ a:hover {
   bottom: 0;
   background-color: var(--border-subtle);
   transition: background var(--transition-fast);
-  border-radius: 24px;
+  border-radius: var(--radius-full);
 }
 
 .brmble-toggle-slider::before {
@@ -349,7 +350,7 @@ a:hover {
   top: 2px;
   background-color: var(--text-primary);
   transition: transform var(--transition-fast), width var(--transition-fast);
-  border-radius: 50%;
+  border-radius: var(--radius-full);
 }
 
 .brmble-toggle input:checked + .brmble-toggle-slider {

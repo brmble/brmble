@@ -25,7 +25,7 @@
   border: none;
   border-bottom: 2px solid transparent;
   color: var(--text-muted);
-  font-size: 0.8125rem;
+  font-size: var(--text-sm);
   font-weight: 500;
   cursor: pointer;
   position: relative;
@@ -79,12 +79,12 @@
 }
 
 .settings-item label {
-  font-size: 0.875rem;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
 }
 
 .settings-value {
-  font-size: 0.875rem;
+  font-size: var(--text-sm);
   color: var(--text-primary);
   font-weight: 500;
 }
