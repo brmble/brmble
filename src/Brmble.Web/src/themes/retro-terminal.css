@@ -129,10 +129,16 @@
   --font-body:    'IBM Plex Mono', 'JetBrains Mono', monospace;
   --font-mono:    'JetBrains Mono', 'IBM Plex Mono', monospace;
 
-  /* ── Theme Features (2 tokens)
-     Highest noise for scanline effect. No mesh —
-     CRTs don't produce ambient color gradients.
-     ──────────────────────────────────────────────── */
+  /* Theme Features — CRT scanline overlay */
   --theme-noise-opacity: 0.06;
+  --theme-noise-texture: repeating-linear-gradient(
+    0deg,
+    rgba(255, 255, 255, 0.03) 0px,
+    rgba(255, 255, 255, 0.03) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  --theme-noise-blend: overlay;
+  --theme-noise-scale: 100% 100%;
   --theme-mesh-bg: none;
 }

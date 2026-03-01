@@ -117,8 +117,11 @@
   --font-body:    'Nunito', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono:    'JetBrains Mono', monospace;
 
-  /* ── Theme Features (2 tokens) ───────────────── */
+  /* Theme Features — sun-dappled warm grain */
   --theme-noise-opacity: 0.045;
+  --theme-noise-texture: url("data:image/svg+xml,%3Csvg viewBox='0 0 300 300' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.5' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  --theme-noise-blend: overlay;
+  --theme-noise-scale: cover;
   --theme-mesh-bg:
     radial-gradient(circle at 15% 15%, rgba(232, 101, 26, 0.10) 0%, transparent 40%),
     radial-gradient(circle at 85% 85%, rgba(153, 77, 51, 0.08) 0%, transparent 40%);

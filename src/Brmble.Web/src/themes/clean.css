@@ -11,5 +11,8 @@
 
 :root[data-theme="clean"] {
   --theme-noise-opacity: 0;
+  --theme-noise-texture: none;
+  --theme-noise-blend: normal;
+  --theme-noise-scale: cover;
   --theme-mesh-bg: none;
 }
