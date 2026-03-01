@@ -4,9 +4,11 @@
 
 **Goal:** Give each Brmble theme a unique visual identity through per-theme texture overlays, glow intensities, border radii, and overlay blur — plus fix theme-integration bugs found during audit.
 
-**Architecture:** Expand the Theme Features section from 2 tokens to ~14 tokens. The `body::before` overlay becomes fully token-driven (texture, blend mode, scale). Glow spread sizes, overlay backdrop blur, and border-radius scale move into theme files so each theme can express its personality beyond color alone.
+**Architecture:** Expand the Theme Features section from 2 tokens to ~14 tokens. The `body::before` overlay becomes fully token-driven (texture, scale). Glow spread sizes, overlay backdrop blur, and border-radius scale move into theme files so each theme can express its personality beyond color alone.
 
-**Tech Stack:** CSS custom properties, SVG data URIs, CSS `mix-blend-mode`, `repeating-linear-gradient`
+**Tech Stack:** CSS custom properties, SVG data URIs, `repeating-linear-gradient`
+
+> **Post-implementation note:** `--theme-noise-blend` was planned but removed during implementation because `mix-blend-mode` breaks WebView2 rendering. All references below are kept for historical context but this token does not exist in the codebase. The `body::before` overlay uses default blend mode instead.
 
 ---
 
@@ -14,13 +16,13 @@
 
 | Category | New Tokens | Files Modified |
 |---|---|---|
-| Texture overlay | `--theme-noise-texture`, `--theme-noise-blend`, `--theme-noise-scale` | 8 theme CSS files + index.css |
+| Texture overlay | `--theme-noise-texture`, `--theme-noise-scale` | 8 theme CSS files + index.css |
 | Glow spread | `--glow-sm`, `--glow-md`, `--glow-lg` | 8 theme CSS files + index.css + 5 component CSS files |
 | Overlay blur | `--glass-blur-overlay` | 8 theme CSS files + 4 component CSS files |
 | Border radius | `--radius-xs` through `--radius-xl` + `--radius-full` | 8 theme CSS files + index.css (move from `:root` to themes) |
 | Bug fixes | (none — using existing tokens) | MessagesSettingsTab.css, CertWizard.tsx |
 
-Total new tokens per theme: 10 (`--theme-noise-texture`, `--theme-noise-blend`, `--theme-noise-scale`, `--glow-sm`, `--glow-md`, `--glow-lg`, `--glass-blur-overlay`, plus the 6 radius tokens move from global to per-theme).
+Total new tokens per theme: 9 (`--theme-noise-texture`, `--theme-noise-scale`, `--glow-sm`, `--glow-md`, `--glow-lg`, `--glass-blur-overlay`, plus the 6 radius tokens move from global to per-theme). *(Originally 10 — `--theme-noise-blend` was removed because `mix-blend-mode` breaks WebView2.)*
 
 ---
 
@@ -36,10 +38,9 @@ In `classic.css`, replace the Theme Features section with:
 
 ```css
   /* Theme Features */
-  --theme-noise-opacity: 0.03;
+  --theme-noise-opacity: 0.10;
   --theme-noise-texture: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
-  --theme-noise-blend: overlay;
-  --theme-noise-scale: cover;
+  --theme-noise-scale: 200px 200px;
   --theme-mesh-bg:
     radial-gradient(circle at 15% 15%, rgba(212, 20, 90, 0.08) 0%, transparent 40%),
     radial-gradient(circle at 85% 85%, rgba(123, 77, 255, 0.08) 0%, transparent 40%);
@@ -62,7 +63,6 @@ body::before {
   opacity: var(--theme-noise-opacity);
   background-image: var(--theme-noise-texture);
   background-size: var(--theme-noise-scale);
-  mix-blend-mode: var(--theme-noise-blend);
   transition: opacity var(--transition-normal);
 }
 ```
@@ -94,14 +94,13 @@ git commit -m "feat(themes): add texture tokens and make body::before token-driv
 
 **Step 1: Add texture tokens to each theme**
 
-Each theme gets unique `--theme-noise-texture`, `--theme-noise-blend`, and `--theme-noise-scale` values. Add these to the existing Theme Features section of each file.
+Each theme gets unique `--theme-noise-texture` and `--theme-noise-scale` values. Add these to the existing Theme Features section of each file.
 
 ### clean.css
 ```css
 :root[data-theme="clean"] {
   --theme-noise-opacity: 0;
   --theme-noise-texture: none;
-  --theme-noise-blend: normal;
   --theme-noise-scale: cover;
   --theme-mesh-bg: none;
 }
@@ -118,7 +117,6 @@ Each theme gets unique `--theme-noise-texture`, `--theme-noise-blend`, and `--th
     transparent 1px,
     transparent 3px
   );
-  --theme-noise-blend: overlay;
   --theme-noise-scale: 100% 100%;
   --theme-mesh-bg: none;
 ```
@@ -129,7 +127,6 @@ Rationale: Horizontal scanlines every 3px. White lines with low opacity so they 
   /* Theme Features — watery turbulence */
   --theme-noise-opacity: 0.02;
   --theme-noise-texture: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='turbulence' baseFrequency='0.4' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
-  --theme-noise-blend: soft-light;
   --theme-noise-scale: cover;
   --theme-mesh-bg:
     radial-gradient(circle at 15% 15%, rgba(0, 180, 216, 0.08) 0%, transparent 40%),
@@ -142,7 +139,6 @@ Rationale: `type='turbulence'` (not fractalNoise) gives flowing/organic shapes. 
   /* Theme Features — fine editorial grain */
   --theme-noise-opacity: 0.015;
   --theme-noise-texture: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.2' numOctaves='5' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
-  --theme-noise-blend: soft-light;
   --theme-noise-scale: cover;
   --theme-mesh-bg:
     radial-gradient(circle at 15% 15%, rgba(230, 57, 98, 0.05) 0%, transparent 40%),
@@ -155,7 +151,6 @@ Rationale: High baseFrequency (1.2) + 5 octaves = very fine, almost invisible gr
   /* Theme Features — sun-dappled warm grain */
   --theme-noise-opacity: 0.045;
   --theme-noise-texture: url("data:image/svg+xml,%3Csvg viewBox='0 0 300 300' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.5' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
-  --theme-noise-blend: overlay;
   --theme-noise-scale: cover;
   --theme-mesh-bg:
     radial-gradient(circle at 15% 15%, rgba(232, 101, 26, 0.10) 0%, transparent 40%),
@@ -168,7 +163,6 @@ Rationale: Low baseFrequency (0.5) = larger soft blobs. 3 octaves keeps it smoot
   /* Theme Features — sharp digital noise */
   --theme-noise-opacity: 0.03;
   --theme-noise-texture: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='turbulence' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
-  --theme-noise-blend: overlay;
   --theme-noise-scale: cover;
   --theme-mesh-bg:
     radial-gradient(circle at 10% 20%, rgba(0, 200, 83, 0.10) 0%, transparent 35%),
@@ -182,7 +176,6 @@ Rationale: `type='turbulence'` (not fractalNoise) gives sharper, more digital-fe
   /* Theme Features — dreamy soft-focus grain */
   --theme-noise-opacity: 0.025;
   --theme-noise-texture: url("data:image/svg+xml,%3Csvg viewBox='0 0 300 300' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.55' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
-  --theme-noise-blend: soft-light;
   --theme-noise-scale: cover;
   --theme-mesh-bg:
     radial-gradient(circle at 10% 20%, rgba(245, 197, 24, 0.10) 0%, transparent 35%),

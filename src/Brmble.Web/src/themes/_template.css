@@ -9,7 +9,7 @@
    THE 3 DECISIONS
    ───────────────
    Every Brmble theme derives from exactly 3 starting choices. Once these
-   are locked, all ~74 tokens can be mechanically produced.
+    are locked, all 73 tokens can be mechanically produced.
    
    ┌──────────────────┬──────────────────────────────────────────────────────┐
    │ 1. BASE HUE      │ An HSL degree (0-360) that tints backgrounds,      │
@@ -645,7 +645,7 @@
      CLASSIC WORKED EXAMPLE:
        --heading-title-size:    1.75rem;
        --heading-title-color:   var(--text-primary);
-       --heading-section-size:  0.875rem;
+        --heading-section-size:  0.875rem;
         --heading-section-color: var(--accent-secondary);
        --heading-label-size:    0.625rem;
        --heading-label-color:   var(--text-muted);
@@ -660,14 +660,14 @@
 
 
   /* ─────────────────────────────────────────────────────────────────────────
-     THEME FEATURES (5 tokens)
+     THEME FEATURES (4 tokens)
      ─────────────────────────────────────────────────────────────────────────
      These control atmospheric effects layered over the UI.
      
      --theme-noise-opacity:
        Controls the opacity of the texture overlay. Set to 0 to disable.
-       Classic uses 0.03 for a faint film-grain effect.
-       Range: 0 (none) → 0.06 (heavy grain)
+       Classic uses 0.10 for a moderate film-grain effect.
+       Range: 0 (none) → 0.15 (heavy grain)
      
      --theme-mesh-bg:
        A CSS background-image value (typically radial-gradient layers) that
@@ -709,13 +709,13 @@
          radial-gradient(circle at 85% 85%, rgba(accent-decorative-rgb, 0.05-0.12) 0%, transparent 40%);
      
      CLASSIC WORKED EXAMPLE:
-       --theme-noise-opacity: 0.03;
+        --theme-noise-opacity: 0.10;
         --theme-noise-texture: url("data:image/svg+xml,...feTurbulence
           type='fractalNoise' baseFrequency='0.85' numOctaves='4'...");
         --theme-noise-scale: 200px 200px;
-       --theme-mesh-bg:
-         radial-gradient(circle at 15% 15%, rgba(212, 20, 90, 0.08) 0%, transparent 40%),
-         radial-gradient(circle at 85% 85%, rgba(123, 77, 255, 0.08) 0%, transparent 40%);
+        --theme-mesh-bg:
+          radial-gradient(circle at 15% 15%, rgba(212, 20, 90, 0.08) 0%, transparent 40%),
+          radial-gradient(circle at 85% 85%, rgba(123, 77, 255, 0.08) 0%, transparent 40%);
      
       PER-THEME TEXTURE SUMMARY:
         Classic ......... SVG fractalNoise film grain (0.85, 4 octaves)

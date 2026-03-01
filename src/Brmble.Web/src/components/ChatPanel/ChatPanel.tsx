@@ -33,7 +33,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
               )}
             </svg>
           </div>
-          <h3 className="heading-title">{isDM ? 'Direct Messages' : 'Welcome to Brmble'}</h3>
+          <h2 className="heading-title">{isDM ? 'Direct Messages' : 'Welcome to Brmble'}</h2>
           <p>{isDM ? 'Right-click a user in the channel tree to start a conversation' : 'Select a channel to start chatting'}</p>
         </div>
       </div>

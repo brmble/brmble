@@ -111,7 +111,7 @@ DERIVATION CHAIN (start with your chosen accent hex):
 - **Text Warmth:** Warm cream (`#f5f0e8`)
 - **Fonts:** Cormorant Garamond (display), Outfit (body), JetBrains Mono (mono)
 - **Identity:** Vintage cocktail lounge. Deep purple backgrounds, warm tones, mesh gradients, glassmorphism.
-- **Texture:** Film grain — fractalNoise, baseFrequency 0.85, 4 octaves, opacity 0.08
+- **Texture:** Film grain — fractalNoise, baseFrequency 0.85, 4 octaves, opacity 0.10
 - **Glow:** Standard (8/12/20px)
 - **Geometry:** Standard radii (4/6/8/12/16/50%)
 - **Glass:** Moderate overlay blur (6px)
