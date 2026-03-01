@@ -14,6 +14,14 @@
 
 :root[data-theme="lemon-drop"] {
 
+  /* Border Radius Scale */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 50%;
+
   /* ── Backgrounds (12 tokens) ─────────────────────
      Tinted with hue 50° at warm saturation.
      bg-deep:    hsl(50, 25%, 5%)
@@ -106,6 +114,7 @@
   /* ── Glass Effect (2 tokens) ─────────────────── */
   --glass-blur:   blur(12px);
   --glass-border: 1px solid rgba(66, 62, 46, 0.48);
+  --glass-blur-overlay: blur(6px);
 
   /* ── Shadows (3 tokens) ──────────────────────── */
   --shadow-dialog:
@@ -120,10 +129,41 @@
   --font-body:    'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono:    'JetBrains Mono', monospace;
 
-  /* ── Theme Features (2 tokens) ───────────────── */
-  --theme-noise-opacity: 0.025;
+  /* ─── Heading Scale ─── */
+  --heading-title-size:    1.75rem;
+  --heading-title-color:   var(--text-primary);
+  --heading-section-size:  0.875rem;
+  --heading-section-color: var(--accent-secondary);
+  --heading-label-size:    0.625rem;
+  --heading-label-color:   var(--text-muted);
+
+  /* Theme Features — sparkle zest points */
+  --theme-noise-opacity: 0.08;
+  --theme-noise-texture:
+    radial-gradient(circle 2px at 10% 15%, rgba(255, 255, 255, 0.7) 0%, transparent 100%),
+    radial-gradient(circle 3px at 30% 8%, rgba(255, 255, 255, 0.5) 0%, transparent 100%),
+    radial-gradient(circle 1px at 55% 22%, rgba(255, 255, 255, 0.8) 0%, transparent 100%),
+    radial-gradient(circle 2px at 78% 12%, rgba(255, 255, 255, 0.6) 0%, transparent 100%),
+    radial-gradient(circle 1px at 92% 30%, rgba(255, 255, 255, 0.7) 0%, transparent 100%),
+    radial-gradient(circle 3px at 18% 45%, rgba(255, 255, 255, 0.45) 0%, transparent 100%),
+    radial-gradient(circle 1px at 42% 52%, rgba(255, 255, 255, 0.75) 0%, transparent 100%),
+    radial-gradient(circle 2px at 65% 40%, rgba(255, 255, 255, 0.55) 0%, transparent 100%),
+    radial-gradient(circle 1px at 85% 55%, rgba(255, 255, 255, 0.8) 0%, transparent 100%),
+    radial-gradient(circle 2px at 5% 68%, rgba(255, 255, 255, 0.6) 0%, transparent 100%),
+    radial-gradient(circle 3px at 35% 75%, rgba(255, 255, 255, 0.5) 0%, transparent 100%),
+    radial-gradient(circle 1px at 50% 82%, rgba(255, 255, 255, 0.7) 0%, transparent 100%),
+    radial-gradient(circle 2px at 72% 70%, rgba(255, 255, 255, 0.65) 0%, transparent 100%),
+    radial-gradient(circle 1px at 88% 85%, rgba(255, 255, 255, 0.75) 0%, transparent 100%),
+    radial-gradient(circle 2px at 22% 92%, rgba(255, 255, 255, 0.55) 0%, transparent 100%),
+    radial-gradient(circle 1px at 60% 95%, rgba(255, 255, 255, 0.8) 0%, transparent 100%);
+  --theme-noise-scale: 300px 300px;
   --theme-mesh-bg:
     radial-gradient(circle at 10% 20%, rgba(245, 197, 24, 0.10) 0%, transparent 35%),
     radial-gradient(circle at 90% 80%, rgba(122, 90, 31, 0.08) 0%, transparent 35%),
     radial-gradient(circle at 50% 50%, rgba(212, 206, 191, 0.05) 0%, transparent 50%);
+
+  /* Glow Scale */
+  --glow-sm: 8px;
+  --glow-md: 12px;
+  --glow-lg: 20px;
 }

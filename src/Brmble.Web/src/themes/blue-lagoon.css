@@ -13,6 +13,14 @@
 
 :root[data-theme="blue-lagoon"] {
 
+  /* Border Radius Scale */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 50%;
+
   /* ── Backgrounds (12 tokens) ─────────────────────
      Tinted with hue 200° at medium saturation.
      bg-deep:    hsl(200, 30%, 6%)
@@ -101,6 +109,7 @@
   /* ── Glass Effect (2 tokens) ─────────────────── */
   --glass-blur:   blur(12px);
   --glass-border: 1px solid rgba(50, 69, 83, 0.5);
+  --glass-blur-overlay: blur(6px);
 
   /* ── Shadows (3 tokens) ──────────────────────── */
   --shadow-dialog:
@@ -115,9 +124,27 @@
   --font-body:    'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono:    'JetBrains Mono', monospace;
 
-  /* ── Theme Features (2 tokens) ───────────────── */
-  --theme-noise-opacity: 0.02;
+  /* ─── Heading Scale ─── */
+  --heading-title-size:    1.75rem;
+  --heading-title-color:   var(--text-primary);
+  --heading-section-size:  0.875rem;
+  --heading-section-color: var(--accent-secondary);
+  --heading-label-size:    0.625rem;
+  --heading-label-color:   var(--text-muted);
+
+  /* Theme Features — overlapping water ripples */
+  --theme-noise-opacity: 0.08;
+  --theme-noise-texture:
+    radial-gradient(circle at 30% 30%, transparent 60px, rgba(255, 255, 255, 0.3) 62px, rgba(255, 255, 255, 0.15) 64px, transparent 66px, transparent 110px, rgba(255, 255, 255, 0.18) 112px, rgba(255, 255, 255, 0.08) 114px, transparent 116px),
+    radial-gradient(circle at 65% 40%, transparent 50px, rgba(255, 255, 255, 0.25) 52px, rgba(255, 255, 255, 0.12) 54px, transparent 56px, transparent 95px, rgba(255, 255, 255, 0.15) 97px, rgba(255, 255, 255, 0.07) 99px, transparent 101px),
+    radial-gradient(circle at 45% 70%, transparent 70px, rgba(255, 255, 255, 0.28) 72px, rgba(255, 255, 255, 0.14) 74px, transparent 76px, transparent 120px, rgba(255, 255, 255, 0.16) 122px, rgba(255, 255, 255, 0.07) 124px, transparent 126px);
+  --theme-noise-scale: 400px 400px;
   --theme-mesh-bg:
     radial-gradient(circle at 15% 15%, rgba(0, 180, 216, 0.08) 0%, transparent 40%),
     radial-gradient(circle at 85% 85%, rgba(46, 82, 179, 0.08) 0%, transparent 40%);
+
+  /* Glow Scale */
+  --glow-sm: 8px;
+  --glow-md: 12px;
+  --glow-lg: 20px;
 }

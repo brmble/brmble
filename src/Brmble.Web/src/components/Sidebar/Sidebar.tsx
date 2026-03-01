@@ -132,7 +132,7 @@ export function Sidebar({
       {connected && rootUsers.length > 0 && (
         <div className="root-users-panel">
           <div className="root-users-header">
-            <span className="root-users-label">Connected</span>
+            <h4 className="heading-label">Connected</h4>
             <span className="root-users-count">{rootUsers.length}</span>
           </div>
           <div className="root-users-list">
@@ -176,7 +176,7 @@ export function Sidebar({
       <div className="sidebar-channels">
         {connected && (
           <div className="channels-section-header">
-            <span className="channels-section-label">Channels</span>
+            <h4 className="heading-label">Channels</h4>
             <span className="channels-section-count">{nonRootChannels.length}</span>
           </div>
         )}

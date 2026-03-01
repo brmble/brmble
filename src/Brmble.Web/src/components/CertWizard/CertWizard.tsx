@@ -128,7 +128,7 @@ export function CertWizard({ onComplete }: CertWizardProps) {
         {step === 'welcome' && (
           <>
             <div className="cert-wizard-icon">🔐</div>
-            <h2 className="cert-wizard-title">Welcome to Brmble</h2>
+            <h2 className="heading-title cert-wizard-title">Welcome to Brmble</h2>
             <p className="cert-wizard-body">
               Before you can connect to a server, Brmble needs to create your identity
               certificate.<br /><br />
@@ -150,7 +150,7 @@ export function CertWizard({ onComplete }: CertWizardProps) {
         {step === 'choose' && (
           <>
             <div className="cert-wizard-icon">🪪</div>
-            <h2 className="cert-wizard-title">Set Up Your Identity</h2>
+            <h2 className="heading-title cert-wizard-title">Set Up Your Identity</h2>
             <div className="cert-wizard-choices">
               <button className="cert-wizard-choice" onClick={() => { setMode('generate'); setStep('warning'); }}>
                 <span className="cert-wizard-choice-icon">✨</span>
@@ -173,7 +173,7 @@ export function CertWizard({ onComplete }: CertWizardProps) {
         {step === 'warning' && (
           <>
             <div className="cert-wizard-icon">⚠️</div>
-            <h2 className="cert-wizard-title">Important: Back Up Your Certificate</h2>
+            <h2 className="heading-title cert-wizard-title">Important: Back Up Your Certificate</h2>
             <div className="cert-wizard-warning">
               <strong>Your certificate cannot be recovered.</strong>
               If you reinstall Windows, replace your computer, or lose this file without a
@@ -211,7 +211,7 @@ export function CertWizard({ onComplete }: CertWizardProps) {
         {step === 'action' && mode === 'generate' && (
           <>
             <div className="cert-wizard-icon">✨</div>
-            <h2 className="cert-wizard-title">Generate Your Certificate</h2>
+            <h2 className="heading-title cert-wizard-title">Generate Your Certificate</h2>
             <p className="cert-wizard-body">
               Brmble will generate a unique identity certificate for you.
             </p>
@@ -221,7 +221,7 @@ export function CertWizard({ onComplete }: CertWizardProps) {
                 Generating your certificate...
               </div>
             )}
-            {error && <p style={{ color: '#ff6b7a', fontSize: '0.85rem', marginBottom: '1rem' }}>{error}</p>}
+            {error && <p style={{ color: 'var(--accent-danger-text)', fontSize: '0.85rem', marginBottom: '1rem' }}>{error}</p>}
               <div className="cert-wizard-actions">
                 <button className="btn btn-ghost" onClick={() => setStep('warning')}>
                   Back
@@ -240,11 +240,11 @@ export function CertWizard({ onComplete }: CertWizardProps) {
         {step === 'action' && mode === 'import' && (
           <>
             <div className="cert-wizard-icon">📂</div>
-            <h2 className="cert-wizard-title">Import Your Certificate</h2>
+            <h2 className="heading-title cert-wizard-title">Import Your Certificate</h2>
             <p className="cert-wizard-body">
               Select your existing <code>.pfx</code> or <code>.p12</code> certificate file.
             </p>
-            {error && <p style={{ color: '#ff6b7a', fontSize: '0.85rem', marginBottom: '1rem' }}>{error}</p>}
+            {error && <p style={{ color: 'var(--accent-danger-text)', fontSize: '0.85rem', marginBottom: '1rem' }}>{error}</p>}
             <div className="cert-wizard-actions">
               <button className="cert-wizard-btn ghost" onClick={() => setStep('warning')}>
                 Back
@@ -259,7 +259,7 @@ export function CertWizard({ onComplete }: CertWizardProps) {
         {step === 'backup' && (
           <>
             <div className="cert-wizard-icon">✅</div>
-            <h2 className="cert-wizard-title">Certificate Ready</h2>
+            <h2 className="heading-title cert-wizard-title">Certificate Ready</h2>
             <p className="cert-wizard-body">
               Your certificate has been set up. Export it now and store it somewhere safe
               — an external drive, cloud storage, or password manager.

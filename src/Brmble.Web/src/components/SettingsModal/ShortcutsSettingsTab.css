@@ -9,7 +9,7 @@
   position: fixed;
   inset: 0;
   background: var(--bg-overlay);
-  backdrop-filter: blur(6px);
+  backdrop-filter: var(--glass-blur-overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -33,10 +33,6 @@
 }
 
 .shortcut-conflict-title {
-  font-family: var(--font-display);
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: var(--text-primary);
   margin: 0 0 12px;
   text-align: center;
 }

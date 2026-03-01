@@ -223,7 +223,7 @@ export function SettingsModal(props: SettingsModalProps) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="settings-modal glass-panel animate-slide-up" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2 className="modal-title">Settings</h2>
+          <h2 className="heading-title modal-title">Settings</h2>
           <p className="modal-subtitle">Configure your preferences</p>
         </div>
 

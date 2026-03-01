@@ -41,7 +41,7 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, visib
   return (
     <div className={`dm-contact-list ${visible ? 'visible' : ''}`}>
       <div className="dm-contact-list-header">
-        <h3 className="dm-contact-list-title">Messages</h3>
+        <h3 className="heading-section">Messages</h3>
       </div>
 
       <div className="dm-contact-search">

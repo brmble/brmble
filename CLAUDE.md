@@ -108,6 +108,14 @@ This project supports modular bridge architecture. The following guidelines help
 - Voice: MumbleSharp
 - Text: Matrix (via Continuwity)
 
+## UI Development Rules
+
+Before building or modifying any UI component, read `docs/UI_GUIDE.md`. It covers:
+- The token system (never hardcode visual values)
+- The 3-tier heading system (`.heading-title`, `.heading-section`, `.heading-label`)
+- Component patterns (modals, settings tabs, sidebar sections)
+- Theme compatibility rules
+
 ## Running Docker (local dev)
 
 Docker runs in WSL. Use `wsl` to execute docker commands:

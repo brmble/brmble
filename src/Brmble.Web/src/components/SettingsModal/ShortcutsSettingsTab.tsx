@@ -128,50 +128,56 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
 
   return (
     <div className="shortcuts-settings-tab">
-      <div className="settings-item">
-        <label>Toggle Leave Voice</label>
-        <button
-          className={`btn btn-secondary key-binding-btn ${recordingKey === 'toggleLeaveVoiceKey' ? 'recording' : ''}`}
-          onClick={() => setRecordingKey(recordingKey === 'toggleLeaveVoiceKey' ? null : 'toggleLeaveVoiceKey')}
-        >
-          {recordingKey === 'toggleLeaveVoiceKey' ? 'Press any key...' : (localSettings.toggleLeaveVoiceKey || 'Not bound')}
-        </button>
+      <div className="settings-section">
+        <h3 className="heading-section settings-section-title">Voice</h3>
+        <div className="settings-item">
+          <label>Toggle Leave Voice</label>
+          <button
+            className={`btn btn-secondary key-binding-btn ${recordingKey === 'toggleLeaveVoiceKey' ? 'recording' : ''}`}
+            onClick={() => setRecordingKey(recordingKey === 'toggleLeaveVoiceKey' ? null : 'toggleLeaveVoiceKey')}
+          >
+            {recordingKey === 'toggleLeaveVoiceKey' ? 'Press any key...' : (localSettings.toggleLeaveVoiceKey || 'Not bound')}
+          </button>
+        </div>
+
+        <div className="settings-item">
+          <label>Toggle Mute & Deafen</label>
+          <button
+            className={`btn btn-secondary key-binding-btn ${recordingKey === 'toggleMuteDeafenKey' ? 'recording' : ''}`}
+            onClick={() => setRecordingKey(recordingKey === 'toggleMuteDeafenKey' ? null : 'toggleMuteDeafenKey')}
+          >
+            {recordingKey === 'toggleMuteDeafenKey' ? 'Press any key...' : (localSettings.toggleMuteDeafenKey || 'Not bound')}
+          </button>
+        </div>
+
+        <div className="settings-item">
+          <label>Toggle Mute</label>
+          <button
+            className={`btn btn-secondary key-binding-btn ${recordingKey === 'toggleMuteKey' ? 'recording' : ''}`}
+            onClick={() => setRecordingKey(recordingKey === 'toggleMuteKey' ? null : 'toggleMuteKey')}
+          >
+            {recordingKey === 'toggleMuteKey' ? 'Press any key...' : (localSettings.toggleMuteKey || 'Not bound')}
+          </button>
+        </div>
       </div>
 
-      <div className="settings-item">
-        <label>Toggle Mute & Deafen</label>
-        <button
-          className={`btn btn-secondary key-binding-btn ${recordingKey === 'toggleMuteDeafenKey' ? 'recording' : ''}`}
-          onClick={() => setRecordingKey(recordingKey === 'toggleMuteDeafenKey' ? null : 'toggleMuteDeafenKey')}
-        >
-          {recordingKey === 'toggleMuteDeafenKey' ? 'Press any key...' : (localSettings.toggleMuteDeafenKey || 'Not bound')}
-        </button>
-      </div>
-
-      <div className="settings-item">
-        <label>Toggle Mute</label>
-        <button
-          className={`btn btn-secondary key-binding-btn ${recordingKey === 'toggleMuteKey' ? 'recording' : ''}`}
-          onClick={() => setRecordingKey(recordingKey === 'toggleMuteKey' ? null : 'toggleMuteKey')}
-        >
-          {recordingKey === 'toggleMuteKey' ? 'Press any key...' : (localSettings.toggleMuteKey || 'Not bound')}
-        </button>
-      </div>
-
-      <div className="settings-item">
-        <label>Toggle Direct Messages Screen</label>
-        <button
-          className={`btn btn-secondary key-binding-btn ${recordingKey === 'toggleDMScreenKey' ? 'recording' : ''}`}
-          onClick={() => setRecordingKey(recordingKey === 'toggleDMScreenKey' ? null : 'toggleDMScreenKey')}
-        >
-          {recordingKey === 'toggleDMScreenKey' ? 'Press any key...' : (localSettings.toggleDMScreenKey || 'Not bound')}
-        </button>
+      <div className="settings-section">
+        <h3 className="heading-section settings-section-title">Navigation</h3>
+        <div className="settings-item">
+          <label>Toggle Direct Messages Screen</label>
+          <button
+            className={`btn btn-secondary key-binding-btn ${recordingKey === 'toggleDMScreenKey' ? 'recording' : ''}`}
+            onClick={() => setRecordingKey(recordingKey === 'toggleDMScreenKey' ? null : 'toggleDMScreenKey')}
+          >
+            {recordingKey === 'toggleDMScreenKey' ? 'Press any key...' : (localSettings.toggleDMScreenKey || 'Not bound')}
+          </button>
+        </div>
       </div>
 
       {conflict && (
         <div className="shortcut-conflict-overlay">
           <div className="shortcut-conflict-card" role="dialog" aria-modal="true" aria-labelledby="conflict-title">
-            <h3 id="conflict-title" className="shortcut-conflict-title">Key already in use</h3>
+            <h2 id="conflict-title" className="heading-title shortcut-conflict-title">Key already in use</h2>
             <p className="shortcut-conflict-message">
               This key is already bound to <strong>{BINDING_LABELS[conflict.conflictBindingId] ?? conflict.conflictBindingId}</strong>.
               Rebind it to <strong>{BINDING_LABELS[conflict.targetKey] ?? conflict.targetKey}</strong>?

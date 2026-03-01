@@ -9,7 +9,7 @@
    THE 3 DECISIONS
    ───────────────
    Every Brmble theme derives from exactly 3 starting choices. Once these
-   are locked, all ~55 tokens can be mechanically produced.
+    are locked, all 73 tokens can be mechanically produced.
    
    ┌──────────────────┬──────────────────────────────────────────────────────┐
    │ 1. BASE HUE      │ An HSL degree (0-360) that tints backgrounds,      │
@@ -425,30 +425,44 @@
 
 
   /* ─────────────────────────────────────────────────────────────────────────
-     GLASS EFFECT (2 tokens)
+     GLASS EFFECT (3 tokens)
      ─────────────────────────────────────────────────────────────────────────
      Glass effects create frosted-panel aesthetics. The blur value and
      border work together — more blur needs a more visible border to
      maintain panel edges.
      
+     --glass-blur: The main panel backdrop blur.
+     --glass-border: Glass panel border with mid-tone tinting.
+     --glass-blur-overlay: Backdrop blur for modal overlays and dialogs.
+       Separate from --glass-blur because overlays may want a different
+       blur level than panels (e.g. retro-terminal uses 0px for both
+       to stay faithful to the flat CRT look).
+     
      FORMULA:
-       --glass-blur:   blur(8-20px)
-       --glass-border: 1px solid rgba(mid-tone-rgb, 0.3-0.6)
+       --glass-blur:         blur(8-20px)
+       --glass-border:       1px solid rgba(mid-tone-rgb, 0.3-0.6)
+       --glass-blur-overlay: blur(4-12px) — typically less than --glass-blur
      
      For dark themes, the glass border color is typically the mid-tone
      (same as used in --bg-hover) at moderate alpha.
      
      CLASSIC WORKED EXAMPLE:
-       --glass-blur:   blur(12px)
-       --glass-border: 1px solid rgba(61, 42, 92, 0.5)
+       --glass-blur:         blur(12px)
+       --glass-border:       1px solid rgba(61, 42, 92, 0.5)
+       --glass-blur-overlay: blur(6px)
+     
+     PER-THEME RANGE:
+       Classic: blur(6px) · Blue Lagoon: blur(6px) · Cosmo: blur(8px)
+       Retro Terminal: blur(0px) · Midori Sour: blur(4px)
      
      SOFT ↔ HARD:
-       Softer → less blur (8px), lower border alpha (0.3)
-       Harder → more blur (16-20px), higher border alpha (0.5-0.6)
+       Softer → less blur (8px), lower border alpha (0.3), overlay blur 4px
+       Harder → more blur (16-20px), higher border alpha (0.5-0.6), overlay blur 8-12px
      ───────────────────────────────────────────────────────────────────── */
 
-  --glass-blur:   /* blur(8-20px) */;
-  --glass-border: /* 1px solid rgba(mid-tone-rgb, 0.3-0.6) */;
+  --glass-blur:         /* blur(8-20px) */;
+  --glass-border:       /* 1px solid rgba(mid-tone-rgb, 0.3-0.6) */;
+  --glass-blur-overlay: /* blur(4-12px) — modal/dialog overlay blur */;
 
 
   /* ─────────────────────────────────────────────────────────────────────────
@@ -489,6 +503,95 @@
 
 
   /* ─────────────────────────────────────────────────────────────────────────
+     GLOW SCALE (3 tokens)
+     ─────────────────────────────────────────────────────────────────────────
+     A per-theme glow intensity scale used for box-shadow halos on speaking
+     indicators, active buttons, and interactive elements. These define
+     the *spread radius* of glow effects — the actual glow color comes from
+     the component context (accent-primary-glow, accent-success-glow, etc.).
+     
+     Different themes express different glow personalities:
+     • Retro Terminal cranks glows up (12/18/28px) for CRT phosphor bloom
+     • Cosmopolitan keeps them restrained (6/10/16px) for editorial elegance
+     • Midori Sour runs slightly hot (10/14/22px) for digital energy
+     
+     FORMULA:
+       --glow-sm:  6-12px   — subtle accents, button hover halos
+       --glow-md:  10-18px  — speaking indicators, active state glows
+       --glow-lg:  16-28px  — hero elements, pulse animations
+     
+     CLASSIC WORKED EXAMPLE:
+       --glow-sm: 8px;
+       --glow-md: 12px;
+       --glow-lg: 20px;
+     
+     PER-THEME RANGE:
+       Classic ......... 8 / 12 / 20   (balanced)
+       Retro Terminal .. 12 / 18 / 28  (CRT phosphor bloom)
+       Cosmopolitan .... 6 / 10 / 16   (restrained editorial)
+       Midori Sour ..... 10 / 14 / 22  (digital energy)
+       Others .......... 8 / 12 / 20   (default)
+     
+     SOFT ↔ HARD:
+       Softer → 6/10/16px (barely perceptible glow)
+       Harder → 12/18/28px (dramatic bloom effect)
+     ───────────────────────────────────────────────────────────────────── */
+
+  --glow-sm: /* 6-12px */;
+  --glow-md: /* 10-18px */;
+  --glow-lg: /* 16-28px */;
+
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     BORDER RADIUS SCALE (6 tokens)
+     ─────────────────────────────────────────────────────────────────────────
+     A per-theme border radius scale controlling the roundness of all UI
+     elements. This is one of the strongest visual identity levers — sharp
+     corners feel technical/retro, rounded corners feel modern/friendly.
+     
+     --radius-xs:   Tiny elements: checkboxes, color swatches, inline tags
+     --radius-sm:   Small elements: input fields, dropdown items, tooltips
+     --radius-md:   Standard elements: cards, panels, buttons
+     --radius-lg:   Larger elements: modals, dialogs, popovers
+     --radius-xl:   Hero elements: landing cards, feature panels
+     --radius-full: Circular elements: avatars, status dots (always 50%)
+     
+     FORMULA:
+       Most themes use a linear progression with a consistent step size:
+       Classic:       4 / 6 / 8 / 12 / 16 / 50%   (2-4px steps, balanced)
+       Cosmopolitan:  4 / 8 / 10 / 14 / 18 / 50%   (softer, rounder)
+       Retro Terminal: 0 / 0 / 2 / 2 / 4 / 50%     (near-zero, hard CRT edges)
+       Midori Sour:   3 / 5 / 6 / 10 / 14 / 50%    (slightly angular)
+     
+     CLASSIC WORKED EXAMPLE:
+       --radius-xs:   4px;
+       --radius-sm:   6px;
+       --radius-md:   8px;
+       --radius-lg:   12px;
+       --radius-xl:   16px;
+       --radius-full: 50%;
+     
+     DESIGN GUIDANCE:
+       • --radius-full should always be 50% (used for circles)
+       • If xs = 0, the theme will have sharp-cornered small elements
+       • The ratio between xs and xl defines the overall "softness curve"
+       • Retro Terminal's near-zero scale is key to its CRT identity
+       • Cosmopolitan's rounder scale matches its polished magazine aesthetic
+     
+     SOFT ↔ HARD:
+       Softer → 4/8/10/14/18 (round, friendly, modern)
+       Harder → 0/0/2/2/4 (angular, technical, retro)
+     ───────────────────────────────────────────────────────────────────── */
+
+  --radius-xs:   /* 0-4px */;
+  --radius-sm:   /* 0-8px */;
+  --radius-md:   /* 2-10px */;
+  --radius-lg:   /* 2-14px */;
+  --radius-xl:   /* 4-18px */;
+  --radius-full: /* 50% — always 50% for circular elements */;
+
+
+  /* ─────────────────────────────────────────────────────────────────────────
      TYPOGRAPHY (3 tokens)
      ─────────────────────────────────────────────────────────────────────────
      Each theme can specify its own font stack. Choose fonts that match
@@ -524,40 +627,114 @@
 
 
   /* ─────────────────────────────────────────────────────────────────────────
-     THEME FEATURES (2 tokens)
+     HEADING SCALE (6 tokens)
+     ─────────────────────────────────────────────────────────────────────────
+     Controls the size and color of the 3-tier heading system used across
+     the entire app. These tokens feed into the shared .heading-title,
+     .heading-section, and .heading-label classes defined in headings.css.
+     
+     TIERS:
+       Title   — Page titles, modal titles, dialog titles (28px default)
+       Section — Settings section headers, form groups, panel headers (14px)
+       Label   — Sidebar labels, field labels, small category tags (10px)
+     
+     Most themes can use the defaults. Override for special personality:
+       Retro Terminal: section-color uses --accent-primary for green-on-black
+       Clean: may want larger section-size for more spacious feel
+     
+     CLASSIC WORKED EXAMPLE:
+       --heading-title-size:    1.75rem;
+       --heading-title-color:   var(--text-primary);
+        --heading-section-size:  0.875rem;
+        --heading-section-color: var(--accent-secondary);
+       --heading-label-size:    0.625rem;
+       --heading-label-color:   var(--text-muted);
+     ───────────────────────────────────────────────────────────────────── */
+
+  --heading-title-size:    /* 1.75rem (28px) */;
+  --heading-title-color:   /* var(--text-primary) */;
+  --heading-section-size:  /* 0.875rem (14px) */;
+  --heading-section-color: /* var(--accent-secondary) */;
+  --heading-label-size:    /* 0.625rem (10px) */;
+  --heading-label-color:   /* var(--text-muted) */;
+
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     THEME FEATURES (4 tokens)
      ─────────────────────────────────────────────────────────────────────────
      These control atmospheric effects layered over the UI.
      
      --theme-noise-opacity:
-       Controls a subtle noise grain texture overlay. Set to 0 to disable.
-       Classic uses 0.03 for a faint film-grain effect.
-       Range: 0 (none) → 0.06 (heavy grain)
+       Controls the opacity of the texture overlay. Set to 0 to disable.
+       Classic uses 0.10 for a moderate film-grain effect.
+       Range: 0 (none) → 0.15 (heavy grain)
      
      --theme-mesh-bg:
        A CSS background-image value (typically radial-gradient layers) that
        creates soft colored ambient light behind the UI. Set to 'none' to
        disable. Uses accent colors at very low alpha for a subtle glow.
      
+     --theme-noise-texture:
+       The actual texture image or pattern. Can be:
+       • SVG feTurbulence noise (most themes) — encode as data URI
+       • CSS gradient pattern (retro-terminal uses repeating-linear-gradient
+         for scanlines)
+       • 'none' (clean theme — no texture)
+     
+     --theme-noise-scale:
+        CSS background-size for the texture. Use:
+        • '<W>px <H>px' — for SVG noise textures (tiles at intrinsic viewBox size,
+          e.g. '200px 200px' for a 200x200 viewBox — do NOT use 'cover' which
+          stretches the noise pattern into invisibility)
+        • '100% 100%' — for CSS gradient patterns (retro-terminal scanlines)
+     
+     TEXTURE PARAMETER GUIDE (for SVG feTurbulence):
+       ┌────────────────────┬────────────────────────────────────────────────┐
+       │ type               │ 'fractalNoise' — organic grain                │
+       │                    │ 'turbulence' — flowing/watery patterns        │
+       ├────────────────────┼────────────────────────────────────────────────┤
+       │ baseFrequency      │ 0.4 — coarse (Blue Lagoon's flowing water)   │
+       │                    │ 0.55 — medium (Lemon Drop's dreamy softness)  │
+       │                    │ 0.85 — fine (Classic's film grain)            │
+       │                    │ 1.2 — very fine (Cosmo's editorial texture)   │
+       ├────────────────────┼────────────────────────────────────────────────┤
+       │ numOctaves         │ 3 — smooth (Blue Lagoon, Aperol, Lemon Drop)  │
+       │                    │ 4 — detailed (Classic, Midori Sour)           │
+       │                    │ 5 — very detailed (Cosmopolitan)              │
+       └────────────────────┴────────────────────────────────────────────────┘
+     
      FORMULA:
        --theme-mesh-bg:
          radial-gradient(circle at 15% 15%, rgba(accent-primary-rgb, 0.05-0.12) 0%, transparent 40%),
          radial-gradient(circle at 85% 85%, rgba(accent-decorative-rgb, 0.05-0.12) 0%, transparent 40%);
      
-     You can adjust the positions (15%/85%), spread (40%), and add more
-     gradient layers. Some themes may use 3-4 layers for richer ambiance.
-     
      CLASSIC WORKED EXAMPLE:
-       --theme-noise-opacity: 0.03;
-       --theme-mesh-bg:
-         radial-gradient(circle at 15% 15%, rgba(212, 20, 90, 0.08) 0%, transparent 40%),
-         radial-gradient(circle at 85% 85%, rgba(123, 77, 255, 0.08) 0%, transparent 40%);
+        --theme-noise-opacity: 0.10;
+        --theme-noise-texture: url("data:image/svg+xml,...feTurbulence
+          type='fractalNoise' baseFrequency='0.85' numOctaves='4'...");
+        --theme-noise-scale: 200px 200px;
+        --theme-mesh-bg:
+          radial-gradient(circle at 15% 15%, rgba(212, 20, 90, 0.08) 0%, transparent 40%),
+          radial-gradient(circle at 85% 85%, rgba(123, 77, 255, 0.08) 0%, transparent 40%);
      
-     SOFT ↔ HARD:
-       Softer → noise 0.01, mesh alpha 0.03-0.05
-       Harder → noise 0.04-0.06, mesh alpha 0.10-0.15
+      PER-THEME TEXTURE SUMMARY:
+        Classic ......... SVG fractalNoise film grain (0.85, 4 octaves)
+        Clean ........... none
+        Retro Terminal .. CSS scanlines (repeating-linear-gradient, 3px period)
+        Blue Lagoon ..... CSS water ripples (radial-gradient concentric rings)
+        Cosmopolitan .... CSS hexagonal grid (repeating-linear-gradient 0/60/-60deg)
+        Aperol Spritz ... CSS bokeh dots (radial-gradient scattered circles)
+        Midori Sour ..... SVG turbulence digital noise (0.9, 4 octaves)
+        Lemon Drop ...... CSS sparkle points (radial-gradient tiny dots)
+     
+      SOFT <-> HARD:
+        Softer -> noise 0.05, mesh alpha 0.03-0.05
+        Harder -> noise 0.10-0.15, mesh alpha 0.10-0.15
      ───────────────────────────────────────────────────────────────────── */
 
-  --theme-noise-opacity: /* 0 - 0.06 */;
+  --theme-noise-opacity: /* 0 - 0.15 */;
+  --theme-noise-texture: /* SVG data URI, CSS gradient, or 'none' */;
+  --theme-noise-scale:   /* <W>px <H>px (match SVG viewBox) | 100% 100% */;
   --theme-mesh-bg:
     /* radial-gradient(circle at 15% 15%, rgba(accent-primary-rgb, 0.05-0.12) 0%, transparent 40%),
        radial-gradient(circle at 85% 85%, rgba(accent-decorative-rgb, 0.05-0.12) 0%, transparent 40%) */;
@@ -570,7 +747,7 @@
    
    Before shipping your theme, verify:
    
-   □  All 55 tokens are defined (no remaining placeholder comments)
+     □  All 73 tokens are defined (no remaining placeholder comments)
    □  Replace THEME_SLUG with your theme's ID (lowercase, hyphenated)
    □  Replace THEME_NAME with the display name
    □  Update the cocktail name and vibe description in the header
@@ -579,9 +756,13 @@
    □  Text colors use the chosen warmth and are tinted with BASE_HUE
    □  Borders are tinted (not pure gray)
    □  Glass border uses mid-tone color consistent with bg-hover
+   □  Glass blur overlay is defined for modal/dialog backdrops
    □  Shadow dialog references var(--accent-primary-ghost) for the ring
    □  Font stacks include system fallbacks
    □  Mesh gradient uses your accent colors (or set to 'none')
+   □  Texture tokens defined (SVG noise, CSS gradient, or 'none')
+   □  Glow scale matches the theme's visual intensity
+   □  Border radius scale matches the theme's geometric identity
    □  Register theme in theme-registry.ts
    □  Test contrast: text-primary on bg-primary should be ≥ 7:1 (WCAG AAA)
    □  Test contrast: text-secondary on bg-primary should be ≥ 4.5:1 (AA)
@@ -596,11 +777,14 @@
      Status ................ 1
      Text .................. 7
      Borders & Effects ..... 2
-     Glass Effect .......... 2
+     Glass Effect .......... 3  (+1 glass-blur-overlay)
      Shadows ............... 3
-     Typography ............ 3
-     Theme Features ........ 2
-                            ──
-     Total                  55
+     Glow Scale ............ 3  (sm, md, lg)
+     Border Radius Scale ... 6  (xs, sm, md, lg, xl, full)
+      Typography ............ 3
+      Heading Scale ......... 6
+       Theme Features ........ 4  (+3 noise-texture, noise-opacity, noise-scale)
+                              ──
+       Total                  73
    
    ═══════════════════════════════════════════════════════════════════════════ */

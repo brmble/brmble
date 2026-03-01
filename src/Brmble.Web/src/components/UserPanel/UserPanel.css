@@ -160,7 +160,7 @@
 
 .user-avatar:hover {
   transform: scale(1.1);
-  box-shadow: 0 0 20px var(--accent-decorative-glow);
+  box-shadow: 0 0 var(--glow-lg) var(--accent-decorative-glow);
 }
 
 .user-avatar:active {
@@ -172,6 +172,6 @@
 }
 
 .user-avatar.speaking {
-  box-shadow: 0 0 12px var(--accent-success-glow);
+  box-shadow: 0 0 var(--glow-md) var(--accent-success-glow);
   animation: speaking-pulse var(--animation-speaking-pulse) ease-in-out infinite;
 }

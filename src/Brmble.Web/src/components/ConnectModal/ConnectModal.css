@@ -5,7 +5,7 @@
   right: 0;
   bottom: 0;
   background: var(--bg-overlay);
-  backdrop-filter: blur(8px);
+  backdrop-filter: var(--glass-blur-overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -49,10 +49,6 @@
 }
 
 .modal-title {
-  font-family: var(--font-display);
-  font-size: 1.75rem;
-  font-weight: 600;
-  color: var(--text-primary);
   margin: 0 0 0.5rem;
   opacity: 0;
   animation: content-fade-in var(--animation-normal) ease forwards;

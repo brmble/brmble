@@ -19,14 +19,6 @@
   padding: 1rem 1rem 0.5rem;
 }
 
-.dm-contact-list-title {
-  font-family: var(--font-display);
-  font-size: 1.125rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 0;
-}
-
 .dm-contact-search {
   display: flex;
   align-items: center;

@@ -15,7 +15,7 @@ export const themes: ThemeDefinition[] = [
   {
     id: 'clean',
     name: 'Brmble Clean',
-    description: 'Stripped-down dark mode — neutral and modern',
+    description: 'Classic palette without the grain — clean and crisp',
     fontUrl: 'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap',
   },
   {

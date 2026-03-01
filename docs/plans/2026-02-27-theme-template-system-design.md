@@ -110,7 +110,11 @@ DERIVATION CHAIN (start with your chosen accent hex):
 - **Primary Accent:** `#d4145a` (berry pink)
 - **Text Warmth:** Warm cream (`#f5f0e8`)
 - **Fonts:** Cormorant Garamond (display), Outfit (body), JetBrains Mono (mono)
-- **Identity:** Vintage cocktail lounge. Deep purple backgrounds, warm tones, grain overlay, mesh gradients, glassmorphism.
+- **Identity:** Vintage cocktail lounge. Deep purple backgrounds, warm tones, mesh gradients, glassmorphism.
+- **Texture:** Film grain — fractalNoise, baseFrequency 0.85, 4 octaves, opacity 0.10
+- **Glow:** Standard (8/12/20px)
+- **Geometry:** Standard radii (4/6/8/12/16/50%)
+- **Glass:** Moderate overlay blur (6px)
 
 ### Brmble Clean
 - **Base Hue:** 0deg (neutral, no tint)
@@ -118,6 +122,10 @@ DERIVATION CHAIN (start with your chosen accent hex):
 - **Text Warmth:** Cool (pure white)
 - **Fonts:** Same as Classic
 - **Identity:** Stripped-down dark mode. No grain, no mesh, neutral grays. Clean and modern.
+- **Texture:** None (opacity 0, texture none)
+- **Glow:** Standard (8/12/20px)
+- **Geometry:** Standard radii (4/6/8/12/16/50%)
+- **Glass:** Moderate overlay blur (6px)
 
 ### Blue Lagoon
 - **Base Hue:** 200deg (ocean blue)
@@ -125,20 +133,32 @@ DERIVATION CHAIN (start with your chosen accent hex):
 - **Text Warmth:** Cool -- pure white with blue-tinted grays
 - **Fonts:** Playfair Display (display), DM Sans (body)
 - **Identity:** Tropical, electric, poolside. Crisp blue-tinted darks. Cyan and deep blue mesh gradients.
+- **Texture:** Flowing water ripples — CSS radial-gradient concentric rings, overlapping, opacity 0.08
+- **Glow:** Standard (8/12/20px)
+- **Geometry:** Standard radii (4/6/8/12/16/50%)
+- **Glass:** Moderate overlay blur (6px)
 
 ### Cosmopolitan
 - **Base Hue:** 345deg (deep cranberry-rose)
 - **Primary Accent:** `#e63962` (cranberry pink)
 - **Text Warmth:** Warm -- rose-tinted cream
 - **Fonts:** Bodoni Moda (display), Manrope (body)
-- **Identity:** Glamorous, fashion-editorial. Close to Classic in hue family but pushed toward luxury. More contrast, cleaner lines. Minimal grain.
+- **Identity:** Glamorous, fashion-editorial. Close to Classic in hue family but pushed toward luxury. More contrast, cleaner lines.
+- **Texture:** Editorial hexagonal grid — CSS repeating-linear-gradient at 0/60/-60deg, opacity 0.06
+- **Glow:** Restrained (6/10/16px) — editorial elegance, barely-there accents
+- **Geometry:** Rounder radii (4/8/10/14/18/50%) — polished magazine feel
+- **Glass:** Heavy overlay blur (8px) — maximum frosted glass
 
 ### Aperol Spritz
 - **Base Hue:** 25deg (burnt orange-amber)
 - **Primary Accent:** `#e8651a` (Aperol orange)
 - **Text Warmth:** Very warm -- amber-tinted cream `#faf0e0`
 - **Fonts:** Fraunces (display), Nunito (body)
-- **Identity:** Warmest theme. Mediterranean sunset, golden hour. Amber-glow backgrounds. Softer, rounder, inviting. Strong film grain.
+- **Identity:** Warmest theme. Mediterranean sunset, golden hour. Amber-glow backgrounds. Softer, rounder, inviting.
+- **Texture:** Sun-dappled bokeh dots — CSS radial-gradient scattered circles, opacity 0.10
+- **Glow:** Standard (8/12/20px)
+- **Geometry:** Standard radii (4/6/8/12/16/50%)
+- **Glass:** Moderate overlay blur (6px)
 
 ### Midori Sour
 - **Base Hue:** 145deg (deep emerald-green)
@@ -146,6 +166,10 @@ DERIVATION CHAIN (start with your chosen accent hex):
 - **Text Warmth:** Cool-neutral -- clean white with green-tinted grays
 - **Fonts:** Space Mono (display), Lexend (body)
 - **Identity:** Energetic, slightly techy. Bright green on dark emerald. Cyberpunk/neon Tokyo-at-night edge.
+- **Texture:** Sharp digital noise — turbulence, baseFrequency 0.9, 4 octaves, opacity 0.08
+- **Glow:** Slightly hot (10/14/22px) — digital energy, neon bleed
+- **Geometry:** Tighter radii (3/5/6/10/14/50%) — angular, techy feel
+- **Glass:** Light overlay blur (4px) — sharper, cyberpunk clarity
 
 ### Lemon Drop Martini
 - **Base Hue:** 50deg (deep warm gold-amber)
@@ -153,13 +177,21 @@ DERIVATION CHAIN (start with your chosen accent hex):
 - **Text Warmth:** Warm -- golden cream
 - **Fonts:** Sora (display), Plus Jakarta Sans (body)
 - **Identity:** Brightest, most optimistic theme. Golden accent against warm darks. Premium and cheerful.
+- **Texture:** Sparkle zest points — CSS radial-gradient tiny dots, opacity 0.08
+- **Glow:** Standard (8/12/20px)
+- **Geometry:** Standard radii (4/6/8/12/16/50%)
+- **Glass:** Moderate overlay blur (6px)
 
 ### Retro Terminal
 - **Base Hue:** 0deg (pure neutral)
 - **Primary Accent:** `#33ff00` (phosphor green)
 - **Text Warmth:** Cold -- green-on-black
 - **Fonts:** VT323 (display), IBM Plex Mono (body, monospaced everything)
-- **Identity:** Monochrome green CRT. Everything monospaced. Highest noise (scanline effect). No glass, no mesh.
+- **Identity:** Monochrome green CRT. Everything monospaced. No glass, no mesh.
+- **Texture:** Horizontal CRT scanlines — repeating-linear-gradient (3px period), opacity 0.15 (heaviest)
+- **Glow:** Intense (12/18/28px) — CRT phosphor bloom, dramatic halos
+- **Geometry:** Near-zero radii (0/0/2/2/4/50%) — hard rectangular CRT edges
+- **Glass:** No overlay blur (0px) — CRTs don't frost
 
 ## Accent Mapping Across Themes
 
@@ -169,6 +201,61 @@ DERIVATION CHAIN (start with your chosen accent hex):
 | `--accent-secondary` | Lemon yellow | Coral | Rose gold | Warm amber | Teal | Warm white | Amber |
 | `--accent-success` | Mint green | Seafoam | Lime | Olive green | Bright lime | Spring green | Bright green |
 | `--accent-decorative` | Purple | Deep navy | Deep rose | Terracotta | Deep teal | Amber dark | Dark green |
+
+## Visual Identity System
+
+Color alone isn't enough to make themes feel distinct. Two themes can have completely different palettes but feel interchangeable if they share the same geometric and atmospheric properties. The visual identity system gives each theme a unique *physical presence* through 4 dimensions:
+
+### Texture (`--theme-noise-texture`, `--theme-noise-scale`)
+
+The atmospheric overlay rendered via `body::before`. Controls whether the UI feels like aged film stock, a CRT monitor, flowing water, or clean glass. The texture opacity is controlled by `--theme-noise-opacity`.
+
+Themes use fundamentally different CSS techniques to ensure each texture is visually distinct:
+- **SVG `feTurbulence` filters** — Classic (fractalNoise film grain) and Midori Sour (turbulence digital noise). Parameters (`baseFrequency`, `numOctaves`) control coarseness and detail.
+- **CSS `repeating-linear-gradient`** — Retro Terminal (horizontal scanlines), Cosmopolitan (hexagonal grid at 0/60/-60deg).
+- **CSS `radial-gradient`** — Aperol Spritz (bokeh dots), Blue Lagoon (concentric water ripples), Lemon Drop (sparkle points).
+- **`none`** — Clean theme disables the texture entirely.
+
+Each theme uses a different technique category to avoid the "same static at different scales" problem. SVG noise, geometric line patterns, and dot/circle patterns each produce fundamentally different visual textures.
+
+### Glow (`--glow-sm`, `--glow-md`, `--glow-lg`)
+
+The spread radius for `box-shadow` halos on speaking indicators, active buttons, and interactive elements. The glow *color* comes from the component context (`accent-primary-glow`, `accent-success-glow`, etc.) but the *size* is theme-controlled. This creates dramatic differences: Retro Terminal's CRT phosphor bloom (12/18/28px) vs. Cosmopolitan's barely-there editorial accent (6/10/16px).
+
+Used in: `speaking-pulse` keyframes, `.btn-primary` hover, `UserInfoDialog`, `UserPanel`, `ChannelTree`, `AudioSettingsTab`, `MessageInput`.
+
+### Geometry (`--radius-xs` through `--radius-full`)
+
+A per-theme border radius scale controlling the roundness of every UI element. Sharp corners feel technical and retro; round corners feel modern and friendly. This was moved from global `:root` (structural) to per-theme because it's one of the strongest visual identity levers — Retro Terminal's near-zero scale (0/0/2/2/4) is one of its most recognizable traits.
+
+The scale uses 6 steps: `xs` (checkboxes, tags) → `sm` (inputs, tooltips) → `md` (cards, buttons) → `lg` (modals, dialogs) → `xl` (hero panels) → `full` (50%, always circular for avatars).
+
+### Glass (`--glass-blur-overlay`)
+
+Backdrop blur for modal overlays and dialogs. Separate from `--glass-blur` (panel blur) because modals may need different treatment — they sit above more content and benefit from a distinct blur level. Retro Terminal sets this to `0px` since CRTs don't frost.
+
+### How They Interact
+
+These 4 dimensions interact to create each theme's physical identity:
+- **Retro Terminal** combines sharp corners + intense glow + scanline texture + zero blur → cohesive CRT feeling
+- **Cosmopolitan** combines round corners + subtle glow + fine grain + heavy blur → editorial polish
+- **Midori Sour** combines tight corners + hot glow + sharp digital noise + minimal blur → cyberpunk energy
+- **Aperol Spritz** combines standard radii + standard glow + large warm blobs + standard blur → sun-dappled warmth
+
+The combination is what makes each theme feel physically different, not just recolored.
+
+### Visual Identity Mapping
+
+| Theme | Texture | Glow (sm/md/lg) | Radius (xs/xl) | Overlay Blur |
+|---|---|---|---|---|
+| Classic | Film grain (SVG fractalNoise) | 8/12/20 | 4/16 | 6px |
+| Clean | None | 8/12/20 | 4/16 | 6px |
+| Retro Terminal | CSS scanlines | 12/18/28 | 0/4 | 0px |
+| Blue Lagoon | Water ripples (CSS concentric rings) | 8/12/20 | 4/16 | 6px |
+| Cosmopolitan | Hexagonal grid (CSS 0/60/-60deg lines) | 6/10/16 | 4/18 | 8px |
+| Aperol Spritz | Bokeh dots (CSS radial-gradient) | 8/12/20 | 4/16 | 6px |
+| Midori Sour | Digital noise (SVG turbulence) | 10/14/22 | 3/14 | 4px |
+| Lemon Drop | Sparkle points (CSS radial-gradient) | 8/12/20 | 4/16 | 6px |
 
 ## Theme Switching Flow
 
@@ -201,7 +288,7 @@ Read localStorage('brmble-settings')
 ### index.css
 - Remove `@import url(...)` for fonts (moved to theme-loader)
 - Remove all color/accent/text/border/shadow/glass tokens (moved to theme files)
-- Retain: spacing scale, radius scale, font size scale, transitions, layout tokens, global resets, scrollbar styles, selection, focus, utility classes (`.btn`, `.glass-panel`, `.brmble-input`), animations
+- Retain: spacing scale, font size scale, transitions, layout tokens, global resets, scrollbar styles, selection, focus, utility classes (`.btn`, `.glass-panel`, `.brmble-input`), animations, `body::before` texture overlay (now token-driven via `--theme-noise-*`)
 - Fix `select.brmble-input` SVG arrow to use `currentColor` instead of hardcoded `#f5f0e8`
 
 ### All 23 component CSS files
@@ -244,7 +331,6 @@ Read localStorage('brmble-settings')
 | Category | Tokens |
 |----------|--------|
 | Spacing | `--space-2xs` through `--space-3xl` (8 tokens) |
-| Border Radius | `--radius-xs` through `--radius-full` (6 tokens) |
 | Font Sizes | `--text-xs` through `--text-4xl` (8 tokens) |
 | Layout | `--sidebar-width`, `--header-height` (2 tokens) |
 | Transitions | `--transition-fast`, `--transition-normal`, `--transition-slow` (3 tokens) |
@@ -261,8 +347,11 @@ Read localStorage('brmble-settings')
 | Danger Accent | 6 | base + strong/text/subtle/border/bg |
 | Status | 1 | connected |
 | Text | 7 | primary/secondary/muted + dim/strong variants |
-| Borders & Glass | 4 | subtle, glow, blur, border |
+| Borders & Effects | 2 | subtle, glow |
+| Glass Effect | 3 | blur, border, blur-overlay |
 | Shadows | 3 | dialog, elevated, drop-subtle |
+| Glow Scale | 3 | sm, md, lg — per-theme spread radii for box-shadow halos |
+| Border Radius Scale | 6 | xs, sm, md, lg, xl, full — moved from structural to per-theme |
 | Typography | 3 | display, body, mono font families |
-| Theme Features | 2 | noise opacity, mesh background |
-| **Total** | **55** | |
+| Theme Features | 4 | noise opacity, noise texture, noise scale, mesh background |
+| **Total** | **67** | |

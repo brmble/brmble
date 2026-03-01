@@ -73,7 +73,7 @@ export function ServerList({ onConnect }: ServerListProps) {
     <div className="server-list-overlay">
       <div className="server-list-container glass-panel">
         <div className="server-list-header">
-          <h2 className="server-list-title">Choose a Server</h2>
+          <h2 className="heading-title server-list-title">Choose a Server</h2>
           <p className="server-list-subtitle">Select a server to connect to voice chat</p>
         </div>
 
@@ -126,9 +126,9 @@ export function ServerList({ onConnect }: ServerListProps) {
 
           {(isAdding || editing) && (
             <form className="server-list-form" onSubmit={handleSubmit}>
-              <div className="server-list-form-title">
+              <h3 className="heading-section server-list-form-title">
                 {editing ? 'Edit Server' : 'Add New Server'}
-              </div>
+              </h3>
               <div className="server-list-form-fields">
                 <input
                   className="brmble-input server-list-input"

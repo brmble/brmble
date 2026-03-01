@@ -1,12 +1,4 @@
 :root {
-  /* Border Radius Scale */
-  --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
-  --radius-full: 50%;
-
   /* Spacing Scale */
   --space-2xs: 0.25rem; /* 4px */
   --space-xs: 0.5rem;   /* 8px */
@@ -51,6 +43,14 @@
   --animation-badge-pop: 400ms;
   --animation-badge-pulse: 2.4s;
   --animation-badge-pulse-delay: 600ms;
+
+  /* Heading Scale */
+  --heading-title-size:    1.75rem;   /* 28px */
+  --heading-title-color:   var(--text-primary);
+  --heading-section-size:  0.875rem;  /* 14px */
+  --heading-section-color: var(--accent-secondary);
+  --heading-label-size:    0.625rem;  /* 10px */
+  --heading-label-color:   var(--text-muted);
 }
 
 * {
@@ -71,7 +71,7 @@ html, body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Noise grain overlay */
+/* Noise/texture overlay — driven by theme feature tokens */
 body::before {
   content: '';
   position: fixed;
@@ -82,7 +82,8 @@ body::before {
   pointer-events: none;
   z-index: 9999;
   opacity: var(--theme-noise-opacity);
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  background-image: var(--theme-noise-texture);
+  background-size: var(--theme-noise-scale);
   transition: opacity var(--transition-normal);
 }
 
@@ -183,8 +184,8 @@ a:hover {
 }
 
 @keyframes speaking-pulse {
-  0%, 100% { box-shadow: 0 0 8px var(--accent-success-glow); }
-  50%      { box-shadow: 0 0 16px var(--accent-success-glow); }
+  0%, 100% { box-shadow: 0 0 var(--glow-sm) var(--accent-success-glow); }
+  50%      { box-shadow: 0 0 var(--glow-md) var(--accent-success-glow); }
 }
 
 @keyframes pulse {
@@ -258,12 +259,12 @@ a:hover {
   background: var(--accent-primary);
   color: #ffffff;
   border: 1px solid transparent;
-  box-shadow: 0 0 16px var(--accent-primary-glow);
+  box-shadow: 0 0 var(--glow-md) var(--accent-primary-glow);
 }
 
 .btn-primary:hover:not(:disabled) {
   background: var(--accent-primary-hover);
-  box-shadow: 0 0 24px var(--accent-primary-glow);
+  box-shadow: 0 0 var(--glow-lg) var(--accent-primary-glow);
 }
 
 .btn-primary:active:not(:disabled) {

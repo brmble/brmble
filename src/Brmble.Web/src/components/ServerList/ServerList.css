@@ -53,12 +53,7 @@
 }
 
 .server-list-title {
-  font-family: var(--font-display);
-  font-size: 2rem;
-  font-weight: 600;
-  color: var(--text-primary);
   margin: 0 0 0.5rem 0;
-  letter-spacing: 0.02em;
 }
 
 .server-list-subtitle {
@@ -214,10 +209,6 @@
 }
 
 .server-list-form-title {
-  font-family: var(--font-display);
-  font-size: 1.25rem;
-  font-weight: 500;
-  color: var(--text-primary);
   margin-bottom: 1.25rem;
   text-align: center;
 }

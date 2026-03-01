@@ -62,7 +62,7 @@ export function CloseDialog({ isOpen, onMinimize, onQuit }: CloseDialogProps) {
         aria-labelledby="close-dialog-title"
       >
         {/* Fix 2: id on heading to satisfy aria-labelledby */}
-        <h2 id="close-dialog-title" className="close-dialog-title">Leaving so soon?</h2>
+        <h2 id="close-dialog-title" className="heading-title close-dialog-title">Leaving so soon?</h2>
         <p className="close-dialog-subtitle">Choose what happens when you close the window.</p>
 
         <div className="close-dialog-buttons">

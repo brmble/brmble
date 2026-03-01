@@ -14,6 +14,14 @@
 
 :root[data-theme="cosmopolitan"] {
 
+  /* Border Radius Scale */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-full: 50%;
+
   /* ── Backgrounds (12 tokens) ─────────────────────
      Tinted with hue 345° at medium saturation.
      bg-deep:    hsl(345, 25%, 6%)
@@ -103,6 +111,7 @@
   /* ── Glass Effect (2 tokens) ─────────────────── */
   --glass-blur:   blur(12px);
   --glass-border: 1px solid rgba(72, 50, 56, 0.45);
+  --glass-blur-overlay: blur(8px);
 
   /* ── Shadows (3 tokens) ──────────────────────── */
   --shadow-dialog:
@@ -117,9 +126,45 @@
   --font-body:    'Manrope', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono:    'JetBrains Mono', monospace;
 
-  /* ── Theme Features (2 tokens) ───────────────── */
-  --theme-noise-opacity: 0.015;
+  /* ─── Heading Scale ─── */
+  --heading-title-size:    1.75rem;
+  --heading-title-color:   var(--text-primary);
+  --heading-section-size:  0.875rem;
+  --heading-section-color: var(--accent-secondary);
+  --heading-label-size:    0.625rem;
+  --heading-label-color:   var(--text-muted);
+
+  /* Theme Features — editorial hexagonal grid */
+  --theme-noise-opacity: 0.06;
+  --theme-noise-texture:
+    repeating-linear-gradient(
+      0deg,
+      rgba(255, 255, 255, 0.35) 0px,
+      rgba(255, 255, 255, 0.35) 1px,
+      transparent 1px,
+      transparent 18px
+    ),
+    repeating-linear-gradient(
+      60deg,
+      rgba(255, 255, 255, 0.25) 0px,
+      rgba(255, 255, 255, 0.25) 1px,
+      transparent 1px,
+      transparent 18px
+    ),
+    repeating-linear-gradient(
+      -60deg,
+      rgba(255, 255, 255, 0.25) 0px,
+      rgba(255, 255, 255, 0.25) 1px,
+      transparent 1px,
+      transparent 18px
+    );
+  --theme-noise-scale: 100% 100%;
   --theme-mesh-bg:
     radial-gradient(circle at 15% 15%, rgba(230, 57, 98, 0.05) 0%, transparent 40%),
     radial-gradient(circle at 85% 85%, rgba(140, 45, 106, 0.05) 0%, transparent 40%);
+
+  /* Glow Scale */
+  --glow-sm: 6px;
+  --glow-md: 10px;
+  --glow-lg: 16px;
 }
