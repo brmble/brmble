@@ -161,4 +161,34 @@ public class MatrixAppServiceTests
         Assert.AreEqual(HttpMethod.Post, req.Method);
         StringAssert.Contains(req.RequestUri!.AbsoluteUri, "login");
     }
+
+    [TestMethod]
+    public async Task UploadMedia_PutsToMediaEndpointWithContentType()
+    {
+        SetupHttpResponse(HttpStatusCode.OK,
+            """{"content_uri":"mxc://server/abc123"}""");
+
+        var result = await _svc.UploadMedia(new byte[] { 0x89, 0x50, 0x4E, 0x47 }, "image/png", "image.png");
+
+        Assert.AreEqual("mxc://server/abc123", result);
+        var req = _capturedRequests.Single();
+        Assert.AreEqual(HttpMethod.Post, req.Method);
+        StringAssert.Contains(req.RequestUri!.AbsolutePath, "/_matrix/media/v3/upload");
+        Assert.AreEqual("image/png", req.Content!.Headers.ContentType!.MediaType);
+    }
+
+    [TestMethod]
+    public async Task SendImageMessage_PutsImageEventToRoom()
+    {
+        SetupHttpResponse(HttpStatusCode.OK);
+
+        await _svc.SendImageMessage("!room:server", "Alice", "mxc://server/abc123", "image.png", "image/png", 1234);
+
+        var req = _capturedRequests.Single();
+        Assert.AreEqual(HttpMethod.Put, req.Method);
+        StringAssert.Contains(req.RequestUri!.AbsolutePath, "/_matrix/client/v3/rooms/!room:server/send/m.room.message/");
+        var body = await req.Content!.ReadAsStringAsync();
+        StringAssert.Contains(body, "m.image");
+        StringAssert.Contains(body, "mxc://server/abc123");
+    }
 }

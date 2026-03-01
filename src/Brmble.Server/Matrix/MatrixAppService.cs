@@ -14,6 +14,8 @@ public interface IMatrixAppService
     Task<string> LoginUser(string localpart);
     Task EnsureUserInRooms(string localpart, IEnumerable<string> roomIds);
     Task SetDisplayName(string localpart, string displayName);
+    Task<string> UploadMedia(byte[] data, string contentType, string fileName);
+    Task SendImageMessage(string roomId, string displayName, string mxcUrl, string fileName, string mimetype, int size);
 }
 
 public class MatrixAppService : IMatrixAppService
@@ -175,6 +177,45 @@ public class MatrixAppService : IMatrixAppService
         var url = $"{_homeserverUrl}/_matrix/client/v3/profile/{Uri.EscapeDataString(userId)}/displayname";
         var body = JsonSerializer.Serialize(new { displayname = displayName });
         await SendRequest(HttpMethod.Put, url, body, actAs: userId);
+    }
+
+    public async Task<string> UploadMedia(byte[] data, string contentType, string fileName)
+    {
+        var url = $"{_homeserverUrl}/_matrix/media/v3/upload?filename={Uri.EscapeDataString(fileName)}";
+        var client = _httpClientFactory.CreateClient();
+        var urlWithUser = $"{url}&user_id={Uri.EscapeDataString(_botUserId)}";
+        var request = new HttpRequestMessage(HttpMethod.Post, urlWithUser)
+        {
+            Content = new ByteArrayContent(data)
+        };
+        request.Content.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _appServiceToken);
+        _logger.LogDebug("Matrix upload: POST {Url} ({Size} bytes)", urlWithUser, data.Length);
+        var response = await client.SendAsync(request);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync();
+            _logger.LogError("Matrix upload failed: {Status} {Body}", (int)response.StatusCode, body);
+        }
+        response.EnsureSuccessStatusCode();
+        var responseBody = await response.Content.ReadAsStringAsync();
+        var json = JsonSerializer.Deserialize<JsonElement>(responseBody);
+        return json.GetProperty("content_uri").GetString()
+            ?? throw new InvalidOperationException("Matrix did not return a content_uri");
+    }
+
+    public async Task SendImageMessage(string roomId, string displayName, string mxcUrl, string fileName, string mimetype, int size)
+    {
+        var txnId = Guid.NewGuid().ToString("N");
+        var url = $"{_homeserverUrl}/_matrix/client/v3/rooms/{roomId}/send/m.room.message/{txnId}";
+        var body = JsonSerializer.Serialize(new
+        {
+            msgtype = "m.image",
+            body = $"[{displayName}]: {fileName}",
+            url = mxcUrl,
+            info = new { mimetype, size }
+        });
+        await SendRequest(HttpMethod.Put, url, body);
     }
 
     private Task<string> SendRequest(HttpMethod method, string url, string jsonBody, string? actAs = null)
