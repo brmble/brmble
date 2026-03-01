@@ -125,4 +125,9 @@
   --theme-mesh-bg:
     radial-gradient(circle at 15% 15%, rgba(232, 101, 26, 0.10) 0%, transparent 40%),
     radial-gradient(circle at 85% 85%, rgba(153, 77, 51, 0.08) 0%, transparent 40%);
+
+  /* Glow Scale */
+  --glow-sm: 8px;
+  --glow-md: 12px;
+  --glow-lg: 20px;
 }

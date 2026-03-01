@@ -23,14 +23,14 @@
   background: var(--accent-primary);
   border-radius: var(--radius-full);
   cursor: pointer;
-  box-shadow: 0 0 8px var(--accent-primary-glow);
+  box-shadow: 0 0 var(--glow-sm) var(--accent-primary-glow);
   transition: transform var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .settings-slider input[type="range"]::-webkit-slider-thumb:hover {
   background: var(--accent-primary-hover);
   transform: scale(1.15);
-  box-shadow: 0 0 12px var(--accent-primary-glow);
+  box-shadow: 0 0 var(--glow-md) var(--accent-primary-glow);
 }
 
 .settings-section-divider {

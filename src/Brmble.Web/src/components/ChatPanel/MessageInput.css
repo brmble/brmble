@@ -17,7 +17,7 @@
 
 .message-input-wrapper:focus-within {
   border-color: var(--accent-primary);
-  box-shadow: 0 0 20px var(--accent-primary-glow);
+  box-shadow: 0 0 var(--glow-lg) var(--accent-primary-glow);
 }
 
 .message-input {
@@ -51,5 +51,5 @@
   background: var(--accent-secondary);
   color: var(--bg-deep);
   transform: scale(1.05);
-  box-shadow: 0 0 16px var(--accent-secondary-glow);
+  box-shadow: 0 0 var(--glow-md) var(--accent-secondary-glow);
 }

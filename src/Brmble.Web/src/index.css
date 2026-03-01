@@ -185,8 +185,8 @@ a:hover {
 }
 
 @keyframes speaking-pulse {
-  0%, 100% { box-shadow: 0 0 8px var(--accent-success-glow); }
-  50%      { box-shadow: 0 0 16px var(--accent-success-glow); }
+  0%, 100% { box-shadow: 0 0 var(--glow-sm) var(--accent-success-glow); }
+  50%      { box-shadow: 0 0 var(--glow-md) var(--accent-success-glow); }
 }
 
 @keyframes pulse {
@@ -260,12 +260,12 @@ a:hover {
   background: var(--accent-primary);
   color: #ffffff;
   border: 1px solid transparent;
-  box-shadow: 0 0 16px var(--accent-primary-glow);
+  box-shadow: 0 0 var(--glow-md) var(--accent-primary-glow);
 }
 
 .btn-primary:hover:not(:disabled) {
   background: var(--accent-primary-hover);
-  box-shadow: 0 0 24px var(--accent-primary-glow);
+  box-shadow: 0 0 var(--glow-lg) var(--accent-primary-glow);
 }
 
 .btn-primary:active:not(:disabled) {

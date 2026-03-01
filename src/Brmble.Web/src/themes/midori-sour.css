@@ -128,4 +128,9 @@
     radial-gradient(circle at 10% 20%, rgba(0, 200, 83, 0.10) 0%, transparent 35%),
     radial-gradient(circle at 90% 80%, rgba(34, 110, 110, 0.08) 0%, transparent 35%),
     radial-gradient(circle at 50% 50%, rgba(45, 184, 168, 0.05) 0%, transparent 50%);
+
+  /* Glow Scale */
+  --glow-sm: 10px;
+  --glow-md: 14px;
+  --glow-lg: 22px;
 }

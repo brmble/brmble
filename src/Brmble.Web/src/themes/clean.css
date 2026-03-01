@@ -15,4 +15,9 @@
   --theme-noise-blend: normal;
   --theme-noise-scale: cover;
   --theme-mesh-bg: none;
+
+  /* Glow Scale */
+  --glow-sm: 8px;
+  --glow-md: 12px;
+  --glow-lg: 20px;
 }
