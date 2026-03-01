@@ -342,7 +342,7 @@ git commit -m "fix: replace hardcoded font-sizes in ChatPanel with tokens"
 
 | Line | From | To |
 |---|---|---|
-| 240 | `font-size: 0.6875rem` | `font-size: var(--text-xs)` |
+| 240 | `font-size: 0.6875rem` | `font-size: var(--text-2xs)` |
 
 **Step 13: Commit**
 

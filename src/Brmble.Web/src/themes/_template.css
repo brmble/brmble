@@ -635,7 +635,7 @@
      
      TIERS:
        Title   — Page titles, modal titles, dialog titles (28px default)
-       Section — Settings section headers, form groups, panel headers (14px)
+        Section — Settings section headers, form groups, panel headers (18px)
        Label   — Sidebar labels, field labels, small category tags (10px)
      
      Most themes can use the defaults. Override for special personality:
@@ -643,9 +643,9 @@
        Clean: may want larger section-size for more spacious feel
      
      CLASSIC WORKED EXAMPLE:
-       --heading-title-size:    1.75rem;
-       --heading-title-color:   var(--text-primary);
-         --heading-section-size:  1.125rem;
+        --heading-title-size:    1.75rem;
+        --heading-title-color:   var(--text-primary);
+        --heading-section-size:  1.125rem;
         --heading-section-color: var(--accent-secondary);
        --heading-label-size:    0.625rem;
        --heading-label-color:   var(--text-muted);

@@ -18,7 +18,7 @@ Format: Flat rulebook. Numbered rules, tables, do/don't examples. No fluff.
 | Class | Element | Size | Use |
 |---|---|---|---|
 | `.heading-title` | `<h2>` | 28px | Page titles, modal titles |
-| `.heading-section` | `<h3>` | 14px | Uppercase section headers |
+| `.heading-section` | `<h3>` | 18px | Uppercase section headers |
 | `.heading-label` | `<h4>` | 10px | Uppercase italic sidebar labels |
 
 ### The Absolute Rule
@@ -31,7 +31,7 @@ Format: Flat rulebook. Numbered rules, tables, do/don't examples. No fluff.
 
 All visual properties must come from CSS custom properties. Two layers exist:
 
-### Layer 1: Global Tokens (39 in `:root`, `index.css`)
+### Layer 1: Global Tokens (40 in `:root`, `index.css`)
 
 | Group | Tokens | Range |
 |---|---|---|
@@ -101,7 +101,7 @@ Reference: `src/Brmble.Web/src/styles/headings.css`
 | Tier | Class | Element | Size Token | Color Token | Style |
 |---|---|---|---|---|---|
 | Title | `.heading-title` | `<h2>` | `--heading-title-size` (28px) | `--heading-title-color` | `letter-spacing: 0.02em` |
-| Section | `.heading-section` | `<h3>` | `--heading-section-size` (14px) | `--heading-section-color` | `text-transform: uppercase; letter-spacing: 0.05em` |
+| Section | `.heading-section` | `<h3>` | `--heading-section-size` (18px) | `--heading-section-color` | `text-transform: uppercase; letter-spacing: 0.05em` |
 | Label | `.heading-label` | `<h4>` | `--heading-label-size` (10px) | `--heading-label-color` | `text-transform: uppercase; letter-spacing: 0.18em; font-style: italic` |
 
 ### Shared Properties (All Tiers)
