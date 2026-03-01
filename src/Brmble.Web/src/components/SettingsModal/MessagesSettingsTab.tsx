@@ -82,60 +82,70 @@ export function MessagesSettingsTab({ settings, onChange }: MessagesSettingsTabP
 
   return (
     <div className="messages-settings-tab">
-      <div className="settings-item settings-toggle">
-        <label>Text-to-Speech</label>
-        <label className="brmble-toggle">
-          <input
-            type="checkbox"
-            checked={localSettings.ttsEnabled}
-            onChange={(e) => handleChange('ttsEnabled', e.target.checked)}
-          />
-          <span className="brmble-toggle-slider"></span>
-        </label>
-      </div>
 
-      {localSettings.ttsEnabled && (
-        <>
-          <div className="settings-item settings-slider">
-            <label>TTS Volume: {localSettings.ttsVolume}%</label>
+      {/* Text-to-Speech Section */}
+      <div className="settings-section">
+        <h3 className="heading-section settings-section-title">Text-to-Speech</h3>
+        <div className="settings-item settings-toggle">
+          <label>Text-to-Speech</label>
+          <label className="brmble-toggle">
             <input
-              type="range"
-              min="0"
-              max="100"
-              value={localSettings.ttsVolume}
-              onChange={(e) => handleChange('ttsVolume', parseInt(e.target.value))}
+              type="checkbox"
+              checked={localSettings.ttsEnabled}
+              onChange={(e) => handleChange('ttsEnabled', e.target.checked)}
             />
-          </div>
+            <span className="brmble-toggle-slider"></span>
+          </label>
+        </div>
 
-          <div className="settings-item">
-            <label>TTS Voice</label>
-            <select
-              value={localSettings.ttsVoice}
-              onChange={(e) => handleChange('ttsVoice', e.target.value)}
-              className="settings-select"
-            >
-              <option value="">Default</option>
-              {voices.map((voice) => (
-                <option key={voice.name} value={voice.name}>
-                  {voice.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        </>
-      )}
+        {localSettings.ttsEnabled && (
+          <>
+            <div className="settings-item settings-slider">
+              <label>TTS Volume: {localSettings.ttsVolume}%</label>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={localSettings.ttsVolume}
+                onChange={(e) => handleChange('ttsVolume', parseInt(e.target.value))}
+              />
+            </div>
 
-      <div className="settings-item settings-toggle">
-        <label>Message Notifications</label>
-        <label className="brmble-toggle">
-          <input
-            type="checkbox"
-            checked={localSettings.notificationsEnabled}
-            onChange={(e) => handleChange('notificationsEnabled', e.target.checked)}
-          />
-          <span className="brmble-toggle-slider"></span>
-        </label>
+            <div className="settings-item">
+              <label>TTS Voice</label>
+              <select
+                value={localSettings.ttsVoice}
+                onChange={(e) => handleChange('ttsVoice', e.target.value)}
+                className="settings-select"
+              >
+                <option value="">Default</option>
+                {voices.map((voice) => (
+                  <option key={voice.name} value={voice.name}>
+                    {voice.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </>
+        )}
       </div>
+
+      {/* Notifications Section */}
+      <div className="settings-section">
+        <h3 className="heading-section settings-section-title">Notifications</h3>
+        <div className="settings-item settings-toggle">
+          <label>Message Notifications</label>
+          <label className="brmble-toggle">
+            <input
+              type="checkbox"
+              checked={localSettings.notificationsEnabled}
+              onChange={(e) => handleChange('notificationsEnabled', e.target.checked)}
+            />
+            <span className="brmble-toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+
     </div>
   );
 }
