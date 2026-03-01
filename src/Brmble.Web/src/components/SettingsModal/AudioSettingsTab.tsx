@@ -133,107 +133,118 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
 
   return (
     <div className="audio-settings-tab">
-      <div className="settings-item">
-        <label>Input Device</label>
-        <div className="select-wrapper">
-          <select
-            className="brmble-input"
-            value={localSettings.inputDevice}
-            onChange={(e) => handleChange('inputDevice', e.target.value)}
-          >
-            <option value="default">Default</option>
-          </select>
-        </div>
-      </div>
 
-      <div className="settings-item">
-        <label>Output Device</label>
-        <div className="select-wrapper">
-          <select
-            className="brmble-input"
-            value={localSettings.outputDevice}
-            onChange={(e) => handleChange('outputDevice', e.target.value)}
-          >
-            <option value="default">Default</option>
-          </select>
-        </div>
-      </div>
-
-      <div className="settings-item settings-slider">
-        <label>Input Volume: {localSettings.inputVolume}%</label>
-        <input
-          type="range"
-          min="0"
-          max="250"
-          value={localSettings.inputVolume}
-          onChange={(e) => handleChange('inputVolume', parseInt(e.target.value, 10))}
-        />
-      </div>
-
-      <div className="settings-item settings-slider">
-        <label>Max Amplification: {localSettings.maxAmplification}%</label>
-        <input
-          type="range"
-          min="100"
-          max="400"
-          value={localSettings.maxAmplification}
-          onChange={(e) => handleChange('maxAmplification', parseInt(e.target.value, 10))}
-        />
-      </div>
-
-      <div className="settings-item settings-slider">
-        <label>Output Volume: {localSettings.outputVolume}%</label>
-        <input
-          type="range"
-          min="0"
-          max="250"
-          value={localSettings.outputVolume}
-          onChange={(e) => handleChange('outputVolume', parseInt(e.target.value, 10))}
-        />
-      </div>
-
-      <div className="settings-item">
-        <label>Transmission Mode</label>
-        <div className="select-wrapper">
-          <select
-            className="brmble-input"
-            value={localSettings.transmissionMode}
-            onChange={(e) => handleChange('transmissionMode', e.target.value as TransmissionMode)}
-          >
-            <option value="pushToTalk">Push to Talk</option>
-            <option value="voiceActivity">Voice Activity</option>
-            <option value="continuous">Continuous</option>
-          </select>
-        </div>
-      </div>
-
-      {localSettings.transmissionMode === 'pushToTalk' && (
+      {/* Input Section */}
+      <div className="settings-section">
+        <h3 className="heading-section settings-section-title">Input</h3>
         <div className="settings-item">
-          <label>Push to Talk Key</label>
-          <button
-            className={`btn btn-secondary key-binding-btn ${recording ? 'recording' : ''}`}
-            onClick={() => setRecording(!recording)}
-          >
-            {recording ? 'Press any key...' : (localSettings.pushToTalkKey || 'Not bound')}
-          </button>
+          <label>Input Device</label>
+          <div className="select-wrapper">
+            <select
+              className="brmble-input"
+              value={localSettings.inputDevice}
+              onChange={(e) => handleChange('inputDevice', e.target.value)}
+            >
+              <option value="default">Default</option>
+            </select>
+          </div>
         </div>
-      )}
 
-      <div className="settings-section-divider" />
-
-      <div className="settings-item settings-toggle">
-        <label>
-          Speech Enhancement
-          <span className="settings-hint-inline"> — AI noise reduction (GTCRN)</span>
-        </label>
-        <label className="brmble-toggle">
+        <div className="settings-item settings-slider">
+          <label>Input Volume: {localSettings.inputVolume}%</label>
           <input
-            type="checkbox"
-            checked={speechEnhancement.enabled}
-            onChange={() => onSpeechEnhancementChange({ ...speechEnhancement, enabled: !speechEnhancement.enabled })}
+            type="range"
+            min="0"
+            max="250"
+            value={localSettings.inputVolume}
+            onChange={(e) => handleChange('inputVolume', parseInt(e.target.value, 10))}
           />
-          <span className="brmble-toggle-slider"></span>
-        </label>
+        </div>
+
+        <div className="settings-item settings-slider">
+          <label>Max Amplification: {localSettings.maxAmplification}%</label>
+          <input
+            type="range"
+            min="100"
+            max="400"
+            value={localSettings.maxAmplification}
+            onChange={(e) => handleChange('maxAmplification', parseInt(e.target.value, 10))}
+          />
+        </div>
+      </div>
+
+      {/* Output Section */}
+      <div className="settings-section">
+        <h3 className="heading-section settings-section-title">Output</h3>
+        <div className="settings-item">
+          <label>Output Device</label>
+          <div className="select-wrapper">
+            <select
+              className="brmble-input"
+              value={localSettings.outputDevice}
+              onChange={(e) => handleChange('outputDevice', e.target.value)}
+            >
+              <option value="default">Default</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="settings-item settings-slider">
+          <label>Output Volume: {localSettings.outputVolume}%</label>
+          <input
+            type="range"
+            min="0"
+            max="250"
+            value={localSettings.outputVolume}
+            onChange={(e) => handleChange('outputVolume', parseInt(e.target.value, 10))}
+          />
+        </div>
+      </div>
+
+      {/* Transmission Section */}
+      <div className="settings-section">
+        <h3 className="heading-section settings-section-title">Transmission</h3>
+        <div className="settings-item">
+          <label>Transmission Mode</label>
+          <div className="select-wrapper">
+            <select
+              className="brmble-input"
+              value={localSettings.transmissionMode}
+              onChange={(e) => handleChange('transmissionMode', e.target.value as TransmissionMode)}
+            >
+              <option value="pushToTalk">Push to Talk</option>
+              <option value="voiceActivity">Voice Activity</option>
+              <option value="continuous">Continuous</option>
+            </select>
+          </div>
+        </div>
+
+        {localSettings.transmissionMode === 'pushToTalk' && (
+          <div className="settings-item">
+            <label>Push to Talk Key</label>
+            <button
+              className={`btn btn-secondary key-binding-btn ${recording ? 'recording' : ''}`}
+              onClick={() => setRecording(!recording)}
+            >
+              {recording ? 'Press any key...' : (localSettings.pushToTalkKey || 'Not bound')}
+            </button>
+          </div>
+        )}
+
+        <div className="settings-item settings-toggle">
+          <label>
+            Speech Enhancement
+            <span className="settings-hint-inline"> — AI noise reduction (GTCRN)</span>
+          </label>
+          <label className="brmble-toggle">
+            <input
+              type="checkbox"
+              checked={speechEnhancement.enabled}
+              onChange={() => onSpeechEnhancementChange({ ...speechEnhancement, enabled: !speechEnhancement.enabled })}
+            />
+            <span className="brmble-toggle-slider"></span>
+          </label>
+        </div>
       </div>
 
       {conflict && (

@@ -33,12 +33,6 @@
   box-shadow: 0 0 var(--glow-md) var(--accent-primary-glow);
 }
 
-.settings-section-divider {
-  height: 1px;
-  background: var(--border-subtle);
-  margin: 12px 0;
-}
-
 .settings-hint-inline {
   color: var(--text-muted);
   font-size: 12px;
