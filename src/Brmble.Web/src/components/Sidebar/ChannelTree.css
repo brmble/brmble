@@ -1,5 +1,5 @@
 .channel-tree {
-  font-size: 14px;
+  font-size: var(--text-sm);
 }
 
 .channel-item {
@@ -61,7 +61,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text-secondary);
-  font-size: 0.875rem;
+  font-size: var(--text-sm);
 }
 
 .channel-row:hover .channel-name {
@@ -69,7 +69,7 @@
 }
 
 .user-count {
-  font-size: 0.6875rem;
+  font-size: var(--text-xs);
   color: var(--text-muted);
   padding: 2px 6px;
   background: var(--bg-hover);
@@ -83,7 +83,7 @@
   color: var(--text-muted);
   padding: 2px 8px;
   border-radius: var(--radius-xs);
-  font-size: 0.625rem;
+  font-size: var(--text-2xs);
   cursor: pointer;
   transition: all var(--transition-fast);
   flex-shrink: 0;
@@ -151,7 +151,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text-secondary);
-  font-size: 0.8125rem;
+  font-size: var(--text-sm);
 }
 
 .user-row:hover .user-name {
@@ -159,7 +159,7 @@
 }
 
 .self-badge {
-  font-size: 0.625rem;
+  font-size: var(--text-2xs);
   color: var(--accent-success);
   padding: 1px 6px;
   background: var(--accent-success-subtle);

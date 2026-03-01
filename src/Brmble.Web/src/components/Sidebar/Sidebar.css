@@ -8,14 +8,14 @@
 
 .server-info-name {
   font-family: var(--font-display);
-  font-size: 1.25rem;
+  font-size: var(--text-xl);
   font-weight: 600;
   color: var(--text-primary);
   line-height: 1.2;
 }
 
 .server-info-address {
-  font-size: 0.8125rem;
+  font-size: var(--text-sm);
   color: var(--text-muted);
   margin-top: 0.125rem;
 }
@@ -61,14 +61,14 @@
 }
 
 .status-label {
-  font-size: 0.6875rem;
+  font-size: var(--text-xs);
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 
 .status-value {
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   color: var(--text-secondary);
   font-weight: 500;
 }
@@ -146,7 +146,7 @@
 }
 
 .status-text {
-  font-size: 0.6875rem;
+  font-size: var(--text-xs);
   color: var(--text-muted);
 }
 
@@ -166,7 +166,7 @@
 }
 
 .root-users-count {
-  font-size: 0.5625rem;
+  font-size: var(--text-2xs);
   color: var(--border-glow);
   font-family: var(--font-mono);
   letter-spacing: 0.05em;
@@ -223,7 +223,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text-muted-strong);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   font-style: italic;
 }
 
@@ -236,7 +236,7 @@
 }
 
 .root-self-badge {
-  font-size: 0.5625rem;
+  font-size: var(--text-2xs);
   font-family: var(--font-mono);
   color: var(--accent-primary-glow);
   letter-spacing: 0.04em;
@@ -276,7 +276,7 @@
 }
 
 .channels-section-count {
-  font-size: 0.5625rem;
+  font-size: var(--text-2xs);
   color: var(--border-glow);
   font-family: var(--font-mono);
   letter-spacing: 0.05em;
