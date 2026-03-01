@@ -15,6 +15,7 @@ import { CloseDialog } from './components/CloseDialog/CloseDialog';
 import { CertWizard } from './components/CertWizard/CertWizard';
 import { Version } from './components/Version/Version';
 import { useChatStore, addMessageToStore, clearChatStorage, loadDMContacts, upsertDMContact, markDMContactRead } from './hooks/useChatStore';
+import { parseMessageMedia } from './utils/parseMessageMedia';
 import type { StoredDMContact } from './hooks/useChatStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
 import './App.css';
@@ -389,10 +390,11 @@ function App() {
           const matrixActive = creds?.roomMap[channelId] !== undefined;
           if (!matrixActive) {
             const storeKey = `channel-${channelId}`;
+            const { text, media } = parseMessageMedia(d.message);
             if (currentChannelIdRef.current === channelId) {
-              addMessageRef.current(senderName, d.message);
+              addMessageRef.current(senderName, text, undefined, undefined, media.length > 0 ? media : undefined);
             } else {
-              addMessageToStore(storeKey, senderName, d.message);
+              addMessageToStore(storeKey, senderName, text, undefined, undefined, media.length > 0 ? media : undefined);
             }
           }
         }
@@ -405,10 +407,11 @@ function App() {
       const isViewingThisDM = appModeRef.current === 'dm' &&
         selectedDMUserIdRef.current === senderSession;
 
+      const { text: dmText, media: dmMedia } = parseMessageMedia(d.message);
       if (isViewingThisDM) {
-        addDMMessageRef.current(senderName, d.message);
+        addDMMessageRef.current(senderName, dmText, undefined, undefined, dmMedia.length > 0 ? dmMedia : undefined);
       } else {
-        addMessageToStore(dmStoreKey, senderName, d.message);
+        addMessageToStore(dmStoreKey, senderName, dmText, undefined, undefined, dmMedia.length > 0 ? dmMedia : undefined);
       }
 
       const updated = upsertDMContact(senderSession, senderName, d.message, !isViewingThisDM);
