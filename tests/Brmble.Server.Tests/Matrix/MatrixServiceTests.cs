@@ -129,6 +129,59 @@ public class MatrixServiceTests
     }
 
     [TestMethod]
+    public async Task RelayMessage_Base64Image_UploadsAndSendsImageEvent()
+    {
+        _sessions.Setup(s => s.IsBrmbleClient("og-hash")).Returns(false);
+        await _channelRepo.InsertAsync(1, "!room:server");
+
+        _appService.Setup(a => a.UploadMedia(It.IsAny<byte[]>(), "image/png", "image.png"))
+            .ReturnsAsync("mxc://server/uploaded123");
+
+        var b64 = Convert.ToBase64String(new byte[] { 0x89, 0x50, 0x4E, 0x47 });
+        var msg = $"<img src=\"data:image/png;base64,{b64}\" />";
+
+        await _svc.RelayMessage(new MumbleUser("Bob", "og-hash", 1), msg, 1);
+
+        _appService.Verify(a => a.UploadMedia(It.IsAny<byte[]>(), "image/png", "image.png"), Times.Once);
+        _appService.Verify(a => a.SendImageMessage("!room:server", "Bob", "mxc://server/uploaded123", "image.png", "image/png", 4), Times.Once);
+        _appService.Verify(a => a.SendMessage(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task RelayMessage_Base64ImageWithText_SendsBothImageAndText()
+    {
+        _sessions.Setup(s => s.IsBrmbleClient("og-hash")).Returns(false);
+        await _channelRepo.InsertAsync(1, "!room:server");
+
+        _appService.Setup(a => a.UploadMedia(It.IsAny<byte[]>(), "image/png", "image.png"))
+            .ReturnsAsync("mxc://server/uploaded123");
+
+        var b64 = Convert.ToBase64String(new byte[] { 0x89, 0x50, 0x4E, 0x47 });
+        var msg = $"Check this out: <img src=\"data:image/png;base64,{b64}\" />";
+
+        await _svc.RelayMessage(new MumbleUser("Bob", "og-hash", 1), msg, 1);
+
+        _appService.Verify(a => a.SendImageMessage("!room:server", "Bob", "mxc://server/uploaded123", "image.png", "image/png", 4), Times.Once);
+        _appService.Verify(a => a.SendMessage("!room:server", "Bob", "Check this out:"), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task RelayMessage_Base64ImageOver5MB_SkipsImageSendsText()
+    {
+        _sessions.Setup(s => s.IsBrmbleClient("og-hash")).Returns(false);
+        await _channelRepo.InsertAsync(1, "!room:server");
+
+        var bigData = new byte[6 * 1024 * 1024];
+        var bigB64 = Convert.ToBase64String(bigData);
+        var msg = $"<img src=\"data:image/png;base64,{bigB64}\" />";
+
+        await _svc.RelayMessage(new MumbleUser("Bob", "og-hash", 1), msg, 1);
+
+        _appService.Verify(a => a.UploadMedia(It.IsAny<byte[]>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _appService.Verify(a => a.SendImageMessage(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>()), Times.Never);
+    }
+
+    [TestMethod]
     public async Task EnsureChannelRoom_ExistingChannel_DoesNotCreateRoom()
     {
         await _channelRepo.InsertAsync(10, "!existing:server");
