@@ -76,7 +76,6 @@ body::before {
   opacity: var(--theme-noise-opacity);
   background-image: var(--theme-noise-texture);
   background-size: var(--theme-noise-scale);
-  mix-blend-mode: var(--theme-noise-blend);
   transition: opacity var(--transition-normal);
 }
 

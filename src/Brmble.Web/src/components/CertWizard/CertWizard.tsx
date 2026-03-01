@@ -221,7 +221,7 @@ export function CertWizard({ onComplete }: CertWizardProps) {
                 Generating your certificate...
               </div>
             )}
-            {error && <p style={{ color: '#ff6b7a', fontSize: '0.85rem', marginBottom: '1rem' }}>{error}</p>}
+            {error && <p style={{ color: 'var(--accent-danger-text)', fontSize: '0.85rem', marginBottom: '1rem' }}>{error}</p>}
               <div className="cert-wizard-actions">
                 <button className="btn btn-ghost" onClick={() => setStep('warning')}>
                   Back
@@ -244,7 +244,7 @@ export function CertWizard({ onComplete }: CertWizardProps) {
             <p className="cert-wizard-body">
               Select your existing <code>.pfx</code> or <code>.p12</code> certificate file.
             </p>
-            {error && <p style={{ color: '#ff6b7a', fontSize: '0.85rem', marginBottom: '1rem' }}>{error}</p>}
+            {error && <p style={{ color: 'var(--accent-danger-text)', fontSize: '0.85rem', marginBottom: '1rem' }}>{error}</p>}
             <div className="cert-wizard-actions">
               <button className="cert-wizard-btn ghost" onClick={() => setStep('warning')}>
                 Back

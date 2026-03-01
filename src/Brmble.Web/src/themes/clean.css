@@ -20,8 +20,7 @@
 
   --theme-noise-opacity: 0;
   --theme-noise-texture: none;
-  --theme-noise-blend: normal;
-  --theme-noise-scale: cover;
+  --theme-noise-scale: 200px 200px;
   --theme-mesh-bg: none;
   --glass-blur-overlay: blur(6px);
 

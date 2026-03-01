@@ -124,11 +124,13 @@
   --font-body:    'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono:    'JetBrains Mono', monospace;
 
-  /* Theme Features — watery turbulence */
-  --theme-noise-opacity: 0.02;
-  --theme-noise-texture: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='turbulence' baseFrequency='0.4' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
-  --theme-noise-blend: soft-light;
-  --theme-noise-scale: cover;
+  /* Theme Features — overlapping water ripples */
+  --theme-noise-opacity: 0.08;
+  --theme-noise-texture:
+    radial-gradient(circle at 30% 30%, transparent 60px, rgba(255, 255, 255, 0.3) 62px, rgba(255, 255, 255, 0.15) 64px, transparent 66px, transparent 110px, rgba(255, 255, 255, 0.18) 112px, rgba(255, 255, 255, 0.08) 114px, transparent 116px),
+    radial-gradient(circle at 65% 40%, transparent 50px, rgba(255, 255, 255, 0.25) 52px, rgba(255, 255, 255, 0.12) 54px, transparent 56px, transparent 95px, rgba(255, 255, 255, 0.15) 97px, rgba(255, 255, 255, 0.07) 99px, transparent 101px),
+    radial-gradient(circle at 45% 70%, transparent 70px, rgba(255, 255, 255, 0.28) 72px, rgba(255, 255, 255, 0.14) 74px, transparent 76px, transparent 120px, rgba(255, 255, 255, 0.16) 122px, rgba(255, 255, 255, 0.07) 124px, transparent 126px);
+  --theme-noise-scale: 400px 400px;
   --theme-mesh-bg:
     radial-gradient(circle at 15% 15%, rgba(0, 180, 216, 0.08) 0%, transparent 40%),
     radial-gradient(circle at 85% 85%, rgba(46, 82, 179, 0.08) 0%, transparent 40%);

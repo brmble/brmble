@@ -129,11 +129,26 @@
   --font-body:    'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono:    'JetBrains Mono', monospace;
 
-  /* Theme Features — dreamy soft-focus grain */
-  --theme-noise-opacity: 0.025;
-  --theme-noise-texture: url("data:image/svg+xml,%3Csvg viewBox='0 0 300 300' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.55' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
-  --theme-noise-blend: soft-light;
-  --theme-noise-scale: cover;
+  /* Theme Features — sparkle zest points */
+  --theme-noise-opacity: 0.08;
+  --theme-noise-texture:
+    radial-gradient(circle 2px at 10% 15%, rgba(255, 255, 255, 0.7) 0%, transparent 100%),
+    radial-gradient(circle 3px at 30% 8%, rgba(255, 255, 255, 0.5) 0%, transparent 100%),
+    radial-gradient(circle 1px at 55% 22%, rgba(255, 255, 255, 0.8) 0%, transparent 100%),
+    radial-gradient(circle 2px at 78% 12%, rgba(255, 255, 255, 0.6) 0%, transparent 100%),
+    radial-gradient(circle 1px at 92% 30%, rgba(255, 255, 255, 0.7) 0%, transparent 100%),
+    radial-gradient(circle 3px at 18% 45%, rgba(255, 255, 255, 0.45) 0%, transparent 100%),
+    radial-gradient(circle 1px at 42% 52%, rgba(255, 255, 255, 0.75) 0%, transparent 100%),
+    radial-gradient(circle 2px at 65% 40%, rgba(255, 255, 255, 0.55) 0%, transparent 100%),
+    radial-gradient(circle 1px at 85% 55%, rgba(255, 255, 255, 0.8) 0%, transparent 100%),
+    radial-gradient(circle 2px at 5% 68%, rgba(255, 255, 255, 0.6) 0%, transparent 100%),
+    radial-gradient(circle 3px at 35% 75%, rgba(255, 255, 255, 0.5) 0%, transparent 100%),
+    radial-gradient(circle 1px at 50% 82%, rgba(255, 255, 255, 0.7) 0%, transparent 100%),
+    radial-gradient(circle 2px at 72% 70%, rgba(255, 255, 255, 0.65) 0%, transparent 100%),
+    radial-gradient(circle 1px at 88% 85%, rgba(255, 255, 255, 0.75) 0%, transparent 100%),
+    radial-gradient(circle 2px at 22% 92%, rgba(255, 255, 255, 0.55) 0%, transparent 100%),
+    radial-gradient(circle 1px at 60% 95%, rgba(255, 255, 255, 0.8) 0%, transparent 100%);
+  --theme-noise-scale: 300px 300px;
   --theme-mesh-bg:
     radial-gradient(circle at 10% 20%, rgba(245, 197, 24, 0.10) 0%, transparent 35%),
     radial-gradient(circle at 90% 80%, rgba(122, 90, 31, 0.08) 0%, transparent 35%),
