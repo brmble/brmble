@@ -58,7 +58,7 @@
 .modal-subtitle {
   color: var(--text-muted);
   margin: 0;
-  font-size: 0.875rem;
+  font-size: var(--text-sm);
   opacity: 0;
   animation: content-fade-in var(--animation-normal) ease forwards;
   animation-delay: calc(2 * var(--stagger-step));
@@ -80,7 +80,7 @@
 }
 
 .form-group label {
-  font-size: 0.8125rem;
+  font-size: var(--text-sm);
   font-weight: 500;
   color: var(--text-secondary);
 }

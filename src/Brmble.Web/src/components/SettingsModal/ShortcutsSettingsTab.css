@@ -1,6 +1,6 @@
 .shortcuts-settings-tab .settings-hint {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   margin-top: 12px;
 }
 
@@ -39,7 +39,7 @@
 
 .shortcut-conflict-message {
   font-family: var(--font-body);
-  font-size: 0.875rem;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
   margin: 0 0 24px;
   text-align: center;
