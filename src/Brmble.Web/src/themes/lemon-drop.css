@@ -106,6 +106,7 @@
   /* ── Glass Effect (2 tokens) ─────────────────── */
   --glass-blur:   blur(12px);
   --glass-border: 1px solid rgba(66, 62, 46, 0.48);
+  --glass-blur-overlay: blur(6px);
 
   /* ── Shadows (3 tokens) ──────────────────────── */
   --shadow-dialog:

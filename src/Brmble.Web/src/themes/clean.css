@@ -15,6 +15,7 @@
   --theme-noise-blend: normal;
   --theme-noise-scale: cover;
   --theme-mesh-bg: none;
+  --glass-blur-overlay: blur(6px);
 
   /* Glow Scale */
   --glow-sm: 8px;

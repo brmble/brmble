@@ -110,6 +110,7 @@
      ──────────────────────────────────────────────── */
   --glass-blur:   blur(0px);
   --glass-border: 1px solid rgba(51, 255, 0, 0.30);
+  --glass-blur-overlay: blur(0px);
 
   /* ── Shadows (3 tokens)
      Green-tinted shadows — phosphor glow, not neutral.
