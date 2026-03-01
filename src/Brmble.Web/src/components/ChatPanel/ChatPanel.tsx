@@ -53,7 +53,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
           ) : (
             <span className="channel-hash">#</span>
           )}
-          <h2 className="channel-title">{channelName}</h2>
+          <h3 className="heading-section">{channelName}</h3>
         </div>
         {!isDM && (
           <div className="chat-header-right">

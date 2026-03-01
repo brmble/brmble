@@ -126,9 +126,9 @@ export function ServerList({ onConnect }: ServerListProps) {
 
           {(isAdding || editing) && (
             <form className="server-list-form" onSubmit={handleSubmit}>
-              <div className="server-list-form-title">
+              <h3 className="heading-section server-list-form-title">
                 {editing ? 'Edit Server' : 'Add New Server'}
-              </div>
+              </h3>
               <div className="server-list-form-fields">
                 <input
                   className="brmble-input server-list-input"

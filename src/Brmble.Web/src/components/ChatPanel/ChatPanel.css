@@ -60,14 +60,6 @@
   color: var(--text-muted);
 }
 
-.channel-title {
-  font-family: var(--font-body);
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 0;
-}
-
 .chat-header-right {
   display: flex;
   align-items: center;

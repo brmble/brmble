@@ -38,7 +38,7 @@ export function InterfaceSettingsTab({
       
       {/* Theme Section */}
       <div className="settings-section">
-        <h3 className="settings-section-title">Theme</h3>
+        <h3 className="heading-section settings-section-title">Theme</h3>
         <div className="settings-item">
           <label>Aesthetic</label>
           <div className="select-wrapper">
@@ -57,7 +57,7 @@ export function InterfaceSettingsTab({
 
       {/* Overlay Section */}
       <div className="settings-section">
-        <h3 className="settings-section-title">In-Game Overlay</h3>
+        <h3 className="heading-section settings-section-title">In-Game Overlay</h3>
         <div className="settings-item settings-toggle">
           <label>Enable Overlay</label>
           <label className="brmble-toggle">

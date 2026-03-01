@@ -59,7 +59,7 @@ export function IdentitySettingsTab({ fingerprint, connectedUsername }: Identity
       />
 
       <div className="settings-section">
-        <p className="settings-section-title">Certificate</p>
+        <h3 className="heading-section settings-section-title">Certificate</h3>
         <div className="settings-item" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.5rem' }}>
           <label>Fingerprint</label>
           <span style={{
@@ -83,7 +83,7 @@ export function IdentitySettingsTab({ fingerprint, connectedUsername }: Identity
       </div>
 
       <div className="settings-section">
-        <p className="settings-section-title">Manage</p>
+        <h3 className="heading-section settings-section-title">Manage</h3>
         <div className="settings-item">
           <div>
             <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Export Certificate</div>
