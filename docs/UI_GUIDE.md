@@ -36,7 +36,7 @@ All visual properties must come from CSS custom properties. Two layers exist:
 | Group | Tokens | Range |
 |---|---|---|
 | Spacing | `--space-2xs` through `--space-3xl` | 4px - 64px (8 tokens) |
-| Font sizes | `--text-xs` through `--text-4xl` | 12px - 40px (8 tokens) |
+| Font sizes | `--text-2xs` through `--text-4xl` | 10px - 40px (9 tokens) |
 | Layout | `--sidebar-width`, `--header-height` | 280px, 60px (2 tokens) |
 | Transitions | `--transition-fast`, `--transition-normal`, `--transition-slow` | 150ms, 250ms, 400ms (3 tokens) |
 | Entrance animations | `--animation-fast/normal/slow`, `--stagger-step` | 150ms, 300ms, 400ms, 50ms (4 tokens) |
