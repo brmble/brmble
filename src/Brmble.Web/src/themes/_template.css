@@ -9,7 +9,7 @@
    THE 3 DECISIONS
    ───────────────
    Every Brmble theme derives from exactly 3 starting choices. Once these
-   are locked, all ~68 tokens can be mechanically produced.
+   are locked, all ~74 tokens can be mechanically produced.
    
    ┌──────────────────┬──────────────────────────────────────────────────────┐
    │ 1. BASE HUE      │ An HSL degree (0-360) that tints backgrounds,      │
@@ -627,6 +627,39 @@
 
 
   /* ─────────────────────────────────────────────────────────────────────────
+     HEADING SCALE (6 tokens)
+     ─────────────────────────────────────────────────────────────────────────
+     Controls the size and color of the 3-tier heading system used across
+     the entire app. These tokens feed into the shared .heading-title,
+     .heading-section, and .heading-label classes defined in headings.css.
+     
+     TIERS:
+       Title   — Page titles, modal titles, dialog titles (28px default)
+       Section — Settings section headers, form groups, panel headers (14px)
+       Label   — Sidebar labels, field labels, small category tags (10px)
+     
+     Most themes can use the defaults. Override for special personality:
+       Retro Terminal: section-color uses --accent-primary for green-on-black
+       Clean: may want larger section-size for more spacious feel
+     
+     CLASSIC WORKED EXAMPLE:
+       --heading-title-size:    1.75rem;
+       --heading-title-color:   var(--text-primary);
+       --heading-section-size:  0.875rem;
+       --heading-section-color: var(--text-secondary);
+       --heading-label-size:    0.625rem;
+       --heading-label-color:   var(--text-muted);
+     ───────────────────────────────────────────────────────────────────── */
+
+  --heading-title-size:    /* 1.75rem (28px) */;
+  --heading-title-color:   /* var(--text-primary) */;
+  --heading-section-size:  /* 0.875rem (14px) */;
+  --heading-section-color: /* var(--text-secondary) */;
+  --heading-label-size:    /* 0.625rem (10px) */;
+  --heading-label-color:   /* var(--text-muted) */;
+
+
+  /* ─────────────────────────────────────────────────────────────────────────
      THEME FEATURES (5 tokens)
      ─────────────────────────────────────────────────────────────────────────
      These control atmospheric effects layered over the UI.
@@ -714,7 +747,7 @@
    
    Before shipping your theme, verify:
    
-    □  All 67 tokens are defined (no remaining placeholder comments)
+     □  All 73 tokens are defined (no remaining placeholder comments)
    □  Replace THEME_SLUG with your theme's ID (lowercase, hyphenated)
    □  Replace THEME_NAME with the display name
    □  Update the cocktail name and vibe description in the header
@@ -748,9 +781,10 @@
      Shadows ............... 3
      Glow Scale ............ 3  (sm, md, lg)
      Border Radius Scale ... 6  (xs, sm, md, lg, xl, full)
-     Typography ............ 3
-      Theme Features ........ 4  (+3 noise-texture, noise-opacity, noise-scale)
-                             ──
-      Total                  67
+      Typography ............ 3
+      Heading Scale ......... 6
+       Theme Features ........ 4  (+3 noise-texture, noise-opacity, noise-scale)
+                              ──
+       Total                  73
    
    ═══════════════════════════════════════════════════════════════════════════ */

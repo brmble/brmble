@@ -96,6 +96,14 @@
   --font-display: 'Cormorant Garamond', Georgia, serif;
   --font-body: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
+
+  /* ─── Heading Scale ─── */
+  --heading-title-size:    1.75rem;
+  --heading-title-color:   var(--text-primary);
+  --heading-section-size:  0.875rem;
+  --heading-section-color: var(--text-secondary);
+  --heading-label-size:    0.625rem;
+  --heading-label-color:   var(--text-muted);
 }
 
 /* ── Classic visual identity (texture, radius, glow) ── */

@@ -24,6 +24,14 @@
   --theme-mesh-bg: none;
   --glass-blur-overlay: blur(6px);
 
+  /* ─── Heading Scale ─── */
+  --heading-title-size:    1.75rem;
+  --heading-title-color:   var(--text-primary);
+  --heading-section-size:  0.875rem;
+  --heading-section-color: var(--text-secondary);
+  --heading-label-size:    0.625rem;
+  --heading-label-color:   var(--text-muted);
+
   /* Glow Scale */
   --glow-sm: 8px;
   --glow-md: 12px;

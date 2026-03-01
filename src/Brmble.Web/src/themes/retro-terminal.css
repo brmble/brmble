@@ -138,6 +138,14 @@
   --font-body:    'IBM Plex Mono', 'JetBrains Mono', monospace;
   --font-mono:    'JetBrains Mono', 'IBM Plex Mono', monospace;
 
+  /* ─── Heading Scale ─── */
+  --heading-title-size:    1.75rem;
+  --heading-title-color:   var(--text-primary);
+  --heading-section-size:  0.875rem;
+  --heading-section-color: var(--accent-primary);
+  --heading-label-size:    0.625rem;
+  --heading-label-color:   var(--accent-primary-glow);
+
   /* Theme Features — CRT scanline overlay */
   --theme-noise-opacity: 0.15;
   --theme-noise-texture: repeating-linear-gradient(

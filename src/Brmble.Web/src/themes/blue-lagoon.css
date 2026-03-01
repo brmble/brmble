@@ -124,6 +124,14 @@
   --font-body:    'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono:    'JetBrains Mono', monospace;
 
+  /* ─── Heading Scale ─── */
+  --heading-title-size:    1.75rem;
+  --heading-title-color:   var(--text-primary);
+  --heading-section-size:  0.875rem;
+  --heading-section-color: var(--text-secondary);
+  --heading-label-size:    0.625rem;
+  --heading-label-color:   var(--text-muted);
+
   /* Theme Features — overlapping water ripples */
   --theme-noise-opacity: 0.08;
   --theme-noise-texture:
