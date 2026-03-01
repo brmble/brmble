@@ -2,6 +2,22 @@ import { useState, useEffect, useCallback } from 'react';
 import type { ChatMessage } from '../types';
 
 const STORAGE_KEY_PREFIX = 'brmble_chat_';
+const MAX_MESSAGES_PER_STORE = 500;
+
+function safeSetItem(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // QuotaExceededError — evict oldest half and retry
+    try {
+      const parsed: unknown[] = JSON.parse(value);
+      const trimmed = parsed.slice(Math.floor(parsed.length / 2));
+      localStorage.setItem(key, JSON.stringify(trimmed));
+    } catch {
+      // Give up silently — messages still in React state
+    }
+  }
+}
 
 export function useChatStore(channelId: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -24,7 +40,7 @@ export function useChatStore(channelId: string) {
   }, [channelId]);
 
   const saveMessages = useCallback((msgs: ChatMessage[]) => {
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}${channelId}`, JSON.stringify(msgs));
+    safeSetItem(`${STORAGE_KEY_PREFIX}${channelId}`, JSON.stringify(msgs));
   }, [channelId]);
 
   const addMessage = useCallback((sender: string, content: string, type?: 'system', html?: boolean) => {
@@ -38,7 +54,10 @@ export function useChatStore(channelId: string) {
       ...(html && { html }),
     };
     setMessages(prev => {
-      const updated = [...prev, newMessage];
+      let updated = [...prev, newMessage];
+      if (updated.length > MAX_MESSAGES_PER_STORE) {
+        updated = updated.slice(updated.length - MAX_MESSAGES_PER_STORE);
+      }
       saveMessages(updated);
       return updated;
     });
@@ -78,7 +97,10 @@ export function addMessageToStore(storeKey: string, sender: string, content: str
     ...(html && { html }),
   };
   messages.push(newMessage);
-  localStorage.setItem(fullKey, JSON.stringify(messages));
+  if (messages.length > MAX_MESSAGES_PER_STORE) {
+    messages = messages.slice(messages.length - MAX_MESSAGES_PER_STORE);
+  }
+  safeSetItem(fullKey, JSON.stringify(messages));
 }
 
 /** Clear all chat messages and DM contacts from localStorage. */
