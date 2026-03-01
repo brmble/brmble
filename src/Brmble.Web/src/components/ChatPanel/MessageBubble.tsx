@@ -1,3 +1,4 @@
+import DOMPurify from 'dompurify';
 import './MessageBubble.css';
 
 interface MessageBubbleProps {
@@ -33,7 +34,7 @@ export function MessageBubble({ sender, content, timestamp, isOwnMessage, isSyst
           <span className="message-time">{formatTime(timestamp)}</span>
         </div>
         {html ? (
-          <div className="message-text" dangerouslySetInnerHTML={{ __html: content }} />
+          <div className="message-text" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content) }} />
         ) : (
           <p className="message-text">{content}</p>
         )}
