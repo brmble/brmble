@@ -61,6 +61,7 @@ public class MatrixService
         // Extract and upload base64 images
         var remaining = text;
         var matches = ImgRegex.Matches(text);
+        int offset = 0;
         foreach (Match match in matches)
         {
             var mimetype = match.Groups[1].Value;
@@ -73,10 +74,13 @@ public class MatrixService
             }
 
             // ICE/Mumble may URL-encode the data URI content — decode before base64
-            var rawB64 = Uri.UnescapeDataString(b64Data);
-
+            var rawB64 = b64Data;
             byte[] imageData;
-            try { imageData = Convert.FromBase64String(rawB64); }
+            try
+            {
+                rawB64 = Uri.UnescapeDataString(b64Data);
+                imageData = Convert.FromBase64String(rawB64);
+            }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Skipping image: base64 decode failed (b64Length={Len})", rawB64.Length);
@@ -96,7 +100,8 @@ public class MatrixService
             {
                 var mxcUrl = await _appService.UploadMedia(imageData, mimetype, fileName);
                 await _appService.SendImageMessage(roomId, sender.Name, mxcUrl, fileName, mimetype, imageData.Length);
-                remaining = remaining.Replace(match.Value, "");
+                remaining = remaining.Remove(match.Index - offset, match.Length);
+                offset += match.Length;
             }
             catch (Exception ex)
             {

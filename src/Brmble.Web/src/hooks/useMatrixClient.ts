@@ -94,7 +94,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
             : (cl?.mxcUrlToHttp(content.url, 400, 400, 'scale') ?? undefined);
 
           media = [{
-            type: content.info?.mimetype === 'image/gif' ? 'gif' : 'image',
+            type: content.info?.mimetype?.toLowerCase() === 'image/gif' ? 'gif' : 'image',
             url: fullUrl,
             thumbnailUrl: thumbUrl,
             width: content.info?.w,
@@ -146,7 +146,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
           : (cl?.mxcUrlToHttp(dmContent.url, 400, 400, 'scale') ?? undefined);
 
         dmMedia = [{
-          type: dmContent.info?.mimetype === 'image/gif' ? 'gif' : 'image',
+          type: dmContent.info?.mimetype?.toLowerCase() === 'image/gif' ? 'gif' : 'image',
           url: fullUrl,
           thumbnailUrl: thumbUrl,
           width: dmContent.info?.w,

@@ -7,6 +7,26 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  outline: none;
+}
+
+.image-lightbox__close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  background: none;
+  border: none;
+  color: white;
+  font-size: 2rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-md);
+  z-index: 1001;
+}
+
+.image-lightbox__close:hover {
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .image-lightbox__img {

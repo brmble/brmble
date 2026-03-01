@@ -163,7 +163,7 @@ public class MatrixAppServiceTests
     }
 
     [TestMethod]
-    public async Task UploadMedia_PutsToMediaEndpointWithContentType()
+    public async Task UploadMedia_PostsToMediaEndpointWithContentType()
     {
         SetupHttpResponse(HttpStatusCode.OK,
             """{"content_uri":"mxc://server/abc123"}""");
@@ -178,7 +178,7 @@ public class MatrixAppServiceTests
     }
 
     [TestMethod]
-    public async Task SendImageMessage_PutsImageEventToRoom()
+    public async Task SendImageMessage_SendsImageEventToRoom()
     {
         SetupHttpResponse(HttpStatusCode.OK);
 

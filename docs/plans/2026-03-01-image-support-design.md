@@ -6,7 +6,7 @@
 
 ## Overview
 
-Add inline image and GIF rendering to chat messages, with bidirectional compatibility between Matrix (`m.image` events) and Mumble (base64 HTML `<img>` tags). The server bridge converts Mumble base64 images into proper Matrix `m.image` events.
+Add inline image and GIF rendering to chat messages, with receive-only compatibility between Matrix (`m.image` events) and Mumble (base64 HTML `<img>` tags). The server bridge converts Mumble base64 images into proper Matrix `m.image` events. Sending/uploading images from the Brmble client is deferred to a follow-up iteration.
 
 ## Approach
 
@@ -82,7 +82,7 @@ interface MediaAttachment {
   1. Extract mimetype and base64 data
   2. Decode to byte array
   3. Reject if over 5 MB
-  4. Upload to Matrix media repo via `PUT /_matrix/media/v3/upload` (returns mxc:// URI)
+  4. Upload to Matrix media repo via `POST /_matrix/media/v3/upload` (returns mxc:// URI)
   5. Send as `m.image` event
 - Remaining text still sent as `m.text` (HTML stripped)
 - A message with both text and image becomes two Matrix events

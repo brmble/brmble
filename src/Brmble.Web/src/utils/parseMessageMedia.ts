@@ -17,15 +17,22 @@ export function parseMessageMedia(message: string): ParsedMessage {
 
   let match;
   while ((match = IMG_REGEX.exec(message)) !== null) {
-    const [fullMatch, mimetype, b64Data] = match;
+    const [fullMatch, rawMimetype, b64Data] = match;
 
     // Always strip the img tag from the text output
     text = text.replace(fullMatch, '');
 
-    if (!ALLOWED_MIMETYPES.includes(mimetype.toLowerCase())) continue;
+    const mimetype = rawMimetype.toLowerCase();
+
+    if (!ALLOWED_MIMETYPES.includes(mimetype)) continue;
 
     // MumbleSharp/ICE may URL-encode the data URI content — decode before use
-    const rawB64 = decodeURIComponent(b64Data);
+    let rawB64: string;
+    try {
+      rawB64 = decodeURIComponent(b64Data);
+    } catch {
+      rawB64 = b64Data;
+    }
 
     const estimatedSize = Math.floor((rawB64.length * 3) / 4);
     if (estimatedSize > MAX_SIZE_BYTES) continue;

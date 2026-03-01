@@ -22,7 +22,11 @@ export function ImageAttachment({ attachment, onOpenLightbox }: ImageAttachmentP
   }
 
   return (
-    <div className="image-attachment" onClick={() => onOpenLightbox(attachment.url)}>
+    <button
+      type="button"
+      className="image-attachment"
+      onClick={() => onOpenLightbox(attachment.url)}
+    >
       {!loaded && <div className="image-attachment__placeholder" />}
       <img
         src={src}
@@ -31,6 +35,6 @@ export function ImageAttachment({ attachment, onOpenLightbox }: ImageAttachmentP
         onLoad={() => setLoaded(true)}
         onError={() => setError(true)}
       />
-    </div>
+    </button>
   );
 }
