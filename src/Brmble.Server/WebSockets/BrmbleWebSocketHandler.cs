@@ -49,7 +49,7 @@ public static class BrmbleWebSocketHandler
                     kvp => new { matrixUserId = kvp.Value.MatrixUserId, mumbleName = kvp.Value.MumbleName });
             var snapshotJson = JsonSerializer.Serialize(new { type = "sessionMappingSnapshot", mappings = snapshot }, JsonOptions);
             var snapshotBytes = Encoding.UTF8.GetBytes(snapshotJson);
-            await ws.SendAsync(snapshotBytes, WebSocketMessageType.Text, true, CancellationToken.None);
+            await ws.SendAsync(snapshotBytes, WebSocketMessageType.Text, true, context.RequestAborted);
 
             // Read loop until close
             var buffer = new byte[1024];

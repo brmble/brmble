@@ -30,9 +30,14 @@ public class BrmbleEventBus : IBrmbleEventBus
             try
             {
                 if (ws.State == WebSocketState.Open)
-                    await ws.SendAsync(bytes, WebSocketMessageType.Text, true, CancellationToken.None);
+                {
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                    await ws.SendAsync(bytes, WebSocketMessageType.Text, true, cts.Token);
+                }
                 else
+                {
                     RemoveClient(ws);
+                }
             }
             catch (Exception ex)
             {

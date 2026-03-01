@@ -100,10 +100,10 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     {
         _sessionMapping.SetNameForSession(user.Name, user.SessionId);
 
-        // Try cert-based resolution for returning users (background, non-blocking)
-        _ = TryResolveCertAsync(user);
+        // Try cert-based resolution — await so handlers see the cert hash
+        var enriched = await TryResolveCertAsync(user);
 
-        await Task.WhenAll(_handlers.Select(h => h.OnUserConnected(user)));
+        await Task.WhenAll(_handlers.Select(h => h.OnUserConnected(enriched)));
     }
 
     public async Task DispatchUserDisconnected(MumbleUser user)
@@ -122,24 +122,24 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     public Task DispatchChannelRenamed(MumbleChannel channel)
         => Task.WhenAll(_handlers.Select(h => h.OnChannelRenamed(channel)));
 
-    private async Task TryResolveCertAsync(MumbleUser user)
+    private async Task<MumbleUser> TryResolveCertAsync(MumbleUser user)
     {
-        if (_serverProxy is null) return;
+        if (_serverProxy is null) return user;
 
         try
         {
             var certs = await _serverProxy.getCertificateListAsync(user.SessionId);
-            if (certs is not { Length: > 0 }) return;
+            if (certs is not { Length: > 0 }) return user;
 
             var hash = CertificateHasher.HashDer(certs[0]);
-            // Cert hash is logged for diagnostics. The actual DB lookup happens
-            // via a dedicated IMumbleEventHandler (SessionMappingHandler, Task 5).
             _logger.LogDebug("Cert resolved for {User} session {Session}: hash={Hash}",
                 user.Name, user.SessionId, hash);
+            return user with { CertHash = hash };
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "getCertificateListAsync failed for session {Session}", user.SessionId);
+            return user;
         }
     }
 

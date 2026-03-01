@@ -23,7 +23,12 @@ public class SessionMappingService : ISessionMappingService
     {
         _sessionToMapping.TryRemove(sessionId, out _);
         if (_sessionToName.TryRemove(sessionId, out var name))
-            _nameToSession.TryRemove(name, out _);
+        {
+            // Only remove name→session if it still points to this session
+            // (a newer session may have claimed the same name)
+            ((ICollection<KeyValuePair<string, int>>)_nameToSession)
+                .Remove(new KeyValuePair<string, int>(name, sessionId));
+        }
     }
 
     public bool TryGetMatrixUserId(int sessionId, out string? matrixUserId)

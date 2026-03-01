@@ -580,12 +580,12 @@ function App() {
     };
 
     const onSessionMappingSnapshot = (data: unknown) => {
-      const d = data as { mappings: Record<string, { MatrixUserId: string; MumbleName: string }> } | undefined;
+      const d = data as { mappings: Record<string, { matrixUserId: string; mumbleName: string }> } | undefined;
       if (d?.mappings && typeof d.mappings === 'object') {
         setUsers(prev => {
           const mappingMap = new Map<number, string>();
           for (const [sid, entry] of Object.entries(d.mappings)) {
-            mappingMap.set(Number(sid), entry.MatrixUserId);
+            mappingMap.set(Number(sid), entry.matrixUserId);
           }
           return prev.map(u =>
             mappingMap.has(u.session)

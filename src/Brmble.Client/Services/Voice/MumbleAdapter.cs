@@ -949,9 +949,16 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     if (cert is null)
                     {
                         Debug.WriteLine("[WS] No client certificate available, retrying...");
-                        continue; // cert may become available on next attempt
+                        // Apply backoff delay to avoid hot spinning
+                        if (ct.IsCancellationRequested) break;
+                        try { await Task.Delay(backoff, ct); } catch (OperationCanceledException) { break; }
+                        backoff = TimeSpan.FromSeconds(Math.Min(backoff.TotalSeconds * 2, maxBackoff.TotalSeconds));
+                        continue;
                     }
 
+                    // TODO: ClientWebSocket uses SChannel which may refuse self-signed client certs
+                    // on some Windows configurations. If WS auth fails, consider a BouncyCastle-based
+                    // WebSocket implementation (similar to FetchCredentialsViaBcTls).
                     using var ws = new ClientWebSocket();
                     ws.Options.RemoteCertificateValidationCallback = (_, _, _, _) => true;
                     ws.Options.ClientCertificates.Add(cert);
