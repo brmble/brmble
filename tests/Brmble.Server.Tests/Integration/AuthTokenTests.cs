@@ -56,4 +56,14 @@ public class AuthTokenTests : IDisposable
         var json = await response.Content.ReadAsStringAsync();
         Assert.IsTrue(json.Contains("userMappings"), "Response should contain userMappings field");
     }
+
+    [TestMethod]
+    public async Task PostAuthToken_IncludesSessionMappingsInResponse()
+    {
+        var response = await _client.PostAsync("/auth/token", null);
+        response.EnsureSuccessStatusCode();
+
+        var json = await response.Content.ReadAsStringAsync();
+        Assert.IsTrue(json.Contains("sessionMappings"), "Response should contain sessionMappings field");
+    }
 }

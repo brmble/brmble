@@ -1,5 +1,7 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net.Sockets;
+using System.Net.WebSockets;
 using System.Security.Cryptography.X509Certificates;
 using Org.BouncyCastle.Tls;
 using MumbleSharp;
@@ -44,7 +46,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private string? _apiUrl;
     private string? _activeServerId;
     private Dictionary<string, string> _userMappings = new();
+    private readonly ConcurrentDictionary<uint, SessionMappingEntry> _sessionMappings = new();
+    private CancellationTokenSource? _wsCts;
     private readonly IAppConfigService? _appConfigService;
+
+    private record SessionMappingEntry(string MatrixUserId, string MumbleName);
 
     public string ServiceName => "mumble";
 
@@ -213,6 +219,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             Close();
         }
         catch { /* best effort */ }
+
+        _wsCts?.Cancel();
+        _wsCts?.Dispose();
+        _wsCts = null;
+        _sessionMappings.Clear();
 
         UserDictionary.Clear();
         ChannelDictionary.Clear();
@@ -879,6 +890,22 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 }
             }
 
+            // Parse session mappings (sessionId -> matrixUserId + mumbleName) from the auth response
+            if (credentials.Value.TryGetProperty("sessionMappings", out var sessionMappingsElement))
+            {
+                _sessionMappings.Clear();
+                foreach (var prop in sessionMappingsElement.EnumerateObject())
+                {
+                    if (uint.TryParse(prop.Name, out var sid))
+                    {
+                        var matrixId = prop.Value.TryGetProperty("matrixUserId", out var m) ? m.GetString() : null;
+                        var name = prop.Value.TryGetProperty("mumbleName", out var n) ? n.GetString() : null;
+                        if (matrixId is not null && name is not null)
+                            _sessionMappings[sid] = new SessionMappingEntry(matrixId, name);
+                    }
+                }
+            }
+
             // The server returns its internal homeserverUrl (e.g. http://localhost:6167).
             // Clients reach Matrix via the YARP proxy on the same Brmble API URL,
             // so rewrite homeserverUrl to the API URL the client connected to.
@@ -886,10 +913,150 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _bridge?.Send("server.credentials", rewritten);
             _bridge?.NotifyUiThread();
             _apiUrl = apiUrl;
+
+            // Start WebSocket connection for real-time session mapping updates
+            StartWebSocketConnection(apiUrl);
         }
         catch (Exception ex)
         {
             Debug.WriteLine($"[Matrix] Failed to fetch credentials: {ex.Message}");
+        }
+    }
+
+    private void StartWebSocketConnection(string apiUrl)
+    {
+        var old = _wsCts;
+        old?.Cancel();
+        old?.Dispose();
+        _wsCts = new CancellationTokenSource();
+        var ct = _wsCts.Token;
+
+        var builder = new UriBuilder(apiUrl);
+        builder.Scheme = builder.Scheme == "https" ? "wss" : "ws";
+        builder.Path = builder.Path.TrimEnd('/') + "/ws";
+        var wsUri = builder.Uri;
+
+        _ = Task.Run(async () =>
+        {
+            var backoff = TimeSpan.FromSeconds(1);
+            var maxBackoff = TimeSpan.FromSeconds(30);
+
+            while (!ct.IsCancellationRequested)
+            {
+                try
+                {
+                    using var cert = _certService?.GetExportableCertificate();
+                    if (cert is null)
+                    {
+                        Debug.WriteLine("[WS] No client certificate available, retrying...");
+                        // Apply backoff delay to avoid hot spinning
+                        if (ct.IsCancellationRequested) break;
+                        try { await Task.Delay(backoff, ct); } catch (OperationCanceledException) { break; }
+                        backoff = TimeSpan.FromSeconds(Math.Min(backoff.TotalSeconds * 2, maxBackoff.TotalSeconds));
+                        continue;
+                    }
+
+                    // TODO: ClientWebSocket uses SChannel which may refuse self-signed client certs
+                    // on some Windows configurations. If WS auth fails, consider a BouncyCastle-based
+                    // WebSocket implementation (similar to FetchCredentialsViaBcTls).
+                    using var ws = new ClientWebSocket();
+                    ws.Options.RemoteCertificateValidationCallback = (_, _, _, _) => true;
+                    ws.Options.ClientCertificates.Add(cert);
+
+                    await ws.ConnectAsync(wsUri, ct);
+                    backoff = TimeSpan.FromSeconds(1); // reset on successful connect
+
+                    Debug.WriteLine("[WS] Connected to Brmble WebSocket");
+
+                    // Accumulate frames until EndOfMessage for large messages
+                    var buffer = new byte[4096];
+                    using var ms = new MemoryStream();
+                    while (ws.State == WebSocketState.Open && !ct.IsCancellationRequested)
+                    {
+                        var result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), ct);
+                        if (result.MessageType == WebSocketMessageType.Close)
+                            break;
+
+                        ms.Write(buffer, 0, result.Count);
+                        if (!result.EndOfMessage)
+                            continue;
+
+                        var json = System.Text.Encoding.UTF8.GetString(ms.GetBuffer(), 0, (int)ms.Length);
+                        ms.SetLength(0);
+                        HandleWebSocketMessage(json);
+                    }
+                }
+                catch (OperationCanceledException) { break; }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[WS] Error: {ex.Message}");
+                }
+
+                if (ct.IsCancellationRequested) break;
+
+                Debug.WriteLine($"[WS] Reconnecting in {backoff.TotalSeconds}s...");
+                try { await Task.Delay(backoff, ct); } catch (OperationCanceledException) { break; }
+                backoff = TimeSpan.FromSeconds(Math.Min(backoff.TotalSeconds * 2, maxBackoff.TotalSeconds));
+            }
+        }, ct);
+    }
+
+    private void HandleWebSocketMessage(string json)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            var type = root.TryGetProperty("type", out var t) ? t.GetString() : null;
+
+            switch (type)
+            {
+                case "sessionMappingSnapshot":
+                    _sessionMappings.Clear();
+                    if (root.TryGetProperty("mappings", out var mappings))
+                    {
+                        foreach (var prop in mappings.EnumerateObject())
+                        {
+                            if (uint.TryParse(prop.Name, out var sid))
+                            {
+                                var matrixId = prop.Value.TryGetProperty("matrixUserId", out var m) ? m.GetString() : null;
+                                var name = prop.Value.TryGetProperty("mumbleName", out var n) ? n.GetString() : null;
+                                if (matrixId is not null && name is not null)
+                                    _sessionMappings[sid] = new SessionMappingEntry(matrixId, name);
+                            }
+                        }
+                    }
+                    _bridge?.Send("voice.sessionMappingSnapshot",
+                        new { mappings = _sessionMappings.ToDictionary(k => k.Key, k => new { k.Value.MatrixUserId, k.Value.MumbleName }) });
+                    _bridge?.NotifyUiThread();
+                    break;
+
+                case "userMappingAdded":
+                    var addSid = root.TryGetProperty("sessionId", out var sidProp) ? sidProp.GetUInt32() : 0u;
+                    var addMatrixId = root.TryGetProperty("matrixUserId", out var matrixProp) ? matrixProp.GetString() : null;
+                    var addName = root.TryGetProperty("mumbleName", out var nameProp) ? nameProp.GetString() : null;
+                    if (addSid > 0 && addMatrixId is not null && addName is not null)
+                    {
+                        _sessionMappings[addSid] = new SessionMappingEntry(addMatrixId, addName);
+                        _bridge?.Send("voice.userMappingUpdated", new { sessionId = addSid, matrixUserId = addMatrixId, mumbleName = addName, action = "added" });
+                        _bridge?.NotifyUiThread();
+                    }
+                    break;
+
+                case "userMappingRemoved":
+                    var rmSid = root.TryGetProperty("sessionId", out var rmSidProp) ? rmSidProp.GetUInt32() : 0u;
+                    if (rmSid > 0)
+                    {
+                        _sessionMappings.TryRemove(rmSid, out _);
+                        _bridge?.Send("voice.userMappingUpdated", new { sessionId = rmSid, action = "removed" });
+                        _bridge?.NotifyUiThread();
+                    }
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[WS] Failed to handle message: {ex.Message}");
         }
     }
 
@@ -1162,7 +1329,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             muted = u.Muted || u.SelfMuted || u.Deaf || u.SelfDeaf,
             deafened = u.Deaf || u.SelfDeaf,
             self = u == LocalUser,
-            matrixUserId = _userMappings.GetValueOrDefault(u.Name)
+            matrixUserId = _sessionMappings.TryGetValue(u.Id, out var sm)
+                ? sm.MatrixUserId
+                : _userMappings.GetValueOrDefault(u.Name)
         }).ToList();
 
         _bridge?.Send("voice.connected", new
@@ -1298,7 +1467,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             muted = user != null ? (user.Muted || user.SelfMuted || user.Deaf || user.SelfDeaf) : (userState.Mute || userState.SelfMute || userState.Deaf || userState.SelfDeaf),
             deafened = user != null ? (user.Deaf || user.SelfDeaf) : (userState.Deaf || userState.SelfDeaf),
             self = isSelf,
-            matrixUserId = _userMappings.GetValueOrDefault(joinedUserName)
+            matrixUserId = _sessionMappings.TryGetValue(userState.Session, out var sm)
+                ? sm.MatrixUserId
+                : _userMappings.GetValueOrDefault(joinedUserName)
         });
 
         // Emit system message for genuinely new users (not initial sync, not self)

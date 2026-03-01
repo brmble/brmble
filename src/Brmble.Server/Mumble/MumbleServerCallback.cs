@@ -1,15 +1,29 @@
+using Brmble.Server.Auth;
+using Brmble.Server.Events;
+
 namespace Brmble.Server.Mumble;
 
 public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
 {
     private readonly IEnumerable<IMumbleEventHandler> _handlers;
+    private readonly ISessionMappingService _sessionMapping;
+    private readonly IBrmbleEventBus _eventBus;
     private readonly ILogger<MumbleServerCallback> _logger;
+    private MumbleServer.ServerPrx? _serverProxy;
 
-    public MumbleServerCallback(IEnumerable<IMumbleEventHandler> handlers, ILogger<MumbleServerCallback> logger)
+    public MumbleServerCallback(
+        IEnumerable<IMumbleEventHandler> handlers,
+        ISessionMappingService sessionMapping,
+        IBrmbleEventBus eventBus,
+        ILogger<MumbleServerCallback> logger)
     {
         _handlers = handlers;
+        _sessionMapping = sessionMapping;
+        _eventBus = eventBus;
         _logger = logger;
     }
+
+    internal void SetServerProxy(MumbleServer.ServerPrx proxy) => _serverProxy = proxy;
 
     // Ice overrides — called by ZeroC Ice runtime on Mumble server events.
     // Dispatch via Task.Run to avoid blocking the Ice callback thread.
@@ -77,16 +91,27 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     // Unused Ice callbacks — empty implementations required by the base class
     public override void userStateChanged(MumbleServer.User state, Ice.Current current) { }
 
-    // Dispatch methods (tested in Task 6)
+    // Dispatch methods
 
     public Task DispatchTextMessage(MumbleUser sender, string text, int channelId)
         => Task.WhenAll(_handlers.Select(h => h.OnUserTextMessage(sender, text, channelId)));
 
-    public Task DispatchUserConnected(MumbleUser user)
-        => Task.WhenAll(_handlers.Select(h => h.OnUserConnected(user)));
+    public async Task DispatchUserConnected(MumbleUser user)
+    {
+        _sessionMapping.SetNameForSession(user.Name, user.SessionId);
 
-    public Task DispatchUserDisconnected(MumbleUser user)
-        => Task.WhenAll(_handlers.Select(h => h.OnUserDisconnected(user)));
+        // Try cert-based resolution — await so handlers see the cert hash
+        var enriched = await TryResolveCertAsync(user);
+
+        await Task.WhenAll(_handlers.Select(h => h.OnUserConnected(enriched)));
+    }
+
+    public async Task DispatchUserDisconnected(MumbleUser user)
+    {
+        _sessionMapping.RemoveSession(user.SessionId);
+        await _eventBus.BroadcastAsync(new { type = "userMappingRemoved", sessionId = user.SessionId });
+        await Task.WhenAll(_handlers.Select(h => h.OnUserDisconnected(user)));
+    }
 
     public Task DispatchChannelCreated(MumbleChannel channel)
         => Task.WhenAll(_handlers.Select(h => h.OnChannelCreated(channel)));
@@ -96,6 +121,27 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
 
     public Task DispatchChannelRenamed(MumbleChannel channel)
         => Task.WhenAll(_handlers.Select(h => h.OnChannelRenamed(channel)));
+
+    private async Task<MumbleUser> TryResolveCertAsync(MumbleUser user)
+    {
+        if (_serverProxy is null) return user;
+
+        try
+        {
+            var certs = await _serverProxy.getCertificateListAsync(user.SessionId);
+            if (certs is not { Length: > 0 }) return user;
+
+            var hash = CertificateHasher.HashDer(certs[0]);
+            _logger.LogDebug("Cert resolved for {User} session {Session}: hash={Hash}",
+                user.Name, user.SessionId, hash);
+            return user with { CertHash = hash };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "getCertificateListAsync failed for session {Session}", user.SessionId);
+            return user;
+        }
+    }
 
     // Mappers — no cert hash in Ice User state; OG clients are never Brmble clients
 
