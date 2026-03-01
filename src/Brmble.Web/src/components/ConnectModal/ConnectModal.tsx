@@ -32,7 +32,7 @@ export function ConnectModal({ isOpen, onClose, onConnect }: ConnectModalProps) 
         </button>
 
         <div className="modal-header">
-          <h2 className="modal-title">Connect to Server</h2>
+          <h2 className="heading-title modal-title">Connect to Server</h2>
           <p className="modal-subtitle">Enter your server details to join</p>
         </div>
 

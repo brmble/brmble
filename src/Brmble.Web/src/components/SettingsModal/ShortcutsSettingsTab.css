@@ -33,10 +33,6 @@
 }
 
 .shortcut-conflict-title {
-  font-family: var(--font-display);
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: var(--text-primary);
   margin: 0 0 12px;
   text-align: center;
 }
