@@ -48,7 +48,7 @@
   /* Heading Scale */
   --heading-title-size:    1.75rem;   /* 28px */
   --heading-title-color:   var(--text-primary);
-  --heading-section-size:  0.875rem;  /* 14px */
+  --heading-section-size:  1.125rem;  /* 18px */
   --heading-section-color: var(--accent-secondary);
   --heading-label-size:    0.625rem;  /* 10px */
   --heading-label-color:   var(--text-muted);
@@ -238,7 +238,7 @@ a:hover {
 
 .btn-sm {
   padding: 0.25rem 0.75rem;
-  font-size: var(--text-xs);
+  font-size: var(--text-2xs);
   border-radius: var(--radius-sm);
   gap: var(--space-2xs);
 }
