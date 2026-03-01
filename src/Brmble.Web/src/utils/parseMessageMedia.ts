@@ -22,14 +22,17 @@ export function parseMessageMedia(message: string): ParsedMessage {
     // Always strip the img tag from the text output
     text = text.replace(fullMatch, '');
 
-    if (!ALLOWED_MIMETYPES.includes(mimetype)) continue;
+    if (!ALLOWED_MIMETYPES.includes(mimetype.toLowerCase())) continue;
 
-    const estimatedSize = Math.floor((b64Data.length * 3) / 4);
+    // MumbleSharp/ICE may URL-encode the data URI content — decode before use
+    const rawB64 = decodeURIComponent(b64Data);
+
+    const estimatedSize = Math.floor((rawB64.length * 3) / 4);
     if (estimatedSize > MAX_SIZE_BYTES) continue;
 
     media.push({
       type: mimetype === 'image/gif' ? 'gif' : 'image',
-      url: `data:${mimetype};base64,${b64Data}`,
+      url: `data:${mimetype};base64,${rawB64}`,
       mimetype,
       size: estimatedSize,
     });

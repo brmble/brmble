@@ -72,4 +72,21 @@ describe('parseMessageMedia', () => {
     const result = parseMessageMedia(html);
     expect(result.media).toHaveLength(1);
   });
+
+  it('URL-decodes base64 data from Mumble ICE', () => {
+    const raw = '/9j/4AAQ'; // starts with / which URL-encodes to %2F
+    const encoded = encodeURIComponent(raw);
+    const html = `<img src="data:image/jpeg;base64,${encoded}" />`;
+    const result = parseMessageMedia(html);
+    expect(result.media).toHaveLength(1);
+    expect(result.media[0].url).toBe(`data:image/jpeg;base64,${raw}`);
+  });
+
+  it('handles uppercase mimetype from Mumble (image/JPEG)', () => {
+    const b64 = btoa('fake-jpeg');
+    const html = `<img src="data:image/JPEG;base64,${b64}" />`;
+    const result = parseMessageMedia(html);
+    expect(result.media).toHaveLength(1);
+    expect(result.media[0].type).toBe('image');
+  });
 });

@@ -190,4 +190,24 @@ public class MatrixServiceTests
 
         _appService.Verify(a => a.CreateRoom(It.IsAny<string>()), Times.Never);
     }
+
+    [TestMethod]
+    public async Task RelayMessage_UrlEncodedBase64Image_DecodesAndUploads()
+    {
+        _sessions.Setup(s => s.IsBrmbleClient("og-hash")).Returns(false);
+        await _channelRepo.InsertAsync(1, "!room:server");
+
+        _appService.Setup(a => a.UploadMedia(It.IsAny<byte[]>(), "image/JPEG", "image.jpg"))
+            .ReturnsAsync("mxc://server/uploaded456");
+
+        var rawBytes = new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 }; // JPEG header
+        var rawB64 = Convert.ToBase64String(rawBytes);
+        var urlEncoded = Uri.EscapeDataString(rawB64);
+        var msg = $"<img src=\"data:image/JPEG;base64,{urlEncoded}\" />";
+
+        await _svc.RelayMessage(new MumbleUser("Bob", "og-hash", 1), msg, 1);
+
+        _appService.Verify(a => a.UploadMedia(It.IsAny<byte[]>(), "image/JPEG", "image.jpg"), Times.Once);
+        _appService.Verify(a => a.SendImageMessage("!room:server", "Bob", "mxc://server/uploaded456", "image.jpg", "image/JPEG", 4), Times.Once);
+    }
 }

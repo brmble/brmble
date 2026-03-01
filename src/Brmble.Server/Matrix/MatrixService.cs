@@ -66,11 +66,22 @@ public class MatrixService
             var mimetype = match.Groups[1].Value;
             var b64Data = match.Groups[2].Value;
 
-            if (!AllowedMimeTypes.Contains(mimetype)) continue;
+            if (!AllowedMimeTypes.Contains(mimetype))
+            {
+                _logger.LogWarning("Skipping image: unsupported mimetype {Mime}", mimetype);
+                continue;
+            }
+
+            // ICE/Mumble may URL-encode the data URI content — decode before base64
+            var rawB64 = Uri.UnescapeDataString(b64Data);
 
             byte[] imageData;
-            try { imageData = Convert.FromBase64String(b64Data); }
-            catch { continue; }
+            try { imageData = Convert.FromBase64String(rawB64); }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Skipping image: base64 decode failed (b64Length={Len})", rawB64.Length);
+                continue;
+            }
 
             if (imageData.Length > MaxImageSizeBytes)
             {

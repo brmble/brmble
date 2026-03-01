@@ -35,7 +35,8 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     {
         var user = ToMumbleUser(state);
         var channelId = message.channels.FirstOrDefault();
-        _logger.LogDebug("ICE callback: text message from {User} in channel {ChannelId}", user.Name, channelId);
+        _logger.LogDebug("ICE callback: text message from {User} in channel {ChannelId} (length={Length})",
+            user.Name, channelId, message.text?.Length ?? 0);
         Task.Run(() => SafeDispatch(
             () => DispatchTextMessage(user, message.text, channelId),
             nameof(userTextMessage)));
