@@ -393,8 +393,15 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// <param name="targetSession">The session ID of the target user.</param>
     public void SendPrivateMessage(string message, uint targetSession)
     {
-        if (Connection is not { State: ConnectionStates.Connected })
+        if (string.IsNullOrWhiteSpace(message))
             return;
+
+        if (Connection is not { State: ConnectionStates.Connected })
+        {
+            _bridge?.Send("voice.error", new { message = "Cannot send message: not connected" });
+            _bridge?.NotifyUiThread();
+            return;
+        }
 
         var textMessage = new TextMessage
         {
@@ -402,7 +409,16 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             Sessions = new[] { targetSession },
         };
 
-        Connection.SendControl(PacketType.TextMessage, textMessage);
+        try
+        {
+            Connection.SendControl(PacketType.TextMessage, textMessage);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[MumbleAdapter] Failed to send private message: {ex.Message}");
+            _bridge?.Send("voice.error", new { message = "Failed to send message" });
+            _bridge?.NotifyUiThread();
+        }
     }
 
     /// <summary>
