@@ -171,7 +171,7 @@
 .brmble-badge {
   width: 7px;
   height: 7px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   background: var(--accent-success);
   flex-shrink: 0;
   margin-left: 4px;

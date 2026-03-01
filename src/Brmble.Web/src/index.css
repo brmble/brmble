@@ -111,7 +111,7 @@ body::before {
 
 ::-webkit-scrollbar-thumb {
   background: var(--border-subtle);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -338,7 +338,7 @@ a:hover {
   bottom: 0;
   background-color: var(--border-subtle);
   transition: background var(--transition-fast);
-  border-radius: 24px;
+  border-radius: var(--radius-full);
 }
 
 .brmble-toggle-slider::before {
@@ -350,7 +350,7 @@ a:hover {
   top: 2px;
   background-color: var(--text-primary);
   transition: transform var(--transition-fast), width var(--transition-fast);
-  border-radius: 50%;
+  border-radius: var(--radius-full);
 }
 
 .brmble-toggle input:checked + .brmble-toggle-slider {
