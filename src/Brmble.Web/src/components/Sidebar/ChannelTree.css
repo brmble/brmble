@@ -168,6 +168,15 @@
   flex-shrink: 0;
 }
 
+.brmble-badge {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent-success);
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+
 .user-row.speaking {
   background: var(--accent-success-subtle);
   box-shadow: 0 0 12px var(--accent-success-glow);

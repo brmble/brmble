@@ -1,3 +1,5 @@
+using Brmble.Server.Events;
+
 namespace Brmble.Server.Mumble;
 
 public static class MumbleExtensions
@@ -6,6 +8,9 @@ public static class MumbleExtensions
     {
         services.AddOptions<IceSettings>()
             .BindConfiguration("Ice");
+        services.AddSingleton<ISessionMappingService, SessionMappingService>();
+        services.AddSingleton<IBrmbleEventBus, BrmbleEventBus>();
+        services.AddSingleton<IMumbleEventHandler, SessionMappingHandler>();
         services.AddSingleton<MumbleServerCallback>();
         services.AddHostedService<MumbleIceService>();
         return services;

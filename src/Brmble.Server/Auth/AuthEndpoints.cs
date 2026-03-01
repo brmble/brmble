@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Brmble.Server.Events;
 using Brmble.Server.Matrix;
 using Microsoft.Extensions.Options;
 
@@ -16,6 +17,8 @@ public static class AuthEndpoints
             ChannelRepository channelRepository,
             UserRepository userRepository,
             IOptions<MatrixSettings> matrixSettings,
+            ISessionMappingService sessionMapping,
+            IBrmbleEventBus eventBus,
             ILogger<AuthService> logger) =>
         {
             var certHash = certHashExtractor.GetCertHash(httpContext);
@@ -60,6 +63,21 @@ public static class AuthEndpoints
 
             if (!string.IsNullOrEmpty(mumbleUsername))
                 authService.TrackMumbleName(mumbleUsername);
+
+            if (!string.IsNullOrEmpty(mumbleUsername) &&
+                sessionMapping.TryGetSessionId(mumbleUsername, out var sid))
+            {
+                if (sessionMapping.TryAddMatrixUser(sid, result.MatrixUserId, mumbleUsername))
+                {
+                    await eventBus.BroadcastAsync(new
+                    {
+                        type = "userMappingAdded",
+                        sessionId = sid,
+                        matrixUserId = result.MatrixUserId,
+                        mumbleName = mumbleUsername
+                    });
+                }
+            }
 
             logger.LogInformation(
                 "Auth succeeded: CertHash={CertHash}, MatrixUserId={MatrixUserId}, MumbleName={MumbleName}",
@@ -106,6 +124,10 @@ public static class AuthEndpoints
                     roomMap
                 },
                 userMappings,
+                sessionMappings = sessionMapping.GetSnapshot()
+                    .ToDictionary(
+                        kvp => kvp.Key.ToString(),
+                        kvp => new { matrixUserId = kvp.Value.MatrixUserId, mumbleName = kvp.Value.MumbleName }),
                 livekit = (object?)null
             });
         });

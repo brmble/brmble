@@ -14,6 +14,7 @@ interface User {
   self?: boolean;
   prioritySpeaker?: boolean;
   comment?: string;
+  matrixUserId?: string;
 }
 
 interface Channel {
@@ -218,6 +219,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                   </svg>
                 </span>
                 <span className="user-name">{user.name}</span>
+                {user.matrixUserId && <span className="brmble-badge" title="Brmble user" />}
                 {user.self && <span className="self-badge">(you)</span>}
               </div>
             ))}

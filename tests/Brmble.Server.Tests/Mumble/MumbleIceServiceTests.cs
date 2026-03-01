@@ -1,5 +1,6 @@
 using Brmble.Server.Auth;
 using Brmble.Server.Data;
+using Brmble.Server.Events;
 using Brmble.Server.Matrix;
 using Brmble.Server.Mumble;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -14,7 +15,11 @@ public class MumbleIceServiceTests
 {
     private static MumbleIceService CreateService(string host = "localhost", int port = 9999)
     {
-        var callback = new MumbleServerCallback(Enumerable.Empty<IMumbleEventHandler>(), NullLogger<MumbleServerCallback>.Instance);
+        var callback = new MumbleServerCallback(
+            Enumerable.Empty<IMumbleEventHandler>(),
+            new Mock<ISessionMappingService>().Object,
+            new Mock<IBrmbleEventBus>().Object,
+            NullLogger<MumbleServerCallback>.Instance);
 
         var iceSettings = Options.Create(new IceSettings { Host = host, Port = port, Secret = "test-secret" });
 

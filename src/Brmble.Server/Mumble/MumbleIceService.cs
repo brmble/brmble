@@ -66,6 +66,7 @@ public class MumbleIceService : IHostedService
             var callbackPrx = MumbleServer.ServerCallbackPrxHelper.uncheckedCast(
                 adapter.addWithUUID(_callback));
             adapter.activate();
+            _callback.SetServerProxy(serverProxy);
             serverProxy.addCallback(callbackPrx);
 
             _logger.LogInformation("Connected to Mumble server at {Host}:{Port}", _settings.Host, _settings.Port);
