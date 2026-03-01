@@ -48,7 +48,7 @@
   --heading-title-size:    1.75rem;   /* 28px */
   --heading-title-color:   var(--text-primary);
   --heading-section-size:  0.875rem;  /* 14px */
-  --heading-section-color: var(--text-secondary);
+  --heading-section-color: var(--accent-secondary);
   --heading-label-size:    0.625rem;  /* 10px */
   --heading-label-color:   var(--text-muted);
 }
