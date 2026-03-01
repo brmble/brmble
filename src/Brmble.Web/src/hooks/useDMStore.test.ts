@@ -134,6 +134,21 @@ describe('useDMStore', () => {
     expect(result.current.dmContacts.find(c => c.userId === '5')?.unread).toBe(1);
   });
 
+  it('receiveDM updates React state when selected DM user sends while in channels mode', () => {
+    const { result } = renderHook(() => useDMStore(defaultProps));
+    // Open DM, then toggle back to channels
+    act(() => result.current.selectDM('5', 'Alice'));
+    act(() => result.current.toggleDMMode()); // back to channels
+    expect(result.current.appMode).toBe('channels');
+    // Receive DMs while in channels mode — selectedDMUserId is still '5'
+    act(() => result.current.receiveDM(5, 'Alice', 'msg1'));
+    act(() => result.current.receiveDM(5, 'Alice', 'msg2'));
+    // Toggle back to DM mode — should see both messages in active DM
+    act(() => result.current.toggleDMMode());
+    expect(result.current.appMode).toBe('dm');
+    expect(result.current.activeDMMessages.filter(m => m.sender === 'Alice').length).toBeGreaterThanOrEqual(2);
+  });
+
   it('unreadDMUserCount counts contacts with unread > 0', () => {
     const { result } = renderHook(() => useDMStore(defaultProps));
     act(() => result.current.receiveDM(5, 'Alice', 'hello'));

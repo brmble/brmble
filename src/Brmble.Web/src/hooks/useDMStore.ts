@@ -122,9 +122,12 @@ export function useDMStore({ bridge, users, username, sendMatrixDM, fetchDMHisto
 
     const isViewing = appModeRef.current === 'dm' && selectedDMUserIdRef.current === senderKey;
 
-    if (isViewing) {
+    if (selectedDMUserIdRef.current === senderKey) {
+      // Selected DM matches sender — update React state (keeps UI in sync even
+      // when toggled to channels mode, since dmKey/useChatStore stays bound).
       addLocalDMMessageRef.current(senderName, content);
     } else {
+      // Different user — write directly to localStorage for later loading.
       addMessageToStore(dmStoreKey, senderName, content);
     }
 
