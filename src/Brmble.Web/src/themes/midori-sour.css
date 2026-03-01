@@ -14,6 +14,14 @@
 
 :root[data-theme="midori-sour"] {
 
+  /* Border Radius Scale */
+  --radius-xs: 3px;
+  --radius-sm: 5px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-full: 50%;
+
   /* ── Backgrounds (12 tokens) ─────────────────────
      Tinted with hue 145° at medium saturation.
      bg-deep:    hsl(145, 30%, 5%)

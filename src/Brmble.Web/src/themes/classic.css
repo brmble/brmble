@@ -8,6 +8,14 @@
 
 :root[data-theme="classic"],
 :root:not([data-theme]) {
+  /* Border Radius Scale */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 50%;
+
   /* Backgrounds */
   --bg-deep: #0f0a14;
   --bg-primary: #1a1025;

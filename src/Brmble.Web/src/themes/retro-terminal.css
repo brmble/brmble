@@ -13,6 +13,14 @@
 
 :root[data-theme="retro-terminal"] {
 
+  /* Border Radius Scale */
+  --radius-xs: 0px;
+  --radius-sm: 0px;
+  --radius-md: 2px;
+  --radius-lg: 2px;
+  --radius-xl: 4px;
+  --radius-full: 50%;
+
   /* ── Backgrounds (12 tokens) ─────────────────────
      Pure black and near-black. No hue tinting.
      CRTs are flat black when off, deep black when on.

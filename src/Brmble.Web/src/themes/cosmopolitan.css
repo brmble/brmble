@@ -14,6 +14,14 @@
 
 :root[data-theme="cosmopolitan"] {
 
+  /* Border Radius Scale */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-full: 50%;
+
   /* ── Backgrounds (12 tokens) ─────────────────────
      Tinted with hue 345° at medium saturation.
      bg-deep:    hsl(345, 25%, 6%)

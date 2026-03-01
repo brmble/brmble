@@ -13,6 +13,14 @@
 
 :root[data-theme="blue-lagoon"] {
 
+  /* Border Radius Scale */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 50%;
+
   /* ── Backgrounds (12 tokens) ─────────────────────
      Tinted with hue 200° at medium saturation.
      bg-deep:    hsl(200, 30%, 6%)
