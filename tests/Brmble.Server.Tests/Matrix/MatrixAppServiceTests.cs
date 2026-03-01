@@ -58,7 +58,7 @@ public class MatrixAppServiceTests
         var req = _capturedRequests.Single();
         Assert.AreEqual(HttpMethod.Put, req.Method);
         StringAssert.Contains(req.RequestUri!.AbsolutePath,
-            "/_matrix/client/v3/rooms/!room:server/send/m.room.message/");
+            "/_matrix/client/v3/rooms/%21room%3Aserver/send/m.room.message/");
     }
 
     [TestMethod]

@@ -38,7 +38,7 @@ public class MatrixAppService : IMatrixAppService
     public async Task SendMessage(string roomId, string displayName, string text)
     {
         var txnId = Guid.NewGuid().ToString("N");
-        var url = $"{_homeserverUrl}/_matrix/client/v3/rooms/{roomId}/send/m.room.message/{txnId}";
+        var url = $"{_homeserverUrl}/_matrix/client/v3/rooms/{Uri.EscapeDataString(roomId)}/send/m.room.message/{txnId}";
         var body = JsonSerializer.Serialize(new
         {
             msgtype = "m.text",
@@ -63,7 +63,7 @@ public class MatrixAppService : IMatrixAppService
 
     public async Task SetRoomName(string roomId, string name)
     {
-        var url = $"{_homeserverUrl}/_matrix/client/v3/rooms/{roomId}/state/m.room.name";
+        var url = $"{_homeserverUrl}/_matrix/client/v3/rooms/{Uri.EscapeDataString(roomId)}/state/m.room.name";
         var body = JsonSerializer.Serialize(new { name });
         await SendRequest(HttpMethod.Put, url, body);
     }
