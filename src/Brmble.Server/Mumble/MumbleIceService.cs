@@ -29,7 +29,7 @@ public class MumbleIceService : IHostedService
         {
             var properties = new Ice.Properties();
             properties.setProperty("Ice.Default.EncodingVersion", "1.0");
-            properties.setProperty("Ice.MessageSizeMax", "10240"); // 10 MB (default is 1 MB)
+            properties.setProperty("Ice.MessageSizeMax", "65536"); // 64 MB — match Mumble server default
 
             var initData = new Ice.InitializationData { properties = properties };
             _communicator = new Ice.Communicator(initData);
