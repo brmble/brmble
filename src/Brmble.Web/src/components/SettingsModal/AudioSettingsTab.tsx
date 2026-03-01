@@ -239,7 +239,7 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
       {conflict && (
         <div className="shortcut-conflict-overlay">
           <div className="shortcut-conflict-card" role="dialog" aria-modal="true" aria-labelledby="audio-conflict-title">
-            <h3 id="audio-conflict-title" className="shortcut-conflict-title">Key already in use</h3>
+            <h3 id="audio-conflict-title" className="heading-title shortcut-conflict-title">Key already in use</h3>
             <p className="shortcut-conflict-message">
               This key is already bound to <strong>{BINDING_LABELS[conflict.conflictBindingId] ?? conflict.conflictBindingId}</strong>.
               Rebind it to <strong>Push to Talk</strong>?
