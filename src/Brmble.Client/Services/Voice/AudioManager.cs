@@ -177,6 +177,7 @@ private int _dmScreenHotkeyId = -1;
     private bool _pttKeyWasDown;
 
     // Shortcut keyboard polling (non-blocking, replaces RegisterHotKey)
+    private readonly object _shortcutKeyboardLock = new();
     private Dictionary<int, string> _shortcutKeyboardVkToAction = new(); // vk → action name
     private Dictionary<int, bool> _shortcutKeyboardWasDown = new(); // vk → wasDown
     private System.Threading.Timer? _shortcutKeyboardPollingTimer;
@@ -594,16 +595,24 @@ private int _dmScreenHotkeyId = -1;
 
     private void RegisterSingleHotkey(ref int hotkeyId, int id, string? key, IntPtr hwnd)
     {
-        int oldHotkeyId = hotkeyId;
         if (hotkeyId >= 0)
         {
             _heldShortcuts.Remove(hotkeyId);
             
-            var keyToRemove = _shortcutKeyboardVkToAction.FirstOrDefault(x => x.Value == GetActionName(id)).Key;
-            if (keyToRemove != 0)
+            int keyToRemove;
+            lock (_shortcutKeyboardLock)
             {
-                _shortcutKeyboardVkToAction.Remove(keyToRemove);
-                _shortcutKeyboardWasDown.Remove(keyToRemove);
+                keyToRemove = _shortcutKeyboardVkToAction.FirstOrDefault(x => x.Value == GetActionName(id)).Key;
+                if (keyToRemove != 0)
+                {
+                    _shortcutKeyboardVkToAction.Remove(keyToRemove);
+                    _shortcutKeyboardWasDown.Remove(keyToRemove);
+
+                    if (_shortcutKeyboardVkToAction.Count == 0 && _shortcutKeyboardPollingTimer != null)
+                    {
+                        StopShortcutKeyboardPolling();
+                    }
+                }
             }
             
             hotkeyId = -1;
@@ -611,11 +620,8 @@ private int _dmScreenHotkeyId = -1;
         
         if (key == null) return;
 
-        string action = id == MuteHotkeyId ? "toggleMute" :
-                       id == MuteDeafenHotkeyId ? "toggleMuteDeafen" :
-                       id == ContinuousHotkeyId ? "continuousTransmission" :
-                       id == LeaveVoiceHotkeyId ? "toggleLeaveVoice" :
-                       id == DmScreenHotkeyId ? "toggleDmScreen" : "";
+        string action = GetActionName(id);
+        if (string.IsNullOrEmpty(action)) return;
 
         bool isMouseButton = key is "XButton1" or "XButton2" or "MouseLeft" or "MouseRight" or "MouseMiddle";
         
@@ -629,8 +635,11 @@ private int _dmScreenHotkeyId = -1;
         if (vk == 0) return;
         
         hotkeyId = id;
-        _shortcutKeyboardVkToAction[vk] = action;
-        _shortcutKeyboardWasDown[vk] = false;
+        lock (_shortcutKeyboardLock)
+        {
+            _shortcutKeyboardVkToAction[vk] = action;
+            _shortcutKeyboardWasDown[vk] = false;
+        }
         
         if (_shortcutKeyboardPollingTimer == null)
             StartShortcutKeyboardPolling();
@@ -765,17 +774,32 @@ private int _dmScreenHotkeyId = -1;
 
     private void ShortcutKeyboardPollCallback(object? state)
     {
-        if (_shortcutKeyboardVkToAction.Count == 0) return;
-
-        foreach (var (vk, action) in _shortcutKeyboardVkToAction)
+        List<KeyValuePair<int, string>> snapshot;
+        lock (_shortcutKeyboardLock)
         {
+            if (_shortcutKeyboardVkToAction.Count == 0) return;
+            snapshot = _shortcutKeyboardVkToAction.ToList();
+        }
+
+        foreach (var kvp in snapshot)
+        {
+            int vk = kvp.Key;
+            string action = kvp.Value;
             short keyState = GetAsyncKeyState(vk);
             bool isKeyDown = (keyState & 0x8000) != 0;
-            bool wasDown = _shortcutKeyboardWasDown.TryGetValue(vk, out var wd) && wd;
+            
+            bool wasDown;
+            lock (_shortcutKeyboardLock)
+            {
+                wasDown = _shortcutKeyboardWasDown.TryGetValue(vk, out var wd) && wd;
+            }
 
             if (isKeyDown && !wasDown)
             {
-                _shortcutKeyboardWasDown[vk] = true;
+                lock (_shortcutKeyboardLock)
+                {
+                    _shortcutKeyboardWasDown[vk] = true;
+                }
                 AudioLog.Write($"[Audio] Shortcut key down: vk=0x{vk:X2}, action={action}");
 
                 if (action != "toggleMute")
@@ -791,7 +815,10 @@ private int _dmScreenHotkeyId = -1;
             }
             else if (!isKeyDown && wasDown)
             {
-                _shortcutKeyboardWasDown[vk] = false;
+                lock (_shortcutKeyboardLock)
+                {
+                    _shortcutKeyboardWasDown[vk] = false;
+                }
                 AudioLog.Write($"[Audio] Shortcut key up: vk=0x{vk:X2}, action={action}");
 
                 if (action == "toggleMute" && _deafened)
@@ -908,7 +935,7 @@ private int _dmScreenHotkeyId = -1;
 
     /// <summary>
     /// Temporarily stops shortcut polling so the JS shortcut recorder
-    /// can capture keypresses that would otherwise be consumed.
+    /// can record keypresses without application shortcuts firing.
     /// </summary>
     public void SuspendHotkeys()
     {
@@ -919,8 +946,11 @@ private int _dmScreenHotkeyId = -1;
 
         _heldShortcuts.Clear();
         _heldMouseAction = null;
-        _shortcutKeyboardVkToAction.Clear();
-        _shortcutKeyboardWasDown.Clear();
+        lock (_shortcutKeyboardLock)
+        {
+            _shortcutKeyboardVkToAction.Clear();
+            _shortcutKeyboardWasDown.Clear();
+        }
     }
 
     /// <summary>
@@ -1274,8 +1304,11 @@ private int _dmScreenHotkeyId = -1;
         StopShortcutReleasePolling();
         _heldShortcuts.Clear();
         _heldMouseAction = null;
-        _shortcutKeyboardVkToAction.Clear();
-        _shortcutKeyboardWasDown.Clear();
+        lock (_shortcutKeyboardLock)
+        {
+            _shortcutKeyboardVkToAction.Clear();
+            _shortcutKeyboardWasDown.Clear();
+        }
         UnregisterRawInputKeyboard();
         UnregisterMouseHook();
         StopMic();
