@@ -28,6 +28,7 @@ export const DEFAULT_SHORTCUTS: ShortcutsSettings = {
 export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearBinding }: ShortcutsSettingsTabProps) {
   const [recordingKey, setRecordingKey] = useState<keyof ShortcutsSettings | null>(null);
   const [localSettings, setLocalSettings] = useState<ShortcutsSettings>(settings);
+  const [isPromptOpen, setIsPromptOpen] = useState(false);
   const { confirm } = usePrompt();
 
   useEffect(() => {
@@ -44,12 +45,14 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
 
     if (conflictEntry) {
       const [conflictBindingId] = conflictEntry;
+      setIsPromptOpen(true);
       const confirmed = await confirm({
         title: 'Key already in use',
         message: `This key is already bound to "${BINDING_LABELS[conflictBindingId] || conflictBindingId}". Rebind it?`,
         confirmLabel: 'Rebind',
         cancelLabel: 'Cancel'
       });
+      setIsPromptOpen(false);
       
       if (!confirmed) {
         setRecordingKey(null);
@@ -70,7 +73,7 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
   }, [recordingKey, allBindings, onChange, onClearBinding, confirm]);
 
   useEffect(() => {
-    if (recordingKey) {
+    if (recordingKey && !isPromptOpen) {
       // Temporarily unregister Win32 hotkeys so key events reach JS
       bridge.send('voice.suspendHotkeys');
 
@@ -101,7 +104,7 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
         bridge.send('voice.resumeHotkeys');
       };
     }
-  }, [recordingKey, handleInput]);
+  }, [recordingKey, isPromptOpen, handleInput]);
 
   return (
     <div className="shortcuts-settings-tab">

@@ -49,6 +49,7 @@ export const DEFAULT_SPEECH_ENHANCEMENT: SpeechEnhancementSettings = {
 export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpeechEnhancementChange, allBindings, onClearBinding }: AudioSettingsTabProps) {
   const [localSettings, setLocalSettings] = useState<AudioSettings>(settings);
   const [recording, setRecording] = useState(false);
+  const [isPromptOpen, setIsPromptOpen] = useState(false);
   const { confirm } = usePrompt();
 
   useEffect(() => {
@@ -71,12 +72,14 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
 
     if (conflictEntry) {
       const [conflictBindingId] = conflictEntry;
+      setIsPromptOpen(true);
       const confirmed = await confirm({
         title: 'Key already in use',
         message: `This key is already bound to "${BINDING_LABELS[conflictBindingId] || conflictBindingId}". Rebind it to Push to Talk?`,
         confirmLabel: 'Rebind',
         cancelLabel: 'Cancel'
       });
+      setIsPromptOpen(false);
       
       if (!confirmed) {
         setRecording(false);
@@ -114,7 +117,7 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
   }, [handleInput]);
 
   useEffect(() => {
-    if (recording) {
+    if (recording && !isPromptOpen) {
       bridge.send('voice.suspendHotkeys');
       window.addEventListener('keydown', handleKeyDown);
       window.addEventListener('mousedown', handleMouseDown);
@@ -124,7 +127,7 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
         bridge.send('voice.resumeHotkeys');
       };
     }
-  }, [recording, handleKeyDown, handleMouseDown]);
+  }, [recording, isPromptOpen, handleKeyDown, handleMouseDown]);
 
   return (
     <div className="audio-settings-tab">
