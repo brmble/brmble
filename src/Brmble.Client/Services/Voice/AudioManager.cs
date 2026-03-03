@@ -176,9 +176,14 @@ private int _dmScreenHotkeyId = -1;
     private System.Threading.Timer? _pttPollingTimer;
     private bool _pttKeyWasDown;
 
+    // Shortcut keyboard polling (non-blocking, replaces RegisterHotKey)
+    private readonly object _shortcutKeyboardLock = new();
+    private Dictionary<int, string> _shortcutKeyboardVkToAction = new(); // vk → action name
+    private Dictionary<int, bool> _shortcutKeyboardWasDown = new(); // vk → wasDown
+    private System.Threading.Timer? _shortcutKeyboardPollingTimer;
+
     // Shortcut key hold/release tracking (toggle shortcuts fire on release, not press)
     private readonly Dictionary<int, string> _heldShortcuts = new(); // hotkeyId → action name
-    private readonly Dictionary<int, int> _hotkeyVkMap = new(); // hotkeyId → virtual key code
     private System.Threading.Timer? _shortcutReleaseTimer;
     private string? _heldMouseAction; // action name for mouse shortcut currently held
     private int _shortcutMouseVk; // VK code for the mouse button bound to a toggle shortcut
@@ -588,27 +593,67 @@ private int _dmScreenHotkeyId = -1;
         }
     }
 
-    private bool RegisterSingleHotkey(ref int hotkeyId, int id, string? key, IntPtr hwnd)
+    private void RegisterSingleHotkey(ref int hotkeyId, int id, string? key, IntPtr hwnd)
     {
-        if (hotkeyId >= 0 && hwnd != IntPtr.Zero)
+        if (hotkeyId >= 0)
         {
-            UnregisterHotKey(hwnd, hotkeyId);
-            _hotkeyVkMap.Remove(hotkeyId);
             _heldShortcuts.Remove(hotkeyId);
+            
+            int keyToRemove;
+            lock (_shortcutKeyboardLock)
+            {
+                keyToRemove = _shortcutKeyboardVkToAction.FirstOrDefault(x => x.Value == GetActionName(id)).Key;
+                if (keyToRemove != 0)
+                {
+                    _shortcutKeyboardVkToAction.Remove(keyToRemove);
+                    _shortcutKeyboardWasDown.Remove(keyToRemove);
+
+                    if (_shortcutKeyboardVkToAction.Count == 0 && _shortcutKeyboardPollingTimer != null)
+                    {
+                        StopShortcutKeyboardPolling();
+                    }
+                }
+            }
+            
             hotkeyId = -1;
         }
         
-        if (key == null || hwnd == IntPtr.Zero) return false;
+        if (key == null) return;
+
+        string action = GetActionName(id);
+        if (string.IsNullOrEmpty(action)) return;
+
+        bool isMouseButton = key is "XButton1" or "XButton2" or "MouseLeft" or "MouseRight" or "MouseMiddle";
+        
+        if (isMouseButton)
+        {
+            RegisterMouseHookForShortcut(action, key);
+            return;
+        }
         
         var vk = KeyNameToVirtualKey(key);
-        if (vk == 0) return false;
+        if (vk == 0) return;
         
         hotkeyId = id;
-        _hotkeyVkMap[id] = vk;
-        var result = RegisterHotKey(hwnd, hotkeyId, 0, (uint)vk);
-        StartShortcutReleasePolling();
-        return result;
+        lock (_shortcutKeyboardLock)
+        {
+            _shortcutKeyboardVkToAction[vk] = action;
+            _shortcutKeyboardWasDown[vk] = false;
+        }
+        
+        if (_shortcutKeyboardPollingTimer == null)
+            StartShortcutKeyboardPolling();
     }
+
+    private static string GetActionName(int id) => id switch
+    {
+        MuteHotkeyId => "toggleMute",
+        MuteDeafenHotkeyId => "toggleMuteDeafen",
+        ContinuousHotkeyId => "continuousTransmission",
+        LeaveVoiceHotkeyId => "toggleLeaveVoice",
+        DmScreenHotkeyId => "toggleDmScreen",
+        _ => ""
+    };
 
     /// <summary>
     /// Sets the transmission mode. For PTT, configures keyboard polling (via GetAsyncKeyState)
@@ -713,12 +758,87 @@ private int _dmScreenHotkeyId = -1;
         }
     }
 
-    // --- Shortcut release polling (for toggle shortcuts that fire on release) ---
+    // --- Shortcut keyboard polling (replaces RegisterHotKey to avoid blocking keys) ---
+
+    private void StartShortcutKeyboardPolling()
+    {
+        StopShortcutKeyboardPolling();
+        _shortcutKeyboardPollingTimer = new System.Threading.Timer(ShortcutKeyboardPollCallback, null, 0, 30);
+    }
+
+    private void StopShortcutKeyboardPolling()
+    {
+        _shortcutKeyboardPollingTimer?.Dispose();
+        _shortcutKeyboardPollingTimer = null;
+    }
+
+    private void ShortcutKeyboardPollCallback(object? state)
+    {
+        List<KeyValuePair<int, string>> snapshot;
+        lock (_shortcutKeyboardLock)
+        {
+            if (_shortcutKeyboardVkToAction.Count == 0) return;
+            snapshot = _shortcutKeyboardVkToAction.ToList();
+        }
+
+        foreach (var kvp in snapshot)
+        {
+            int vk = kvp.Key;
+            string action = kvp.Value;
+            short keyState = GetAsyncKeyState(vk);
+            bool isKeyDown = (keyState & 0x8000) != 0;
+            
+            bool wasDown;
+            lock (_shortcutKeyboardLock)
+            {
+                wasDown = _shortcutKeyboardWasDown.TryGetValue(vk, out var wd) && wd;
+            }
+
+            if (isKeyDown && !wasDown)
+            {
+                lock (_shortcutKeyboardLock)
+                {
+                    _shortcutKeyboardWasDown[vk] = true;
+                }
+                AudioLog.Write($"[Audio] Shortcut key down: vk=0x{vk:X2}, action={action}");
+
+                if (action != "toggleMute")
+                {
+                    AudioLog.Write($"[Audio] Shortcut pressed: {action}");
+                    ShortcutPressed?.Invoke(action);
+                }
+                else if (!_deafened)
+                {
+                    AudioLog.Write($"[Audio] Shortcut pressed: {action}");
+                    ShortcutPressed?.Invoke(action);
+                }
+            }
+            else if (!isKeyDown && wasDown)
+            {
+                lock (_shortcutKeyboardLock)
+                {
+                    _shortcutKeyboardWasDown[vk] = false;
+                }
+                AudioLog.Write($"[Audio] Shortcut key up: vk=0x{vk:X2}, action={action}");
+
+                if (action == "toggleMute" && _deafened)
+                {
+                    AudioLog.Write($"[Audio] Shortcut release discarded (deafened): {action}");
+                    continue;
+                }
+                
+                AudioLog.Write($"[Audio] Shortcut released: {action}");
+                FireShortcutAction(action);
+                ShortcutReleased?.Invoke(action);
+            }
+        }
+    }
+
+    // --- Shortcut release polling (for mouse shortcuts that fire on release) ---
 
     private void StartShortcutReleasePolling()
     {
-        // Start polling timer if not already running and we have hotkeys with known VKs
-        if (_shortcutReleaseTimer == null && _hotkeyVkMap.Count > 0)
+        if (_shortcutReleaseTimer == null && _shortcutMouseVk > 0)
         {
             _shortcutReleaseTimer = new System.Threading.Timer(ShortcutReleasePollCallback, null, 0, 30);
         }
@@ -732,46 +852,12 @@ private int _dmScreenHotkeyId = -1;
 
     private void ShortcutReleasePollCallback(object? state)
     {
-        // Check each held shortcut to see if its key has been released
-        List<int>? released = null;
-        foreach (var (hotkeyId, action) in _heldShortcuts)
+        if (_shortcutMouseVk > 0 && _heldMouseAction != null)
         {
-            if (!_hotkeyVkMap.TryGetValue(hotkeyId, out var vk)) continue;
-            short keyState = GetAsyncKeyState(vk);
+            short keyState = GetAsyncKeyState(_shortcutMouseVk);
             bool isKeyDown = (keyState & 0x8000) != 0;
 
             if (!isKeyDown)
-            {
-                released ??= new List<int>();
-                released.Add(hotkeyId);
-            }
-        }
-
-        if (released != null)
-        {
-            foreach (var hotkeyId in released)
-            {
-                if (_heldShortcuts.Remove(hotkeyId, out var action))
-                {
-                    // Discard suppressed mute action on release (#156 review)
-                    if (action == "toggleMute" && _deafened)
-                    {
-                        AudioLog.Write($"[Audio] Shortcut release discarded (deafened): {action}");
-                        continue;
-                    }
-                    AudioLog.Write($"[Audio] Shortcut released: {action}");
-                    FireShortcutAction(action);
-                    ShortcutReleased?.Invoke(action);
-                }
-            }
-        }
-
-        // Also check held mouse shortcut
-        if (_heldMouseAction != null && _shortcutMouseVk > 0)
-        {
-            short mouseState = GetAsyncKeyState(_shortcutMouseVk);
-            bool isDown = (mouseState & 0x8000) != 0;
-            if (!isDown)
             {
                 var action = _heldMouseAction;
                 _heldMouseAction = null;
@@ -848,32 +934,31 @@ private int _dmScreenHotkeyId = -1;
     }
 
     /// <summary>
-    /// Temporarily unregisters all shortcut hotkeys so the JS shortcut recorder
-    /// can capture keypresses that would otherwise be swallowed by RegisterHotKey.
+    /// Temporarily stops shortcut polling so the JS shortcut recorder
+    /// can record keypresses without application shortcuts firing.
     /// </summary>
     public void SuspendHotkeys()
     {
         AudioLog.Write("[Audio] SuspendHotkeys");
-        if (_hwnd == IntPtr.Zero) return;
 
-        // Clear any held shortcut state to prevent stale releases
+        StopShortcutKeyboardPolling();
+        StopShortcutReleasePolling();
+
         _heldShortcuts.Clear();
         _heldMouseAction = null;
-
-        if (_muteHotkeyId >= 0) { UnregisterHotKey(_hwnd, _muteHotkeyId); _muteHotkeyId = -1; }
-        if (_muteDeafenHotkeyId >= 0) { UnregisterHotKey(_hwnd, _muteDeafenHotkeyId); _muteDeafenHotkeyId = -1; }
-        if (_continuousHotkeyId >= 0) { UnregisterHotKey(_hwnd, _continuousHotkeyId); _continuousHotkeyId = -1; }
-        if (_leaveVoiceHotkeyId >= 0) { UnregisterHotKey(_hwnd, _leaveVoiceHotkeyId); _leaveVoiceHotkeyId = -1; }
-        if (_dmScreenHotkeyId >= 0) { UnregisterHotKey(_hwnd, _dmScreenHotkeyId); _dmScreenHotkeyId = -1; }
+        lock (_shortcutKeyboardLock)
+        {
+            _shortcutKeyboardVkToAction.Clear();
+            _shortcutKeyboardWasDown.Clear();
+        }
     }
 
     /// <summary>
-    /// Re-registers all shortcut hotkeys after the JS shortcut recorder is done.
+    /// Re-starts shortcut polling after the JS shortcut recorder is done.
     /// </summary>
     public void ResumeHotkeys()
     {
         AudioLog.Write("[Audio] ResumeHotkeys");
-        if (_hwnd == IntPtr.Zero) return;
 
         if (_muteKeyName != null)
             RegisterSingleHotkey(ref _muteHotkeyId, MuteHotkeyId, _muteKeyName, _hwnd);
@@ -1215,41 +1300,17 @@ private int _dmScreenHotkeyId = -1;
         _speechEnhancement?.Dispose();
         _speakingTimer.Dispose();
         StopPttPolling();
+        StopShortcutKeyboardPolling();
         StopShortcutReleasePolling();
         _heldShortcuts.Clear();
         _heldMouseAction = null;
+        lock (_shortcutKeyboardLock)
+        {
+            _shortcutKeyboardVkToAction.Clear();
+            _shortcutKeyboardWasDown.Clear();
+        }
         UnregisterRawInputKeyboard();
         UnregisterMouseHook();
-        if (_hotkeyId >= 0 && _hwnd != IntPtr.Zero)
-        {
-            UnregisterHotKey(_hwnd, _hotkeyId);
-            _hotkeyId = -1;
-        }
-        if (_muteHotkeyId >= 0 && _hwnd != IntPtr.Zero)
-        {
-            UnregisterHotKey(_hwnd, _muteHotkeyId);
-            _muteHotkeyId = -1;
-        }
-        if (_muteDeafenHotkeyId >= 0 && _hwnd != IntPtr.Zero)
-        {
-            UnregisterHotKey(_hwnd, _muteDeafenHotkeyId);
-            _muteDeafenHotkeyId = -1;
-        }
-        if (_continuousHotkeyId >= 0 && _hwnd != IntPtr.Zero)
-        {
-            UnregisterHotKey(_hwnd, _continuousHotkeyId);
-            _continuousHotkeyId = -1;
-        }
-        if (_leaveVoiceHotkeyId >= 0 && _hwnd != IntPtr.Zero)
-        {
-            UnregisterHotKey(_hwnd, _leaveVoiceHotkeyId);
-            _leaveVoiceHotkeyId = -1;
-        }
-        if (_dmScreenHotkeyId >= 0 && _hwnd != IntPtr.Zero)
-        {
-            UnregisterHotKey(_hwnd, _dmScreenHotkeyId);
-            _dmScreenHotkeyId = -1;
-        }
         StopMic();
         _waveIn?.Dispose();
         _waveIn = null;
