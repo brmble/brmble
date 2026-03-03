@@ -1074,13 +1074,13 @@ const handleConnect = (serverData: SavedServer) => {
         certFingerprint={certFingerprint}
       />
 
-      <Prompt />
-
       <CloseDialog
         isOpen={showCloseDialog}
         onMinimize={handleCloseMinimize}
         onQuit={handleCloseQuit}
       />
+
+      <Prompt />
 
       <Version />
     </div>
