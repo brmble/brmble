@@ -83,7 +83,7 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
       };
       const onMouse = (e: MouseEvent) => {
         const target = e.target as HTMLElement;
-        if (target.closest('button, a, input, select, label, .settings-modal')) {
+        if (target.closest('button, a, input, select, label, .settings-modal, .prompt')) {
           setRecordingKey(null);
           return;
         }
