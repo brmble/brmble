@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import '../components/Prompt/Prompt.css';
 
 export interface PromptOptions {
@@ -16,18 +16,17 @@ interface UsePromptReturn {
 
 let globalResolve: ((value: boolean) => void) | null = null;
 let globalOptions: PromptOptions = { title: '', message: '' };
-let forceUpdate: () => void = () => {};
 
 export function usePrompt(): UsePromptReturn {
   const [, setTick] = useState(0);
   
-  forceUpdate = useCallback(() => {
+  const forceUpdateRef = useRef(() => {
     setTick(t => t + 1);
-  }, []);
+  });
   
   const confirm = useCallback(async (options: PromptOptions): Promise<boolean> => {
     globalOptions = options;
-    forceUpdate();
+    forceUpdateRef.current();
     
     return new Promise((resolve) => {
       globalResolve = resolve;
@@ -38,7 +37,7 @@ export function usePrompt(): UsePromptReturn {
     if (globalResolve) {
       globalResolve(true);
       globalResolve = null;
-      forceUpdate();
+      forceUpdateRef.current();
     }
   }, []);
   
@@ -46,7 +45,7 @@ export function usePrompt(): UsePromptReturn {
     if (globalResolve) {
       globalResolve(false);
       globalResolve = null;
-      forceUpdate();
+      forceUpdateRef.current();
     }
   }, []);
   
