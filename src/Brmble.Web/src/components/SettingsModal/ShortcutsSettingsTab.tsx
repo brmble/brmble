@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import bridge from '../../bridge';
 import { type AllBindings, BINDING_LABELS } from './SettingsModal';
+import { confirm } from '../../hooks/usePrompt';
 import './ShortcutsSettingsTab.css';
 
 interface ShortcutsSettingsTabProps {
@@ -24,24 +25,16 @@ export const DEFAULT_SHORTCUTS: ShortcutsSettings = {
   toggleDMScreenKey: null,
 };
 
-interface ConflictState {
-  key: string;
-  /** The binding ID that already owns this key (may be in another tab) */
-  conflictBindingId: string;
-  /** The binding ID we're trying to set */
-  targetKey: keyof ShortcutsSettings;
-}
-
 export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearBinding }: ShortcutsSettingsTabProps) {
   const [recordingKey, setRecordingKey] = useState<keyof ShortcutsSettings | null>(null);
   const [localSettings, setLocalSettings] = useState<ShortcutsSettings>(settings);
-  const [conflict, setConflict] = useState<ConflictState | null>(null);
+  const [isPromptOpen, setIsPromptOpen] = useState(false);
 
   useEffect(() => {
     setLocalSettings(settings);
   }, [settings]);
 
-  const handleInput = useCallback((key: string) => {
+  const handleInput = useCallback(async (key: string) => {
     if (!recordingKey) return;
 
     // Check for conflicts across ALL bindings (including other tabs like Audio)
@@ -51,49 +44,48 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
 
     if (conflictEntry) {
       const [conflictBindingId] = conflictEntry;
-      setConflict({ key, conflictBindingId, targetKey: recordingKey });
-    } else {
+      setIsPromptOpen(true);
+      const confirmed = await confirm({
+        title: 'Key already in use',
+        message: `This key is already bound to "${BINDING_LABELS[conflictBindingId] || conflictBindingId}". Rebind it?`,
+        confirmLabel: 'Rebind',
+        cancelLabel: 'Cancel'
+      });
+      setIsPromptOpen(false);
+      
+      if (!confirmed) {
+        setRecordingKey(null);
+        return;
+      }
+      
+      // Clear conflicting binding (delegates to parent for bridge messages + persistence)
+      onClearBinding(conflictBindingId);
+
+      // Also clear it in localSettings so onChange doesn't re-introduce the stale value
       setLocalSettings((prev) => {
-        const newSettings = { ...prev, [recordingKey]: key };
+        const newSettings = {
+          ...prev,
+          [conflictBindingId]: null,
+          [recordingKey]: key,
+        } as ShortcutsSettings;
         onChange(newSettings);
         return newSettings;
       });
       setRecordingKey(null);
+      return;
     }
-  }, [recordingKey, allBindings, onChange]);
-
-  const handleConflictConfirm = useCallback(() => {
-    if (!conflict) return;
-    const isLocalConflict = conflict.conflictBindingId in localSettings;
-    if (isLocalConflict) {
-      // Conflict is within this tab — unbind old, bind new
-      setLocalSettings((prev) => {
-        const newSettings = { ...prev, [conflict.conflictBindingId]: null, [conflict.targetKey]: conflict.key };
-        onChange(newSettings);
-        return newSettings;
-      });
-    } else {
-      // Conflict is in another tab — delegate to parent to clear the binding
-      // (handles bridge messages, settings persistence, etc.)
-      onClearBinding(conflict.conflictBindingId);
-      setLocalSettings((prev) => {
-        const newSettings = { ...prev, [conflict.targetKey]: conflict.key };
-        onChange(newSettings);
-        return newSettings;
-      });
-    }
-    setConflict(null);
+    
+    // Apply new binding
+    setLocalSettings((prev) => {
+      const newSettings = { ...prev, [recordingKey]: key };
+      onChange(newSettings);
+      return newSettings;
+    });
     setRecordingKey(null);
-  }, [conflict, localSettings, onChange, onClearBinding]);
-
-  const handleConflictCancel = useCallback(() => {
-    setConflict(null);
-    setRecordingKey(null);
-  }, []);
+  }, [recordingKey, allBindings, onChange, onClearBinding]);
 
   useEffect(() => {
-    // Only listen when recording AND not showing the conflict dialog
-    if (recordingKey && !conflict) {
+    if (recordingKey && !isPromptOpen) {
       // Temporarily unregister Win32 hotkeys so key events reach JS
       bridge.send('voice.suspendHotkeys');
 
@@ -103,7 +95,7 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
       };
       const onMouse = (e: MouseEvent) => {
         const target = e.target as HTMLElement;
-        if (target.closest('button, a, input, select, label, .settings-modal')) {
+        if (target.closest('button, a, input, select, label, .settings-modal, .prompt')) {
           setRecordingKey(null);
           return;
         }
@@ -124,7 +116,7 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
         bridge.send('voice.resumeHotkeys');
       };
     }
-  }, [recordingKey, conflict, handleInput]);
+  }, [recordingKey, isPromptOpen, handleInput]);
 
   return (
     <div className="shortcuts-settings-tab">
@@ -174,26 +166,6 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
         </div>
       </div>
 
-      {conflict && (
-        <div className="shortcut-conflict-overlay">
-          <div className="shortcut-conflict-card" role="dialog" aria-modal="true" aria-labelledby="conflict-title">
-            <h2 id="conflict-title" className="heading-title shortcut-conflict-title">Key already in use</h2>
-            <p className="shortcut-conflict-message">
-              This key is already bound to <strong>{BINDING_LABELS[conflict.conflictBindingId] ?? conflict.conflictBindingId}</strong>.
-              Rebind it to <strong>{BINDING_LABELS[conflict.targetKey] ?? conflict.targetKey}</strong>?
-            </p>
-            <div className="shortcut-conflict-buttons">
-              <button className="shortcut-conflict-btn confirm" onClick={handleConflictConfirm} autoFocus>
-                Rebind
-              </button>
-              <button className="shortcut-conflict-btn cancel" onClick={handleConflictCancel}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      
       <p className="settings-hint">
         Click a button and press a key to set a shortcut.
       </p>

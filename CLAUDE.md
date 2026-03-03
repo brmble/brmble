@@ -113,8 +113,11 @@ This project supports modular bridge architecture. The following guidelines help
 Before building or modifying any UI component, read `docs/UI_GUIDE.md`. It covers:
 - The token system (never hardcode visual values)
 - The 3-tier heading system (`.heading-title`, `.heading-section`, `.heading-label`)
-- Component patterns (modals, settings tabs, sidebar sections)
+- Component patterns (modals, settings tabs, sidebar sections, prompt/confirm dialogs, form inputs, buttons)
 - Theme compatibility rules
+- Typography tokens (`--font-display`, `--font-body`, `--font-mono`)
+- Interaction states (hover, active, focus)
+- Spacing and border radius scales
 
 ## Running Docker (local dev)
 

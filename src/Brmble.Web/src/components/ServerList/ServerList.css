@@ -2,13 +2,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 480px;
+  min-width: 600px;
   padding: 2rem;
 }
 
 .server-list-container {
   width: 100%;
-  max-width: 520px;
+  max-width: 680px;
   background: var(--bg-glass);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-xl);
@@ -163,6 +163,25 @@
   height: 32px;
   padding: 0;
   font-size: var(--text-xl);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  border: 1px solid var(--accent-danger-border);
+  transition: color var(--transition-fast), background var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.server-list-delete-btn:hover {
+  color: var(--accent-danger);
+  background: var(--accent-danger-subtle);
+  border-color: var(--accent-danger);
+}
+
+.server-list-delete-btn:active {
+  color: var(--accent-danger-strong);
+  background: var(--accent-danger-bg);
+  border-color: var(--accent-danger-strong);
+  transform: scale(0.95);
 }
 
 .server-list-empty {

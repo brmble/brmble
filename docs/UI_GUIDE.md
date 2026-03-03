@@ -197,6 +197,66 @@ div.root-users-panel
     div.root-user-row
 ```
 
+### Prompt Pattern
+
+Reference: `src/Brmble.Web/src/hooks/usePrompt.tsx`, `src/Brmble.Web/src/components/Prompt/Prompt.css`
+
+Use the `confirm()` function for any action that requires a user decision before proceeding (e.g., destructive actions, conflict resolution). Do **not** use `window.confirm()` — it returns `false` immediately in WebView2.
+
+#### Setup (once, in App.tsx only)
+
+```tsx
+// App.tsx
+import { usePrompt } from './hooks/usePrompt';
+
+const { Prompt } = usePrompt();
+
+return (
+  <div className="app">
+    {/* ... all other content ... */}
+    <Prompt />   {/* must be last child */}
+  </div>
+);
+```
+
+`usePrompt()` must only be called **once** in the tree (in `App.tsx`). It registers a module-level force-update so that `confirm()` calls from any component trigger the correct re-render.
+
+#### Usage (any component)
+
+```tsx
+import { confirm } from '../../hooks/usePrompt';
+
+const result = await confirm({
+  title: 'Are you sure?',
+  message: 'This action cannot be undone.',
+  confirmLabel: 'Delete',   // default: 'Confirm'
+  cancelLabel: 'Cancel',    // default: 'Cancel'
+});
+
+if (result) {
+  // user clicked Confirm
+}
+```
+
+#### DOM structure
+
+```
+div.modal-overlay          (click → cancel)
+  div.prompt.glass-panel.animate-slide-up   (stops propagation)
+    div.modal-header
+      h2.heading-title.modal-title
+      p.modal-subtitle
+    div.prompt-footer
+      button.btn.btn-secondary   Cancel  (autoFocus, bottom-left)
+      button.btn.btn-primary     Confirm (bottom-right)
+```
+
+Rules:
+1. No close button — ESC and overlay click both cancel
+2. Cancel is always `btn-secondary` on the left; Confirm is always `btn-primary` on the right
+3. `<Prompt />` must be the **last child** of the root `<div className="app">` so it renders above all other content
+4. Never call `usePrompt()` in more than one component — only the owner of `<Prompt />` should call it; all others use `confirm()` directly
+
 ### Form Inputs
 
 | Element | Class | Notes |
