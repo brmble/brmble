@@ -22,6 +22,12 @@ let globalForceUpdate: (() => void) | null = null;
  * Requires that <Prompt /> (from usePrompt()) is mounted in the tree.
  */
 export function confirm(options: PromptOptions): Promise<boolean> {
+  // If a dialog is already open, reject the previous pending promise before
+  // accepting the new one so it doesn't hang forever.
+  if (globalResolve) {
+    globalResolve(false);
+    globalResolve = null;
+  }
   globalOptions = options;
   return new Promise((resolve) => {
     globalResolve = resolve;
@@ -74,15 +80,21 @@ export function usePrompt(): UsePromptReturn {
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-      }, [isOpen]);
+      }, [isOpen, handleCancel]);
 
       if (!isOpen) return null;
 
       return (
         <div className="modal-overlay" onClick={handleCancel}>
-          <div className="prompt glass-panel animate-slide-up" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="prompt glass-panel animate-slide-up"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="prompt-title"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="modal-header">
-              <h2 className="heading-title modal-title">{globalOptions.title}</h2>
+              <h2 id="prompt-title" className="heading-title modal-title">{globalOptions.title}</h2>
               <p className="modal-subtitle">{globalOptions.message}</p>
             </div>
             <div className="prompt-footer">
