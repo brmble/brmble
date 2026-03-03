@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useServerlist } from '../../hooks/useServerlist';
 import type { ServerEntry } from '../../hooks/useServerlist';
+import { confirm } from '../../hooks/usePrompt';
 import './ServerList.css';
 
 interface ServerListProps {
@@ -43,6 +44,16 @@ export function ServerList({ onConnect }: ServerListProps) {
     setEditing(null);
     setIsAdding(false);
     setForm({ label: '', host: '', port: '64738', username: '' });
+  };
+
+  const handleDelete = async (server: ServerEntry) => {
+    const confirmed = await confirm({
+      title: 'Delete server',
+      message: `Remove "${server.label}" from your server list?`,
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+    });
+    if (confirmed) removeServer(server.id);
   };
 
   // Cancel add/edit form on Escape key
@@ -94,11 +105,12 @@ export function ServerList({ onConnect }: ServerListProps) {
                     <span className="server-list-address">{server.host}:{server.port}</span>
                   </div>
                     <div className="server-list-actions">
-                      <button 
-                        className="btn btn-primary server-list-connect-btn"
-                        onClick={() => onConnect(server)}
+                      <button
+                        className="btn btn-ghost server-list-delete-btn"
+                        onClick={() => handleDelete(server)}
+                        title="Delete server"
                       >
-                        Connect
+                        ✕
                       </button>
                       <button 
                         className="btn btn-secondary server-list-edit-btn"
@@ -107,10 +119,10 @@ export function ServerList({ onConnect }: ServerListProps) {
                         Edit
                       </button>
                       <button 
-                        className="btn btn-ghost server-list-delete-btn"
-                        onClick={() => removeServer(server.id)}
+                        className="btn btn-primary server-list-connect-btn"
+                        onClick={() => onConnect(server)}
                       >
-                        ×
+                        Connect
                       </button>
                     </div>
                 </div>

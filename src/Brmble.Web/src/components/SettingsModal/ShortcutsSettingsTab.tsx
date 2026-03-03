@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import bridge from '../../bridge';
 import { type AllBindings, BINDING_LABELS } from './SettingsModal';
-import { usePrompt } from '../../hooks/usePrompt';
+import { confirm } from '../../hooks/usePrompt';
 import './ShortcutsSettingsTab.css';
 
 interface ShortcutsSettingsTabProps {
@@ -29,7 +29,6 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
   const [recordingKey, setRecordingKey] = useState<keyof ShortcutsSettings | null>(null);
   const [localSettings, setLocalSettings] = useState<ShortcutsSettings>(settings);
   const [isPromptOpen, setIsPromptOpen] = useState(false);
-  const { confirm } = usePrompt();
 
   useEffect(() => {
     setLocalSettings(settings);
@@ -59,8 +58,21 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
         return;
       }
       
-      // Clear conflicting binding first
+      // Clear conflicting binding (delegates to parent for bridge messages + persistence)
       onClearBinding(conflictBindingId);
+
+      // Also clear it in localSettings so onChange doesn't re-introduce the stale value
+      setLocalSettings((prev) => {
+        const newSettings = {
+          ...prev,
+          [conflictBindingId]: null,
+          [recordingKey]: key,
+        } as ShortcutsSettings;
+        onChange(newSettings);
+        return newSettings;
+      });
+      setRecordingKey(null);
+      return;
     }
     
     // Apply new binding
@@ -70,7 +82,7 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
       return newSettings;
     });
     setRecordingKey(null);
-  }, [recordingKey, allBindings, onChange, onClearBinding, confirm]);
+  }, [recordingKey, allBindings, onChange, onClearBinding]);
 
   useEffect(() => {
     if (recordingKey && !isPromptOpen) {

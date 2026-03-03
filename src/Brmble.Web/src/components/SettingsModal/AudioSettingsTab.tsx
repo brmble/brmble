@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import bridge from '../../bridge';
 import { type AllBindings, BINDING_LABELS } from './SettingsModal';
-import { usePrompt } from '../../hooks/usePrompt';
+import { confirm } from '../../hooks/usePrompt';
 import './AudioSettingsTab.css';
 import './ShortcutsSettingsTab.css';
 
@@ -50,7 +50,6 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
   const [localSettings, setLocalSettings] = useState<AudioSettings>(settings);
   const [recording, setRecording] = useState(false);
   const [isPromptOpen, setIsPromptOpen] = useState(false);
-  const { confirm } = usePrompt();
 
   useEffect(() => {
     setLocalSettings(settings);
@@ -93,7 +92,7 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
     // Apply new binding
     handleChange('pushToTalkKey', key);
     setRecording(false);
-  }, [recording, allBindings, handleChange, onClearBinding, confirm]);
+  }, [recording, allBindings, handleChange, onClearBinding]);
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     e.preventDefault();

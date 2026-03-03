@@ -1,15 +1,15 @@
 .prompt {
   width: 100%;
   max-width: 380px;
-  padding: 32px 28px 24px;
+  padding: var(--space-xl) var(--space-lg) var(--space-lg);
 }
 
 .prompt .modal-header {
-  margin-bottom: 24px;
+  margin-bottom: var(--space-lg);
 }
 
 .prompt .modal-subtitle {
-  margin-top: 8px;
+  margin-top: var(--space-xs);
   color: var(--text-secondary);
   font-size: var(--text-sm);
   line-height: 1.5;
@@ -18,8 +18,8 @@
 .prompt-footer {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  margin-top: 8px;
+  gap: var(--space-sm);
+  margin-top: var(--space-xs);
 }
 
 .prompt-footer .btn {
