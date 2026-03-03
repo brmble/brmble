@@ -17,6 +17,7 @@ import { Version } from './components/Version/Version';
 import { useChatStore, addMessageToStore, clearChatStorage, loadDMContacts, upsertDMContact, markDMContactRead } from './hooks/useChatStore';
 import type { StoredDMContact } from './hooks/useChatStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
+import { usePrompt } from './hooks/usePrompt';
 import './App.css';
 
 const SETTINGS_STORAGE_KEY = 'brmble-settings';
@@ -975,6 +976,8 @@ const handleConnect = (serverData: SavedServer) => {
     ? (matrixDmMessages?.get(selectedMatrixId) ?? [])
     : dmMessages;
 
+  const { Prompt } = usePrompt();
+
   return (
     <div className="app">
       <Header
@@ -1070,6 +1073,8 @@ const handleConnect = (serverData: SavedServer) => {
         username={username}
         certFingerprint={certFingerprint}
       />
+
+      <Prompt />
 
       <CloseDialog
         isOpen={showCloseDialog}
