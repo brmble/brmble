@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo } from 'react';
+import '../components/Prompt/Prompt.css';
 
 export interface PromptOptions {
   title: string;

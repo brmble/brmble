@@ -1,0 +1,28 @@
+.prompt {
+  width: 100%;
+  max-width: 380px;
+  padding: 32px 28px 24px;
+}
+
+.prompt .modal-header {
+  margin-bottom: 24px;
+}
+
+.prompt .modal-subtitle {
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.prompt-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.prompt-footer .btn {
+  flex: 1;
+  max-width: 140px;
+}
