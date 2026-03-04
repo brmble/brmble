@@ -125,6 +125,16 @@ describe('useMatrixClient', () => {
     expect(msgs![0].sender).toBe('Alice');
   });
 
+  it('exposes the Matrix client instance', () => {
+    const { result } = renderHook(() => useMatrixClient(creds));
+    expect(result.current.client).toBeDefined();
+  });
+
+  it('client is null when credentials are null', () => {
+    const { result } = renderHook(() => useMatrixClient(null));
+    expect(result.current.client).toBeNull();
+  });
+
   it('timeline handler falls back to senderId when member has no display name', () => {
     const { result } = renderHook(() => useMatrixClient(creds));
 

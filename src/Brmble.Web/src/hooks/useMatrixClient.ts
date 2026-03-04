@@ -276,5 +276,5 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     await client.scrollback(room, 50);
   }, []);
 
-  return { messages, sendMessage, fetchHistory, dmMessages, dmRoomMap, sendDMMessage, fetchDMHistory };
+  return { messages, sendMessage, fetchHistory, dmMessages, dmRoomMap, sendDMMessage, fetchDMHistory, client: clientRef.current };
 }
