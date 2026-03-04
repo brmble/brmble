@@ -47,6 +47,7 @@ address = "127.0.0.1"
 max_request_size = 20000000
 allow_registration = ${EFFECTIVE_ALLOW_REGISTRATION}
 allow_federation = false
+url_preview_domain_contains_allowlist = ["*"]
 $([ -n "${EFFECTIVE_REGISTRATION_TOKEN}" ] && echo "registration_token = \"${EFFECTIVE_REGISTRATION_TOKEN}\"" || true)
 EOF
 

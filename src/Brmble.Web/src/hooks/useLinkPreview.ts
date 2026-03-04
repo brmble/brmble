@@ -78,7 +78,7 @@ export function useLinkPreview(url: string | null, client: MatrixClient | null) 
       },
       () => {
         if (cancelled) return;
-        cache.set(url, null);
+        // Don't cache errors — allow retry on next render
         setPreview(null);
         setLoading(false);
       }
