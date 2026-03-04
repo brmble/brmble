@@ -1,7 +1,10 @@
 import { useState } from 'react';
+import type { MatrixClient } from 'matrix-js-sdk';
 import type { MediaAttachment } from '../../types';
+import { extractFirstUrl } from '../../hooks/useLinkPreview';
 import { ImageAttachment } from './ImageAttachment';
 import { ImageLightbox } from './ImageLightbox';
+import { LinkPreview } from './LinkPreview';
 import './MessageBubble.css';
 
 interface MessageBubbleProps {
@@ -12,9 +15,10 @@ interface MessageBubbleProps {
   isSystem?: boolean;
   html?: boolean;
   media?: MediaAttachment[];
+  matrixClient?: MatrixClient | null;
 }
 
-export function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media }: MessageBubbleProps) {
+export function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient }: MessageBubbleProps) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const formatTime = (date: Date) => {
@@ -28,6 +32,8 @@ export function MessageBubble({ sender, content, timestamp, isOwnMessage, isSyst
   const classes = ['message-bubble'];
   if (isOwnMessage) classes.push('own');
   if (isSystem) classes.push('message-bubble--system');
+
+  const firstUrl = (!isSystem && content) ? extractFirstUrl(content) : null;
 
   return (
     <div className={classes.join(' ')}>
@@ -56,6 +62,9 @@ export function MessageBubble({ sender, content, timestamp, isOwnMessage, isSyst
               />
             ))}
           </div>
+        )}
+        {firstUrl && matrixClient && (
+          <LinkPreview url={firstUrl} client={matrixClient} />
         )}
       </div>
       {lightboxUrl && (

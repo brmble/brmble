@@ -1,4 +1,5 @@
 import { useRef, useEffect } from 'react';
+import type { MatrixClient } from 'matrix-js-sdk';
 import { MessageBubble } from './MessageBubble';
 import { MessageInput } from './MessageInput';
 import type { ChatMessage } from '../../types';
@@ -11,9 +12,10 @@ interface ChatPanelProps {
   currentUsername?: string;
   onSendMessage: (content: string) => void;
   isDM?: boolean;
+  matrixClient?: MatrixClient | null;
 }
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, isDM }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, isDM, matrixClient }: ChatPanelProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -86,6 +88,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
               isSystem={message.type === 'system'}
               html={message.html}
               media={message.media}
+              matrixClient={matrixClient}
             />
           ))
         )}
