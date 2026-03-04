@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { ChatMessage } from '../types';
+import type { ChatMessage, MediaAttachment } from '../types';
 
 const STORAGE_KEY_PREFIX = 'brmble_chat_';
 
@@ -27,7 +27,7 @@ export function useChatStore(channelId: string) {
     localStorage.setItem(`${STORAGE_KEY_PREFIX}${channelId}`, JSON.stringify(msgs));
   }, [channelId]);
 
-  const addMessage = useCallback((sender: string, content: string, type?: 'system', html?: boolean) => {
+  const addMessage = useCallback((sender: string, content: string, type?: 'system', html?: boolean, media?: MediaAttachment[]) => {
     const newMessage: ChatMessage = {
       id: crypto.randomUUID(),
       channelId,
@@ -36,6 +36,7 @@ export function useChatStore(channelId: string) {
       timestamp: new Date(),
       ...(type && { type }),
       ...(html && { html }),
+      ...(media && media.length > 0 && { media }),
     };
     setMessages(prev => {
       const updated = [...prev, newMessage];
@@ -57,7 +58,7 @@ export function useChatStore(channelId: string) {
  * bypassing React state. Used for background message storage when
  * the user is viewing a different chat panel.
  */
-export function addMessageToStore(storeKey: string, sender: string, content: string, type?: 'system', html?: boolean) {
+export function addMessageToStore(storeKey: string, sender: string, content: string, type?: 'system', html?: boolean, media?: MediaAttachment[]) {
   const fullKey = `${STORAGE_KEY_PREFIX}${storeKey}`;
   let messages: ChatMessage[] = [];
   const stored = localStorage.getItem(fullKey);
@@ -76,6 +77,7 @@ export function addMessageToStore(storeKey: string, sender: string, content: str
     timestamp: new Date(),
     ...(type && { type }),
     ...(html && { html }),
+    ...(media && media.length > 0 && { media }),
   };
   messages.push(newMessage);
   localStorage.setItem(fullKey, JSON.stringify(messages));

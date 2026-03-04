@@ -9,16 +9,23 @@ const mockClient = {
   stopClient: vi.fn(),
   on: vi.fn(),
   off: vi.fn(),
+  once: vi.fn(),
   getRoom: vi.fn(),
+  getAccountData: vi.fn(),
+  setAccountData: vi.fn().mockResolvedValue(undefined),
+  createRoom: vi.fn().mockResolvedValue({ room_id: '!new:example.com' }),
   scrollback: vi.fn().mockResolvedValue(undefined),
   sendMessage: vi.fn().mockResolvedValue({}),
+  mxcUrlToHttp: vi.fn((url: string) => url.replace('mxc://', 'https://matrix.example.com/_matrix/media/v3/download/')),
 };
 
 vi.mock('matrix-js-sdk', () => ({
   createClient: vi.fn(() => mockClient),
   RoomEvent: { Timeline: 'Room.timeline' },
-  EventType: { RoomMessage: 'm.room.message' },
+  ClientEvent: { Sync: 'sync', AccountData: 'accountData' },
+  EventType: { RoomMessage: 'm.room.message', Direct: 'm.direct' },
   MsgType: { Text: 'm.text' },
+  Preset: { TrustedPrivateChat: 'trusted_private_chat' },
 }));
 
 const creds: MatrixCredentials = {

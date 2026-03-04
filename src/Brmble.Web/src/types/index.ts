@@ -26,6 +26,16 @@ export interface User {
   prioritySpeaker?: boolean;
 }
 
+export interface MediaAttachment {
+  type: 'image' | 'gif';
+  url: string;
+  thumbnailUrl?: string;
+  width?: number;
+  height?: number;
+  mimetype?: string;
+  size?: number;
+}
+
 export interface ChatMessage {
   id: string;
   channelId: string;
@@ -34,6 +44,7 @@ export interface ChatMessage {
   timestamp: Date;
   type?: 'system';
   html?: boolean;
+  media?: MediaAttachment[];
 }
 
 export interface DMConversation {

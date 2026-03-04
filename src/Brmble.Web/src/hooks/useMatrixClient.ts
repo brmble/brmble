@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createClient, RoomEvent, ClientEvent, EventType, MsgType, Preset } from 'matrix-js-sdk';
 import type { MatrixClient, MatrixEvent, Room } from 'matrix-js-sdk';
-import type { ChatMessage } from '../types';
+import type { ChatMessage, MediaAttachment } from '../types';
 
 /** Insert a message into a chronologically sorted array, deduplicating by id. Returns the same array if already present. */
 function insertMessage(existing: ChatMessage[], msg: ChatMessage): ChatMessage[] {
@@ -78,13 +78,39 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
         const senderMember = room?.getMember(senderId);
         const displayName = senderMember?.name || senderMember?.rawDisplayName || senderId;
 
-        const content = event.getContent() as { body?: string };
+        const content = event.getContent() as {
+          body?: string;
+          msgtype?: string;
+          url?: string;
+          info?: { thumbnail_url?: string; w?: number; h?: number; mimetype?: string; size?: number };
+        };
+
+        let media: MediaAttachment[] | undefined;
+        if (content.msgtype === 'm.image' && content.url) {
+          const cl = clientRef.current;
+          const fullUrl = cl?.mxcUrlToHttp(content.url) ?? content.url;
+          const thumbUrl = content.info?.thumbnail_url
+            ? (cl?.mxcUrlToHttp(content.info.thumbnail_url, 400, 400, 'scale') ?? undefined)
+            : (cl?.mxcUrlToHttp(content.url, 400, 400, 'scale') ?? undefined);
+
+          media = [{
+            type: content.info?.mimetype?.toLowerCase() === 'image/gif' ? 'gif' : 'image',
+            url: fullUrl,
+            thumbnailUrl: thumbUrl,
+            width: content.info?.w,
+            height: content.info?.h,
+            mimetype: content.info?.mimetype,
+            size: content.info?.size,
+          }];
+        }
+
         const message: ChatMessage = {
           id: event.getId() ?? crypto.randomUUID(),
           channelId,
           sender: displayName,
           content: content.body ?? '',
           timestamp: new Date(event.getTs()),
+          ...(media && { media }),
         };
 
         setMessages(prev => {
@@ -104,13 +130,39 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       const dmSenderMember = room?.getMember(dmSenderId);
       const dmDisplayName = dmSenderMember?.name || dmSenderMember?.rawDisplayName || dmSenderId;
 
-      const dmContent = event.getContent() as { body?: string };
+      const dmContent = event.getContent() as {
+        body?: string;
+        msgtype?: string;
+        url?: string;
+        info?: { thumbnail_url?: string; w?: number; h?: number; mimetype?: string; size?: number };
+      };
+
+      let dmMedia: MediaAttachment[] | undefined;
+      if (dmContent.msgtype === 'm.image' && dmContent.url) {
+        const cl = clientRef.current;
+        const fullUrl = cl?.mxcUrlToHttp(dmContent.url) ?? dmContent.url;
+        const thumbUrl = dmContent.info?.thumbnail_url
+          ? (cl?.mxcUrlToHttp(dmContent.info.thumbnail_url, 400, 400, 'scale') ?? undefined)
+          : (cl?.mxcUrlToHttp(dmContent.url, 400, 400, 'scale') ?? undefined);
+
+        dmMedia = [{
+          type: dmContent.info?.mimetype?.toLowerCase() === 'image/gif' ? 'gif' : 'image',
+          url: fullUrl,
+          thumbnailUrl: thumbUrl,
+          width: dmContent.info?.w,
+          height: dmContent.info?.h,
+          mimetype: dmContent.info?.mimetype,
+          size: dmContent.info?.size,
+        }];
+      }
+
       const dmMessage: ChatMessage = {
         id: event.getId() ?? crypto.randomUUID(),
-        channelId: dmUserId, // use matrixUserId as channelId key
+        channelId: dmUserId,
         sender: dmDisplayName,
         content: dmContent.body ?? '',
         timestamp: new Date(event.getTs()),
+        ...(dmMedia && { media: dmMedia }),
       };
 
       setDmMessages(prev => {
