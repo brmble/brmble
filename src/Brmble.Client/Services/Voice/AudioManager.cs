@@ -200,6 +200,7 @@ private int _dmScreenHotkeyId = -1;
     private readonly Dictionary<uint, float> _userVolumes = new();
     private readonly HashSet<uint> _localMutes = new();
     private volatile float _maxAmplification = 1.0f;
+    private int _outputDelayMs = 50;
 
     // Speech enhancement
     private SpeechEnhancementService? _speechEnhancement;
@@ -284,6 +285,15 @@ private int _dmScreenHotkeyId = -1;
                 _localMutes.Add(userId);
             else
                 _localMutes.Remove(userId);
+        }
+    }
+
+    public void SetOutputDelay(int delayMs)
+    {
+        _outputDelayMs = Math.Clamp(delayMs, 10, 100);
+        foreach (var player in _players.Values)
+        {
+            player.DesiredLatency = _outputDelayMs;
         }
     }
 
@@ -512,7 +522,7 @@ private int _dmScreenHotkeyId = -1;
 
                 var player = new WaveOutEvent
                 {
-                    DesiredLatency = 80,
+                    DesiredLatency = _outputDelayMs,
                     NumberOfBuffers = 4
                 };
                 player.Init(pipeline);
