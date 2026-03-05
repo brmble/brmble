@@ -640,7 +640,11 @@ private int _dmScreenHotkeyId = -1;
     {
         _muted = muted;
         if (muted)
+        {
+            _pttSilenceTailTimer?.Dispose();
+            _pttSilenceTailTimer = null;
             StopMic();
+        }
         else
             StartMic();
     }
@@ -1360,9 +1364,13 @@ private int _dmScreenHotkeyId = -1;
             _pttSilenceTailTimer?.Dispose();
             _pttSilenceTailTimer = new System.Threading.Timer(_ =>
             {
-                if (_pttActive) return; // PTT re-pressed before callback fired; bail out
-                _pttSilenceTailTimer?.Dispose();
-                _pttSilenceTailTimer = null;
+                lock (_lock)
+                {
+                    if (_pttActive) return; // PTT re-pressed before callback fired; bail out
+                    var t = _pttSilenceTailTimer;
+                    _pttSilenceTailTimer = null;
+                    t?.Dispose();
+                }
                 StopMicWithSilenceTail();
             }, null, dueTime: 0, period: Timeout.Infinite);
         }
