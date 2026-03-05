@@ -17,12 +17,13 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
     private readonly int _bytesPerSample;
 
     // Decoded PCM queue — written by network thread, read by audio thread
-    private readonly Queue<byte[]> _pcmQueue = new();
+    private readonly Queue<(byte[] data, DateTime enqueuedAt)> _pcmQueue = new();
     private byte[]? _currentFrame;
     private int _currentFrameOffset;
 
     private readonly object _lock = new();
     private float _volume = 1.0f;
+    private int _jitterBufferMs = 20;
 
     public WaveFormat WaveFormat { get; }
 
@@ -30,6 +31,12 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
     {
         get => Volatile.Read(ref _volume);
         set => Volatile.Write(ref _volume, Math.Clamp(value, 0f, 2.5f));
+    }
+
+    public int JitterBufferMs
+    {
+        get => _jitterBufferMs;
+        set => _jitterBufferMs = Math.Clamp(value, 10, 60);
     }
 
     public UserAudioPipeline(int sampleRate = 48000, int channels = 1)
@@ -57,7 +64,7 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
 
         lock (_lock)
         {
-            _pcmQueue.Enqueue(decoded);
+            _pcmQueue.Enqueue((decoded, DateTime.UtcNow));
         }
     }
 
@@ -91,26 +98,39 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
             // Pull decoded frames from queue
             while (written < count)
             {
-                if (!_pcmQueue.TryDequeue(out var frame))
+                if (!_pcmQueue.TryPeek(out var queued))
                 {
-                    // No more data — fill remainder with silence
+                    // No data - fill with silence
                     Array.Clear(buffer, offset + written, count - written);
                     written = count;
                     break;
                 }
 
-                int needed = count - written;
-                if (frame.Length <= needed)
+                // Check if frame has been in queue long enough
+                var elapsed = (DateTime.UtcNow - queued.enqueuedAt).TotalMilliseconds;
+                if (elapsed < _jitterBufferMs)
                 {
-                    Array.Copy(frame, 0, buffer, offset + written, frame.Length);
-                    written += frame.Length;
+                    // Not enough time elapsed - return silence for now
+                    Array.Clear(buffer, offset + written, count - written);
+                    written = count;
+                    break;
+                }
+
+                // Dequeue and process
+                _pcmQueue.TryDequeue(out var frame);
+
+                int needed = count - written;
+                if (frame.data.Length <= needed)
+                {
+                    Array.Copy(frame.data, 0, buffer, offset + written, frame.data.Length);
+                    written += frame.data.Length;
                 }
                 else
                 {
                     // Partial frame — save remainder for next Read
-                    Array.Copy(frame, 0, buffer, offset + written, needed);
+                    Array.Copy(frame.data, 0, buffer, offset + written, needed);
                     written += needed;
-                    _currentFrame = frame;
+                    _currentFrame = frame.data;
                     _currentFrameOffset = needed;
                 }
             }
