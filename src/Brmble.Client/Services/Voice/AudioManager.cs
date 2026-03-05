@@ -381,6 +381,40 @@ private int _dmScreenHotkeyId = -1;
         }
     }
 
+    /// <summary>
+    /// Submits <see cref="PttSilenceTailFrames"/> silence frames through the encode pipeline
+    /// then disposes it. Call only when the pipeline is still alive (i.e. mic is running).
+    /// </summary>
+    private void StopMicWithSilenceTail()
+    {
+        lock (_lock)
+        {
+            if (!_micStarted) return;
+
+            // Submit silence frames before stopping so the receiver gets a graceful end-of-stream
+            if (_encodePipeline != null)
+            {
+                const int frameSizeBytes = 960 * sizeof(short); // 1920 bytes per 20 ms frame
+                var silence = new byte[frameSizeBytes * PttSilenceTailFrames];
+                try
+                {
+                    _encodePipeline.SubmitPcm(new ReadOnlySpan<byte>(silence));
+                    AudioLog.Write($"[Audio] Sent {PttSilenceTailFrames} silence tail frames");
+                }
+                catch (Exception ex)
+                {
+                    AudioLog.Write($"[Audio] Silence tail encode failed: {ex.Message}");
+                }
+            }
+
+            _waveIn?.StopRecording();
+            _encodePipeline?.Dispose();
+            _encodePipeline = null;
+            _micStarted = false;
+            AudioLog.Write("[Audio] Mic stopped (with silence tail)");
+        }
+    }
+
     private void OnMicData(object? sender, WaveInEventArgs e)
     {
         if (_muted) return;
