@@ -1031,6 +1031,7 @@ const handleConnect = (serverData: SavedServer) => {
                 messages={isMatrixActive ? (matrixMessages ?? []) : messages}
                 currentUsername={username}
                 onSendMessage={handleSendMessage}
+                matrixClient={matrixClient.client}
               />
             </div>
             <div className="content-slide">
@@ -1041,6 +1042,7 @@ const handleConnect = (serverData: SavedServer) => {
                 currentUsername={username}
                 onSendMessage={handleSendDMMessage}
                 isDM={true}
+                matrixClient={matrixClient.client}
               />
             </div>
           </div>
