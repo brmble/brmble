@@ -200,6 +200,30 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
             onChange={(e) => handleChange('outputVolume', parseInt(e.target.value, 10))}
           />
         </div>
+
+        <div className="settings-item settings-slider">
+          <label>Jitter Buffer: {localSettings.jitterBuffer}ms</label>
+          <span className="settings-hint">Lower reduces latency</span>
+          <input
+            type="range"
+            min="10"
+            max="60"
+            value={localSettings.jitterBuffer}
+            onChange={(e) => handleChange('jitterBuffer', parseInt(e.target.value, 10))}
+          />
+        </div>
+
+        <div className="settings-item settings-slider">
+          <label>Output Delay: {localSettings.outputDelay}ms</label>
+          <span className="settings-hint">Lower reduces latency</span>
+          <input
+            type="range"
+            min="10"
+            max="100"
+            value={localSettings.outputDelay}
+            onChange={(e) => handleChange('outputDelay', parseInt(e.target.value, 10))}
+          />
+        </div>
       </div>
 
       {/* Transmission Section */}
