@@ -204,6 +204,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.Dispose();
         _audioManager = null;
 
+        // Reset cached speech-enhancement state so that when a new AudioManager
+        // is created on reconnect, ConfigureSpeechEnhancement is always called.
+        _lastSpeechEnhancementEnabled = false;
+        _lastSpeechEnhancementModel = "";
+
         try
         {
             // Close TCP/UDP sockets — BasicMumbleProtocol.Close() only nulls
@@ -562,6 +567,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.SetTransmissionMode(parsed, key, _hwnd);
     }
 
+    private bool _lastSpeechEnhancementEnabled = false;
+    private string _lastSpeechEnhancementModel = "";
+
     public void ApplySettings(AppSettings settings)
     {
         SetTransmissionMode(settings.Audio.TransmissionMode, settings.Audio.PushToTalkKey);
@@ -573,13 +581,24 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.SetOutputVolume(settings.Audio.OutputVolume);
         _audioManager?.SetMaxAmplification(settings.Audio.MaxAmplification);
 
-        var modelVariant = settings.SpeechEnhancement.Model?.ToLowerInvariant() switch
+        // Only reinitialise speech enhancement when its settings actually change.
+        // ConfigureSpeechEnhancement disposes and recreates the ONNX InferenceSession,
+        // which causes a native crash if the mic callback is mid-inference at that moment.
+        var seEnabled = settings.SpeechEnhancement.Enabled;
+        var seModel = (settings.SpeechEnhancement.Model ?? "").Trim().ToLowerInvariant();
+        if (seEnabled != _lastSpeechEnhancementEnabled || seModel != _lastSpeechEnhancementModel)
         {
-            "vctk-demand" => GtcrnModelVariant.VctkDemand,
-            _ => GtcrnModelVariant.Dns3
-        };
-        var modelsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "models");
-        _audioManager?.ConfigureSpeechEnhancement(modelsPath, settings.SpeechEnhancement.Enabled, modelVariant);
+            _lastSpeechEnhancementEnabled = seEnabled;
+            _lastSpeechEnhancementModel = seModel;
+
+            var modelVariant = seModel switch
+            {
+                "vctk-demand" => GtcrnModelVariant.VctkDemand,
+                _ => GtcrnModelVariant.Dns3
+            };
+            var modelsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "models");
+            _audioManager?.ConfigureSpeechEnhancement(modelsPath, seEnabled, modelVariant);
+        }
     }
 
     /// <summary>Called from WndProc on WM_HOTKEY.</summary>
