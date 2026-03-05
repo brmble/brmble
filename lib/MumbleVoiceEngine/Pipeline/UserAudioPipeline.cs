@@ -16,16 +16,13 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
     private readonly int _channels;
     private readonly int _bytesPerSample;
 
-    // Decoded PCM queue — written by network thread, read by audio thread.
-    // Timestamps are Environment.TickCount64 (monotonic milliseconds) to avoid
-    // sensitivity to NTP / manual clock adjustments.
-    private readonly Queue<(byte[] data, long enqueuedAtMs)> _pcmQueue = new();
+    // Decoded PCM queue — written by network thread, read by audio thread
+    private readonly Queue<byte[]> _pcmQueue = new();
     private byte[]? _currentFrame;
     private int _currentFrameOffset;
 
     private readonly object _lock = new();
     private float _volume = 1.0f;
-    private int _jitterBufferMs = 0;
 
     public WaveFormat WaveFormat { get; }
 
@@ -33,12 +30,6 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
     {
         get => Volatile.Read(ref _volume);
         set => Volatile.Write(ref _volume, Math.Clamp(value, 0f, 2.5f));
-    }
-
-    public int JitterBufferMs
-    {
-        get => _jitterBufferMs;
-        set => _jitterBufferMs = Math.Clamp(value, 0, 60);
     }
 
     public UserAudioPipeline(int sampleRate = 48000, int channels = 1)
@@ -66,7 +57,7 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
 
         lock (_lock)
         {
-            _pcmQueue.Enqueue((decoded, Environment.TickCount64));
+            _pcmQueue.Enqueue(decoded);
         }
     }
 
@@ -100,70 +91,28 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
             // Pull decoded frames from queue
             while (written < count)
             {
-                // First, dequeue all frames that are ready
-                var readyFrames = new List<(byte[] data, long enqueuedAtMs)>();
-                while (_pcmQueue.TryPeek(out var peeked))
+                if (!_pcmQueue.TryDequeue(out var frame))
                 {
-                    var elapsed = Environment.TickCount64 - peeked.enqueuedAtMs;
-                    if (elapsed >= _jitterBufferMs)
-                    {
-                        _pcmQueue.TryDequeue(out var ready);
-                        readyFrames.Add((ready.data, ready.enqueuedAtMs));
-                    }
-                    else
-                    {
-                        break; // Oldest frame not ready, stop checking
-                    }
-                }
-
-                // Process ready frames
-                int processedIndex = 0;
-                foreach (var (frame, _) in readyFrames)
-                {
-                    if (written >= count)
-                    {
-                        // Buffer full - re-enqueue remaining frames with their original timestamps
-                        // so they don't restart the jitter delay clock.
-                        for (int i = processedIndex; i < readyFrames.Count; i++)
-                        {
-                            _pcmQueue.Enqueue((readyFrames[i].data, readyFrames[i].enqueuedAtMs));
-                        }
-                        break;
-                    }
-
-                    processedIndex++;
-                    int needed = count - written;
-                    if (frame.Length <= needed)
-                    {
-                        Array.Copy(frame, 0, buffer, offset + written, frame.Length);
-                        written += frame.Length;
-                    }
-                    else
-                    {
-                        // Partial frame — save remainder for next Read
-                        Array.Copy(frame, 0, buffer, offset + written, needed);
-                        written += needed;
-                        _currentFrame = frame;
-                        _currentFrameOffset = needed;
-                    }
-                }
-
-                // If no ready frames or buffer is full, fill with silence
-                if (readyFrames.Count == 0)
-                {
+                    // No more data — fill remainder with silence
                     Array.Clear(buffer, offset + written, count - written);
                     written = count;
-                }
-
-                // Ensure any unwritten portion of the buffer is silence
-                if (written < count)
-                {
-                    Array.Clear(buffer, offset + written, count - written);
-                }
-
-                // Check if there's more data in the queue
-                if (_pcmQueue.Count == 0)
                     break;
+                }
+
+                int needed = count - written;
+                if (frame.Length <= needed)
+                {
+                    Array.Copy(frame, 0, buffer, offset + written, frame.Length);
+                    written += frame.Length;
+                }
+                else
+                {
+                    // Partial frame — save remainder for next Read
+                    Array.Copy(frame, 0, buffer, offset + written, needed);
+                    written += needed;
+                    _currentFrame = frame;
+                    _currentFrameOffset = needed;
+                }
             }
 
             // Capture volume inside lock to ensure consistent read

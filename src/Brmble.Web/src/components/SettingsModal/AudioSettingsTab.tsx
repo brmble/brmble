@@ -24,8 +24,6 @@ export interface AudioSettings {
   maxAmplification: number;
   transmissionMode: TransmissionMode;
   pushToTalkKey: string | null;
-  jitterBuffer: number;
-  outputDelay: number;
 }
 
 export interface SpeechEnhancementSettings {
@@ -41,8 +39,6 @@ export const DEFAULT_SETTINGS: AudioSettings = {
   maxAmplification: 100,
   transmissionMode: 'pushToTalk',
   pushToTalkKey: null,
-  jitterBuffer: 10,
-  outputDelay: 50,
 };
 
 export const DEFAULT_SPEECH_ENHANCEMENT: SpeechEnhancementSettings = {
@@ -63,17 +59,6 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
     const newSettings = { ...localSettings, [key]: value };
     setLocalSettings(newSettings);
     onChange(newSettings);
-  };
-
-  // For sliders that are expensive to apply (outputDelay recreates WaveOutEvent devices,
-  // jitterBuffer changes pipeline state), update the label locally during drag but only
-  // commit to the backend on drag-end to avoid rapid re-inits on every tick.
-  const handleSliderChange = (key: 'outputDelay' | 'jitterBuffer', value: number) => {
-    setLocalSettings(prev => ({ ...prev, [key]: value }));
-  };
-
-  const handleSliderCommit = (_key: 'outputDelay' | 'jitterBuffer') => {
-    onChange(localSettings);
   };
 
   const handleInput = useCallback(async (key: string) => {
@@ -209,38 +194,6 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
             max="250"
             value={localSettings.outputVolume}
             onChange={(e) => handleChange('outputVolume', parseInt(e.target.value, 10))}
-          />
-        </div>
-
-        <div className="settings-item settings-slider">
-          <label htmlFor="slider-jitter-buffer">Jitter Buffer: {localSettings.jitterBuffer}ms<button type="button" className="tooltip-icon" aria-label="Delays playback slightly to smooth out network jitter. Higher values reduce audio glitches at the cost of more latency." data-tooltip="Delays playback slightly to smooth out network jitter. Higher values reduce audio glitches at the cost of more latency.">?</button></label>
-          <span id="hint-jitter-buffer" className="settings-hint">Lower reduces latency</span>
-          <input
-            id="slider-jitter-buffer"
-            type="range"
-            min="10"
-            max="60"
-            value={localSettings.jitterBuffer}
-            aria-describedby="hint-jitter-buffer"
-            onChange={(e) => handleSliderChange('jitterBuffer', parseInt(e.target.value, 10))}
-            onMouseUp={() => handleSliderCommit('jitterBuffer')}
-            onTouchEnd={() => handleSliderCommit('jitterBuffer')}
-          />
-        </div>
-
-        <div className="settings-item settings-slider">
-          <label htmlFor="slider-output-delay">Output Delay: {localSettings.outputDelay}ms<button type="button" className="tooltip-icon" aria-label="Size of the audio output buffer. Higher values reduce crackling and dropouts but increase latency." data-tooltip="Size of the audio output buffer. Higher values reduce crackling and dropouts but increase latency.">?</button></label>
-          <span id="hint-output-delay" className="settings-hint">Lower reduces latency</span>
-          <input
-            id="slider-output-delay"
-            type="range"
-            min="10"
-            max="100"
-            value={localSettings.outputDelay}
-            aria-describedby="hint-output-delay"
-            onChange={(e) => handleSliderChange('outputDelay', parseInt(e.target.value, 10))}
-            onMouseUp={() => handleSliderCommit('outputDelay')}
-            onTouchEnd={() => handleSliderCommit('outputDelay')}
           />
         </div>
       </div>

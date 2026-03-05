@@ -203,8 +203,6 @@ private int _dmScreenHotkeyId = -1;
     private readonly Dictionary<uint, float> _userVolumes = new();
     private readonly HashSet<uint> _localMutes = new();
     private volatile float _maxAmplification = 1.0f;
-    private int _outputDelayMs = 50;
-    private int _jitterBufferMs = 10;
 
     // Speech enhancement
     private SpeechEnhancementService? _speechEnhancement;
@@ -289,47 +287,6 @@ private int _dmScreenHotkeyId = -1;
                 _localMutes.Add(userId);
             else
                 _localMutes.Remove(userId);
-        }
-    }
-
-    public void SetOutputDelay(int delayMs)
-    {
-        lock (_lock)
-        {
-            var clamped = Math.Clamp(delayMs, 10, 100);
-            if (clamped == _outputDelayMs)
-                return;
-            _outputDelayMs = clamped;
-            // WaveOutEvent.DesiredLatency is read only during Init(); changing it on a
-            // running instance has no effect.  Recreate each player with the new value.
-            foreach (var userId in _players.Keys.ToList())
-            {
-                var old = _players[userId];
-                old.Stop();
-                old.Dispose();
-
-                var pipeline = _pipelines[userId];
-                var player = new WaveOutEvent
-                {
-                    DesiredLatency = _outputDelayMs,
-                    NumberOfBuffers = 4
-                };
-                player.Init(pipeline);
-                player.Play();
-                _players[userId] = player;
-            }
-        }
-    }
-
-    public void SetJitterBuffer(int jitterMs)
-    {
-        lock (_lock)
-        {
-            _jitterBufferMs = Math.Clamp(jitterMs, 10, 60);
-            foreach (var pipeline in _pipelines.Values)
-            {
-                pipeline.JitterBufferMs = _jitterBufferMs;
-            }
         }
     }
 
@@ -594,13 +551,12 @@ private int _dmScreenHotkeyId = -1;
             {
                 var userVolume = _userVolumes.TryGetValue(userId, out var v) ? v : _outputVolume;
                 pipeline = new UserAudioPipeline(sampleRate: 48000, channels: 1);
-                pipeline.JitterBufferMs = _jitterBufferMs;
                 pipeline.Volume = userVolume;
                 _pipelines[userId] = pipeline;
 
                 var player = new WaveOutEvent
                 {
-                    DesiredLatency = _outputDelayMs,
+                    DesiredLatency = 80,
                     NumberOfBuffers = 4
                 };
                 player.Init(pipeline);

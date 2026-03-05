@@ -572,8 +572,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.SetInputVolume(settings.Audio.InputVolume);
         _audioManager?.SetOutputVolume(settings.Audio.OutputVolume);
         _audioManager?.SetMaxAmplification(settings.Audio.MaxAmplification);
-        _audioManager?.SetJitterBuffer(settings.Audio.JitterBuffer);
-        _audioManager?.SetOutputDelay(settings.Audio.OutputDelay);
 
         var modelVariant = settings.SpeechEnhancement.Model?.ToLowerInvariant() switch
         {
