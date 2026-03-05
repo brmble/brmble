@@ -67,6 +67,24 @@ describe('groupMessages', () => {
     expect(result[1].isGroupStart).toBe(true); // day change breaks group
   });
 
+  it('keeps group at exactly 5 minute boundary', () => {
+    const messages = [
+      msg({ sender: 'alice', timestamp: new Date('2026-01-01T10:00:00') }),
+      msg({ sender: 'alice', timestamp: new Date('2026-01-01T10:05:00') }),
+    ];
+    const result = groupMessages(messages);
+    expect(result[1].isGroupStart).toBe(false);
+  });
+
+  it('does not show date separator for messages on the same day', () => {
+    const messages = [
+      msg({ sender: 'alice', timestamp: new Date('2026-01-01T10:00:00') }),
+      msg({ sender: 'bob', timestamp: new Date('2026-01-01T11:00:00') }),
+    ];
+    const result = groupMessages(messages);
+    expect(result[1].showDateSeparator).toBe(false);
+  });
+
   it('system messages always start a new group', () => {
     const messages = [
       msg({ sender: 'alice', timestamp: new Date('2026-01-01T10:00:00') }),
