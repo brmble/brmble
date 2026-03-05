@@ -41,7 +41,7 @@ export const DEFAULT_SETTINGS: AudioSettings = {
   maxAmplification: 100,
   transmissionMode: 'pushToTalk',
   pushToTalkKey: null,
-  jitterBuffer: 20,
+  jitterBuffer: 10,
   outputDelay: 50,
 };
 

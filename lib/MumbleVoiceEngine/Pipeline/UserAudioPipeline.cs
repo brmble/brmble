@@ -23,7 +23,7 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
 
     private readonly object _lock = new();
     private float _volume = 1.0f;
-    private int _jitterBufferMs = 20;
+    private int _jitterBufferMs = 0;
 
     public WaveFormat WaveFormat { get; }
 
@@ -99,14 +99,14 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
             while (written < count)
             {
                 // First, dequeue all frames that are ready
-                var readyFrames = new List<byte[]>();
+                var readyFrames = new List<(byte[] data, DateTime enqueuedAt)>();
                 while (_pcmQueue.TryPeek(out var peeked))
                 {
                     var elapsed = (DateTime.UtcNow - peeked.enqueuedAt).TotalMilliseconds;
                     if (elapsed >= _jitterBufferMs)
                     {
                         _pcmQueue.TryDequeue(out var ready);
-                        readyFrames.Add(ready.data);
+                        readyFrames.Add((ready.data, ready.enqueuedAt));
                     }
                     else
                     {
@@ -116,14 +116,15 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
 
                 // Process ready frames
                 int processedIndex = 0;
-                foreach (var frame in readyFrames)
+                foreach (var (frame, frameEnqueuedAt) in readyFrames)
                 {
                     if (written >= count)
                     {
-                        // Buffer full - re-enqueue remaining frames
+                        // Buffer full - re-enqueue remaining frames with their original timestamps
+                        // so they don't restart the jitter delay clock.
                         for (int i = processedIndex; i < readyFrames.Count; i++)
                         {
-                            _pcmQueue.Enqueue((readyFrames[i], DateTime.UtcNow));
+                            _pcmQueue.Enqueue((readyFrames[i].data, readyFrames[i].enqueuedAt));
                         }
                         break;
                     }

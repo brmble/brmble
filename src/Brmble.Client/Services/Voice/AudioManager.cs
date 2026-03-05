@@ -201,7 +201,7 @@ private int _dmScreenHotkeyId = -1;
     private readonly HashSet<uint> _localMutes = new();
     private volatile float _maxAmplification = 1.0f;
     private int _outputDelayMs = 50;
-    private int _jitterBufferMs = 50;
+    private int _jitterBufferMs = 10;
 
     // Speech enhancement
     private SpeechEnhancementService? _speechEnhancement;
@@ -294,9 +294,23 @@ private int _dmScreenHotkeyId = -1;
         lock (_lock)
         {
             _outputDelayMs = Math.Clamp(delayMs, 10, 100);
-            foreach (var player in _players.Values)
+            // WaveOutEvent.DesiredLatency is read only during Init(); changing it on a
+            // running instance has no effect.  Recreate each player with the new value.
+            foreach (var userId in _players.Keys.ToList())
             {
-                player.DesiredLatency = _outputDelayMs;
+                var old = _players[userId];
+                old.Stop();
+                old.Dispose();
+
+                var pipeline = _pipelines[userId];
+                var player = new WaveOutEvent
+                {
+                    DesiredLatency = _outputDelayMs,
+                    NumberOfBuffers = 4
+                };
+                player.Init(pipeline);
+                player.Play();
+                _players[userId] = player;
             }
         }
     }
@@ -308,7 +322,7 @@ private int _dmScreenHotkeyId = -1;
             _jitterBufferMs = Math.Clamp(jitterMs, 10, 60);
             foreach (var pipeline in _pipelines.Values)
             {
-                pipeline.JitterBufferMs = jitterMs;
+                pipeline.JitterBufferMs = _jitterBufferMs;
             }
         }
     }

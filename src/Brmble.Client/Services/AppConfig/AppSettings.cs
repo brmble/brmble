@@ -8,7 +8,7 @@ public record AudioSettings(
     int OutputVolume = 250,
     string TransmissionMode = "voiceActivity",
     string? PushToTalkKey = null,
-    int JitterBuffer = 20,
+    int JitterBuffer = 10,
     int OutputDelay = 50
 );
 
