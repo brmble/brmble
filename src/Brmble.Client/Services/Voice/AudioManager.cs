@@ -1343,15 +1343,28 @@ private int _dmScreenHotkeyId = -1;
     {
         AudioLog.Write($"[Audio] SetPttActive: active={active}, _pttActive={_pttActive}, muted={_muted}");
         _pttActive = active;
+
         if (active && !_muted)
         {
+            // Cancel any pending silence tail — PTT was re-pressed before the tail completed
+            _pttSilenceTailTimer?.Dispose();
+            _pttSilenceTailTimer = null;
             AudioLog.Write("[Audio] Starting mic for PTT");
             StartMic();
         }
         else
         {
-            AudioLog.Write("[Audio] Stopping mic for PTT");
-            StopMic();
+            AudioLog.Write("[Audio] PTT released — scheduling silence tail");
+            // Gate live mic immediately (OnMicData checks _pttActive), then
+            // fire the silence tail on a background thread right away (dueTime=0).
+            _pttSilenceTailTimer?.Dispose();
+            _pttSilenceTailTimer = new System.Threading.Timer(_ =>
+            {
+                if (_pttActive) return; // PTT re-pressed before callback fired; bail out
+                _pttSilenceTailTimer?.Dispose();
+                _pttSilenceTailTimer = null;
+                StopMicWithSilenceTail();
+            }, null, dueTime: 0, period: Timeout.Infinite);
         }
     }
 
