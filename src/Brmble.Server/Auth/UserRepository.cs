@@ -19,7 +19,7 @@ public class UserRepository
         _serverDomain = settings.Value.ServerDomain;
     }
 
-    public async Task<User?> GetByCertHash(string certHash)
+    public virtual async Task<User?> GetByCertHash(string certHash)
     {
         using var conn = _db.CreateConnection();
         return await conn.QuerySingleOrDefaultAsync<User>(
