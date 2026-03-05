@@ -291,9 +291,12 @@ private int _dmScreenHotkeyId = -1;
     public void SetOutputDelay(int delayMs)
     {
         _outputDelayMs = Math.Clamp(delayMs, 10, 100);
-        foreach (var player in _players.Values)
+        lock (_lock)
         {
-            player.DesiredLatency = _outputDelayMs;
+            foreach (var player in _players.Values)
+            {
+                player.DesiredLatency = _outputDelayMs;
+            }
         }
     }
 
