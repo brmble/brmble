@@ -300,6 +300,17 @@ private int _dmScreenHotkeyId = -1;
         }
     }
 
+    public void SetJitterBuffer(int jitterMs)
+    {
+        lock (_lock)
+        {
+            foreach (var pipeline in _pipelines.Values)
+            {
+                pipeline.JitterBufferMs = jitterMs;
+            }
+        }
+    }
+
     public AudioManager(IntPtr hwnd = default)
     {
         _hwnd = hwnd;
