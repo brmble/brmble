@@ -82,7 +82,11 @@
   padding: 1rem 1.5rem;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0;
+}
+
+.message-bubble + .message-bubble:not(.message-bubble--collapsed) {
+  margin-top: var(--space-md);
 }
 
 .chat-no-messages {

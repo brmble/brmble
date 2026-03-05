@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { groupMessages, type GroupedMessage } from './groupMessages';
+import { groupMessages } from './groupMessages';
 import type { ChatMessage } from '../types';
 
 function msg(overrides: Partial<ChatMessage> & { sender: string; timestamp: Date }): ChatMessage {

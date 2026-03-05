@@ -1,7 +1,9 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, Fragment } from 'react';
 import type { MatrixClient } from 'matrix-js-sdk';
 import { MessageBubble } from './MessageBubble';
 import { MessageInput } from './MessageInput';
+import { groupMessages } from '../../utils/groupMessages';
+import { formatDateSeparator } from '../../utils/formatDateSeparator';
 import type { ChatMessage } from '../../types';
 import './ChatPanel.css';
 
@@ -43,6 +45,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
   }
 
   const userCount = 1; // Placeholder
+  const grouped = groupMessages(messages);
 
   return (
     <div className="chat-panel">
@@ -78,18 +81,27 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
             <p>No messages yet. Start the conversation!</p>
           </div>
         ) : (
-          messages.map(message => (
-            <MessageBubble
-              key={message.id}
-              sender={message.sender}
-              content={message.content}
-              timestamp={message.timestamp}
-              isOwnMessage={!message.type && message.sender === currentUsername}
-              isSystem={message.type === 'system'}
-              html={message.html}
-              media={message.media}
-              matrixClient={matrixClient}
-            />
+          grouped.map((item) => (
+            <Fragment key={item.message.id}>
+              {item.showDateSeparator && (
+                <div className="chat-date-separator">
+                  <span className="chat-date-separator-label">
+                    {formatDateSeparator(item.message.timestamp)}
+                  </span>
+                </div>
+              )}
+              <MessageBubble
+                sender={item.message.sender}
+                content={item.message.content}
+                timestamp={item.message.timestamp}
+                isOwnMessage={!item.message.type && item.message.sender === currentUsername}
+                isSystem={item.message.type === 'system'}
+                collapsed={!item.isGroupStart}
+                html={item.message.html}
+                media={item.message.media}
+                matrixClient={matrixClient}
+              />
+            </Fragment>
           ))
         )}
         <div ref={messagesEndRef} />
