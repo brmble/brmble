@@ -16,8 +16,10 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
     private readonly int _channels;
     private readonly int _bytesPerSample;
 
-    // Decoded PCM queue — written by network thread, read by audio thread
-    private readonly Queue<(byte[] data, DateTime enqueuedAt)> _pcmQueue = new();
+    // Decoded PCM queue — written by network thread, read by audio thread.
+    // Timestamps are Environment.TickCount64 (monotonic milliseconds) to avoid
+    // sensitivity to NTP / manual clock adjustments.
+    private readonly Queue<(byte[] data, long enqueuedAtMs)> _pcmQueue = new();
     private byte[]? _currentFrame;
     private int _currentFrameOffset;
 
@@ -36,7 +38,7 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
     public int JitterBufferMs
     {
         get => _jitterBufferMs;
-        set => _jitterBufferMs = Math.Clamp(value, 10, 60);
+        set => _jitterBufferMs = Math.Clamp(value, 0, 60);
     }
 
     public UserAudioPipeline(int sampleRate = 48000, int channels = 1)
@@ -64,7 +66,7 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
 
         lock (_lock)
         {
-            _pcmQueue.Enqueue((decoded, DateTime.UtcNow));
+            _pcmQueue.Enqueue((decoded, Environment.TickCount64));
         }
     }
 
@@ -99,14 +101,14 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
             while (written < count)
             {
                 // First, dequeue all frames that are ready
-                var readyFrames = new List<(byte[] data, DateTime enqueuedAt)>();
+                var readyFrames = new List<(byte[] data, long enqueuedAtMs)>();
                 while (_pcmQueue.TryPeek(out var peeked))
                 {
-                    var elapsed = (DateTime.UtcNow - peeked.enqueuedAt).TotalMilliseconds;
+                    var elapsed = Environment.TickCount64 - peeked.enqueuedAtMs;
                     if (elapsed >= _jitterBufferMs)
                     {
                         _pcmQueue.TryDequeue(out var ready);
-                        readyFrames.Add((ready.data, ready.enqueuedAt));
+                        readyFrames.Add((ready.data, ready.enqueuedAtMs));
                     }
                     else
                     {
@@ -124,7 +126,7 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
                         // so they don't restart the jitter delay clock.
                         for (int i = processedIndex; i < readyFrames.Count; i++)
                         {
-                            _pcmQueue.Enqueue((readyFrames[i].data, readyFrames[i].enqueuedAt));
+                            _pcmQueue.Enqueue((readyFrames[i].data, readyFrames[i].enqueuedAtMs));
                         }
                         break;
                     }

@@ -213,13 +213,15 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
         </div>
 
         <div className="settings-item settings-slider">
-          <label>Jitter Buffer: {localSettings.jitterBuffer}ms<button type="button" className="tooltip-icon" aria-label="Delays playback slightly to smooth out network jitter. Higher values reduce audio glitches at the cost of more latency." data-tooltip="Delays playback slightly to smooth out network jitter. Higher values reduce audio glitches at the cost of more latency.">?</button></label>
-          <span className="settings-hint">Lower reduces latency</span>
+          <label htmlFor="slider-jitter-buffer">Jitter Buffer: {localSettings.jitterBuffer}ms<button type="button" className="tooltip-icon" aria-label="Delays playback slightly to smooth out network jitter. Higher values reduce audio glitches at the cost of more latency." data-tooltip="Delays playback slightly to smooth out network jitter. Higher values reduce audio glitches at the cost of more latency.">?</button></label>
+          <span id="hint-jitter-buffer" className="settings-hint">Lower reduces latency</span>
           <input
+            id="slider-jitter-buffer"
             type="range"
             min="10"
             max="60"
             value={localSettings.jitterBuffer}
+            aria-describedby="hint-jitter-buffer"
             onChange={(e) => handleSliderChange('jitterBuffer', parseInt(e.target.value, 10))}
             onMouseUp={() => handleSliderCommit('jitterBuffer')}
             onTouchEnd={() => handleSliderCommit('jitterBuffer')}
@@ -227,13 +229,15 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
         </div>
 
         <div className="settings-item settings-slider">
-          <label>Output Delay: {localSettings.outputDelay}ms<button type="button" className="tooltip-icon" aria-label="Size of the audio output buffer. Higher values reduce crackling and dropouts but increase latency." data-tooltip="Size of the audio output buffer. Higher values reduce crackling and dropouts but increase latency.">?</button></label>
-          <span className="settings-hint">Lower reduces latency</span>
+          <label htmlFor="slider-output-delay">Output Delay: {localSettings.outputDelay}ms<button type="button" className="tooltip-icon" aria-label="Size of the audio output buffer. Higher values reduce crackling and dropouts but increase latency." data-tooltip="Size of the audio output buffer. Higher values reduce crackling and dropouts but increase latency.">?</button></label>
+          <span id="hint-output-delay" className="settings-hint">Lower reduces latency</span>
           <input
+            id="slider-output-delay"
             type="range"
             min="10"
             max="100"
             value={localSettings.outputDelay}
+            aria-describedby="hint-output-delay"
             onChange={(e) => handleSliderChange('outputDelay', parseInt(e.target.value, 10))}
             onMouseUp={() => handleSliderCommit('outputDelay')}
             onTouchEnd={() => handleSliderCommit('outputDelay')}

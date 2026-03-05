@@ -29,6 +29,7 @@ namespace MumbleVoiceEngine.Tests.Pipeline
         public void FeedOpus_ReadPcm_ProducesAudio()
         {
             using var pipeline = new UserAudioPipeline(sampleRate: 48000, channels: 1);
+            pipeline.JitterBufferMs = 0; // disable jitter buffer for deterministic test
             using var encoder = new OpusEncoder(48000, 1) { Bitrate = 72000 };
 
             pipeline.FeedEncodedPacket(EncodeSineFrame(encoder, 0), sequence: 0);
@@ -54,6 +55,7 @@ namespace MumbleVoiceEngine.Tests.Pipeline
         public void MultiplePackets_ReadAll_ProducesAudio()
         {
             using var pipeline = new UserAudioPipeline(sampleRate: 48000, channels: 1);
+            pipeline.JitterBufferMs = 0; // disable jitter buffer for deterministic test
             using var encoder = new OpusEncoder(48000, 1) { Bitrate = 72000 };
 
             for (int seq = 0; seq < 3; seq++)
@@ -79,6 +81,7 @@ namespace MumbleVoiceEngine.Tests.Pipeline
         public void Volume_Default_ProducesAudio()
         {
             using var pipeline = new UserAudioPipeline(sampleRate: 48000, channels: 1);
+            pipeline.JitterBufferMs = 0; // disable jitter buffer for deterministic test
             using var encoder = new OpusEncoder(48000, 1) { Bitrate = 72000 };
 
             var opusData = EncodeSineFrame(encoder, 0);
@@ -96,6 +99,7 @@ namespace MumbleVoiceEngine.Tests.Pipeline
         public void Volume_Half_ReducesAmplitude()
         {
             using var pipeline = new UserAudioPipeline(sampleRate: 48000, channels: 1);
+            pipeline.JitterBufferMs = 0; // disable jitter buffer for deterministic test
             using var encoder = new OpusEncoder(48000, 1) { Bitrate = 72000 };
 
             var opusData = EncodeSineFrame(encoder, 0);

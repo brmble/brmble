@@ -186,6 +186,7 @@ private int _dmScreenHotkeyId = -1;
     private readonly Dictionary<int, string> _heldShortcuts = new(); // hotkeyId → action name
     private System.Threading.Timer? _shortcutReleaseTimer;
     private System.Threading.Timer? _pttSilenceTailTimer;
+    private int _pttSilenceTailGeneration; // incremented each time the timer is cancelled/replaced
     private string? _heldMouseAction; // action name for mouse shortcut currently held
     private int _shortcutMouseVk; // VK code for the mouse button bound to a toggle shortcut
 
@@ -394,7 +395,14 @@ private int _dmScreenHotkeyId = -1;
             // Submit silence frames before stopping so the receiver gets a graceful end-of-stream
             if (_encodePipeline != null)
             {
-                const int frameSizeBytes = 960 * sizeof(short); // 1920 bytes per 20 ms frame
+                // Derive frame size from the actual capture format so this stays correct
+                // if sample rate, channels or bit depth ever changes.
+                const int frameDurationMs = 20; // must match encode pipeline frame duration
+                var fmt = _waveIn?.WaveFormat;
+                int sampleRate = fmt?.SampleRate ?? 48000;
+                int channels = fmt?.Channels ?? 1;
+                int bytesPerSample = (fmt?.BitsPerSample ?? 16) / 8;
+                int frameSizeBytes = sampleRate * frameDurationMs / 1000 * channels * bytesPerSample;
                 var silence = new byte[frameSizeBytes * PttSilenceTailFrames];
                 try
                 {
@@ -643,6 +651,7 @@ private int _dmScreenHotkeyId = -1;
         {
             _pttSilenceTailTimer?.Dispose();
             _pttSilenceTailTimer = null;
+            Interlocked.Increment(ref _pttSilenceTailGeneration);
             StopMic();
         }
         else
@@ -1353,6 +1362,7 @@ private int _dmScreenHotkeyId = -1;
             // Cancel any pending silence tail — PTT was re-pressed before the tail completed
             _pttSilenceTailTimer?.Dispose();
             _pttSilenceTailTimer = null;
+            Interlocked.Increment(ref _pttSilenceTailGeneration);
             AudioLog.Write("[Audio] Starting mic for PTT");
             StartMic();
         }
@@ -1362,15 +1372,15 @@ private int _dmScreenHotkeyId = -1;
             // Gate live mic immediately (OnMicData checks _pttActive), then
             // fire the silence tail on a background thread right away (dueTime=0).
             _pttSilenceTailTimer?.Dispose();
+            _pttSilenceTailTimer = null;
+            int generation = Interlocked.Increment(ref _pttSilenceTailGeneration);
             _pttSilenceTailTimer = new System.Threading.Timer(_ =>
             {
-                lock (_lock)
-                {
-                    if (_pttActive) return; // PTT re-pressed before callback fired; bail out
-                    var t = _pttSilenceTailTimer;
-                    _pttSilenceTailTimer = null;
-                    t?.Dispose();
-                }
+                // Guard against the timer callback running after cancel/dispose.
+                // If generation has advanced, a newer cancel/restart supersedes this callback.
+                if (Interlocked.CompareExchange(ref _pttSilenceTailGeneration, generation, generation) != generation)
+                    return;
+                if (_pttActive || _muted) return;
                 StopMicWithSilenceTail();
             }, null, dueTime: 0, period: Timeout.Infinite);
         }
@@ -1405,6 +1415,7 @@ private int _dmScreenHotkeyId = -1;
         StopShortcutReleasePolling();
         _pttSilenceTailTimer?.Dispose();
         _pttSilenceTailTimer = null;
+        Interlocked.Increment(ref _pttSilenceTailGeneration);
         _heldShortcuts.Clear();
         _heldMouseAction = null;
         lock (_shortcutKeyboardLock)
