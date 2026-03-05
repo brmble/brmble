@@ -84,3 +84,29 @@
 .message-bubble--system .message-text {
   color: var(--text-muted);
 }
+
+/* Collapsed message (continuation in group) */
+.message-bubble--collapsed {
+  padding: var(--space-2xs) var(--space-xs);
+}
+
+.message-gutter {
+  width: 40px;
+  min-width: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.message-hover-time {
+  font-size: var(--text-2xs);
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+  font-family: var(--font-mono);
+  letter-spacing: -0.02em;
+}
+
+.message-bubble--collapsed:hover .message-hover-time {
+  opacity: 1;
+}
