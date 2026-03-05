@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type KeyboardEvent } from 'react';
+import { useState, useRef, useEffect, useCallback, type KeyboardEvent } from 'react';
 import './MessageInput.css';
 
 interface MessageInputProps {
@@ -10,24 +10,21 @@ export function MessageInput({ onSend, placeholder = 'Type a message...' }: Mess
   const [message, setMessage] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const resizeTextarea = () => {
+  const resizeTextarea = useCallback(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
     textarea.style.height = 'auto';
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 150)}px`;
-  };
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }, []);
 
   useEffect(() => {
     resizeTextarea();
-  }, [message]);
+  }, [message, resizeTextarea]);
 
   const handleSend = () => {
     if (message.trim()) {
       onSend(message.trim());
       setMessage('');
-      if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto';
-      }
     }
   };
 
