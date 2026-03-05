@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, Fragment } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo, Fragment } from 'react';
 import type { MatrixClient } from 'matrix-js-sdk';
 import { MessageBubble } from './MessageBubble';
 import { MessageInput } from './MessageInput';
@@ -22,16 +22,19 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
 
-  const handleScroll = () => {
+  const SCROLL_THRESHOLD = 150;
+
+  const handleScroll = useCallback(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
     const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    setShowScrollButton(distanceFromBottom > 100);
-  };
+    const shouldShow = distanceFromBottom > SCROLL_THRESHOLD;
+    setShowScrollButton(prev => prev !== shouldShow ? shouldShow : prev);
+  }, []);
 
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  }, []);
 
   useEffect(() => {
     const container = messagesContainerRef.current;
@@ -40,8 +43,8 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
       return;
     }
     const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    // Only auto-scroll if user is within 150px of bottom
-    if (distanceFromBottom < 150) {
+    // Only auto-scroll if user is within threshold of bottom
+    if (distanceFromBottom < SCROLL_THRESHOLD) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages]);

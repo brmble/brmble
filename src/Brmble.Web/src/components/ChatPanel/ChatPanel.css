@@ -178,3 +178,8 @@
   transform: scale(1.1);
   box-shadow: 0 0 var(--glow-md) var(--accent-primary-glow);
 }
+
+.chat-scroll-bottom:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
