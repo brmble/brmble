@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo, Fragment } from 'react';
+import { useState, useRef, useEffect, useMemo, Fragment } from 'react';
 import type { MatrixClient } from 'matrix-js-sdk';
 import { MessageBubble } from './MessageBubble';
 import { MessageInput } from './MessageInput';
@@ -19,9 +19,31 @@ interface ChatPanelProps {
 
 export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, isDM, matrixClient }: ChatPanelProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const [showScrollButton, setShowScrollButton] = useState(false);
+
+  const handleScroll = () => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    setShowScrollButton(distanceFromBottom > 100);
+  };
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const container = messagesContainerRef.current;
+    if (!container) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      return;
+    }
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    // Only auto-scroll if user is within 150px of bottom
+    if (distanceFromBottom < 150) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages]);
 
   if (!channelId) {
@@ -75,7 +97,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
         )}
       </div>
 
-      <div className="chat-messages">
+      <div className="chat-messages" ref={messagesContainerRef} onScroll={handleScroll}>
         {grouped.length === 0 ? (
           <div className="chat-no-messages">
             <p>No messages yet. Start the conversation!</p>
@@ -108,6 +130,19 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
       </div>
 
       <MessageInput onSend={onSendMessage} placeholder={isDM ? `Message @${channelName}` : `Message #${channelName}`} />
+
+      {showScrollButton && (
+        <button
+          className="chat-scroll-bottom"
+          onClick={scrollToBottom}
+          title="Scroll to bottom"
+          aria-label="Scroll to latest messages"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }
