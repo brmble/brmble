@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { ContextMenu } from '../ContextMenu/ContextMenu';
+import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
 import './DMContactList.css';
 
 interface DMContact {
@@ -13,13 +15,16 @@ interface DMContactListProps {
   contacts: DMContact[];
   selectedUserId: string | null;
   onSelectContact: (userId: string, userName: string) => void;
+  onCloseConversation: (userId: string) => void;
   visible: boolean;
 }
 
 export type { DMContact };
 
-export function DMContactList({ contacts, selectedUserId, onSelectContact, visible }: DMContactListProps) {
+export function DMContactList({ contacts, selectedUserId, onSelectContact, onCloseConversation, visible }: DMContactListProps) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string } | null>(null);
+  const [infoDialogUser, setInfoDialogUser] = useState<{ userId: string; userName: string } | null>(null);
 
   const filtered = contacts.filter(c =>
     c.userName.toLowerCase().includes(searchQuery.toLowerCase())
@@ -69,6 +74,10 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, visib
             key={contact.userId}
             className={`dm-contact-entry ${selectedUserId === contact.userId ? 'active' : ''}`}
             onClick={() => onSelectContact(contact.userId, contact.userName)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setContextMenu({ x: e.clientX, y: e.clientY, userId: contact.userId, userName: contact.userName });
+            }}
           >
             <div className="dm-contact-avatar">
               <span>{contact.userName.charAt(0).toUpperCase()}</span>
@@ -90,6 +99,47 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, visib
           </button>
         ))}
       </div>
+
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          items={[
+            {
+              label: 'User Information',
+              icon: (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10" />
+                  <circle cx="12" cy="8" r="1" fill="currentColor" stroke="none" />
+                  <line x1="12" y1="12" x2="12" y2="16" />
+                </svg>
+              ),
+              onClick: () => { setInfoDialogUser({ userId: contextMenu.userId, userName: contextMenu.userName }); setContextMenu(null); },
+            },
+            {
+              label: 'Close Conversation',
+              icon: (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              ),
+              onClick: () => { onCloseConversation(contextMenu.userId); setContextMenu(null); },
+            },
+          ]}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      {infoDialogUser && (
+        <UserInfoDialog
+          isOpen={true}
+          onClose={() => setInfoDialogUser(null)}
+          userName={infoDialogUser.userName}
+          session={parseInt(infoDialogUser.userId)}
+          isSelf={false}
+        />
+      )}
     </div>
   );
 }
