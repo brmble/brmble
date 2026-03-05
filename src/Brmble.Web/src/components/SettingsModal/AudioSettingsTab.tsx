@@ -24,6 +24,8 @@ export interface AudioSettings {
   maxAmplification: number;
   transmissionMode: TransmissionMode;
   pushToTalkKey: string | null;
+  jitterBuffer: number;
+  outputDelay: number;
 }
 
 export interface SpeechEnhancementSettings {
@@ -39,6 +41,8 @@ export const DEFAULT_SETTINGS: AudioSettings = {
   maxAmplification: 100,
   transmissionMode: 'pushToTalk',
   pushToTalkKey: null,
+  jitterBuffer: 20,
+  outputDelay: 50,
 };
 
 export const DEFAULT_SPEECH_ENHANCEMENT: SpeechEnhancementSettings = {
