@@ -116,7 +116,8 @@
 .sidebar-channels {
   flex: 1;
   overflow-y: auto;
-  padding: 0.5rem;
+  padding: 0 0.5rem 0 0.5rem;
+  position: relative;
 }
 
 /* Connection status line */
@@ -271,8 +272,14 @@
   display: flex;
   align-items: baseline;
   gap: 0.5rem;
-  padding: 0.25rem 0.125rem 0.25rem 0.25rem;
-  margin-bottom: 0.125rem;
+  padding: 0 0.25rem 0.25rem 0.25rem;
+  position: sticky;
+  top: 0;
+  background: var(--bg-primary);
+  z-index: 100;
+  border-bottom: 1px solid var(--border-subtle);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  contain: layout style;
 }
 
 .channels-section-count {

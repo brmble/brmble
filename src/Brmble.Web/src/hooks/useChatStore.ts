@@ -169,3 +169,9 @@ export function markDMContactRead(userId: string): StoredDMContact[] {
   }
   return contacts;
 }
+
+export function removeDMContact(userId: string): StoredDMContact[] {
+  const contacts = loadDMContacts().filter(c => c.userId !== userId);
+  saveDMContacts(contacts);
+  return contacts;
+}

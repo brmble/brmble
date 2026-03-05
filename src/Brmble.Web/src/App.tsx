@@ -14,7 +14,7 @@ import { SettingsModal } from './components/SettingsModal/SettingsModal';
 import { CloseDialog } from './components/CloseDialog/CloseDialog';
 import { CertWizard } from './components/CertWizard/CertWizard';
 import { Version } from './components/Version/Version';
-import { useChatStore, addMessageToStore, clearChatStorage, loadDMContacts, upsertDMContact, markDMContactRead } from './hooks/useChatStore';
+import { useChatStore, addMessageToStore, clearChatStorage, loadDMContacts, upsertDMContact, markDMContactRead, removeDMContact } from './hooks/useChatStore';
 import { parseMessageMedia } from './utils/parseMessageMedia';
 import type { StoredDMContact } from './hooks/useChatStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
@@ -828,6 +828,11 @@ const handleConnect = (serverData: SavedServer) => {
       setCurrentChannelName(channel.name);
       setUnreadCount(0);
       updateBadge(0, hasPendingInvite);
+      if (appMode === 'dm') {
+        setAppMode('channels');
+        setSelectedDMUserId(null);
+        setSelectedDMUserName('');
+      }
     }
   };
 
@@ -957,6 +962,16 @@ const handleConnect = (serverData: SavedServer) => {
     }
   };
 
+  const handleCloseDMConversation = (userId: string) => {
+    const updated = removeDMContact(userId);
+    setDmContacts(mapStoredContacts(updated));
+    if (selectedDMUserId === userId) {
+      setSelectedDMUserId(null);
+      setSelectedDMUserName('');
+      setAppMode('channels');
+    }
+  };
+
   const availableUsers = users
     .filter(u => !u.self)
     .map(u => ({ id: String(u.session), name: u.name }));
@@ -1052,6 +1067,8 @@ const handleConnect = (serverData: SavedServer) => {
           contacts={dmContacts}
           selectedUserId={selectedDMUserId}
           onSelectContact={handleSelectDMUser}
+          onCloseConversation={handleCloseDMConversation}
+          onlineUserIds={users.filter(u => !u.self).map(u => String(u.session))}
           visible={appMode === 'dm'}
         />
       </div>
