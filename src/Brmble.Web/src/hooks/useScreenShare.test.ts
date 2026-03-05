@@ -24,7 +24,7 @@ vi.mock('livekit-client', () => ({
 
 // Mock fetch for token requests
 const mockFetch = vi.fn();
-global.fetch = mockFetch;
+globalThis.fetch = mockFetch;
 
 describe('useScreenShare', () => {
   beforeEach(() => {

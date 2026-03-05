@@ -14,12 +14,14 @@ interface UserPanelProps {
   onToggleMute?: () => void;
   onToggleDeaf?: () => void;
   onLeaveVoice?: () => void;
+  screenSharing?: boolean;
+  onToggleScreenShare?: () => void;
   speaking?: boolean;
   pendingChannelAction?: number | 'leave' | null;
   hotkeyPressedBtn?: string | null;
 }
 
-export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, speaking, pendingChannelAction, hotkeyPressedBtn }: UserPanelProps) {
+export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, screenSharing, onToggleScreenShare, speaking, pendingChannelAction, hotkeyPressedBtn }: UserPanelProps) {
   const [pressedBtn, setPressedBtn] = useState<string | null>(null);
   const activeBtn = hotkeyPressedBtn || pressedBtn;
 
@@ -132,7 +134,35 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
         </button>
       )}
 
-      <button 
+      {onToggleScreenShare && (
+        <button
+          className={`btn btn-ghost btn-icon user-panel-btn screen-share-btn ${screenSharing ? 'active' : ''} ${activeBtn === 'screen' ? 'pressed' : ''} ${leftVoice ? 'disabled' : ''}`}
+          onMouseDown={handleMouseDown('screen')}
+          onMouseUp={handleMouseUp('screen', onToggleScreenShare)}
+          onMouseLeave={handleMouseLeave}
+          onKeyDown={handleKeyDown('screen')}
+          onKeyUp={handleKeyUp('screen', onToggleScreenShare)}
+          disabled={leftVoice}
+          title={screenSharing ? 'Stop Sharing' : 'Share Screen'}
+        >
+          {screenSharing ? (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="1" y1="1" x2="23" y2="23"></line>
+              <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+              <line x1="8" y1="21" x2="16" y2="21"></line>
+              <line x1="12" y1="17" x2="12" y2="21"></line>
+            </svg>
+          ) : (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+              <line x1="8" y1="21" x2="16" y2="21"></line>
+              <line x1="12" y1="17" x2="12" y2="21"></line>
+            </svg>
+          )}
+        </button>
+      )}
+
+      <button
         className={`btn btn-ghost btn-icon user-panel-btn dm-btn ${dmActive ? 'active' : ''} ${activeBtn === 'dm' ? 'pressed' : ''}`}
         onMouseDown={handleMouseDown('dm')}
         onMouseUp={handleMouseUp('dm', onToggleDM)}
