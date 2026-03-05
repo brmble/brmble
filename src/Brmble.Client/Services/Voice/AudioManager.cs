@@ -201,6 +201,7 @@ private int _dmScreenHotkeyId = -1;
     private readonly HashSet<uint> _localMutes = new();
     private volatile float _maxAmplification = 1.0f;
     private int _outputDelayMs = 50;
+    private int _jitterBufferMs = 50;
 
     // Speech enhancement
     private SpeechEnhancementService? _speechEnhancement;
@@ -531,6 +532,7 @@ private int _dmScreenHotkeyId = -1;
             {
                 var userVolume = _userVolumes.TryGetValue(userId, out var v) ? v : _outputVolume;
                 pipeline = new UserAudioPipeline(sampleRate: 48000, channels: 1);
+                pipeline.JitterBufferMs = _jitterBufferMs;
                 pipeline.Volume = userVolume;
                 _pipelines[userId] = pipeline;
 
