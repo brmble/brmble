@@ -204,6 +204,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.Dispose();
         _audioManager = null;
 
+        // Reset cached speech-enhancement state so that when a new AudioManager
+        // is created on reconnect, ConfigureSpeechEnhancement is always called.
+        _lastSpeechEnhancementEnabled = false;
+        _lastSpeechEnhancementModel = "";
+
         try
         {
             // Close TCP/UDP sockets — BasicMumbleProtocol.Close() only nulls
@@ -580,13 +585,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         // ConfigureSpeechEnhancement disposes and recreates the ONNX InferenceSession,
         // which causes a native crash if the mic callback is mid-inference at that moment.
         var seEnabled = settings.SpeechEnhancement.Enabled;
-        var seModel = settings.SpeechEnhancement.Model ?? "";
+        var seModel = (settings.SpeechEnhancement.Model ?? "").Trim().ToLowerInvariant();
         if (seEnabled != _lastSpeechEnhancementEnabled || seModel != _lastSpeechEnhancementModel)
         {
             _lastSpeechEnhancementEnabled = seEnabled;
             _lastSpeechEnhancementModel = seModel;
 
-            var modelVariant = seModel.ToLowerInvariant() switch
+            var modelVariant = seModel switch
             {
                 "vctk-demand" => GtcrnModelVariant.VctkDemand,
                 _ => GtcrnModelVariant.Dns3
