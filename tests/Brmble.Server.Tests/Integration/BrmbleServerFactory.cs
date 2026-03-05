@@ -38,6 +38,8 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
                 ["ReverseProxy:Clusters:placeholder:Destinations:d1:Address"] = "http://localhost:1",
                 ["Matrix:HomeserverUrl"] = "http://localhost:8008",
                 ["Matrix:AppServiceToken"] = "test-token",
+                ["LiveKit:ApiKey"] = "test-api-key",
+                ["LiveKit:ApiSecret"] = "testsecret0123456789abcdef01234567890abcdef01234567890abcdef0123",
             });
         });
         builder.ConfigureServices(services =>
