@@ -1068,6 +1068,7 @@ const handleConnect = (serverData: SavedServer) => {
           selectedUserId={selectedDMUserId}
           onSelectContact={handleSelectDMUser}
           onCloseConversation={handleCloseDMConversation}
+          onlineUserIds={users.filter(u => !u.self).map(u => String(u.session))}
           visible={appMode === 'dm'}
         />
       </div>

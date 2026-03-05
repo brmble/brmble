@@ -16,12 +16,13 @@ interface DMContactListProps {
   selectedUserId: string | null;
   onSelectContact: (userId: string, userName: string) => void;
   onCloseConversation: (userId: string) => void;
+  onlineUserIds: string[];
   visible: boolean;
 }
 
 export type { DMContact };
 
-export function DMContactList({ contacts, selectedUserId, onSelectContact, onCloseConversation, visible }: DMContactListProps) {
+export function DMContactList({ contacts, selectedUserId, onSelectContact, onCloseConversation, onlineUserIds, visible }: DMContactListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string } | null>(null);
   const [infoDialogUser, setInfoDialogUser] = useState<{ userId: string; userName: string } | null>(null);
@@ -114,6 +115,7 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
                   <line x1="12" y1="12" x2="12" y2="16" />
                 </svg>
               ),
+              disabled: !onlineUserIds.includes(contextMenu.userId),
               onClick: () => { setInfoDialogUser({ userId: contextMenu.userId, userName: contextMenu.userName }); setContextMenu(null); },
             },
             {

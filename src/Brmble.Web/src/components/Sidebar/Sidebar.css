@@ -279,7 +279,7 @@
   z-index: 100;
   border-bottom: 1px solid var(--border-subtle);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  contain: layout style paint;
+  contain: layout style;
 }
 
 .channels-section-count {

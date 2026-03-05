@@ -41,3 +41,15 @@
 .context-menu-item:hover .context-menu-icon {
   color: var(--text-secondary);
 }
+
+.context-menu-item--disabled,
+.context-menu-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.context-menu-item--disabled:hover,
+.context-menu-item:disabled:hover {
+  background: none;
+  color: var(--text-secondary);
+}

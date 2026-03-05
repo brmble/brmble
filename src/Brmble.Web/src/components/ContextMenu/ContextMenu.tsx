@@ -7,6 +7,7 @@ interface ContextMenuItem {
   label: string;
   onClick: () => void;
   icon?: React.ReactNode;
+  disabled?: boolean;
 }
 
 interface ContextMenuProps {
@@ -83,11 +84,13 @@ export function ContextMenu({ x, y, items, onClose, mouseLeaveDelay = MOUSE_LEAV
       {items.map((item, i) => (
         <button
           key={i}
-          className="context-menu-item"
+          className={`context-menu-item${item.disabled ? ' context-menu-item--disabled' : ''}`}
           onClick={() => {
+            if (item.disabled) return;
             item.onClick();
             onClose();
           }}
+          disabled={item.disabled}
         >
           {item.icon && <span className="context-menu-icon">{item.icon}</span>}
           <span>{item.label}</span>
