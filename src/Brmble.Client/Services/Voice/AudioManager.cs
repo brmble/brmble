@@ -305,6 +305,7 @@ private int _dmScreenHotkeyId = -1;
     {
         lock (_lock)
         {
+            _jitterBufferMs = Math.Clamp(jitterMs, 10, 60);
             foreach (var pipeline in _pipelines.Values)
             {
                 pipeline.JitterBufferMs = jitterMs;
