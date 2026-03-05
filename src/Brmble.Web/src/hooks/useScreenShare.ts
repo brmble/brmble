@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { Room, RoomEvent } from 'livekit-client';
+import bridge from '../bridge';
 
 export function useScreenShare() {
   const [isSharing, setIsSharing] = useState(false);
@@ -8,19 +9,31 @@ export function useScreenShare() {
 
   const startSharing = useCallback(async (roomName: string) => {
     setError(null);
+
+    // Disconnect any existing room to avoid duplicate identity
+    if (roomRef.current) {
+      try { await roomRef.current.disconnect(); } catch { /* ignore */ }
+      roomRef.current = null;
+    }
+
     try {
-      const res = await fetch('/livekit/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ roomName }),
+      const { token, url } = await new Promise<{ token: string; url: string }>((resolve, reject) => {
+        const onToken = (data: unknown) => {
+          bridge.off('livekit.token', onToken);
+          bridge.off('livekit.tokenError', onError);
+          const d = data as { token: string; url: string };
+          resolve(d);
+        };
+        const onError = (data: unknown) => {
+          bridge.off('livekit.token', onToken);
+          bridge.off('livekit.tokenError', onError);
+          const d = data as { error: string };
+          reject(new Error(d.error));
+        };
+        bridge.on('livekit.token', onToken);
+        bridge.on('livekit.tokenError', onError);
+        bridge.send('livekit.requestToken', { roomName });
       });
-
-      if (!res.ok) {
-        setError(`Token request failed: ${res.status}`);
-        return;
-      }
-
-      const { token, url } = await res.json();
 
       const room = new Room();
       room.on(RoomEvent.Disconnected, () => {

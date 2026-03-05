@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useScreenShare } from './useScreenShare';
+import bridge from '../bridge';
 
 // Mock livekit-client
 const mockRoom = {
@@ -22,9 +23,14 @@ vi.mock('livekit-client', () => ({
   RoomEvent: { Disconnected: 'disconnected' },
 }));
 
-// Mock fetch for token requests
-const mockFetch = vi.fn();
-globalThis.fetch = mockFetch;
+// Mock bridge
+vi.mock('../bridge', () => ({
+  default: {
+    send: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
+  },
+}));
 
 describe('useScreenShare', () => {
   beforeEach(() => {
@@ -37,30 +43,38 @@ describe('useScreenShare', () => {
     expect(result.current.error).toBeNull();
   });
 
-  it('fetches token and connects on startSharing', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ token: 'test-jwt', url: 'ws://localhost/livekit' }),
+  it('requests token via bridge and connects on startSharing', async () => {
+    // When bridge.on is called, capture the handlers
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
     });
 
     const { result } = renderHook(() => useScreenShare());
+
     await act(async () => {
-      await result.current.startSharing('room-1');
+      const promise = result.current.startSharing('room-1');
+      // Simulate bridge response
+      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      await promise;
     });
 
-    expect(mockFetch).toHaveBeenCalledWith('/livekit/token', expect.objectContaining({
-      method: 'POST',
-      body: JSON.stringify({ roomName: 'room-1' }),
-    }));
+    expect(bridge.send).toHaveBeenCalledWith('livekit.requestToken', { roomName: 'room-1' });
     expect(result.current.isSharing).toBe(true);
   });
 
-  it('sets error on token fetch failure', async () => {
-    mockFetch.mockResolvedValueOnce({ ok: false, status: 401 });
+  it('sets error on token error from bridge', async () => {
+    let errorHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.tokenError') errorHandler = handler;
+    });
 
     const { result } = renderHook(() => useScreenShare());
+
     await act(async () => {
-      await result.current.startSharing('room-1');
+      const promise = result.current.startSharing('room-1');
+      errorHandler?.({ error: 'No client certificate' });
+      await promise;
     });
 
     expect(result.current.isSharing).toBe(false);
@@ -68,14 +82,17 @@ describe('useScreenShare', () => {
   });
 
   it('disconnects on stopSharing', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ token: 'test-jwt', url: 'ws://localhost/livekit' }),
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
     });
 
     const { result } = renderHook(() => useScreenShare());
+
     await act(async () => {
-      await result.current.startSharing('room-1');
+      const promise = result.current.startSharing('room-1');
+      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      await promise;
     });
     await act(async () => {
       await result.current.stopSharing();

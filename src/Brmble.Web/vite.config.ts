@@ -6,6 +6,12 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    proxy: {
+      '/livekit': {
+        target: 'https://localhost:1912',
+        secure: false,
+      },
+    },
   },
   test: {
     environment: 'jsdom',
