@@ -3,6 +3,7 @@ import bridge from './bridge';
 import type { ConnectionStatus } from './types';
 import { useMatrixClient } from './hooks/useMatrixClient';
 import type { MatrixCredentials } from './hooks/useMatrixClient';
+import { useScreenShare } from './hooks/useScreenShare';
 
 import { Header } from './components/Header/Header';
 import { Sidebar } from './components/Sidebar/Sidebar';
@@ -996,6 +997,16 @@ const handleConnect = (serverData: SavedServer) => {
 
   const { Prompt } = usePrompt();
 
+  const { isSharing, startSharing, stopSharing } = useScreenShare();
+
+  const handleToggleScreenShare = useCallback(() => {
+    if (isSharing) {
+      stopSharing();
+    } else if (currentChannelId != null) {
+      startSharing(`channel-${currentChannelId}`);
+    }
+  }, [isSharing, currentChannelId, startSharing, stopSharing]);
+
   return (
     <div className="app">
       <Header
@@ -1011,6 +1022,8 @@ const handleConnect = (serverData: SavedServer) => {
         onToggleMute={connected ? handleToggleMute : undefined}
         onToggleDeaf={connected ? handleToggleDeaf : undefined}
         onLeaveVoice={connected ? handleLeaveVoice : undefined}
+        screenSharing={isSharing}
+        onToggleScreenShare={connected && !selfLeftVoice ? handleToggleScreenShare : undefined}
         speaking={speakingUsers.has(selfSession) || false}
         pendingChannelAction={pendingChannelAction}
         hotkeyPressedBtn={hotkeyPressedBtn}

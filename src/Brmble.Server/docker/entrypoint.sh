@@ -60,6 +60,10 @@ LIVEKIT_API_KEY="${LIVEKIT_API_KEY:-$(openssl rand -hex 8)}"
 LIVEKIT_API_SECRET="${LIVEKIT_API_SECRET:-$(openssl rand -hex 32)}"
 export LIVEKIT_KEYS="${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
 
+# Expose LiveKit credentials to ASP.NET Core via config binding
+export LiveKit__ApiKey="$LIVEKIT_API_KEY"
+export LiveKit__ApiSecret="$LIVEKIT_API_SECRET"
+
 # Admin credentials for appservice registration (first-run only)
 if [ ! -f /data/admin-password ]; then
     (umask 077; openssl rand -hex 16 > /data/admin-password)
