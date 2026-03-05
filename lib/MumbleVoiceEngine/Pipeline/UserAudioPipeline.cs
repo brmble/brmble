@@ -115,10 +115,20 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
                 }
 
                 // Process ready frames
+                int processedIndex = 0;
                 foreach (var frame in readyFrames)
                 {
-                    if (written >= count) break;
+                    if (written >= count)
+                    {
+                        // Buffer full - re-enqueue remaining frames
+                        for (int i = processedIndex; i < readyFrames.Count; i++)
+                        {
+                            _pcmQueue.Enqueue((readyFrames[i], DateTime.UtcNow));
+                        }
+                        break;
+                    }
 
+                    processedIndex++;
                     int needed = count - written;
                     if (frame.Length <= needed)
                     {
