@@ -185,6 +185,8 @@ private int _dmScreenHotkeyId = -1;
     // Shortcut key hold/release tracking (toggle shortcuts fire on release, not press)
     private readonly Dictionary<int, string> _heldShortcuts = new(); // hotkeyId → action name
     private System.Threading.Timer? _shortcutReleaseTimer;
+    private System.Threading.Timer? _pttSilenceTailTimer;
+    private int _pttSilenceTailGeneration; // incremented each time the timer is cancelled/replaced
     private string? _heldMouseAction; // action name for mouse shortcut currently held
     private int _shortcutMouseVk; // VK code for the mouse button bound to a toggle shortcut
 
@@ -192,6 +194,7 @@ private int _dmScreenHotkeyId = -1;
     private readonly Dictionary<uint, DateTime> _lastVoicePacket = new();
     private readonly Timer _speakingTimer;
     private const int SpeakingTimeoutMs = 200;
+    private const int PttSilenceTailFrames = 4; // 4 × 20 ms = 80 ms tail
     private uint _localUserId = 0;
 
     // Volume controls
@@ -200,8 +203,6 @@ private int _dmScreenHotkeyId = -1;
     private readonly Dictionary<uint, float> _userVolumes = new();
     private readonly HashSet<uint> _localMutes = new();
     private volatile float _maxAmplification = 1.0f;
-    private int _outputDelayMs = 50;
-    private int _jitterBufferMs = 10;
 
     // Speech enhancement
     private SpeechEnhancementService? _speechEnhancement;
@@ -289,47 +290,6 @@ private int _dmScreenHotkeyId = -1;
         }
     }
 
-    public void SetOutputDelay(int delayMs)
-    {
-        lock (_lock)
-        {
-            var clamped = Math.Clamp(delayMs, 10, 100);
-            if (clamped == _outputDelayMs)
-                return;
-            _outputDelayMs = clamped;
-            // WaveOutEvent.DesiredLatency is read only during Init(); changing it on a
-            // running instance has no effect.  Recreate each player with the new value.
-            foreach (var userId in _players.Keys.ToList())
-            {
-                var old = _players[userId];
-                old.Stop();
-                old.Dispose();
-
-                var pipeline = _pipelines[userId];
-                var player = new WaveOutEvent
-                {
-                    DesiredLatency = _outputDelayMs,
-                    NumberOfBuffers = 4
-                };
-                player.Init(pipeline);
-                player.Play();
-                _players[userId] = player;
-            }
-        }
-    }
-
-    public void SetJitterBuffer(int jitterMs)
-    {
-        lock (_lock)
-        {
-            _jitterBufferMs = Math.Clamp(jitterMs, 10, 60);
-            foreach (var pipeline in _pipelines.Values)
-            {
-                pipeline.JitterBufferMs = _jitterBufferMs;
-            }
-        }
-    }
-
     public AudioManager(IntPtr hwnd = default)
     {
         _hwnd = hwnd;
@@ -376,6 +336,47 @@ private int _dmScreenHotkeyId = -1;
             _encodePipeline = null;
             _micStarted = false;
             AudioLog.Write("[Audio] Mic stopped");
+        }
+    }
+
+    /// <summary>
+    /// Submits <see cref="PttSilenceTailFrames"/> silence frames through the encode pipeline
+    /// then disposes it. Call only when the pipeline is still alive (i.e. mic is running).
+    /// </summary>
+    private void StopMicWithSilenceTail()
+    {
+        lock (_lock)
+        {
+            if (!_micStarted) return;
+
+            // Submit silence frames before stopping so the receiver gets a graceful end-of-stream
+            if (_encodePipeline != null)
+            {
+                // Derive frame size from the actual capture format so this stays correct
+                // if sample rate, channels or bit depth ever changes.
+                const int frameDurationMs = 20; // must match encode pipeline frame duration
+                var fmt = _waveIn?.WaveFormat;
+                int sampleRate = fmt?.SampleRate ?? 48000;
+                int channels = fmt?.Channels ?? 1;
+                int bytesPerSample = (fmt?.BitsPerSample ?? 16) / 8;
+                int frameSizeBytes = sampleRate * frameDurationMs / 1000 * channels * bytesPerSample;
+                var silence = new byte[frameSizeBytes * PttSilenceTailFrames];
+                try
+                {
+                    _encodePipeline.SubmitPcm(new ReadOnlySpan<byte>(silence));
+                    AudioLog.Write($"[Audio] Sent {PttSilenceTailFrames} silence tail frames");
+                }
+                catch (Exception ex)
+                {
+                    AudioLog.Write($"[Audio] Silence tail encode failed: {ex.Message}");
+                }
+            }
+
+            _waveIn?.StopRecording();
+            _encodePipeline?.Dispose();
+            _encodePipeline = null;
+            _micStarted = false;
+            AudioLog.Write("[Audio] Mic stopped (with silence tail)");
         }
     }
 
@@ -550,13 +551,12 @@ private int _dmScreenHotkeyId = -1;
             {
                 var userVolume = _userVolumes.TryGetValue(userId, out var v) ? v : _outputVolume;
                 pipeline = new UserAudioPipeline(sampleRate: 48000, channels: 1);
-                pipeline.JitterBufferMs = _jitterBufferMs;
                 pipeline.Volume = userVolume;
                 _pipelines[userId] = pipeline;
 
                 var player = new WaveOutEvent
                 {
-                    DesiredLatency = _outputDelayMs,
+                    DesiredLatency = 80,
                     NumberOfBuffers = 4
                 };
                 player.Init(pipeline);
@@ -604,7 +604,12 @@ private int _dmScreenHotkeyId = -1;
     {
         _muted = muted;
         if (muted)
+        {
+            _pttSilenceTailTimer?.Dispose();
+            _pttSilenceTailTimer = null;
+            Interlocked.Increment(ref _pttSilenceTailGeneration);
             StopMic();
+        }
         else
             StartMic();
     }
@@ -1307,15 +1312,33 @@ private int _dmScreenHotkeyId = -1;
     {
         AudioLog.Write($"[Audio] SetPttActive: active={active}, _pttActive={_pttActive}, muted={_muted}");
         _pttActive = active;
+
         if (active && !_muted)
         {
+            // Cancel any pending silence tail — PTT was re-pressed before the tail completed
+            _pttSilenceTailTimer?.Dispose();
+            _pttSilenceTailTimer = null;
+            Interlocked.Increment(ref _pttSilenceTailGeneration);
             AudioLog.Write("[Audio] Starting mic for PTT");
             StartMic();
         }
         else
         {
-            AudioLog.Write("[Audio] Stopping mic for PTT");
-            StopMic();
+            AudioLog.Write("[Audio] PTT released — scheduling silence tail");
+            // Gate live mic immediately (OnMicData checks _pttActive), then
+            // fire the silence tail on a background thread right away (dueTime=0).
+            _pttSilenceTailTimer?.Dispose();
+            _pttSilenceTailTimer = null;
+            int generation = Interlocked.Increment(ref _pttSilenceTailGeneration);
+            _pttSilenceTailTimer = new System.Threading.Timer(_ =>
+            {
+                // Guard against the timer callback running after cancel/dispose.
+                // If generation has advanced, a newer cancel/restart supersedes this callback.
+                if (Interlocked.CompareExchange(ref _pttSilenceTailGeneration, generation, generation) != generation)
+                    return;
+                if (_pttActive || _muted) return;
+                StopMicWithSilenceTail();
+            }, null, dueTime: 0, period: Timeout.Infinite);
         }
     }
 
@@ -1346,6 +1369,9 @@ private int _dmScreenHotkeyId = -1;
         StopPttPolling();
         StopShortcutKeyboardPolling();
         StopShortcutReleasePolling();
+        _pttSilenceTailTimer?.Dispose();
+        _pttSilenceTailTimer = null;
+        Interlocked.Increment(ref _pttSilenceTailGeneration);
         _heldShortcuts.Clear();
         _heldMouseAction = null;
         lock (_shortcutKeyboardLock)

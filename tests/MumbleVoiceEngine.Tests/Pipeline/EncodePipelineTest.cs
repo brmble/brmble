@@ -101,5 +101,35 @@ namespace MumbleVoiceEngine.Tests.Pipeline
             Assert.AreEqual(1, packets.Count);
             Assert.AreEqual((byte)((4 << 5) | 3), packets[0][0]);
         }
+
+        [TestMethod]
+        public void SubmitSilenceFrames_ProducesPackets()
+        {
+            // Arrange
+            var packets = new List<byte[]>();
+            using var pipeline = new EncodePipeline(
+                sampleRate: 48000, channels: 1, bitrate: 72000,
+                onPacketReady: p => packets.Add(p.ToArray()));
+
+            const int frameSize = 960;
+            const int frameSizeBytes = frameSize * sizeof(short); // 1920
+            const int silenceFrames = 4;
+
+            // Act — submit 4 full frames of silence
+            var silence = new byte[frameSizeBytes * silenceFrames]; // all zeros
+            pipeline.SubmitPcm(silence);
+
+            // Assert — submitting silence must produce at least one packet.
+            // Exact count may vary with encoder VBR/buffering behaviour.
+            Assert.IsTrue(packets.Count >= 1,
+                "Expected at least one packet for silence frames");
+
+            // Each packet must have the Opus type byte (4 << 5 = 0x80)
+            foreach (var pkt in packets)
+            {
+                Assert.AreEqual(0x80, pkt[0] & 0xE0,
+                    "Packet type bits must be Opus (4 << 5)");
+            }
+        }
     }
 }
