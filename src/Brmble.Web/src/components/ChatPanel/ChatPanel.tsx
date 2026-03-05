@@ -1,4 +1,4 @@
-import { useRef, useEffect, Fragment } from 'react';
+import { useRef, useEffect, useMemo, Fragment } from 'react';
 import type { MatrixClient } from 'matrix-js-sdk';
 import { MessageBubble } from './MessageBubble';
 import { MessageInput } from './MessageInput';
@@ -45,7 +45,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
   }
 
   const userCount = 1; // Placeholder
-  const grouped = groupMessages(messages);
+  const grouped = useMemo(() => groupMessages(messages), [messages]);
 
   return (
     <div className="chat-panel">
@@ -76,7 +76,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
       </div>
 
       <div className="chat-messages">
-        {messages.length === 0 ? (
+        {grouped.length === 0 ? (
           <div className="chat-no-messages">
             <p>No messages yet. Start the conversation!</p>
           </div>

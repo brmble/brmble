@@ -89,6 +89,10 @@
   margin-top: var(--space-md);
 }
 
+.chat-date-separator + .message-bubble {
+  margin-top: 0;
+}
+
 .chat-no-messages {
   flex: 1;
   display: flex;
