@@ -31,6 +31,7 @@ export interface MatrixCredentials {
 
 export function useMatrixClient(credentials: MatrixCredentials | null) {
   const clientRef = useRef<MatrixClient | null>(null);
+  const [client, setClient] = useState<MatrixClient | null>(null);
   const [messages, setMessages] = useState<Map<string, ChatMessage[]>>(new Map());
 
   // DM room tracking: matrixUserId -> roomId
@@ -56,6 +57,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     if (!credentials) {
       clientRef.current?.stopClient();
       clientRef.current = null;
+      setClient(null);
       setMessages(new Map());
       setDmRoomMap(new Map());
       setDmMessages(new Map());
@@ -176,6 +178,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     client.on(RoomEvent.Timeline, onTimeline);
     client.startClient({ initialSyncLimit: 20 });
     clientRef.current = client;
+    setClient(client);
 
     const refreshDMRoomMaps = (directContent: Record<string, string[]>) => {
       const newDmRoomMap = new Map<string, string>();
@@ -214,6 +217,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       client.off(ClientEvent.AccountData, onAccountData);
       client.stopClient();
       clientRef.current = null;
+      setClient(null);
     };
   }, [credentials, roomIdToChannelId]);
 
@@ -276,5 +280,5 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     await client.scrollback(room, 50);
   }, []);
 
-  return { messages, sendMessage, fetchHistory, dmMessages, dmRoomMap, sendDMMessage, fetchDMHistory, client: clientRef.current };
+  return { messages, sendMessage, fetchHistory, dmMessages, dmRoomMap, sendDMMessage, fetchDMHistory, client };
 }

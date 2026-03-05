@@ -127,7 +127,7 @@ describe('useMatrixClient', () => {
 
   it('exposes the Matrix client instance', () => {
     const { result } = renderHook(() => useMatrixClient(creds));
-    expect(result.current.client).toBeDefined();
+    expect(result.current.client).not.toBeNull();
   });
 
   it('client is null when credentials are null', () => {

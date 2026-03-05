@@ -11,6 +11,7 @@ export interface LinkPreviewData {
   domain: string;
 }
 
+const MAX_CACHE_SIZE = 200;
 const cache = new Map<string, LinkPreviewData | null>();
 
 export function clearPreviewCache() {
@@ -51,6 +52,10 @@ export function useLinkPreview(url: string | null, client: MatrixClient | null) 
         const ogImage = data['og:image'] as string | undefined;
 
         if (!title && !description && !ogImage) {
+          if (cache.size >= MAX_CACHE_SIZE) {
+            const oldest = cache.keys().next().value!;
+            cache.delete(oldest);
+          }
           cache.set(url, null);
           setPreview(null);
           setLoading(false);
@@ -72,13 +77,17 @@ export function useLinkPreview(url: string | null, client: MatrixClient | null) 
         }
 
         const result: LinkPreviewData = { url, title, description, imageUrl, domain };
+        if (cache.size >= MAX_CACHE_SIZE) {
+          const oldest = cache.keys().next().value!;
+          cache.delete(oldest);
+        }
         cache.set(url, result);
         setPreview(result);
         setLoading(false);
       },
       () => {
         if (cancelled) return;
-        // Don't cache errors — allow retry on next render
+        // Don't cache errors — allow retry when url/client changes or on remount
         setPreview(null);
         setLoading(false);
       }
