@@ -25,7 +25,7 @@ services:
     ports:
       - "1912:8080"
       - "7881:7881"
-      - "50100-50200:50100-50200/udp"
+      - "50000-50100:50000-50100/udp"
     volumes:
       - brmble-data:/data
     environment:
