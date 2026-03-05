@@ -1395,6 +1395,8 @@ private int _dmScreenHotkeyId = -1;
         StopPttPolling();
         StopShortcutKeyboardPolling();
         StopShortcutReleasePolling();
+        _pttSilenceTailTimer?.Dispose();
+        _pttSilenceTailTimer = null;
         _heldShortcuts.Clear();
         _heldMouseAction = null;
         lock (_shortcutKeyboardLock)
