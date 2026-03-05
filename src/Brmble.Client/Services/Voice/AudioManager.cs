@@ -185,6 +185,7 @@ private int _dmScreenHotkeyId = -1;
     // Shortcut key hold/release tracking (toggle shortcuts fire on release, not press)
     private readonly Dictionary<int, string> _heldShortcuts = new(); // hotkeyId → action name
     private System.Threading.Timer? _shortcutReleaseTimer;
+    private System.Threading.Timer? _pttSilenceTailTimer;
     private string? _heldMouseAction; // action name for mouse shortcut currently held
     private int _shortcutMouseVk; // VK code for the mouse button bound to a toggle shortcut
 
@@ -192,6 +193,7 @@ private int _dmScreenHotkeyId = -1;
     private readonly Dictionary<uint, DateTime> _lastVoicePacket = new();
     private readonly Timer _speakingTimer;
     private const int SpeakingTimeoutMs = 200;
+    private const int PttSilenceTailFrames = 4; // 4 × 20 ms = 80 ms tail
     private uint _localUserId = 0;
 
     // Volume controls
