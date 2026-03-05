@@ -202,7 +202,7 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
         </div>
 
         <div className="settings-item settings-slider">
-          <label>Jitter Buffer: {localSettings.jitterBuffer}ms</label>
+          <label>Jitter Buffer: {localSettings.jitterBuffer}ms<span className="tooltip-icon" data-tooltip="Delays playback slightly to smooth out network jitter. Higher values reduce audio glitches at the cost of more latency.">?</span></label>
           <span className="settings-hint">Lower reduces latency</span>
           <input
             type="range"
@@ -214,7 +214,7 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
         </div>
 
         <div className="settings-item settings-slider">
-          <label>Output Delay: {localSettings.outputDelay}ms</label>
+          <label>Output Delay: {localSettings.outputDelay}ms<span className="tooltip-icon" data-tooltip="Size of the audio output buffer. Higher values reduce crackling and dropouts but increase latency.">?</span></label>
           <span className="settings-hint">Lower reduces latency</span>
           <input
             type="range"
