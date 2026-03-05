@@ -18,18 +18,25 @@ export function useScreenShare() {
 
     try {
       const { token, url } = await new Promise<{ token: string; url: string }>((resolve, reject) => {
-        const onToken = (data: unknown) => {
+        const cleanup = () => {
           bridge.off('livekit.token', onToken);
           bridge.off('livekit.tokenError', onError);
+          clearTimeout(timer);
+        };
+        const onToken = (data: unknown) => {
+          cleanup();
           const d = data as { token: string; url: string };
           resolve(d);
         };
         const onError = (data: unknown) => {
-          bridge.off('livekit.token', onToken);
-          bridge.off('livekit.tokenError', onError);
+          cleanup();
           const d = data as { error: string };
           reject(new Error(d.error));
         };
+        const timer = setTimeout(() => {
+          cleanup();
+          reject(new Error('Token request timed out'));
+        }, 15000);
         bridge.on('livekit.token', onToken);
         bridge.on('livekit.tokenError', onError);
         bridge.send('livekit.requestToken', { roomName });
@@ -58,8 +65,13 @@ export function useScreenShare() {
       try {
         await room.localParticipant.setScreenShareEnabled(false);
       } catch { /* already stopped */ }
-      await room.disconnect();
-      roomRef.current = null;
+      try {
+        await room.disconnect();
+      } catch {
+        // ignore disconnect errors
+      } finally {
+        roomRef.current = null;
+      }
     }
     setIsSharing(false);
   }, []);

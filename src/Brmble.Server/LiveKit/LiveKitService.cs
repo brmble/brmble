@@ -7,6 +7,8 @@ namespace Brmble.Server.LiveKit;
 
 public class LiveKitService
 {
+    private static readonly TimeSpan DefaultTokenTtl = TimeSpan.FromHours(6);
+
     private readonly LiveKitSettings _settings;
     private readonly UserRepository _userRepo;
     private readonly ILogger<LiveKitService> _logger;
@@ -40,7 +42,7 @@ public class LiveKitService
                 CanPublish = true,
                 CanSubscribe = false
             })
-            .WithTtl(TimeSpan.FromHours(6));
+            .WithTtl(DefaultTokenTtl);
 
         return token.ToJwt();
     }

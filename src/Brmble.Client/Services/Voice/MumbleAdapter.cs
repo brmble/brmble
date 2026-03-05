@@ -800,7 +800,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 return null;
             }
 
-            var body = response[(bodyStart + (response[bodyStart + 1] == '\n' ? 2 : 4))..].Trim();
+            var separatorLength = response[bodyStart] == '\r' ? 4 : 2;
+            var body = response[(bodyStart + separatorLength)..].Trim();
 
             // Handle chunked transfer encoding — reassemble chunk data
             var headersSection = response[..bodyStart];
@@ -840,7 +841,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     }
 
     /// <summary>
-    /// <summary>
     /// Generic mTLS POST helper using BouncyCastle TLS.
     /// Returns the parsed JSON response body as an anonymous object, or null on failure.
     /// </summary>
@@ -879,13 +879,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             if (statusEnd < 0) return null;
 
             var statusLine = response[..statusEnd].Trim();
-            if (!statusLine.Contains("200")) return null;
+            if (!statusLine.Contains("200"))
+            {
+                System.Diagnostics.Debug.WriteLine($"[PostViaBcTls] Non-200 response: {statusLine}");
+                return null;
+            }
 
             var bodyStart = response.IndexOf("\r\n\r\n", StringComparison.Ordinal);
             if (bodyStart < 0) bodyStart = response.IndexOf("\n\n", StringComparison.Ordinal);
             if (bodyStart < 0) return null;
 
-            var body = response[(bodyStart + (response[bodyStart + 1] == '\n' ? 2 : 4))..].Trim();
+            var separatorLength = response[bodyStart] == '\r' ? 4 : 2;
+            var body = response[(bodyStart + separatorLength)..].Trim();
 
             var headersSection = response[..bodyStart];
             if (headersSection.Contains("Transfer-Encoding: chunked", StringComparison.OrdinalIgnoreCase))
