@@ -293,7 +293,10 @@ private int _dmScreenHotkeyId = -1;
     {
         lock (_lock)
         {
-            _outputDelayMs = Math.Clamp(delayMs, 10, 100);
+            var clamped = Math.Clamp(delayMs, 10, 100);
+            if (clamped == _outputDelayMs)
+                return;
+            _outputDelayMs = clamped;
             // WaveOutEvent.DesiredLatency is read only during Init(); changing it on a
             // running instance has no effect.  Recreate each player with the new value.
             foreach (var userId in _players.Keys.ToList())

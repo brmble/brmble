@@ -116,7 +116,7 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
 
                 // Process ready frames
                 int processedIndex = 0;
-                foreach (var (frame, frameEnqueuedAt) in readyFrames)
+                foreach (var (frame, _) in readyFrames)
                 {
                     if (written >= count)
                     {
@@ -151,6 +151,12 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
                 {
                     Array.Clear(buffer, offset + written, count - written);
                     written = count;
+                }
+
+                // Ensure any unwritten portion of the buffer is silence
+                if (written < count)
+                {
+                    Array.Clear(buffer, offset + written, count - written);
                 }
 
                 // Check if there's more data in the queue
