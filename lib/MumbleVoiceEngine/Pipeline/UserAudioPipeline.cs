@@ -98,41 +98,53 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
             // Pull decoded frames from queue
             while (written < count)
             {
-                if (!_pcmQueue.TryPeek(out var queued))
+                // First, dequeue all frames that are ready
+                var readyFrames = new List<byte[]>();
+                while (_pcmQueue.TryPeek(out var peeked))
                 {
-                    // No data - fill with silence
+                    var elapsed = (DateTime.UtcNow - peeked.enqueuedAt).TotalMilliseconds;
+                    if (elapsed >= _jitterBufferMs)
+                    {
+                        _pcmQueue.TryDequeue(out var ready);
+                        readyFrames.Add(ready.data);
+                    }
+                    else
+                    {
+                        break; // Oldest frame not ready, stop checking
+                    }
+                }
+
+                // Process ready frames
+                foreach (var frame in readyFrames)
+                {
+                    if (written >= count) break;
+
+                    int needed = count - written;
+                    if (frame.Length <= needed)
+                    {
+                        Array.Copy(frame, 0, buffer, offset + written, frame.Length);
+                        written += frame.Length;
+                    }
+                    else
+                    {
+                        // Partial frame — save remainder for next Read
+                        Array.Copy(frame, 0, buffer, offset + written, needed);
+                        written += needed;
+                        _currentFrame = frame;
+                        _currentFrameOffset = needed;
+                    }
+                }
+
+                // If no ready frames or buffer is full, fill with silence
+                if (readyFrames.Count == 0)
+                {
                     Array.Clear(buffer, offset + written, count - written);
                     written = count;
+                }
+
+                // Check if there's more data in the queue
+                if (_pcmQueue.Count == 0)
                     break;
-                }
-
-                // Check if frame has been in queue long enough
-                var elapsed = (DateTime.UtcNow - queued.enqueuedAt).TotalMilliseconds;
-                if (elapsed < _jitterBufferMs)
-                {
-                    // Not enough time elapsed - return silence for now
-                    Array.Clear(buffer, offset + written, count - written);
-                    written = count;
-                    break;
-                }
-
-                // Dequeue and process
-                _pcmQueue.TryDequeue(out var frame);
-
-                int needed = count - written;
-                if (frame.data.Length <= needed)
-                {
-                    Array.Copy(frame.data, 0, buffer, offset + written, frame.data.Length);
-                    written += frame.data.Length;
-                }
-                else
-                {
-                    // Partial frame — save remainder for next Read
-                    Array.Copy(frame.data, 0, buffer, offset + written, needed);
-                    written += needed;
-                    _currentFrame = frame.data;
-                    _currentFrameOffset = needed;
-                }
             }
 
             // Capture volume inside lock to ensure consistent read
