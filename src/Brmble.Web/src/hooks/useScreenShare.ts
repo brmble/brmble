@@ -2,10 +2,12 @@ import { useCallback, useRef, useState } from 'react';
 import { Room, RoomEvent } from 'livekit-client';
 import bridge from '../bridge';
 
-export function useScreenShare() {
+export function useScreenShare(onDisconnected?: () => void) {
   const [isSharing, setIsSharing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const roomRef = useRef<Room | null>(null);
+  const onDisconnectedRef = useRef(onDisconnected);
+  onDisconnectedRef.current = onDisconnected;
 
   const startSharing = useCallback(async (roomName: string) => {
     setError(null);
@@ -46,6 +48,7 @@ export function useScreenShare() {
       room.on(RoomEvent.Disconnected, () => {
         setIsSharing(false);
         roomRef.current = null;
+        onDisconnectedRef.current?.();
       });
 
       await room.connect(url, token);

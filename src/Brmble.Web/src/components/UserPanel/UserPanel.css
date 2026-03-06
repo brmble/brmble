@@ -140,6 +140,11 @@
 }
 
 .user-panel-btn.screen-share-btn.active {
+  color: var(--accent-primary);
+  background: var(--accent-primary-wash);
+}
+
+.user-panel-btn.screen-share-btn.active:not(.disabled) {
   color: var(--accent-secondary);
   background: var(--accent-secondary-subtle);
 }
