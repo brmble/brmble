@@ -23,6 +23,7 @@ const SCROLL_THRESHOLD = 150;
 export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, isDM, matrixClient, fullyReadEventId }: ChatPanelProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const unreadDividerRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
 
   const handleScroll = useCallback(() => {
@@ -77,6 +78,18 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages]);
+
+  // Scroll to unread divider on channel switch, or bottom if fully read
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (unreadDividerRef.current) {
+        unreadDividerRef.current.scrollIntoView({ behavior: 'auto', block: 'start' });
+      } else if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView();
+      }
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [channelId]);
 
   const grouped = useMemo(() => groupMessages(messages, fullyReadEventId), [messages, fullyReadEventId]);
 
@@ -146,7 +159,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
                 </div>
               )}
               {item.showUnreadDivider && (
-                <div className="chat-unread-divider" key={`unread-${item.message.id}`}>
+                <div className="chat-unread-divider" ref={unreadDividerRef} key={`unread-${item.message.id}`}>
                   <span className="chat-unread-divider-label">New Messages</span>
                 </div>
               )}
