@@ -838,7 +838,7 @@ const handleConnect = (serverData: SavedServer) => {
         cancelLabel: 'Keep Sharing',
       });
       if (shouldStop) {
-        stopSharing();
+        await stopSharing();
         setSharingChannelId(undefined);
       }
     }
@@ -953,7 +953,7 @@ const handleConnect = (serverData: SavedServer) => {
         cancelLabel: 'Keep Sharing',
       });
       if (shouldStop) {
-        stopSharing();
+        await stopSharing();
         setSharingChannelId(undefined);
       }
     }
@@ -1038,16 +1038,20 @@ const handleConnect = (serverData: SavedServer) => {
   });
   const [sharingChannelId, setSharingChannelId] = useState<string | undefined>();
 
-  const handleToggleScreenShare = useCallback(() => {
+  const handleToggleScreenShare = useCallback(async () => {
     if (isSharing) {
-      stopSharing();
+      await stopSharing();
       setSharingChannelId(undefined);
     } else if (!selfLeftVoice) {
       const selfUser = usersRef.current.find(u => u.self);
       const voiceChannelId = selfUser?.channelId;
       if (voiceChannelId != null && voiceChannelId !== 0) {
-        startSharing(`channel-${voiceChannelId}`);
-        setSharingChannelId(String(voiceChannelId));
+        try {
+          await startSharing(`channel-${voiceChannelId}`);
+          setSharingChannelId(String(voiceChannelId));
+        } catch {
+          // startSharing sets error state internally
+        }
       }
     }
   }, [isSharing, startSharing, stopSharing, selfLeftVoice]);
