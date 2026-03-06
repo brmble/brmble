@@ -1140,7 +1140,7 @@ const handleConnect = (serverData: SavedServer) => {
 
   const { Prompt } = usePrompt();
 
-  const { isSharing, startSharing, stopSharing, error: screenShareError } = useScreenShare(() => {
+  const { isSharing, startSharing, stopSharing, error: screenShareError, activeShare, remoteVideoEl, disconnectViewer } = useScreenShare(() => {
     setSharingChannelId(undefined);
   });
   const [sharingChannelId, setSharingChannelId] = useState<string | undefined>();
@@ -1178,6 +1178,14 @@ const handleConnect = (serverData: SavedServer) => {
   useEffect(() => {
     if (screenShareError) console.error('Screen share error:', screenShareError);
   }, [screenShareError]);
+
+  // Check for active screen shares when switching channels
+  useEffect(() => {
+    disconnectViewer();
+    if (currentChannelId && currentChannelId !== 'server-root') {
+      bridge.send('livekit.checkActiveShare', { roomName: `channel-${currentChannelId}` });
+    }
+  }, [currentChannelId, disconnectViewer]);
 
   const handleToggleScreenShare = useCallback(async () => {
     if (isSharing) {
@@ -1262,6 +1270,9 @@ const handleConnect = (serverData: SavedServer) => {
                 onSendMessage={handleSendMessage}
                 matrixClient={matrixClient.client}
                 fullyReadEventId={channelFullyReadEventId}
+                screenShareVideoEl={remoteVideoEl}
+                screenSharerName={activeShare?.userName}
+                onCloseScreenShare={disconnectViewer}
               />
               </ErrorBoundary>
             </div>

@@ -872,7 +872,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// Generic mTLS POST helper using BouncyCastle TLS.
     /// Returns the parsed JSON response body as an anonymous object, or null on failure.
     /// </summary>
-    private static async Task<object?> PostViaBcTls(X509Certificate2 cert, Uri uri, string jsonBody)
+    private static async Task<string?> SendViaBcTls(X509Certificate2 cert, Uri uri, string httpRequest)
     {
         using var tcp = new TcpClient();
         await tcp.ConnectAsync(uri.Host, uri.Port);
@@ -885,9 +885,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         try
         {
             var stream = tlsProtocol.Stream;
-            var hostHeader = uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}";
-            var contentLength = System.Text.Encoding.UTF8.GetByteCount(jsonBody);
-            var httpRequest = $"POST {uri.PathAndQuery} HTTP/1.1\r\nHost: {hostHeader}\r\nContent-Type: application/json\r\nContent-Length: {contentLength}\r\nConnection: close\r\n\r\n{jsonBody}";
             var requestBytes = System.Text.Encoding.UTF8.GetBytes(httpRequest);
             await stream.WriteAsync(requestBytes, 0, requestBytes.Length);
             await stream.FlushAsync();
@@ -909,7 +906,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             var statusLine = response[..statusEnd].Trim();
             if (!statusLine.Contains("200"))
             {
-                System.Diagnostics.Debug.WriteLine($"[PostViaBcTls] Non-200 response: {statusLine}");
+                System.Diagnostics.Debug.WriteLine($"[SendViaBcTls] Non-200 response: {statusLine}");
                 return null;
             }
 
@@ -942,28 +939,44 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 body = sb.ToString().Trim();
             }
 
-            if (string.IsNullOrWhiteSpace(body)) return null;
-
-            using var doc = System.Text.Json.JsonDocument.Parse(body);
-            // Return as a dictionary so JsonSerializer can re-serialize it for the bridge
-            var dict = new Dictionary<string, object?>();
-            foreach (var prop in doc.RootElement.EnumerateObject())
-            {
-                dict[prop.Name] = prop.Value.ValueKind switch
-                {
-                    System.Text.Json.JsonValueKind.String => prop.Value.GetString(),
-                    System.Text.Json.JsonValueKind.Number => prop.Value.GetDouble(),
-                    System.Text.Json.JsonValueKind.True => true,
-                    System.Text.Json.JsonValueKind.False => false,
-                    _ => prop.Value.GetRawText()
-                };
-            }
-            return dict;
+            return string.IsNullOrWhiteSpace(body) ? null : body;
         }
         finally
         {
             tlsProtocol.Close();
         }
+    }
+
+    private static async Task<object?> PostViaBcTls(X509Certificate2 cert, Uri uri, string jsonBody)
+    {
+        var hostHeader = uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}";
+        var contentLength = System.Text.Encoding.UTF8.GetByteCount(jsonBody);
+        var httpRequest = $"POST {uri.PathAndQuery} HTTP/1.1\r\nHost: {hostHeader}\r\nContent-Type: application/json\r\nContent-Length: {contentLength}\r\nConnection: close\r\n\r\n{jsonBody}";
+
+        var body = await SendViaBcTls(cert, uri, httpRequest);
+        if (body is null) return null;
+
+        using var doc = System.Text.Json.JsonDocument.Parse(body);
+        var dict = new Dictionary<string, object?>();
+        foreach (var prop in doc.RootElement.EnumerateObject())
+        {
+            dict[prop.Name] = prop.Value.ValueKind switch
+            {
+                System.Text.Json.JsonValueKind.String => prop.Value.GetString(),
+                System.Text.Json.JsonValueKind.Number => prop.Value.GetDouble(),
+                System.Text.Json.JsonValueKind.True => true,
+                System.Text.Json.JsonValueKind.False => false,
+                _ => prop.Value.GetRawText()
+            };
+        }
+        return dict;
+    }
+
+    private static async Task<string?> GetViaBcTls(X509Certificate2 cert, Uri uri)
+    {
+        var hostHeader = uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}";
+        var httpRequest = $"GET {uri.PathAndQuery} HTTP/1.1\r\nHost: {hostHeader}\r\nConnection: close\r\n\r\n";
+        return await SendViaBcTls(cert, uri, httpRequest);
     }
 
     /// Pure HTTP helper: POSTs to /auth/token and returns the parsed response body.
@@ -1175,6 +1188,25 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     {
                         _sessionMappings.TryRemove(rmSid, out _);
                         _bridge?.Send("voice.userMappingUpdated", new { sessionId = rmSid, action = "removed" });
+                        _bridge?.NotifyUiThread();
+                    }
+                    break;
+
+                case "screenShare.started":
+                    var startRoom = root.TryGetProperty("roomName", out var startRoomProp) ? startRoomProp.GetString() : null;
+                    var startUser = root.TryGetProperty("userName", out var startUserProp) ? startUserProp.GetString() : null;
+                    if (startRoom is not null)
+                    {
+                        _bridge?.Send("livekit.screenShareStarted", new { roomName = startRoom, userName = startUser });
+                        _bridge?.NotifyUiThread();
+                    }
+                    break;
+
+                case "screenShare.stopped":
+                    var stopRoom = root.TryGetProperty("roomName", out var stopRoomProp) ? stopRoomProp.GetString() : null;
+                    if (stopRoom is not null)
+                    {
+                        _bridge?.Send("livekit.screenShareStopped", new { roomName = stopRoom });
                         _bridge?.NotifyUiThread();
                     }
                     break;
@@ -1467,6 +1499,88 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             catch (Exception ex)
             {
                 _bridge?.Send("livekit.tokenError", new { error = ex.Message });
+                _bridge?.NotifyUiThread();
+            }
+        });
+
+        bridge.RegisterHandler("livekit.shareStarted", async data =>
+        {
+            var roomName = data.TryGetProperty("roomName", out var rn) ? rn.GetString() : null;
+            if (string.IsNullOrWhiteSpace(roomName) || _apiUrl is null) return;
+
+            using var cert = _certService?.GetExportableCertificate();
+            if (cert is null) return;
+
+            try
+            {
+                var baseUri = new Uri(_apiUrl, UriKind.Absolute);
+                var uri = new Uri(baseUri, "livekit/share-started");
+                await PostViaBcTls(cert, uri, System.Text.Json.JsonSerializer.Serialize(new { roomName }));
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[LiveKit] Failed to notify share-started: {ex.Message}");
+            }
+        });
+
+        bridge.RegisterHandler("livekit.shareStopped", async data =>
+        {
+            var roomName = data.TryGetProperty("roomName", out var rn) ? rn.GetString() : null;
+            if (string.IsNullOrWhiteSpace(roomName) || _apiUrl is null) return;
+
+            using var cert = _certService?.GetExportableCertificate();
+            if (cert is null) return;
+
+            try
+            {
+                var baseUri = new Uri(_apiUrl, UriKind.Absolute);
+                var uri = new Uri(baseUri, "livekit/share-stopped");
+                await PostViaBcTls(cert, uri, System.Text.Json.JsonSerializer.Serialize(new { roomName }));
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[LiveKit] Failed to notify share-stopped: {ex.Message}");
+            }
+        });
+
+        bridge.RegisterHandler("livekit.checkActiveShare", async data =>
+        {
+            var roomName = data.TryGetProperty("roomName", out var rn) ? rn.GetString() : null;
+            if (string.IsNullOrWhiteSpace(roomName) || _apiUrl is null)
+            {
+                _bridge?.Send("livekit.activeShareResult", new { roomName, active = false });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            using var cert = _certService?.GetExportableCertificate();
+            if (cert is null)
+            {
+                _bridge?.Send("livekit.activeShareResult", new { roomName, active = false });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            try
+            {
+                var baseUri = new Uri(_apiUrl, UriKind.Absolute);
+                var uri = new Uri(baseUri, $"livekit/active-share?roomName={Uri.EscapeDataString(roomName)}");
+                var result = await GetViaBcTls(cert, uri);
+                if (result is not null)
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(result);
+                    var userName = doc.RootElement.TryGetProperty("userName", out var un) ? un.GetString() : null;
+                    _bridge?.Send("livekit.activeShareResult", new { roomName, active = true, userName });
+                }
+                else
+                {
+                    _bridge?.Send("livekit.activeShareResult", new { roomName, active = false });
+                }
+                _bridge?.NotifyUiThread();
+            }
+            catch
+            {
+                _bridge?.Send("livekit.activeShareResult", new { roomName, active = false });
                 _bridge?.NotifyUiThread();
             }
         });

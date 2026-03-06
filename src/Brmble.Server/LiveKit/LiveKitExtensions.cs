@@ -7,6 +7,7 @@ public static class LiveKitExtensions
         services.AddOptions<LiveKitSettings>()
             .BindConfiguration("LiveKit");
         services.AddSingleton<LiveKitService>();
+        services.AddSingleton<ScreenShareTracker>();
         return services;
     }
 }
