@@ -102,6 +102,7 @@ interface User {
   muted?: boolean;
   deafened?: boolean;
   self?: boolean;
+  comment?: string;
   matrixUserId?: string;
 }
 
@@ -434,7 +435,7 @@ function App() {
     });
 
     const onVoiceUserJoined = ((data: unknown) => {
-      const d = data as { session: number; name: string; channelId?: number; muted?: boolean; deafened?: boolean; self?: boolean; matrixUserId?: string } | undefined;
+      const d = data as { session: number; name: string; channelId?: number; muted?: boolean; deafened?: boolean; self?: boolean; comment?: string; matrixUserId?: string } | undefined;
       if (d?.session && d.channelId !== undefined) {
         const previousChannelId = previousChannelIdRef.current.get(d.session);
         
@@ -570,6 +571,15 @@ function App() {
       }
     });
 
+    const onVoiceUserCommentChanged = ((data: unknown) => {
+      const d = data as { session: number; comment?: string } | undefined;
+      if (d?.session !== undefined) {
+        setUsers(prev => prev.map(u =>
+          u.session === d.session ? { ...u, comment: d.comment } : u
+        ));
+      }
+    });
+
     // Map shortcut action names to UserPanel button names
     const ACTION_TO_BTN: Record<string, string> = {
       toggleMute: 'mute',
@@ -699,6 +709,7 @@ function App() {
     bridge.on('voice.canRejoinChanged', onCanRejoinChanged);
     bridge.on('voice.userSpeaking', onVoiceUserSpeaking);
     bridge.on('voice.userSilent', onVoiceUserSilent);
+    bridge.on('voice.userCommentChanged', onVoiceUserCommentChanged);
     bridge.on('voice.shortcutPressed', onShortcutPressed);
     bridge.on('voice.shortcutReleased', onShortcutReleased);
     bridge.on('voice.toggleDmScreen', onToggleDmScreen);
@@ -730,6 +741,7 @@ function App() {
       bridge.off('voice.canRejoinChanged', onCanRejoinChanged);
       bridge.off('voice.userSpeaking', onVoiceUserSpeaking);
       bridge.off('voice.userSilent', onVoiceUserSilent);
+      bridge.off('voice.userCommentChanged', onVoiceUserCommentChanged);
       bridge.off('voice.shortcutPressed', onShortcutPressed);
       bridge.off('voice.shortcutReleased', onShortcutReleased);
       bridge.off('voice.toggleDmScreen', onToggleDmScreen);
