@@ -998,7 +998,11 @@ const handleConnect = (serverData: SavedServer) => {
 
   const { Prompt } = usePrompt();
 
-  const { isSharing, startSharing, stopSharing } = useScreenShare();
+  const { isSharing, startSharing, stopSharing, error: screenShareError } = useScreenShare();
+
+  useEffect(() => {
+    if (screenShareError) console.error('Screen share error:', screenShareError);
+  }, [screenShareError]);
 
   const handleToggleScreenShare = useCallback(() => {
     if (isSharing) {
@@ -1025,6 +1029,7 @@ const handleConnect = (serverData: SavedServer) => {
         onToggleDeaf={connected ? handleToggleDeaf : undefined}
         onLeaveVoice={connected ? handleLeaveVoice : undefined}
         screenSharing={isSharing}
+        screenShareError={screenShareError}
         onToggleScreenShare={connected && !selfLeftVoice ? handleToggleScreenShare : undefined}
         speaking={speakingUsers.has(selfSession) || false}
         pendingChannelAction={pendingChannelAction}
