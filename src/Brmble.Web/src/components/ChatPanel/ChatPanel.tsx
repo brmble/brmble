@@ -17,12 +17,12 @@ interface ChatPanelProps {
   matrixClient?: MatrixClient | null;
 }
 
+const SCROLL_THRESHOLD = 150;
+
 export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, isDM, matrixClient }: ChatPanelProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
-
-  const SCROLL_THRESHOLD = 150;
 
   const handleScroll = useCallback(() => {
     const container = messagesContainerRef.current;
@@ -60,7 +60,8 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
   // Uses requestAnimationFrame so the DOM has rendered the new messages
   // before we measure scrollHeight.
   useEffect(() => {
-    requestAnimationFrame(checkScrollButton);
+    const rafId = requestAnimationFrame(checkScrollButton);
+    return () => cancelAnimationFrame(rafId);
   }, [channelId, messages, checkScrollButton]);
 
   useEffect(() => {

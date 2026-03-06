@@ -19,8 +19,9 @@ export function linkifyText(text: string): ReactNode {
   // No URLs found — split produces a single-element array
   if (parts.length === 1) return text;
 
+  // With a single capturing group in URL_PATTERN, split() puts URLs at odd indices.
   return parts.map((part, i) =>
-    URL_PATTERN.test(part) ? (
+    i % 2 === 1 ? (
       <a key={i} href={part} target="_blank" rel="noopener noreferrer">
         {part}
       </a>

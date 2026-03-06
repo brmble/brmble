@@ -132,7 +132,14 @@ static class Program
                 args.Handled = true;
                 if (!string.IsNullOrEmpty(args.Uri))
                 {
-                    Process.Start(new ProcessStartInfo(args.Uri) { UseShellExecute = true });
+                    try
+                    {
+                        Process.Start(new ProcessStartInfo(args.Uri) { UseShellExecute = true });
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Failed to open new window URI: {ex.Message}");
+                    }
                 }
             };
 
@@ -141,15 +148,35 @@ static class Program
             _controller.CoreWebView2.NavigationStarting += (_, args) =>
             {
                 var uri = args.Uri;
-                if (uri.StartsWith("https://brmble.local/", StringComparison.OrdinalIgnoreCase)
-                    || uri.StartsWith(DevServerUrl, StringComparison.OrdinalIgnoreCase))
+
+                // No URI provided; treat as internal navigation
+                if (string.IsNullOrEmpty(uri))
+                {
+                    return;
+                }
+
+                // Allow non-http(s) URIs (e.g. about:blank) as internal navigations
+                if (!uri.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                if (uri.StartsWith("https://brmble.local", StringComparison.OrdinalIgnoreCase)
+                    || (!string.IsNullOrEmpty(DevServerUrl) && uri.StartsWith(DevServerUrl, StringComparison.OrdinalIgnoreCase)))
                 {
                     return; // Allow app navigation
                 }
 
                 // External URL — cancel navigation and open in system browser
                 args.Cancel = true;
-                Process.Start(new ProcessStartInfo(uri) { UseShellExecute = true });
+                try
+                {
+                    Process.Start(new ProcessStartInfo(uri) { UseShellExecute = true });
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Failed to open external URI: {ex.Message}");
+                }
             };
 
             var webRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "web");
