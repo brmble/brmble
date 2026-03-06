@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import bridge from './bridge';
 import type { ConnectionStatus } from './types';
 import { useMatrixClient } from './hooks/useMatrixClient';
@@ -960,6 +960,14 @@ const handleConnect = (serverData: SavedServer) => {
 
   const unreadDMUserCount = dmContacts.filter(c => c.unread > 0).length;
 
+  const dmContactsWithComments = useMemo(() =>
+    dmContacts.map(c => {
+      const user = users.find(u => String(u.session) === c.userId);
+      return user?.comment ? { ...c, comment: user.comment } : c;
+    }),
+    [dmContacts, users]
+  );
+
   const handleSelectDMUser = (userId: string, userName: string) => {
     setSelectedDMUserId(userId);
     setSelectedDMUserName(userName);
@@ -1098,7 +1106,7 @@ const handleConnect = (serverData: SavedServer) => {
         </main>
 
         <DMContactList
-          contacts={dmContacts}
+          contacts={dmContactsWithComments}
           selectedUserId={selectedDMUserId}
           onSelectContact={handleSelectDMUser}
           onCloseConversation={handleCloseDMConversation}
