@@ -133,7 +133,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
       }
     }, 100);
     return () => clearTimeout(timer);
-  }, [channelId]);
+  }, [channelId, readMarkerTs]);
 
   const grouped = useMemo(() => groupMessages(messages, readMarkerTs), [messages, readMarkerTs]);
 

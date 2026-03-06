@@ -49,43 +49,55 @@ const STORAGE_KEY = 'brmble-read-markers';
 // authoritative source for this client.
 //
 // Each marker stores an eventId AND a timestamp. The timestamp is the
-// origin_server_ts of the marked event. When counting unreads, we only
-// count messages whose origin_server_ts is strictly greater than this
-// timestamp, which prevents backfilled/paginated old events from being
-// counted as unread.
+// client wall-clock time (Date.now()) at the moment the room was marked
+// as read. Using wall-clock time instead of the event's origin_server_ts
+// ensures that ALL events currently in the timeline are treated as "read"
+// — even rapid-fire messages that arrived just after the marked event.
+// When counting unreads, we only count messages whose origin_server_ts is
+// strictly greater than this wall-clock timestamp.
 
 interface StoredMarker {
   eventId: string;
-  /** origin_server_ts of the marked event (ms since epoch) */
+  /** Client wall-clock time when the room was marked as read (ms since epoch) */
   ts: number;
 }
 
+// In-memory cache of markers. Loaded once from localStorage; all subsequent
+// reads use this cache to avoid JSON.parse on every timeline event / refresh.
+let markersCache: Record<string, StoredMarker> | null = null;
+
 function loadMarkers(): Record<string, StoredMarker> {
+  if (markersCache) return markersCache;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return {};
+    if (!raw) {
+      markersCache = {};
+      return markersCache;
+    }
     const parsed = JSON.parse(raw);
     // Migration: old format stored just strings, new format stores { eventId, ts }
     const result: Record<string, StoredMarker> = {};
     for (const [roomId, value] of Object.entries(parsed)) {
       if (typeof value === 'string') {
-        // Old format — migrate with ts=0 (will count everything as unread
-        // until user visits the room, which is acceptable for a one-time migration)
+        // Old format — migrate with ts=Date.now() so existing rooms are NOT
+        // shown as unread after migration. Only truly new messages will count.
         result[roomId] = { eventId: value, ts: Date.now() };
       } else {
         result[roomId] = value as StoredMarker;
       }
     }
-    return result;
+    markersCache = result;
+    return markersCache;
   } catch {
-    return {};
+    markersCache = {};
+    return markersCache;
   }
 }
 
 function saveMarker(roomId: string, eventId: string, ts: number): void {
+  const markers = loadMarkers();
+  markers[roomId] = { eventId, ts };
   try {
-    const markers = loadMarkers();
-    markers[roomId] = { eventId, ts };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(markers));
   } catch {
     // localStorage may be full or unavailable
@@ -93,8 +105,7 @@ function saveMarker(roomId: string, eventId: string, ts: number): void {
 }
 
 function getMarker(roomId: string): StoredMarker | null {
-  const markers = loadMarkers();
-  return markers[roomId] ?? null;
+  return loadMarkers()[roomId] ?? null;
 }
 
 // ── Timeline counting ─────────────────────────────────────────────────
@@ -307,13 +318,16 @@ export function useUnreadTracker(
       ? (findLastMessageEventId(room, eventId) ?? eventId)
       : eventId;
 
-    // Use wall-clock time as the marker timestamp. This is compared against
-    // event origin_server_ts when counting unreads. Using Date.now() instead
-    // of the event's own timestamp ensures that ALL events currently in the
-    // timeline are treated as "read" — even if they arrived slightly after
-    // the marked event (e.g., rapid-fire messages). On next connect, only
-    // events with origin_server_ts > this wall-clock time are counted.
-    const markerTs = Date.now();
+    // Use a marker timestamp that is at least as new as the last marked
+    // event's origin_server_ts to avoid false unreads due to clock skew
+    // between the homeserver and the client.
+    let markerTs = Date.now();
+    if (room) {
+      const lastMarkedEvent = room.findEventById(messageEventId);
+      if (lastMarkedEvent) {
+        markerTs = Math.max(markerTs, lastMarkedEvent.getTs());
+      }
+    }
 
     // Persist locally (authoritative source)
     saveMarker(roomId, messageEventId, markerTs);

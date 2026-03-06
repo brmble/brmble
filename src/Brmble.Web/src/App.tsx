@@ -1053,17 +1053,21 @@ const handleConnect = (serverData: SavedServer) => {
     setAppMode(prev => prev === 'channels' ? 'dm' : 'channels');
   };
 
-  const localUnreadDMUserCount = dmContacts.filter(c => c.unread > 0).length;
+  // Local fallback: total unread DM messages across all contacts
+  const localTotalDmUnreadCount = dmContacts.reduce(
+    (sum, c) => sum + (c.unread || 0),
+    0,
+  );
 
-  // Use Matrix-backed DM unread count when Matrix is connected, fall back to localStorage
-  const unreadDMUserCount = matrixClient?.client
+  // Use Matrix-backed DM unread count when Matrix is connected, fall back to local aggregate
+  const totalDmUnreadCount = matrixClient?.client
     ? unreadTracker.totalDmUnreadCount
-    : localUnreadDMUserCount;
+    : localTotalDmUnreadCount;
 
   // Push DM badge state to native side whenever unread count changes
   useEffect(() => {
-    updateBadge(unreadDMUserCount, hasPendingInvite);
-  }, [unreadDMUserCount, hasPendingInvite, updateBadge]);
+    updateBadge(totalDmUnreadCount, hasPendingInvite);
+  }, [totalDmUnreadCount, hasPendingInvite, updateBadge]);
 
   const userCommentsBySession = useMemo(
     () =>
@@ -1245,8 +1249,7 @@ const handleConnect = (serverData: SavedServer) => {
         return markerTs;
       });
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentChannelId, unreadTracker.roomUnreads]);
+  }, [currentChannelId, matrixCredentials?.roomMap, matrixClient, unreadTracker]);
 
   // Same pattern for DM switches
   useEffect(() => {
@@ -1299,8 +1302,7 @@ const handleConnect = (serverData: SavedServer) => {
         return markerTs;
       });
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDMUserId, unreadTracker.roomUnreads]);
+  }, [selectedDMUserId, unreadTracker.roomUnreads, matrixClient.client, unreadTracker, users]);
 
   return (
     <div className="app">
@@ -1309,7 +1311,7 @@ const handleConnect = (serverData: SavedServer) => {
         username={username}
         onToggleDM={toggleDMMode}
         dmActive={appMode === 'dm'}
-        unreadDMCount={unreadDMUserCount}
+        unreadDMCount={totalDmUnreadCount}
         onOpenSettings={() => setShowSettings(true)}
         muted={selfMuted}
         deafened={selfDeafened}
