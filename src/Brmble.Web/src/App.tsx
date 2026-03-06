@@ -1033,18 +1033,24 @@ const handleConnect = (serverData: SavedServer) => {
 
   const { Prompt } = usePrompt();
 
-  const { isSharing, startSharing, stopSharing } = useScreenShare();
+  const { isSharing, startSharing, stopSharing } = useScreenShare(() => {
+    setSharingChannelId(undefined);
+  });
   const [sharingChannelId, setSharingChannelId] = useState<string | undefined>();
 
   const handleToggleScreenShare = useCallback(() => {
     if (isSharing) {
       stopSharing();
       setSharingChannelId(undefined);
-    } else if (currentChannelId != null && currentChannelId !== 'server-root' && !selfLeftVoice) {
-      startSharing(`channel-${currentChannelId}`);
-      setSharingChannelId(currentChannelId);
+    } else if (!selfLeftVoice) {
+      const selfUser = usersRef.current.find(u => u.self);
+      const voiceChannelId = selfUser?.channelId;
+      if (voiceChannelId != null && voiceChannelId !== 0) {
+        startSharing(`channel-${voiceChannelId}`);
+        setSharingChannelId(String(voiceChannelId));
+      }
     }
-  }, [isSharing, currentChannelId, startSharing, stopSharing, selfLeftVoice]);
+  }, [isSharing, startSharing, stopSharing, selfLeftVoice]);
   handleToggleScreenShareRef.current = handleToggleScreenShare;
 
   return (
@@ -1065,7 +1071,7 @@ const handleConnect = (serverData: SavedServer) => {
         onLeaveVoice={connected ? handleLeaveVoice : undefined}
         screenSharing={isSharing}
         onToggleScreenShare={connected ? handleToggleScreenShare : undefined}
-        canScreenShare={connected && !selfLeftVoice && currentChannelId != null && currentChannelId !== 'server-root'}
+        canScreenShare={connected && !selfLeftVoice && (users.find(u => u.self)?.channelId ?? 0) !== 0}
         speaking={speakingUsers.has(selfSession) || false}
         pendingChannelAction={pendingChannelAction}
         hotkeyPressedBtn={hotkeyPressedBtn}
