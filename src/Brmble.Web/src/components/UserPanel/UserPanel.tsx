@@ -137,7 +137,7 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
 
       {onToggleScreenShare && (
         <button
-          className={`btn btn-ghost btn-icon user-panel-btn screen-share-btn ${screenSharing ? 'active' : ''} ${activeBtn === 'screen' ? 'pressed' : ''} ${!canScreenShare ? 'disabled' : ''}`}
+          className={`btn btn-ghost btn-icon user-panel-btn screen-share-btn ${(screenSharing || !canScreenShare) ? 'active' : ''} ${activeBtn === 'screen' ? 'pressed' : ''} ${!canScreenShare ? 'disabled' : ''}`}
           onMouseDown={handleMouseDown('screen')}
           onMouseUp={handleMouseUp('screen', onToggleScreenShare)}
           onMouseLeave={handleMouseLeave}
@@ -146,7 +146,7 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
           disabled={!canScreenShare}
           title={screenSharing ? 'Stop Sharing' : !canScreenShare ? 'Join a channel to share screen' : 'Share Screen'}
         >
-          {screenSharing ? (
+          {(screenSharing || !canScreenShare) ? (
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="1" y1="1" x2="23" y2="23"></line>
               <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>

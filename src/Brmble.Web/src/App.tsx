@@ -349,6 +349,7 @@ function App() {
       setSelfSession(0);
       setSpeakingUsers(new Map());
       setMatrixCredentials(null);
+      setSharingChannelId(undefined);
     };
 
     const onServerCredentials = (data: unknown) => {
@@ -826,7 +827,21 @@ const handleConnect = (serverData: SavedServer) => {
     });
   };
 
-  const handleJoinChannel = (channelId: number) => {
+  const handleJoinChannel = async (channelId: number) => {
+    if (isSharing && sharingChannelId && String(channelId) !== sharingChannelId) {
+      const sharingChannel = channels.find(c => String(c.id) === sharingChannelId);
+      const sharingChannelName = sharingChannel?.name || `channel ${sharingChannelId}`;
+      const shouldStop = await confirm({
+        title: 'Screen share active',
+        message: `You are sharing your screen to "${sharingChannelName}". Stop sharing?`,
+        confirmLabel: 'Stop Sharing',
+        cancelLabel: 'Keep Sharing',
+      });
+      if (shouldStop) {
+        stopSharing();
+        setSharingChannelId(undefined);
+      }
+    }
     startPendingAction(channelId);
     bridge.send('voice.joinChannel', { channelId });
   };
@@ -939,6 +954,7 @@ const handleConnect = (serverData: SavedServer) => {
       });
       if (shouldStop) {
         stopSharing();
+        setSharingChannelId(undefined);
       }
     }
     startPendingAction('leave');
@@ -1018,12 +1034,15 @@ const handleConnect = (serverData: SavedServer) => {
   const { Prompt } = usePrompt();
 
   const { isSharing, startSharing, stopSharing } = useScreenShare();
+  const [sharingChannelId, setSharingChannelId] = useState<string | undefined>();
 
   const handleToggleScreenShare = useCallback(() => {
     if (isSharing) {
       stopSharing();
+      setSharingChannelId(undefined);
     } else if (currentChannelId != null && currentChannelId !== 'server-root' && !selfLeftVoice) {
       startSharing(`channel-${currentChannelId}`);
+      setSharingChannelId(currentChannelId);
     }
   }, [isSharing, currentChannelId, startSharing, stopSharing, selfLeftVoice]);
   handleToggleScreenShareRef.current = handleToggleScreenShare;
@@ -1073,6 +1092,8 @@ const handleConnect = (serverData: SavedServer) => {
           connectionStatus={connectionStatus}
           onCancelReconnect={handleCancelReconnect}
           pendingChannelAction={pendingChannelAction}
+          sharingChannelId={sharingChannelId ? Number(sharingChannelId) : undefined}
+          sharingUserSession={isSharing ? selfSession : undefined}
         />
         </ErrorBoundary>
         
