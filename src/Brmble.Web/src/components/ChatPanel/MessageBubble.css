@@ -1,13 +1,13 @@
 .message-bubble {
   display: flex;
   gap: 0.75rem;
-  padding: 0.5rem;
+  padding: var(--space-2xs) var(--space-xs);
   border-radius: var(--radius-md);
   transition: background var(--transition-fast);
 }
 
 .message-bubble:hover {
-  background: var(--bg-hover);
+  background: var(--bg-hover-light);
 }
 
 .message-avatar {
@@ -71,7 +71,26 @@
   word-wrap: break-word;
 }
 
+.message-text a {
+  color: var(--accent-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: color var(--transition-fast);
+}
+
+.message-text a:hover {
+  color: var(--accent-secondary);
+}
+
 /* System message variant */
+.message-bubble--system {
+  padding: var(--space-2xs) var(--space-md);
+}
+
+.message-bubble--system .message-content {
+  flex: 1;
+}
+
 .message-bubble--system .message-avatar {
   background: linear-gradient(135deg, var(--bg-elevated) 0%, var(--border-subtle) 100%);
 }
@@ -83,4 +102,30 @@
 
 .message-bubble--system .message-text {
   color: var(--text-muted);
+}
+
+/* Collapsed message (continuation in group) */
+.message-bubble--collapsed {
+  padding: var(--space-2xs) var(--space-xs);
+}
+
+.message-gutter {
+  width: 40px;
+  min-width: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.message-hover-time {
+  font-size: var(--text-2xs);
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+  font-family: var(--font-mono);
+  letter-spacing: -0.02em;
+}
+
+.message-bubble--collapsed:hover .message-hover-time {
+  opacity: 1;
 }

@@ -125,6 +125,60 @@ static class Program
                 args.Handled = true; // Don't show prompt, don't send a cert
             };
 
+            // Open target="_blank" links in the system default browser
+            // instead of spawning a WebView2 popup window.
+            _controller.CoreWebView2.NewWindowRequested += (_, args) =>
+            {
+                args.Handled = true;
+                if (!string.IsNullOrEmpty(args.Uri))
+                {
+                    try
+                    {
+                        Process.Start(new ProcessStartInfo(args.Uri) { UseShellExecute = true });
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Failed to open new window URI: {ex.Message}");
+                    }
+                }
+            };
+
+            // Prevent in-page navigation to external URLs (e.g. <a> tags in
+            // HTML messages that lack target="_blank"). Allow our own origins.
+            _controller.CoreWebView2.NavigationStarting += (_, args) =>
+            {
+                var uri = args.Uri;
+
+                // No URI provided; treat as internal navigation
+                if (string.IsNullOrEmpty(uri))
+                {
+                    return;
+                }
+
+                // Allow non-http(s) URIs (e.g. about:blank) as internal navigations
+                if (!uri.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                if (uri.StartsWith("https://brmble.local", StringComparison.OrdinalIgnoreCase)
+                    || (!string.IsNullOrEmpty(DevServerUrl) && uri.StartsWith(DevServerUrl, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return; // Allow app navigation
+                }
+
+                // External URL — cancel navigation and open in system browser
+                args.Cancel = true;
+                try
+                {
+                    Process.Start(new ProcessStartInfo(uri) { UseShellExecute = true });
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Failed to open external URI: {ex.Message}");
+                }
+            };
+
             var webRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "web");
             _controller.CoreWebView2.SetVirtualHostNameToFolderMapping(
                 "brmble.local", webRoot, CoreWebView2HostResourceAccessKind.Allow);

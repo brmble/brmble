@@ -1,7 +1,9 @@
-import { useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo, Fragment } from 'react';
 import type { MatrixClient } from 'matrix-js-sdk';
 import { MessageBubble } from './MessageBubble';
 import { MessageInput } from './MessageInput';
+import { groupMessages } from '../../utils/groupMessages';
+import { formatDateSeparator, formatFullDate } from '../../utils/formatDateSeparator';
 import type { ChatMessage } from '../../types';
 import './ChatPanel.css';
 
@@ -15,12 +17,67 @@ interface ChatPanelProps {
   matrixClient?: MatrixClient | null;
 }
 
+const SCROLL_THRESHOLD = 150;
+
 export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, isDM, matrixClient }: ChatPanelProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const [showScrollButton, setShowScrollButton] = useState(false);
+
+  const handleScroll = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    const shouldShow = distanceFromBottom > SCROLL_THRESHOLD;
+    setShowScrollButton(prev => prev !== shouldShow ? shouldShow : prev);
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, []);
+
+  const checkScrollButton = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) {
+      setShowScrollButton(false);
+      return;
+    }
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    setShowScrollButton(distanceFromBottom > SCROLL_THRESHOLD);
+  }, []);
+
+  // Re-evaluate scroll button when the messages container resizes
+  // (e.g. when the DM/channel slide becomes visible).
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const observer = new ResizeObserver(() => checkScrollButton());
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [checkScrollButton]);
+
+  // Re-evaluate scroll button visibility when switching channels or messages change.
+  // Uses requestAnimationFrame so the DOM has rendered the new messages
+  // before we measure scrollHeight.
+  useEffect(() => {
+    const rafId = requestAnimationFrame(checkScrollButton);
+    return () => cancelAnimationFrame(rafId);
+  }, [channelId, messages, checkScrollButton]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const container = messagesContainerRef.current;
+    if (!container) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      return;
+    }
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    // Only auto-scroll if user is within threshold of bottom
+    if (distanceFromBottom < SCROLL_THRESHOLD) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages]);
+
+  const grouped = useMemo(() => groupMessages(messages), [messages]);
 
   if (!channelId) {
     return (
@@ -72,30 +129,53 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
         )}
       </div>
 
-      <div className="chat-messages">
-        {messages.length === 0 ? (
+      <div className="chat-messages" ref={messagesContainerRef} onScroll={handleScroll}>
+        {grouped.length === 0 ? (
           <div className="chat-no-messages">
             <p>No messages yet. Start the conversation!</p>
           </div>
         ) : (
-          messages.map(message => (
-            <MessageBubble
-              key={message.id}
-              sender={message.sender}
-              content={message.content}
-              timestamp={message.timestamp}
-              isOwnMessage={!message.type && message.sender === currentUsername}
-              isSystem={message.type === 'system'}
-              html={message.html}
-              media={message.media}
-              matrixClient={matrixClient}
-            />
+          grouped.map((item) => (
+            <Fragment key={item.message.id}>
+              {item.showDateSeparator && (
+                <div className="chat-date-separator" title={formatFullDate(item.message.timestamp)}>
+                  <span className="chat-date-separator-label">
+                    {formatDateSeparator(item.message.timestamp)}
+                  </span>
+                </div>
+              )}
+              <MessageBubble
+                sender={item.message.sender}
+                content={item.message.content}
+                timestamp={item.message.timestamp}
+                isOwnMessage={!item.message.type && item.message.sender === currentUsername}
+                isSystem={item.message.type === 'system'}
+                collapsed={!item.isGroupStart}
+                html={item.message.html}
+                media={item.message.media}
+                matrixClient={matrixClient}
+              />
+            </Fragment>
           ))
         )}
         <div ref={messagesEndRef} />
       </div>
 
-      <MessageInput onSend={onSendMessage} placeholder={isDM ? `Message @${channelName}` : `Message #${channelName}`} />
+      <div className="chat-input-area">
+        {showScrollButton && (
+          <button
+            className="chat-scroll-bottom"
+            onClick={scrollToBottom}
+            title="Scroll to bottom"
+            aria-label="Scroll to latest messages"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+        )}
+        <MessageInput onSend={onSendMessage} placeholder={isDM ? `Message @${channelName}` : `Message #${channelName}`} />
+      </div>
     </div>
   );
 }
