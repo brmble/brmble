@@ -189,3 +189,27 @@
   outline: 2px solid var(--accent-primary);
   outline-offset: 2px;
 }
+
+/* Screen share split layout */
+.chat-split-video {
+  min-height: 100px;
+  overflow: hidden;
+  display: flex;
+}
+
+.chat-split-video .screen-share-viewer {
+  flex: 1;
+}
+
+.chat-split-divider {
+  flex: none;
+  height: 4px;
+  background: var(--border-subtle);
+  cursor: row-resize;
+  transition: background var(--transition-fast);
+}
+
+.chat-split-divider:hover,
+.chat-split-divider:active {
+  background: var(--accent-primary);
+}
