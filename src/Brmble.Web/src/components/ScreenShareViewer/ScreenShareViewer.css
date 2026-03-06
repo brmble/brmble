@@ -1,0 +1,58 @@
+.screen-share-viewer {
+  position: relative;
+  background: var(--bg-deep);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.screen-share-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+.screen-share-overlay {
+  position: absolute;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity var(--transition-normal);
+  pointer-events: none;
+}
+
+.screen-share-viewer.show-controls .screen-share-overlay {
+  opacity: 1;
+}
+
+.screen-share-overlay--name {
+  bottom: var(--space-sm);
+  left: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: #fff;
+}
+
+.screen-share-overlay--controls {
+  top: var(--space-sm);
+  right: var(--space-sm);
+  display: flex;
+  gap: var(--space-xs);
+  pointer-events: auto;
+}
+
+.screen-share-control-btn {
+  background: rgba(0, 0, 0, 0.6) !important;
+  color: #fff !important;
+  border-radius: var(--radius-sm) !important;
+  width: 32px;
+  height: 32px;
+}
+
+.screen-share-control-btn:hover {
+  background: rgba(0, 0, 0, 0.8) !important;
+}

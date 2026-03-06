@@ -50,6 +50,31 @@ public class LiveKitServiceTests
     }
 
     [TestMethod]
+    public async Task GenerateToken_GrantsIncludeSubscribe()
+    {
+        _mockUserRepo.Setup(r => r.GetByCertHash("cert123"))
+            .ReturnsAsync(new User(1, "cert123", "TestUser", "@test:example.com", "tok"));
+
+        var token = await _svc.GenerateToken("cert123", "room-1");
+        Assert.IsNotNull(token);
+
+        // Decode JWT payload (base64url)
+        var parts = token.Split('.');
+        var payload = parts[1];
+        payload = payload.Replace('-', '+').Replace('_', '/');
+        switch (payload.Length % 4)
+        {
+            case 2: payload += "=="; break;
+            case 3: payload += "="; break;
+        }
+        var json = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(payload));
+        var doc = System.Text.Json.JsonDocument.Parse(json);
+        var video = doc.RootElement.GetProperty("video");
+        Assert.IsTrue(video.GetProperty("canSubscribe").GetBoolean());
+        Assert.IsTrue(video.GetProperty("canPublish").GetBoolean());
+    }
+
+    [TestMethod]
     public async Task GenerateToken_UnknownUser_ReturnsNull()
     {
         _mockUserRepo.Setup(r => r.GetByCertHash("unknown"))

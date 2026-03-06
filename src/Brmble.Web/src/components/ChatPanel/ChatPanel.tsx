@@ -5,6 +5,7 @@ import { MessageInput } from './MessageInput';
 import { groupMessages } from '../../utils/groupMessages';
 import { formatDateSeparator, formatFullDate } from '../../utils/formatDateSeparator';
 import type { ChatMessage } from '../../types';
+import { ScreenShareViewer } from '../ScreenShareViewer/ScreenShareViewer';
 import './ChatPanel.css';
 
 interface ChatPanelProps {
@@ -15,14 +16,57 @@ interface ChatPanelProps {
   onSendMessage: (content: string) => void;
   isDM?: boolean;
   matrixClient?: MatrixClient | null;
+  screenShareVideoEl?: HTMLVideoElement | null;
+  screenSharerName?: string;
+  onCloseScreenShare?: () => void;
 }
 
 const SCROLL_THRESHOLD = 150;
+const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
+const DEFAULT_SPLIT = 50;
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, isDM, matrixClient }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, isDM, matrixClient, screenShareVideoEl, screenSharerName, onCloseScreenShare }: ChatPanelProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const [splitPercent, setSplitPercent] = useState(() => {
+    const stored = localStorage.getItem(SPLIT_STORAGE_KEY);
+    return stored ? Number(stored) : DEFAULT_SPLIT;
+  });
+  const isDraggingRef = useRef(false);
+
+  const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingRef.current = true;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const panel = panelRef.current;
+      if (!panel) return;
+      const rect = panel.getBoundingClientRect();
+      const headerEl = panel.querySelector('.chat-header') as HTMLElement;
+      const headerHeight = headerEl ? headerEl.offsetHeight : 0;
+      const availableHeight = rect.height - headerHeight;
+      const y = moveEvent.clientY - rect.top - headerHeight;
+      const pct = Math.min(80, Math.max(20, (y / availableHeight) * 100));
+      setSplitPercent(pct);
+    };
+
+    const onMouseUp = () => {
+      isDraggingRef.current = false;
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      setSplitPercent(prev => {
+        localStorage.setItem(SPLIT_STORAGE_KEY, String(prev));
+        return prev;
+      });
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, []);
+
+  const hasScreenShare = !!screenShareVideoEl && !!screenSharerName && !!onCloseScreenShare;
 
   const handleScroll = useCallback(() => {
     const container = messagesContainerRef.current;
@@ -102,7 +146,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
   const userCount = 1; // Placeholder
 
   return (
-    <div className="chat-panel">
+    <div className="chat-panel" ref={panelRef}>
       <div className="chat-header">
         <div className="chat-header-left">
           {isDM ? (
@@ -128,6 +172,39 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
           </div>
         )}
       </div>
+
+      {hasScreenShare && (
+        <>
+          <div className="chat-split-video" style={{ flex: `0 0 ${splitPercent}%` }}>
+            <ScreenShareViewer
+              videoEl={screenShareVideoEl}
+              sharerName={screenSharerName}
+              onClose={onCloseScreenShare}
+            />
+          </div>
+          <div
+            className="chat-split-divider"
+            role="separator"
+            aria-orientation="horizontal"
+            aria-valuenow={splitPercent}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            tabIndex={0}
+            onMouseDown={handleDividerMouseDown}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+                event.preventDefault();
+                const delta = event.key === 'ArrowUp' ? -5 : 5;
+                const next = Math.min(80, Math.max(20, splitPercent + delta));
+                if (next !== splitPercent) {
+                  setSplitPercent(next);
+                  localStorage.setItem(SPLIT_STORAGE_KEY, String(next));
+                }
+              }
+            }}
+          />
+        </>
+      )}
 
       <div className="chat-messages" ref={messagesContainerRef} onScroll={handleScroll}>
         {grouped.length === 0 ? (
