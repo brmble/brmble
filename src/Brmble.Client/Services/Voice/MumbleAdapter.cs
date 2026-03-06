@@ -74,6 +74,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _bridge?.Send("voice.toggleDmScreen", null);
             _bridge?.NotifyUiThread();
         };
+        _audioManager.ToggleScreenShareRequested += () => {
+            _bridge?.Send("voice.toggleScreenShare", null);
+            _bridge?.NotifyUiThread();
+        };
         _audioManager.ShortcutPressed += action => {
             _bridge?.Send("voice.shortcutPressed", new { action });
             _bridge?.NotifyUiThread();
@@ -135,6 +139,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _audioManager.ToggleLeaveVoiceRequested += LeaveVoice;
             _audioManager.ToggleDmScreenRequested += () => {
                 _bridge?.Send("voice.toggleDmScreen", null);
+                _bridge?.NotifyUiThread();
+            };
+            _audioManager.ToggleScreenShareRequested += () => {
+                _bridge?.Send("voice.toggleScreenShare", null);
                 _bridge?.NotifyUiThread();
             };
             _audioManager.ShortcutPressed += action => {
@@ -577,6 +585,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.SetShortcut("toggleMuteDeafen", settings.Shortcuts.ToggleMuteDeafenKey);
         _audioManager?.SetShortcut("toggleLeaveVoice", settings.Shortcuts.ToggleLeaveVoiceKey);
         _audioManager?.SetShortcut("toggleDmScreen", settings.Shortcuts.ToggleDMScreenKey);
+        _audioManager?.SetShortcut("toggleScreenShare", settings.Shortcuts.ToggleScreenShareKey);
         _audioManager?.SetInputVolume(settings.Audio.InputVolume);
         _audioManager?.SetOutputVolume(settings.Audio.OutputVolume);
         _audioManager?.SetMaxAmplification(settings.Audio.MaxAmplification);
