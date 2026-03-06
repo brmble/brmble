@@ -66,11 +66,23 @@ export LiveKit__ApiSecret="$LIVEKIT_API_SECRET"
 
 # Configure LiveKit ICE: use explicit node_ip for local dev, auto-detect for remote
 if [ -n "${LIVEKIT_NODE_IP:-}" ]; then
-    RTC_IP_CONFIG="use_external_ip: false\n  node_ip: ${LIVEKIT_NODE_IP}"
+    awk -v node_ip="${LIVEKIT_NODE_IP}" '
+        /__LIVEKIT_RTC_IP__/ {
+            print "  use_external_ip: false"
+            print "  node_ip: " node_ip
+            next
+        }
+        { print }
+    ' /etc/livekit/livekit.yaml > /etc/livekit/livekit.yaml.tmp && mv /etc/livekit/livekit.yaml.tmp /etc/livekit/livekit.yaml
 else
-    RTC_IP_CONFIG="use_external_ip: true"
+    awk '
+        /__LIVEKIT_RTC_IP__/ {
+            print "  use_external_ip: true"
+            next
+        }
+        { print }
+    ' /etc/livekit/livekit.yaml > /etc/livekit/livekit.yaml.tmp && mv /etc/livekit/livekit.yaml.tmp /etc/livekit/livekit.yaml
 fi
-sed -i "s|__LIVEKIT_RTC_IP__|${RTC_IP_CONFIG}|" /etc/livekit/livekit.yaml
 
 # Admin credentials for appservice registration (first-run only)
 if [ ! -f /data/admin-password ]; then

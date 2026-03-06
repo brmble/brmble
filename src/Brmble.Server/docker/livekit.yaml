@@ -1,6 +1,6 @@
 # LiveKit server config — templated by entrypoint.sh
 # API keys are injected via LIVEKIT_KEYS env var: "api-key: secret"
-# node_ip is replaced by entrypoint.sh (default: 127.0.0.1, override via LIVEKIT_NODE_IP)
+# node_ip is set from LIVEKIT_NODE_IP when provided; otherwise use_external_ip/STUN-based detection is used
 port: 7880
 bind_addresses:
   - "0.0.0.0"
