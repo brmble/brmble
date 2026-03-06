@@ -141,7 +141,7 @@ export function Sidebar({
                 key={user.session}
                 className={`root-user-row${user.self ? ' root-user-self' : ''}`}
                 style={{ animationDelay: `${i * 50}ms` }}
-                title={user.deafened ? 'Deafened' : user.muted ? 'Muted' : 'Online'}
+                title={getRootUserTooltip(user)}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   setContextMenu({ x: e.clientX, y: e.clientY, userId: String(user.session), userName: user.name, isSelf: !!user.self });
@@ -293,4 +293,12 @@ export function Sidebar({
       })()}
     </aside>
   );
+}
+
+function getRootUserTooltip(user: User): string {
+  const statuses: string[] = [];
+  if (user.muted) statuses.push('Muted');
+  if (user.deafened) statuses.push('Deafened');
+  const statusLine = statuses.length > 0 ? statuses.join(', ') : 'Online';
+  return user.comment ? `${statusLine}\n${user.comment}` : statusLine;
 }

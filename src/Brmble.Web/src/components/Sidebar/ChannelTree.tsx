@@ -350,5 +350,6 @@ function getUserTooltip(user: User): string {
   const statuses: string[] = [];
   if (user.muted) statuses.push('Muted');
   if (user.deafened) statuses.push('Deafened');
-  return statuses.length > 0 ? statuses.join(', ') : 'Online';
+  const statusLine = statuses.length > 0 ? statuses.join(', ') : 'Online';
+  return user.comment ? `${statusLine}\n${user.comment}` : statusLine;
 }
