@@ -5,6 +5,7 @@ import { useMatrixClient } from './hooks/useMatrixClient';
 import type { MatrixCredentials } from './hooks/useMatrixClient';
 import { useScreenShare } from './hooks/useScreenShare';
 
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { Header } from './components/Header/Header';
 import { Sidebar } from './components/Sidebar/Sidebar';
 import { ChatPanel } from './components/ChatPanel/ChatPanel';
@@ -1009,6 +1010,7 @@ const handleConnect = (serverData: SavedServer) => {
 
   return (
     <div className="app">
+      <ErrorBoundary label="Header">
       <Header
         username={username}
         onToggleDM={toggleDMMode}
@@ -1028,8 +1030,10 @@ const handleConnect = (serverData: SavedServer) => {
         pendingChannelAction={pendingChannelAction}
         hotkeyPressedBtn={hotkeyPressedBtn}
       />
+      </ErrorBoundary>
       
       <div className="app-body">
+        <ErrorBoundary label="Sidebar">
         <Sidebar
           channels={channels}
           users={users}
@@ -1049,10 +1053,12 @@ const handleConnect = (serverData: SavedServer) => {
           onCancelReconnect={handleCancelReconnect}
           pendingChannelAction={pendingChannelAction}
         />
+        </ErrorBoundary>
         
         <main className="main-content">
           <div className={`content-slider ${appMode === 'dm' ? 'dm-active' : ''}`}>
             <div className="content-slide">
+              <ErrorBoundary label="ChatPanel:Channel">
               <ChatPanel
                 channelId={currentChannelId || undefined}
                 channelName={currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName}
@@ -1061,8 +1067,10 @@ const handleConnect = (serverData: SavedServer) => {
                 onSendMessage={handleSendMessage}
                 matrixClient={matrixClient.client}
               />
+              </ErrorBoundary>
             </div>
             <div className="content-slide">
+              <ErrorBoundary label="ChatPanel:DM">
               <ChatPanel
                 channelId={selectedDMUserId ? `dm-${selectedDMUserId}` : undefined}
                 channelName={selectedDMUserName}
@@ -1072,6 +1080,7 @@ const handleConnect = (serverData: SavedServer) => {
                 isDM={true}
                 matrixClient={matrixClient.client}
               />
+              </ErrorBoundary>
             </div>
           </div>
         </main>

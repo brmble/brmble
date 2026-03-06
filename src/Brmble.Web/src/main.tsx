@@ -11,6 +11,7 @@ import './themes/midori-sour.css'
 import './themes/lemon-drop.css'
 import './themes/retro-terminal.css'
 import { applyTheme } from './themes/theme-loader'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import App from './App.tsx'
 
 // Apply theme before render to prevent flash
@@ -26,6 +27,8 @@ try {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary label="App">
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 )
