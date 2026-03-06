@@ -7,7 +7,7 @@
 }
 
 .message-bubble:hover {
-  background: var(--bg-hover);
+  background: var(--bg-hover-light);
 }
 
 .message-avatar {
@@ -73,17 +73,11 @@
 
 /* System message variant */
 .message-bubble--system {
-  justify-content: center;
   padding: var(--space-2xs) var(--space-md);
 }
 
 .message-bubble--system .message-content {
-  flex: none;
-  text-align: center;
-}
-
-.message-bubble--system .message-header {
-  justify-content: center;
+  flex: 1;
 }
 
 .message-bubble--system .message-avatar {

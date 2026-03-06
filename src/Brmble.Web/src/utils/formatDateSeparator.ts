@@ -55,5 +55,10 @@ export function formatDateSeparator(date: Date): string {
     return WEEKDAYS[date.getDay()];
   }
 
-  return `${MONTHS[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+  return formatFullDate(date);
+}
+
+/** Always returns the full date string, e.g. "Wednesday, March 4, 2026". */
+export function formatFullDate(date: Date): string {
+  return `${WEEKDAYS[date.getDay()]}, ${MONTHS[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
 }

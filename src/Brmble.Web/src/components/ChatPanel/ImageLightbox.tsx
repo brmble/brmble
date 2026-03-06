@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import './ImageLightbox.css';
 
 interface ImageLightboxProps {
@@ -26,7 +27,7 @@ export function ImageLightbox({ url, onClose }: ImageLightboxProps) {
     };
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div
       className="image-lightbox"
       role="dialog"
@@ -49,6 +50,7 @@ export function ImageLightbox({ url, onClose }: ImageLightboxProps) {
         className="image-lightbox__img"
         onClick={(e) => e.stopPropagation()}
       />
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -83,10 +83,12 @@ export function addMessageToStore(storeKey: string, sender: string, content: str
   localStorage.setItem(fullKey, JSON.stringify(messages));
 }
 
-/** Clear all chat messages and DM contacts from localStorage. */
+/** Clear all chat messages and DM contacts from localStorage.
+ *  Preserves server-root messages since those are current-session system messages. */
 export function clearChatStorage() {
+  const serverRootKey = `${STORAGE_KEY_PREFIX}server-root`;
   Object.keys(localStorage)
-    .filter(k => k.startsWith(STORAGE_KEY_PREFIX) || k === DM_CONTACTS_KEY)
+    .filter(k => (k.startsWith(STORAGE_KEY_PREFIX) && k !== serverRootKey) || k === DM_CONTACTS_KEY)
     .forEach(k => localStorage.removeItem(k));
 }
 

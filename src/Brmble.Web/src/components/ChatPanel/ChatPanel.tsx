@@ -3,7 +3,7 @@ import type { MatrixClient } from 'matrix-js-sdk';
 import { MessageBubble } from './MessageBubble';
 import { MessageInput } from './MessageInput';
 import { groupMessages } from '../../utils/groupMessages';
-import { formatDateSeparator } from '../../utils/formatDateSeparator';
+import { formatDateSeparator, formatFullDate } from '../../utils/formatDateSeparator';
 import type { ChatMessage } from '../../types';
 import './ChatPanel.css';
 
@@ -49,6 +49,8 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
     }
   }, [messages]);
 
+  const grouped = useMemo(() => groupMessages(messages), [messages]);
+
   if (!channelId) {
     return (
       <div className="chat-panel chat-panel--empty">
@@ -70,7 +72,6 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
   }
 
   const userCount = 1; // Placeholder
-  const grouped = useMemo(() => groupMessages(messages), [messages]);
 
   return (
     <div className="chat-panel">
@@ -109,7 +110,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
           grouped.map((item) => (
             <Fragment key={item.message.id}>
               {item.showDateSeparator && (
-                <div className="chat-date-separator">
+                <div className="chat-date-separator" title={formatFullDate(item.message.timestamp)}>
                   <span className="chat-date-separator-label">
                     {formatDateSeparator(item.message.timestamp)}
                   </span>

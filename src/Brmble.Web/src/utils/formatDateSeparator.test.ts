@@ -29,6 +29,6 @@ describe('formatDateSeparator', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-03-06T15:00:00'));
     const result = formatDateSeparator(new Date('2026-02-20T10:00:00'));
-    expect(result).toBe('February 20, 2026');
+    expect(result).toBe('Friday, February 20, 2026');
   });
 });
