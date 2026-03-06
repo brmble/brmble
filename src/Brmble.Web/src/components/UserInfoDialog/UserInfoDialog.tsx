@@ -43,11 +43,14 @@ export function UserInfoDialog({
   }, [isOpen, session]);
 
   useEffect(() => {
-    if (isOpen) {
-      setCommentDraft(comment || '');
-      setEditingComment(false);
-    }
-  }, [isOpen, comment]);
+    if (!isOpen) return;
+
+    // Do not clobber the user's in-progress edits if the comment prop changes
+    if (editingComment) return;
+
+    setCommentDraft(comment || '');
+    setEditingComment(false);
+  }, [isOpen, comment, editingComment]);
 
   useEffect(() => {
     if (!isOpen) return;

@@ -1409,16 +1409,16 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         bridge.RegisterHandler("voice.setComment", data =>
         {
+            if (Connection is not { State: ConnectionStates.Connected } || LocalUser is null)
+                return Task.CompletedTask;
+
             var comment = data.TryGetProperty("comment", out var c) ? c.GetString() ?? "" : "";
-            if (LocalUser != null)
+            LocalUser.Comment = comment;
+            Connection.SendControl(PacketType.UserState, new UserState
             {
-                LocalUser.Comment = comment;
-                Connection.SendControl(PacketType.UserState, new UserState
-                {
-                    Session = LocalUser.Id,
-                    Comment = comment
-                });
-            }
+                Session = LocalUser.Id,
+                Comment = comment
+            });
             return Task.CompletedTask;
         });
 

@@ -960,12 +960,23 @@ const handleConnect = (serverData: SavedServer) => {
 
   const unreadDMUserCount = dmContacts.filter(c => c.unread > 0).length;
 
-  const dmContactsWithComments = useMemo(() =>
-    dmContacts.map(c => {
-      const user = users.find(u => String(u.session) === c.userId);
-      return user?.comment ? { ...c, comment: user.comment } : c;
-    }),
-    [dmContacts, users]
+  const userCommentsBySession = useMemo(
+    () =>
+      new Map(
+        users
+          .filter(u => u.comment)
+          .map(u => [String(u.session), u.comment as string]),
+      ),
+    [users],
+  );
+
+  const dmContactsWithComments = useMemo(
+    () =>
+      dmContacts.map(c => {
+        const comment = userCommentsBySession.get(c.userId);
+        return comment ? { ...c, comment } : c;
+      }),
+    [dmContacts, userCommentsBySession],
   );
 
   const handleSelectDMUser = (userId: string, userName: string) => {
