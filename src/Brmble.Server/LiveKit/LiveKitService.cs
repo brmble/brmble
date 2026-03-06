@@ -40,7 +40,7 @@ public class LiveKitService
                 RoomJoin = true,
                 Room = roomName,
                 CanPublish = true,
-                CanSubscribe = false
+                CanSubscribe = true
             })
             .WithTtl(DefaultTokenTtl);
 
