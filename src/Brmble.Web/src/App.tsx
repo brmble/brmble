@@ -1099,6 +1099,21 @@ const handleConnect = (serverData: SavedServer) => {
     return unreadTracker.getFullyReadEventId(roomId);
   }, [currentChannelId, matrixCredentials?.roomMap, unreadTracker]);
 
+  const channelUnreads = useMemo(() => {
+    if (!matrixCredentials?.roomMap) return new Map<string, { notificationCount: number; highlightCount: number }>();
+    const map = new Map<string, { notificationCount: number; highlightCount: number }>();
+    for (const [channelId, roomId] of Object.entries(matrixCredentials.roomMap)) {
+      const unread = unreadTracker.getRoomUnread(roomId);
+      if (unread.notificationCount > 0) {
+        map.set(channelId, {
+          notificationCount: unread.notificationCount,
+          highlightCount: unread.highlightCount,
+        });
+      }
+    }
+    return map;
+  }, [matrixCredentials?.roomMap, unreadTracker.roomUnreads]);
+
   const dmFullyReadEventId = useMemo(() => {
     if (!selectedDMUserId) return null;
     const user = users.find(u => String(u.session) === selectedDMUserId);
@@ -1160,6 +1175,7 @@ const handleConnect = (serverData: SavedServer) => {
           connectionStatus={connectionStatus}
           onCancelReconnect={handleCancelReconnect}
           pendingChannelAction={pendingChannelAction}
+          channelUnreads={channelUnreads}
         />
         </ErrorBoundary>
         

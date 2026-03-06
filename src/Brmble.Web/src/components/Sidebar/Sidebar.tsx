@@ -25,6 +25,7 @@ interface SidebarProps {
   onStartDM?: (userId: string, userName: string) => void;
   speakingUsers?: Map<number, boolean>;
   pendingChannelAction?: number | 'leave' | null;
+  channelUnreads?: Map<string, { notificationCount: number; highlightCount: number }>;
 }
 
 export function Sidebar({
@@ -44,7 +45,8 @@ export function Sidebar({
   onReconnect,
   onStartDM,
   speakingUsers,
-  pendingChannelAction
+  pendingChannelAction,
+  channelUnreads
 }: SidebarProps) {
   const connected = connectionStatus === 'connected';
   const isConnecting = connectionStatus === 'connecting';
@@ -189,6 +191,7 @@ export function Sidebar({
           onStartDM={onStartDM}
           speakingUsers={speakingUsers}
           pendingChannelAction={pendingChannelAction}
+          channelUnreads={channelUnreads}
         />
       </div>
       {contextMenu && (

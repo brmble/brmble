@@ -37,9 +37,10 @@ interface ChannelTreeProps {
   onStartDM?: (userId: string, userName: string) => void;
   speakingUsers?: Map<number, boolean>;
   pendingChannelAction?: number | 'leave' | null;
+  channelUnreads?: Map<string, { notificationCount: number; highlightCount: number }>;
 }
 
-export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, speakingUsers, pendingChannelAction }: ChannelTreeProps) {
+export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, speakingUsers, pendingChannelAction, channelUnreads }: ChannelTreeProps) {
   const [sortByNamePerChannel, setSortByNamePerChannel] = useState<Record<number, boolean>>({});
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string; isSelf: boolean; channelId?: number } | null>(null);
   const [infoDialogUser, setInfoDialogUser] = useState<{ userId: string; userName: string; isSelf: boolean } | null>(null);
@@ -152,11 +153,12 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     const hasChildren = channel.children.length > 0 || channel.users.length > 0;
     const isExpanded = expandedChannels.has(channel.id);
     const isCurrentChannel = currentChannelId === channel.id;
+    const hasUnread = (channelUnreads?.get(String(channel.id))?.notificationCount ?? 0) > 0;
 
     return (
       <div key={channel.id} className={`channel-item${pendingChannelAction !== null ? ' channel-item--pending' : ''}`} data-level={level}>
         <div 
-          className={`channel-row ${isCurrentChannel ? 'current' : ''}`}
+          className={`channel-row ${isCurrentChannel ? 'current' : ''}${hasUnread ? ' channel-row--unread' : ''}`}
           onClick={() => handleChannelClick(channel.id)}
           onDoubleClick={pendingChannelAction === null ? () => onJoinChannel(channel.id) : undefined}
         >
@@ -174,6 +176,17 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
             </svg>
           </span>
           <span className="channel-name">{channel.name}</span>
+          {(() => {
+            const unread = channelUnreads?.get(String(channel.id));
+            if (unread && unread.notificationCount > 0) {
+              return (
+                <span className={`channel-unread-badge${unread.highlightCount > 0 ? ' channel-unread-badge--mention' : ''}`}>
+                  {unread.notificationCount}
+                </span>
+              );
+            }
+            return null;
+          })()}
           {channel.users.length > 0 && (
             <>
               <button
