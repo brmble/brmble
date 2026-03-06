@@ -24,6 +24,8 @@ export function UserInfoDialog({
   const dialogRef = useRef<HTMLDivElement>(null);
   const [volume, setVolume] = useState(100);
   const [localMuted, setLocalMuted] = useState(false);
+  const [editingComment, setEditingComment] = useState(false);
+  const [commentDraft, setCommentDraft] = useState(comment || '');
 
   useEffect(() => {
     if (!isOpen) return;
@@ -39,6 +41,13 @@ export function UserInfoDialog({
     setLocalMuted(savedMuted);
     bridge.send('voice.setLocalMute', { session, muted: savedMuted });
   }, [isOpen, session]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setCommentDraft(comment || '');
+      setEditingComment(false);
+    }
+  }, [isOpen, comment]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -106,6 +115,11 @@ export function UserInfoDialog({
     setLocalMuted(newMuted);
     localStorage.setItem(`localMute_${session}`, String(newMuted));
     bridge.send('voice.setLocalMute', { session, muted: newMuted });
+  };
+
+  const saveComment = () => {
+    bridge.send('voice.setComment', { comment: commentDraft });
+    setEditingComment(false);
   };
 
   if (!isOpen) return null;
@@ -182,9 +196,35 @@ export function UserInfoDialog({
 
         <div className="user-info-comment-section">
           <span className="user-info-label">Comment</span>
-          <div className="user-info-comment-box">
-            {comment || 'No comment set'}
-          </div>
+          {isSelf && editingComment ? (
+            <div className="user-info-comment-edit">
+              <textarea
+                className="user-info-comment-textarea"
+                value={commentDraft}
+                onChange={(e) => setCommentDraft(e.target.value)}
+                rows={3}
+                autoFocus
+              />
+              <div className="user-info-comment-edit-actions">
+                <button className="btn btn-secondary user-info-comment-cancel" onClick={() => setEditingComment(false)}>
+                  Cancel
+                </button>
+                <button className="btn btn-primary user-info-comment-save" onClick={saveComment}>
+                  Save
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div
+              className={`user-info-comment-box ${isSelf ? 'editable' : ''}`}
+              onClick={() => isSelf && setEditingComment(true)}
+            >
+              {comment || 'No comment set'}
+              {isSelf && (
+                <span className="user-info-comment-edit-hint">Click to edit</span>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="user-info-actions">
