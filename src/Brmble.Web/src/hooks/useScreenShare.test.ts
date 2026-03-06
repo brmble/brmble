@@ -81,6 +81,41 @@ describe('useScreenShare', () => {
     expect(result.current.error).toBeTruthy();
   });
 
+  it('invokes onDisconnected callback on RoomEvent.Disconnected', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+    });
+
+    // Capture the Disconnected event handler registered on the Room
+    let disconnectedHandler: (() => void) | null = null;
+    mockRoom.on.mockImplementation((event: string, handler: () => void) => {
+      if (event === 'disconnected') disconnectedHandler = handler;
+      return mockRoom;
+    });
+
+    const onDisconnected = vi.fn();
+    const { result } = renderHook(() => useScreenShare(onDisconnected));
+
+    // Start sharing to create a room with the event handler
+    await act(async () => {
+      const promise = result.current.startSharing('room-1');
+      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      await promise;
+    });
+
+    expect(result.current.isSharing).toBe(true);
+    expect(disconnectedHandler).not.toBeNull();
+
+    // Simulate LiveKit disconnect event
+    await act(async () => {
+      disconnectedHandler?.();
+    });
+
+    expect(result.current.isSharing).toBe(false);
+    expect(onDisconnected).toHaveBeenCalledTimes(1);
+  });
+
   it('disconnects on stopSharing', async () => {
     let tokenHandler: ((data: unknown) => void) | null = null;
     (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
