@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import bridge from './bridge';
 import type { ConnectionStatus } from './types';
 import { useMatrixClient } from './hooks/useMatrixClient';
@@ -20,7 +20,7 @@ import { useChatStore, addMessageToStore, clearChatStorage, loadDMContacts, upse
 import { parseMessageMedia } from './utils/parseMessageMedia';
 import type { StoredDMContact } from './hooks/useChatStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
-import { usePrompt } from './hooks/usePrompt';
+import { usePrompt, confirm } from './hooks/usePrompt';
 import './App.css';
 
 const SETTINGS_STORAGE_KEY = 'brmble-settings';
@@ -102,6 +102,7 @@ interface User {
   muted?: boolean;
   deafened?: boolean;
   self?: boolean;
+  comment?: string;
   matrixUserId?: string;
 }
 
@@ -188,6 +189,7 @@ function App() {
   addDMMessageRef.current = addDMMessage;
   const matrixCredentialsRef = useRef(matrixCredentials);
   matrixCredentialsRef.current = matrixCredentials;
+  const handleToggleScreenShareRef = useRef<(() => void) | null>(null);
 
   const clearPendingAction = useCallback(() => {
     if (pendingChannelActionTimeoutRef.current) {
@@ -348,6 +350,7 @@ function App() {
       setSelfSession(0);
       setSpeakingUsers(new Map());
       setMatrixCredentials(null);
+      setSharingChannelId(undefined);
     };
 
     const onServerCredentials = (data: unknown) => {
@@ -434,7 +437,7 @@ function App() {
     });
 
     const onVoiceUserJoined = ((data: unknown) => {
-      const d = data as { session: number; name: string; channelId?: number; muted?: boolean; deafened?: boolean; self?: boolean; matrixUserId?: string } | undefined;
+      const d = data as { session: number; name: string; channelId?: number; muted?: boolean; deafened?: boolean; self?: boolean; comment?: string; matrixUserId?: string } | undefined;
       if (d?.session && d.channelId !== undefined) {
         const previousChannelId = previousChannelIdRef.current.get(d.session);
         
@@ -570,12 +573,22 @@ function App() {
       }
     });
 
+    const onVoiceUserCommentChanged = ((data: unknown) => {
+      const d = data as { session: number; comment?: string } | undefined;
+      if (d?.session !== undefined) {
+        setUsers(prev => prev.map(u =>
+          u.session === d.session ? { ...u, comment: d.comment } : u
+        ));
+      }
+    });
+
     // Map shortcut action names to UserPanel button names
     const ACTION_TO_BTN: Record<string, string> = {
       toggleMute: 'mute',
       toggleMuteDeafen: 'deaf',
       toggleLeaveVoice: 'leave',
       toggleDmScreen: 'dm',
+      toggleScreenShare: 'screen',
     };
 
     const onShortcutPressed = (data: unknown) => {
@@ -596,6 +609,10 @@ function App() {
 
     const onToggleDmScreen = () => {
       setAppModeRef.current(prev => prev === 'channels' ? 'dm' : 'channels');
+    };
+
+    const onToggleScreenShare = () => {
+      handleToggleScreenShareRef.current?.();
     };
 
     const onShowCloseDialog = () => {
@@ -699,9 +716,11 @@ function App() {
     bridge.on('voice.canRejoinChanged', onCanRejoinChanged);
     bridge.on('voice.userSpeaking', onVoiceUserSpeaking);
     bridge.on('voice.userSilent', onVoiceUserSilent);
+    bridge.on('voice.userCommentChanged', onVoiceUserCommentChanged);
     bridge.on('voice.shortcutPressed', onShortcutPressed);
     bridge.on('voice.shortcutReleased', onShortcutReleased);
     bridge.on('voice.toggleDmScreen', onToggleDmScreen);
+    bridge.on('voice.toggleScreenShare', onToggleScreenShare);
     bridge.on('window.showCloseDialog', onShowCloseDialog);
     bridge.on('cert.status', onCertStatus);
     bridge.on('cert.generated', onCertGenerated);
@@ -730,9 +749,11 @@ function App() {
       bridge.off('voice.canRejoinChanged', onCanRejoinChanged);
       bridge.off('voice.userSpeaking', onVoiceUserSpeaking);
       bridge.off('voice.userSilent', onVoiceUserSilent);
+      bridge.off('voice.userCommentChanged', onVoiceUserCommentChanged);
       bridge.off('voice.shortcutPressed', onShortcutPressed);
       bridge.off('voice.shortcutReleased', onShortcutReleased);
       bridge.off('voice.toggleDmScreen', onToggleDmScreen);
+      bridge.off('voice.toggleScreenShare', onToggleScreenShare);
       bridge.off('window.showCloseDialog', onShowCloseDialog);
       bridge.off('cert.status', onCertStatus);
       bridge.off('cert.generated', onCertGenerated);
@@ -818,7 +839,21 @@ const handleConnect = (serverData: SavedServer) => {
     });
   };
 
-  const handleJoinChannel = (channelId: number) => {
+  const handleJoinChannel = async (channelId: number) => {
+    if (isSharing && sharingChannelId && String(channelId) !== sharingChannelId) {
+      const sharingChannel = channels.find(c => String(c.id) === sharingChannelId);
+      const sharingChannelName = sharingChannel?.name || `channel ${sharingChannelId}`;
+      const shouldStop = await confirm({
+        title: 'Screen share active',
+        message: `You are sharing your screen to "${sharingChannelName}". Stop sharing?`,
+        confirmLabel: 'Stop Sharing',
+        cancelLabel: 'Keep Sharing',
+      });
+      if (shouldStop) {
+        await stopSharing();
+        setSharingChannelId(undefined);
+      }
+    }
     startPendingAction(channelId);
     bridge.send('voice.joinChannel', { channelId });
   };
@@ -921,7 +956,19 @@ const handleConnect = (serverData: SavedServer) => {
     bridge.send('voice.toggleDeaf', {});
   };
 
-  const handleLeaveVoice = () => {
+  const handleLeaveVoice = async () => {
+    if (isSharing) {
+      const shouldStop = await confirm({
+        title: 'Screen share active',
+        message: 'You are currently sharing your screen. Stop sharing?',
+        confirmLabel: 'Stop Sharing',
+        cancelLabel: 'Keep Sharing',
+      });
+      if (shouldStop) {
+        await stopSharing();
+        setSharingChannelId(undefined);
+      }
+    }
     startPendingAction('leave');
     bridge.send('voice.leaveVoice', {});
   };
@@ -947,6 +994,25 @@ const handleConnect = (serverData: SavedServer) => {
   };
 
   const unreadDMUserCount = dmContacts.filter(c => c.unread > 0).length;
+
+  const userCommentsBySession = useMemo(
+    () =>
+      new Map(
+        users
+          .filter(u => u.comment)
+          .map(u => [String(u.session), u.comment as string]),
+      ),
+    [users],
+  );
+
+  const dmContactsWithComments = useMemo(
+    () =>
+      dmContacts.map(c => {
+        const comment = userCommentsBySession.get(c.userId);
+        return comment ? { ...c, comment } : c;
+      }),
+    [dmContacts, userCommentsBySession],
+  );
 
   const handleSelectDMUser = (userId: string, userName: string) => {
     setSelectedDMUserId(userId);
@@ -998,7 +1064,10 @@ const handleConnect = (serverData: SavedServer) => {
 
   const { Prompt } = usePrompt();
 
-  const { isSharing, startSharing, stopSharing, error: screenShareError, activeShare, remoteVideoEl, disconnectViewer } = useScreenShare();
+  const { isSharing, startSharing, stopSharing, error: screenShareError, activeShare, remoteVideoEl, disconnectViewer } = useScreenShare(() => {
+    setSharingChannelId(undefined);
+  });
+  const [sharingChannelId, setSharingChannelId] = useState<string | undefined>();
 
   useEffect(() => {
     if (screenShareError) console.error('Screen share error:', screenShareError);
@@ -1011,13 +1080,24 @@ const handleConnect = (serverData: SavedServer) => {
     }
   }, [currentChannelId]);
 
-  const handleToggleScreenShare = useCallback(() => {
+  const handleToggleScreenShare = useCallback(async () => {
     if (isSharing) {
-      stopSharing();
-    } else if (currentChannelId != null) {
-      startSharing(`channel-${currentChannelId}`);
+      await stopSharing();
+      setSharingChannelId(undefined);
+    } else if (!selfLeftVoice) {
+      const selfUser = usersRef.current.find(u => u.self);
+      const voiceChannelId = selfUser?.channelId;
+      if (voiceChannelId != null && voiceChannelId !== 0) {
+        try {
+          await startSharing(`channel-${voiceChannelId}`);
+          setSharingChannelId(String(voiceChannelId));
+        } catch {
+          // startSharing sets error state internally
+        }
+      }
     }
-  }, [isSharing, currentChannelId, startSharing, stopSharing]);
+  }, [isSharing, startSharing, stopSharing, selfLeftVoice]);
+  handleToggleScreenShareRef.current = handleToggleScreenShare;
 
   return (
     <div className="app">
@@ -1037,7 +1117,8 @@ const handleConnect = (serverData: SavedServer) => {
         onLeaveVoice={connected ? handleLeaveVoice : undefined}
         screenSharing={isSharing}
         screenShareError={screenShareError}
-        onToggleScreenShare={connected && !selfLeftVoice ? handleToggleScreenShare : undefined}
+        onToggleScreenShare={connected ? handleToggleScreenShare : undefined}
+        canScreenShare={connected && !selfLeftVoice && (users.find(u => u.self)?.channelId ?? 0) !== 0}
         speaking={speakingUsers.has(selfSession) || false}
         pendingChannelAction={pendingChannelAction}
         hotkeyPressedBtn={hotkeyPressedBtn}
@@ -1064,7 +1145,8 @@ const handleConnect = (serverData: SavedServer) => {
           connectionStatus={connectionStatus}
           onCancelReconnect={handleCancelReconnect}
           pendingChannelAction={pendingChannelAction}
-          screenSharerName={activeShare?.userName}
+          sharingChannelId={sharingChannelId ? Number(sharingChannelId) : undefined}
+          sharingUserSession={isSharing ? selfSession : undefined}
         />
         </ErrorBoundary>
         
@@ -1102,7 +1184,7 @@ const handleConnect = (serverData: SavedServer) => {
         </main>
 
         <DMContactList
-          contacts={dmContacts}
+          contacts={dmContactsWithComments}
           selectedUserId={selectedDMUserId}
           onSelectContact={handleSelectDMUser}
           onCloseConversation={handleCloseDMConversation}

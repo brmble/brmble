@@ -74,6 +74,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _bridge?.Send("voice.toggleDmScreen", null);
             _bridge?.NotifyUiThread();
         };
+        _audioManager.ToggleScreenShareRequested += () => {
+            _bridge?.Send("voice.toggleScreenShare", null);
+            _bridge?.NotifyUiThread();
+        };
         _audioManager.ShortcutPressed += action => {
             _bridge?.Send("voice.shortcutPressed", new { action });
             _bridge?.NotifyUiThread();
@@ -135,6 +139,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _audioManager.ToggleLeaveVoiceRequested += LeaveVoice;
             _audioManager.ToggleDmScreenRequested += () => {
                 _bridge?.Send("voice.toggleDmScreen", null);
+                _bridge?.NotifyUiThread();
+            };
+            _audioManager.ToggleScreenShareRequested += () => {
+                _bridge?.Send("voice.toggleScreenShare", null);
                 _bridge?.NotifyUiThread();
             };
             _audioManager.ShortcutPressed += action => {
@@ -577,6 +585,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.SetShortcut("toggleMuteDeafen", settings.Shortcuts.ToggleMuteDeafenKey);
         _audioManager?.SetShortcut("toggleLeaveVoice", settings.Shortcuts.ToggleLeaveVoiceKey);
         _audioManager?.SetShortcut("toggleDmScreen", settings.Shortcuts.ToggleDMScreenKey);
+        _audioManager?.SetShortcut("toggleScreenShare", settings.Shortcuts.ToggleScreenShareKey);
         _audioManager?.SetInputVolume(settings.Audio.InputVolume);
         _audioManager?.SetOutputVolume(settings.Audio.OutputVolume);
         _audioManager?.SetMaxAmplification(settings.Audio.MaxAmplification);
@@ -1500,6 +1509,21 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             return Task.CompletedTask;
         });
 
+        bridge.RegisterHandler("voice.setComment", data =>
+        {
+            if (Connection is not { State: ConnectionStates.Connected } || LocalUser is null)
+                return Task.CompletedTask;
+
+            var comment = data.TryGetProperty("comment", out var c) ? c.GetString() ?? "" : "";
+            LocalUser.Comment = comment;
+            Connection.SendControl(PacketType.UserState, new UserState
+            {
+                Session = LocalUser.Id,
+                Comment = comment
+            });
+            return Task.CompletedTask;
+        });
+
         bridge.RegisterHandler("livekit.requestToken", async data =>
         {
             var roomName = data.TryGetProperty("roomName", out var rn) ? rn.GetString() : null;
@@ -1661,6 +1685,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             muted = u.Muted || u.SelfMuted || u.Deaf || u.SelfDeaf,
             deafened = u.Deaf || u.SelfDeaf,
             self = u == LocalUser,
+            comment = u.Comment,
             matrixUserId = _sessionMappings.TryGetValue(u.Id, out var sm)
                 ? sm.MatrixUserId
                 : _userMappings.GetValueOrDefault(u.Name)
@@ -1769,6 +1794,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         UserDictionary.TryGetValue(userState.Session, out var user);
 
+        // Request full comment if only hash was received
+        if (userState.ShouldSerializeCommentHash() && !userState.ShouldSerializeComment())
+        {
+            SendRequestBlob(new RequestBlob { SessionComments = new[] { userState.Session } });
+        }
+
         Debug.WriteLine($"[Mumble] UserState: {user?.Name ?? userState.Name} (session: {userState.Session}), isNew: {isNewUser}, prevChannel: {previousUserChannel}");
 
         var isSelf = LocalUser != null && userState.Session == LocalUser.Id;
@@ -1799,6 +1830,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             muted = user != null ? (user.Muted || user.SelfMuted || user.Deaf || user.SelfDeaf) : (userState.Mute || userState.SelfMute || userState.Deaf || userState.SelfDeaf),
             deafened = user != null ? (user.Deaf || user.SelfDeaf) : (userState.Deaf || userState.SelfDeaf),
             self = isSelf,
+            comment = user?.Comment,
             matrixUserId = _sessionMappings.TryGetValue(userState.Session, out var sm)
                 ? sm.MatrixUserId
                 : _userMappings.GetValueOrDefault(joinedUserName)
@@ -1848,6 +1880,17 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 ActivateLeaveVoice();
             }
         }
+    }
+
+    protected override void UserStateCommentChanged(User user, string oldComment)
+    {
+        base.UserStateCommentChanged(user, oldComment);
+        _bridge?.Send("voice.userCommentChanged", new
+        {
+            session = user.Id,
+            comment = user.Comment
+        });
+        _bridge?.NotifyUiThread();
     }
 
     public override void UserRemove(UserRemove userRemove)
