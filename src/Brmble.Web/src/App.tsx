@@ -20,7 +20,7 @@ import { useChatStore, addMessageToStore, clearChatStorage, loadDMContacts, upse
 import { parseMessageMedia } from './utils/parseMessageMedia';
 import type { StoredDMContact } from './hooks/useChatStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
-import { usePrompt } from './hooks/usePrompt';
+import { usePrompt, confirm } from './hooks/usePrompt';
 import './App.css';
 
 const SETTINGS_STORAGE_KEY = 'brmble-settings';
@@ -929,7 +929,18 @@ const handleConnect = (serverData: SavedServer) => {
     bridge.send('voice.toggleDeaf', {});
   };
 
-  const handleLeaveVoice = () => {
+  const handleLeaveVoice = async () => {
+    if (isSharing) {
+      const shouldStop = await confirm({
+        title: 'Screen share active',
+        message: 'You are currently sharing your screen. Stop sharing?',
+        confirmLabel: 'Stop Sharing',
+        cancelLabel: 'Keep Sharing',
+      });
+      if (shouldStop) {
+        stopSharing();
+      }
+    }
     startPendingAction('leave');
     bridge.send('voice.leaveVoice', {});
   };
