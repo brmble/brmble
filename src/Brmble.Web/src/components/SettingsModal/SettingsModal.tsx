@@ -107,6 +107,7 @@ export function SettingsModal(props: SettingsModalProps) {
       const newSettings = { ...prev, audio };
 
       bridge.send('settings.set', { settings: newSettings });
+      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
 
       // Notify backend of transmission mode change (only when relevant fields change)
       if (audio.transmissionMode !== prev.audio.transmissionMode ||
@@ -198,12 +199,14 @@ export function SettingsModal(props: SettingsModalProps) {
     const newSettings = { ...settings, overlay };
     setSettings(newSettings);
     bridge.send('settings.set', { settings: newSettings });
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
   };
 
   const handleSpeechEnhancementChange = (speechEnhancement: SpeechEnhancementSettings) => {
     const newSettings = { ...settings, speechEnhancement };
     setSettings(newSettings);
     bridge.send('settings.set', { settings: newSettings });
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
   };
 
   const handleConnectionChange = (connection: ConnectionSettings) => {
@@ -215,6 +218,7 @@ export function SettingsModal(props: SettingsModalProps) {
     };
     setSettings(newSettings);
     bridge.send('settings.set', { settings: newSettings });
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
   };
 
   if (!isOpen) return null;
