@@ -151,13 +151,20 @@
   color: var(--bg-deep);
 }
 
+.chat-input-area {
+  position: relative;
+}
+
 /* Scroll-to-bottom button */
 .chat-scroll-bottom {
   position: absolute;
-  bottom: 100px;
-  right: var(--space-lg);
+  bottom: 100%;
+  right: calc(var(--space-md) + var(--space-xs));
+  margin-bottom: var(--space-sm);
   width: 40px;
   height: 40px;
+  min-width: 40px;
+  min-height: 40px;
   border-radius: var(--radius-full);
   background: var(--accent-primary);
   border: none;

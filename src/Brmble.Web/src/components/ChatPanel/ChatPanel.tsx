@@ -36,6 +36,33 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
 
+  const checkScrollButton = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) {
+      setShowScrollButton(false);
+      return;
+    }
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    setShowScrollButton(distanceFromBottom > SCROLL_THRESHOLD);
+  }, []);
+
+  // Re-evaluate scroll button when the messages container resizes
+  // (e.g. when the DM/channel slide becomes visible).
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const observer = new ResizeObserver(() => checkScrollButton());
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [checkScrollButton]);
+
+  // Re-evaluate scroll button visibility when switching channels or messages change.
+  // Uses requestAnimationFrame so the DOM has rendered the new messages
+  // before we measure scrollHeight.
+  useEffect(() => {
+    requestAnimationFrame(checkScrollButton);
+  }, [channelId, messages, checkScrollButton]);
+
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) {
@@ -133,20 +160,21 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
         <div ref={messagesEndRef} />
       </div>
 
-      <MessageInput onSend={onSendMessage} placeholder={isDM ? `Message @${channelName}` : `Message #${channelName}`} />
-
-      {showScrollButton && (
-        <button
-          className="chat-scroll-bottom"
-          onClick={scrollToBottom}
-          title="Scroll to bottom"
-          aria-label="Scroll to latest messages"
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <polyline points="6 9 12 15 18 9" />
-          </svg>
-        </button>
-      )}
+      <div className="chat-input-area">
+        {showScrollButton && (
+          <button
+            className="chat-scroll-bottom"
+            onClick={scrollToBottom}
+            title="Scroll to bottom"
+            aria-label="Scroll to latest messages"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+        )}
+        <MessageInput onSend={onSendMessage} placeholder={isDM ? `Message @${channelName}` : `Message #${channelName}`} />
+      </div>
     </div>
   );
 }

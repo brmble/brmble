@@ -1,5 +1,5 @@
 .message-input-container {
-  padding: 1rem 1.5rem 1.5rem;
+  padding: var(--space-xs) var(--space-md) var(--space-sm);
   background: var(--bg-deep);
 }
 
@@ -9,15 +9,15 @@
   gap: 0.75rem;
   background: var(--bg-glass);
   backdrop-filter: var(--glass-blur);
-  border: var(--glass-border);
+  border: 1px solid var(--accent-primary);
   border-radius: var(--radius-lg);
-  padding: 0.75rem;
+  padding: var(--space-xs);
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .message-input-wrapper:focus-within {
-  border-color: var(--accent-primary);
-  box-shadow: 0 0 var(--glow-lg) var(--accent-primary-glow);
+  border-color: var(--border-subtle);
+  box-shadow: none;
 }
 
 .message-input {
