@@ -9,6 +9,7 @@ interface DMContact {
   lastMessage?: string;
   lastMessageTime?: Date;
   unread: number;
+  comment?: string;
 }
 
 interface DMContactListProps {
@@ -85,7 +86,7 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
             </div>
             <div className="dm-contact-info">
               <div className="dm-contact-name-row">
-                <span className="dm-contact-name">{contact.userName}</span>
+                <span className="dm-contact-name" title={contact.comment || undefined}>{contact.userName}</span>
                 {contact.lastMessageTime && (
                   <span className="dm-contact-time">{formatTime(contact.lastMessageTime)}</span>
                 )}
@@ -140,6 +141,7 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
           userName={infoDialogUser.userName}
           session={parseInt(infoDialogUser.userId)}
           isSelf={false}
+          comment={contacts.find(c => c.userId === infoDialogUser.userId)?.comment}
         />
       )}
     </div>

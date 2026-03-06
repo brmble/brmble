@@ -24,6 +24,8 @@ export function UserInfoDialog({
   const dialogRef = useRef<HTMLDivElement>(null);
   const [volume, setVolume] = useState(100);
   const [localMuted, setLocalMuted] = useState(false);
+  const [editingComment, setEditingComment] = useState(false);
+  const [commentDraft, setCommentDraft] = useState(comment || '');
 
   useEffect(() => {
     if (!isOpen) return;
@@ -43,12 +45,29 @@ export function UserInfoDialog({
   useEffect(() => {
     if (!isOpen) return;
 
+    // Do not clobber the user's in-progress edits if the comment prop changes
+    if (editingComment) return;
+
+    setCommentDraft(comment || '');
+    setEditingComment(false);
+  }, [isOpen, comment, editingComment]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        if (editingComment) {
+          setEditingComment(false);
+          setCommentDraft(comment || '');
+        } else {
+          onClose();
+        }
+      }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, editingComment, comment]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -106,6 +125,11 @@ export function UserInfoDialog({
     setLocalMuted(newMuted);
     localStorage.setItem(`localMute_${session}`, String(newMuted));
     bridge.send('voice.setLocalMute', { session, muted: newMuted });
+  };
+
+  const saveComment = () => {
+    bridge.send('voice.setComment', { comment: commentDraft });
+    setEditingComment(false);
   };
 
   if (!isOpen) return null;
@@ -182,14 +206,35 @@ export function UserInfoDialog({
 
         <div className="user-info-comment-section">
           <span className="user-info-label">Comment</span>
-          <div className="user-info-comment-box">
-            {comment || 'No comment set'}
-          </div>
+          {isSelf && editingComment ? (
+            <textarea
+              className="user-info-comment-textarea"
+              value={commentDraft}
+              onChange={(e) => setCommentDraft(e.target.value)}
+              rows={3}
+              autoFocus
+            />
+          ) : (
+            <div
+              className={`user-info-comment-box ${isSelf ? 'editable' : ''}`}
+              onClick={() => isSelf && setEditingComment(true)}
+            >
+              {comment || 'No comment set'}
+              {isSelf && (
+                <span className="user-info-comment-edit-hint">Click to edit</span>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="user-info-actions">
-          <button className="btn btn-primary" onClick={onClose} autoFocus>
-            Close
+          {editingComment && (
+            <button className="btn btn-secondary" style={{ transition: 'none' }} onClick={() => { setEditingComment(false); setCommentDraft(comment || ''); }}>
+              Cancel
+            </button>
+          )}
+          <button className="btn btn-primary" onClick={editingComment ? saveComment : onClose} autoFocus={!editingComment}>
+            {editingComment ? 'Save' : 'Close'}
           </button>
         </div>
       </div>
