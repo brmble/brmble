@@ -79,8 +79,11 @@ export function useUnreadTracker(
   useEffect(() => {
     if (!client) return;
 
+    // Only run full refresh on PREPARED (initial sync).
+    // Incremental updates during SYNCING are handled by per-room event listeners,
+    // avoiding unnecessary re-renders every sync poll (~30s).
     const onSync = (state: string) => {
-      if (state === 'PREPARED' || state === 'SYNCING') {
+      if (state === 'PREPARED') {
         refreshAll();
       }
     };
@@ -93,16 +96,16 @@ export function useUnreadTracker(
       refreshRoom(room.roomId);
     };
 
-    const onAccountData = () => {
-      // m.fully_read is room account data, but global account data changes
-      // can also affect state, so refresh everything
-      refreshAll();
+    // m.fully_read is stored as room account data, so listen on RoomEvent.AccountData
+    // (not ClientEvent.AccountData) to detect cross-device read marker changes.
+    const onRoomAccountData = (_event: unknown, room: Room) => {
+      refreshRoom(room.roomId);
     };
 
     client.on(ClientEvent.Sync, onSync);
     client.on(RoomEvent.Timeline, onTimeline);
     client.on(RoomEvent.Receipt, onReceipt);
-    client.on(ClientEvent.AccountData, onAccountData);
+    client.on(RoomEvent.AccountData, onRoomAccountData);
 
     // If the client is already syncing, do an initial refresh
     const syncState = client.getSyncState();
@@ -114,7 +117,7 @@ export function useUnreadTracker(
       client.off(ClientEvent.Sync, onSync);
       client.off(RoomEvent.Timeline, onTimeline);
       client.off(RoomEvent.Receipt, onReceipt);
-      client.off(ClientEvent.AccountData, onAccountData);
+      client.off(RoomEvent.AccountData, onRoomAccountData);
     };
   }, [client, refreshAll, refreshRoom]);
 
