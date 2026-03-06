@@ -4,6 +4,7 @@ import type { ConnectionStatus } from './types';
 import { useMatrixClient } from './hooks/useMatrixClient';
 import type { MatrixCredentials } from './hooks/useMatrixClient';
 import { useScreenShare } from './hooks/useScreenShare';
+import { useUnreadTracker } from './hooks/useUnreadTracker';
 
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Header } from './components/Header/Header';
@@ -154,6 +155,38 @@ function App() {
   const [matrixCredentials, setMatrixCredentials] = useState<MatrixCredentials | null>(null);
   const matrixClient = useMatrixClient(matrixCredentials);
   const { dmMessages: matrixDmMessages, sendDMMessage: sendMatrixDM, fetchDMHistory } = matrixClient;
+
+  // Build set of DM room IDs from matrixClient.dmRoomMap
+  const dmRoomIds = useMemo(() => {
+    const set = new Set<string>();
+    if (matrixClient?.dmRoomMap) {
+      for (const roomId of matrixClient.dmRoomMap.values()) {
+        set.add(roomId);
+      }
+    }
+    return set;
+  }, [matrixClient?.dmRoomMap]);
+
+  // Determine active Matrix room ID
+  const activeMatrixRoomId = useMemo(() => {
+    if (selectedDMUserId && matrixClient?.dmRoomMap) {
+      const targetUser = users.find(u => String(u.session) === selectedDMUserId);
+      if (targetUser?.matrixUserId) {
+        const roomId = matrixClient.dmRoomMap.get(targetUser.matrixUserId);
+        if (roomId) return roomId;
+      }
+    }
+    if (currentChannelId && currentChannelId !== 'server-root' && matrixCredentials?.roomMap?.[currentChannelId]) {
+      return matrixCredentials.roomMap[currentChannelId];
+    }
+    return null;
+  }, [selectedDMUserId, currentChannelId, matrixClient?.dmRoomMap, matrixCredentials?.roomMap, users]);
+
+  const unreadTracker = useUnreadTracker(
+    matrixClient?.client ?? null,
+    dmRoomIds,
+    activeMatrixRoomId,
+  );
 
   const channelKey = currentChannelId === 'server-root' ? 'server-root' : currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
   const { messages, addMessage } = useChatStore(channelKey);
@@ -842,6 +875,20 @@ const handleConnect = (serverData: SavedServer) => {
       setCurrentChannelName(channel.name);
       setUnreadCount(0);
       updateBadge(0, hasPendingInvite);
+
+      // Mark the Matrix room as read when the user views it
+      if (matrixCredentials?.roomMap?.[String(channelId)]) {
+        const roomId = matrixCredentials.roomMap[String(channelId)];
+        const room = matrixClient?.client?.getRoom(roomId);
+        const timeline = room?.getLiveTimeline()?.getEvents();
+        if (timeline && timeline.length > 0) {
+          const lastEventId = timeline[timeline.length - 1].getId();
+          if (lastEventId) {
+            unreadTracker.markRoomRead(roomId, lastEventId);
+          }
+        }
+      }
+
       if (appMode === 'dm') {
         setAppMode('channels');
         setSelectedDMUserId(null);
@@ -988,8 +1035,23 @@ const handleConnect = (serverData: SavedServer) => {
     const updated = upsertDMContact(userId, userName);
     setDmContacts(mapStoredContacts(updated));
 
-    // Fetch Matrix DM history if available
+    // Mark Matrix DM room as read
     const targetUser = users.find(u => String(u.session) === userId);
+    if (targetUser?.matrixUserId && matrixClient?.dmRoomMap) {
+      const roomId = matrixClient.dmRoomMap.get(targetUser.matrixUserId);
+      if (roomId) {
+        const room = matrixClient.client?.getRoom(roomId);
+        const timeline = room?.getLiveTimeline()?.getEvents();
+        if (timeline && timeline.length > 0) {
+          const lastEventId = timeline[timeline.length - 1].getId();
+          if (lastEventId) {
+            unreadTracker.markRoomRead(roomId, lastEventId);
+          }
+        }
+      }
+    }
+
+    // Fetch Matrix DM history if available
     if (targetUser?.matrixUserId && fetchDMHistory) {
       fetchDMHistory(targetUser.matrixUserId).catch(console.error);
     }
