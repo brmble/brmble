@@ -17,12 +17,13 @@ interface HeaderProps {
   onLeaveVoice?: () => void;
   screenSharing?: boolean;
   onToggleScreenShare?: () => void;
+  canScreenShare?: boolean;
   speaking?: boolean;
   pendingChannelAction?: number | 'leave' | null;
   hotkeyPressedBtn?: string | null;
 }
 
-export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, screenSharing, onToggleScreenShare, speaking, pendingChannelAction, hotkeyPressedBtn }: HeaderProps) {
+export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, screenSharing, onToggleScreenShare, canScreenShare, speaking, pendingChannelAction, hotkeyPressedBtn }: HeaderProps) {
   return (
     <header className="header">
       <div className="header-left">
@@ -45,6 +46,7 @@ export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSe
           onLeaveVoice={onLeaveVoice}
           screenSharing={screenSharing}
           onToggleScreenShare={onToggleScreenShare}
+          canScreenShare={canScreenShare}
           speaking={speaking}
           pendingChannelAction={pendingChannelAction}
           hotkeyPressedBtn={hotkeyPressedBtn}
