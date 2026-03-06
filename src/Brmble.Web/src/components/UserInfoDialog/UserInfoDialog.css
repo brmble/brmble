@@ -273,12 +273,6 @@
   font-style: italic;
 }
 
-.user-info-comment-edit {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
 .user-info-comment-textarea {
   font-family: var(--font-body);
   font-size: var(--text-sm);
@@ -292,17 +286,6 @@
   resize: vertical;
   outline: none;
   box-shadow: 0 0 var(--glow-sm) var(--accent-primary-glow);
-}
-
-.user-info-comment-edit-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.user-info-comment-cancel,
-.user-info-comment-save {
-  padding: 6px 14px;
-  font-size: var(--text-sm);
-  border-radius: var(--radius-sm);
+  width: 100%;
+  box-sizing: border-box;
 }

@@ -53,11 +53,18 @@ export function UserInfoDialog({
     if (!isOpen) return;
 
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        if (editingComment) {
+          setEditingComment(false);
+          setCommentDraft(comment || '');
+        } else {
+          onClose();
+        }
+      }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, editingComment, comment]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -197,23 +204,13 @@ export function UserInfoDialog({
         <div className="user-info-comment-section">
           <span className="user-info-label">Comment</span>
           {isSelf && editingComment ? (
-            <div className="user-info-comment-edit">
-              <textarea
-                className="user-info-comment-textarea"
-                value={commentDraft}
-                onChange={(e) => setCommentDraft(e.target.value)}
-                rows={3}
-                autoFocus
-              />
-              <div className="user-info-comment-edit-actions">
-                <button className="btn btn-secondary user-info-comment-cancel" onClick={() => setEditingComment(false)}>
-                  Cancel
-                </button>
-                <button className="btn btn-primary user-info-comment-save" onClick={saveComment}>
-                  Save
-                </button>
-              </div>
-            </div>
+            <textarea
+              className="user-info-comment-textarea"
+              value={commentDraft}
+              onChange={(e) => setCommentDraft(e.target.value)}
+              rows={3}
+              autoFocus
+            />
           ) : (
             <div
               className={`user-info-comment-box ${isSelf ? 'editable' : ''}`}
@@ -228,8 +225,13 @@ export function UserInfoDialog({
         </div>
 
         <div className="user-info-actions">
-          <button className="btn btn-primary" onClick={onClose} autoFocus>
-            Close
+          {editingComment && (
+            <button className="btn btn-secondary" style={{ transition: 'none' }} onClick={() => { setEditingComment(false); setCommentDraft(comment || ''); }}>
+              Cancel
+            </button>
+          )}
+          <button className="btn btn-primary" onClick={editingComment ? saveComment : onClose} autoFocus={!editingComment}>
+            {editingComment ? 'Save' : 'Close'}
           </button>
         </div>
       </div>
