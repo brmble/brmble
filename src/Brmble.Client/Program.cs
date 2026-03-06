@@ -125,6 +125,19 @@ static class Program
                 args.Handled = true; // Don't show prompt, don't send a cert
             };
 
+            // Grant screen-capture permission so getDisplayMedia() shows the
+            // native screen picker instead of being silently blocked by WebView2.
+            // In SDK v1.0.3800 the ScreenCapture enum value doesn't exist yet;
+            // the request arrives as UnknownPermission, so we allow all unknown
+            // permission requests (they are rare and benign in this app).
+            _controller.CoreWebView2.PermissionRequested += (_, args) =>
+            {
+                if (args.PermissionKind == CoreWebView2PermissionKind.UnknownPermission)
+                {
+                    args.State = CoreWebView2PermissionState.Allow;
+                }
+            };
+
             // Open target="_blank" links in the system default browser
             // instead of spawning a WebView2 popup window.
             _controller.CoreWebView2.NewWindowRequested += (_, args) =>

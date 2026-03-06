@@ -17,7 +17,17 @@ function isSameDay(a: Date, b: Date): boolean {
   );
 }
 
-export function groupMessages(messages: ChatMessage[], fullyReadEventId?: string | null): GroupedMessage[] {
+/**
+ * Group messages for display with date separators, sender grouping, and an
+ * unread divider.
+ *
+ * @param readMarkerTs  Wall-clock timestamp (ms since epoch) of when the user
+ *   last read this room.  The unread divider is placed above the first message
+ *   whose timestamp exceeds this value.  Using a timestamp instead of an event
+ *   ID makes the divider resilient to timeline changes (backfill, pagination,
+ *   reconnect) — it always appears above the first truly-new message.
+ */
+export function groupMessages(messages: ChatMessage[], readMarkerTs?: number | null): GroupedMessage[] {
   let unreadDividerPlaced = false;
 
   return messages.map((message, index) => {
@@ -33,10 +43,12 @@ export function groupMessages(messages: ChatMessage[], fullyReadEventId?: string
       showDateSeparator ||
       message.timestamp.getTime() - prev.timestamp.getTime() > GROUP_THRESHOLD_MS;
 
+    // Place the divider above the first message that arrived after the read
+    // marker timestamp. This mirrors how countUnreadFromTimeline works:
+    // only events with origin_server_ts > marker.ts are "unread".
     const showUnreadDivider = !unreadDividerPlaced
-      && fullyReadEventId != null
-      && prev != null
-      && prev.id === fullyReadEventId;
+      && readMarkerTs != null
+      && message.timestamp.getTime() > readMarkerTs;
 
     if (showUnreadDivider) unreadDividerPlaced = true;
 

@@ -16,7 +16,7 @@ interface ChatPanelProps {
   onSendMessage: (content: string) => void;
   isDM?: boolean;
   matrixClient?: MatrixClient | null;
-  fullyReadEventId?: string | null;
+  readMarkerTs?: number | null;
   screenShareVideoEl?: HTMLVideoElement | null;
   screenSharerName?: string;
   onCloseScreenShare?: () => void;
@@ -26,7 +26,7 @@ const SCROLL_THRESHOLD = 150;
 const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
 const DEFAULT_SPLIT = 50;
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, isDM, matrixClient, fullyReadEventId, screenShareVideoEl, screenSharerName, onCloseScreenShare }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, isDM, matrixClient, readMarkerTs, screenShareVideoEl, screenSharerName, onCloseScreenShare }: ChatPanelProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const unreadDividerRef = useRef<HTMLDivElement>(null);
@@ -135,7 +135,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
     return () => clearTimeout(timer);
   }, [channelId]);
 
-  const grouped = useMemo(() => groupMessages(messages, fullyReadEventId), [messages, fullyReadEventId]);
+  const grouped = useMemo(() => groupMessages(messages, readMarkerTs), [messages, readMarkerTs]);
 
   if (!channelId) {
     return (

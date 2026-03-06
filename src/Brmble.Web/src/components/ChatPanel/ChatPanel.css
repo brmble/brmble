@@ -148,14 +148,14 @@
   content: '';
   flex: 1;
   height: 1px;
-  background: var(--accent-danger);
+  background: var(--heading-section-color);
 }
 
 .chat-unread-divider-label {
   font-family: var(--font-body);
   font-size: var(--text-xs);
   font-weight: 600;
-  color: var(--accent-danger);
+  color: var(--heading-section-color);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   white-space: nowrap;
