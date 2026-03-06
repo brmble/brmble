@@ -1064,6 +1064,7 @@ const handleConnect = (serverData: SavedServer) => {
           connectionStatus={connectionStatus}
           onCancelReconnect={handleCancelReconnect}
           pendingChannelAction={pendingChannelAction}
+          screenSharerName={activeShare?.userName}
         />
         </ErrorBoundary>
         

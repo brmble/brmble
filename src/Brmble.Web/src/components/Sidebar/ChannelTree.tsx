@@ -37,9 +37,10 @@ interface ChannelTreeProps {
   onStartDM?: (userId: string, userName: string) => void;
   speakingUsers?: Map<number, boolean>;
   pendingChannelAction?: number | 'leave' | null;
+  screenSharerName?: string;
 }
 
-export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, speakingUsers, pendingChannelAction }: ChannelTreeProps) {
+export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, speakingUsers, pendingChannelAction, screenSharerName }: ChannelTreeProps) {
   const [sortByNamePerChannel, setSortByNamePerChannel] = useState<Record<number, boolean>>({});
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string; isSelf: boolean; channelId?: number } | null>(null);
   const [infoDialogUser, setInfoDialogUser] = useState<{ userId: string; userName: string; isSelf: boolean } | null>(null);
@@ -219,6 +220,13 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                   </svg>
                 </span>
                 <span className="user-name">{user.name}</span>
+                {screenSharerName && user.name === screenSharerName && (
+                  <svg className="status-icon status-icon--screen-share" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                    <line x1="8" y1="21" x2="16" y2="21" />
+                    <line x1="12" y1="17" x2="12" y2="21" />
+                  </svg>
+                )}
                 {user.matrixUserId && <span className="brmble-badge" title="Brmble user" />}
                 {user.self && <span className="self-badge">(you)</span>}
               </div>
