@@ -21,6 +21,7 @@ export const BINDING_LABELS: Record<string, string> = {
   toggleMuteDeafenKey: 'Toggle Mute & Deafen',
   toggleMuteKey: 'Toggle Mute',
   toggleDMScreenKey: 'Toggle Direct Messages Screen',
+  toggleScreenShareKey: 'Toggle Screen Share',
 };
 
 const SETTINGS_STORAGE_KEY = 'brmble-settings';
@@ -81,6 +82,7 @@ export function SettingsModal(props: SettingsModalProps) {
     toggleMuteDeafenKey: settings.shortcuts.toggleMuteDeafenKey,
     toggleMuteKey: settings.shortcuts.toggleMuteKey,
     toggleDMScreenKey: settings.shortcuts.toggleDMScreenKey,
+    toggleScreenShareKey: settings.shortcuts.toggleScreenShareKey,
   }), [settings.audio.pushToTalkKey, settings.shortcuts]);
 
   useEffect(() => {
@@ -134,6 +136,7 @@ export function SettingsModal(props: SettingsModalProps) {
         { action: 'toggleMuteDeafen', key: shortcuts.toggleMuteDeafenKey },
         { action: 'toggleLeaveVoice', key: shortcuts.toggleLeaveVoiceKey },
         { action: 'toggleDmScreen', key: shortcuts.toggleDMScreenKey },
+        { action: 'toggleScreenShare', key: shortcuts.toggleScreenShareKey },
       ];
 
       for (const { action, key } of actions) {
@@ -168,6 +171,7 @@ export function SettingsModal(props: SettingsModalProps) {
           toggleMuteDeafenKey: 'toggleMuteDeafen',
           toggleLeaveVoiceKey: 'toggleLeaveVoice',
           toggleDMScreenKey: 'toggleDmScreen',
+          toggleScreenShareKey: 'toggleScreenShare',
         };
         const action = BINDING_TO_ACTION[bindingId] ?? bindingId.replace('Key', '');
         bridge.send('voice.setShortcut', { action, key: null });
