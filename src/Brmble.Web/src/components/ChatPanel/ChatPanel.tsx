@@ -22,14 +22,14 @@ interface ChatPanelProps {
 }
 
 const SCROLL_THRESHOLD = 150;
+const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
+const DEFAULT_SPLIT = 50;
 
 export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, isDM, matrixClient, screenShareVideoEl, screenSharerName, onCloseScreenShare }: ChatPanelProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
-
-  const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
-  const DEFAULT_SPLIT = 50;
   const [splitPercent, setSplitPercent] = useState(() => {
     const stored = localStorage.getItem(SPLIT_STORAGE_KEY);
     return stored ? Number(stored) : DEFAULT_SPLIT;
@@ -41,7 +41,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
     isDraggingRef.current = true;
 
     const onMouseMove = (moveEvent: MouseEvent) => {
-      const panel = (e.target as HTMLElement).closest('.chat-panel') as HTMLElement;
+      const panel = panelRef.current;
       if (!panel) return;
       const rect = panel.getBoundingClientRect();
       const headerEl = panel.querySelector('.chat-header') as HTMLElement;
@@ -146,7 +146,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
   const userCount = 1; // Placeholder
 
   return (
-    <div className="chat-panel">
+    <div className="chat-panel" ref={panelRef}>
       <div className="chat-header">
         <div className="chat-header-left">
           {isDM ? (
@@ -184,7 +184,24 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
           </div>
           <div
             className="chat-split-divider"
+            role="separator"
+            aria-orientation="horizontal"
+            aria-valuenow={splitPercent}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            tabIndex={0}
             onMouseDown={handleDividerMouseDown}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+                event.preventDefault();
+                const delta = event.key === 'ArrowUp' ? -5 : 5;
+                const next = Math.min(80, Math.max(20, splitPercent + delta));
+                if (next !== splitPercent) {
+                  setSplitPercent(next);
+                  localStorage.setItem(SPLIT_STORAGE_KEY, String(next));
+                }
+              }
+            }}
           />
         </>
       )}

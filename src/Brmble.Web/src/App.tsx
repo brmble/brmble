@@ -1075,10 +1075,11 @@ const handleConnect = (serverData: SavedServer) => {
 
   // Check for active screen shares when switching channels
   useEffect(() => {
+    disconnectViewer();
     if (currentChannelId && currentChannelId !== 'server-root') {
       bridge.send('livekit.checkActiveShare', { roomName: `channel-${currentChannelId}` });
     }
-  }, [currentChannelId]);
+  }, [currentChannelId, disconnectViewer]);
 
   const handleToggleScreenShare = useCallback(async () => {
     if (isSharing) {

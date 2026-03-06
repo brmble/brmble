@@ -872,7 +872,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// Generic mTLS POST helper using BouncyCastle TLS.
     /// Returns the parsed JSON response body as an anonymous object, or null on failure.
     /// </summary>
-    private static async Task<object?> PostViaBcTls(X509Certificate2 cert, Uri uri, string jsonBody)
+    private static async Task<string?> SendViaBcTls(X509Certificate2 cert, Uri uri, string httpRequest)
     {
         using var tcp = new TcpClient();
         await tcp.ConnectAsync(uri.Host, uri.Port);
@@ -885,9 +885,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         try
         {
             var stream = tlsProtocol.Stream;
-            var hostHeader = uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}";
-            var contentLength = System.Text.Encoding.UTF8.GetByteCount(jsonBody);
-            var httpRequest = $"POST {uri.PathAndQuery} HTTP/1.1\r\nHost: {hostHeader}\r\nContent-Type: application/json\r\nContent-Length: {contentLength}\r\nConnection: close\r\n\r\n{jsonBody}";
             var requestBytes = System.Text.Encoding.UTF8.GetBytes(httpRequest);
             await stream.WriteAsync(requestBytes, 0, requestBytes.Length);
             await stream.FlushAsync();
@@ -909,7 +906,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             var statusLine = response[..statusEnd].Trim();
             if (!statusLine.Contains("200"))
             {
-                System.Diagnostics.Debug.WriteLine($"[PostViaBcTls] Non-200 response: {statusLine}");
+                System.Diagnostics.Debug.WriteLine($"[SendViaBcTls] Non-200 response: {statusLine}");
                 return null;
             }
 
@@ -942,23 +939,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 body = sb.ToString().Trim();
             }
 
-            if (string.IsNullOrWhiteSpace(body)) return null;
-
-            using var doc = System.Text.Json.JsonDocument.Parse(body);
-            // Return as a dictionary so JsonSerializer can re-serialize it for the bridge
-            var dict = new Dictionary<string, object?>();
-            foreach (var prop in doc.RootElement.EnumerateObject())
-            {
-                dict[prop.Name] = prop.Value.ValueKind switch
-                {
-                    System.Text.Json.JsonValueKind.String => prop.Value.GetString(),
-                    System.Text.Json.JsonValueKind.Number => prop.Value.GetDouble(),
-                    System.Text.Json.JsonValueKind.True => true,
-                    System.Text.Json.JsonValueKind.False => false,
-                    _ => prop.Value.GetRawText()
-                };
-            }
-            return dict;
+            return string.IsNullOrWhiteSpace(body) ? null : body;
         }
         finally
         {
@@ -966,78 +947,36 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         }
     }
 
+    private static async Task<object?> PostViaBcTls(X509Certificate2 cert, Uri uri, string jsonBody)
+    {
+        var hostHeader = uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}";
+        var contentLength = System.Text.Encoding.UTF8.GetByteCount(jsonBody);
+        var httpRequest = $"POST {uri.PathAndQuery} HTTP/1.1\r\nHost: {hostHeader}\r\nContent-Type: application/json\r\nContent-Length: {contentLength}\r\nConnection: close\r\n\r\n{jsonBody}";
+
+        var body = await SendViaBcTls(cert, uri, httpRequest);
+        if (body is null) return null;
+
+        using var doc = System.Text.Json.JsonDocument.Parse(body);
+        var dict = new Dictionary<string, object?>();
+        foreach (var prop in doc.RootElement.EnumerateObject())
+        {
+            dict[prop.Name] = prop.Value.ValueKind switch
+            {
+                System.Text.Json.JsonValueKind.String => prop.Value.GetString(),
+                System.Text.Json.JsonValueKind.Number => prop.Value.GetDouble(),
+                System.Text.Json.JsonValueKind.True => true,
+                System.Text.Json.JsonValueKind.False => false,
+                _ => prop.Value.GetRawText()
+            };
+        }
+        return dict;
+    }
+
     private static async Task<string?> GetViaBcTls(X509Certificate2 cert, Uri uri)
     {
-        using var tcp = new TcpClient();
-        await tcp.ConnectAsync(uri.Host, uri.Port);
-
-        var sniName = uri.HostNameType == UriHostNameType.Dns ? uri.Host : null;
-        var tlsClient = new BrmbleTlsClient(cert, sniName);
-        var tlsProtocol = new TlsClientProtocol(tcp.GetStream());
-        tlsProtocol.Connect(tlsClient);
-
-        try
-        {
-            var stream = tlsProtocol.Stream;
-            var hostHeader = uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}";
-            var httpRequest = $"GET {uri.PathAndQuery} HTTP/1.1\r\nHost: {hostHeader}\r\nConnection: close\r\n\r\n";
-            var requestBytes = System.Text.Encoding.UTF8.GetBytes(httpRequest);
-            await stream.WriteAsync(requestBytes, 0, requestBytes.Length);
-            await stream.FlushAsync();
-
-            using var ms = new MemoryStream();
-            var buf = new byte[4096];
-            int read;
-            try
-            {
-                while ((read = await stream.ReadAsync(buf, 0, buf.Length)) > 0)
-                    ms.Write(buf, 0, read);
-            }
-            catch (Org.BouncyCastle.Tls.TlsNoCloseNotifyException) { }
-
-            var response = System.Text.Encoding.UTF8.GetString(ms.ToArray());
-            var statusEnd = response.IndexOf('\n');
-            if (statusEnd < 0) return null;
-
-            var statusLine = response[..statusEnd].Trim();
-            if (!statusLine.Contains("200")) return null;
-
-            var bodyStart = response.IndexOf("\r\n\r\n", StringComparison.Ordinal);
-            if (bodyStart < 0) bodyStart = response.IndexOf("\n\n", StringComparison.Ordinal);
-            if (bodyStart < 0) return null;
-
-            var separatorLength = response[bodyStart] == '\r' ? 4 : 2;
-            var body = response[(bodyStart + separatorLength)..].Trim();
-
-            // Handle chunked transfer encoding
-            var headersSection = response[..bodyStart];
-            if (headersSection.Contains("Transfer-Encoding: chunked", StringComparison.OrdinalIgnoreCase))
-            {
-                var sb = new System.Text.StringBuilder();
-                var remaining = body;
-                while (remaining.Length > 0)
-                {
-                    var lineEnd = remaining.IndexOf("\r\n", StringComparison.Ordinal);
-                    if (lineEnd < 0) break;
-                    var chunkSizeHex = remaining[..lineEnd].Trim();
-                    if (!int.TryParse(chunkSizeHex, System.Globalization.NumberStyles.HexNumber, null, out var chunkSize) || chunkSize == 0)
-                        break;
-                    var chunkStart = lineEnd + 2;
-                    if (chunkStart + chunkSize > remaining.Length) break;
-                    sb.Append(remaining.AsSpan(chunkStart, chunkSize));
-                    remaining = remaining[(chunkStart + chunkSize)..];
-                    if (remaining.StartsWith("\r\n"))
-                        remaining = remaining[2..];
-                }
-                body = sb.ToString().Trim();
-            }
-
-            return string.IsNullOrWhiteSpace(body) ? null : body;
-        }
-        finally
-        {
-            tlsProtocol.Close();
-        }
+        var hostHeader = uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}";
+        var httpRequest = $"GET {uri.PathAndQuery} HTTP/1.1\r\nHost: {hostHeader}\r\nConnection: close\r\n\r\n";
+        return await SendViaBcTls(cert, uri, httpRequest);
     }
 
     /// Pure HTTP helper: POSTs to /auth/token and returns the parsed response body.

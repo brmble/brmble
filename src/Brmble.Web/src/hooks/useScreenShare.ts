@@ -177,16 +177,14 @@ export function useScreenShare(onDisconnected?: () => void) {
     const onShareStopped = (data: unknown) => {
       const d = data as { roomName: string };
       setActiveShare(prev => {
-        if (prev?.roomName === d.roomName) {
-          if (viewerRoomRef.current) {
-            viewerRoomRef.current.disconnect().catch(() => {});
-            viewerRoomRef.current = null;
-          }
-          setRemoteVideoEl(null);
-          return null;
-        }
-        return prev;
+        if (prev?.roomName !== d.roomName) return prev;
+        return null;
       });
+      if (viewerRoomRef.current) {
+        viewerRoomRef.current.disconnect().catch(() => {});
+        viewerRoomRef.current = null;
+      }
+      setRemoteVideoEl(null);
     };
 
     const onActiveShareResult = (data: unknown) => {
