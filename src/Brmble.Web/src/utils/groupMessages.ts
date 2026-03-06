@@ -6,6 +6,7 @@ export interface GroupedMessage {
   message: ChatMessage;
   isGroupStart: boolean;
   showDateSeparator: boolean;
+  showUnreadDivider: boolean;
 }
 
 function isSameDay(a: Date, b: Date): boolean {
@@ -16,7 +17,9 @@ function isSameDay(a: Date, b: Date): boolean {
   );
 }
 
-export function groupMessages(messages: ChatMessage[]): GroupedMessage[] {
+export function groupMessages(messages: ChatMessage[], fullyReadEventId?: string | null): GroupedMessage[] {
+  let unreadDividerPlaced = false;
+
   return messages.map((message, index) => {
     const prev = index > 0 ? messages[index - 1] : null;
 
@@ -30,6 +33,13 @@ export function groupMessages(messages: ChatMessage[]): GroupedMessage[] {
       showDateSeparator ||
       message.timestamp.getTime() - prev.timestamp.getTime() > GROUP_THRESHOLD_MS;
 
-    return { message, isGroupStart, showDateSeparator };
+    const showUnreadDivider = !unreadDividerPlaced
+      && fullyReadEventId != null
+      && prev != null
+      && prev.id === fullyReadEventId;
+
+    if (showUnreadDivider) unreadDividerPlaced = true;
+
+    return { message, isGroupStart, showDateSeparator, showUnreadDivider };
   });
 }

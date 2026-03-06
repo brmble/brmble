@@ -1093,6 +1093,21 @@ const handleConnect = (serverData: SavedServer) => {
 
   const { isSharing, startSharing, stopSharing } = useScreenShare();
 
+  const channelFullyReadEventId = useMemo(() => {
+    if (!currentChannelId || !matrixCredentials?.roomMap?.[currentChannelId]) return null;
+    const roomId = matrixCredentials.roomMap[currentChannelId];
+    return unreadTracker.getFullyReadEventId(roomId);
+  }, [currentChannelId, matrixCredentials?.roomMap, unreadTracker]);
+
+  const dmFullyReadEventId = useMemo(() => {
+    if (!selectedDMUserId) return null;
+    const user = users.find(u => String(u.session) === selectedDMUserId);
+    if (!user?.matrixUserId || !matrixClient?.dmRoomMap) return null;
+    const roomId = matrixClient.dmRoomMap.get(user.matrixUserId);
+    if (!roomId) return null;
+    return unreadTracker.getFullyReadEventId(roomId);
+  }, [selectedDMUserId, users, matrixClient?.dmRoomMap, unreadTracker]);
+
   const handleToggleScreenShare = useCallback(() => {
     if (isSharing) {
       stopSharing();
@@ -1159,6 +1174,7 @@ const handleConnect = (serverData: SavedServer) => {
                 currentUsername={username}
                 onSendMessage={handleSendMessage}
                 matrixClient={matrixClient.client}
+                fullyReadEventId={channelFullyReadEventId}
               />
               </ErrorBoundary>
             </div>
@@ -1172,6 +1188,7 @@ const handleConnect = (serverData: SavedServer) => {
                 onSendMessage={handleSendDMMessage}
                 isDM={true}
                 matrixClient={matrixClient.client}
+                fullyReadEventId={dmFullyReadEventId}
               />
               </ErrorBoundary>
             </div>

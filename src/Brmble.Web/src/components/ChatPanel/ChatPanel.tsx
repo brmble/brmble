@@ -15,11 +15,12 @@ interface ChatPanelProps {
   onSendMessage: (content: string) => void;
   isDM?: boolean;
   matrixClient?: MatrixClient | null;
+  fullyReadEventId?: string | null;
 }
 
 const SCROLL_THRESHOLD = 150;
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, isDM, matrixClient }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, isDM, matrixClient, fullyReadEventId }: ChatPanelProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
@@ -77,7 +78,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
     }
   }, [messages]);
 
-  const grouped = useMemo(() => groupMessages(messages), [messages]);
+  const grouped = useMemo(() => groupMessages(messages, fullyReadEventId), [messages, fullyReadEventId]);
 
   if (!channelId) {
     return (
@@ -142,6 +143,11 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
                   <span className="chat-date-separator-label">
                     {formatDateSeparator(item.message.timestamp)}
                   </span>
+                </div>
+              )}
+              {item.showUnreadDivider && (
+                <div className="chat-unread-divider" key={`unread-${item.message.id}`}>
+                  <span className="chat-unread-divider-label">New Messages</span>
                 </div>
               )}
               <MessageBubble
