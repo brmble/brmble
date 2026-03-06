@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { MatrixClient } from 'matrix-js-sdk';
 import type { MediaAttachment } from '../../types';
 import { extractFirstUrl } from '../../hooks/useLinkPreview';
+import { linkifyText } from '../../utils/linkifyText';
 import { ImageAttachment } from './ImageAttachment';
 import { ImageLightbox } from './ImageLightbox';
 import { LinkPreview } from './LinkPreview';
@@ -59,7 +60,7 @@ export function MessageBubble({ sender, content, timestamp, isOwnMessage, isSyst
           html ? (
             <div className="message-text" dangerouslySetInnerHTML={{ __html: content }} />
           ) : (
-            <p className="message-text">{content}</p>
+            <p className="message-text">{linkifyText(content)}</p>
           )
         )}
         {media && media.length > 0 && (

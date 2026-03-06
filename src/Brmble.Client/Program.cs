@@ -125,6 +125,33 @@ static class Program
                 args.Handled = true; // Don't show prompt, don't send a cert
             };
 
+            // Open target="_blank" links in the system default browser
+            // instead of spawning a WebView2 popup window.
+            _controller.CoreWebView2.NewWindowRequested += (_, args) =>
+            {
+                args.Handled = true;
+                if (!string.IsNullOrEmpty(args.Uri))
+                {
+                    Process.Start(new ProcessStartInfo(args.Uri) { UseShellExecute = true });
+                }
+            };
+
+            // Prevent in-page navigation to external URLs (e.g. <a> tags in
+            // HTML messages that lack target="_blank"). Allow our own origins.
+            _controller.CoreWebView2.NavigationStarting += (_, args) =>
+            {
+                var uri = args.Uri;
+                if (uri.StartsWith("https://brmble.local/", StringComparison.OrdinalIgnoreCase)
+                    || uri.StartsWith(DevServerUrl, StringComparison.OrdinalIgnoreCase))
+                {
+                    return; // Allow app navigation
+                }
+
+                // External URL — cancel navigation and open in system browser
+                args.Cancel = true;
+                Process.Start(new ProcessStartInfo(uri) { UseShellExecute = true });
+            };
+
             var webRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "web");
             _controller.CoreWebView2.SetVirtualHostNameToFolderMapping(
                 "brmble.local", webRoot, CoreWebView2HostResourceAccessKind.Allow);
