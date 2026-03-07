@@ -67,6 +67,10 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
     onChange(newSettings);
   };
 
+  const handleCaptureApiChange = (value: 'waveIn' | 'wasapi') => {
+    handleChange('captureApi', value);
+  };
+
   const handleInput = useCallback(async (key: string) => {
     if (!recording) return;
 
@@ -307,6 +311,30 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
           </div>
         );
       })()}
+
+      {/* DEV: Audio Capture API */}
+      <div className="settings-section">
+        <div className="settings-section-header">
+          <span className="settings-dev-label">DEV</span>
+          <span className="settings-section-title">Audio Capture API</span>
+        </div>
+        <div className="toggle-group">
+          <button
+            type="button"
+            className={`toggle-btn ${localSettings.captureApi === 'waveIn' ? 'active' : ''}`}
+            onClick={() => handleCaptureApiChange('waveIn')}
+          >
+            WaveIn (Legacy)
+          </button>
+          <button
+            type="button"
+            className={`toggle-btn ${localSettings.captureApi === 'wasapi' ? 'active' : ''}`}
+            onClick={() => handleCaptureApiChange('wasapi')}
+          >
+            WASAPI
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
