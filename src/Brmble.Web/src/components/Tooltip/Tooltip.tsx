@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, cloneElement } from 'react';
+import { useState, useRef, useCallback, useEffect, useId, cloneElement } from 'react';
 import { createPortal } from 'react-dom';
 import './Tooltip.css';
 
@@ -12,7 +12,16 @@ interface TooltipProps {
   delay?: number;
 }
 
+/** Static transform map — hoisted to module scope to avoid re-creation every render. */
+const transformOrigin: Record<string, string> = {
+  top: 'translateX(-50%) translateY(-100%)',
+  bottom: 'translateX(-50%)',
+  left: 'translateX(-100%) translateY(-50%)',
+  right: 'translateY(-50%)',
+};
+
 export function Tooltip({ content, children, position = 'top', delay = 400 }: TooltipProps) {
+  const tooltipId = useId();
   const [visible, setVisible] = useState(false);
   const [coords, setCoords] = useState({ top: 0, left: 0 });
   const triggerRef = useRef<HTMLElement>(null);
@@ -35,6 +44,18 @@ export function Tooltip({ content, children, position = 'top', delay = 400 }: To
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
   }, []);
+
+  // Dismiss tooltip on Escape key
+  useEffect(() => {
+    if (!visible) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') hide();
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [visible, hide]);
 
   useEffect(() => {
     if (!visible || !triggerRef.current) return;
@@ -67,7 +88,7 @@ export function Tooltip({ content, children, position = 'top', delay = 400 }: To
 
     setCoords({ top, left });
 
-    requestAnimationFrame(() => {
+    const rafId = requestAnimationFrame(() => {
       if (!tooltipRef.current) return;
       const tt = tooltipRef.current.getBoundingClientRect();
       let adjustedTop = top;
@@ -86,21 +107,17 @@ export function Tooltip({ content, children, position = 'top', delay = 400 }: To
         setCoords({ top: adjustedTop, left: adjustedLeft });
       }
     });
+
+    return () => cancelAnimationFrame(rafId);
   }, [visible, position]);
 
   if (!content) return children;
-
-  const transformOrigin = {
-    top: 'translateX(-50%) translateY(-100%)',
-    bottom: 'translateX(-50%)',
-    left: 'translateX(-100%) translateY(-50%)',
-    right: 'translateY(-50%)',
-  };
 
   return (
     <>
       {cloneElement(children, {
         ref: triggerRef,
+        'aria-describedby': visible ? tooltipId : undefined,
         onMouseEnter: (e: React.MouseEvent) => {
           show();
           children.props.onMouseEnter?.(e);
@@ -127,7 +144,7 @@ export function Tooltip({ content, children, position = 'top', delay = 400 }: To
             transform: transformOrigin[position],
           }}
         >
-          <div className="brmble-tooltip" ref={tooltipRef} role="tooltip">
+          <div className="brmble-tooltip" ref={tooltipRef} id={tooltipId} role="tooltip">
             {content}
           </div>
         </div>,

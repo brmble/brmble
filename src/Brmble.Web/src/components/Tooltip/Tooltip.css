@@ -1,13 +1,13 @@
 .brmble-tooltip-portal {
   position: fixed;
-  z-index: 10000;
+  z-index: 10000; /* Above modals and other overlays */
   pointer-events: none;
 }
 
 .brmble-tooltip {
   background: var(--bg-deep);
   color: var(--text-primary);
-  padding: 6px 10px;
+  padding: var(--space-2xs) var(--space-sm);
   border-radius: var(--radius-sm);
   font-family: var(--font-body);
   font-size: var(--text-xs);
@@ -15,7 +15,7 @@
   line-height: 1.4;
   border: 1px solid var(--border-subtle);
   box-shadow: var(--shadow-elevated);
-  max-width: 260px;
+  max-width: 260px; /* Keeps tooltip readable — roughly 35-40 characters per line */
   word-wrap: break-word;
   white-space: pre-line;
   animation: tooltip-fade-in var(--animation-fast) ease;
