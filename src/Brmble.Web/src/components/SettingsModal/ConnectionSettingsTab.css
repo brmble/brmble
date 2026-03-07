@@ -4,21 +4,6 @@
   margin-top: 12px;
 }
 
-.connection-settings-tab .tooltip-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  border-radius: var(--radius-full);
-  background: var(--border-subtle);
-  color: var(--text-muted);
-  font-size: var(--text-2xs);
-  font-weight: 600;
-  cursor: help;
-  margin-left: 6px;
-}
-
 .connection-settings-tab .server-dropdown-row {
   display: flex;
   align-items: center;
