@@ -26,6 +26,7 @@ export interface AudioSettings {
   pushToTalkKey: string | null;
   opusBitrate: number;
   opusFrameSize: number;
+  captureApi: 'waveIn' | 'wasapi';
 }
 
 export interface SpeechEnhancementSettings {
@@ -43,6 +44,7 @@ export const DEFAULT_SETTINGS: AudioSettings = {
   pushToTalkKey: null,
   opusBitrate: 72000,
   opusFrameSize: 20,
+  captureApi: 'waveIn',
 };
 
 export const DEFAULT_SPEECH_ENHANCEMENT: SpeechEnhancementSettings = {
