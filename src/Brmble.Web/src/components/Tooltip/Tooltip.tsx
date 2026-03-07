@@ -5,11 +5,14 @@ import './Tooltip.css';
 /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
 type AnyProps = Record<string, any>;
 
+type Position = 'top' | 'bottom' | 'left' | 'right';
+type Align = 'start' | 'center' | 'end';
+
 interface TooltipProps {
   content: string;
   children: React.ReactElement<AnyProps>;
-  position?: 'top' | 'bottom' | 'left' | 'right';
-  align?: 'start' | 'center' | 'end';
+  position?: Position;
+  align?: Align;
   delay?: number;
 }
 
@@ -25,24 +28,36 @@ export function Tooltip({ content, children, position = 'top', align = 'center',
   const tooltipId = useId();
   const [visible, setVisible] = useState(false);
   const [coords, setCoords] = useState({ top: 0, left: 0 });
+  const [effectivePosition, setEffectivePosition] = useState<Position>(position);
   const triggerRef = useRef<HTMLElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const show = useCallback(() => {
+    // Clear any existing show timer before scheduling a new one.
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
     timeoutRef.current = setTimeout(() => {
       setVisible(true);
     }, delay);
   }, [delay]);
 
   const hide = useCallback(() => {
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
     setVisible(false);
   }, []);
 
   useEffect(() => {
     return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
     };
   }, []);
 
@@ -57,6 +72,11 @@ export function Tooltip({ content, children, position = 'top', align = 'center',
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [visible, hide]);
+
+  // Reset effective position when preferred position changes or tooltip hides
+  useEffect(() => {
+    setEffectivePosition(position);
+  }, [position, visible]);
 
   useEffect(() => {
     if (!visible || !triggerRef.current) return;
@@ -107,11 +127,12 @@ export function Tooltip({ content, children, position = 'top', align = 'center',
       const tt = tooltipRef.current.getBoundingClientRect();
       let adjustedTop = top;
       let adjustedLeft = left;
+      let flippedPosition: Position | null = null;
 
       /* Horizontal overflow clamping for top/bottom */
       if (position === 'top' || position === 'bottom') {
         if (align === 'center') {
-          adjustedLeft = Math.max(8, Math.min(adjustedLeft, window.innerWidth - tt.width / 2 - 8));
+          adjustedLeft = Math.max(8 + tt.width / 2, Math.min(adjustedLeft, window.innerWidth - tt.width / 2 - 8));
         } else if (align === 'start' && tt.right > window.innerWidth - 8) {
           adjustedLeft = window.innerWidth - tt.width - 8;
         } else if (align === 'end' && tt.left < 8) {
@@ -119,15 +140,20 @@ export function Tooltip({ content, children, position = 'top', align = 'center',
         }
       }
 
-      /* Vertical flip if overflowing */
+      /* Vertical flip if overflowing — also update effective position for transform */
       if (position === 'top' && tt.top < 0) {
         adjustedTop = rect.bottom + bottomGap;
+        flippedPosition = 'bottom';
       } else if (position === 'bottom' && tt.bottom > window.innerHeight) {
         adjustedTop = rect.top - gap;
+        flippedPosition = 'top';
       }
 
       if (adjustedTop !== top || adjustedLeft !== left) {
         setCoords({ top: adjustedTop, left: adjustedLeft });
+      }
+      if (flippedPosition) {
+        setEffectivePosition(flippedPosition);
       }
     });
 
@@ -164,7 +190,7 @@ export function Tooltip({ content, children, position = 'top', align = 'center',
           style={{
             top: coords.top,
             left: coords.left,
-            transform: transformMap[position][align],
+            transform: transformMap[effectivePosition][align],
           }}
         >
           <div className="brmble-tooltip" ref={tooltipRef} id={tooltipId} role="tooltip">

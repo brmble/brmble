@@ -308,7 +308,7 @@ Props:
 | `content` | `string` | required | Tooltip text (supports multi-line via `\n`) |
 | `children` | `ReactElement` | required | Trigger element |
 | `position` | `'top' \| 'bottom' \| 'left' \| 'right'` | `'top'` | Preferred position (auto-flips on overflow) |
-| `align` | `'start' \| 'center' \| 'end'` | `'center'` | Horizontal alignment relative to trigger. Use `start` for left-edge buttons, `end` for right-edge buttons |
+| `align` | `'start' \| 'center' \| 'end'` | `'center'` | Anchor alignment relative to trigger. For top/bottom: horizontal (start=left edge, end=right edge). For left/right: vertical (start=top edge, end=bottom edge). Use `start` for left/top-edge elements, `end` for right/bottom-edge elements |
 | `delay` | `number` | `400` | Hover delay in ms |
 
 Rules:
@@ -319,6 +319,7 @@ Rules:
 5. Tooltip renders via portal (`document.body`) to escape overflow containers
 6. Accessible: `role="tooltip"`, `aria-describedby`, Escape key dismissal
 7. For small trigger elements (e.g. `btn-icon`) near window edges, use `align="start"` or `align="end"` to prevent the tooltip from overflowing off-screen
+8. **Disabled elements** don't fire mouse/focus events -- wrap them in a `<span>` or `<div>` and attach the Tooltip to the wrapper instead
 
 ---
 

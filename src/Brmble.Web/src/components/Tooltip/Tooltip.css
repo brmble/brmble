@@ -18,7 +18,7 @@
   max-width: 260px; /* Keeps tooltip readable — roughly 35-40 characters per line */
   word-wrap: break-word;
   white-space: pre-line;
-  animation: tooltip-fade-in var(--animation-fast) ease;
+  animation: tooltip-fade-in var(--animation-fast) ease backwards;
 }
 
 @keyframes tooltip-fade-in {
