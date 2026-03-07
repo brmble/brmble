@@ -1,0 +1,235 @@
+/* BrmbleLogo hover animation + heartbeat mode
+ *
+ * Each path has --dx/--dy custom properties defining its outward direction.
+ *
+ * HOVER MODE (default):
+ *   On hover, rings translate outward with increasing magnitude and
+ *   progressively pick up a gradient fill matching the BRMBLE text.
+ *
+ * HEARTBEAT MODE (.brmble-logo-heartbeat):
+ *   Continuous breathing animation — rings gently pulse outward and back.
+ *   The gradient fades in at peak expansion and out on contraction.
+ *
+ * Because the SVG is rendered at ~32px from a 1024 viewBox, 1px in screen
+ * space = ~32 viewBox units. The translate values are in viewBox units.
+ */
+
+.brmble-logo-svg {
+  color: var(--text-primary);
+  flex-shrink: 0;
+  cursor: default;
+  overflow: visible;
+}
+
+/* All animated paths share the same transition */
+.brmble-logo-svg path {
+  transition:
+    transform var(--transition-normal) ease-out,
+    fill var(--transition-normal) ease-out;
+  will-change: transform;
+}
+
+/* --- Gradient stop colors (controlled via CSS for theme support) --- */
+
+.logo-grad-stop-primary {
+  stop-color: var(--text-primary);
+}
+
+/* Resting state: all gradient ends match text-primary (solid color) */
+.logo-grad-stop-center-end {
+  stop-color: var(--text-primary);
+}
+.logo-grad-stop-inner-end {
+  stop-color: var(--text-primary);
+}
+.logo-grad-stop-middle-end {
+  stop-color: var(--text-primary);
+}
+.logo-grad-stop-outer-end {
+  stop-color: var(--text-primary);
+}
+
+/* On hover, activate gradient end stops (uniform across all rings) */
+.brmble-logo-svg:hover .logo-grad-stop-center-end,
+.brmble-logo-svg:hover .logo-grad-stop-inner-end,
+.brmble-logo-svg:hover .logo-grad-stop-middle-end,
+.brmble-logo-svg:hover .logo-grad-stop-outer-end {
+  stop-color: var(--accent-secondary);
+}
+
+/* Gradient stop transitions */
+.brmble-logo-svg stop {
+  transition: stop-color var(--transition-normal) ease-out;
+}
+
+/* ================================================================
+ * HOVER MODE — position + gradient fill
+ * ================================================================ */
+
+.logo-ring-center {
+  /* intentionally no hover transform, but gets gradient fill */
+}
+
+/* Center — gradient fill on hover, no movement */
+.brmble-logo-svg:hover .logo-ring-center {
+  fill: var(--grad-center);
+}
+
+/* Inner ring — subtle shift + gradient */
+.brmble-logo-svg:hover .logo-ring-inner {
+  transform: translate(
+    calc(var(--dx) * 96px),
+    calc(var(--dy) * 96px)
+  );
+  fill: var(--grad-inner);
+}
+
+/* Middle ring — moderate shift + half-blend gradient */
+.brmble-logo-svg:hover .logo-ring-middle {
+  transform: translate(
+    calc(var(--dx) * 160px),
+    calc(var(--dy) * 160px)
+  );
+  fill: var(--grad-middle);
+}
+
+/* Outer ring — largest shift + full gradient */
+.brmble-logo-svg:hover .logo-ring-outer {
+  transform: translate(
+    calc(var(--dx) * 256px),
+    calc(var(--dy) * 256px)
+  );
+  fill: var(--grad-outer);
+}
+
+/* ================================================================
+ * HEARTBEAT MODE — continuous breathing pulse
+ * ================================================================
+ * Each ring has its own keyframes with staggered timing.
+ * The pulse: expand outward → hold briefly → contract back.
+ * Total cycle: var(--animation-heartbeat) with ease-in-out for organic feel.
+ * Rings expand sequentially: inner first, then middle, then outer.
+ */
+
+/* Heartbeat overrides: disable hover transitions, use animations */
+.brmble-logo-heartbeat path {
+  transition: none;
+}
+
+/* Heartbeat gradient stops animate continuously (uniform across all rings) */
+.brmble-logo-heartbeat .logo-grad-stop-center-end,
+.brmble-logo-heartbeat .logo-grad-stop-inner-end,
+.brmble-logo-heartbeat .logo-grad-stop-middle-end,
+.brmble-logo-heartbeat .logo-grad-stop-outer-end {
+  animation: heartbeat-grad var(--animation-heartbeat) ease-in-out infinite;
+}
+
+/* Ring position animations */
+.brmble-logo-heartbeat .logo-ring-center {
+  fill: var(--grad-center);
+}
+.brmble-logo-heartbeat .logo-ring-inner {
+  fill: var(--grad-inner);
+  animation: heartbeat-inner var(--animation-heartbeat) ease-in-out infinite;
+}
+.brmble-logo-heartbeat .logo-ring-middle {
+  fill: var(--grad-middle);
+  animation: heartbeat-middle var(--animation-heartbeat) ease-in-out infinite;
+}
+.brmble-logo-heartbeat .logo-ring-outer {
+  fill: var(--grad-outer);
+  animation: heartbeat-outer var(--animation-heartbeat) ease-in-out infinite;
+}
+
+/* ---------------------------------------------------------------
+ * Double-beat keyframes: thump-thump ... thump-thump ...
+ *
+ * 3s total cycle. Timeline (%):
+ *   0-70%   long rest
+ *   71-73%  1st beat: snap out
+ *   74-76%  1st beat: snap back
+ *   77-79%  brief pause between beats
+ *   80-82%  2nd beat: snap out
+ *   83-85%  2nd beat: snap back
+ *   86-100% rest before next cycle
+ * --------------------------------------------------------------- */
+
+/* --- Inner ring (smallest movement) --- */
+@keyframes heartbeat-inner {
+  0%, 70%, 76%, 79%, 85%, 100% {
+    transform: translate(0, 0);
+  }
+  73% {
+    transform: translate(
+      calc(var(--dx) * 48px),
+      calc(var(--dy) * 48px)
+    );
+  }
+  82% {
+    transform: translate(
+      calc(var(--dx) * 36px),
+      calc(var(--dy) * 36px)
+    );
+  }
+}
+
+/* --- Middle ring (moderate movement) --- */
+@keyframes heartbeat-middle {
+  0%, 70%, 76%, 79%, 85%, 100% {
+    transform: translate(0, 0);
+  }
+  73% {
+    transform: translate(
+      calc(var(--dx) * 80px),
+      calc(var(--dy) * 80px)
+    );
+  }
+  82% {
+    transform: translate(
+      calc(var(--dx) * 60px),
+      calc(var(--dy) * 60px)
+    );
+  }
+}
+
+/* --- Outer ring (largest movement) --- */
+@keyframes heartbeat-outer {
+  0%, 70%, 76%, 79%, 85%, 100% {
+    transform: translate(0, 0);
+  }
+  73% {
+    transform: translate(
+      calc(var(--dx) * 128px),
+      calc(var(--dy) * 128px)
+    );
+  }
+  82% {
+    transform: translate(
+      calc(var(--dx) * 96px),
+      calc(var(--dy) * 96px)
+    );
+  }
+}
+
+/* --- Gradient keyframes (uniform color pulse across all rings) --- */
+@keyframes heartbeat-grad {
+  0%, 70%, 76%, 79%, 85%, 100% {
+    stop-color: var(--text-primary);
+  }
+  73%, 82% {
+    stop-color: var(--accent-secondary);
+  }
+}
+
+/* Respect reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .brmble-logo-heartbeat .logo-ring-inner,
+  .brmble-logo-heartbeat .logo-ring-middle,
+  .brmble-logo-heartbeat .logo-ring-outer,
+  .brmble-logo-heartbeat .logo-grad-stop-center-end,
+  .brmble-logo-heartbeat .logo-grad-stop-inner-end,
+  .brmble-logo-heartbeat .logo-grad-stop-middle-end,
+  .brmble-logo-heartbeat .logo-grad-stop-outer-end {
+    animation: none;
+  }
+}

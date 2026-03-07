@@ -194,7 +194,14 @@ internal static class TrayIcon
 
     private static void CreateIcons()
     {
-        _iconNormal = CreateColoredIcon(0x00, 0xC8, 0x50);    // green
+        // Use the actual Brmble logo for normal state
+        _iconNormal = Win32Window.LoadAppIcon(16);
+        if (_iconNormal == IntPtr.Zero)
+        {
+            // Fallback: programmatic green circle if .ico is missing
+            _iconNormal = CreateColoredIcon(0x00, 0xC8, 0x50);
+        }
+
         _iconMuted = CreateColoredIcon(0xE8, 0xB0, 0x00);    // yellow/amber
         _iconDeafened = CreateColoredIcon(0xD4, 0x14, 0x5A); // berry red
 

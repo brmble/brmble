@@ -9,7 +9,7 @@ Format: Flat rulebook. Numbered rules, tables, do/don't examples. No fluff.
 
 | Resource | Path | Contents |
 |---|---|---|
-| Global tokens | `src/Brmble.Web/src/index.css` | 39 `:root` tokens (spacing, font sizes, layout, transitions, animations, heading scale) |
+| Global tokens | `src/Brmble.Web/src/index.css` | 41 `:root` tokens (spacing, font sizes, layout, transitions, animations, heading scale) |
 | Heading classes | `src/Brmble.Web/src/styles/headings.css` | 3-tier heading system |
 | Theme template | `src/Brmble.Web/src/themes/_template.css` | 73 per-theme token slots with derivation formulas |
 
@@ -31,7 +31,7 @@ Format: Flat rulebook. Numbered rules, tables, do/don't examples. No fluff.
 
 All visual properties must come from CSS custom properties. Two layers exist:
 
-### Layer 1: Global Tokens (40 in `:root`, `index.css`)
+### Layer 1: Global Tokens (41 in `:root`, `index.css`)
 
 | Group | Tokens | Range |
 |---|---|---|
@@ -40,7 +40,7 @@ All visual properties must come from CSS custom properties. Two layers exist:
 | Layout | `--sidebar-width`, `--header-height` | 280px, 60px (2 tokens) |
 | Transitions | `--transition-fast`, `--transition-normal`, `--transition-slow` | 150ms, 250ms, 400ms (3 tokens) |
 | Entrance animations | `--animation-fast/normal/slow`, `--stagger-step` | 150ms, 300ms, 400ms, 50ms (4 tokens) |
-| Continuous animations | `--animation-blink` through `--animation-badge-pulse-delay` | 0.5s - 2.4s (8 tokens) |
+| Continuous animations | `--animation-blink` through `--animation-heartbeat` | 0.5s - 4s (9 tokens) |
 | Heading scale | `--heading-title-size/color`, `--heading-section-size/color`, `--heading-label-size/color` | (6 tokens) |
 
 ### Layer 2: Per-Theme Tokens (73 in `_template.css`)
@@ -393,3 +393,106 @@ Use `--radius-*` tokens. Do not assume rounded corners exist (Retro Terminal is 
 ### Negative Space
 
 Intentional negative space is a design principle. Let content breathe. Do not pack elements tightly. Use `--space-md` (16px) or larger as default component padding. Use `--space-sm` (12px) minimum between related items within a group.
+
+---
+
+## 9. Logo & Brand Assets
+
+### Source File
+
+`src/Brmble.Web/src/assets/brmble-logo.svg` — 1024x1024 viewBox, 35 paths, `currentColor` fill.
+
+### BrmbleLogo Component
+
+Reference: `src/Brmble.Web/src/components/Header/BrmbleLogo.tsx`, `BrmbleLogo.css`
+
+```tsx
+<BrmbleLogo size={32} />              // Header (hover animation)
+<BrmbleLogo size={192} heartbeat />   // Welcome screen (continuous pulse)
+```
+
+Props:
+| Prop | Type | Default | Use |
+|---|---|---|---|
+| `size` | `number` | `32` | Width/height in px |
+| `heartbeat` | `boolean` | `false` | Enable continuous pulse animation |
+| `className` | `string` | `''` | Additional CSS classes |
+
+### Ring Architecture
+
+Paths are grouped into 4 concentric rings by distance from center (512,512):
+
+| Ring | Class | Paths | Movement | Gradient |
+|---|---|---|---|---|
+| Center | `.logo-ring-center` | 1 | None (fixed) | Yes |
+| Inner | `.logo-ring-inner` | 6 | Smallest | Yes |
+| Middle | `.logo-ring-middle` | 10 | Moderate | Yes |
+| Outer | `.logo-ring-outer` | 18 | Largest | Yes |
+
+Each path has `--dx`/`--dy` CSS custom properties (unit vector from center to path start point) used for directional translation.
+
+### Animation Modes
+
+**Hover** (default): Rings translate outward along their `--dx`/`--dy` vectors. All elements receive the same gradient transition from `--text-primary` to `--accent-secondary`.
+
+**Heartbeat** (`heartbeat` prop): Continuous double-beat pulse (*thump-thump* ... rest). Duration controlled by `--animation-heartbeat` token. All elements share the same uniform gradient pulse.
+
+### SVG Gradient ID Collisions
+
+Multiple `<BrmbleLogo>` instances on the same page cause SVG gradient `id` collisions. The component solves this with a `useState`-based instance counter generating unique prefixes, passed to CSS via `--grad-center`, `--grad-inner`, `--grad-middle`, `--grad-outer` custom properties.
+
+**Rule: Never use bare string IDs for SVG gradients/filters/clips. Always generate unique IDs per component instance.**
+
+---
+
+## 10. Animation & Motion
+
+### Token Categories
+
+| Category | Tokens | Use |
+|---|---|---|
+| Transitions | `--transition-fast/normal/slow` | Hover states, modals, page transitions |
+| Entrance | `--animation-fast/normal/slow`, `--stagger-step` | One-shot slide/fade-in |
+| Continuous | `--animation-blink` through `--animation-heartbeat` | Looping UI animations |
+
+### Rules
+
+1. **All animation durations must use tokens.** If no existing token fits, add a new one to `:root` in `index.css` and to the `prefers-reduced-motion` override block.
+2. **`prefers-reduced-motion` must be respected.** Continuous animations in `index.css` are zeroed out globally. Component-level `@keyframes` should also have a `prefers-reduced-motion: reduce` fallback that sets `animation: none`.
+3. **Hover animations use CSS transitions** via `transition` property with `--transition-*` tokens. Do not use `@keyframes` for hover effects.
+4. **Continuous animations use `@keyframes`** with `--animation-*` tokens for duration. Always set `will-change` on animated properties.
+5. **`color-mix(in srgb, ...)`** is the preferred method for intermediate color blends between theme tokens (e.g. 60% of `--text-primary` mixed with 40% of `--accent-secondary`).
+
+### SVG Fill Transitions
+
+SVG `fill` cannot transition between `currentColor` and `url(#gradient)`. The workaround:
+
+1. Define gradient `<stop>` elements whose `stop-color` starts as `--text-primary` (visually identical to `currentColor`)
+2. Transition the `stop-color` to the target color on hover/animation
+3. Apply the gradient `fill` via CSS custom property: `fill: var(--grad-inner)`
+
+This gives the appearance of transitioning from solid to gradient.
+
+---
+
+## 11. Inline SVG Guidelines
+
+### When to Use Inline SVG
+
+- **Icons** (< 24 paths): Inline in JSX with `currentColor` for theme compatibility
+- **Logo** (35 paths, animated): Dedicated React component (`BrmbleLogo`)
+- **Complex illustrations**: Use `<img>` tag referencing static asset
+
+### Rules
+
+1. **Always use `currentColor`** for fill/stroke on theme-aware SVGs. Never hardcode colors.
+2. **Use `aria-label`** on decorative/branded SVGs. Use `aria-hidden="true"` on purely decorative icons adjacent to text labels.
+3. **Component-specific dimensions** (icon sizes, avatar sizes, button sizes) that don't map to spacing tokens should use local CSS custom properties for documentation and reuse:
+   ```css
+   .my-component {
+     --icon-size: 28px;
+     width: var(--icon-size);
+     height: var(--icon-size);
+   }
+   ```
+4. **`overflow: visible`** must be set on SVGs with hover/animation effects that translate elements outside the viewBox.

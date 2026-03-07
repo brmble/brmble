@@ -1,9 +1,10 @@
 .header {
+  --window-btn-width: 46px; /* Win32 standard caption button width */
   height: var(--header-height);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 1.5rem;
+  padding: 0 var(--space-lg);
   background: var(--bg-glass);
   backdrop-filter: var(--glass-blur);
   border-bottom: var(--glass-border);
@@ -16,6 +17,7 @@
 .header-left {
   display: flex;
   align-items: center;
+  gap: var(--space-xs);
 }
 
 .header-logo {
@@ -34,7 +36,7 @@
 .header-right {
   display: flex;
   justify-content: flex-end;
-  margin-right: 138px;
+  margin-right: calc(var(--window-btn-width) * 3); /* Reserve space for 3 window control buttons */
   -webkit-app-region: no-drag;
 }
 
@@ -52,7 +54,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 46px;
+  width: var(--window-btn-width);
   height: 100%;
   border: none;
   background: transparent;

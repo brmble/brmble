@@ -1,4 +1,5 @@
 import { UserPanel } from '../UserPanel/UserPanel';
+import { BrmbleLogo } from './BrmbleLogo';
 import bridge from '../../bridge';
 import './Header.css';
 
@@ -28,6 +29,7 @@ export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSe
   return (
     <header className="header">
       <div className="header-left">
+        <BrmbleLogo size={32} />
         <h1 className="header-logo">BRMBLE</h1>
       </div>
 
