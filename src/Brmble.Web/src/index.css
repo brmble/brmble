@@ -44,6 +44,7 @@
   --animation-badge-pop: 400ms;
   --animation-badge-pulse: 2.4s;
   --animation-badge-pulse-delay: 600ms;
+  --animation-heartbeat: 3s;
 
   /* Heading Scale */
   --heading-title-size:    1.75rem;   /* 28px */
@@ -461,6 +462,7 @@ select.brmble-input option {
     --animation-badge-pop: 0ms;
     --animation-badge-pulse: 0ms;
     --animation-badge-pulse-delay: 0ms;
+    --animation-heartbeat: 0ms;
 
     /* Disable transitions */
     --transition-fast: 0ms;
