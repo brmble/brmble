@@ -16,6 +16,7 @@ interface ChatPanelProps {
   onSendMessage: (content: string) => void;
   isDM?: boolean;
   matrixClient?: MatrixClient | null;
+  readMarkerTs?: number | null;
   screenShareVideoEl?: HTMLVideoElement | null;
   screenSharerName?: string;
   onCloseScreenShare?: () => void;
@@ -25,9 +26,10 @@ const SCROLL_THRESHOLD = 150;
 const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
 const DEFAULT_SPLIT = 50;
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, isDM, matrixClient, screenShareVideoEl, screenSharerName, onCloseScreenShare }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, isDM, matrixClient, readMarkerTs, screenShareVideoEl, screenSharerName, onCloseScreenShare }: ChatPanelProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const unreadDividerRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [splitPercent, setSplitPercent] = useState(() => {
@@ -121,7 +123,19 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
     }
   }, [messages]);
 
-  const grouped = useMemo(() => groupMessages(messages), [messages]);
+  // Scroll to unread divider on channel switch, or bottom if fully read
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (unreadDividerRef.current) {
+        unreadDividerRef.current.scrollIntoView({ behavior: 'auto', block: 'start' });
+      } else if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView();
+      }
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [channelId, readMarkerTs]);
+
+  const grouped = useMemo(() => groupMessages(messages, readMarkerTs), [messages, readMarkerTs]);
 
   if (!channelId) {
     return (
@@ -219,6 +233,11 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
                   <span className="chat-date-separator-label">
                     {formatDateSeparator(item.message.timestamp)}
                   </span>
+                </div>
+              )}
+              {item.showUnreadDivider && (
+                <div className="chat-unread-divider" ref={unreadDividerRef} key={`unread-${item.message.id}`}>
+                  <span className="chat-unread-divider-label">New Messages</span>
                 </div>
               )}
               <MessageBubble

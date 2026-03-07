@@ -25,6 +25,7 @@ interface SidebarProps {
   onStartDM?: (userId: string, userName: string) => void;
   speakingUsers?: Map<number, boolean>;
   pendingChannelAction?: number | 'leave' | null;
+  channelUnreads?: Map<string, { notificationCount: number; highlightCount: number }>;
   sharingChannelId?: number;
   sharingUserSession?: number;
 }
@@ -47,6 +48,7 @@ export function Sidebar({
   onStartDM,
   speakingUsers,
   pendingChannelAction,
+  channelUnreads,
   sharingChannelId,
   sharingUserSession
 }: SidebarProps) {
@@ -203,6 +205,7 @@ export function Sidebar({
           onStartDM={onStartDM}
           speakingUsers={speakingUsers}
           pendingChannelAction={pendingChannelAction}
+          channelUnreads={channelUnreads}
           sharingChannelId={sharingChannelId}
           sharingUserSession={sharingUserSession}
         />

@@ -133,6 +133,34 @@
   white-space: nowrap;
 }
 
+/* Unread messages divider */
+.chat-unread-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) 0;
+  margin: var(--space-sm) 0;
+  user-select: none;
+}
+
+.chat-unread-divider::before,
+.chat-unread-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--heading-section-color);
+}
+
+.chat-unread-divider-label {
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--heading-section-color);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
 .dm-chat-avatar {
   width: 28px;
   height: 28px;
