@@ -141,6 +141,34 @@
   white-space: nowrap;
 }
 
+/* Unread messages divider */
+.chat-unread-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) 0;
+  margin: var(--space-sm) 0;
+  user-select: none;
+}
+
+.chat-unread-divider::before,
+.chat-unread-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--heading-section-color);
+}
+
+.chat-unread-divider-label {
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--heading-section-color);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
 .dm-chat-avatar {
   --dm-avatar-size: 28px;
   width: var(--dm-avatar-size);
@@ -198,4 +226,28 @@
 .chat-scroll-bottom:focus-visible {
   outline: 2px solid var(--accent-primary);
   outline-offset: 2px;
+}
+
+/* Screen share split layout */
+.chat-split-video {
+  min-height: 100px;
+  overflow: hidden;
+  display: flex;
+}
+
+.chat-split-video .screen-share-viewer {
+  flex: 1;
+}
+
+.chat-split-divider {
+  flex: none;
+  height: 4px;
+  background: var(--border-subtle);
+  cursor: row-resize;
+  transition: background var(--transition-fast);
+}
+
+.chat-split-divider:hover,
+.chat-split-divider:active {
+  background: var(--accent-primary);
 }

@@ -33,6 +33,7 @@ services:
       MATRIX_APPSERVICE_TOKEN: '${MATRIX_APPSERVICE_TOKEN}'
       Matrix__AppServiceToken: '${MATRIX_APPSERVICE_TOKEN}'
       Ice__Host: mumble
+      LIVEKIT_NODE_IP: '127.0.0.1'
     restart: unless-stopped
     depends_on:
       - mumble

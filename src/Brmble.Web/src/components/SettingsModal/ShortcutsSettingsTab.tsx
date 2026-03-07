@@ -16,6 +16,7 @@ export interface ShortcutsSettings {
   toggleMuteDeafenKey: string | null;
   toggleLeaveVoiceKey: string | null;
   toggleDMScreenKey: string | null;
+  toggleScreenShareKey: string | null;
 }
 
 export const DEFAULT_SHORTCUTS: ShortcutsSettings = {
@@ -23,6 +24,7 @@ export const DEFAULT_SHORTCUTS: ShortcutsSettings = {
   toggleMuteDeafenKey: null,
   toggleLeaveVoiceKey: null,
   toggleDMScreenKey: null,
+  toggleScreenShareKey: null,
 };
 
 export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearBinding }: ShortcutsSettingsTabProps) {
@@ -162,6 +164,19 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
             onClick={() => setRecordingKey(recordingKey === 'toggleDMScreenKey' ? null : 'toggleDMScreenKey')}
           >
             {recordingKey === 'toggleDMScreenKey' ? 'Press any key...' : (localSettings.toggleDMScreenKey || 'Not bound')}
+          </button>
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <h3 className="heading-section settings-section-title">Screen Sharing</h3>
+        <div className="settings-item">
+          <label>Toggle Screen Share</label>
+          <button
+            className={`btn btn-secondary key-binding-btn ${recordingKey === 'toggleScreenShareKey' ? 'recording' : ''}`}
+            onClick={() => setRecordingKey(recordingKey === 'toggleScreenShareKey' ? null : 'toggleScreenShareKey')}
+          >
+            {recordingKey === 'toggleScreenShareKey' ? 'Press any key...' : (localSettings.toggleScreenShareKey || 'Not bound')}
           </button>
         </div>
       </div>

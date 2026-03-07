@@ -21,6 +21,7 @@ export const BINDING_LABELS: Record<string, string> = {
   toggleMuteDeafenKey: 'Toggle Mute & Deafen',
   toggleMuteKey: 'Toggle Mute',
   toggleDMScreenKey: 'Toggle Direct Messages Screen',
+  toggleScreenShareKey: 'Toggle Screen Share',
 };
 
 const SETTINGS_STORAGE_KEY = 'brmble-settings';
@@ -81,6 +82,7 @@ export function SettingsModal(props: SettingsModalProps) {
     toggleMuteDeafenKey: settings.shortcuts.toggleMuteDeafenKey,
     toggleMuteKey: settings.shortcuts.toggleMuteKey,
     toggleDMScreenKey: settings.shortcuts.toggleDMScreenKey,
+    toggleScreenShareKey: settings.shortcuts.toggleScreenShareKey,
   }), [settings.audio.pushToTalkKey, settings.shortcuts]);
 
   useEffect(() => {
@@ -107,6 +109,7 @@ export function SettingsModal(props: SettingsModalProps) {
       const newSettings = { ...prev, audio };
 
       bridge.send('settings.set', { settings: newSettings });
+      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
 
       // Notify backend of transmission mode change (only when relevant fields change)
       if (audio.transmissionMode !== prev.audio.transmissionMode ||
@@ -133,6 +136,7 @@ export function SettingsModal(props: SettingsModalProps) {
         { action: 'toggleMuteDeafen', key: shortcuts.toggleMuteDeafenKey },
         { action: 'toggleLeaveVoice', key: shortcuts.toggleLeaveVoiceKey },
         { action: 'toggleDmScreen', key: shortcuts.toggleDMScreenKey },
+        { action: 'toggleScreenShare', key: shortcuts.toggleScreenShareKey },
       ];
 
       for (const { action, key } of actions) {
@@ -167,6 +171,7 @@ export function SettingsModal(props: SettingsModalProps) {
           toggleMuteDeafenKey: 'toggleMuteDeafen',
           toggleLeaveVoiceKey: 'toggleLeaveVoice',
           toggleDMScreenKey: 'toggleDmScreen',
+          toggleScreenShareKey: 'toggleScreenShare',
         };
         const action = BINDING_TO_ACTION[bindingId] ?? bindingId.replace('Key', '');
         bridge.send('voice.setShortcut', { action, key: null });
@@ -198,12 +203,14 @@ export function SettingsModal(props: SettingsModalProps) {
     const newSettings = { ...settings, overlay };
     setSettings(newSettings);
     bridge.send('settings.set', { settings: newSettings });
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
   };
 
   const handleSpeechEnhancementChange = (speechEnhancement: SpeechEnhancementSettings) => {
     const newSettings = { ...settings, speechEnhancement };
     setSettings(newSettings);
     bridge.send('settings.set', { settings: newSettings });
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
   };
 
   const handleConnectionChange = (connection: ConnectionSettings) => {
@@ -215,6 +222,7 @@ export function SettingsModal(props: SettingsModalProps) {
     };
     setSettings(newSettings);
     bridge.send('settings.set', { settings: newSettings });
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
   };
 
   if (!isOpen) return null;

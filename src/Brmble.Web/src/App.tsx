@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import bridge from './bridge';
 import type { ConnectionStatus } from './types';
 import { useMatrixClient } from './hooks/useMatrixClient';
 import type { MatrixCredentials } from './hooks/useMatrixClient';
 import { useScreenShare } from './hooks/useScreenShare';
+import { useUnreadTracker } from './hooks/useUnreadTracker';
 
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Header } from './components/Header/Header';
@@ -20,7 +21,7 @@ import { useChatStore, addMessageToStore, clearChatStorage, loadDMContacts, upse
 import { parseMessageMedia } from './utils/parseMessageMedia';
 import type { StoredDMContact } from './hooks/useChatStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
-import { usePrompt } from './hooks/usePrompt';
+import { usePrompt, confirm } from './hooks/usePrompt';
 import './App.css';
 
 const SETTINGS_STORAGE_KEY = 'brmble-settings';
@@ -102,6 +103,7 @@ interface User {
   muted?: boolean;
   deafened?: boolean;
   self?: boolean;
+  comment?: string;
   matrixUserId?: string;
 }
 
@@ -128,8 +130,23 @@ function App() {
   
   const [channels, setChannels] = useState<Channel[]>([]);
   const [users, setUsers] = useState<User[]>([]);
-  const [currentChannelId, setCurrentChannelId] = useState<string | undefined>();
+  const [currentChannelId, setCurrentChannelIdRaw] = useState<string | undefined>();
   const [currentChannelName, setCurrentChannelName] = useState<string>('');
+  // Snapshot of the read-marker timestamp at the moment a channel/DM is opened,
+  // captured *before* markRoomRead moves it forward.
+  // This lets the unread divider persist while the user views the channel.
+  // The divider is placed above the first message whose timestamp exceeds this value.
+  const [channelDividerTs, setChannelDividerTs] = useState<number | null>(null);
+  const [dmDividerTs, setDmDividerTs] = useState<number | null>(null);
+
+  // Wrapper: always clear the divider snapshot when the channel changes.
+  // This prevents the stale divider from a previous channel being rendered
+  // (and scrolled to) during the first render after a channel switch.
+  // React batches both setState calls into a single render.
+  const setCurrentChannelId = useCallback((id: string | undefined) => {
+    setCurrentChannelIdRaw(id);
+    setChannelDividerTs(null);
+  }, []);
   const [selfMuted, setSelfMuted] = useState(false);
   const [selfDeafened, setSelfDeafened] = useState(false);
   const [selfLeftVoice, setSelfLeftVoice] = useState(false);
@@ -143,8 +160,15 @@ function App() {
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [dmContacts, setDmContacts] = useState(() => mapStoredContacts(loadDMContacts()));
   const [appMode, setAppMode] = useState<'channels' | 'dm'>('channels');
-  const [selectedDMUserId, setSelectedDMUserId] = useState<string | null>(null);
+  const [selectedDMUserId, setSelectedDMUserIdRaw] = useState<string | null>(null);
   const [selectedDMUserName, setSelectedDMUserName] = useState<string>('');
+
+  // Same pattern as setCurrentChannelId: clear the DM divider snapshot synchronously
+  // to prevent stale divider scroll on DM switch.
+  const setSelectedDMUserId = useCallback((id: string | null) => {
+    setSelectedDMUserIdRaw(id);
+    setDmDividerTs(null);
+  }, []);
   const [showSettings, setShowSettings] = useState(false);
   const [showCloseDialog, setShowCloseDialog] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -154,15 +178,51 @@ function App() {
   const matrixClient = useMatrixClient(matrixCredentials);
   const { dmMessages: matrixDmMessages, sendDMMessage: sendMatrixDM, fetchDMHistory } = matrixClient;
 
+  // Build set of DM room IDs from matrixClient.dmRoomMap
+  const dmRoomIds = useMemo(() => {
+    const set = new Set<string>();
+    if (matrixClient?.dmRoomMap) {
+      for (const roomId of matrixClient.dmRoomMap.values()) {
+        set.add(roomId);
+      }
+    }
+    return set;
+  }, [matrixClient?.dmRoomMap]);
+
+  // Determine active Matrix room ID
+  const activeMatrixRoomId = useMemo(() => {
+    if (selectedDMUserId && matrixClient?.dmRoomMap) {
+      const targetUser = users.find(u => String(u.session) === selectedDMUserId);
+      if (targetUser?.matrixUserId) {
+        const roomId = matrixClient.dmRoomMap.get(targetUser.matrixUserId);
+        if (roomId) return roomId;
+      }
+    }
+    if (currentChannelId && currentChannelId !== 'server-root' && matrixCredentials?.roomMap?.[currentChannelId]) {
+      return matrixCredentials.roomMap[currentChannelId];
+    }
+    return null;
+  }, [selectedDMUserId, currentChannelId, matrixClient?.dmRoomMap, matrixCredentials?.roomMap, users]);
+
+  const unreadTracker = useUnreadTracker(
+    matrixClient?.client ?? null,
+    dmRoomIds,
+    activeMatrixRoomId,
+  );
+
   const channelKey = currentChannelId === 'server-root' ? 'server-root' : currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
   const { messages, addMessage } = useChatStore(channelKey);
 
   const dmKey = selectedDMUserId ? `dm-${selectedDMUserId}` : 'no-dm';
   const { messages: dmMessages, addMessage: addDMMessage } = useChatStore(dmKey);
 
-  const updateBadge = (unread: number, invite: boolean) => {
-    bridge.send('notification.badge', { unreadDMs: unread > 0, pendingInvite: invite });
-  };
+  const updateBadge = useCallback((unread: number, invite: boolean) => {
+    // When Matrix is connected, prefer its DM unread count over localStorage
+    const effectiveUnreadDMs = matrixClient?.client
+      ? unreadTracker.totalDmUnreadCount > 0
+      : unread > 0;
+    bridge.send('notification.badge', { unreadDMs: effectiveUnreadDMs, pendingInvite: invite });
+  }, [matrixClient?.client, unreadTracker.totalDmUnreadCount]);
 
   // Refs to avoid re-registering bridge handlers on every state change
   const usersRef = useRef(users);
@@ -188,6 +248,7 @@ function App() {
   addDMMessageRef.current = addDMMessage;
   const matrixCredentialsRef = useRef(matrixCredentials);
   matrixCredentialsRef.current = matrixCredentials;
+  const handleToggleScreenShareRef = useRef<(() => void) | null>(null);
 
   const clearPendingAction = useCallback(() => {
     if (pendingChannelActionTimeoutRef.current) {
@@ -348,6 +409,7 @@ function App() {
       setSelfSession(0);
       setSpeakingUsers(new Map());
       setMatrixCredentials(null);
+      setSharingChannelId(undefined);
     };
 
     const onServerCredentials = (data: unknown) => {
@@ -434,7 +496,7 @@ function App() {
     });
 
     const onVoiceUserJoined = ((data: unknown) => {
-      const d = data as { session: number; name: string; channelId?: number; muted?: boolean; deafened?: boolean; self?: boolean; matrixUserId?: string } | undefined;
+      const d = data as { session: number; name: string; channelId?: number; muted?: boolean; deafened?: boolean; self?: boolean; comment?: string; matrixUserId?: string } | undefined;
       if (d?.session && d.channelId !== undefined) {
         const previousChannelId = previousChannelIdRef.current.get(d.session);
         
@@ -570,12 +632,22 @@ function App() {
       }
     });
 
+    const onVoiceUserCommentChanged = ((data: unknown) => {
+      const d = data as { session: number; comment?: string } | undefined;
+      if (d?.session !== undefined) {
+        setUsers(prev => prev.map(u =>
+          u.session === d.session ? { ...u, comment: d.comment } : u
+        ));
+      }
+    });
+
     // Map shortcut action names to UserPanel button names
     const ACTION_TO_BTN: Record<string, string> = {
       toggleMute: 'mute',
       toggleMuteDeafen: 'deaf',
       toggleLeaveVoice: 'leave',
       toggleDmScreen: 'dm',
+      toggleScreenShare: 'screen',
     };
 
     const onShortcutPressed = (data: unknown) => {
@@ -596,6 +668,10 @@ function App() {
 
     const onToggleDmScreen = () => {
       setAppModeRef.current(prev => prev === 'channels' ? 'dm' : 'channels');
+    };
+
+    const onToggleScreenShare = () => {
+      handleToggleScreenShareRef.current?.();
     };
 
     const onShowCloseDialog = () => {
@@ -699,9 +775,11 @@ function App() {
     bridge.on('voice.canRejoinChanged', onCanRejoinChanged);
     bridge.on('voice.userSpeaking', onVoiceUserSpeaking);
     bridge.on('voice.userSilent', onVoiceUserSilent);
+    bridge.on('voice.userCommentChanged', onVoiceUserCommentChanged);
     bridge.on('voice.shortcutPressed', onShortcutPressed);
     bridge.on('voice.shortcutReleased', onShortcutReleased);
     bridge.on('voice.toggleDmScreen', onToggleDmScreen);
+    bridge.on('voice.toggleScreenShare', onToggleScreenShare);
     bridge.on('window.showCloseDialog', onShowCloseDialog);
     bridge.on('cert.status', onCertStatus);
     bridge.on('cert.generated', onCertGenerated);
@@ -730,9 +808,11 @@ function App() {
       bridge.off('voice.canRejoinChanged', onCanRejoinChanged);
       bridge.off('voice.userSpeaking', onVoiceUserSpeaking);
       bridge.off('voice.userSilent', onVoiceUserSilent);
+      bridge.off('voice.userCommentChanged', onVoiceUserCommentChanged);
       bridge.off('voice.shortcutPressed', onShortcutPressed);
       bridge.off('voice.shortcutReleased', onShortcutReleased);
       bridge.off('voice.toggleDmScreen', onToggleDmScreen);
+      bridge.off('voice.toggleScreenShare', onToggleScreenShare);
       bridge.off('window.showCloseDialog', onShowCloseDialog);
       bridge.off('cert.status', onCertStatus);
       bridge.off('cert.generated', onCertGenerated);
@@ -818,7 +898,21 @@ const handleConnect = (serverData: SavedServer) => {
     });
   };
 
-  const handleJoinChannel = (channelId: number) => {
+  const handleJoinChannel = async (channelId: number) => {
+    if (isSharing && sharingChannelId && String(channelId) !== sharingChannelId) {
+      const sharingChannel = channels.find(c => String(c.id) === sharingChannelId);
+      const sharingChannelName = sharingChannel?.name || `channel ${sharingChannelId}`;
+      const shouldStop = await confirm({
+        title: 'Screen share active',
+        message: `You are sharing your screen to "${sharingChannelName}". Stop sharing?`,
+        confirmLabel: 'Stop Sharing',
+        cancelLabel: 'Keep Sharing',
+      });
+      if (shouldStop) {
+        await stopSharing();
+        setSharingChannelId(undefined);
+      }
+    }
     startPendingAction(channelId);
     bridge.send('voice.joinChannel', { channelId });
   };
@@ -830,6 +924,7 @@ const handleConnect = (serverData: SavedServer) => {
       setCurrentChannelName(channel.name);
       setUnreadCount(0);
       updateBadge(0, hasPendingInvite);
+
       if (appMode === 'dm') {
         setAppMode('channels');
         setSelectedDMUserId(null);
@@ -921,7 +1016,19 @@ const handleConnect = (serverData: SavedServer) => {
     bridge.send('voice.toggleDeaf', {});
   };
 
-  const handleLeaveVoice = () => {
+  const handleLeaveVoice = async () => {
+    if (isSharing) {
+      const shouldStop = await confirm({
+        title: 'Screen share active',
+        message: 'You are currently sharing your screen. Stop sharing?',
+        confirmLabel: 'Stop Sharing',
+        cancelLabel: 'Keep Sharing',
+      });
+      if (shouldStop) {
+        await stopSharing();
+        setSharingChannelId(undefined);
+      }
+    }
     startPendingAction('leave');
     bridge.send('voice.leaveVoice', {});
   };
@@ -946,7 +1053,40 @@ const handleConnect = (serverData: SavedServer) => {
     setAppMode(prev => prev === 'channels' ? 'dm' : 'channels');
   };
 
-  const unreadDMUserCount = dmContacts.filter(c => c.unread > 0).length;
+  // Local fallback: total unread DM messages across all contacts
+  const localTotalDmUnreadCount = dmContacts.reduce(
+    (sum, c) => sum + (c.unread || 0),
+    0,
+  );
+
+  // Use Matrix-backed DM unread count when Matrix is connected, fall back to local aggregate
+  const totalDmUnreadCount = matrixClient?.client
+    ? unreadTracker.totalDmUnreadCount
+    : localTotalDmUnreadCount;
+
+  // Push DM badge state to native side whenever unread count changes
+  useEffect(() => {
+    updateBadge(totalDmUnreadCount, hasPendingInvite);
+  }, [totalDmUnreadCount, hasPendingInvite, updateBadge]);
+
+  const userCommentsBySession = useMemo(
+    () =>
+      new Map(
+        users
+          .filter(u => u.comment)
+          .map(u => [String(u.session), u.comment as string]),
+      ),
+    [users],
+  );
+
+  const dmContactsWithComments = useMemo(
+    () =>
+      dmContacts.map(c => {
+        const comment = userCommentsBySession.get(c.userId);
+        return comment ? { ...c, comment } : c;
+      }),
+    [dmContacts, userCommentsBySession],
+  );
 
   const handleSelectDMUser = (userId: string, userName: string) => {
     setSelectedDMUserId(userId);
@@ -957,8 +1097,10 @@ const handleConnect = (serverData: SavedServer) => {
     const updated = upsertDMContact(userId, userName);
     setDmContacts(mapStoredContacts(updated));
 
-    // Fetch Matrix DM history if available
+    // Mark Matrix DM room as read
     const targetUser = users.find(u => String(u.session) === userId);
+
+    // Fetch Matrix DM history if available
     if (targetUser?.matrixUserId && fetchDMHistory) {
       fetchDMHistory(targetUser.matrixUserId).catch(console.error);
     }
@@ -998,15 +1140,169 @@ const handleConnect = (serverData: SavedServer) => {
 
   const { Prompt } = usePrompt();
 
-  const { isSharing, startSharing, stopSharing } = useScreenShare();
+  const { isSharing, startSharing, stopSharing, error: screenShareError, activeShare, remoteVideoEl, disconnectViewer } = useScreenShare(() => {
+    setSharingChannelId(undefined);
+  });
+  const [sharingChannelId, setSharingChannelId] = useState<string | undefined>();
 
-  const handleToggleScreenShare = useCallback(() => {
-    if (isSharing) {
-      stopSharing();
-    } else if (currentChannelId != null) {
-      startSharing(`channel-${currentChannelId}`);
+  const channelUnreads = useMemo(() => {
+    if (!matrixCredentials?.roomMap) return new Map<string, { notificationCount: number; highlightCount: number }>();
+    const map = new Map<string, { notificationCount: number; highlightCount: number }>();
+    for (const [channelId, roomId] of Object.entries(matrixCredentials.roomMap)) {
+      const unread = unreadTracker.getRoomUnread(roomId);
+      if (unread.notificationCount > 0) {
+        map.set(channelId, {
+          notificationCount: unread.notificationCount,
+          highlightCount: unread.highlightCount,
+        });
+      }
     }
-  }, [isSharing, currentChannelId, startSharing, stopSharing]);
+    return map;
+  }, [matrixCredentials?.roomMap, unreadTracker.roomUnreads]);
+
+  useEffect(() => {
+    if (screenShareError) console.error('Screen share error:', screenShareError);
+  }, [screenShareError]);
+
+  // Check for active screen shares when switching channels
+  useEffect(() => {
+    disconnectViewer();
+    if (currentChannelId && currentChannelId !== 'server-root') {
+      bridge.send('livekit.checkActiveShare', { roomName: `channel-${currentChannelId}` });
+    }
+  }, [currentChannelId, disconnectViewer]);
+
+  const handleToggleScreenShare = useCallback(async () => {
+    if (isSharing) {
+      await stopSharing();
+      setSharingChannelId(undefined);
+    } else if (!selfLeftVoice) {
+      const selfUser = usersRef.current.find(u => u.self);
+      const voiceChannelId = selfUser?.channelId;
+      if (voiceChannelId != null && voiceChannelId !== 0) {
+        try {
+          await startSharing(`channel-${voiceChannelId}`);
+          setSharingChannelId(String(voiceChannelId));
+        } catch {
+          // startSharing sets error state internally
+        }
+      }
+    }
+  }, [isSharing, startSharing, stopSharing, selfLeftVoice]);
+  handleToggleScreenShareRef.current = handleToggleScreenShare;
+
+  // Track which channel/DM was last opened so we only snapshot + mark-read on actual switches.
+  const prevChannelIdRef = useRef<string | undefined>(undefined);
+  const prevDMUserIdRef = useRef<string | null>(null);
+
+  // Snapshot the read marker ONCE when the user switches to a channel, then mark the room
+  // as read. The divider stays at the snapshotted position until the user switches away.
+  // We depend on roomUnreads so that on reconnect (when sync populates data after
+  // the channel was already selected) we get a second chance to snapshot.
+  useEffect(() => {
+    const channelChanged = currentChannelId !== prevChannelIdRef.current;
+    if (channelChanged) {
+      prevChannelIdRef.current = currentChannelId;
+    }
+
+    if (!currentChannelId || currentChannelId === 'server-root') {
+      if (channelChanged) setChannelDividerTs(null);
+      return;
+    }
+    const roomId = matrixCredentials?.roomMap?.[currentChannelId];
+    if (!roomId || !matrixClient?.client) {
+      if (channelChanged) setChannelDividerTs(null);
+      return;
+    }
+
+    const { notificationCount } = unreadTracker.getRoomUnread(roomId);
+    const markerTs = unreadTracker.getMarkerTimestamp(roomId);
+    const hasUnread = markerTs != null && notificationCount > 0;
+
+    if (channelChanged) {
+      // Snapshot the divider timestamp before marking read
+      setChannelDividerTs(hasUnread ? markerTs : null);
+
+      // Mark the room as read
+      const room = matrixClient.client.getRoom(roomId);
+      const timeline = room?.getLiveTimeline()?.getEvents();
+      if (timeline && timeline.length > 0) {
+        const lastEventId = timeline[timeline.length - 1].getId();
+        if (lastEventId) {
+          unreadTracker.markRoomRead(roomId, lastEventId);
+        }
+      }
+    } else if (hasUnread) {
+      // Same channel, but roomUnreads updated (e.g. sync just completed on reconnect).
+      // Backfill the divider only if we haven't set one yet.
+      setChannelDividerTs(prev => {
+        if (prev !== null) return prev; // keep existing snapshot
+        // Also mark read now that we have data
+        const room = matrixClient.client!.getRoom(roomId);
+        const timeline = room?.getLiveTimeline()?.getEvents();
+        if (timeline && timeline.length > 0) {
+          const lastEventId = timeline[timeline.length - 1].getId();
+          if (lastEventId) {
+            unreadTracker.markRoomRead(roomId, lastEventId);
+          }
+        }
+        return markerTs;
+      });
+    }
+  }, [currentChannelId, matrixCredentials?.roomMap, matrixClient, unreadTracker]);
+
+  // Same pattern for DM switches
+  useEffect(() => {
+    const dmChanged = selectedDMUserId !== prevDMUserIdRef.current;
+    if (dmChanged) {
+      prevDMUserIdRef.current = selectedDMUserId;
+    }
+
+    if (!selectedDMUserId) {
+      if (dmChanged) setDmDividerTs(null);
+      return;
+    }
+    const targetUser = users.find(u => String(u.session) === selectedDMUserId);
+    if (!targetUser?.matrixUserId || !matrixClient?.dmRoomMap || !matrixClient?.client) {
+      if (dmChanged) setDmDividerTs(null);
+      return;
+    }
+    const roomId = matrixClient.dmRoomMap.get(targetUser.matrixUserId);
+    if (!roomId) {
+      if (dmChanged) setDmDividerTs(null);
+      return;
+    }
+
+    const { notificationCount } = unreadTracker.getRoomUnread(roomId);
+    const markerTs = unreadTracker.getMarkerTimestamp(roomId);
+    const hasUnread = markerTs != null && notificationCount > 0;
+
+    if (dmChanged) {
+      setDmDividerTs(hasUnread ? markerTs : null);
+
+      const room = matrixClient.client.getRoom(roomId);
+      const timeline = room?.getLiveTimeline()?.getEvents();
+      if (timeline && timeline.length > 0) {
+        const lastEventId = timeline[timeline.length - 1].getId();
+        if (lastEventId) {
+          unreadTracker.markRoomRead(roomId, lastEventId);
+        }
+      }
+    } else if (hasUnread) {
+      setDmDividerTs(prev => {
+        if (prev !== null) return prev;
+        const room = matrixClient.client!.getRoom(roomId);
+        const timeline = room?.getLiveTimeline()?.getEvents();
+        if (timeline && timeline.length > 0) {
+          const lastEventId = timeline[timeline.length - 1].getId();
+          if (lastEventId) {
+            unreadTracker.markRoomRead(roomId, lastEventId);
+          }
+        }
+        return markerTs;
+      });
+    }
+  }, [selectedDMUserId, unreadTracker.roomUnreads, matrixClient.client, unreadTracker, users]);
 
   return (
     <div className="app">
@@ -1015,7 +1311,7 @@ const handleConnect = (serverData: SavedServer) => {
         username={username}
         onToggleDM={toggleDMMode}
         dmActive={appMode === 'dm'}
-        unreadDMCount={unreadDMUserCount}
+        unreadDMCount={totalDmUnreadCount}
         onOpenSettings={() => setShowSettings(true)}
         muted={selfMuted}
         deafened={selfDeafened}
@@ -1025,7 +1321,9 @@ const handleConnect = (serverData: SavedServer) => {
         onToggleDeaf={connected ? handleToggleDeaf : undefined}
         onLeaveVoice={connected ? handleLeaveVoice : undefined}
         screenSharing={isSharing}
-        onToggleScreenShare={connected && !selfLeftVoice ? handleToggleScreenShare : undefined}
+        screenShareError={screenShareError}
+        onToggleScreenShare={connected ? handleToggleScreenShare : undefined}
+        canScreenShare={connected && !selfLeftVoice && (users.find(u => u.self)?.channelId ?? 0) !== 0}
         speaking={speakingUsers.has(selfSession) || false}
         pendingChannelAction={pendingChannelAction}
         hotkeyPressedBtn={hotkeyPressedBtn}
@@ -1052,6 +1350,9 @@ const handleConnect = (serverData: SavedServer) => {
           connectionStatus={connectionStatus}
           onCancelReconnect={handleCancelReconnect}
           pendingChannelAction={pendingChannelAction}
+          channelUnreads={channelUnreads}
+          sharingChannelId={sharingChannelId ? Number(sharingChannelId) : undefined}
+          sharingUserSession={isSharing ? selfSession : undefined}
         />
         </ErrorBoundary>
         
@@ -1066,6 +1367,10 @@ const handleConnect = (serverData: SavedServer) => {
                 currentUsername={username}
                 onSendMessage={handleSendMessage}
                 matrixClient={matrixClient.client}
+                readMarkerTs={channelDividerTs}
+                screenShareVideoEl={remoteVideoEl}
+                screenSharerName={activeShare?.userName}
+                onCloseScreenShare={disconnectViewer}
               />
               </ErrorBoundary>
             </div>
@@ -1079,6 +1384,7 @@ const handleConnect = (serverData: SavedServer) => {
                 onSendMessage={handleSendDMMessage}
                 isDM={true}
                 matrixClient={matrixClient.client}
+                readMarkerTs={dmDividerTs}
               />
               </ErrorBoundary>
             </div>
@@ -1086,7 +1392,7 @@ const handleConnect = (serverData: SavedServer) => {
         </main>
 
         <DMContactList
-          contacts={dmContacts}
+          contacts={dmContactsWithComments}
           selectedUserId={selectedDMUserId}
           onSelectContact={handleSelectDMUser}
           onCloseConversation={handleCloseDMConversation}
