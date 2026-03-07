@@ -190,4 +190,77 @@ describe('Tooltip', () => {
     const tooltip = screen.getByRole('tooltip');
     expect(tooltip).toHaveTextContent('Help text');
   });
+
+  describe('align prop', () => {
+    it('defaults to center alignment with translateX(-50%) for top position', () => {
+      render(
+        <Tooltip content="Help text" delay={0} position="top">
+          <button>Hover me</button>
+        </Tooltip>
+      );
+
+      fireEvent.mouseEnter(screen.getByText('Hover me'));
+      act(() => { vi.advanceTimersByTime(0); });
+
+      const portal = screen.getByRole('tooltip').parentElement!;
+      expect(portal.style.transform).toBe('translateX(-50%) translateY(-100%)');
+    });
+
+    it('applies start alignment (no translateX) for top position', () => {
+      render(
+        <Tooltip content="Help text" delay={0} position="top" align="start">
+          <button>Hover me</button>
+        </Tooltip>
+      );
+
+      fireEvent.mouseEnter(screen.getByText('Hover me'));
+      act(() => { vi.advanceTimersByTime(0); });
+
+      const portal = screen.getByRole('tooltip').parentElement!;
+      expect(portal.style.transform).toBe('translateY(-100%)');
+    });
+
+    it('applies end alignment with translateX(-100%) for top position', () => {
+      render(
+        <Tooltip content="Help text" delay={0} position="top" align="end">
+          <button>Hover me</button>
+        </Tooltip>
+      );
+
+      fireEvent.mouseEnter(screen.getByText('Hover me'));
+      act(() => { vi.advanceTimersByTime(0); });
+
+      const portal = screen.getByRole('tooltip').parentElement!;
+      expect(portal.style.transform).toBe('translateX(-100%) translateY(-100%)');
+    });
+
+    it('applies start alignment for bottom position (no transform)', () => {
+      render(
+        <Tooltip content="Help text" delay={0} position="bottom" align="start">
+          <button>Hover me</button>
+        </Tooltip>
+      );
+
+      fireEvent.mouseEnter(screen.getByText('Hover me'));
+      act(() => { vi.advanceTimersByTime(0); });
+
+      const portal = screen.getByRole('tooltip').parentElement!;
+      // 'start' + 'bottom' = no transform needed
+      expect(portal.style.transform).toBe('');
+    });
+
+    it('applies end alignment with translateX(-100%) for bottom position', () => {
+      render(
+        <Tooltip content="Help text" delay={0} position="bottom" align="end">
+          <button>Hover me</button>
+        </Tooltip>
+      );
+
+      fireEvent.mouseEnter(screen.getByText('Hover me'));
+      act(() => { vi.advanceTimersByTime(0); });
+
+      const portal = screen.getByRole('tooltip').parentElement!;
+      expect(portal.style.transform).toBe('translateX(-100%)');
+    });
+  });
 });

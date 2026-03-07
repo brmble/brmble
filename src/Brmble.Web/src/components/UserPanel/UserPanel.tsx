@@ -65,7 +65,7 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
   return (
     <div className="user-panel">
       {onLeaveVoice && (
-        <Tooltip content={leftVoice ? 'Rejoin Voice' : 'Leave Voice'}>
+        <Tooltip content={leftVoice ? 'Rejoin Voice' : 'Leave Voice'} position="bottom" align="start">
         <button 
           className={`btn btn-ghost btn-icon user-panel-btn leave-voice-btn ${leftVoice ? 'active' : ''} ${activeBtn === 'leave' ? 'pressed' : ''} ${(!!leftVoice && !canRejoin) || pendingChannelAction !== null ? 'disabled' : ''}`}
           onMouseDown={handleMouseDown('leave')}
@@ -84,7 +84,7 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
       )}
 
       {onToggleDeaf && (
-        <Tooltip content={deafened ? 'Undeafen' : 'Deafen'}>
+        <Tooltip content={deafened ? 'Undeafen' : 'Deafen'} position="bottom" align="start">
         <button 
           className={`btn btn-ghost btn-icon user-panel-btn deaf-btn ${(deafened || leftVoice) ? 'active' : ''} ${activeBtn === 'deaf' ? 'pressed' : ''} ${leftVoice ? 'disabled' : ''}`}
           onMouseDown={handleMouseDown('deaf')}
@@ -113,7 +113,7 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
       )}
 
       {onToggleMute && (
-        <Tooltip content={muted ? 'Unmute' : deafened ? 'Muted (deafened)' : 'Mute'}>
+        <Tooltip content={muted ? 'Unmute' : deafened ? 'Muted (deafened)' : 'Mute'} position="bottom" align="start">
         <button 
           className={`btn btn-ghost btn-icon user-panel-btn mute-btn ${(muted || leftVoice || deafened) ? 'active' : ''} ${activeBtn === 'mute' ? 'pressed' : ''} ${(leftVoice || deafened) ? 'disabled' : ''}`}
           onMouseDown={handleMouseDown('mute')}
@@ -141,7 +141,7 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
       )}
 
       {onToggleScreenShare && (
-        <Tooltip content={screenShareError ? `Screen share error: ${screenShareError}` : screenSharing ? 'Stop Sharing' : !canScreenShare ? 'Join a channel to share screen' : 'Share Screen'}>
+        <Tooltip content={screenShareError ? `Screen share error: ${screenShareError}` : screenSharing ? 'Stop Sharing' : !canScreenShare ? 'Join a channel to share screen' : 'Share Screen'} position="bottom" align="start">
         <button
           className={`btn btn-ghost btn-icon user-panel-btn screen-share-btn ${(screenSharing || (!screenSharing && !canScreenShare)) ? 'active' : ''} ${activeBtn === 'screen' ? 'pressed' : ''} ${(!screenSharing && !canScreenShare) ? 'disabled' : ''}`}
           onMouseDown={handleMouseDown('screen')}
@@ -169,7 +169,7 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
         </Tooltip>
       )}
 
-      <Tooltip content="Direct Messages">
+      <Tooltip content="Direct Messages" position="bottom" align="end">
       <button
         className={`btn btn-ghost btn-icon user-panel-btn dm-btn ${dmActive ? 'active' : ''} ${activeBtn === 'dm' ? 'pressed' : ''}`}
         onMouseDown={handleMouseDown('dm')}
@@ -189,7 +189,7 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
       </button>
       </Tooltip>
       
-      <Tooltip content="Settings">
+      <Tooltip content="Settings" position="bottom" align="end">
       <button 
         className="btn btn-ghost btn-icon user-panel-btn user-settings-btn" 
         onClick={onOpenSettings}
@@ -201,7 +201,7 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
       </button>
       </Tooltip>
       
-      <Tooltip content={username || 'Not logged in'}>
+      <Tooltip content={username || 'Not logged in'} position="bottom" align="end">
       <div className={`user-avatar ${speaking ? 'speaking' : ''}`}>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
           <circle cx="12" cy="14" r="8" />

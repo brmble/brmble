@@ -9,18 +9,19 @@ interface TooltipProps {
   content: string;
   children: React.ReactElement<AnyProps>;
   position?: 'top' | 'bottom' | 'left' | 'right';
+  align?: 'start' | 'center' | 'end';
   delay?: number;
 }
 
-/** Static transform map — hoisted to module scope to avoid re-creation every render. */
-const transformOrigin: Record<string, string> = {
-  top: 'translateX(-50%) translateY(-100%)',
-  bottom: 'translateX(-50%)',
-  left: 'translateX(-100%) translateY(-50%)',
-  right: 'translateY(-50%)',
+/** Static transform maps — hoisted to module scope to avoid re-creation every render. */
+const transformMap: Record<string, Record<string, string>> = {
+  top:    { start: 'translateY(-100%)',        center: 'translateX(-50%) translateY(-100%)', end: 'translateX(-100%) translateY(-100%)' },
+  bottom: { start: '',                         center: 'translateX(-50%)',                   end: 'translateX(-100%)' },
+  left:   { start: 'translateX(-100%)',        center: 'translateX(-100%) translateY(-50%)', end: 'translateX(-100%) translateY(-100%)' },
+  right:  { start: '',                         center: 'translateY(-50%)',                   end: 'translateY(-100%)' },
 };
 
-export function Tooltip({ content, children, position = 'top', delay = 400 }: TooltipProps) {
+export function Tooltip({ content, children, position = 'top', align = 'center', delay = 400 }: TooltipProps) {
   const tooltipId = useId();
   const [visible, setVisible] = useState(false);
   const [coords, setCoords] = useState({ top: 0, left: 0 });
@@ -63,25 +64,38 @@ export function Tooltip({ content, children, position = 'top', delay = 400 }: To
     const trigger = triggerRef.current;
     const rect = trigger.getBoundingClientRect();
     const gap = 8;
+    const bottomGap = 14; /* extra clearance to avoid cursor overlap */
 
     let top = 0;
     let left = 0;
 
+    /* Horizontal anchor point based on align (for top/bottom positions) */
+    const anchorLeft =
+      align === 'start'  ? rect.left :
+      align === 'end'    ? rect.right :
+      rect.left + rect.width / 2;
+
+    /* Vertical anchor point based on align (for left/right positions) */
+    const anchorTop =
+      align === 'start'  ? rect.top :
+      align === 'end'    ? rect.bottom :
+      rect.top + rect.height / 2;
+
     switch (position) {
       case 'top':
         top = rect.top - gap;
-        left = rect.left + rect.width / 2;
+        left = anchorLeft;
         break;
       case 'bottom':
-        top = rect.bottom + gap;
-        left = rect.left + rect.width / 2;
+        top = rect.bottom + bottomGap;
+        left = anchorLeft;
         break;
       case 'left':
-        top = rect.top + rect.height / 2;
+        top = anchorTop;
         left = rect.left - gap;
         break;
       case 'right':
-        top = rect.top + rect.height / 2;
+        top = anchorTop;
         left = rect.right + gap;
         break;
     }
@@ -94,11 +108,20 @@ export function Tooltip({ content, children, position = 'top', delay = 400 }: To
       let adjustedTop = top;
       let adjustedLeft = left;
 
+      /* Horizontal overflow clamping for top/bottom */
       if (position === 'top' || position === 'bottom') {
-        adjustedLeft = Math.max(8, Math.min(adjustedLeft, window.innerWidth - tt.width / 2 - 8));
+        if (align === 'center') {
+          adjustedLeft = Math.max(8, Math.min(adjustedLeft, window.innerWidth - tt.width / 2 - 8));
+        } else if (align === 'start' && tt.right > window.innerWidth - 8) {
+          adjustedLeft = window.innerWidth - tt.width - 8;
+        } else if (align === 'end' && tt.left < 8) {
+          adjustedLeft = tt.width + 8;
+        }
       }
+
+      /* Vertical flip if overflowing */
       if (position === 'top' && tt.top < 0) {
-        adjustedTop = rect.bottom + gap;
+        adjustedTop = rect.bottom + bottomGap;
       } else if (position === 'bottom' && tt.bottom > window.innerHeight) {
         adjustedTop = rect.top - gap;
       }
@@ -109,7 +132,7 @@ export function Tooltip({ content, children, position = 'top', delay = 400 }: To
     });
 
     return () => cancelAnimationFrame(rafId);
-  }, [visible, position]);
+  }, [visible, position, align]);
 
   if (!content) return children;
 
@@ -141,7 +164,7 @@ export function Tooltip({ content, children, position = 'top', delay = 400 }: To
           style={{
             top: coords.top,
             left: coords.left,
-            transform: transformOrigin[position],
+            transform: transformMap[position][align],
           }}
         >
           <div className="brmble-tooltip" ref={tooltipRef} id={tooltipId} role="tooltip">

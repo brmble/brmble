@@ -290,6 +290,15 @@ import { Tooltip } from '../Tooltip/Tooltip';
 <Tooltip content={dynamicText} position="bottom">
   <span className="info-icon">?</span>
 </Tooltip>
+
+// Small buttons near edges — use align to prevent overflow
+<Tooltip content="Leave Voice" position="bottom" align="start">
+  <button className="btn btn-icon">...</button>
+</Tooltip>
+
+<Tooltip content="Settings" position="bottom" align="end">
+  <button className="btn btn-icon">...</button>
+</Tooltip>
 ```
 
 Props:
@@ -299,6 +308,7 @@ Props:
 | `content` | `string` | required | Tooltip text (supports multi-line via `\n`) |
 | `children` | `ReactElement` | required | Trigger element |
 | `position` | `'top' \| 'bottom' \| 'left' \| 'right'` | `'top'` | Preferred position (auto-flips on overflow) |
+| `align` | `'start' \| 'center' \| 'end'` | `'center'` | Horizontal alignment relative to trigger. Use `start` for left-edge buttons, `end` for right-edge buttons |
 | `delay` | `number` | `400` | Hover delay in ms |
 
 Rules:
@@ -308,6 +318,7 @@ Rules:
 4. Multi-line text uses `\n` -- CSS handles line breaks via `white-space: pre-line`
 5. Tooltip renders via portal (`document.body`) to escape overflow containers
 6. Accessible: `role="tooltip"`, `aria-describedby`, Escape key dismissal
+7. For small trigger elements (e.g. `btn-icon`) near window edges, use `align="start"` or `align="end"` to prevent the tooltip from overflowing off-screen
 
 ---
 
