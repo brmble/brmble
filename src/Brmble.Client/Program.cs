@@ -207,8 +207,8 @@ static class Program
             {
                 var zoomFactor = _controller!.ZoomFactor;
                 var zoomPercent = (int)Math.Round(zoomFactor * 100);
-                _bridge!.Send("window.zoomChanged", new { zoomPercent });
-                _bridge.NotifyUiThread();
+                _bridge?.Send("window.zoomChanged", new { zoomPercent });
+                _bridge?.NotifyUiThread();
 
                 // Debounce: save after 500ms of no further changes
                 _zoomSaveTimer?.Dispose();
@@ -498,6 +498,8 @@ static class Program
             }
 
             case Win32Window.WM_DESTROY:
+                _zoomSaveTimer?.Dispose();
+                _zoomSaveTimer = null;
                 if (_appConfigService != null)
                 {
                     var placement = new Win32Window.WINDOWPLACEMENT
