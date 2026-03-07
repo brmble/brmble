@@ -135,6 +135,7 @@ internal sealed class AudioManager : IDisposable
     private EncodePipeline? _encodePipeline;
     private WaveInEvent? _waveIn;
     private volatile bool _micStarted;
+    private string _captureApi = "waveIn";
 
     // Decode (network → speakers)
     private readonly Dictionary<uint, UserAudioPipeline> _pipelines = new();
@@ -333,6 +334,12 @@ private int _screenShareHotkeyId = -1;
             _to16kResampler = new AudioResampler(48000, 16000, 1);
             _to48kResampler = new AudioResampler(16000, 48000, 1);
         }
+    }
+
+    public void SetCaptureApi(string api)
+    {
+        _captureApi = api;
+        AudioLog.Write($"[Audio] SetCaptureApi: {_captureApi}");
     }
 
     public void SetOutputVolume(int percentage)
