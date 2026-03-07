@@ -1,0 +1,23 @@
+.zoom-indicator {
+  position: fixed;
+  bottom: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-elevated);
+  backdrop-filter: var(--glass-blur);
+  pointer-events: none;
+  z-index: 10001;
+  opacity: 0;
+  transition: opacity var(--transition-normal);
+}
+
+.zoom-indicator--visible {
+  opacity: 1;
+}
