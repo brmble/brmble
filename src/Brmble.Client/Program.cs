@@ -201,6 +201,8 @@ static class Program
             _controller.CoreWebView2.SetVirtualHostNameToFolderMapping(
                 "brmble.local", webRoot, CoreWebView2HostResourceAccessKind.Allow);
 
+            _bridge = new NativeBridge(_controller.CoreWebView2, hwnd);
+
             // Send zoom percentage to the frontend whenever the user zooms (Ctrl+scroll)
             // and debounce-save the zoom level to config for persistence across restarts.
             _controller.ZoomFactorChanged += (sender, args) =>
@@ -225,7 +227,6 @@ static class Program
                 _controller.ZoomFactor = savedZoom.Value;
             }
 
-            _bridge = new NativeBridge(_controller.CoreWebView2, hwnd);
 
             _appConfigService!.Initialize(_bridge);
             _appConfigService!.OnSettingsChanged = settings => _mumbleClient?.ApplySettings(settings);
