@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
+import { Tooltip } from '../Tooltip/Tooltip';
 import './ScreenShareViewer.css';
 
 interface ScreenShareViewerProps {
@@ -75,10 +76,10 @@ export function ScreenShareViewer({ videoEl, sharerName, onClose }: ScreenShareV
         {sharerName}'s screen
       </div>
       <div className="screen-share-overlay screen-share-overlay--controls">
+        <Tooltip content={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
         <button
           className="btn btn-ghost btn-icon screen-share-control-btn"
           onClick={toggleFullscreen}
-          title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
           aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
         >
           {isFullscreen ? (
@@ -91,10 +92,11 @@ export function ScreenShareViewer({ videoEl, sharerName, onClose }: ScreenShareV
             </svg>
           )}
         </button>
+        </Tooltip>
+        <Tooltip content="Close viewer">
         <button
           className="btn btn-ghost btn-icon screen-share-control-btn"
           onClick={onClose}
-          title="Close viewer"
           aria-label="Close screen share viewer"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -102,6 +104,7 @@ export function ScreenShareViewer({ videoEl, sharerName, onClose }: ScreenShareV
             <line x1="6" y1="6" x2="18" y2="18" />
           </svg>
         </button>
+        </Tooltip>
       </div>
     </div>
   );

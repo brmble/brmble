@@ -1,3 +1,4 @@
+import { Tooltip } from '../Tooltip/Tooltip';
 import './ConnectionSettingsTab.css';
 
 interface ConnectionSettingsTabProps {
@@ -71,7 +72,9 @@ export function ConnectionSettingsTab({ settings, onChange, servers }: Connectio
         <div className="server-dropdown-row">
           <label>
             Connect to
-            <span className="tooltip-icon" data-tooltip={tooltipText}>?</span>
+            <Tooltip content={tooltipText}>
+              <span className="tooltip-icon">?</span>
+            </Tooltip>
           </label>
           <div className="select-wrapper">
             <select

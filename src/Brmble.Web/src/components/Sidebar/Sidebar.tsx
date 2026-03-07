@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { ChannelTree } from './ChannelTree';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
 import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
+import { Tooltip } from '../Tooltip/Tooltip';
 import { usePermissions } from '../../hooks/usePermissions';
 import bridge from '../../bridge';
 import type { Channel, User, ConnectionStatus } from '../../types';
@@ -143,11 +144,10 @@ export function Sidebar({
           </div>
           <div className="root-users-list">
             {rootUsers.map((user, i) => (
+              <Tooltip key={user.session} content={getRootUserTooltip(user)}>
               <div
-                key={user.session}
                 className={`root-user-row${user.self ? ' root-user-self' : ''}`}
                 style={{ animationDelay: `${i * 50}ms` }}
-                title={getRootUserTooltip(user)}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   setContextMenu({ x: e.clientX, y: e.clientY, userId: String(user.session), userName: user.name, isSelf: !!user.self });
@@ -184,6 +184,7 @@ export function Sidebar({
                 <span className="root-user-name">{user.name}</span>
                 {user.self && <span className="root-self-badge">you</span>}
               </div>
+              </Tooltip>
             ))}
           </div>
         </div>

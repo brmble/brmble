@@ -6,6 +6,7 @@ import { groupMessages } from '../../utils/groupMessages';
 import { formatDateSeparator, formatFullDate } from '../../utils/formatDateSeparator';
 import type { ChatMessage } from '../../types';
 import { ScreenShareViewer } from '../ScreenShareViewer/ScreenShareViewer';
+import { Tooltip } from '../Tooltip/Tooltip';
 import './ChatPanel.css';
 
 interface ChatPanelProps {
@@ -229,11 +230,13 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
           grouped.map((item) => (
             <Fragment key={item.message.id}>
               {item.showDateSeparator && (
-                <div className="chat-date-separator" title={formatFullDate(item.message.timestamp)}>
+                <Tooltip content={formatFullDate(item.message.timestamp)}>
+                <div className="chat-date-separator">
                   <span className="chat-date-separator-label">
                     {formatDateSeparator(item.message.timestamp)}
                   </span>
                 </div>
+                </Tooltip>
               )}
               {item.showUnreadDivider && (
                 <div className="chat-unread-divider" ref={unreadDividerRef} key={`unread-${item.message.id}`}>
@@ -259,16 +262,17 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
 
       <div className="chat-input-area">
         {showScrollButton && (
+          <Tooltip content="Scroll to bottom">
           <button
             className="chat-scroll-bottom"
             onClick={scrollToBottom}
-            title="Scroll to bottom"
             aria-label="Scroll to latest messages"
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <polyline points="6 9 12 15 18 9" />
             </svg>
           </button>
+          </Tooltip>
         )}
         <MessageInput onSend={onSendMessage} placeholder={isDM ? `Message @${channelName}` : `Message #${channelName}`} />
       </div>

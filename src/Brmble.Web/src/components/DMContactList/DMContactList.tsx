@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
 import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
+import { Tooltip } from '../Tooltip/Tooltip';
 import './DMContactList.css';
 
 interface DMContact {
@@ -86,7 +87,9 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
             </div>
             <div className="dm-contact-info">
               <div className="dm-contact-name-row">
-                <span className="dm-contact-name" title={contact.comment || undefined}>{contact.userName}</span>
+                <Tooltip content={contact.comment || ''}>
+                <span className="dm-contact-name">{contact.userName}</span>
+                </Tooltip>
                 {contact.lastMessageTime && (
                   <span className="dm-contact-time">{formatTime(contact.lastMessageTime)}</span>
                 )}
