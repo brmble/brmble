@@ -194,6 +194,32 @@ namespace MumbleVoiceEngine.Codec
         }
 
         /// <summary>
+        /// Gets or sets whether Variable Bitrate encoding is enabled.
+        /// Set to false for CBR (Constant Bitrate), matching Mumble's behaviour.
+        /// </summary>
+        public bool Vbr
+        {
+            get
+            {
+                if (_encoder == IntPtr.Zero)
+                    throw new ObjectDisposedException("OpusEncoder");
+                int vbr;
+                var ret = NativeMethods.opus_encoder_ctl_out(_encoder, NativeMethods.Ctl.GetVbrRequest, out vbr);
+                if (ret < 0)
+                    throw new Exception("Encoder error - " + ((NativeMethods.OpusErrors)ret));
+                return vbr > 0;
+            }
+            set
+            {
+                if (_encoder == IntPtr.Zero)
+                    throw new ObjectDisposedException("OpusEncoder");
+                var ret = NativeMethods.opus_encoder_ctl(_encoder, NativeMethods.Ctl.SetVbrRequest, Convert.ToInt32(value));
+                if (ret < 0)
+                    throw new Exception("Encoder error - " + ((NativeMethods.OpusErrors)ret));
+            }
+        }
+
+        /// <summary>
         /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
         /// </summary>
         /// <filterpriority>2</filterpriority>

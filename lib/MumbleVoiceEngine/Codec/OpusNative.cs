@@ -107,6 +107,8 @@ namespace MumbleVoiceEngine.Codec
         {
             SetBitrateRequest = 4002,
             GetBitrateRequest = 4003,
+            SetVbrRequest = 4006,
+            GetVbrRequest = 4007,
             SetInbandFecRequest = 4012,
             GetInbandFecRequest = 4013
         }

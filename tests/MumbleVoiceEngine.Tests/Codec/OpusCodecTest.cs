@@ -46,5 +46,21 @@ namespace MumbleVoiceEngine.Tests.Codec
             encoder.EnableForwardErrorCorrection = true;
             Assert.IsTrue(encoder.EnableForwardErrorCorrection);
         }
+
+        [TestMethod]
+        public void Encoder_VbrProperty_CanBeSetToFalse()
+        {
+            using var encoder = new OpusEncoder(48000, 1);
+            encoder.Vbr = false;
+            Assert.IsFalse(encoder.Vbr);
+        }
+
+        [TestMethod]
+        public void Encoder_VbrProperty_CanBeSetToTrue()
+        {
+            using var encoder = new OpusEncoder(48000, 1);
+            encoder.Vbr = true;
+            Assert.IsTrue(encoder.Vbr);
+        }
     }
 }
