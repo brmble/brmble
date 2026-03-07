@@ -220,6 +220,13 @@ internal static class Win32Window
     [DllImport("user32.dll")]
     private static extern IntPtr LoadCursor(IntPtr instance, int cursorName);
 
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr LoadImage(IntPtr hInst, string name, uint type,
+        int cx, int cy, uint fuLoad);
+
+    private const uint IMAGE_ICON = 1;
+    private const uint LR_LOADFROMFILE = 0x0010;
+
     [DllImport("gdi32.dll")]
     private static extern IntPtr CreateSolidBrush(uint crColor);
 
@@ -246,10 +253,24 @@ internal static class Win32Window
 
     private static WndProc? _wndProcRef; // prevent GC of delegate
 
+    /// <summary>
+    /// Loads the Brmble application icon from the Resources folder next to the executable.
+    /// Returns IntPtr.Zero if the file is not found.
+    /// </summary>
+    public static IntPtr LoadAppIcon(int size)
+    {
+        var icoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "brmble.ico");
+        if (!File.Exists(icoPath)) return IntPtr.Zero;
+        return LoadImage(IntPtr.Zero, icoPath, IMAGE_ICON, size, size, LR_LOADFROMFILE);
+    }
+
     public static IntPtr Create(string className, string title, int x, int y, int width, int height, WndProc wndProc)
     {
         var hInstance = GetModuleHandle(null);
         _wndProcRef = wndProc;
+
+        var hIconLg = LoadAppIcon(32);  // taskbar / Alt+Tab
+        var hIconSm = LoadAppIcon(16);  // title bar (if visible)
 
         var wc = new WNDCLASSEX
         {
@@ -257,6 +278,8 @@ internal static class Win32Window
             style = CS_HREDRAW | CS_VREDRAW,
             lpfnWndProc = _wndProcRef,
             hInstance = hInstance,
+            hIcon = hIconLg,
+            hIconSm = hIconSm,
             hCursor = LoadCursor(IntPtr.Zero, 32512),
             hbrBackground = CreateSolidBrush(0x140a0f), // #0f0a14 as COLORREF (0x00BBGGRR)
             lpszClassName = className
