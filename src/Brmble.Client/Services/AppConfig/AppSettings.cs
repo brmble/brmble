@@ -9,7 +9,8 @@ public record AudioSettings(
     string TransmissionMode = "voiceActivity",
     string? PushToTalkKey = null,
     int OpusBitrate = 72000,
-    int OpusFrameSize = 20
+    int OpusFrameSize = 20,
+    string CaptureApi = "waveIn"
 );
 
 public record ShortcutsSettings(
