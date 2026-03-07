@@ -22,10 +22,10 @@ New `ZoomIndicator` component:
 - Shows percentage (e.g. "125%") in a pill-shaped element
 - `position: fixed`, bottom-center, `pointer-events: none`
 - Fades in on change, fades out after 1.5s of inactivity (debounced)
-- Hidden entirely at 100% after fade-out
+- No special-case for 100%: behavior is identical at all zoom levels; the indicator simply fades out after inactivity
 - Tokens: `--font-mono`, `--bg-surface`, `--text-primary`, `--radius-md`, `--shadow-elevated`
-- `z-index: 10001`
-- Placed in `App.tsx` before `<Prompt />`
+- `z-index: 9999`
+- Placed in `App.tsx` after `<Prompt />`
 
 ### Visual Style
 
