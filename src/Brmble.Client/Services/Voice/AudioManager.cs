@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using Brmble.Client.Services.SpeechEnhancement;
 using MumbleVoiceEngine.Pipeline;
 using NAudio.Wave;
+using NAudio.CoreAudioApi;
 
 namespace Brmble.Client.Services.Voice;
 
@@ -133,7 +134,7 @@ internal sealed class AudioManager : IDisposable
 
     // Encode (mic → network)
     private EncodePipeline? _encodePipeline;
-    private WaveInEvent? _waveIn;
+    private IWaveIn? _waveIn;
     private volatile bool _micStarted;
     private string _captureApi = "waveIn";
 
@@ -394,12 +395,29 @@ private int _screenShareHotkeyId = -1;
 
             if (_waveIn == null)
             {
-                _waveIn = new WaveInEvent
+                if (_captureApi == "wasapi")
                 {
-                    DeviceNumber = -1,
-                    BufferMilliseconds = 20,
-                    WaveFormat = new WaveFormat(48000, 16, 1)
-                };
+                    _waveIn = new WasapiCapture
+                    {
+                        ShareMode = AudioClientShareMode.Shared
+                    };
+                    ((WasapiCapture)_waveIn).RecordingStopped += (s, e) =>
+                    {
+                        if (e.Exception != null)
+                        {
+                            AudioLog.Write($"[Audio] WASAPI recording stopped with error: {e.Exception.Message}");
+                        }
+                    };
+                }
+                else
+                {
+                    _waveIn = new WaveInEvent
+                    {
+                        DeviceNumber = -1,
+                        BufferMilliseconds = 20,
+                        WaveFormat = new WaveFormat(48000, 16, 1)
+                    };
+                }
                 _waveIn.DataAvailable += OnMicData;
             }
 
