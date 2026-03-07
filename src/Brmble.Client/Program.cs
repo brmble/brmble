@@ -25,6 +25,7 @@ static class Program
     private static volatile bool _muted;
     private static volatile bool _deafened;
     private static volatile string? _closeAction; // null = ask, "minimize", "quit"
+    private static System.Threading.Timer? _zoomSaveTimer;
 
     private static readonly string LogPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -203,12 +204,29 @@ static class Program
             _bridge = new NativeBridge(_controller.CoreWebView2, hwnd);
 
             // Send zoom percentage to the frontend whenever the user zooms (Ctrl+scroll)
+            // and debounce-save the zoom level to config for persistence across restarts.
             _controller.ZoomFactorChanged += (sender, args) =>
             {
-                var zoomPercent = (int)Math.Round(_controller!.ZoomFactor * 100);
-                _bridge.Send("window.zoomChanged", new { zoomPercent });
-                _bridge.NotifyUiThread();
+                var zoomFactor = _controller!.ZoomFactor;
+                var zoomPercent = (int)Math.Round(zoomFactor * 100);
+                _bridge?.Send("window.zoomChanged", new { zoomPercent });
+                _bridge?.NotifyUiThread();
+
+                // Debounce: save after 500ms of no further changes
+                _zoomSaveTimer?.Dispose();
+                _zoomSaveTimer = new System.Threading.Timer(_ =>
+                {
+                    _appConfigService!.SaveZoomFactor(zoomFactor);
+                }, null, 500, Timeout.Infinite);
             };
+
+            // Restore saved zoom level before navigation to avoid a visible flash at 100%
+            var savedZoom = _appConfigService!.GetZoomFactor();
+            if (savedZoom.HasValue && savedZoom.Value > 0)
+            {
+                _controller.ZoomFactor = savedZoom.Value;
+            }
+
 
             _appConfigService!.Initialize(_bridge);
             _appConfigService!.OnSettingsChanged = settings => _mumbleClient?.ApplySettings(settings);
@@ -481,6 +499,8 @@ static class Program
             }
 
             case Win32Window.WM_DESTROY:
+                _zoomSaveTimer?.Dispose();
+                _zoomSaveTimer = null;
                 if (_appConfigService != null)
                 {
                     var placement = new Win32Window.WINDOWPLACEMENT

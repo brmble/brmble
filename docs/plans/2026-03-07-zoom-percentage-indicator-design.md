@@ -24,7 +24,7 @@ New `ZoomIndicator` component:
 - Fades in on change, fades out after 1.5s of inactivity (debounced)
 - No special-case for 100%: behavior is identical at all zoom levels; the indicator simply fades out after inactivity
 - Tokens: `--font-mono`, `--bg-surface`, `--text-primary`, `--radius-md`, `--shadow-elevated`
-- `z-index: 9999`
+- `z-index: 10001`
 - Placed in `App.tsx` after `<Prompt />`
 
 ### Visual Style
@@ -34,5 +34,5 @@ Small unobtrusive pill: `padding: var(--space-xs) var(--space-sm)`, subtle backg
 ### Out of Scope
 
 - No click-to-reset-zoom (keeps `pointer-events: none`)
-- No persistence of zoom level across sessions
+- ~~No persistence of zoom level across sessions~~ (implemented in #246)
 - No zoom controls (buttons/slider)

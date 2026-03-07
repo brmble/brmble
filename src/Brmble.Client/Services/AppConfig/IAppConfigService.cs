@@ -16,4 +16,6 @@ public interface IAppConfigService
     void SaveClosePreference(string? preference);
     string? GetLastConnectedServerId();
     void SaveLastConnectedServerId(string? serverId);
+    double? GetZoomFactor();
+    void SaveZoomFactor(double? factor);
 }
