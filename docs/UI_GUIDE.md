@@ -9,7 +9,7 @@ Format: Flat rulebook. Numbered rules, tables, do/don't examples. No fluff.
 
 | Resource | Path | Contents |
 |---|---|---|
-| Global tokens | `src/Brmble.Web/src/index.css` | 40 `:root` tokens (spacing, font sizes, layout, transitions, animations, heading scale) |
+| Global tokens | `src/Brmble.Web/src/index.css` | 41 `:root` tokens (spacing, font sizes, layout, transitions, animations, heading scale) |
 | Heading classes | `src/Brmble.Web/src/styles/headings.css` | 3-tier heading system |
 | Theme template | `src/Brmble.Web/src/themes/_template.css` | 73 per-theme token slots with derivation formulas |
 

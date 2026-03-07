@@ -107,7 +107,7 @@
  * ================================================================
  * Each ring has its own keyframes with staggered timing.
  * The pulse: expand outward → hold briefly → contract back.
- * Total cycle: 3s with ease-in-out for organic feel.
+ * Total cycle: var(--animation-heartbeat) with ease-in-out for organic feel.
  * Rings expand sequentially: inner first, then middle, then outer.
  */
 
@@ -144,14 +144,14 @@
 /* ---------------------------------------------------------------
  * Double-beat keyframes: thump-thump ... thump-thump ...
  *
- * 4s total cycle. Timeline (% → seconds):
- *   0-70%  (0.0-2.8s)  long rest
- *   71-73% (2.84-2.92s) 1st beat: snap out
- *   74-76% (2.96-3.04s) 1st beat: snap back
- *   77-79% (3.08-3.16s) brief pause between beats
- *   80-82% (3.20-3.28s) 2nd beat: snap out
- *   83-85% (3.32-3.40s) 2nd beat: snap back
- *   86-100% (3.44-4.0s) rest before next cycle
+ * 3s total cycle. Timeline (%):
+ *   0-70%   long rest
+ *   71-73%  1st beat: snap out
+ *   74-76%  1st beat: snap back
+ *   77-79%  brief pause between beats
+ *   80-82%  2nd beat: snap out
+ *   83-85%  2nd beat: snap back
+ *   86-100% rest before next cycle
  * --------------------------------------------------------------- */
 
 /* --- Inner ring (smallest movement) --- */

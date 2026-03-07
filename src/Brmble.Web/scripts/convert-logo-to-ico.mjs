@@ -3,7 +3,7 @@
  *
  * Converts brmble-logo.svg → .ico and .png files for all themes.
  * Each theme gets its own colored icon using --bg-avatar-start (background)
- * and --text-primary (logo fill) from that theme's CSS tokens.
+ * and --text-primary (logo fill) extracted from the theme CSS files.
  *
  * Output structure:
  *   src/Brmble.Client/Resources/
@@ -17,26 +17,67 @@
 
 import sharp from 'sharp';
 import pngToIco from 'png-to-ico';
-import { readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { resolve, dirname } from 'path';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'fs';
+import { resolve, dirname, basename } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SIZES = [16, 32, 48, 256];
 
-const THEMES = [
-  { id: 'classic',        bg: '#4a1a6b', fill: '#f5f0e8' },
-  // clean shares classic colors, skip duplicate
-  { id: 'blue-lagoon',    bg: '#1a4d66', fill: '#f0f5f8' },
-  { id: 'cosmopolitan',   bg: '#6b2040', fill: '#f8f0f0' },
-  { id: 'aperol-spritz',  bg: '#8c4a20', fill: '#faf0e0' },
-  { id: 'midori-sour',    bg: '#1a6b42', fill: '#eaf5ef' },
-  { id: 'lemon-drop',     bg: '#8a6d20', fill: '#f8f0dc' },
-  { id: 'retro-terminal', bg: '#1a6b1a', fill: '#d0f0c0' },
-];
-
 const svgPath = resolve(__dirname, '../src/assets/brmble-logo.svg');
+const themesDir = resolve(__dirname, '../src/themes');
 const outDir = resolve(__dirname, '../../Brmble.Client/Resources');
+
+/**
+ * Extract a CSS custom property value from a CSS file's content.
+ * Looks for `--token: <value>;` and returns the raw value string.
+ */
+function extractToken(css, token) {
+  const re = new RegExp(`${token}:\\s*([^;]+);`);
+  const m = css.match(re);
+  return m ? m[1].trim() : null;
+}
+
+/**
+ * Parse all theme CSS files and return an array of { id, bg, fill } objects.
+ * Classic defines tokens in bare :root (baseline for all themes).
+ * Other themes use :root[data-theme="name"].
+ * Clean inherits Classic colors so it's skipped (duplicate icons).
+ */
+function loadThemes() {
+  const classicCss = readFileSync(resolve(themesDir, 'classic.css'), 'utf-8');
+  const classicBg = extractToken(classicCss, '--bg-avatar-start');
+  const classicFill = extractToken(classicCss, '--text-primary');
+
+  if (!classicBg || !classicFill) {
+    throw new Error('Failed to extract --bg-avatar-start or --text-primary from classic.css');
+  }
+
+  const themes = [{ id: 'classic', bg: classicBg, fill: classicFill }];
+
+  const files = readdirSync(themesDir).filter(
+    (f) => f.endsWith('.css') && f !== 'classic.css' && f !== '_template.css'
+  );
+
+  for (const file of files) {
+    const id = basename(file, '.css');
+    const css = readFileSync(resolve(themesDir, file), 'utf-8');
+    const bg = extractToken(css, '--bg-avatar-start');
+    const fill = extractToken(css, '--text-primary');
+
+    // Themes that don't define these tokens inherit Classic's values (e.g. clean).
+    // Skip them to avoid generating duplicate icon sets.
+    if (!bg && !fill) continue;
+
+    themes.push({
+      id,
+      bg: bg || classicBg,
+      fill: fill || classicFill,
+    });
+  }
+
+  return themes;
+}
 
 function buildSvg(baseSvg, bgColor, fillColor) {
   let svg = baseSvg.replace(/fill="currentColor"/g, `fill="${fillColor}"`);
@@ -74,11 +115,12 @@ async function generateTheme(baseSvg, theme) {
 
 async function main() {
   const baseSvg = readFileSync(svgPath, 'utf-8');
+  const themes = loadThemes();
   mkdirSync(outDir, { recursive: true });
 
   console.log('Generating theme icons...\n');
 
-  for (const theme of THEMES) {
+  for (const theme of themes) {
     await generateTheme(baseSvg, theme);
   }
 
@@ -87,7 +129,7 @@ async function main() {
   writeFileSync(resolve(outDir, 'brmble.ico'), classicIco);
 
   console.log(`\n  Default icon: Resources/brmble.ico (classic)`);
-  console.log(`  ${THEMES.length} themes generated`);
+  console.log(`  ${themes.length} themes generated`);
 }
 
 main().catch((err) => {
