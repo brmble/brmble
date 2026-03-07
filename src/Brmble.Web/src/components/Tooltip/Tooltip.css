@@ -1,0 +1,27 @@
+.brmble-tooltip-portal {
+  position: fixed;
+  z-index: 10000;
+  pointer-events: none;
+}
+
+.brmble-tooltip {
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  line-height: 1.4;
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-elevated);
+  max-width: 260px;
+  word-wrap: break-word;
+  white-space: pre-line;
+  animation: tooltip-fade-in var(--animation-fast) ease;
+}
+
+@keyframes tooltip-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
