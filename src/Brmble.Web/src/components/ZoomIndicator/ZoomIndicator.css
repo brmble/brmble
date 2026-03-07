@@ -9,11 +9,11 @@
   font-family: var(--font-mono);
   font-size: var(--text-base);
   border-radius: var(--radius-md);
-  border: 1px solid var(--glass-border);
+  border: var(--glass-border);
   box-shadow: var(--shadow-elevated);
   backdrop-filter: var(--glass-blur);
   pointer-events: none;
-  z-index: 10001;
+  z-index: 9999;
   opacity: 0;
   transition: opacity var(--transition-normal);
 }
