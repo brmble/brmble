@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
 import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
+import { Tooltip } from '../Tooltip/Tooltip';
 import { usePermissions } from '../../hooks/usePermissions';
 import bridge from '../../bridge';
 import './ChannelTree.css';
@@ -199,13 +200,14 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
           })()}
           {channel.users.length > 0 && (
             <>
+              <Tooltip content={(sortByNamePerChannel[channel.id] ?? false) ? 'Sort by join order' : 'Sort alphabetically'}>
               <button
                 className="channel-sort-btn"
                 onClick={(e) => toggleSort(channel.id, e)}
-                title={(sortByNamePerChannel[channel.id] ?? false) ? 'Sort by join order' : 'Sort alphabetically'}
               >
                 {(sortByNamePerChannel[channel.id] ?? false) ? 'A-Z' : '↺'}
               </button>
+              </Tooltip>
               <span className="user-count">({channel.users.length})</span>
             </>
           )}
@@ -214,10 +216,9 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
         {isExpanded && (
           <div className="channel-children">
             {channel.users.map(user => (
+              <Tooltip key={user.session} content={getUserTooltip(user)}>
               <div 
-                key={user.session} 
                 className={`user-row ${user.self ? 'self' : ''} ${speakingUsers?.has(user.session) ? 'speaking' : ''}`}
-                title={getUserTooltip(user)}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   setContextMenu({ x: e.clientX, y: e.clientY, userId: String(user.session), userName: user.name, isSelf: !!user.self, channelId: channel.id });
@@ -252,9 +253,10 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                   )}
                 </span>
                 <span className="user-name">{user.name}</span>
-                {user.matrixUserId && <span className="brmble-badge" title="Brmble user" />}
+                {user.matrixUserId && <Tooltip content="Brmble user"><span className="brmble-badge" /></Tooltip>}
                 {user.self && <span className="self-badge">(you)</span>}
               </div>
+              </Tooltip>
             ))}
             {channel.children.map(child => renderChannel(child, level + 1))}
           </div>

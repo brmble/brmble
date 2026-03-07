@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useServerlist } from '../../hooks/useServerlist';
 import type { ServerEntry } from '../../hooks/useServerlist';
 import { confirm } from '../../hooks/usePrompt';
+import { Tooltip } from '../Tooltip/Tooltip';
 import './ServerList.css';
 
 interface ServerListProps {
@@ -105,13 +106,14 @@ export function ServerList({ onConnect }: ServerListProps) {
                     <span className="server-list-address">{server.host}:{server.port}</span>
                   </div>
                     <div className="server-list-actions">
+                      <Tooltip content="Delete server">
                       <button
                         className="btn btn-ghost server-list-delete-btn"
                         onClick={() => handleDelete(server)}
-                        title="Delete server"
                       >
                         ✕
                       </button>
+                      </Tooltip>
                       <button 
                         className="btn btn-secondary server-list-edit-btn"
                         onClick={() => handleEdit(server)}

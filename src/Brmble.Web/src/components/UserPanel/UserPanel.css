@@ -4,6 +4,10 @@
   gap: 0.25rem;
 }
 
+.user-panel .tooltip-wrapper {
+  display: inline-flex;
+}
+
 .user-panel-btn.dm-btn {
   position: relative;
 }
