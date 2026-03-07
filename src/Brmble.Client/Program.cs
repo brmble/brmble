@@ -202,6 +202,14 @@ static class Program
 
             _bridge = new NativeBridge(_controller.CoreWebView2, hwnd);
 
+            // Send zoom percentage to the frontend whenever the user zooms (Ctrl+scroll)
+            _controller.ZoomFactorChanged += (sender, args) =>
+            {
+                var zoomPercent = (int)Math.Round(_controller!.ZoomFactor * 100);
+                _bridge.Send("window.zoomChanged", new { zoomPercent });
+                _bridge.NotifyUiThread();
+            };
+
             _appConfigService!.Initialize(_bridge);
             _appConfigService!.OnSettingsChanged = settings => _mumbleClient?.ApplySettings(settings);
             _appConfigService!.RegisterHandlers(_bridge);

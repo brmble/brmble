@@ -17,6 +17,7 @@ import { SettingsModal } from './components/SettingsModal/SettingsModal';
 import { CloseDialog } from './components/CloseDialog/CloseDialog';
 import { CertWizard } from './components/CertWizard/CertWizard';
 import { Version } from './components/Version/Version';
+import { ZoomIndicator } from './components/ZoomIndicator/ZoomIndicator';
 import { useChatStore, addMessageToStore, clearChatStorage, loadDMContacts, upsertDMContact, markDMContactRead, removeDMContact } from './hooks/useChatStore';
 import { parseMessageMedia } from './utils/parseMessageMedia';
 import type { StoredDMContact } from './hooks/useChatStore';
@@ -1432,6 +1433,7 @@ const handleConnect = (serverData: SavedServer) => {
 
       <Prompt />
 
+      <ZoomIndicator />
       <Version />
     </div>
   );
