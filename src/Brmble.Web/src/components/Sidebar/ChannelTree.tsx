@@ -153,7 +153,8 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
   };
 
   const renderChannel = (channel: ChannelWithUsers, level: number = 0) => {
-    const hasChildren = channel.children.length > 0 || channel.users.length > 0;
+    const isExpandable = channel.children.length > 0 || channel.users.length > 0;
+    const isFolder = channel.children.length > 0;
     const isExpanded = expandedChannels.has(channel.id);
     const isCurrentChannel = currentChannelId === channel.id;
     const hasUnread = (channelUnreads?.get(String(channel.id))?.notificationCount ?? 0) > 0;
@@ -161,13 +162,26 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     return (
       <div key={channel.id} className={`channel-item${pendingChannelAction !== null ? ' channel-item--pending' : ''}`} data-level={level}>
         <div 
-          className={`channel-row ${isCurrentChannel ? 'current' : ''}${hasUnread ? ' channel-row--unread' : ''}`}
+          className={`channel-row ${isCurrentChannel ? 'current' : ''}${hasUnread ? ' channel-row--unread' : ''}${isFolder ? ' is-folder' : ''}`}
+          style={{ paddingLeft: `calc(16px + ${level * 20}px)` }}
+          role="button"
+          tabIndex={0}
           onClick={() => handleChannelClick(channel.id)}
           onDoubleClick={pendingChannelAction === null ? () => onJoinChannel(channel.id) : undefined}
+          onKeyDown={(e) => {
+            if (e.key === ' ') {
+              e.preventDefault();
+              handleChannelClick(channel.id);
+            } else if (e.key === 'Enter') {
+              if (pendingChannelAction === null) {
+                onJoinChannel(channel.id);
+              }
+            }
+          }}
         >
           <span 
-            className={`expand-icon ${isExpanded ? 'expanded' : ''} ${!hasChildren ? 'placeholder' : ''}`}
-            onClick={(e) => { e.stopPropagation(); if (hasChildren) toggleExpand(channel.id); }}
+            className={`expand-icon ${isExpanded ? 'expanded' : ''} ${!isExpandable ? 'placeholder' : ''}`}
+            onClick={(e) => { e.stopPropagation(); if (isExpandable) toggleExpand(channel.id); }}
           >
             <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
               <path d="M3 2L7 5L3 8V2Z" />
@@ -219,6 +233,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
               <Tooltip key={user.session} content={getUserTooltip(user)}>
               <div 
                 className={`user-row ${user.self ? 'self' : ''} ${speakingUsers?.has(user.session) ? 'speaking' : ''}`}
+                style={{ paddingLeft: `calc(40px + ${level * 20}px)` }}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   setContextMenu({ x: e.clientX, y: e.clientY, userId: String(user.session), userName: user.name, isSelf: !!user.self, channelId: channel.id });
@@ -233,16 +248,22 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                     </svg>
                   ) : (
                     <>
-                      <svg className={`status-icon status-icon--deaf${user.deafened ? '' : ' status-icon--hidden'}`} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="1" y1="1" x2="23" y2="23"/>
-                        <path d="M3 18v-6a9 9 0 0 1 18 0v6"/>
-                        <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3z"/>
-                        <path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>
-                      </svg>
-                      <svg className={`status-icon status-icon--muted${user.muted ? '' : ' status-icon--hidden'}`} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="1" y1="1" x2="23" y2="23"/>
-                        <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/>
-                      </svg>
+                      <span className="user-status-extra">
+                        {user.deafened && (
+                          <svg className="status-icon status-icon--deaf" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="1" y1="1" x2="23" y2="23"/>
+                            <path d="M3 18v-6a9 9 0 0 1 18 0v6"/>
+                            <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3z"/>
+                            <path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>
+                          </svg>
+                        )}
+                        {user.muted && (
+                          <svg className="status-icon status-icon--muted" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="1" y1="1" x2="23" y2="23"/>
+                            <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/>
+                          </svg>
+                        )}
+                      </span>
                       <svg className="status-icon status-icon--mic" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
                         <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
@@ -253,8 +274,8 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                   )}
                 </span>
                 <span className="user-name">{user.name}</span>
-                {user.matrixUserId && <Tooltip content="Brmble user"><span className="brmble-badge" /></Tooltip>}
                 {user.self && <span className="self-badge">(you)</span>}
+                {user.matrixUserId && <Tooltip content="Brmble user"><span className="brmble-badge" /></Tooltip>}
               </div>
               </Tooltip>
             ))}

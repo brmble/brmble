@@ -83,55 +83,81 @@ export function Sidebar({
 
   return (
     <aside className="sidebar">
-      {serverLabel && (
-        <div 
-          className={`server-info-panel${onSelectServer ? ' server-info-clickable' : ''}${isServerChatActive ? ' server-info-active' : ''}`}
-          onClick={onSelectServer}
-        >
-          <div className="server-info-name">{serverLabel}</div>
-          {serverAddress && (
-            <div className="server-info-address">{serverAddress}</div>
-          )}
-          <div className="server-status-line" aria-live="polite" aria-atomic="true">
-            <span className={`status-dot status-dot--${connectionStatus}`} aria-hidden="true" />
-            {connectionStatus !== 'idle' && (
-              <span className="status-text">
-                {connectionStatus === 'connected' && 'Connected'}
-                {connectionStatus === 'connecting' && 'Connecting...'}
-                {connectionStatus === 'reconnecting' && 'Reconnecting...'}
-                {connectionStatus === 'failed' && 'Disconnected'}
-                {connectionStatus === 'disconnected' && 'Disconnected'}
-              </span>
+      {serverLabel ? (
+        <div className={`server-info-panel${isServerChatActive ? ' server-info-active' : ''}`}>
+          <div 
+            className={`server-info-header${onSelectServer ? ' server-info-clickable' : ''}`}
+            onClick={onSelectServer}
+            role={onSelectServer ? 'button' : undefined}
+            tabIndex={onSelectServer ? 0 : undefined}
+            onKeyDown={onSelectServer ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onSelectServer();
+              }
+            } : undefined}
+          >
+            <div className="server-info-name">{serverLabel}</div>
+            {serverAddress && (
+              <div className="server-info-address">{serverAddress}</div>
             )}
-            {isDisconnected && onReconnect && (
-              <button
-                className="btn btn-sm reconnect-btn"
-                onClick={(e) => { e.stopPropagation(); onReconnect(); }}
-              >
-                Reconnect
-              </button>
+            
+            {connected && (
+              <div className="server-integrated-stats">
+                <div className="server-status-row">
+                  <span className="status-label">Logged in as</span>
+                  <span className="status-value">{username}</span>
+                </div>
+                <div className="server-status-row">
+                  <span className="status-label">Users online</span>
+                  <span className="status-value">{users.length}</span>
+                </div>
+              </div>
             )}
-            {(onDisconnect || onCancelReconnect) && (connected || isConnecting || isReconnecting || isDisconnected) && (
-              <button
-                className="btn btn-sm disconnect-btn"
-                onClick={(e) => { e.stopPropagation(); (isReconnecting ? onCancelReconnect : onDisconnect)?.(); }}
-              >
-                {(isConnecting || isReconnecting) ? 'Cancel' : isDisconnected ? 'Back' : 'Disconnect'}
-              </button>
-            )}
+
+            <div className="server-status-line" aria-live="polite" aria-atomic="true">
+              <span className={`status-dot status-dot--${connectionStatus}`} aria-hidden="true" />
+              {connectionStatus !== 'idle' && (
+                <span className="status-text">
+                  {connectionStatus === 'connected' && 'Connected'}
+                  {connectionStatus === 'connecting' && 'Connecting...'}
+                  {connectionStatus === 'reconnecting' && 'Reconnecting...'}
+                  {connectionStatus === 'failed' && 'Disconnected'}
+                  {connectionStatus === 'disconnected' && 'Disconnected'}
+                </span>
+              )}
+              {isDisconnected && onReconnect && (
+                <button
+                  className="btn btn-sm reconnect-btn"
+                  onClick={(e) => { e.stopPropagation(); onReconnect(); }}
+                >
+                  Reconnect
+                </button>
+              )}
+              {(onDisconnect || onCancelReconnect) && (connected || isConnecting || isReconnecting || isDisconnected) && (
+                <button
+                  className="btn btn-sm disconnect-btn"
+                  onClick={(e) => { e.stopPropagation(); (isReconnecting ? onCancelReconnect : onDisconnect)?.(); }}
+                >
+                  {(isConnecting || isReconnecting) ? 'Cancel' : isDisconnected ? 'Back' : 'Disconnect'}
+                </button>
+              )}
+            </div>
           </div>
         </div>
-      )}
-      
-      {connected && (
-        <div className="server-status-panel">
-          <div className="server-status-row">
-            <span className="status-label">Logged in as</span>
-            <span className="status-value">{username}</span>
-          </div>
-          <div className="server-status-row">
-            <span className="status-label">Users online</span>
-            <span className="status-value">{users.length}</span>
+      ) : connected && (
+        <div className="server-info-panel standalone">
+          <div className="server-info-header">
+            <div className="server-integrated-stats">
+              <div className="server-status-row">
+                <span className="status-label">Logged in as</span>
+                <span className="status-value">{username}</span>
+              </div>
+              <div className="server-status-row">
+                <span className="status-label">Users online</span>
+                <span className="status-value">{users.length}</span>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -162,16 +188,22 @@ export function Sidebar({
                     </svg>
                   ) : (
                     <>
-                      <svg className={`status-icon status-icon--deaf${user.deafened ? '' : ' status-icon--hidden'}`} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="1" y1="1" x2="23" y2="23"/>
-                        <path d="M3 18v-6a9 9 0 0 1 18 0v6"/>
-                        <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3z"/>
-                        <path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>
-                      </svg>
-                      <svg className={`status-icon status-icon--muted${user.muted ? '' : ' status-icon--hidden'}`} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="1" y1="1" x2="23" y2="23"/>
-                        <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/>
-                      </svg>
+                      <span className="user-status-extra">
+                        {user.deafened && (
+                          <svg className="status-icon status-icon--deaf" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="1" y1="1" x2="23" y2="23"/>
+                            <path d="M3 18v-6a9 9 0 0 1 18 0v6"/>
+                            <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3z"/>
+                            <path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>
+                          </svg>
+                        )}
+                        {user.muted && (
+                          <svg className="status-icon status-icon--muted" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="1" y1="1" x2="23" y2="23"/>
+                            <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/>
+                          </svg>
+                        )}
+                      </span>
                       <svg className="status-icon status-icon--mic" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
                         <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
