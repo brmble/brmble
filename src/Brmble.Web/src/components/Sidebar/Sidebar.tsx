@@ -93,6 +93,20 @@ export function Sidebar({
             {serverAddress && (
               <div className="server-info-address">{serverAddress}</div>
             )}
+            
+            {connected && (
+              <div className="server-integrated-stats">
+                <div className="server-status-row">
+                  <span className="status-label">Logged in as</span>
+                  <span className="status-value">{username}</span>
+                </div>
+                <div className="server-status-row">
+                  <span className="status-label">Users online</span>
+                  <span className="status-value">{users.length}</span>
+                </div>
+              </div>
+            )}
+
             <div className="server-status-line" aria-live="polite" aria-atomic="true">
               <span className={`status-dot status-dot--${connectionStatus}`} aria-hidden="true" />
               {connectionStatus !== 'idle' && (
@@ -122,32 +136,20 @@ export function Sidebar({
               )}
             </div>
           </div>
-          
-          {connected && (
-            <>
-              <div className="server-info-divider" />
-              <div className="server-status-panel">
-                <div className="server-status-row">
-                  <span className="status-label">Logged in as</span>
-                  <span className="status-value">{username}</span>
-                </div>
-                <div className="server-status-row">
-                  <span className="status-label">Users online</span>
-                  <span className="status-value">{users.length}</span>
-                </div>
-              </div>
-            </>
-          )}
         </div>
       ) : connected && (
-        <div className="server-status-panel standalone">
-          <div className="server-status-row">
-            <span className="status-label">Logged in as</span>
-            <span className="status-value">{username}</span>
-          </div>
-          <div className="server-status-row">
-            <span className="status-label">Users online</span>
-            <span className="status-value">{users.length}</span>
+        <div className="server-info-panel standalone">
+          <div className="server-info-header">
+            <div className="server-integrated-stats" style={{ margin: 0 }}>
+              <div className="server-status-row">
+                <span className="status-label">Logged in as</span>
+                <span className="status-value">{username}</span>
+              </div>
+              <div className="server-status-row">
+                <span className="status-label">Users online</span>
+                <span className="status-value">{users.length}</span>
+              </div>
+            </div>
           </div>
         </div>
       )}
