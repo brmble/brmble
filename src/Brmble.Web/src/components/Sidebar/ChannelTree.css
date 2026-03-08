@@ -1,6 +1,5 @@
 .channel-tree {
   font-size: var(--text-sm);
-  padding-left: var(--space-xs);
 }
 
 .channel-item {
@@ -11,8 +10,8 @@
 .channel-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: var(--space-xs) 10px;
+  gap: var(--space-xs);
+  padding: var(--space-2xs) var(--space-xs) var(--space-2xs) 0;
   cursor: pointer;
   border-radius: var(--radius-sm);
   transition: all var(--transition-fast);
@@ -113,8 +112,8 @@
 .user-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
+  gap: var(--space-xs);
+  padding: var(--space-2xs) var(--space-xs) var(--space-2xs) 0;
   cursor: pointer;
   border-radius: var(--radius-sm);
   transition: background var(--transition-fast);
@@ -130,20 +129,28 @@
 }
 
 .user-status {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 2px;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
+}
+
+.user-status-extra {
+  position: absolute;
+  right: 100%;
+  margin-right: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .status-icon--deaf,
 .status-icon--muted {
   color: color-mix(in srgb, var(--accent-primary) 55%, transparent);
   flex-shrink: 0;
-}
-
-.status-icon--hidden {
-  visibility: hidden;
 }
 
 .status-icon--mic {
@@ -184,7 +191,7 @@
   border-radius: var(--radius-full);
   background: var(--accent-success);
   flex-shrink: 0;
-  margin-left: 4px;
+  margin-left: auto;
 }
 
 .user-row.speaking {
