@@ -7,7 +7,8 @@ public record AudioSettings(
     int MaxAmplification = 100,
     int OutputVolume = 250,
     string TransmissionMode = "voiceActivity",
-    string? PushToTalkKey = null
+    string? PushToTalkKey = null,
+    int OpusBitrate = 72000
 );
 
 public record ShortcutsSettings(
