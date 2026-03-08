@@ -33,6 +33,12 @@ public class EncodePipeline : IDisposable
             EnableForwardErrorCorrection = true,
             Vbr = false  // CBR, matching Mumble behaviour
         };
+
+        if (!_encoder.PermittedFrameSizes.Contains(_frameSize))
+            throw new ArgumentException(
+                $"Frame size {_frameSize} samples is not permitted by the Opus encoder at {sampleRate} Hz. " +
+                $"Permitted sizes: {string.Join(", ", _encoder.PermittedFrameSizes)}",
+                nameof(frameSize));
     }
 
     public void SetTarget(int target) => _target = target;

@@ -252,9 +252,9 @@ private int _screenShareHotkeyId = -1;
         {
             if (_opusBitrate == bitrate) return;
             _opusBitrate = bitrate;
-            // Pipeline must be recreated because application mode is set at construction time
-            _encodePipeline?.Dispose();
-            _encodePipeline = null;
+            // Pipeline must be recreated because application mode is set at construction time.
+            // If the mic is active, recreate immediately so no audio is lost.
+            RecreateEncodePipelineLocked();
         }
     }
 
@@ -264,9 +264,30 @@ private int _screenShareHotkeyId = -1;
         {
             if (_opusFrameMs == frameMs) return;
             _opusFrameMs = frameMs;
-            // Pipeline must be recreated because frame size is set at construction time
-            _encodePipeline?.Dispose();
-            _encodePipeline = null;
+            // Pipeline must be recreated because frame size is set at construction time.
+            // If the mic is active, recreate immediately so no audio is lost.
+            RecreateEncodePipelineLocked();
+        }
+    }
+
+    /// <summary>
+    /// Disposes and immediately recreates <see cref="_encodePipeline"/> with the current
+    /// encoder settings. If the mic is not active the field is left null so the pipeline
+    /// will be created lazily on the next <see cref="StartMic"/> call.
+    /// Must be called with <see cref="_lock"/> held.
+    /// </summary>
+    private void RecreateEncodePipelineLocked()
+    {
+        _encodePipeline?.Dispose();
+        _encodePipeline = null;
+
+        if (_micStarted)
+        {
+            _encodePipeline = new EncodePipeline(
+                sampleRate: 48000, channels: 1, bitrate: _opusBitrate,
+                onPacketReady: packet => SendVoicePacket?.Invoke(packet),
+                frameSize: 48000 / 1000 * _opusFrameMs);
+            _encodePipeline.ResetSequence();
         }
     }
 

@@ -249,31 +249,45 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
       </div>
 
       {/* Encoding Section */}
-      <div className="settings-section">
-        <h3 className="heading-section settings-section-title">Encoding</h3>
-        <div className="settings-item settings-slider">
-          <label>Bitrate: {localSettings.opusBitrate / 1000} kbps{localSettings.opusBitrate === 72000 ? ' (default)' : ''}</label>
-          <input
-            type="range"
-            min="0"
-            max="5"
-            step="1"
-            value={[24000, 40000, 56000, 72000, 96000, 128000].indexOf(localSettings.opusBitrate)}
-            onChange={(e) => handleChange('opusBitrate', [24000, 40000, 56000, 72000, 96000, 128000][parseInt(e.target.value, 10)])}
-          />
-        </div>
-        <div className="settings-item settings-slider">
-          <label>Audio per packet: {localSettings.opusFrameSize} ms{localSettings.opusFrameSize === 20 ? ' (default)' : ''}</label>
-          <input
-            type="range"
-            min="0"
-            max="3"
-            step="1"
-            value={[10, 20, 40, 60].indexOf(localSettings.opusFrameSize)}
-            onChange={(e) => handleChange('opusFrameSize', [10, 20, 40, 60][parseInt(e.target.value, 10)])}
-          />
-        </div>
-      </div>
+      {(() => {
+        const BITRATES = [24000, 40000, 56000, 72000, 96000, 128000];
+        const FRAME_SIZES = [10, 20, 40, 60];
+        const bitrateIdx = Math.max(0, BITRATES.indexOf(localSettings.opusBitrate));
+        const frameSizeIdx = Math.max(0, FRAME_SIZES.indexOf(localSettings.opusFrameSize));
+        return (
+          <div className="settings-section">
+            <h3 className="heading-section settings-section-title">Encoding</h3>
+            <div className="settings-item settings-slider">
+              <label>Bitrate: {localSettings.opusBitrate / 1000} kbps{localSettings.opusBitrate === 72000 ? ' (default)' : ''}</label>
+              <input
+                type="range"
+                min="0"
+                max={BITRATES.length - 1}
+                step="1"
+                value={bitrateIdx}
+                onChange={(e) => {
+                  const idx = Math.min(parseInt(e.target.value, 10), BITRATES.length - 1);
+                  handleChange('opusBitrate', BITRATES[idx]);
+                }}
+              />
+            </div>
+            <div className="settings-item settings-slider">
+              <label>Audio per packet: {localSettings.opusFrameSize} ms{localSettings.opusFrameSize === 20 ? ' (default)' : ''}</label>
+              <input
+                type="range"
+                min="0"
+                max={FRAME_SIZES.length - 1}
+                step="1"
+                value={frameSizeIdx}
+                onChange={(e) => {
+                  const idx = Math.min(parseInt(e.target.value, 10), FRAME_SIZES.length - 1);
+                  handleChange('opusFrameSize', FRAME_SIZES[idx]);
+                }}
+              />
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
