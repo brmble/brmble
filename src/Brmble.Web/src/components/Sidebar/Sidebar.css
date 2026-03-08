@@ -1,9 +1,14 @@
 .server-info-panel {
-  padding: 0.75rem;
-  margin: 0.5rem 0.5rem 0;
+  margin: var(--space-xs) var(--space-xs) var(--space-lg);
   background: var(--bg-glass);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.server-info-header {
+  padding: var(--space-sm);
+  transition: background var(--transition-fast);
 }
 
 .server-info-name {
@@ -22,20 +27,17 @@
 
 .server-info-clickable {
   cursor: pointer;
-  transition: transform var(--transition-fast), background var(--transition-fast);
 }
 
 .server-info-clickable:hover {
   background: var(--bg-hover);
-  border-color: var(--border-default);
 }
 
 .server-info-clickable:active {
-  transform: scale(0.98);
+  background: var(--bg-hover-strong);
 }
 
 .server-info-active {
-  background: var(--bg-hover);
   border-color: var(--accent-secondary);
 }
 
@@ -43,12 +45,25 @@
   color: var(--accent-secondary);
 }
 
+.server-info-divider {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 0 var(--space-sm);
+}
+
 .server-status-panel {
-  padding: 0 var(--space-sm);
-  margin: var(--space-2xs) var(--space-xs) var(--space-lg);
+  padding: var(--space-sm);
   display: flex;
   flex-direction: column;
   gap: var(--space-2xs);
+  background: var(--bg-surface);
+}
+
+.server-status-panel.standalone {
+  margin: var(--space-xs) var(--space-xs) var(--space-lg);
+  background: var(--bg-glass);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
 }
 
 .server-status-row {

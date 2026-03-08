@@ -83,48 +83,64 @@ export function Sidebar({
 
   return (
     <aside className="sidebar">
-      {serverLabel && (
-        <div 
-          className={`server-info-panel${onSelectServer ? ' server-info-clickable' : ''}${isServerChatActive ? ' server-info-active' : ''}`}
-          onClick={onSelectServer}
-        >
-          <div className="server-info-name">{serverLabel}</div>
-          {serverAddress && (
-            <div className="server-info-address">{serverAddress}</div>
-          )}
-          <div className="server-status-line" aria-live="polite" aria-atomic="true">
-            <span className={`status-dot status-dot--${connectionStatus}`} aria-hidden="true" />
-            {connectionStatus !== 'idle' && (
-              <span className="status-text">
-                {connectionStatus === 'connected' && 'Connected'}
-                {connectionStatus === 'connecting' && 'Connecting...'}
-                {connectionStatus === 'reconnecting' && 'Reconnecting...'}
-                {connectionStatus === 'failed' && 'Disconnected'}
-                {connectionStatus === 'disconnected' && 'Disconnected'}
-              </span>
+      {serverLabel ? (
+        <div className={`server-info-panel${isServerChatActive ? ' server-info-active' : ''}`}>
+          <div 
+            className={`server-info-header${onSelectServer ? ' server-info-clickable' : ''}`}
+            onClick={onSelectServer}
+          >
+            <div className="server-info-name">{serverLabel}</div>
+            {serverAddress && (
+              <div className="server-info-address">{serverAddress}</div>
             )}
-            {isDisconnected && onReconnect && (
-              <button
-                className="btn btn-sm reconnect-btn"
-                onClick={(e) => { e.stopPropagation(); onReconnect(); }}
-              >
-                Reconnect
-              </button>
-            )}
-            {(onDisconnect || onCancelReconnect) && (connected || isConnecting || isReconnecting || isDisconnected) && (
-              <button
-                className="btn btn-sm disconnect-btn"
-                onClick={(e) => { e.stopPropagation(); (isReconnecting ? onCancelReconnect : onDisconnect)?.(); }}
-              >
-                {(isConnecting || isReconnecting) ? 'Cancel' : isDisconnected ? 'Back' : 'Disconnect'}
-              </button>
-            )}
+            <div className="server-status-line" aria-live="polite" aria-atomic="true">
+              <span className={`status-dot status-dot--${connectionStatus}`} aria-hidden="true" />
+              {connectionStatus !== 'idle' && (
+                <span className="status-text">
+                  {connectionStatus === 'connected' && 'Connected'}
+                  {connectionStatus === 'connecting' && 'Connecting...'}
+                  {connectionStatus === 'reconnecting' && 'Reconnecting...'}
+                  {connectionStatus === 'failed' && 'Disconnected'}
+                  {connectionStatus === 'disconnected' && 'Disconnected'}
+                </span>
+              )}
+              {isDisconnected && onReconnect && (
+                <button
+                  className="btn btn-sm reconnect-btn"
+                  onClick={(e) => { e.stopPropagation(); onReconnect(); }}
+                >
+                  Reconnect
+                </button>
+              )}
+              {(onDisconnect || onCancelReconnect) && (connected || isConnecting || isReconnecting || isDisconnected) && (
+                <button
+                  className="btn btn-sm disconnect-btn"
+                  onClick={(e) => { e.stopPropagation(); (isReconnecting ? onCancelReconnect : onDisconnect)?.(); }}
+                >
+                  {(isConnecting || isReconnecting) ? 'Cancel' : isDisconnected ? 'Back' : 'Disconnect'}
+                </button>
+              )}
+            </div>
           </div>
+          
+          {connected && (
+            <>
+              <div className="server-info-divider" />
+              <div className="server-status-panel">
+                <div className="server-status-row">
+                  <span className="status-label">Logged in as</span>
+                  <span className="status-value">{username}</span>
+                </div>
+                <div className="server-status-row">
+                  <span className="status-label">Users online</span>
+                  <span className="status-value">{users.length}</span>
+                </div>
+              </div>
+            </>
+          )}
         </div>
-      )}
-      
-      {connected && (
-        <div className="server-status-panel">
+      ) : connected && (
+        <div className="server-status-panel standalone">
           <div className="server-status-row">
             <span className="status-label">Logged in as</span>
             <span className="status-value">{username}</span>
