@@ -57,7 +57,7 @@ namespace MumbleVoiceEngine.Codec
         /// </summary>
         /// <param name="srcSamplingRate">The sampling rate of the input stream.</param>
         /// <param name="srcChannelCount">The number of channels in the input stream.</param>
-        public OpusEncoder(int srcSamplingRate, int srcChannelCount)
+        public OpusEncoder(int srcSamplingRate, int srcChannelCount, Application application = Application.Voip)
         {
             if (srcSamplingRate != 8000 &&
                 srcSamplingRate != 12000 &&
@@ -69,7 +69,7 @@ namespace MumbleVoiceEngine.Codec
                 throw new ArgumentOutOfRangeException("srcChannelCount");
 
             IntPtr error;
-            var encoder = NativeMethods.opus_encoder_create(srcSamplingRate, srcChannelCount, (int)Application.Voip, out error);
+            var encoder = NativeMethods.opus_encoder_create(srcSamplingRate, srcChannelCount, (int)application, out error);
             if ((NativeMethods.OpusErrors)error != NativeMethods.OpusErrors.Ok)
             {
                 throw new Exception("Exception occured while creating encoder");
