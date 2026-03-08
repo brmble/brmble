@@ -3,6 +3,7 @@ import { useServerlist } from '../../hooks/useServerlist';
 import type { ServerEntry } from '../../hooks/useServerlist';
 import { confirm } from '../../hooks/usePrompt';
 import { Tooltip } from '../Tooltip/Tooltip';
+import { BrmbleLogo } from '../Header/BrmbleLogo';
 import './ServerList.css';
 
 interface ServerListProps {
@@ -84,6 +85,9 @@ export function ServerList({ onConnect }: ServerListProps) {
   return (
     <div className="server-list-overlay">
       <div className="server-list-container glass-panel">
+        <div className="server-list-logo">
+          <BrmbleLogo size={192} heartbeat />
+        </div>
         <div className="server-list-header">
           <h2 className="heading-title server-list-title">Choose a Server</h2>
           <p className="server-list-subtitle">Select a server to connect to voice chat</p>

@@ -20,6 +20,13 @@
   animation: serverListSlideIn var(--animation-slow) ease backwards;
 }
 
+.server-list-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: var(--space-md);
+}
+
 @keyframes serverListSlideIn {
   from {
     opacity: 0;
