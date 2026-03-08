@@ -46,5 +46,34 @@ namespace MumbleVoiceEngine.Tests.Codec
             encoder.EnableForwardErrorCorrection = true;
             Assert.IsTrue(encoder.EnableForwardErrorCorrection);
         }
+
+        [TestMethod]
+        public void Encoder_VbrProperty_CanBeSetToFalse()
+        {
+            using var encoder = new OpusEncoder(48000, 1);
+            encoder.Vbr = false;
+            Assert.IsFalse(encoder.Vbr);
+        }
+
+        [TestMethod]
+        public void Encoder_VbrProperty_CanBeSetToTrue()
+        {
+            using var encoder = new OpusEncoder(48000, 1);
+            encoder.Vbr = true;
+            Assert.IsTrue(encoder.Vbr);
+        }
+
+        [TestMethod]
+        public void Encoder_AudioApplicationMode_CanCreateAndEncode()
+        {
+            using var encoder = new OpusEncoder(48000, 1, MumbleVoiceEngine.Codec.Application.Audio)
+            {
+                Bitrate = 72000
+            };
+            var pcm = new byte[960 * 2];
+            var encoded = new byte[4000];
+            int len = encoder.Encode(pcm, 0, encoded, 0, 960);
+            Assert.IsTrue(len > 0);
+        }
     }
 }

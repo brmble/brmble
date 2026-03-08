@@ -207,6 +207,10 @@ private int _screenShareHotkeyId = -1;
     private readonly HashSet<uint> _localMutes = new();
     private volatile float _maxAmplification = 1.0f;
 
+    // Encoder settings
+    private int _opusBitrate = 72000;
+    private int _opusFrameMs = 20;
+
     // Speech enhancement
     private SpeechEnhancementService? _speechEnhancement;
     private AudioResampler? _to16kResampler;
@@ -241,6 +245,75 @@ private int _screenShareHotkeyId = -1;
 
     public void SetInputVolume(int percentage) => _inputVolume = Math.Clamp(percentage, 0, 250) / 100f;
     public void SetMaxAmplification(int percentage) => _maxAmplification = Math.Clamp(percentage, 100, 400) / 100f;
+
+    // Allowed Opus bitrates (bps). Must match the UI options in AudioSettingsTab.tsx.
+    private static readonly int[] AllowedBitrates = { 24000, 40000, 56000, 72000, 96000, 128000 };
+
+    // Allowed Opus frame durations (ms). Must match UI options and permitted Opus frame sizes.
+    private static readonly int[] AllowedFrameMs = { 10, 20, 40, 60 };
+
+    /// <summary>
+    /// Clamps <paramref name="value"/> to the nearest entry in <paramref name="allowed"/>.
+    /// If the value is not in the list the closest valid option is returned.
+    /// </summary>
+    private static int ClampToNearest(int value, int[] allowed)
+    {
+        int best = allowed[0];
+        int bestDist = Math.Abs(value - best);
+        foreach (var v in allowed)
+        {
+            int dist = Math.Abs(value - v);
+            if (dist < bestDist) { bestDist = dist; best = v; }
+        }
+        return best;
+    }
+
+    public void SetOpusBitrate(int bitrate)
+    {
+        bitrate = ClampToNearest(bitrate, AllowedBitrates);
+        lock (_lock)
+        {
+            if (_opusBitrate == bitrate) return;
+            _opusBitrate = bitrate;
+            // Pipeline must be recreated because application mode is set at construction time.
+            // If the mic is active, recreate immediately so no audio is lost.
+            RecreateEncodePipelineLocked();
+        }
+    }
+
+    public void SetOpusFrameMs(int frameMs)
+    {
+        frameMs = ClampToNearest(frameMs, AllowedFrameMs);
+        lock (_lock)
+        {
+            if (_opusFrameMs == frameMs) return;
+            _opusFrameMs = frameMs;
+            // Pipeline must be recreated because frame size is set at construction time.
+            // If the mic is active, recreate immediately so no audio is lost.
+            RecreateEncodePipelineLocked();
+        }
+    }
+
+    /// <summary>
+    /// Disposes and immediately recreates <see cref="_encodePipeline"/> with the current
+    /// encoder settings. If the mic is not active the field is left null so the pipeline
+    /// will be created lazily on the next <see cref="StartMic"/> call.
+    /// Must be called with <see cref="_lock"/> held.
+    /// </summary>
+    private void RecreateEncodePipelineLocked()
+    {
+        _encodePipeline?.Dispose();
+        _encodePipeline = null;
+
+        if (_micStarted)
+        {
+            _encodePipeline = new EncodePipeline(
+                sampleRate: 48000, channels: 1, bitrate: _opusBitrate,
+                onPacketReady: packet => SendVoicePacket?.Invoke(packet),
+                frameSize: 48000 / 1000 * _opusFrameMs);
+            _encodePipeline.ResetSequence();
+        }
+    }
 
     public void ConfigureSpeechEnhancement(string modelsPath, bool enabled, GtcrnModelVariant variant)
     {
@@ -308,8 +381,9 @@ private int _screenShareHotkeyId = -1;
             if (_micStarted || _muted) return;
 
             _encodePipeline ??= new EncodePipeline(
-                sampleRate: 48000, channels: 1, bitrate: 72000,
-                onPacketReady: packet => SendVoicePacket?.Invoke(packet));
+                sampleRate: 48000, channels: 1, bitrate: _opusBitrate,
+                onPacketReady: packet => SendVoicePacket?.Invoke(packet),
+                frameSize: 48000 / 1000 * _opusFrameMs);
 
             if (_waveIn == null)
             {
@@ -356,9 +430,9 @@ private int _screenShareHotkeyId = -1;
             // Submit silence frames before stopping so the receiver gets a graceful end-of-stream
             if (_encodePipeline != null)
             {
-                // Derive frame size from the actual capture format so this stays correct
-                // if sample rate, channels or bit depth ever changes.
-                const int frameDurationMs = 20; // must match encode pipeline frame duration
+                // Derive frame size from the actual capture format and the current encoder
+                // frame duration (_opusFrameMs) so the tail is correct for all frame sizes.
+                int frameDurationMs = _opusFrameMs;
                 var fmt = _waveIn?.WaveFormat;
                 int sampleRate = fmt?.SampleRate ?? 48000;
                 int channels = fmt?.Channels ?? 1;
@@ -452,7 +526,10 @@ private int _screenShareHotkeyId = -1;
         // Voice activity check on processed signal
         if (_transmissionMode == TransmissionMode.VoiceActivity && !IsAboveThreshold(e.Buffer, e.BytesRecorded)) return;
 
-        // Local speaking detection - track in _lastVoicePacket like remote users
+        // Snapshot the pipeline reference and update speaking state under lock.
+        // This prevents a race where RecreateEncodePipelineLocked disposes _encodePipeline
+        // while SubmitPcm is executing on the mic thread.
+        EncodePipeline? pipeline;
         lock (_lock)
         {
             if (!_lastVoicePacket.ContainsKey(_localUserId))
@@ -460,9 +537,10 @@ private int _screenShareHotkeyId = -1;
                 UserStartedSpeaking?.Invoke(_localUserId);
             }
             _lastVoicePacket[_localUserId] = DateTime.UtcNow;
+            pipeline = _encodePipeline;
         }
 
-        _encodePipeline?.SubmitPcm(new ReadOnlySpan<byte>(e.Buffer, 0, e.BytesRecorded));
+        pipeline?.SubmitPcm(new ReadOnlySpan<byte>(e.Buffer, 0, e.BytesRecorded));
     }
 
     private void ApplyInputVolume(byte[] buffer, int bytesRecorded)

@@ -24,6 +24,8 @@ export interface AudioSettings {
   maxAmplification: number;
   transmissionMode: TransmissionMode;
   pushToTalkKey: string | null;
+  opusBitrate: number;
+  opusFrameSize: number;
 }
 
 export interface SpeechEnhancementSettings {
@@ -39,6 +41,8 @@ export const DEFAULT_SETTINGS: AudioSettings = {
   maxAmplification: 100,
   transmissionMode: 'pushToTalk',
   pushToTalkKey: null,
+  opusBitrate: 72000,
+  opusFrameSize: 20,
 };
 
 export const DEFAULT_SPEECH_ENHANCEMENT: SpeechEnhancementSettings = {
@@ -243,6 +247,64 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
           </label>
         </div>
       </div>
+
+      {/* Encoding Section */}
+      {(() => {
+        const BITRATES = [24000, 40000, 56000, 72000, 96000, 128000];
+        const FRAME_SIZES = [10, 20, 40, 60];
+
+        // Normalize saved values to the nearest allowed entry so that an invalid
+        // stored value (e.g. from a hand-edited config or future UI bug) always
+        // maps to a real option for both the slider position and the displayed label.
+        const nearestOf = (value: number, allowed: number[]) =>
+          allowed.reduce((best, v) =>
+            Math.abs(v - value) < Math.abs(best - value) ? v : best
+          );
+
+        const normBitrate = nearestOf(localSettings.opusBitrate, BITRATES);
+        const normFrameSize = nearestOf(localSettings.opusFrameSize, FRAME_SIZES);
+        const bitrateIdx = BITRATES.indexOf(normBitrate);
+        const frameSizeIdx = FRAME_SIZES.indexOf(normFrameSize);
+        return (
+          <div className="settings-section">
+            <h3 className="heading-section settings-section-title">Encoding</h3>
+            <div className="settings-item settings-slider">
+              <label>
+                Bitrate: {normBitrate / 1000} kbps{normBitrate === 72000 ? ' (default)' : ''}
+                <span className="tooltip-icon" data-tooltip="How much data is used per second of voice. Higher = better quality but uses more bandwidth. Lower = smaller data usage, good for slow connections. 72 kbps is recommended for most users.">?</span>
+              </label>
+              <input
+                type="range"
+                min="0"
+                max={BITRATES.length - 1}
+                step="1"
+                value={bitrateIdx}
+                onChange={(e) => {
+                  const idx = Math.min(parseInt(e.target.value, 10), BITRATES.length - 1);
+                  handleChange('opusBitrate', BITRATES[idx]);
+                }}
+              />
+            </div>
+            <div className="settings-item settings-slider">
+              <label>
+                Audio per packet: {normFrameSize} ms{normFrameSize === 20 ? ' (default)' : ''}
+                <span className="tooltip-icon" data-tooltip="How many milliseconds of audio are bundled into each network packet. Lower = your voice arrives faster (less delay). Higher = fewer packets sent, better for unstable connections. 20 ms is recommended for most users.">?</span>
+              </label>
+              <input
+                type="range"
+                min="0"
+                max={FRAME_SIZES.length - 1}
+                step="1"
+                value={frameSizeIdx}
+                onChange={(e) => {
+                  const idx = Math.min(parseInt(e.target.value, 10), FRAME_SIZES.length - 1);
+                  handleChange('opusFrameSize', FRAME_SIZES[idx]);
+                }}
+              />
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
