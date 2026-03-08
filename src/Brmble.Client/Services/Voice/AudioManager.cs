@@ -207,6 +207,9 @@ private int _screenShareHotkeyId = -1;
     private readonly HashSet<uint> _localMutes = new();
     private volatile float _maxAmplification = 1.0f;
 
+    // Encoder settings
+    private int _opusBitrate = 72000;
+
     // Speech enhancement
     private SpeechEnhancementService? _speechEnhancement;
     private AudioResampler? _to16kResampler;
@@ -241,6 +244,18 @@ private int _screenShareHotkeyId = -1;
 
     public void SetInputVolume(int percentage) => _inputVolume = Math.Clamp(percentage, 0, 250) / 100f;
     public void SetMaxAmplification(int percentage) => _maxAmplification = Math.Clamp(percentage, 100, 400) / 100f;
+
+    public void SetOpusBitrate(int bitrate)
+    {
+        lock (_lock)
+        {
+            if (_opusBitrate == bitrate) return;
+            _opusBitrate = bitrate;
+            // Pipeline must be recreated because application mode is set at construction time
+            _encodePipeline?.Dispose();
+            _encodePipeline = null;
+        }
+    }
 
     public void ConfigureSpeechEnhancement(string modelsPath, bool enabled, GtcrnModelVariant variant)
     {
@@ -308,7 +323,7 @@ private int _screenShareHotkeyId = -1;
             if (_micStarted || _muted) return;
 
             _encodePipeline ??= new EncodePipeline(
-                sampleRate: 48000, channels: 1, bitrate: 72000,
+                sampleRate: 48000, channels: 1, bitrate: _opusBitrate,
                 onPacketReady: packet => SendVoicePacket?.Invoke(packet));
 
             if (_waveIn == null)
