@@ -19,14 +19,14 @@ export function ConnectionState({
 }: ConnectionStateProps) {
   const isAnimated = connectionStatus === 'connecting' || connectionStatus === 'reconnecting';
 
-  const heading: Record<string, string> = {
+  const heading: Partial<Record<ConnectionStatus, string>> = {
     connecting: 'Connecting...',
     reconnecting: 'Reconnecting...',
     disconnected: 'Connection Lost',
     failed: 'Connection Failed',
   };
 
-  const subtext: Record<string, string> = {
+  const subtext: Partial<Record<ConnectionStatus, string>> = {
     connecting: `Reaching ${serverLabel || 'server'}...`,
     reconnecting: `Trying to reach ${serverLabel || 'server'}...`,
     disconnected: `You were disconnected from ${serverLabel || 'the server'}`,
