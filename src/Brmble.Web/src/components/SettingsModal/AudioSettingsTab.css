@@ -39,76 +39,37 @@
   font-weight: normal;
 }
 
-/* Tooltip: ? icon + hover popup */
-.settings-tooltip {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  margin-left: var(--space-2xs);
-  vertical-align: middle;
-}
-
-.settings-tooltip-icon {
+.audio-settings-tab .tooltip-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
   border-radius: var(--radius-full);
-  border: 1px solid var(--text-muted);
+  background: var(--border-subtle);
   color: var(--text-muted);
-  font-size: 10px;
-  font-family: var(--font-body);
+  font-size: var(--text-2xs);
   font-weight: 600;
-  font-style: normal;
-  line-height: 1;
-  cursor: default;
-  transition: border-color var(--transition-fast), color var(--transition-fast);
-  user-select: none;
+  cursor: help;
+  margin-left: 6px;
+  position: relative;
 }
 
-.settings-tooltip:hover .settings-tooltip-icon {
-  border-color: var(--text-secondary);
-  color: var(--text-secondary);
-}
-
-.settings-tooltip-text {
-  visibility: hidden;
-  opacity: 0;
-  pointer-events: none;
+.audio-settings-tab .tooltip-icon:hover::after {
+  content: attr(data-tooltip);
   position: absolute;
-  bottom: calc(100% + var(--space-xs));
-  left: 50%;
-  transform: translateX(-50%);
-  width: 220px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  padding: var(--space-xs) var(--space-sm);
+  bottom: calc(100% + 8px);
+  left: 0;
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
   font-size: var(--text-xs);
-  font-family: var(--font-body);
-  font-weight: normal;
-  color: var(--text-secondary);
-  line-height: 1.5;
-  box-shadow: var(--shadow-elevated);
-  transition: opacity var(--transition-fast);
-  z-index: 100;
-  text-align: left;
+  font-weight: 400;
   white-space: normal;
-}
-
-/* Small arrow pointing down toward the icon */
-.settings-tooltip-text::after {
-  content: '';
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  border: 5px solid transparent;
-  border-top-color: var(--border-subtle);
-}
-
-.settings-tooltip:hover .settings-tooltip-text {
-  visibility: visible;
-  opacity: 1;
+  width: 260px;
+  text-align: left;
+  border: 1px solid var(--border-subtle);
+  z-index: 10;
+  pointer-events: none;
 }
