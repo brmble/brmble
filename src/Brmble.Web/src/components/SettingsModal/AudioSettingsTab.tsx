@@ -25,6 +25,7 @@ export interface AudioSettings {
   transmissionMode: TransmissionMode;
   pushToTalkKey: string | null;
   opusBitrate: number;
+  opusFrameSize: number;
 }
 
 export interface SpeechEnhancementSettings {
@@ -41,6 +42,7 @@ export const DEFAULT_SETTINGS: AudioSettings = {
   transmissionMode: 'pushToTalk',
   pushToTalkKey: null,
   opusBitrate: 72000,
+  opusFrameSize: 20,
 };
 
 export const DEFAULT_SPEECH_ENHANCEMENT: SpeechEnhancementSettings = {
@@ -249,22 +251,27 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
       {/* Encoding Section */}
       <div className="settings-section">
         <h3 className="heading-section settings-section-title">Encoding</h3>
-        <div className="settings-item">
-          <label>Bitrate</label>
-          <div className="select-wrapper">
-            <select
-              className="brmble-input"
-              value={localSettings.opusBitrate}
-              onChange={(e) => handleChange('opusBitrate', parseInt(e.target.value, 10))}
-            >
-              <option value={24000}>24 kbps</option>
-              <option value={40000}>40 kbps</option>
-              <option value={56000}>56 kbps</option>
-              <option value={72000}>72 kbps (default)</option>
-              <option value={96000}>96 kbps</option>
-              <option value={128000}>128 kbps</option>
-            </select>
-          </div>
+        <div className="settings-item settings-slider">
+          <label>Bitrate: {localSettings.opusBitrate / 1000} kbps{localSettings.opusBitrate === 72000 ? ' (default)' : ''}</label>
+          <input
+            type="range"
+            min="0"
+            max="5"
+            step="1"
+            value={[24000, 40000, 56000, 72000, 96000, 128000].indexOf(localSettings.opusBitrate)}
+            onChange={(e) => handleChange('opusBitrate', [24000, 40000, 56000, 72000, 96000, 128000][parseInt(e.target.value, 10)])}
+          />
+        </div>
+        <div className="settings-item settings-slider">
+          <label>Audio per packet: {localSettings.opusFrameSize} ms{localSettings.opusFrameSize === 20 ? ' (default)' : ''}</label>
+          <input
+            type="range"
+            min="0"
+            max="3"
+            step="1"
+            value={[10, 20, 40, 60].indexOf(localSettings.opusFrameSize)}
+            onChange={(e) => handleChange('opusFrameSize', [10, 20, 40, 60][parseInt(e.target.value, 10)])}
+          />
         </div>
       </div>
     </div>
