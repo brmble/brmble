@@ -120,8 +120,8 @@ namespace MumbleVoiceEngine.Tests.Pipeline
             pipeline.SubmitPcm(silence);
 
             // Assert — with CBR enabled every full frame produces exactly one packet.
-            Assert.IsTrue(packets.Count >= 1,
-                "Expected at least one packet for silence frames");
+            Assert.AreEqual(silenceFrames, packets.Count,
+                "Expected exactly one packet per full silence frame with CBR enabled");
 
             // Each packet must have the Opus type byte (4 << 5 = 0x80)
             foreach (var pkt in packets)
@@ -160,9 +160,9 @@ namespace MumbleVoiceEngine.Tests.Pipeline
         }
 
         [TestMethod]
-        public void Pipeline_10msFrameSize_ProducesPacketFrom480Bytes()
+        public void Pipeline_10msFrameSize_ProducesPacketFrom480Samples()
         {
-            // 10ms at 48kHz = 480 samples = 960 bytes (mono 16-bit)
+            // 10ms at 48kHz = 480 samples = 960 bytes (mono 16-bit PCM)
             var packets = new List<byte[]>();
             using var pipeline = new EncodePipeline(
                 sampleRate: 48000, channels: 1, bitrate: 72000,

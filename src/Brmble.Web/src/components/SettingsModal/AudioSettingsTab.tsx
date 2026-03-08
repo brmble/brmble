@@ -252,14 +252,25 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
       {(() => {
         const BITRATES = [24000, 40000, 56000, 72000, 96000, 128000];
         const FRAME_SIZES = [10, 20, 40, 60];
-        const bitrateIdx = Math.max(0, BITRATES.indexOf(localSettings.opusBitrate));
-        const frameSizeIdx = Math.max(0, FRAME_SIZES.indexOf(localSettings.opusFrameSize));
+
+        // Normalize saved values to the nearest allowed entry so that an invalid
+        // stored value (e.g. from a hand-edited config or future UI bug) always
+        // maps to a real option for both the slider position and the displayed label.
+        const nearestOf = (value: number, allowed: number[]) =>
+          allowed.reduce((best, v) =>
+            Math.abs(v - value) < Math.abs(best - value) ? v : best
+          );
+
+        const normBitrate = nearestOf(localSettings.opusBitrate, BITRATES);
+        const normFrameSize = nearestOf(localSettings.opusFrameSize, FRAME_SIZES);
+        const bitrateIdx = BITRATES.indexOf(normBitrate);
+        const frameSizeIdx = FRAME_SIZES.indexOf(normFrameSize);
         return (
           <div className="settings-section">
             <h3 className="heading-section settings-section-title">Encoding</h3>
             <div className="settings-item settings-slider">
               <label>
-                Bitrate: {localSettings.opusBitrate / 1000} kbps{localSettings.opusBitrate === 72000 ? ' (default)' : ''}
+                Bitrate: {normBitrate / 1000} kbps{normBitrate === 72000 ? ' (default)' : ''}
                 <span className="tooltip-icon" data-tooltip="How much data is used per second of voice. Higher = better quality but uses more bandwidth. Lower = smaller data usage, good for slow connections. 72 kbps is recommended for most users.">?</span>
               </label>
               <input
@@ -276,7 +287,7 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
             </div>
             <div className="settings-item settings-slider">
               <label>
-                Audio per packet: {localSettings.opusFrameSize} ms{localSettings.opusFrameSize === 20 ? ' (default)' : ''}
+                Audio per packet: {normFrameSize} ms{normFrameSize === 20 ? ' (default)' : ''}
                 <span className="tooltip-icon" data-tooltip="How many milliseconds of audio are bundled into each network packet. Lower = your voice arrives faster (less delay). Higher = fewer packets sent, better for unstable connections. 20 ms is recommended for most users.">?</span>
               </label>
               <input

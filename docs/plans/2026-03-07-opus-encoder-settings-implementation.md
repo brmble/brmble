@@ -1,7 +1,5 @@
 # Opus Encoder Settings Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
-
 **Goal:** Match Mumble's Opus encoder configuration — correct application mode per bitrate, CBR mode, and a user-configurable bitrate dropdown in the audio settings UI.
 
 **Architecture:** Surgical CTL additions to `OpusNative.cs` and `OpusEncoder.cs`, application-mode selection logic in `EncodePipeline`, a new `OpusBitrate` field in `AppSettings`, and a bitrate dropdown in `AudioSettingsTab.tsx`. `AudioManager` reads bitrate from settings.

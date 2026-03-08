@@ -68,9 +68,15 @@ public class EncodePipeline : IDisposable
         }
     }
 
+    // Opus specification guarantees a single packet never exceeds 1275 bytes.
+    // Using _frameSizeBytes as the output buffer can be smaller than this maximum
+    // for short frames (e.g. 10ms mono = 960 bytes) at high bitrates, causing
+    // encode failures. Use the spec-defined safe maximum instead.
+    private const int MaxOpusPacketBytes = 1275;
+
     private void EncodeAndEmit()
     {
-        var encoded = new byte[_frameSizeBytes]; // max output (actual will be much smaller)
+        var encoded = new byte[MaxOpusPacketBytes];
         int encodedLen = _encoder.Encode(_accumulator, 0, encoded, 0, _frameSize);
 
         var opusData = new byte[encodedLen];
