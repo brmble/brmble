@@ -46,7 +46,7 @@
 }
 
 .server-integrated-stats {
-  margin: var(--space-md) 0;
+  margin: var(--space-xs) 0 var(--space-md);
   display: flex;
   flex-direction: column;
   gap: var(--space-2xs);
