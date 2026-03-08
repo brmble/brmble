@@ -209,6 +209,7 @@ private int _screenShareHotkeyId = -1;
 
     // Encoder settings
     private int _opusBitrate = 72000;
+    private int _opusFrameMs = 20;
 
     // Speech enhancement
     private SpeechEnhancementService? _speechEnhancement;
@@ -252,6 +253,18 @@ private int _screenShareHotkeyId = -1;
             if (_opusBitrate == bitrate) return;
             _opusBitrate = bitrate;
             // Pipeline must be recreated because application mode is set at construction time
+            _encodePipeline?.Dispose();
+            _encodePipeline = null;
+        }
+    }
+
+    public void SetOpusFrameMs(int frameMs)
+    {
+        lock (_lock)
+        {
+            if (_opusFrameMs == frameMs) return;
+            _opusFrameMs = frameMs;
+            // Pipeline must be recreated because frame size is set at construction time
             _encodePipeline?.Dispose();
             _encodePipeline = null;
         }
@@ -324,7 +337,8 @@ private int _screenShareHotkeyId = -1;
 
             _encodePipeline ??= new EncodePipeline(
                 sampleRate: 48000, channels: 1, bitrate: _opusBitrate,
-                onPacketReady: packet => SendVoicePacket?.Invoke(packet));
+                onPacketReady: packet => SendVoicePacket?.Invoke(packet),
+                frameSize: 48000 / 1000 * _opusFrameMs);
 
             if (_waveIn == null)
             {
