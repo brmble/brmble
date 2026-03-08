@@ -12,6 +12,7 @@ import { Sidebar } from './components/Sidebar/Sidebar';
 import { ChatPanel } from './components/ChatPanel/ChatPanel';
 import { ConnectModal } from './components/ConnectModal/ConnectModal';
 import { ServerList } from './components/ServerList/ServerList';
+import { ConnectionState } from './components/ConnectionState/ConnectionState';
 import type { ServerEntry } from './hooks/useServerlist';
 import { SettingsModal } from './components/SettingsModal/SettingsModal';
 import { CloseDialog } from './components/CloseDialog/CloseDialog';
@@ -1009,6 +1010,12 @@ const handleConnect = (serverData: SavedServer) => {
     }
   };
 
+  const handleBackToServerList = () => {
+    setConnectionStatus('idle');
+    setServerLabel('');
+    setServerAddress('');
+  };
+
   const handleToggleMute = () => {
     bridge.send('voice.toggleMute', {});
   };
@@ -1358,38 +1365,50 @@ const handleConnect = (serverData: SavedServer) => {
         </ErrorBoundary>
         
         <main className="main-content">
-          <div className={`content-slider ${appMode === 'dm' ? 'dm-active' : ''}`}>
-            <div className="content-slide">
-              <ErrorBoundary label="ChatPanel:Channel">
-              <ChatPanel
-                channelId={currentChannelId || undefined}
-                channelName={currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName}
-                messages={isMatrixActive ? (matrixMessages ?? []) : messages}
-                currentUsername={username}
-                onSendMessage={handleSendMessage}
-                matrixClient={matrixClient.client}
-                readMarkerTs={channelDividerTs}
-                screenShareVideoEl={remoteVideoEl}
-                screenSharerName={activeShare?.userName}
-                onCloseScreenShare={disconnectViewer}
-              />
-              </ErrorBoundary>
+          {connectionStatus === 'idle' ? (
+            <ServerList onConnect={handleServerConnect} />
+          ) : connectionStatus === 'connected' ? (
+            <div className={`content-slider ${appMode === 'dm' ? 'dm-active' : ''}`}>
+              <div className="content-slide">
+                <ErrorBoundary label="ChatPanel:Channel">
+                <ChatPanel
+                  channelId={currentChannelId || undefined}
+                  channelName={currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName}
+                  messages={isMatrixActive ? (matrixMessages ?? []) : messages}
+                  currentUsername={username}
+                  onSendMessage={handleSendMessage}
+                  matrixClient={matrixClient.client}
+                  readMarkerTs={channelDividerTs}
+                  screenShareVideoEl={remoteVideoEl}
+                  screenSharerName={activeShare?.userName}
+                  onCloseScreenShare={disconnectViewer}
+                />
+                </ErrorBoundary>
+              </div>
+              <div className="content-slide">
+                <ErrorBoundary label="ChatPanel:DM">
+                <ChatPanel
+                  channelId={selectedDMUserId ? `dm-${selectedDMUserId}` : undefined}
+                  channelName={selectedDMUserName}
+                  messages={activeDmMessages}
+                  currentUsername={username}
+                  onSendMessage={handleSendDMMessage}
+                  isDM={true}
+                  matrixClient={matrixClient.client}
+                  readMarkerTs={dmDividerTs}
+                />
+                </ErrorBoundary>
+              </div>
             </div>
-            <div className="content-slide">
-              <ErrorBoundary label="ChatPanel:DM">
-              <ChatPanel
-                channelId={selectedDMUserId ? `dm-${selectedDMUserId}` : undefined}
-                channelName={selectedDMUserName}
-                messages={activeDmMessages}
-                currentUsername={username}
-                onSendMessage={handleSendDMMessage}
-                isDM={true}
-                matrixClient={matrixClient.client}
-                readMarkerTs={dmDividerTs}
-              />
-              </ErrorBoundary>
-            </div>
-          </div>
+          ) : (
+            <ConnectionState
+              connectionStatus={connectionStatus}
+              serverLabel={serverLabel}
+              onCancel={connectionStatus === 'connecting' || connectionStatus === 'reconnecting' ? handleCancelReconnect : undefined}
+              onReconnect={connectionStatus === 'disconnected' ? handleReconnect : undefined}
+              onBackToServerList={handleBackToServerList}
+            />
+          )}
         </main>
 
         <DMContactList
@@ -1404,12 +1423,6 @@ const handleConnect = (serverData: SavedServer) => {
 
       {certExists === false && (
         <CertWizard onComplete={(fp) => { setCertExists(true); setCertFingerprint(fp); }} />
-      )}
-
-      {certExists === true && connectionStatus === 'idle' && (
-        <div className="connect-overlay">
-          <ServerList onConnect={handleServerConnect} />
-        </div>
       )}
 
       <ConnectModal
