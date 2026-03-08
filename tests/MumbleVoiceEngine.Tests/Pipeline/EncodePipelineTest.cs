@@ -159,5 +159,33 @@ namespace MumbleVoiceEngine.Tests.Pipeline
             pipeline.SubmitPcm(new byte[960 * 2]);
             Assert.AreEqual(1, packets.Count);
         }
+
+        [TestMethod]
+        public void Pipeline_10msFrameSize_ProducesPacketFrom480Bytes()
+        {
+            // 10ms at 48kHz = 480 samples = 960 bytes (mono 16-bit)
+            var packets = new List<byte[]>();
+            using var pipeline = new EncodePipeline(
+                sampleRate: 48000, channels: 1, bitrate: 72000,
+                onPacketReady: p => packets.Add(p.ToArray()),
+                frameSize: 480);
+
+            pipeline.SubmitPcm(new byte[960]); // exactly one 10ms frame
+            Assert.AreEqual(1, packets.Count);
+        }
+
+        [TestMethod]
+        public void Pipeline_40msFrameSize_ProducesPacketFrom3840Bytes()
+        {
+            // 40ms at 48kHz = 1920 samples = 3840 bytes (mono 16-bit)
+            var packets = new List<byte[]>();
+            using var pipeline = new EncodePipeline(
+                sampleRate: 48000, channels: 1, bitrate: 72000,
+                onPacketReady: p => packets.Add(p.ToArray()),
+                frameSize: 1920);
+
+            pipeline.SubmitPcm(new byte[3840]); // exactly one 40ms frame
+            Assert.AreEqual(1, packets.Count);
+        }
     }
 }
