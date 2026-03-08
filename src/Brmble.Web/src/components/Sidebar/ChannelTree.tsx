@@ -161,7 +161,8 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     return (
       <div key={channel.id} className={`channel-item${pendingChannelAction !== null ? ' channel-item--pending' : ''}`} data-level={level}>
         <div 
-          className={`channel-row ${isCurrentChannel ? 'current' : ''}${hasUnread ? ' channel-row--unread' : ''}`}
+          className={`channel-row ${isCurrentChannel ? 'current' : ''}${hasUnread ? ' channel-row--unread' : ''}${hasChildren ? ' is-folder' : ''}`}
+          style={{ paddingLeft: `calc(10px + ${level * 20}px)` }}
           onClick={() => handleChannelClick(channel.id)}
           onDoubleClick={pendingChannelAction === null ? () => onJoinChannel(channel.id) : undefined}
         >
@@ -219,6 +220,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
               <Tooltip key={user.session} content={getUserTooltip(user)}>
               <div 
                 className={`user-row ${user.self ? 'self' : ''} ${speakingUsers?.has(user.session) ? 'speaking' : ''}`}
+                style={{ paddingLeft: `calc(32px + ${level * 20}px)` }}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   setContextMenu({ x: e.clientX, y: e.clientY, userId: String(user.session), userName: user.name, isSelf: !!user.self, channelId: channel.id });
