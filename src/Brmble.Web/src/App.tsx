@@ -1016,6 +1016,7 @@ const handleConnect = (serverData: SavedServer) => {
     setConnectionStatus('idle');
     setServerLabel('');
     setServerAddress('');
+    setUsername('');
     setChannels([]);
     setUsers([]);
     setCurrentChannelId(undefined);
@@ -1028,6 +1029,9 @@ const handleConnect = (serverData: SavedServer) => {
     setSpeakingUsers(new Map());
     setMatrixCredentials(null);
     setSharingChannelId(undefined);
+    setAppMode('channels');
+    setSelectedDMUserIdRaw(null);
+    setSelectedDMUserName('');
   };
 
   const handleToggleMute = () => {

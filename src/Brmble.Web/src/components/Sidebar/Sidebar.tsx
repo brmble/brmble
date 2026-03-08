@@ -122,7 +122,7 @@ export function Sidebar({
                 {connectionStatus === 'connected' && 'Connected'}
                 {connectionStatus === 'connecting' && 'Connecting...'}
                 {connectionStatus === 'reconnecting' && 'Reconnecting...'}
-                {connectionStatus === 'failed' && 'Disconnected'}
+                {connectionStatus === 'failed' && 'Connection failed'}
                 {connectionStatus === 'disconnected' && 'Disconnected'}
               </span>
               {isDisconnected && onReconnect && (

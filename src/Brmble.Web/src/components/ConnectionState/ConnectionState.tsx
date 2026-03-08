@@ -34,7 +34,7 @@ export function ConnectionState({
   };
 
   return (
-    <div className="connection-state">
+    <div className="connection-state" role="status" aria-live="polite">
       <div className="connection-state-content">
         <div className="connection-state-logo">
           <BrmbleLogo size={192} heartbeat={isAnimated} />

@@ -70,8 +70,6 @@
   overflow: hidden;
 }
 
-
-
 /* Page load animations */
 .app-body > * {
   animation: slideInLeft var(--animation-slow) ease backwards;
