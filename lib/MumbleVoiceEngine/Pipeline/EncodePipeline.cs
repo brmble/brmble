@@ -26,10 +26,12 @@ public class EncodePipeline : IDisposable
         _accumulator = new byte[_frameSizeBytes];
         _onPacketReady = onPacketReady;
 
-        _encoder = new OpusEncoder(sampleRate, channels)
+        var application = bitrate >= 32000 ? Application.Audio : Application.Voip;
+        _encoder = new OpusEncoder(sampleRate, channels, application)
         {
             Bitrate = bitrate,
-            EnableForwardErrorCorrection = true
+            EnableForwardErrorCorrection = true,
+            Vbr = false  // CBR, matching Mumble behaviour
         };
     }
 

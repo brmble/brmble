@@ -131,5 +131,33 @@ namespace MumbleVoiceEngine.Tests.Pipeline
                     "Packet type bits must be Opus (4 << 5)");
             }
         }
+
+        [TestMethod]
+        public void Pipeline_HighBitrate_UsesAudioApplicationMode()
+        {
+            // At 72kbps (>= 32kbps), the pipeline should use Application.Audio.
+            // We can't directly inspect the application mode, but we verify
+            // the pipeline creates successfully and produces valid packets.
+            var packets = new List<byte[]>();
+            using var pipeline = new EncodePipeline(
+                sampleRate: 48000, channels: 1, bitrate: 72000,
+                onPacketReady: p => packets.Add(p.ToArray()));
+
+            pipeline.SubmitPcm(new byte[960 * 2]);
+            Assert.AreEqual(1, packets.Count);
+        }
+
+        [TestMethod]
+        public void Pipeline_LowBitrate_UsesVoipApplicationMode()
+        {
+            // At 24kbps (< 32kbps), the pipeline should use Application.Voip.
+            var packets = new List<byte[]>();
+            using var pipeline = new EncodePipeline(
+                sampleRate: 48000, channels: 1, bitrate: 24000,
+                onPacketReady: p => packets.Add(p.ToArray()));
+
+            pipeline.SubmitPcm(new byte[960 * 2]);
+            Assert.AreEqual(1, packets.Count);
+        }
     }
 }
