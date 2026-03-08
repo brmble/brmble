@@ -153,7 +153,8 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
   };
 
   const renderChannel = (channel: ChannelWithUsers, level: number = 0) => {
-    const hasChildren = channel.children.length > 0 || channel.users.length > 0;
+    const isExpandable = channel.children.length > 0 || channel.users.length > 0;
+    const isFolder = channel.children.length > 0;
     const isExpanded = expandedChannels.has(channel.id);
     const isCurrentChannel = currentChannelId === channel.id;
     const hasUnread = (channelUnreads?.get(String(channel.id))?.notificationCount ?? 0) > 0;
@@ -161,14 +162,26 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     return (
       <div key={channel.id} className={`channel-item${pendingChannelAction !== null ? ' channel-item--pending' : ''}`} data-level={level}>
         <div 
-          className={`channel-row ${isCurrentChannel ? 'current' : ''}${hasUnread ? ' channel-row--unread' : ''}${hasChildren ? ' is-folder' : ''}`}
+          className={`channel-row ${isCurrentChannel ? 'current' : ''}${hasUnread ? ' channel-row--unread' : ''}${isFolder ? ' is-folder' : ''}`}
           style={{ paddingLeft: `calc(16px + ${level * 20}px)` }}
+          role="button"
+          tabIndex={0}
           onClick={() => handleChannelClick(channel.id)}
           onDoubleClick={pendingChannelAction === null ? () => onJoinChannel(channel.id) : undefined}
+          onKeyDown={(e) => {
+            if (e.key === ' ') {
+              e.preventDefault();
+              handleChannelClick(channel.id);
+            } else if (e.key === 'Enter') {
+              if (pendingChannelAction === null) {
+                onJoinChannel(channel.id);
+              }
+            }
+          }}
         >
           <span 
-            className={`expand-icon ${isExpanded ? 'expanded' : ''} ${!hasChildren ? 'placeholder' : ''}`}
-            onClick={(e) => { e.stopPropagation(); if (hasChildren) toggleExpand(channel.id); }}
+            className={`expand-icon ${isExpanded ? 'expanded' : ''} ${!isExpandable ? 'placeholder' : ''}`}
+            onClick={(e) => { e.stopPropagation(); if (isExpandable) toggleExpand(channel.id); }}
           >
             <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
               <path d="M3 2L7 5L3 8V2Z" />

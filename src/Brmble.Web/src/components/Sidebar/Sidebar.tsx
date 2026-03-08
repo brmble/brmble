@@ -88,6 +88,14 @@ export function Sidebar({
           <div 
             className={`server-info-header${onSelectServer ? ' server-info-clickable' : ''}`}
             onClick={onSelectServer}
+            role={onSelectServer ? 'button' : undefined}
+            tabIndex={onSelectServer ? 0 : undefined}
+            onKeyDown={onSelectServer ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onSelectServer();
+              }
+            } : undefined}
           >
             <div className="server-info-name">{serverLabel}</div>
             {serverAddress && (
@@ -140,7 +148,7 @@ export function Sidebar({
       ) : connected && (
         <div className="server-info-panel standalone">
           <div className="server-info-header">
-            <div className="server-integrated-stats" style={{ margin: 0 }}>
+            <div className="server-integrated-stats">
               <div className="server-status-row">
                 <span className="status-label">Logged in as</span>
                 <span className="status-value">{username}</span>

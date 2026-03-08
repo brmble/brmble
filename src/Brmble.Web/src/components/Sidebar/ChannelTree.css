@@ -4,7 +4,7 @@
 
 .channel-item {
   user-select: none;
-  margin-bottom: 2px;
+  margin-bottom: var(--space-2xs);
 }
 
 .channel-row {
@@ -80,7 +80,7 @@
 .user-count {
   font-size: var(--text-xs);
   color: var(--text-muted);
-  padding: 2px 6px;
+  padding: var(--space-2xs) var(--space-xs);
   background: var(--bg-hover);
   border-radius: var(--radius-md);
   flex-shrink: 0;
@@ -90,7 +90,7 @@
   background: transparent;
   border: 1px solid var(--border-subtle);
   color: var(--text-muted);
-  padding: 2px 8px;
+  padding: var(--space-2xs) var(--space-xs);
   border-radius: var(--radius-xs);
   font-size: var(--text-2xs);
   cursor: pointer;
@@ -105,8 +105,8 @@
 }
 
 .channel-children {
-  margin-top: 2px;
-  margin-bottom: 6px;
+  margin-top: var(--space-2xs);
+  margin-bottom: var(--space-xs);
 }
 
 .user-row {
@@ -117,7 +117,7 @@
   cursor: pointer;
   border-radius: var(--radius-sm);
   transition: background var(--transition-fast);
-  margin: 2px 0;
+  margin: var(--space-2xs) 0;
 }
 
 .user-row:hover {
@@ -141,10 +141,10 @@
 .user-status-extra {
   position: absolute;
   right: 100%;
-  margin-right: 4px;
+  margin-right: var(--space-2xs);
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-2xs);
 }
 
 .status-icon--deaf,
@@ -178,10 +178,10 @@
 .self-badge {
   font-size: var(--text-2xs);
   color: var(--accent-success);
-  padding: 1px 6px;
+  padding: 1px var(--space-xs);
   background: var(--accent-success-subtle);
   border-radius: var(--radius-md);
-  margin-left: 4px;
+  margin-left: var(--space-2xs);
   flex-shrink: 0;
 }
 
@@ -217,7 +217,7 @@
   font-weight: 700;
   color: var(--bg-deep);
   background: var(--text-muted);
-  padding: 1px 6px;
+  padding: 1px var(--space-xs);
   border-radius: var(--radius-md);
   flex-shrink: 0;
   min-width: 18px;
