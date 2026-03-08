@@ -44,11 +44,11 @@
 }
 
 .server-status-panel {
-  padding: 0 0.75rem;
-  margin: 0.25rem 0.5rem 1.5rem;
+  padding: 0 var(--space-sm);
+  margin: var(--space-2xs) var(--space-xs) var(--space-lg);
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: var(--space-2xs);
 }
 
 .server-status-row {
