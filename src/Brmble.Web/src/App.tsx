@@ -1011,9 +1011,23 @@ const handleConnect = (serverData: SavedServer) => {
   };
 
   const handleBackToServerList = () => {
+    bridge.send('voice.disconnect');
+    clearPendingAction();
     setConnectionStatus('idle');
     setServerLabel('');
     setServerAddress('');
+    setChannels([]);
+    setUsers([]);
+    setCurrentChannelId(undefined);
+    setCurrentChannelName('');
+    setSelfMuted(false);
+    setSelfDeafened(false);
+    setSelfLeftVoice(false);
+    setSelfCanRejoin(false);
+    setSelfSession(0);
+    setSpeakingUsers(new Map());
+    setMatrixCredentials(null);
+    setSharingChannelId(undefined);
   };
 
   const handleToggleMute = () => {
@@ -1366,7 +1380,9 @@ const handleConnect = (serverData: SavedServer) => {
         
         <main className="main-content">
           {connectionStatus === 'idle' ? (
-            <ServerList onConnect={handleServerConnect} />
+            certExists === true ? (
+              <ServerList onConnect={handleServerConnect} />
+            ) : null
           ) : connectionStatus === 'connected' ? (
             <div className={`content-slider ${appMode === 'dm' ? 'dm-active' : ''}`}>
               <div className="content-slide">
