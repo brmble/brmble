@@ -24,6 +24,7 @@ export interface AudioSettings {
   maxAmplification: number;
   transmissionMode: TransmissionMode;
   pushToTalkKey: string | null;
+  opusBitrate: number;
 }
 
 export interface SpeechEnhancementSettings {
@@ -39,6 +40,7 @@ export const DEFAULT_SETTINGS: AudioSettings = {
   maxAmplification: 100,
   transmissionMode: 'pushToTalk',
   pushToTalkKey: null,
+  opusBitrate: 72000,
 };
 
 export const DEFAULT_SPEECH_ENHANCEMENT: SpeechEnhancementSettings = {
@@ -241,6 +243,28 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
             />
             <span className="brmble-toggle-slider"></span>
           </label>
+        </div>
+      </div>
+
+      {/* Encoding Section */}
+      <div className="settings-section">
+        <h3 className="heading-section settings-section-title">Encoding</h3>
+        <div className="settings-item">
+          <label>Bitrate</label>
+          <div className="select-wrapper">
+            <select
+              className="brmble-input"
+              value={localSettings.opusBitrate}
+              onChange={(e) => handleChange('opusBitrate', parseInt(e.target.value, 10))}
+            >
+              <option value={24000}>24 kbps</option>
+              <option value={40000}>40 kbps</option>
+              <option value={56000}>56 kbps</option>
+              <option value={72000}>72 kbps (default)</option>
+              <option value={96000}>96 kbps</option>
+              <option value={128000}>128 kbps</option>
+            </select>
+          </div>
         </div>
       </div>
     </div>
