@@ -258,7 +258,15 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
           <div className="settings-section">
             <h3 className="heading-section settings-section-title">Encoding</h3>
             <div className="settings-item settings-slider">
-              <label>Bitrate: {localSettings.opusBitrate / 1000} kbps{localSettings.opusBitrate === 72000 ? ' (default)' : ''}</label>
+              <label>
+                Bitrate: {localSettings.opusBitrate / 1000} kbps{localSettings.opusBitrate === 72000 ? ' (default)' : ''}
+                <span className="settings-tooltip">
+                  <span className="settings-tooltip-icon">?</span>
+                  <span className="settings-tooltip-text">
+                    How much data is used per second of voice. Higher = better quality but uses more bandwidth. Lower = smaller data usage, good for slow connections. 72 kbps is recommended for most users.
+                  </span>
+                </span>
+              </label>
               <input
                 type="range"
                 min="0"
@@ -272,7 +280,15 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
               />
             </div>
             <div className="settings-item settings-slider">
-              <label>Audio per packet: {localSettings.opusFrameSize} ms{localSettings.opusFrameSize === 20 ? ' (default)' : ''}</label>
+              <label>
+                Audio per packet: {localSettings.opusFrameSize} ms{localSettings.opusFrameSize === 20 ? ' (default)' : ''}
+                <span className="settings-tooltip">
+                  <span className="settings-tooltip-icon">?</span>
+                  <span className="settings-tooltip-text">
+                    How many milliseconds of audio are bundled into each network packet. Lower = your voice arrives faster (less delay). Higher = fewer packets sent, better for unstable connections. 20 ms is recommended for most users.
+                  </span>
+                </span>
+              </label>
               <input
                 type="range"
                 min="0"
