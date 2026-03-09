@@ -5,6 +5,7 @@ import bridge from '../bridge';
 export interface ActiveShare {
   roomName: string;
   userName: string;
+  sessionId?: number;
 }
 
 export function useScreenShare(onDisconnected?: () => void) {
@@ -167,8 +168,10 @@ export function useScreenShare(onDisconnected?: () => void) {
   // Listen for screen share events from bridge
   useEffect(() => {
     const onShareStarted = (data: unknown) => {
-      const d = data as { roomName: string; userName: string };
-      setActiveShare({ roomName: d.roomName, userName: d.userName });
+      const d = data as { roomName: string; userName: string; sessionId?: number };
+      setActiveShare({ roomName: d.roomName, userName: d.userName, sessionId: d.sessionId });
+      // DO NOT auto-connect as viewer — that will be replaced by toast notification in Task 10
+      // But for now, keep the auto-connect so things still work until Task 10 replaces it
       if (!publishRoomRef.current) {
         connectAsViewer(d.roomName);
       }
@@ -188,9 +191,9 @@ export function useScreenShare(onDisconnected?: () => void) {
     };
 
     const onActiveShareResult = (data: unknown) => {
-      const d = data as { roomName: string; active: boolean; userName?: string };
+      const d = data as { roomName: string; active: boolean; userName?: string; sessionId?: number };
       if (d.active && d.userName) {
-        setActiveShare({ roomName: d.roomName, userName: d.userName });
+        setActiveShare({ roomName: d.roomName, userName: d.userName, sessionId: d.sessionId });
         if (!publishRoomRef.current) {
           connectAsViewer(d.roomName);
         }

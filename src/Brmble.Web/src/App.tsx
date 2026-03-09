@@ -1378,8 +1378,8 @@ const handleConnect = (serverData: SavedServer) => {
           onCancelReconnect={handleCancelReconnect}
           pendingChannelAction={pendingChannelAction}
           channelUnreads={channelUnreads}
-          sharingChannelId={sharingChannelId ? Number(sharingChannelId) : undefined}
-          sharingUserSession={isSharing ? selfSession : undefined}
+          sharingChannelId={sharingChannelId ? Number(sharingChannelId) : (activeShare?.roomName ? Number(activeShare.roomName.replace('channel-', '')) : undefined)}
+          sharingUserSession={isSharing ? selfSession : activeShare?.sessionId}
         />
         </ErrorBoundary>
         
