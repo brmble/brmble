@@ -1,6 +1,7 @@
 using Brmble.Server.Auth;
 using Brmble.Server.Data;
 using Brmble.Server.Events;
+using Brmble.Server.LiveKit;
 using Brmble.Server.Matrix;
 using Brmble.Server.Mumble;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -19,6 +20,8 @@ public class MumbleIceServiceTests
             Enumerable.Empty<IMumbleEventHandler>(),
             new Mock<ISessionMappingService>().Object,
             new Mock<IBrmbleEventBus>().Object,
+            new Mock<IChannelMembershipService>().Object,
+            new ScreenShareTracker(),
             NullLogger<MumbleServerCallback>.Instance);
 
         var iceSettings = Options.Create(new IceSettings { Host = host, Port = port, Secret = "test-secret" });
