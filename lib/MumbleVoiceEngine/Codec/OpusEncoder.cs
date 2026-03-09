@@ -57,7 +57,7 @@ namespace MumbleVoiceEngine.Codec
         /// </summary>
         /// <param name="srcSamplingRate">The sampling rate of the input stream.</param>
         /// <param name="srcChannelCount">The number of channels in the input stream.</param>
-        public OpusEncoder(int srcSamplingRate, int srcChannelCount)
+        public OpusEncoder(int srcSamplingRate, int srcChannelCount, Application application = Application.Voip)
         {
             if (srcSamplingRate != 8000 &&
                 srcSamplingRate != 12000 &&
@@ -69,7 +69,7 @@ namespace MumbleVoiceEngine.Codec
                 throw new ArgumentOutOfRangeException("srcChannelCount");
 
             IntPtr error;
-            var encoder = NativeMethods.opus_encoder_create(srcSamplingRate, srcChannelCount, (int)Application.Voip, out error);
+            var encoder = NativeMethods.opus_encoder_create(srcSamplingRate, srcChannelCount, (int)application, out error);
             if ((NativeMethods.OpusErrors)error != NativeMethods.OpusErrors.Ok)
             {
                 throw new Exception("Exception occured while creating encoder");
@@ -188,6 +188,32 @@ namespace MumbleVoiceEngine.Codec
                 if (_encoder == IntPtr.Zero)
                     throw new ObjectDisposedException("OpusEncoder");
                 var ret = NativeMethods.opus_encoder_ctl(_encoder, NativeMethods.Ctl.SetInbandFecRequest, Convert.ToInt32(value));
+                if (ret < 0)
+                    throw new Exception("Encoder error - " + ((NativeMethods.OpusErrors)ret));
+            }
+        }
+
+        /// <summary>
+        /// Gets or sets whether Variable Bitrate encoding is enabled.
+        /// Set to false for CBR (Constant Bitrate), matching Mumble's behaviour.
+        /// </summary>
+        public bool Vbr
+        {
+            get
+            {
+                if (_encoder == IntPtr.Zero)
+                    throw new ObjectDisposedException("OpusEncoder");
+                int vbr;
+                var ret = NativeMethods.opus_encoder_ctl_out(_encoder, NativeMethods.Ctl.GetVbrRequest, out vbr);
+                if (ret < 0)
+                    throw new Exception("Encoder error - " + ((NativeMethods.OpusErrors)ret));
+                return vbr > 0;
+            }
+            set
+            {
+                if (_encoder == IntPtr.Zero)
+                    throw new ObjectDisposedException("OpusEncoder");
+                var ret = NativeMethods.opus_encoder_ctl(_encoder, NativeMethods.Ctl.SetVbrRequest, Convert.ToInt32(value));
                 if (ret < 0)
                     throw new Exception("Encoder error - " + ((NativeMethods.OpusErrors)ret));
             }

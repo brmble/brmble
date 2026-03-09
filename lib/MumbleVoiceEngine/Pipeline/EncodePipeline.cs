@@ -26,11 +26,19 @@ public class EncodePipeline : IDisposable
         _accumulator = new byte[_frameSizeBytes];
         _onPacketReady = onPacketReady;
 
-        _encoder = new OpusEncoder(sampleRate, channels)
+        var application = bitrate >= 32000 ? Application.Audio : Application.Voip;
+        _encoder = new OpusEncoder(sampleRate, channels, application)
         {
             Bitrate = bitrate,
-            EnableForwardErrorCorrection = true
+            EnableForwardErrorCorrection = true,
+            Vbr = false  // CBR, matching Mumble behaviour
         };
+
+        if (!_encoder.PermittedFrameSizes.Contains(_frameSize))
+            throw new ArgumentException(
+                $"Frame size {_frameSize} samples is not permitted by the Opus encoder at {sampleRate} Hz. " +
+                $"Permitted sizes: {string.Join(", ", _encoder.PermittedFrameSizes)}",
+                nameof(frameSize));
     }
 
     public void SetTarget(int target) => _target = target;
@@ -60,9 +68,15 @@ public class EncodePipeline : IDisposable
         }
     }
 
+    // Opus specification guarantees a single packet never exceeds 1275 bytes.
+    // Using _frameSizeBytes as the output buffer can be smaller than this maximum
+    // for short frames (e.g. 10ms mono = 960 bytes) at high bitrates, causing
+    // encode failures. Use the spec-defined safe maximum instead.
+    private const int MaxOpusPacketBytes = 1275;
+
     private void EncodeAndEmit()
     {
-        var encoded = new byte[_frameSizeBytes]; // max output (actual will be much smaller)
+        var encoded = new byte[MaxOpusPacketBytes];
         int encodedLen = _encoder.Encode(_accumulator, 0, encoded, 0, _frameSize);
 
         var opusData = new byte[encodedLen];

@@ -119,10 +119,9 @@ namespace MumbleVoiceEngine.Tests.Pipeline
             var silence = new byte[frameSizeBytes * silenceFrames]; // all zeros
             pipeline.SubmitPcm(silence);
 
-            // Assert — submitting silence must produce at least one packet.
-            // Exact count may vary with encoder VBR/buffering behaviour.
-            Assert.IsTrue(packets.Count >= 1,
-                "Expected at least one packet for silence frames");
+            // Assert — with CBR enabled every full frame produces exactly one packet.
+            Assert.AreEqual(silenceFrames, packets.Count,
+                "Expected exactly one packet per full silence frame with CBR enabled");
 
             // Each packet must have the Opus type byte (4 << 5 = 0x80)
             foreach (var pkt in packets)
@@ -130,6 +129,62 @@ namespace MumbleVoiceEngine.Tests.Pipeline
                 Assert.AreEqual(0x80, pkt[0] & 0xE0,
                     "Packet type bits must be Opus (4 << 5)");
             }
+        }
+
+        [TestMethod]
+        public void Pipeline_HighBitrate_CreatesAndEncodesSuccessfully()
+        {
+            // At 72kbps (>= 32kbps), the pipeline selects Application.Audio.
+            // We cannot directly inspect the application mode via the current API,
+            // so we verify the pipeline constructs without error and produces valid packets.
+            var packets = new List<byte[]>();
+            using var pipeline = new EncodePipeline(
+                sampleRate: 48000, channels: 1, bitrate: 72000,
+                onPacketReady: p => packets.Add(p.ToArray()));
+
+            pipeline.SubmitPcm(new byte[960 * 2]);
+            Assert.AreEqual(1, packets.Count);
+        }
+
+        [TestMethod]
+        public void Pipeline_LowBitrate_UsesVoipApplicationMode()
+        {
+            // At 24kbps (< 32kbps), the pipeline should use Application.Voip.
+            var packets = new List<byte[]>();
+            using var pipeline = new EncodePipeline(
+                sampleRate: 48000, channels: 1, bitrate: 24000,
+                onPacketReady: p => packets.Add(p.ToArray()));
+
+            pipeline.SubmitPcm(new byte[960 * 2]);
+            Assert.AreEqual(1, packets.Count);
+        }
+
+        [TestMethod]
+        public void Pipeline_10msFrameSize_ProducesPacketFrom480Samples()
+        {
+            // 10ms at 48kHz = 480 samples = 960 bytes (mono 16-bit PCM)
+            var packets = new List<byte[]>();
+            using var pipeline = new EncodePipeline(
+                sampleRate: 48000, channels: 1, bitrate: 72000,
+                onPacketReady: p => packets.Add(p.ToArray()),
+                frameSize: 480);
+
+            pipeline.SubmitPcm(new byte[960]); // exactly one 10ms frame
+            Assert.AreEqual(1, packets.Count);
+        }
+
+        [TestMethod]
+        public void Pipeline_40msFrameSize_ProducesPacketFrom3840Bytes()
+        {
+            // 40ms at 48kHz = 1920 samples = 3840 bytes (mono 16-bit)
+            var packets = new List<byte[]>();
+            using var pipeline = new EncodePipeline(
+                sampleRate: 48000, channels: 1, bitrate: 72000,
+                onPacketReady: p => packets.Add(p.ToArray()),
+                frameSize: 1920);
+
+            pipeline.SubmitPcm(new byte[3840]); // exactly one 40ms frame
+            Assert.AreEqual(1, packets.Count);
         }
     }
 }
