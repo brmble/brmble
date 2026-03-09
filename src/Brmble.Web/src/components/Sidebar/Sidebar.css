@@ -52,9 +52,6 @@
   gap: var(--space-2xs);
 }
 
-.server-info-panel.standalone .server-integrated-stats {
-  margin: 0;
-}
 
 .server-status-row {
   display: flex;

@@ -83,8 +83,8 @@ export function Sidebar({
 
   return (
     <aside className="sidebar">
-      {serverLabel ? (
-        <div className={`server-info-panel${isServerChatActive ? ' server-info-active' : ''}`}>
+      <div className={`server-info-panel${isServerChatActive ? ' server-info-active' : ''}`}>
+        {serverLabel ? (
           <div 
             className={`server-info-header${onSelectServer ? ' server-info-clickable' : ''}`}
             onClick={onSelectServer}
@@ -117,15 +117,14 @@ export function Sidebar({
 
             <div className="server-status-line" aria-live="polite" aria-atomic="true">
               <span className={`status-dot status-dot--${connectionStatus}`} aria-hidden="true" />
-              {connectionStatus !== 'idle' && (
-                <span className="status-text">
-                  {connectionStatus === 'connected' && 'Connected'}
-                  {connectionStatus === 'connecting' && 'Connecting...'}
-                  {connectionStatus === 'reconnecting' && 'Reconnecting...'}
-                  {connectionStatus === 'failed' && 'Disconnected'}
-                  {connectionStatus === 'disconnected' && 'Disconnected'}
-                </span>
-              )}
+              <span className="status-text">
+                {connectionStatus === 'idle' && 'Not connected'}
+                {connectionStatus === 'connected' && 'Connected'}
+                {connectionStatus === 'connecting' && 'Connecting...'}
+                {connectionStatus === 'reconnecting' && 'Reconnecting...'}
+                {connectionStatus === 'failed' && 'Connection failed'}
+                {connectionStatus === 'disconnected' && 'Disconnected'}
+              </span>
               {isDisconnected && onReconnect && (
                 <button
                   className="btn btn-sm reconnect-btn"
@@ -144,23 +143,38 @@ export function Sidebar({
               )}
             </div>
           </div>
-        </div>
-      ) : connected && (
-        <div className="server-info-panel standalone">
+        ) : (
           <div className="server-info-header">
-            <div className="server-integrated-stats">
-              <div className="server-status-row">
-                <span className="status-label">Logged in as</span>
-                <span className="status-value">{username}</span>
-              </div>
-              <div className="server-status-row">
-                <span className="status-label">Users online</span>
-                <span className="status-value">{users.length}</span>
-              </div>
+            <div className="server-status-line" aria-live="polite" aria-atomic="true">
+              <span className={`status-dot status-dot--${connectionStatus}`} aria-hidden="true" />
+              <span className="status-text">
+                {connectionStatus === 'idle' && 'Not connected'}
+                {connectionStatus === 'connected' && 'Connected'}
+                {connectionStatus === 'connecting' && 'Connecting...'}
+                {connectionStatus === 'reconnecting' && 'Reconnecting...'}
+                {connectionStatus === 'failed' && 'Connection failed'}
+                {connectionStatus === 'disconnected' && 'Disconnected'}
+              </span>
+              {isDisconnected && onReconnect && (
+                <button
+                  className="btn btn-sm reconnect-btn"
+                  onClick={(e) => { e.stopPropagation(); onReconnect(); }}
+                >
+                  Reconnect
+                </button>
+              )}
+              {(onDisconnect || onCancelReconnect) && (connected || isConnecting || isReconnecting || isDisconnected) && (
+                <button
+                  className="btn btn-sm disconnect-btn"
+                  onClick={(e) => { e.stopPropagation(); (isReconnecting ? onCancelReconnect : onDisconnect)?.(); }}
+                >
+                  {(isConnecting || isReconnecting) ? 'Cancel' : isDisconnected ? 'Back' : 'Disconnect'}
+                </button>
+              )}
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
       
       {connected && rootUsers.length > 0 && (
         <div className="root-users-panel">

@@ -1,0 +1,33 @@
+.connection-state {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.connection-state-content {
+  text-align: center;
+  padding: var(--space-xl);
+}
+
+.connection-state-logo {
+  margin: 0 auto var(--space-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.connection-state-content .heading-title {
+  margin: 0 0 var(--space-xs);
+}
+
+.connection-state-subtext {
+  color: var(--text-muted);
+  margin: 0 0 var(--space-lg);
+}
+
+.connection-state-actions {
+  display: flex;
+  gap: var(--space-sm);
+  justify-content: center;
+}
