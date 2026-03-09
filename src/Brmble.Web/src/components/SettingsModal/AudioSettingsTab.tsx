@@ -44,7 +44,7 @@ export const DEFAULT_SETTINGS: AudioSettings = {
   pushToTalkKey: null,
   opusBitrate: 72000,
   opusFrameSize: 20,
-  captureApi: 'waveIn',
+  captureApi: 'wasapi',
 };
 
 export const DEFAULT_SPEECH_ENHANCEMENT: SpeechEnhancementSettings = {
@@ -312,7 +312,8 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
         );
       })()}
 
-      {/* DEV: Audio Capture API */}
+      {/* DEV: Audio Capture API — only shown in development builds */}
+      {import.meta.env.DEV && (
       <div className="settings-section">
         <div className="settings-section-header">
           <span className="settings-dev-label">DEV</span>
@@ -335,6 +336,7 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
           </button>
         </div>
       </div>
+      )}
     </div>
   );
 }

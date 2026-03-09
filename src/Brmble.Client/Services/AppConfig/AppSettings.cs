@@ -10,7 +10,7 @@ public record AudioSettings(
     string? PushToTalkKey = null,
     int OpusBitrate = 72000,
     int OpusFrameSize = 20,
-    string CaptureApi = "waveIn"
+    string CaptureApi = "wasapi"
 );
 
 public record ShortcutsSettings(
