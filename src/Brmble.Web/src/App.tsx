@@ -252,6 +252,7 @@ function App() {
   const matrixCredentialsRef = useRef(matrixCredentials);
   matrixCredentialsRef.current = matrixCredentials;
   const handleToggleScreenShareRef = useRef<(() => void) | null>(null);
+  const disconnectViewerRef = useRef<(() => void) | null>(null);
 
   const clearPendingAction = useCallback(() => {
     if (pendingChannelActionTimeoutRef.current) {
@@ -412,6 +413,7 @@ function App() {
       setSelfSession(0);
       setSpeakingUsers(new Map());
       setMatrixCredentials(null);
+      disconnectViewerRef.current?.();
       setSharingChannelId(undefined);
     };
 
@@ -601,6 +603,8 @@ function App() {
       if (d?.leftVoice !== undefined) {
         setSelfLeftVoice(d.leftVoice);
         if (d.leftVoice) {
+          disconnectViewerRef.current?.();
+          setSharingChannelId(undefined);
           handleSelectServer();
         }
       }
@@ -1170,6 +1174,7 @@ const handleConnect = (serverData: SavedServer) => {
   const { isSharing, startSharing, stopSharing, error: screenShareError, activeShare, remoteVideoEl, disconnectViewer, connectAsViewer } = useScreenShare(() => {
     setSharingChannelId(undefined);
   });
+  disconnectViewerRef.current = disconnectViewer;
   const [sharingChannelId, setSharingChannelId] = useState<string | undefined>();
 
   const channelUnreads = useMemo(() => {
