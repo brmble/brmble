@@ -276,6 +276,9 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                 <span className="user-name">{user.name}</span>
                 {user.self && <span className="self-badge">(you)</span>}
                 {user.matrixUserId && <Tooltip content="Brmble user"><span className="brmble-badge" /></Tooltip>}
+                {user.session === sharingUserSession && (
+                  <span className="sharing-badge">Sharing</span>
+                )}
               </div>
               </Tooltip>
             ))}

@@ -229,6 +229,9 @@ export function Sidebar({
                 </span>
                 <span className="root-user-name">{user.name}</span>
                 {user.self && <span className="root-self-badge">you</span>}
+                {user.session === sharingUserSession && (
+                  <span className="sharing-badge">Sharing</span>
+                )}
               </div>
               </Tooltip>
             ))}
