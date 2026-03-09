@@ -170,11 +170,6 @@ export function useScreenShare(onDisconnected?: () => void) {
     const onShareStarted = (data: unknown) => {
       const d = data as { roomName: string; userName: string; sessionId?: number };
       setActiveShare({ roomName: d.roomName, userName: d.userName, sessionId: d.sessionId });
-      // DO NOT auto-connect as viewer — that will be replaced by toast notification in Task 10
-      // But for now, keep the auto-connect so things still work until Task 10 replaces it
-      if (!publishRoomRef.current) {
-        connectAsViewer(d.roomName);
-      }
     };
 
     const onShareStopped = (data: unknown) => {
@@ -194,9 +189,6 @@ export function useScreenShare(onDisconnected?: () => void) {
       const d = data as { roomName: string; active: boolean; userName?: string; sessionId?: number };
       if (d.active && d.userName) {
         setActiveShare({ roomName: d.roomName, userName: d.userName, sessionId: d.sessionId });
-        if (!publishRoomRef.current) {
-          connectAsViewer(d.roomName);
-        }
       }
     };
 
@@ -209,7 +201,7 @@ export function useScreenShare(onDisconnected?: () => void) {
       bridge.off('livekit.screenShareStopped', onShareStopped);
       bridge.off('livekit.activeShareResult', onActiveShareResult);
     };
-  }, [connectAsViewer]);
+  }, []);
 
   return {
     isSharing,
