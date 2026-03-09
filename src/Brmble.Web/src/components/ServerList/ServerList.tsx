@@ -90,7 +90,7 @@ export function ServerList({ onConnect }: ServerListProps) {
         </div>
         <div className="server-list-header">
           <h2 className="heading-title server-list-title">Choose a Server</h2>
-          <p className="server-list-subtitle">Select a server to connect to voice chat</p>
+          <p className="server-list-subtitle">Select a server to start talking and chatting</p>
         </div>
 
         <div className="server-list-content">
@@ -136,7 +136,14 @@ export function ServerList({ onConnect }: ServerListProps) {
             </div>
           ) : (
             <div className="server-list-empty">
-              <div className="server-list-empty-icon">🎙</div>
+              <div className="server-list-empty-icon">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true" focusable="false">
+                  <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
+                  <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
+                  <line x1="6" y1="6" x2="6.01" y2="6" />
+                  <line x1="6" y1="18" x2="6.01" y2="18" />
+                </svg>
+              </div>
               <p>No servers saved yet</p>
               <p className="server-list-empty-hint">Add a server to get started</p>
             </div>
