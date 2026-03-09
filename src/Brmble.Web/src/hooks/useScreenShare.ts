@@ -219,5 +219,6 @@ export function useScreenShare(onDisconnected?: () => void) {
     activeShare,
     remoteVideoEl,
     disconnectViewer,
+    connectAsViewer,
   };
 }

@@ -1167,7 +1167,7 @@ const handleConnect = (serverData: SavedServer) => {
 
   const { Prompt } = usePrompt();
 
-  const { isSharing, startSharing, stopSharing, error: screenShareError, activeShare, remoteVideoEl, disconnectViewer } = useScreenShare(() => {
+  const { isSharing, startSharing, stopSharing, error: screenShareError, activeShare, remoteVideoEl, disconnectViewer, connectAsViewer } = useScreenShare(() => {
     setSharingChannelId(undefined);
   });
   const [sharingChannelId, setSharingChannelId] = useState<string | undefined>();
@@ -1217,6 +1217,10 @@ const handleConnect = (serverData: SavedServer) => {
     }
   }, [isSharing, startSharing, stopSharing, selfLeftVoice]);
   handleToggleScreenShareRef.current = handleToggleScreenShare;
+
+  const handleWatchScreenShare = useCallback((roomName: string) => {
+    connectAsViewer(roomName);
+  }, [connectAsViewer]);
 
   // Track which channel/DM was last opened so we only snapshot + mark-read on actual switches.
   const prevChannelIdRef = useRef<string | undefined>(undefined);
@@ -1380,6 +1384,7 @@ const handleConnect = (serverData: SavedServer) => {
           channelUnreads={channelUnreads}
           sharingChannelId={sharingChannelId ? Number(sharingChannelId) : (activeShare?.roomName ? Number(activeShare.roomName.replace('channel-', '')) : undefined)}
           sharingUserSession={isSharing ? selfSession : activeShare?.sessionId}
+          onWatchScreenShare={handleWatchScreenShare}
         />
         </ErrorBoundary>
         
