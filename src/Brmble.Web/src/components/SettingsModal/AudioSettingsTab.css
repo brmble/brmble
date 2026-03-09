@@ -39,7 +39,6 @@
   font-weight: normal;
 }
 
-<<<<<<< HEAD
 .audio-settings-tab .tooltip-icon {
   display: inline-flex;
   align-items: center;
@@ -116,42 +115,4 @@
   background: var(--accent-primary);
   border-color: var(--accent-primary);
   color: white;
-}
-
-.settings-dev-label {
-  background: var(--accent-danger);
-  color: white;
-  font-size: var(--text-2xs);
-  padding: 2px 6px;
-  border-radius: var(--radius-xs);
-  margin-right: var(--space-sm);
-  text-transform: uppercase;
-}
-
-.toggle-group {
-  display: flex;
-  gap: var(--space-xs);
-  margin-top: var(--space-sm);
-}
-
-.toggle-btn {
-  flex: 1;
-  padding: var(--space-sm) var(--space-md);
-  border: 1px solid var(--border-default);
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: var(--transition-fast);
-}
-
-.toggle-btn:hover {
-  background: var(--bg-hover);
-}
-
-.toggle-btn.active {
-  background: var(--accent-primary);
-  border-color: var(--accent-primary);
-  color: white;
->>>>>>> ac8ebc6 (feat: add dev toggle UI for audio capture API)
 }
