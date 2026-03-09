@@ -8,6 +8,7 @@ import { useUnreadTracker } from './hooks/useUnreadTracker';
 
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Header } from './components/Header/Header';
+import { BrmbleLogo } from './components/Header/BrmbleLogo';
 import { Sidebar } from './components/Sidebar/Sidebar';
 import { ChatPanel } from './components/ChatPanel/ChatPanel';
 import { ConnectModal } from './components/ConnectModal/ConnectModal';
@@ -1030,7 +1031,7 @@ const handleConnect = (serverData: SavedServer) => {
     setMatrixCredentials(null);
     setSharingChannelId(undefined);
     setAppMode('channels');
-    setSelectedDMUserIdRaw(null);
+    setSelectedDMUserId(null);
     setSelectedDMUserName('');
   };
 
@@ -1386,7 +1387,16 @@ const handleConnect = (serverData: SavedServer) => {
           {connectionStatus === 'idle' ? (
             certExists === true ? (
               <ServerList onConnect={handleServerConnect} />
-            ) : null
+            ) : (
+              <div className="connection-state">
+                <div className="connection-state-content">
+                  <div className="connection-state-logo">
+                    <BrmbleLogo size={192} heartbeat />
+                  </div>
+                  <p className="connection-state-subtext">Checking client certificate…</p>
+                </div>
+              </div>
+            )
           ) : connectionStatus === 'connected' ? (
             <div className={`content-slider ${appMode === 'dm' ? 'dm-active' : ''}`}>
               <div className="content-slide">

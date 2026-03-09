@@ -147,7 +147,30 @@ export function Sidebar({
           <div className="server-info-header">
             <div className="server-status-line" aria-live="polite" aria-atomic="true">
               <span className={`status-dot status-dot--${connectionStatus}`} aria-hidden="true" />
-              <span className="status-text">Not connected</span>
+              <span className="status-text">
+                {connectionStatus === 'idle' && 'Not connected'}
+                {connectionStatus === 'connected' && 'Connected'}
+                {connectionStatus === 'connecting' && 'Connecting...'}
+                {connectionStatus === 'reconnecting' && 'Reconnecting...'}
+                {connectionStatus === 'failed' && 'Connection failed'}
+                {connectionStatus === 'disconnected' && 'Disconnected'}
+              </span>
+              {isDisconnected && onReconnect && (
+                <button
+                  className="btn btn-sm reconnect-btn"
+                  onClick={(e) => { e.stopPropagation(); onReconnect(); }}
+                >
+                  Reconnect
+                </button>
+              )}
+              {(onDisconnect || onCancelReconnect) && (connected || isConnecting || isReconnecting || isDisconnected) && (
+                <button
+                  className="btn btn-sm disconnect-btn"
+                  onClick={(e) => { e.stopPropagation(); (isReconnecting ? onCancelReconnect : onDisconnect)?.(); }}
+                >
+                  {(isConnecting || isReconnecting) ? 'Cancel' : isDisconnected ? 'Back' : 'Disconnect'}
+                </button>
+              )}
             </div>
           </div>
         )}
