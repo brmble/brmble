@@ -9,6 +9,7 @@ public static class MumbleExtensions
         services.AddOptions<IceSettings>()
             .BindConfiguration("Ice");
         services.AddSingleton<ISessionMappingService, SessionMappingService>();
+        services.AddSingleton<IChannelMembershipService, ChannelMembershipService>();
         services.AddSingleton<IBrmbleEventBus, BrmbleEventBus>();
         services.AddSingleton<IMumbleEventHandler, SessionMappingHandler>();
         services.AddSingleton<MumbleServerCallback>();
