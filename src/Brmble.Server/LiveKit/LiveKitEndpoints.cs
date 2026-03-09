@@ -25,7 +25,7 @@ public static class LiveKitEndpoints
                 roomName = doc.RootElement.TryGetProperty("roomName", out var prop)
                     ? prop.GetString() : null;
             }
-            catch { /* invalid JSON */ }
+            catch (Exception ex) { logger.LogWarning(ex, "Failed to parse LiveKit token request body"); }
 
             if (string.IsNullOrWhiteSpace(roomName))
                 return Results.BadRequest(new { error = "roomName is required" });
@@ -49,7 +49,8 @@ public static class LiveKitEndpoints
             ICertificateHashExtractor certHashExtractor,
             UserRepository userRepo,
             ScreenShareTracker tracker,
-            IBrmbleEventBus eventBus) =>
+            IBrmbleEventBus eventBus,
+            ILogger<LiveKitService> logger) =>
         {
             var certHash = certHashExtractor.GetCertHash(httpContext);
             if (string.IsNullOrWhiteSpace(certHash))
@@ -65,7 +66,7 @@ public static class LiveKitEndpoints
                 using var doc = await JsonDocument.ParseAsync(httpContext.Request.Body);
                 roomName = doc.RootElement.TryGetProperty("roomName", out var prop) ? prop.GetString() : null;
             }
-            catch { }
+            catch (Exception ex) { logger.LogWarning(ex, "Failed to parse share-started request body"); }
 
             if (string.IsNullOrWhiteSpace(roomName))
                 return Results.BadRequest(new { error = "roomName is required" });
@@ -86,7 +87,8 @@ public static class LiveKitEndpoints
             ICertificateHashExtractor certHashExtractor,
             UserRepository userRepo,
             ScreenShareTracker tracker,
-            IBrmbleEventBus eventBus) =>
+            IBrmbleEventBus eventBus,
+            ILogger<LiveKitService> logger) =>
         {
             var certHash = certHashExtractor.GetCertHash(httpContext);
             if (string.IsNullOrWhiteSpace(certHash))
@@ -102,7 +104,7 @@ public static class LiveKitEndpoints
                 using var doc = await JsonDocument.ParseAsync(httpContext.Request.Body);
                 roomName = doc.RootElement.TryGetProperty("roomName", out var prop) ? prop.GetString() : null;
             }
-            catch { }
+            catch (Exception ex) { logger.LogWarning(ex, "Failed to parse share-stopped request body"); }
 
             if (string.IsNullOrWhiteSpace(roomName))
                 return Results.BadRequest(new { error = "roomName is required" });

@@ -43,7 +43,7 @@ export function useScreenShare(onDisconnected?: () => void) {
         const timer = setTimeout(() => {
           cleanup();
           reject(new Error('Token request timed out'));
-        }, 15000);
+        }, 20000);
         bridge.on('livekit.token', onToken);
         bridge.on('livekit.tokenError', onError);
         bridge.send('livekit.requestToken', { roomName });
@@ -110,7 +110,7 @@ export function useScreenShare(onDisconnected?: () => void) {
         const timer = setTimeout(() => {
           cleanup();
           reject(new Error('Token request timed out'));
-        }, 15000);
+        }, 20000);
         bridge.on('livekit.token', onToken);
         bridge.on('livekit.tokenError', onError);
         bridge.send('livekit.requestToken', { roomName });

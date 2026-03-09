@@ -64,4 +64,12 @@ public class LiveKitTokenTests : IDisposable
         var response = await _client.PostAsync("/livekit/token", body);
         Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
     }
+
+    [TestMethod]
+    public async Task PostLiveKitToken_InvalidJson_ReturnsBadRequest()
+    {
+        var body = new StringContent("not json at all", Encoding.UTF8, "application/json");
+        var response = await _client.PostAsync("/livekit/token", body);
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+    }
 }
