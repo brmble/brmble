@@ -94,20 +94,27 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
     setShowScrollButton(distanceFromBottom > SCROLL_THRESHOLD);
   }, []);
 
+  // One-shot flag: allow the ResizeObserver to auto-scroll only once after
+  // a channel/DM switch (i.e. during the initial slide-in transition).
+  // Cleared after the first resize fires, so subsequent resizes (e.g.
+  // screen-share divider drag) don't override the user's scroll position.
+  const pendingSlideScrollRef = useRef(false);
+
   // Re-evaluate scroll button when the messages container resizes
   // (e.g. when the DM/channel slide becomes visible).
-  // Also re-scroll to the correct position after the slide transition
-  // completes, since layout dimensions change during the animation.
+  // Only auto-scroll during the initial slide-in transition (one-shot).
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
     const observer = new ResizeObserver(() => {
       checkScrollButton();
-      // After resize (e.g. slide transition settling), ensure we're scrolled correctly
-      if (unreadDividerRef.current) {
-        unreadDividerRef.current.scrollIntoView({ behavior: 'auto', block: 'start' });
-      } else if (messagesEndRef.current) {
-        messagesEndRef.current.scrollIntoView({ behavior: 'auto' });
+      if (pendingSlideScrollRef.current) {
+        pendingSlideScrollRef.current = false;
+        if (unreadDividerRef.current) {
+          unreadDividerRef.current.scrollIntoView({ behavior: 'auto', block: 'start' });
+        } else if (messagesEndRef.current) {
+          messagesEndRef.current.scrollIntoView({ behavior: 'auto' });
+        }
       }
     });
     observer.observe(container);
@@ -137,8 +144,11 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
 
   // Scroll to unread divider on channel switch, or bottom if fully read.
   // Delay must exceed the slide transition (400ms) so layout has settled.
+  // Also arm the one-shot ResizeObserver scroll for the slide-in transition.
   useEffect(() => {
+    pendingSlideScrollRef.current = true;
     const timer = setTimeout(() => {
+      pendingSlideScrollRef.current = false;
       if (unreadDividerRef.current) {
         unreadDividerRef.current.scrollIntoView({ behavior: 'auto', block: 'start' });
       } else if (messagesEndRef.current) {

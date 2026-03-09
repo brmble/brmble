@@ -426,6 +426,9 @@ function App() {
       setSpeakingUsers(new Map());
       setMatrixCredentials(null);
       setSharingChannelId(undefined);
+      setAppModeRef.current('channels');
+      setSelectedDMUserIdRaw(null);
+      setSelectedDMUserName('');
     };
 
     const onServerCredentials = (data: unknown) => {
@@ -683,7 +686,10 @@ function App() {
     };
 
     const onToggleDmScreen = () => {
-      if (connectionStatusRef.current !== 'connected') return;
+      if (connectionStatusRef.current !== 'connected') {
+        setAppModeRef.current('channels');
+        return;
+      }
       setAppModeRef.current(prev => prev === 'channels' ? 'dm' : 'channels');
     };
 
