@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using Brmble.Client.Services.SpeechEnhancement;
 using MumbleVoiceEngine.Pipeline;
 using NAudio.Wave;
+using NAudio.CoreAudioApi;
 
 namespace Brmble.Client.Services.Voice;
 
@@ -133,8 +134,9 @@ internal sealed class AudioManager : IDisposable
 
     // Encode (mic → network)
     private EncodePipeline? _encodePipeline;
-    private WaveInEvent? _waveIn;
+    private IWaveIn? _waveIn;
     private volatile bool _micStarted;
+    private string _captureApi = "wasapi";
 
     // Decode (network → speakers)
     private readonly Dictionary<uint, UserAudioPipeline> _pipelines = new();
@@ -335,6 +337,37 @@ private int _screenShareHotkeyId = -1;
         }
     }
 
+    public void SetCaptureApi(string api)
+    {
+        bool restartMic = false;
+
+        lock (_lock)
+        {
+            // If the API is unchanged, avoid unnecessary restart.
+            if (string.Equals(_captureApi, api, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            // If the mic is currently running, stop it so we can recreate the capture device.
+            if (_micStarted)
+            {
+                restartMic = true;
+                StopMic();
+            }
+
+            // Dispose the existing capture device so it will be recreated
+            // with the new capture API on the next StartMic().
+            _waveIn?.Dispose();
+            _waveIn = null;
+
+            _captureApi = api;
+            AudioLog.Write($"[Audio] SetCaptureApi: {_captureApi}");
+        }
+
+        // Restart microphone capture outside the lock to avoid re-entrancy issues.
+        if (restartMic)
+            StartMic();
+    }
+
     public void SetOutputVolume(int percentage)
     {
         _outputVolume = Math.Clamp(percentage, 0, 250) / 100f;
@@ -387,12 +420,33 @@ private int _screenShareHotkeyId = -1;
 
             if (_waveIn == null)
             {
-                _waveIn = new WaveInEvent
+                if (_captureApi == "wasapi")
                 {
-                    DeviceNumber = -1,
-                    BufferMilliseconds = 20,
-                    WaveFormat = new WaveFormat(48000, 16, 1)
-                };
+                    using var enumerator = new MMDeviceEnumerator();
+                    using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Communications);
+                    var wasapi = new WasapiCapture(device, true, 60)
+                    {
+                        ShareMode = AudioClientShareMode.Shared
+                    };
+                    AudioLog.Write($"[Audio] WASAPI capture format: {wasapi.WaveFormat.SampleRate}Hz, {wasapi.WaveFormat.BitsPerSample}bit, {wasapi.WaveFormat.Channels}ch");
+                    wasapi.RecordingStopped += (s, e) =>
+                    {
+                        if (e.Exception != null)
+                        {
+                            AudioLog.Write($"[Audio] WASAPI recording stopped with error: {e.Exception.Message}");
+                        }
+                    };
+                    _waveIn = wasapi;
+                }
+                else
+                {
+                    _waveIn = new WaveInEvent
+                    {
+                        DeviceNumber = -1,
+                        BufferMilliseconds = 20,
+                        WaveFormat = new WaveFormat(48000, 16, 1)
+                    };
+                }
                 _waveIn.DataAvailable += OnMicData;
             }
 
@@ -458,18 +512,97 @@ private int _screenShareHotkeyId = -1;
         }
     }
 
+    // Reusable scratch buffers for WASAPI float→int16 conversion (avoid per-callback GC allocations).
+    [ThreadStatic] private static float[]? _wasapiFloatScratch;
+    [ThreadStatic] private static float[]? _wasapiMonoScratch;
+    [ThreadStatic] private static byte[]? _wasapiInt16Scratch;
+
     private void OnMicData(object? sender, WaveInEventArgs e)
     {
+        byte[] processedBuffer = e.Buffer;
+        int processedBytes = e.BytesRecorded;
+        
+        if (_waveIn is WasapiCapture wasapi && wasapi.WaveFormat.Encoding == WaveFormatEncoding.IeeeFloat)
+        {
+            var fmt = wasapi.WaveFormat;
+            int channels = fmt.Channels;
+            int capturedFloats = e.BytesRecorded / 4;
+
+            // Ensure float scratch buffer is large enough.
+            if (_wasapiFloatScratch == null || _wasapiFloatScratch.Length < capturedFloats)
+                _wasapiFloatScratch = new float[capturedFloats];
+            Buffer.BlockCopy(e.Buffer, 0, _wasapiFloatScratch, 0, e.BytesRecorded);
+
+            // Downmix to mono if needed: average all channels per frame.
+            int monoFrames = capturedFloats / channels;
+            if (_wasapiMonoScratch == null || _wasapiMonoScratch.Length < monoFrames)
+                _wasapiMonoScratch = new float[monoFrames];
+
+            if (channels == 1)
+            {
+                Array.Copy(_wasapiFloatScratch, _wasapiMonoScratch, monoFrames);
+            }
+            else
+            {
+                for (int i = 0; i < monoFrames; i++)
+                {
+                    float sum = 0f;
+                    for (int ch = 0; ch < channels; ch++)
+                        sum += _wasapiFloatScratch[i * channels + ch];
+                    _wasapiMonoScratch[i] = sum / channels;
+                }
+            }
+
+            // Resample from device sample rate to 48kHz if needed.
+            float[] monoAt48k;
+            int srcRate = fmt.SampleRate;
+            if (srcRate != 48000)
+            {
+                // Simple linear interpolation resampling to 48kHz.
+                int outFrames = (int)Math.Round((double)monoFrames * 48000 / srcRate);
+                var resampled = new float[outFrames];
+                for (int i = 0; i < outFrames; i++)
+                {
+                    double srcPos = (double)i * srcRate / 48000;
+                    int lo = (int)srcPos;
+                    int hi = Math.Min(lo + 1, monoFrames - 1);
+                    float frac = (float)(srcPos - lo);
+                    resampled[i] = _wasapiMonoScratch[lo] * (1f - frac) + _wasapiMonoScratch[hi] * frac;
+                }
+                monoAt48k = resampled;
+                monoFrames = outFrames;
+            }
+            else
+            {
+                monoAt48k = _wasapiMonoScratch;
+            }
+
+            // Convert float samples to 16-bit PCM, reusing scratch buffer.
+            int requiredInt16Bytes = monoFrames * 2;
+            if (_wasapiInt16Scratch == null || _wasapiInt16Scratch.Length < requiredInt16Bytes)
+                _wasapiInt16Scratch = new byte[requiredInt16Bytes];
+
+            for (int i = 0; i < monoFrames; i++)
+            {
+                var sample = (short)Math.Clamp(monoAt48k[i] * 32768f, short.MinValue, short.MaxValue);
+                int writeIndex = i * 2;
+                _wasapiInt16Scratch[writeIndex]     = (byte)(sample & 0xFF);
+                _wasapiInt16Scratch[writeIndex + 1] = (byte)((sample >> 8) & 0xFF);
+            }
+            processedBuffer = _wasapiInt16Scratch;
+            processedBytes = requiredInt16Bytes;
+        }
+
         if (_muted) return;
         if (_transmissionMode == TransmissionMode.PushToTalk && !_pttActive) return;
 
         // Apply AGC first (boost quiet audio, compress loud before user gain)
         if (_maxAmplification != 1.0f)
-            ApplyAGC(e.Buffer, e.BytesRecorded);
+            ApplyAGC(processedBuffer, processedBytes);
 
         // Apply input volume (after AGC to avoid clipping on boost)
         if (_inputVolume != 1.0f)
-            ApplyInputVolume(e.Buffer, e.BytesRecorded);
+            ApplyInputVolume(processedBuffer, processedBytes);
 
         // Apply speech enhancement if enabled
         if (_speechEnhancement?.IsEnabled == true && _to16kResampler != null && _to48kResampler != null)
@@ -477,11 +610,11 @@ private int _screenShareHotkeyId = -1;
             try
             {
                 // Convert byte buffer to normalized float samples (48kHz, range [-1, 1])
-                var sampleCount = e.BytesRecorded / 2;
+                var sampleCount = processedBytes / 2;
                 var samples48k = new float[sampleCount];
                 for (int i = 0; i < sampleCount; i++)
                 {
-                    samples48k[i] = (short)(e.Buffer[i * 2] | (e.Buffer[i * 2 + 1] << 8)) / 32768f;
+                    samples48k[i] = (short)(processedBuffer[i * 2] | (processedBuffer[i * 2 + 1] << 8)) / 32768f;
                 }
 
                 // Resample to 16kHz
@@ -500,8 +633,8 @@ private int _screenShareHotkeyId = -1;
                     for (int i = 0; i < samplesToCopy; i++)
                     {
                         var sample = (short)Math.Clamp(enhanced48k[i] * 32768f, short.MinValue, short.MaxValue);
-                        e.Buffer[i * 2] = (byte)(sample & 0xFF);
-                        e.Buffer[i * 2 + 1] = (byte)((sample >> 8) & 0xFF);
+                        processedBuffer[i * 2] = (byte)(sample & 0xFF);
+                        processedBuffer[i * 2 + 1] = (byte)((sample >> 8) & 0xFF);
                     }
 
                     // If the enhanced buffer is shorter than the original, zero-fill the remainder
@@ -509,8 +642,8 @@ private int _screenShareHotkeyId = -1;
                     {
                         for (int i = samplesToCopy; i < sampleCount; i++)
                         {
-                            e.Buffer[i * 2] = 0;
-                            e.Buffer[i * 2 + 1] = 0;
+                            processedBuffer[i * 2] = 0;
+                            processedBuffer[i * 2 + 1] = 0;
                         }
                     }
                 }
@@ -524,7 +657,7 @@ private int _screenShareHotkeyId = -1;
         }
 
         // Voice activity check on processed signal
-        if (_transmissionMode == TransmissionMode.VoiceActivity && !IsAboveThreshold(e.Buffer, e.BytesRecorded)) return;
+        if (_transmissionMode == TransmissionMode.VoiceActivity && !IsAboveThreshold(processedBuffer, processedBytes)) return;
 
         // Snapshot the pipeline reference and update speaking state under lock.
         // This prevents a race where RecreateEncodePipelineLocked disposes _encodePipeline
@@ -540,7 +673,7 @@ private int _screenShareHotkeyId = -1;
             pipeline = _encodePipeline;
         }
 
-        pipeline?.SubmitPcm(new ReadOnlySpan<byte>(e.Buffer, 0, e.BytesRecorded));
+        pipeline?.SubmitPcm(new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes));
     }
 
     private void ApplyInputVolume(byte[] buffer, int bytesRecorded)

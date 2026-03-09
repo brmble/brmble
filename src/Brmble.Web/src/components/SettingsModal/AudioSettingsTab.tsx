@@ -26,6 +26,7 @@ export interface AudioSettings {
   pushToTalkKey: string | null;
   opusBitrate: number;
   opusFrameSize: number;
+  captureApi: 'waveIn' | 'wasapi';
 }
 
 export interface SpeechEnhancementSettings {
@@ -43,6 +44,7 @@ export const DEFAULT_SETTINGS: AudioSettings = {
   pushToTalkKey: null,
   opusBitrate: 72000,
   opusFrameSize: 20,
+  captureApi: 'wasapi',
 };
 
 export const DEFAULT_SPEECH_ENHANCEMENT: SpeechEnhancementSettings = {
@@ -63,6 +65,10 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
     const newSettings = { ...localSettings, [key]: value };
     setLocalSettings(newSettings);
     onChange(newSettings);
+  };
+
+  const handleCaptureApiChange = (value: 'waveIn' | 'wasapi') => {
+    handleChange('captureApi', value);
   };
 
   const handleInput = useCallback(async (key: string) => {
@@ -305,6 +311,31 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
           </div>
         );
       })()}
+
+      {/* Audio Capture API */}
+      <div className="settings-section">
+        <div className="settings-section-header">
+          <span className="settings-dev-label">DEV</span>
+          <span className="settings-section-title">Audio Capture API</span>
+        </div>
+        <div className="toggle-group">
+          <button
+            type="button"
+            className={`toggle-btn ${localSettings.captureApi === 'waveIn' ? 'active' : ''}`}
+            onClick={() => handleCaptureApiChange('waveIn')}
+          >
+            WaveIn (Legacy)
+          </button>
+          <button
+            type="button"
+            className={`toggle-btn ${localSettings.captureApi === 'wasapi' ? 'active' : ''}`}
+            onClick={() => handleCaptureApiChange('wasapi')}
+          >
+            WASAPI
+          </button>
+        </div>
+      </div>
+
     </div>
   );
 }
