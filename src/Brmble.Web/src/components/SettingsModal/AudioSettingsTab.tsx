@@ -312,8 +312,7 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
         );
       })()}
 
-      {/* DEV: Audio Capture API — only shown in development builds */}
-      {import.meta.env.DEV && (
+      {/* Audio Capture API */}
       <div className="settings-section">
         <div className="settings-section-header">
           <span className="settings-dev-label">DEV</span>
@@ -336,7 +335,7 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
           </button>
         </div>
       </div>
-      )}
+
     </div>
   );
 }
