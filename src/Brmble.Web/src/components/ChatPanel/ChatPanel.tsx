@@ -96,10 +96,20 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
 
   // Re-evaluate scroll button when the messages container resizes
   // (e.g. when the DM/channel slide becomes visible).
+  // Also re-scroll to the correct position after the slide transition
+  // completes, since layout dimensions change during the animation.
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
-    const observer = new ResizeObserver(() => checkScrollButton());
+    const observer = new ResizeObserver(() => {
+      checkScrollButton();
+      // After resize (e.g. slide transition settling), ensure we're scrolled correctly
+      if (unreadDividerRef.current) {
+        unreadDividerRef.current.scrollIntoView({ behavior: 'auto', block: 'start' });
+      } else if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({ behavior: 'auto' });
+      }
+    });
     observer.observe(container);
     return () => observer.disconnect();
   }, [checkScrollButton]);
@@ -125,7 +135,8 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
     }
   }, [messages]);
 
-  // Scroll to unread divider on channel switch, or bottom if fully read
+  // Scroll to unread divider on channel switch, or bottom if fully read.
+  // Delay must exceed the slide transition (400ms) so layout has settled.
   useEffect(() => {
     const timer = setTimeout(() => {
       if (unreadDividerRef.current) {
@@ -133,7 +144,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
       } else if (messagesEndRef.current) {
         messagesEndRef.current.scrollIntoView();
       }
-    }, 100);
+    }, 450);
     return () => clearTimeout(timer);
   }, [channelId, readMarkerTs]);
 

@@ -4,7 +4,7 @@ import './UserPanel.css';
 
 interface UserPanelProps {
   username?: string;
-  onToggleDM: () => void;
+  onToggleDM?: () => void;
   dmActive?: boolean;
   unreadDMCount?: number;
   onOpenSettings: () => void;
@@ -177,6 +177,7 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
         </Tooltip>
       )}
 
+      {onToggleDM && (
       <Tooltip content="Direct Messages" position="bottom" align="end">
       <button
         className={`btn btn-ghost btn-icon user-panel-btn dm-btn ${dmActive ? 'active' : ''} ${activeBtn === 'dm' ? 'pressed' : ''}`}
@@ -196,6 +197,7 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
         )}
       </button>
       </Tooltip>
+      )}
       
       <Tooltip content="Settings" position="bottom" align="end">
       <button 
