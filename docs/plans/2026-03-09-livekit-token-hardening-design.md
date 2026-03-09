@@ -30,7 +30,7 @@ private record TlsResult(bool Success, string? Body, int StatusCode, string? Err
 
 ### 2. Retry with backoff (MumbleAdapter.cs `livekit.requestToken` handler)
 
-- 3 attempts with delays: 500ms, 1000ms, 2000ms
+- Up to 4 total attempts (1 initial + 3 retries) with delays: 500ms, 1000ms, 2000ms
 - Only retry on transient failures: connection errors, TLS exceptions, 5xx status codes
 - Do NOT retry on 400 (bad request) or 401 (auth failure) — these won't self-resolve
 - Log each retry attempt to temp file for diagnostics

@@ -912,20 +912,29 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 // Parse status code from "HTTP/1.1 200 OK"
                 var statusCode = 0;
                 var parts = statusLine.Split(' ');
-                if (parts.Length >= 2)
-                    int.TryParse(parts[1], out statusCode);
-
-                if (statusCode < 200 || statusCode >= 300)
-                {
-                    return new TlsResult(false, null, statusCode, $"Server returned {statusCode}");
-                }
+                if (parts.Length >= 2 && !int.TryParse(parts[1], out statusCode))
+                    return new TlsResult(false, null, 0, $"Unparseable status line: {statusLine}");
 
                 var bodyStart = response.IndexOf("\r\n\r\n", StringComparison.Ordinal);
                 if (bodyStart < 0) bodyStart = response.IndexOf("\n\n", StringComparison.Ordinal);
-                if (bodyStart < 0) return new TlsResult(true, null, statusCode, null);
 
-                var separatorLength = response[bodyStart] == '\r' ? 4 : 2;
-                var body = response[(bodyStart + separatorLength)..].Trim();
+                string? body = null;
+                if (bodyStart >= 0)
+                {
+                    var separatorLength = response[bodyStart] == '\r' ? 4 : 2;
+                    body = response[(bodyStart + separatorLength)..].Trim();
+                }
+
+                if (statusCode < 200 || statusCode >= 300)
+                {
+                    var errorDetail = string.IsNullOrWhiteSpace(body)
+                        ? $"Server returned {statusCode}"
+                        : $"Server returned {statusCode}: {body}";
+                    return new TlsResult(false, body, statusCode, errorDetail);
+                }
+
+                if (body is null)
+                    return new TlsResult(true, null, statusCode, null);
 
                 var headersSection = response[..bodyStart];
                 if (headersSection.Contains("Transfer-Encoding: chunked", StringComparison.OrdinalIgnoreCase))
@@ -978,12 +987,20 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         return await SendViaBcTls(cert, uri, httpRequest);
     }
 
+    private static readonly string LiveKitLogPath =
+        System.IO.Path.Combine(System.IO.Path.GetTempPath(), "brmble-livekit.log");
+
+    private const long MaxLogSize = 1024 * 1024; // 1 MB
+
     private static void LogToFile(string message)
     {
         try
         {
-            System.IO.File.AppendAllText(
-                System.IO.Path.Combine(System.IO.Path.GetTempPath(), "brmble-livekit.log"),
+            var fi = new System.IO.FileInfo(LiveKitLogPath);
+            if (fi.Exists && fi.Length > MaxLogSize)
+                System.IO.File.Delete(LiveKitLogPath);
+
+            System.IO.File.AppendAllText(LiveKitLogPath,
                 $"[{DateTime.Now:HH:mm:ss.fff}] {message}\n");
         }
         catch { /* logging should never throw */ }

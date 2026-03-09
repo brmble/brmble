@@ -1,7 +1,5 @@
 # LiveKit Token Flow Hardening — Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
-
 **Goal:** Make the LiveKit token request flow resilient with retry logic, structured error propagation, and diagnostic logging.
 
 **Architecture:** Replace the null-return pattern in `SendViaBcTls`/`PostViaBcTls` with a `TlsResult` record that carries HTTP status codes and error messages. Add retry with exponential backoff in the `livekit.requestToken` bridge handler. Propagate specific errors to the frontend.
