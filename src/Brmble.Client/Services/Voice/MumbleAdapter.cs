@@ -868,115 +868,125 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         }
     }
 
+    private record TlsResult(bool Success, string? Body, int StatusCode, string? Error);
+
     /// <summary>
-    /// Generic mTLS POST helper using BouncyCastle TLS.
-    /// Returns the parsed JSON response body as an anonymous object, or null on failure.
+    /// Generic mTLS helper using BouncyCastle TLS.
+    /// Returns a structured TlsResult with success/failure details.
     /// </summary>
-    private static async Task<string?> SendViaBcTls(X509Certificate2 cert, Uri uri, string httpRequest)
+    private static async Task<TlsResult> SendViaBcTls(X509Certificate2 cert, Uri uri, string httpRequest)
     {
-        using var tcp = new TcpClient();
-        await tcp.ConnectAsync(uri.Host, uri.Port);
-
-        var sniName = uri.HostNameType == UriHostNameType.Dns ? uri.Host : null;
-        var tlsClient = new BrmbleTlsClient(cert, sniName);
-        var tlsProtocol = new TlsClientProtocol(tcp.GetStream());
-        tlsProtocol.Connect(tlsClient);
-
         try
         {
-            var stream = tlsProtocol.Stream;
-            var requestBytes = System.Text.Encoding.UTF8.GetBytes(httpRequest);
-            await stream.WriteAsync(requestBytes, 0, requestBytes.Length);
-            await stream.FlushAsync();
+            using var tcp = new TcpClient();
+            await tcp.ConnectAsync(uri.Host, uri.Port);
 
-            using var ms = new MemoryStream();
-            var buf = new byte[4096];
-            int read;
+            var sniName = uri.HostNameType == UriHostNameType.Dns ? uri.Host : null;
+            var tlsClient = new BrmbleTlsClient(cert, sniName);
+            var tlsProtocol = new TlsClientProtocol(tcp.GetStream());
+            tlsProtocol.Connect(tlsClient);
+
             try
             {
-                while ((read = await stream.ReadAsync(buf, 0, buf.Length)) > 0)
-                    ms.Write(buf, 0, read);
-            }
-            catch (Org.BouncyCastle.Tls.TlsNoCloseNotifyException) { }
+                var stream = tlsProtocol.Stream;
+                var requestBytes = System.Text.Encoding.UTF8.GetBytes(httpRequest);
+                await stream.WriteAsync(requestBytes, 0, requestBytes.Length);
+                await stream.FlushAsync();
 
-            var response = System.Text.Encoding.UTF8.GetString(ms.ToArray());
-            var statusEnd = response.IndexOf('\n');
-            if (statusEnd < 0) return null;
-
-            var statusLine = response[..statusEnd].Trim();
-            if (!statusLine.Contains("200"))
-            {
-                System.Diagnostics.Debug.WriteLine($"[SendViaBcTls] Non-200 response: {statusLine}");
-                return null;
-            }
-
-            var bodyStart = response.IndexOf("\r\n\r\n", StringComparison.Ordinal);
-            if (bodyStart < 0) bodyStart = response.IndexOf("\n\n", StringComparison.Ordinal);
-            if (bodyStart < 0) return null;
-
-            var separatorLength = response[bodyStart] == '\r' ? 4 : 2;
-            var body = response[(bodyStart + separatorLength)..].Trim();
-
-            var headersSection = response[..bodyStart];
-            if (headersSection.Contains("Transfer-Encoding: chunked", StringComparison.OrdinalIgnoreCase))
-            {
-                var sb = new System.Text.StringBuilder();
-                var remaining = body;
-                while (remaining.Length > 0)
+                using var ms = new MemoryStream();
+                var buf = new byte[4096];
+                int read;
+                try
                 {
-                    var lineEnd = remaining.IndexOf("\r\n", StringComparison.Ordinal);
-                    if (lineEnd < 0) break;
-                    var chunkSizeHex = remaining[..lineEnd].Trim();
-                    if (!int.TryParse(chunkSizeHex, System.Globalization.NumberStyles.HexNumber, null, out var chunkSize) || chunkSize == 0)
-                        break;
-                    var chunkStart = lineEnd + 2;
-                    if (chunkStart + chunkSize > remaining.Length) break;
-                    sb.Append(remaining.AsSpan(chunkStart, chunkSize));
-                    remaining = remaining[(chunkStart + chunkSize)..];
-                    if (remaining.StartsWith("\r\n"))
-                        remaining = remaining[2..];
+                    while ((read = await stream.ReadAsync(buf, 0, buf.Length)) > 0)
+                        ms.Write(buf, 0, read);
                 }
-                body = sb.ToString().Trim();
-            }
+                catch (Org.BouncyCastle.Tls.TlsNoCloseNotifyException) { }
 
-            return string.IsNullOrWhiteSpace(body) ? null : body;
+                var response = System.Text.Encoding.UTF8.GetString(ms.ToArray());
+                var statusEnd = response.IndexOf('\n');
+                if (statusEnd < 0) return new TlsResult(false, null, 0, "No response from server");
+
+                var statusLine = response[..statusEnd].Trim();
+
+                // Parse status code from "HTTP/1.1 200 OK"
+                var statusCode = 0;
+                var parts = statusLine.Split(' ');
+                if (parts.Length >= 2)
+                    int.TryParse(parts[1], out statusCode);
+
+                if (statusCode < 200 || statusCode >= 300)
+                {
+                    return new TlsResult(false, null, statusCode, $"Server returned {statusCode}");
+                }
+
+                var bodyStart = response.IndexOf("\r\n\r\n", StringComparison.Ordinal);
+                if (bodyStart < 0) bodyStart = response.IndexOf("\n\n", StringComparison.Ordinal);
+                if (bodyStart < 0) return new TlsResult(true, null, statusCode, null);
+
+                var separatorLength = response[bodyStart] == '\r' ? 4 : 2;
+                var body = response[(bodyStart + separatorLength)..].Trim();
+
+                var headersSection = response[..bodyStart];
+                if (headersSection.Contains("Transfer-Encoding: chunked", StringComparison.OrdinalIgnoreCase))
+                {
+                    var sb = new System.Text.StringBuilder();
+                    var remaining = body;
+                    while (remaining.Length > 0)
+                    {
+                        var lineEnd = remaining.IndexOf("\r\n", StringComparison.Ordinal);
+                        if (lineEnd < 0) break;
+                        var chunkSizeHex = remaining[..lineEnd].Trim();
+                        if (!int.TryParse(chunkSizeHex, System.Globalization.NumberStyles.HexNumber, null, out var chunkSize) || chunkSize == 0)
+                            break;
+                        var chunkStart = lineEnd + 2;
+                        if (chunkStart + chunkSize > remaining.Length) break;
+                        sb.Append(remaining.AsSpan(chunkStart, chunkSize));
+                        remaining = remaining[(chunkStart + chunkSize)..];
+                        if (remaining.StartsWith("\r\n"))
+                            remaining = remaining[2..];
+                    }
+                    body = sb.ToString().Trim();
+                }
+
+                return new TlsResult(true, string.IsNullOrWhiteSpace(body) ? null : body, statusCode, null);
+            }
+            finally
+            {
+                tlsProtocol.Close();
+            }
         }
-        finally
+        catch (Exception ex)
         {
-            tlsProtocol.Close();
+            return new TlsResult(false, null, 0, ex.Message);
         }
     }
 
-    private static async Task<object?> PostViaBcTls(X509Certificate2 cert, Uri uri, string jsonBody)
+    private static async Task<TlsResult> PostViaBcTls(X509Certificate2 cert, Uri uri, string jsonBody)
     {
         var hostHeader = uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}";
         var contentLength = System.Text.Encoding.UTF8.GetByteCount(jsonBody);
         var httpRequest = $"POST {uri.PathAndQuery} HTTP/1.1\r\nHost: {hostHeader}\r\nContent-Type: application/json\r\nContent-Length: {contentLength}\r\nConnection: close\r\n\r\n{jsonBody}";
 
-        var body = await SendViaBcTls(cert, uri, httpRequest);
-        if (body is null) return null;
-
-        using var doc = System.Text.Json.JsonDocument.Parse(body);
-        var dict = new Dictionary<string, object?>();
-        foreach (var prop in doc.RootElement.EnumerateObject())
-        {
-            dict[prop.Name] = prop.Value.ValueKind switch
-            {
-                System.Text.Json.JsonValueKind.String => prop.Value.GetString(),
-                System.Text.Json.JsonValueKind.Number => prop.Value.GetDouble(),
-                System.Text.Json.JsonValueKind.True => true,
-                System.Text.Json.JsonValueKind.False => false,
-                _ => prop.Value.GetRawText()
-            };
-        }
-        return dict;
+        return await SendViaBcTls(cert, uri, httpRequest);
     }
 
-    private static async Task<string?> GetViaBcTls(X509Certificate2 cert, Uri uri)
+    private static async Task<TlsResult> GetViaBcTls(X509Certificate2 cert, Uri uri)
     {
         var hostHeader = uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}";
         var httpRequest = $"GET {uri.PathAndQuery} HTTP/1.1\r\nHost: {hostHeader}\r\nConnection: close\r\n\r\n";
         return await SendViaBcTls(cert, uri, httpRequest);
+    }
+
+    private static void LogToFile(string message)
+    {
+        try
+        {
+            System.IO.File.AppendAllText(
+                System.IO.Path.Combine(System.IO.Path.GetTempPath(), "brmble-livekit.log"),
+                $"[{DateTime.Now:HH:mm:ss.fff}] {message}\n");
+        }
+        catch { /* logging should never throw */ }
     }
 
     /// Pure HTTP helper: POSTs to /auth/token and returns the parsed response body.
@@ -1481,26 +1491,61 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 return;
             }
 
-            try
+            var baseUri = new Uri(_apiUrl, UriKind.Absolute);
+            var tokenUri = new Uri(baseUri, "livekit/token");
+            var jsonBody = System.Text.Json.JsonSerializer.Serialize(new { roomName });
+
+            var delays = new[] { 500, 1000, 2000 };
+            TlsResult? lastResult = null;
+
+            for (var attempt = 0; attempt <= delays.Length; attempt++)
             {
-                var baseUri = new Uri(_apiUrl, UriKind.Absolute);
-                var tokenUri = new Uri(baseUri, "livekit/token");
-                var result = await PostViaBcTls(cert, tokenUri, System.Text.Json.JsonSerializer.Serialize(new { roomName }));
-                if (result is null)
+                try
                 {
-                    _bridge?.Send("livekit.tokenError", new { error = "Token request failed" });
-                    _bridge?.NotifyUiThread();
-                    return;
+                    lastResult = await PostViaBcTls(cert, tokenUri, jsonBody);
+
+                    if (lastResult.Success && lastResult.Body is not null)
+                    {
+                        // Parse JSON body into dictionary for bridge
+                        using var doc = System.Text.Json.JsonDocument.Parse(lastResult.Body);
+                        var dict = new Dictionary<string, object?>();
+                        foreach (var prop in doc.RootElement.EnumerateObject())
+                        {
+                            dict[prop.Name] = prop.Value.ValueKind switch
+                            {
+                                System.Text.Json.JsonValueKind.String => prop.Value.GetString(),
+                                System.Text.Json.JsonValueKind.Number => prop.Value.GetDouble(),
+                                System.Text.Json.JsonValueKind.True => true,
+                                System.Text.Json.JsonValueKind.False => false,
+                                _ => prop.Value.GetRawText()
+                            };
+                        }
+                        _bridge?.Send("livekit.token", dict);
+                        _bridge?.NotifyUiThread();
+                        return;
+                    }
+
+                    // Don't retry on 4xx — these are client errors that won't self-resolve
+                    if (lastResult.StatusCode >= 400 && lastResult.StatusCode < 500)
+                        break;
+                }
+                catch (Exception ex)
+                {
+                    lastResult = new TlsResult(false, null, 0, ex.Message);
                 }
 
-                _bridge?.Send("livekit.token", result);
-                _bridge?.NotifyUiThread();
+                // Retry after delay if we have attempts remaining
+                if (attempt < delays.Length)
+                {
+                    LogToFile($"[LiveKit] Token request attempt {attempt + 1} failed: {lastResult?.Error ?? "unknown"}, retrying in {delays[attempt]}ms");
+                    await Task.Delay(delays[attempt]);
+                }
             }
-            catch (Exception ex)
-            {
-                _bridge?.Send("livekit.tokenError", new { error = ex.Message });
-                _bridge?.NotifyUiThread();
-            }
+
+            var errorMsg = lastResult?.Error ?? "Token request failed";
+            LogToFile($"[LiveKit] Token request failed after all attempts: {errorMsg}");
+            _bridge?.Send("livekit.tokenError", new { error = errorMsg });
+            _bridge?.NotifyUiThread();
         });
 
         bridge.RegisterHandler("livekit.shareStarted", async data =>
@@ -1515,11 +1560,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             {
                 var baseUri = new Uri(_apiUrl, UriKind.Absolute);
                 var uri = new Uri(baseUri, "livekit/share-started");
-                await PostViaBcTls(cert, uri, System.Text.Json.JsonSerializer.Serialize(new { roomName }));
+                var result = await PostViaBcTls(cert, uri, System.Text.Json.JsonSerializer.Serialize(new { roomName }));
+                if (!result.Success)
+                    LogToFile($"[LiveKit] share-started notification failed: {result.Error}");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[LiveKit] Failed to notify share-started: {ex.Message}");
+                LogToFile($"[LiveKit] Failed to notify share-started: {ex.Message}");
             }
         });
 
@@ -1535,11 +1582,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             {
                 var baseUri = new Uri(_apiUrl, UriKind.Absolute);
                 var uri = new Uri(baseUri, "livekit/share-stopped");
-                await PostViaBcTls(cert, uri, System.Text.Json.JsonSerializer.Serialize(new { roomName }));
+                var result = await PostViaBcTls(cert, uri, System.Text.Json.JsonSerializer.Serialize(new { roomName }));
+                if (!result.Success)
+                    LogToFile($"[LiveKit] share-stopped notification failed: {result.Error}");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[LiveKit] Failed to notify share-stopped: {ex.Message}");
+                LogToFile($"[LiveKit] Failed to notify share-stopped: {ex.Message}");
             }
         });
 
@@ -1566,9 +1615,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 var baseUri = new Uri(_apiUrl, UriKind.Absolute);
                 var uri = new Uri(baseUri, $"livekit/active-share?roomName={Uri.EscapeDataString(roomName)}");
                 var result = await GetViaBcTls(cert, uri);
-                if (result is not null)
+                if (result.Success && result.Body is not null)
                 {
-                    using var doc = System.Text.Json.JsonDocument.Parse(result);
+                    using var doc = System.Text.Json.JsonDocument.Parse(result.Body);
                     var userName = doc.RootElement.TryGetProperty("userName", out var un) ? un.GetString() : null;
                     _bridge?.Send("livekit.activeShareResult", new { roomName, active = true, userName });
                 }
