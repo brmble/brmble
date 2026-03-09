@@ -58,5 +58,5 @@ public class ScreenShareEndpointTests
         Assert.AreEqual(HttpStatusCode.Unauthorized, resp.StatusCode);
     }
 
-    private record ActiveShareResponse(string UserName, string MatrixUserId);
+    private record ActiveShareResponse(string UserName, long UserId);
 }

@@ -71,7 +71,7 @@ public static class LiveKitEndpoints
             if (string.IsNullOrWhiteSpace(roomName))
                 return Results.BadRequest(new { error = "roomName is required" });
 
-            tracker.Start(roomName, user.DisplayName, user.MatrixUserId);
+            tracker.Start(roomName, user.DisplayName, user.Id);
             await eventBus.BroadcastAsync(new
             {
                 type = "screenShare.started",
@@ -113,7 +113,7 @@ public static class LiveKitEndpoints
             if (activeShare is null)
                 return Results.BadRequest(new { error = "no active screen share for room" });
 
-            if (activeShare.MatrixUserId != user.MatrixUserId)
+            if (activeShare.UserId != user.Id)
                 return Results.Forbid();
 
             tracker.Stop(roomName);
@@ -131,7 +131,7 @@ public static class LiveKitEndpoints
 
             var info = tracker.GetActive(roomName);
             return info is not null
-                ? Results.Ok(new { info.UserName, info.MatrixUserId })
+                ? Results.Ok(new { info.UserName, info.UserId })
                 : Results.NotFound();
         });
 

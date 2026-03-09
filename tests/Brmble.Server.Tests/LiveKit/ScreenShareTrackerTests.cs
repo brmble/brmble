@@ -20,17 +20,17 @@ public class ScreenShareTrackerTests
     [TestMethod]
     public void Start_ThenGetActive_ReturnsInfo()
     {
-        _tracker.Start("channel-1", "maui", "@2:noscope.it");
+        _tracker.Start("channel-1", "maui", 2L);
         var info = _tracker.GetActive("channel-1");
         Assert.IsNotNull(info);
         Assert.AreEqual("maui", info.UserName);
-        Assert.AreEqual("@2:noscope.it", info.MatrixUserId);
+        Assert.AreEqual(2L, info.UserId);
     }
 
     [TestMethod]
     public void Stop_RemovesShare()
     {
-        _tracker.Start("channel-1", "maui", "@2:noscope.it");
+        _tracker.Start("channel-1", "maui", 2L);
         _tracker.Stop("channel-1");
         Assert.IsNull(_tracker.GetActive("channel-1"));
     }
@@ -38,8 +38,8 @@ public class ScreenShareTrackerTests
     [TestMethod]
     public void Start_OverwritesPrevious()
     {
-        _tracker.Start("channel-1", "alice", "@alice:x");
-        _tracker.Start("channel-1", "bob", "@bob:x");
+        _tracker.Start("channel-1", "alice", 10L);
+        _tracker.Start("channel-1", "bob", 20L);
         var info = _tracker.GetActive("channel-1");
         Assert.IsNotNull(info);
         Assert.AreEqual("bob", info.UserName);
@@ -49,5 +49,18 @@ public class ScreenShareTrackerTests
     public void Stop_NonExistent_DoesNotThrow()
     {
         _tracker.Stop("no-such-room");
+    }
+
+    [TestMethod]
+    public void GetActiveByUserId_ReturnsRoomName()
+    {
+        _tracker.Start("channel-1", "maui", 2L);
+        Assert.AreEqual("channel-1", _tracker.GetActiveByUserId(2L));
+    }
+
+    [TestMethod]
+    public void GetActiveByUserId_NoShare_ReturnsNull()
+    {
+        Assert.IsNull(_tracker.GetActiveByUserId(99L));
     }
 }
