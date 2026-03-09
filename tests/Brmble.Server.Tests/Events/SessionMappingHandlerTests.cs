@@ -43,11 +43,11 @@ public class SessionMappingHandlerTests
     public async Task OnUserConnected_WithKnownCert_AddsMappingAndBroadcasts()
     {
         var user = await _repo.Insert("abc123", "Alice");
-        _mapping.Setup(m => m.TryAddMatrixUser(1, user.MatrixUserId, "Alice")).Returns(true);
+        _mapping.Setup(m => m.TryAddMatrixUser(1, user.MatrixUserId, "Alice", user.Id)).Returns(true);
 
         await _handler.OnUserConnected(new MumbleUser("Alice", "abc123", 1));
 
-        _mapping.Verify(m => m.TryAddMatrixUser(1, user.MatrixUserId, "Alice"), Times.Once);
+        _mapping.Verify(m => m.TryAddMatrixUser(1, user.MatrixUserId, "Alice", user.Id), Times.Once);
         _bus.Verify(b => b.BroadcastAsync(It.IsAny<object>()), Times.Once);
     }
 
@@ -56,7 +56,7 @@ public class SessionMappingHandlerTests
     {
         await _handler.OnUserConnected(new MumbleUser("Bob", "", 2));
 
-        _mapping.Verify(m => m.TryAddMatrixUser(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _mapping.Verify(m => m.TryAddMatrixUser(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<long>()), Times.Never);
         _bus.Verify(b => b.BroadcastAsync(It.IsAny<object>()), Times.Never);
     }
 
@@ -65,7 +65,7 @@ public class SessionMappingHandlerTests
     {
         await _handler.OnUserConnected(new MumbleUser("Charlie", "unknown_hash", 3));
 
-        _mapping.Verify(m => m.TryAddMatrixUser(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _mapping.Verify(m => m.TryAddMatrixUser(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<long>()), Times.Never);
         _bus.Verify(b => b.BroadcastAsync(It.IsAny<object>()), Times.Never);
     }
 
@@ -73,11 +73,11 @@ public class SessionMappingHandlerTests
     public async Task OnUserConnected_AlreadyMapped_DoesNotBroadcast()
     {
         var user = await _repo.Insert("abc123", "Alice");
-        _mapping.Setup(m => m.TryAddMatrixUser(1, user.MatrixUserId, "Alice")).Returns(false);
+        _mapping.Setup(m => m.TryAddMatrixUser(1, user.MatrixUserId, "Alice", user.Id)).Returns(false);
 
         await _handler.OnUserConnected(new MumbleUser("Alice", "abc123", 1));
 
-        _mapping.Verify(m => m.TryAddMatrixUser(1, user.MatrixUserId, "Alice"), Times.Once);
+        _mapping.Verify(m => m.TryAddMatrixUser(1, user.MatrixUserId, "Alice", user.Id), Times.Once);
         _bus.Verify(b => b.BroadcastAsync(It.IsAny<object>()), Times.Never);
     }
 }

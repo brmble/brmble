@@ -29,7 +29,7 @@ public class SessionMappingHandler : IMumbleEventHandler
         var dbUser = await _userRepository.GetByCertHash(user.CertHash);
         if (dbUser is null) return;
 
-        if (_sessionMapping.TryAddMatrixUser(user.SessionId, dbUser.MatrixUserId, user.Name))
+        if (_sessionMapping.TryAddMatrixUser(user.SessionId, dbUser.MatrixUserId, user.Name, dbUser.Id))
         {
             _logger.LogInformation(
                 "Mapped session {Session} ({Name}) to {MatrixUserId} via cert",
