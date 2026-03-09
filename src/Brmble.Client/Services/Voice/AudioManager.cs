@@ -136,7 +136,7 @@ internal sealed class AudioManager : IDisposable
     private EncodePipeline? _encodePipeline;
     private IWaveIn? _waveIn;
     private volatile bool _micStarted;
-    private string _captureApi = "waveIn";
+    private string _captureApi = "wasapi";
 
     // Decode (network → speakers)
     private readonly Dictionary<uint, UserAudioPipeline> _pipelines = new();
@@ -397,10 +397,13 @@ private int _screenShareHotkeyId = -1;
             {
                 if (_captureApi == "wasapi")
                 {
-                    _waveIn = new WasapiCapture
+                    var enumerator = new MMDeviceEnumerator();
+                    var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Communications);
+                    _waveIn = new WasapiCapture(device, true, 60)
                     {
                         ShareMode = AudioClientShareMode.Shared
                     };
+                    AudioLog.Write($"[Audio] WASAPI capture format: {_waveIn.WaveFormat.SampleRate}Hz, {_waveIn.WaveFormat.BitsPerSample}bit, {_waveIn.WaveFormat.Channels}ch");
                     ((WasapiCapture)_waveIn).RecordingStopped += (s, e) =>
                     {
                         if (e.Exception != null)
@@ -493,14 +496,16 @@ private int _screenShareHotkeyId = -1;
             var floatBuffer = new float[e.BytesRecorded / 4];
             Buffer.BlockCopy(e.Buffer, 0, floatBuffer, 0, e.BytesRecorded);
             
-            var int16Buffer = new byte[e.BytesRecorded];
-            for (int i = 0; i < floatBuffer.Length; i++)
+            int sampleCount = floatBuffer.Length;
+            var int16Buffer = new byte[sampleCount * 2];
+            for (int i = 0; i < sampleCount; i++)
             {
                 var sample = (short)Math.Clamp(floatBuffer[i] * 32768f, short.MinValue, short.MaxValue);
                 int16Buffer[i * 2] = (byte)(sample & 0xFF);
                 int16Buffer[i * 2 + 1] = (byte)((sample >> 8) & 0xFF);
             }
             processedBuffer = int16Buffer;
+            processedBytes = int16Buffer.Length;
         }
 
         if (_muted) return;
