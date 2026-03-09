@@ -5,7 +5,7 @@ import './Header.css';
 
 interface HeaderProps {
   username?: string;
-  onToggleDM: () => void;
+  onToggleDM?: () => void;
   dmActive?: boolean;
   unreadDMCount?: number;
   onOpenSettings: () => void;

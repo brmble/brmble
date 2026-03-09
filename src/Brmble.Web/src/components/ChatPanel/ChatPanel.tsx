@@ -94,12 +94,29 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
     setShowScrollButton(distanceFromBottom > SCROLL_THRESHOLD);
   }, []);
 
+  // One-shot flag: allow the ResizeObserver to auto-scroll only once after
+  // a channel/DM switch (i.e. during the initial slide-in transition).
+  // Cleared after the first resize fires, so subsequent resizes (e.g.
+  // screen-share divider drag) don't override the user's scroll position.
+  const pendingSlideScrollRef = useRef(false);
+
   // Re-evaluate scroll button when the messages container resizes
   // (e.g. when the DM/channel slide becomes visible).
+  // Only auto-scroll during the initial slide-in transition (one-shot).
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
-    const observer = new ResizeObserver(() => checkScrollButton());
+    const observer = new ResizeObserver(() => {
+      checkScrollButton();
+      if (pendingSlideScrollRef.current) {
+        pendingSlideScrollRef.current = false;
+        if (unreadDividerRef.current) {
+          unreadDividerRef.current.scrollIntoView({ behavior: 'auto', block: 'start' });
+        } else if (messagesEndRef.current) {
+          messagesEndRef.current.scrollIntoView({ behavior: 'auto' });
+        }
+      }
+    });
     observer.observe(container);
     return () => observer.disconnect();
   }, [checkScrollButton]);
@@ -125,15 +142,19 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
     }
   }, [messages]);
 
-  // Scroll to unread divider on channel switch, or bottom if fully read
+  // Scroll to unread divider on channel switch, or bottom if fully read.
+  // Delay must exceed the slide transition (400ms) so layout has settled.
+  // Also arm the one-shot ResizeObserver scroll for the slide-in transition.
   useEffect(() => {
+    pendingSlideScrollRef.current = true;
     const timer = setTimeout(() => {
+      pendingSlideScrollRef.current = false;
       if (unreadDividerRef.current) {
         unreadDividerRef.current.scrollIntoView({ behavior: 'auto', block: 'start' });
       } else if (messagesEndRef.current) {
         messagesEndRef.current.scrollIntoView();
       }
-    }, 100);
+    }, 450);
     return () => clearTimeout(timer);
   }, [channelId, readMarkerTs]);
 

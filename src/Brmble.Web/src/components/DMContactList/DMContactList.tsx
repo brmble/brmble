@@ -111,6 +111,15 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
           y={contextMenu.y}
           items={[
             {
+              label: 'Send Direct Message',
+              icon: (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
+              ),
+              onClick: () => { onSelectContact(contextMenu.userId, contextMenu.userName); setContextMenu(null); },
+            },
+            {
               label: 'User Information',
               icon: (
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -145,6 +154,7 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
           session={parseInt(infoDialogUser.userId)}
           isSelf={false}
           comment={contacts.find(c => c.userId === infoDialogUser.userId)?.comment}
+          onStartDM={(userId, userName) => onSelectContact(userId, userName)}
         />
       )}
     </div>
