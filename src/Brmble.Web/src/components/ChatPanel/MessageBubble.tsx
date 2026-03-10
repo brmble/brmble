@@ -40,6 +40,26 @@ function highlightText(text: string, query: string): ReactNode {
   return parts.length > 0 ? parts : text;
 }
 
+function highlightHtml(html: string, query: string): string {
+  if (!query) return html;
+  const lowerQuery = query.toLowerCase();
+  // Split on HTML tags to only highlight text nodes
+  return html.replace(/([^<]+)(?=<|$)/g, (textNode) => {
+    const lowerText = textNode.toLowerCase();
+    let result = '';
+    let lastIndex = 0;
+    let idx = lowerText.indexOf(lowerQuery, lastIndex);
+    while (idx !== -1) {
+      result += textNode.slice(lastIndex, idx);
+      result += `<mark class="search-highlight">${textNode.slice(idx, idx + query.length)}</mark>`;
+      lastIndex = idx + query.length;
+      idx = lowerText.indexOf(lowerQuery, lastIndex);
+    }
+    result += textNode.slice(lastIndex);
+    return result;
+  });
+}
+
 export function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex }: MessageBubbleProps) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
@@ -79,7 +99,7 @@ export function MessageBubble({ sender, content, timestamp, isOwnMessage, isSyst
         )}
         {content && (
           html ? (
-            <div className="message-text" dangerouslySetInnerHTML={{ __html: content }} />
+            <div className="message-text" dangerouslySetInnerHTML={{ __html: searchQuery ? highlightHtml(content, searchQuery) : content }} />
           ) : (
             <p className="message-text">
               {searchQuery ? highlightText(content, searchQuery) : linkifyText(content)}

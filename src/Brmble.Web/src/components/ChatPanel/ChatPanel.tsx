@@ -176,12 +176,12 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
   }, [messages, searchQuery]);
 
   const handleSearchPrev = useCallback(() => {
-    setCurrentMatchIndex(prev => Math.min(prev + 1, searchMatches.length - 1));
-  }, [searchMatches.length]);
-
-  const handleSearchNext = useCallback(() => {
     setCurrentMatchIndex(prev => Math.max(prev - 1, 0));
   }, []);
+
+  const handleSearchNext = useCallback(() => {
+    setCurrentMatchIndex(prev => Math.min(prev + 1, searchMatches.length - 1));
+  }, [searchMatches.length]);
 
   // Auto-focus search input when opening
   useEffect(() => {
@@ -189,6 +189,25 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
       searchInputRef.current.focus();
     }
   }, [searchOpen]);
+
+  // Ctrl+F toggles search when chat panel is active
+  useEffect(() => {
+    if (!channelId) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        setSearchOpen(prev => {
+          if (prev) {
+            setSearchQuery('');
+            setCurrentMatchIndex(0);
+          }
+          return !prev;
+        });
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [channelId]);
 
   // Reset search on channel switch
   useEffect(() => {
@@ -245,8 +264,75 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
           )}
           <h3 className="heading-section">{channelName}</h3>
         </div>
+        {searchOpen && (
+          <div className="chat-search-inline">
+            <div className="chat-search-input-wrapper">
+              <svg className="chat-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+              <input
+                ref={searchInputRef}
+                className="chat-search-input"
+                type="text"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setCurrentMatchIndex(0);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setSearchOpen(false);
+                    setSearchQuery('');
+                    setCurrentMatchIndex(0);
+                  } else if (e.key === 'Enter') {
+                    if (e.shiftKey) handleSearchPrev();
+                    else handleSearchNext();
+                  }
+                }}
+                placeholder="Search messages..."
+              />
+              {searchQuery && (
+                <span className="chat-search-count">
+                  {searchMatches.length > 0 ? `${currentMatchIndex + 1} of ${searchMatches.length}` : 'No results'}
+                </span>
+              )}
+            </div>
+            <div className="chat-search-nav">
+              <Tooltip content="Next match (Enter)">
+                <button
+                  className="chat-search-nav-btn"
+                  onClick={handleSearchNext}
+                  disabled={searchMatches.length === 0 || currentMatchIndex >= searchMatches.length - 1}
+                  aria-label="Next match"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="18 15 12 9 6 15" /></svg>
+                </button>
+              </Tooltip>
+              <Tooltip content="Previous match (Shift+Enter)">
+                <button
+                  className="chat-search-nav-btn"
+                  onClick={handleSearchPrev}
+                  disabled={searchMatches.length === 0 || currentMatchIndex <= 0}
+                  aria-label="Previous match"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9" /></svg>
+                </button>
+              </Tooltip>
+              <Tooltip content="Close search (Esc)">
+                <button
+                  className="chat-search-nav-btn"
+                  onClick={() => { setSearchOpen(false); setSearchQuery(''); setCurrentMatchIndex(0); }}
+                  aria-label="Close search"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                </button>
+              </Tooltip>
+            </div>
+          </div>
+        )}
         <div className="chat-header-right">
-          <Tooltip content={searchOpen ? 'Close search' : 'Search messages'}>
+          <Tooltip content={searchOpen ? 'Close search' : 'Search messages (Ctrl+F)'}>
             <button
               className={`chat-search-toggle${searchOpen ? ' active' : ''}`}
               onClick={() => {
@@ -266,74 +352,6 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
           </Tooltip>
         </div>
       </div>
-
-      {searchOpen && (
-        <div className="chat-search-bar">
-          <div className="chat-search-input-wrapper">
-            <svg className="chat-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-            <input
-              ref={searchInputRef}
-              className="chat-search-input"
-              type="text"
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setCurrentMatchIndex(0);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                  setSearchOpen(false);
-                  setSearchQuery('');
-                  setCurrentMatchIndex(0);
-                } else if (e.key === 'Enter') {
-                  if (e.shiftKey) handleSearchPrev();
-                  else handleSearchNext();
-                }
-              }}
-              placeholder="Search messages..."
-            />
-            {searchQuery && (
-              <span className="chat-search-count">
-                {searchMatches.length > 0 ? `${currentMatchIndex + 1} of ${searchMatches.length}` : 'No results'}
-              </span>
-            )}
-          </div>
-          <div className="chat-search-nav">
-            <Tooltip content="Previous match (Shift+Enter)">
-              <button
-                className="chat-search-nav-btn"
-                onClick={handleSearchPrev}
-                disabled={searchMatches.length === 0 || currentMatchIndex >= searchMatches.length - 1}
-                aria-label="Previous match"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="18 15 12 9 6 15" /></svg>
-              </button>
-            </Tooltip>
-            <Tooltip content="Next match (Enter)">
-              <button
-                className="chat-search-nav-btn"
-                onClick={handleSearchNext}
-                disabled={searchMatches.length === 0 || currentMatchIndex <= 0}
-                aria-label="Next match"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9" /></svg>
-              </button>
-            </Tooltip>
-            <Tooltip content="Close search (Esc)">
-              <button
-                className="chat-search-nav-btn"
-                onClick={() => { setSearchOpen(false); setSearchQuery(''); setCurrentMatchIndex(0); }}
-                aria-label="Close search"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-              </button>
-            </Tooltip>
-          </div>
-        </div>
-      )}
 
       {hasScreenShare && (
         <>
@@ -420,6 +438,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
           <button
             className="chat-scroll-bottom"
             onClick={scrollToBottom}
+            onMouseDown={(e) => e.preventDefault()}
             aria-label="Scroll to latest messages"
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
