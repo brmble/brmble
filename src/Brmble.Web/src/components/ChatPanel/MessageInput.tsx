@@ -22,6 +22,11 @@ export function MessageInput({ onSend, placeholder = 'Type a message...' }: Mess
     resizeTextarea();
   }, [message, resizeTextarea]);
 
+  // Focus the textarea when the channel changes (placeholder includes channel name)
+  useEffect(() => {
+    textareaRef.current?.focus();
+  }, [placeholder]);
+
   const handleSend = () => {
     if (message.trim()) {
       onSend(message.trim());

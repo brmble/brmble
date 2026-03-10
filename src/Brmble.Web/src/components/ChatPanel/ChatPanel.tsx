@@ -38,6 +38,9 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
   const [searchQuery, setSearchQuery] = useState('');
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [stuckSeparators, setStuckSeparators] = useState<Set<string>>(() => new Set());
+  const stickyObserverRef = useRef<IntersectionObserver | null>(null);
+  const sentinelMapRef = useRef<Map<string, HTMLDivElement>>(new Map());
   const [splitPercent, setSplitPercent] = useState(() => {
     const stored = localStorage.getItem(SPLIT_STORAGE_KEY);
     return stored ? Number(stored) : DEFAULT_SPLIT;
@@ -162,6 +165,66 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
     return () => clearTimeout(timer);
   }, [channelId, readMarkerTs]);
 
+  // --- Sticky date separator detection ---
+  // Each date separator has a 1px sentinel div above it. When the sentinel
+  // scrolls out of the container viewport (above the top), its separator is
+  // "stuck". We track this with an IntersectionObserver on the sentinels.
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    setStuckSeparators(new Set());
+    sentinelMapRef.current.clear();
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        setStuckSeparators(prev => {
+          const next = new Set(prev);
+          let changed = false;
+          for (const entry of entries) {
+            const id = (entry.target as HTMLElement).dataset.sentinelFor;
+            if (!id) continue;
+            // Only mark as stuck when sentinel is above the viewport top
+            // (not when it's below the viewport, e.g. before user scrolls to it)
+            const isAboveViewport = entry.boundingClientRect.top < entry.rootBounds!.top;
+            if (!entry.isIntersecting && isAboveViewport) {
+              if (!next.has(id)) { next.add(id); changed = true; }
+            } else {
+              if (next.has(id)) { next.delete(id); changed = true; }
+            }
+          }
+          return changed ? next : prev;
+        });
+      },
+      { root: container, threshold: 0 }
+    );
+
+    stickyObserverRef.current = observer;
+
+    // Observe any sentinels already in the DOM
+    sentinelMapRef.current.forEach((el) => observer.observe(el));
+
+    return () => {
+      observer.disconnect();
+      stickyObserverRef.current = null;
+    };
+  }, [channelId]);
+
+  const sentinelRefCallback = useCallback((id: string) => (el: HTMLDivElement | null) => {
+    const map = sentinelMapRef.current;
+    const observer = stickyObserverRef.current;
+    const prev = map.get(id);
+
+    if (prev && observer) observer.unobserve(prev);
+
+    if (el) {
+      map.set(id, el);
+      if (observer) observer.observe(el);
+    } else {
+      map.delete(id);
+    }
+  }, []);
+
   // --- Search logic ---
   const searchMatches = useMemo(() => {
     if (!searchQuery.trim()) return [];
@@ -227,6 +290,21 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
   }, [currentMatchIndex, searchMatches]);
 
   const grouped = useMemo(() => groupMessages(messages, readMarkerTs), [messages, readMarkerTs]);
+
+  // Group messages into date sections for proper sticky push-out behavior.
+  // Each section contains a date separator header + its messages.
+  const dateSections = useMemo(() => {
+    const sections: { dateMessageId: string; timestamp: Date; items: typeof grouped }[] = [];
+    for (const item of grouped) {
+      if (item.showDateSeparator) {
+        sections.push({ dateMessageId: item.message.id, timestamp: item.message.timestamp, items: [] });
+      }
+      if (sections.length > 0) {
+        sections[sections.length - 1].items.push(item);
+      }
+    }
+    return sections;
+  }, [grouped]);
 
   if (!channelId) {
     return (
@@ -392,42 +470,51 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
             <p>No messages yet. Start the conversation!</p>
           </div>
         ) : (
-          grouped.map((item) => {
-            const msgIndex = messages.indexOf(item.message);
-            const isActiveMatch = searchMatches.length > 0 && msgIndex === searchMatches[searchMatches.length - 1 - currentMatchIndex];
-            return (
-            <Fragment key={item.message.id}>
-              {item.showDateSeparator && (
-                <Tooltip content={formatFullDate(item.message.timestamp)}>
+          dateSections.map((section) => (
+            <div className="chat-date-group" key={`date-${section.dateMessageId}`}>
+              <div
+                className="chat-date-sentinel"
+                ref={sentinelRefCallback(section.dateMessageId)}
+                data-sentinel-for={section.dateMessageId}
+              />
+              <div className={`chat-date-separator-wrapper${stuckSeparators.has(section.dateMessageId) ? ' is-stuck' : ''}`}>
+                <Tooltip content={formatFullDate(section.timestamp)}>
                 <div className="chat-date-separator">
                   <span className="chat-date-separator-label">
-                    {formatDateSeparator(item.message.timestamp)}
+                    {formatDateSeparator(section.timestamp)}
                   </span>
                 </div>
                 </Tooltip>
-              )}
-              {item.showUnreadDivider && (
-                <div className="chat-unread-divider" ref={unreadDividerRef} key={`unread-${item.message.id}`}>
-                  <span className="chat-unread-divider-label">New Messages</span>
-                </div>
-              )}
-              <MessageBubble
-                sender={item.message.sender}
-                content={item.message.content}
-                timestamp={item.message.timestamp}
-                isOwnMessage={!item.message.type && item.message.sender === currentUsername}
-                isSystem={item.message.type === 'system'}
-                collapsed={!item.isGroupStart}
-                html={item.message.html}
-                media={item.message.media}
-                matrixClient={matrixClient}
-                searchQuery={searchQuery}
-                isActiveMatch={isActiveMatch}
-                messageIndex={msgIndex}
-              />
-            </Fragment>
-            );
-          })
+              </div>
+              {section.items.map((item) => {
+                const msgIndex = messages.indexOf(item.message);
+                const isActiveMatch = searchMatches.length > 0 && msgIndex === searchMatches[searchMatches.length - 1 - currentMatchIndex];
+                return (
+                <Fragment key={item.message.id}>
+                  {item.showUnreadDivider && (
+                    <div className="chat-unread-divider" ref={unreadDividerRef} key={`unread-${item.message.id}`}>
+                      <span className="chat-unread-divider-label">New Messages</span>
+                    </div>
+                  )}
+                  <MessageBubble
+                    sender={item.message.sender}
+                    content={item.message.content}
+                    timestamp={item.message.timestamp}
+                    isOwnMessage={!item.message.type && item.message.sender === currentUsername}
+                    isSystem={item.message.type === 'system'}
+                    collapsed={!item.isGroupStart}
+                    html={item.message.html}
+                    media={item.message.media}
+                    matrixClient={matrixClient}
+                    searchQuery={searchQuery}
+                    isActiveMatch={isActiveMatch}
+                    messageIndex={msgIndex}
+                  />
+                </Fragment>
+                );
+              })}
+            </div>
+          ))
         )}
         <div ref={messagesEndRef} />
       </div>
