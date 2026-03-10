@@ -34,6 +34,10 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
   const unreadDividerRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [splitPercent, setSplitPercent] = useState(() => {
     const stored = localStorage.getItem(SPLIT_STORAGE_KEY);
     return stored ? Number(stored) : DEFAULT_SPLIT;
@@ -158,6 +162,51 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
     return () => clearTimeout(timer);
   }, [channelId, readMarkerTs]);
 
+  // --- Search logic ---
+  const searchMatches = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    const query = searchQuery.toLowerCase();
+    const indices: number[] = [];
+    messages.forEach((msg, i) => {
+      if (msg.content && msg.content.toLowerCase().includes(query)) {
+        indices.push(i);
+      }
+    });
+    return indices;
+  }, [messages, searchQuery]);
+
+  const handleSearchPrev = useCallback(() => {
+    setCurrentMatchIndex(prev => Math.min(prev + 1, searchMatches.length - 1));
+  }, [searchMatches.length]);
+
+  const handleSearchNext = useCallback(() => {
+    setCurrentMatchIndex(prev => Math.max(prev - 1, 0));
+  }, []);
+
+  // Auto-focus search input when opening
+  useEffect(() => {
+    if (searchOpen && searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, [searchOpen]);
+
+  // Reset search on channel switch
+  useEffect(() => {
+    setSearchOpen(false);
+    setSearchQuery('');
+    setCurrentMatchIndex(0);
+  }, [channelId]);
+
+  // Scroll to active match
+  useEffect(() => {
+    if (searchMatches.length === 0 || !messagesContainerRef.current) return;
+    const msgIndex = searchMatches[searchMatches.length - 1 - currentMatchIndex];
+    const target = messagesContainerRef.current.querySelector(`[data-message-index="${msgIndex}"]`);
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [currentMatchIndex, searchMatches]);
+
   const grouped = useMemo(() => groupMessages(messages, readMarkerTs), [messages, readMarkerTs]);
 
   if (!channelId) {
@@ -182,7 +231,6 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
     );
   }
 
-  const userCount = 1; // Placeholder
 
   return (
     <div className="chat-panel" ref={panelRef}>
@@ -197,20 +245,95 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
           )}
           <h3 className="heading-section">{channelName}</h3>
         </div>
-        {!isDM && (
-          <div className="chat-header-right">
-            <span className="user-count-badge">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+        <div className="chat-header-right">
+          <Tooltip content={searchOpen ? 'Close search' : 'Search messages'}>
+            <button
+              className={`chat-search-toggle${searchOpen ? ' active' : ''}`}
+              onClick={() => {
+                setSearchOpen(prev => !prev);
+                if (searchOpen) {
+                  setSearchQuery('');
+                  setCurrentMatchIndex(0);
+                }
+              }}
+              aria-label={searchOpen ? 'Close search' : 'Search messages'}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
               </svg>
-              <span>{userCount}</span>
-            </span>
-          </div>
-        )}
+            </button>
+          </Tooltip>
+        </div>
       </div>
+
+      {searchOpen && (
+        <div className="chat-search-bar">
+          <div className="chat-search-input-wrapper">
+            <svg className="chat-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              ref={searchInputRef}
+              className="chat-search-input"
+              type="text"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentMatchIndex(0);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  setSearchOpen(false);
+                  setSearchQuery('');
+                  setCurrentMatchIndex(0);
+                } else if (e.key === 'Enter') {
+                  if (e.shiftKey) handleSearchPrev();
+                  else handleSearchNext();
+                }
+              }}
+              placeholder="Search messages..."
+            />
+            {searchQuery && (
+              <span className="chat-search-count">
+                {searchMatches.length > 0 ? `${currentMatchIndex + 1} of ${searchMatches.length}` : 'No results'}
+              </span>
+            )}
+          </div>
+          <div className="chat-search-nav">
+            <Tooltip content="Previous match (Shift+Enter)">
+              <button
+                className="chat-search-nav-btn"
+                onClick={handleSearchPrev}
+                disabled={searchMatches.length === 0 || currentMatchIndex >= searchMatches.length - 1}
+                aria-label="Previous match"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="18 15 12 9 6 15" /></svg>
+              </button>
+            </Tooltip>
+            <Tooltip content="Next match (Enter)">
+              <button
+                className="chat-search-nav-btn"
+                onClick={handleSearchNext}
+                disabled={searchMatches.length === 0 || currentMatchIndex <= 0}
+                aria-label="Next match"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9" /></svg>
+              </button>
+            </Tooltip>
+            <Tooltip content="Close search (Esc)">
+              <button
+                className="chat-search-nav-btn"
+                onClick={() => { setSearchOpen(false); setSearchQuery(''); setCurrentMatchIndex(0); }}
+                aria-label="Close search"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+              </button>
+            </Tooltip>
+          </div>
+        </div>
+      )}
 
       {hasScreenShare && (
         <>
@@ -251,7 +374,10 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
             <p>No messages yet. Start the conversation!</p>
           </div>
         ) : (
-          grouped.map((item) => (
+          grouped.map((item) => {
+            const msgIndex = messages.indexOf(item.message);
+            const isActiveMatch = searchMatches.length > 0 && msgIndex === searchMatches[searchMatches.length - 1 - currentMatchIndex];
+            return (
             <Fragment key={item.message.id}>
               {item.showDateSeparator && (
                 <Tooltip content={formatFullDate(item.message.timestamp)}>
@@ -277,9 +403,13 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
                 html={item.message.html}
                 media={item.message.media}
                 matrixClient={matrixClient}
+                searchQuery={searchQuery}
+                isActiveMatch={isActiveMatch}
+                messageIndex={msgIndex}
               />
             </Fragment>
-          ))
+            );
+          })
         )}
         <div ref={messagesEndRef} />
       </div>

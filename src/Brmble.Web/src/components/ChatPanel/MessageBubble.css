@@ -129,3 +129,16 @@
 .message-bubble--collapsed:hover .message-hover-time {
   opacity: 1;
 }
+
+/* Search highlight */
+.search-highlight {
+  background: var(--accent-primary);
+  color: var(--bg-deep);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.search-active-match {
+  background: var(--bg-hover);
+  box-shadow: inset 3px 0 0 var(--accent-primary);
+}
