@@ -301,6 +301,7 @@
 
 .chat-input-area {
   position: relative;
+  padding: 0 var(--space-lg) var(--space-md);
 }
 
 /* Scroll-to-bottom button */
@@ -308,7 +309,7 @@
   --scroll-btn-size: 40px;
   position: absolute;
   bottom: 100%;
-  right: calc(var(--space-md) + var(--space-xs));
+  right: var(--space-lg);
   margin-bottom: var(--space-sm);
   width: var(--scroll-btn-size);
   height: var(--scroll-btn-size);
