@@ -206,7 +206,7 @@
 }
 
 .message-bubble + .message-bubble:not(.message-bubble--collapsed) {
-  margin-top: var(--space-md);
+  margin-top: var(--space-lg);
 }
 
 .chat-date-separator + .message-bubble {

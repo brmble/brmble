@@ -110,7 +110,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
           id: event.getId() ?? crypto.randomUUID(),
           channelId,
           sender: displayName,
-          content: content.body ?? '',
+          content: (content.body ?? '').replace(/^\[.+?\]:\s*/, ''),
           timestamp: new Date(event.getTs()),
           ...(media && { media }),
         };
@@ -162,7 +162,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
         id: event.getId() ?? crypto.randomUUID(),
         channelId: dmUserId,
         sender: dmDisplayName,
-        content: dmContent.body ?? '',
+        content: (dmContent.body ?? '').replace(/^\[.+?\]:\s*/, ''),
         timestamp: new Date(event.getTs()),
         ...(dmMedia && { media: dmMedia }),
       };
