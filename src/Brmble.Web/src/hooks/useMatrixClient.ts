@@ -106,11 +106,18 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
           }];
         }
 
+        const rawBody = content.body ?? '';
+        // Only parse bridged "[Name]: " prefixes for events sent by the bridge bot
+        const isBridgeBotSender = /^@brmble[_-]?/.test(senderId);
+        const bridgeMatch = isBridgeBotSender ? rawBody.match(/^\[(.+?)\]:\s*/) : null;
+        const messageSender = bridgeMatch ? bridgeMatch[1] : displayName;
+        const messageContent = bridgeMatch ? rawBody.slice(bridgeMatch[0].length) : rawBody;
+
         const message: ChatMessage = {
           id: event.getId() ?? crypto.randomUUID(),
           channelId,
-          sender: displayName,
-          content: content.body ?? '',
+          sender: messageSender,
+          content: messageContent,
           timestamp: new Date(event.getTs()),
           ...(media && { media }),
         };
@@ -158,11 +165,18 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
         }];
       }
 
+      const dmRawBody = dmContent.body ?? '';
+      // Only parse bridged "[Name]: " prefixes for events sent by the bridge bot
+      const isDmBridgeBotSender = /^@brmble[_-]?/.test(dmSenderId);
+      const dmBridgeMatch = isDmBridgeBotSender ? dmRawBody.match(/^\[(.+?)\]:\s*/) : null;
+      const dmSender = dmBridgeMatch ? dmBridgeMatch[1] : dmDisplayName;
+      const dmMessageContent = dmBridgeMatch ? dmRawBody.slice(dmBridgeMatch[0].length) : dmRawBody;
+
       const dmMessage: ChatMessage = {
         id: event.getId() ?? crypto.randomUUID(),
         channelId: dmUserId,
-        sender: dmDisplayName,
-        content: dmContent.body ?? '',
+        sender: dmSender,
+        content: dmMessageContent,
         timestamp: new Date(event.getTs()),
         ...(dmMedia && { media: dmMedia }),
       };

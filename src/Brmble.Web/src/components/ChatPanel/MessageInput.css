@@ -1,6 +1,6 @@
 .message-input-container {
-  padding: var(--space-sm) 1.5rem;
-  background: var(--bg-deep);
+  padding: var(--space-sm) 0;
+  background: transparent;
 }
 
 .message-input-wrapper {
