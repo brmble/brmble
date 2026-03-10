@@ -340,7 +340,7 @@
   --scroll-btn-size: 40px;
   position: absolute;
   bottom: 100%;
-  right: var(--space-lg);
+  right: calc(var(--space-lg) + var(--space-xs));
   margin-bottom: var(--space-sm);
   width: var(--scroll-btn-size);
   height: var(--scroll-btn-size);

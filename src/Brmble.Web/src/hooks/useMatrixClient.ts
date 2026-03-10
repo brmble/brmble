@@ -106,11 +106,16 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
           }];
         }
 
+        const rawBody = content.body ?? '';
+        const bridgeMatch = rawBody.match(/^\[(.+?)\]:\s*/);
+        const messageSender = bridgeMatch ? bridgeMatch[1] : displayName;
+        const messageContent = bridgeMatch ? rawBody.slice(bridgeMatch[0].length) : rawBody;
+
         const message: ChatMessage = {
           id: event.getId() ?? crypto.randomUUID(),
           channelId,
-          sender: displayName,
-          content: (content.body ?? '').replace(/^\[.+?\]:\s*/, ''),
+          sender: messageSender,
+          content: messageContent,
           timestamp: new Date(event.getTs()),
           ...(media && { media }),
         };
@@ -158,11 +163,16 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
         }];
       }
 
+      const dmRawBody = dmContent.body ?? '';
+      const dmBridgeMatch = dmRawBody.match(/^\[(.+?)\]:\s*/);
+      const dmSender = dmBridgeMatch ? dmBridgeMatch[1] : dmDisplayName;
+      const dmMessageContent = dmBridgeMatch ? dmRawBody.slice(dmBridgeMatch[0].length) : dmRawBody;
+
       const dmMessage: ChatMessage = {
         id: event.getId() ?? crypto.randomUUID(),
         channelId: dmUserId,
-        sender: dmDisplayName,
-        content: (dmContent.body ?? '').replace(/^\[.+?\]:\s*/, ''),
+        sender: dmSender,
+        content: dmMessageContent,
         timestamp: new Date(event.getTs()),
         ...(dmMedia && { media: dmMedia }),
       };
