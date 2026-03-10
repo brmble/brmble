@@ -174,7 +174,6 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
     if (!container) return;
 
     setStuckSeparators(new Set());
-    sentinelMapRef.current.clear();
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -186,7 +185,8 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
             if (!id) continue;
             // Only mark as stuck when sentinel is above the viewport top
             // (not when it's below the viewport, e.g. before user scrolls to it)
-            const isAboveViewport = entry.boundingClientRect.top < entry.rootBounds!.top;
+            const rootTop = entry.rootBounds ? entry.rootBounds.top : container.getBoundingClientRect().top;
+            const isAboveViewport = entry.boundingClientRect.top < rootTop;
             if (!entry.isIntersecting && isAboveViewport) {
               if (!next.has(id)) { next.add(id); changed = true; }
             } else {
@@ -239,11 +239,13 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
   }, [messages, searchQuery]);
 
   const handleSearchPrev = useCallback(() => {
-    setCurrentMatchIndex(prev => Math.max(prev - 1, 0));
-  }, []);
+    if (searchMatches.length === 0) return;
+    setCurrentMatchIndex(prev => (prev - 1 + searchMatches.length) % searchMatches.length);
+  }, [searchMatches.length]);
 
   const handleSearchNext = useCallback(() => {
-    setCurrentMatchIndex(prev => Math.min(prev + 1, searchMatches.length - 1));
+    if (searchMatches.length === 0) return;
+    setCurrentMatchIndex(prev => (prev + 1) % searchMatches.length);
   }, [searchMatches.length]);
 
   // Auto-focus search input when opening
@@ -258,6 +260,8 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
     if (!channelId) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        // Only intercept when focus is inside the chat panel
+        if (!panelRef.current?.contains(document.activeElement)) return;
         e.preventDefault();
         setSearchOpen(prev => {
           if (prev) {
@@ -290,6 +294,9 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
   }, [currentMatchIndex, searchMatches]);
 
   const grouped = useMemo(() => groupMessages(messages, readMarkerTs), [messages, readMarkerTs]);
+
+  // Precompute message-id → index map to avoid O(n²) indexOf in render loop
+  const messageIndexById = useMemo(() => new Map(messages.map((m, i) => [m.id, i])), [messages]);
 
   // Group messages into date sections for proper sticky push-out behavior.
   // Each section contains a date separator header + its messages.
@@ -369,6 +376,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
                   }
                 }}
                 placeholder="Search messages..."
+                aria-label="Search messages"
               />
               {searchQuery && (
                 <span className="chat-search-count">
@@ -381,7 +389,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
                 <button
                   className="chat-search-nav-btn"
                   onClick={handleSearchNext}
-                  disabled={searchMatches.length === 0 || currentMatchIndex >= searchMatches.length - 1}
+                  disabled={searchMatches.length === 0}
                   aria-label="Next match"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="18 15 12 9 6 15" /></svg>
@@ -391,7 +399,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
                 <button
                   className="chat-search-nav-btn"
                   onClick={handleSearchPrev}
-                  disabled={searchMatches.length === 0 || currentMatchIndex <= 0}
+                  disabled={searchMatches.length === 0}
                   aria-label="Previous match"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9" /></svg>
@@ -487,7 +495,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
                 </Tooltip>
               </div>
               {section.items.map((item) => {
-                const msgIndex = messages.indexOf(item.message);
+                const msgIndex = messageIndexById.get(item.message.id) ?? -1;
                 const isActiveMatch = searchMatches.length > 0 && msgIndex === searchMatches[searchMatches.length - 1 - currentMatchIndex];
                 return (
                 <Fragment key={item.message.id}>

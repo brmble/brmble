@@ -1,6 +1,6 @@
 # Chat Search & Header Redesign Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **Implementation note:** Follow this plan task-by-task when implementing the feature.
 
 **Goal:** Replace the chat header icon with a search toggle, and implement client-side message search with prev/next navigation and highlighting.
 

@@ -23,8 +23,8 @@ interface MessageBubbleProps {
   messageIndex?: number;
 }
 
-function highlightText(text: string, query: string): ReactNode {
-  if (!query) return text;
+/** Highlight search matches within a plain-text string, returning React nodes. */
+function highlightString(text: string, query: string): ReactNode[] {
   const lowerText = text.toLowerCase();
   const lowerQuery = query.toLowerCase();
   const parts: ReactNode[] = [];
@@ -37,7 +37,37 @@ function highlightText(text: string, query: string): ReactNode {
     idx = lowerText.indexOf(lowerQuery, lastIndex);
   }
   if (lastIndex < text.length) parts.push(text.slice(lastIndex));
-  return parts.length > 0 ? parts : text;
+  return parts;
+}
+
+/**
+ * Linkify text first, then apply search highlighting to non-link text segments.
+ * This preserves clickable URLs while still highlighting search matches.
+ */
+function linkifyAndHighlight(text: string, query: string): ReactNode {
+  if (!query) return linkifyText(text);
+
+  const linkified = linkifyText(text);
+
+  // If linkifyText returned a plain string, just highlight it
+  if (typeof linkified === 'string') {
+    const parts = highlightString(linkified, query);
+    return parts.length > 0 ? parts : linkified;
+  }
+
+  // linkifyText returned an array of nodes — highlight only string segments
+  if (Array.isArray(linkified)) {
+    return linkified.map((node, i) => {
+      if (typeof node === 'string') {
+        const parts = highlightString(node, query);
+        return parts.length > 0 ? <span key={`hl-${i}`}>{parts}</span> : node;
+      }
+      // It's a React element (link) — leave it as-is
+      return node;
+    });
+  }
+
+  return linkified;
 }
 
 function highlightHtml(html: string, query: string): string {
@@ -102,7 +132,7 @@ export function MessageBubble({ sender, content, timestamp, isOwnMessage, isSyst
             <div className="message-text" dangerouslySetInnerHTML={{ __html: searchQuery ? highlightHtml(content, searchQuery) : content }} />
           ) : (
             <p className="message-text">
-              {searchQuery ? highlightText(content, searchQuery) : linkifyText(content)}
+              {linkifyAndHighlight(content, searchQuery || '')}
             </p>
           )
         )}

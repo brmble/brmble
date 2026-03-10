@@ -107,7 +107,9 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
         }
 
         const rawBody = content.body ?? '';
-        const bridgeMatch = rawBody.match(/^\[(.+?)\]:\s*/);
+        // Only parse bridged "[Name]: " prefixes for events sent by the bridge bot
+        const isBridgeBotSender = /^@brmble[_-]?/.test(senderId);
+        const bridgeMatch = isBridgeBotSender ? rawBody.match(/^\[(.+?)\]:\s*/) : null;
         const messageSender = bridgeMatch ? bridgeMatch[1] : displayName;
         const messageContent = bridgeMatch ? rawBody.slice(bridgeMatch[0].length) : rawBody;
 
@@ -164,7 +166,9 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       }
 
       const dmRawBody = dmContent.body ?? '';
-      const dmBridgeMatch = dmRawBody.match(/^\[(.+?)\]:\s*/);
+      // Only parse bridged "[Name]: " prefixes for events sent by the bridge bot
+      const isDmBridgeBotSender = /^@brmble[_-]?/.test(dmSenderId);
+      const dmBridgeMatch = isDmBridgeBotSender ? dmRawBody.match(/^\[(.+?)\]:\s*/) : null;
       const dmSender = dmBridgeMatch ? dmBridgeMatch[1] : dmDisplayName;
       const dmMessageContent = dmBridgeMatch ? dmRawBody.slice(dmBridgeMatch[0].length) : dmRawBody;
 
