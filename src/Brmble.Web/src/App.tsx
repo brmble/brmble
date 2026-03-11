@@ -162,7 +162,7 @@ function App() {
   const pendingChannelActionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [showConnectModal, setShowConnectModal] = useState(false);
-  const [dmContacts, setDmContacts] = useState(() => mapStoredContacts(loadDMContacts()));
+  const [dmContacts, setDmContacts] = useState<ReturnType<typeof mapStoredContacts>>([]);
   const [appMode, setAppMode] = useState<'channels' | 'dm'>('channels');
   const [selectedDMUserId, setSelectedDMUserIdRaw] = useState<string | null>(null);
   const [selectedDMUserName, setSelectedDMUserName] = useState<string>('');
@@ -252,8 +252,21 @@ function App() {
   addDMMessageRef.current = addDMMessage;
   const matrixCredentialsRef = useRef(matrixCredentials);
   matrixCredentialsRef.current = matrixCredentials;
+  const serverAddressRef = useRef(serverAddress);
+  serverAddressRef.current = serverAddress;
+  const connectionStatusRef = useRef(connectionStatus);
+  connectionStatusRef.current = connectionStatus;
   const handleToggleScreenShareRef = useRef<(() => void) | null>(null);
   const disconnectViewerRef = useRef<(() => void) | null>(null);
+
+  // Load DM contacts scoped to the current server
+  useEffect(() => {
+    if (serverAddress) {
+      setDmContacts(mapStoredContacts(loadDMContacts(serverAddress)));
+    } else {
+      setDmContacts([]);
+    }
+  }, [serverAddress]);
 
   const clearPendingAction = useCallback(() => {
     if (pendingChannelActionTimeoutRef.current) {
@@ -417,6 +430,9 @@ function App() {
       disconnectViewerRef.current?.();
       setSharingChannelId(undefined);
       setScreenShareToast(null);
+      setAppModeRef.current('channels');
+      setSelectedDMUserIdRaw(null);
+      setSelectedDMUserName('');
     };
 
     const onServerCredentials = (data: unknown) => {
@@ -486,7 +502,7 @@ function App() {
         addMessageToStore(dmStoreKey, senderName, dmText, undefined, undefined, dmMedia.length > 0 ? dmMedia : undefined);
       }
 
-      const updated = upsertDMContact(senderSession, senderName, d.message, !isViewingThisDM);
+      const updated = upsertDMContact(senderSession, senderName, d.message, !isViewingThisDM, serverAddressRef.current);
       setDmContacts(mapStoredContacts(updated));
     });
 
@@ -677,6 +693,10 @@ function App() {
     };
 
     const onToggleDmScreen = () => {
+      if (connectionStatusRef.current !== 'connected') {
+        setAppModeRef.current('channels');
+        return;
+      }
       setAppModeRef.current(prev => prev === 'channels' ? 'dm' : 'channels');
     };
 
@@ -849,7 +869,7 @@ function App() {
 
   // Update DM contacts when Matrix DM messages arrive
   useEffect(() => {
-    if (!matrixDmMessages || matrixDmMessages.size === 0) return;
+    if (!matrixDmMessages || matrixDmMessages.size === 0 || !serverAddress) return;
 
     let updated = false;
     for (const [matrixUserId, msgs] of matrixDmMessages.entries()) {
@@ -861,11 +881,11 @@ function App() {
 
       const sessionKey = String(matchedUser.session);
       const isViewing = appMode === 'dm' && selectedDMUserId === sessionKey;
-      upsertDMContact(sessionKey, matchedUser.name, lastMsg.content, !isViewing);
+      upsertDMContact(sessionKey, matchedUser.name, lastMsg.content, !isViewing, serverAddress);
       updated = true;
     }
-    if (updated) setDmContacts(mapStoredContacts(loadDMContacts()));
-  }, [matrixDmMessages, users, appMode, selectedDMUserId]);
+    if (updated) setDmContacts(mapStoredContacts(loadDMContacts(serverAddress)));
+  }, [matrixDmMessages, users, appMode, selectedDMUserId, serverAddress]);
 
   useEffect(() => {
     return () => {
@@ -992,7 +1012,7 @@ const handleConnect = (serverData: SavedServer) => {
       });
     }
 
-    const updated = upsertDMContact(selectedDMUserId, selectedDMUserName, content);
+    const updated = upsertDMContact(selectedDMUserId, selectedDMUserName, content, false, serverAddress);
     setDmContacts(mapStoredContacts(updated));
   };
 
@@ -1127,8 +1147,8 @@ const handleConnect = (serverData: SavedServer) => {
     setSelectedDMUserName(userName);
     setAppMode('dm');
     // Mark this contact as read, then upsert to ensure contact exists
-    markDMContactRead(userId);
-    const updated = upsertDMContact(userId, userName);
+    markDMContactRead(userId, serverAddress);
+    const updated = upsertDMContact(userId, userName, undefined, false, serverAddress);
     setDmContacts(mapStoredContacts(updated));
 
     // Mark Matrix DM room as read
@@ -1141,7 +1161,7 @@ const handleConnect = (serverData: SavedServer) => {
   };
 
   const handleCloseDMConversation = (userId: string) => {
-    const updated = removeDMContact(userId);
+    const updated = removeDMContact(userId, serverAddress);
     setDmContacts(mapStoredContacts(updated));
     if (selectedDMUserId === userId) {
       setSelectedDMUserId(null);
@@ -1378,7 +1398,7 @@ const handleConnect = (serverData: SavedServer) => {
       <ErrorBoundary label="Header">
       <Header
         username={username}
-        onToggleDM={toggleDMMode}
+        onToggleDM={connected ? toggleDMMode : undefined}
         dmActive={appMode === 'dm'}
         unreadDMCount={totalDmUnreadCount}
         onOpenSettings={() => setShowSettings(true)}

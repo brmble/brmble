@@ -161,4 +161,68 @@ describe('useMatrixClient', () => {
     const last = msgs![msgs!.length - 1];
     expect(last.sender).toBe('@99:example.com');
   });
+
+  it('timeline handler extracts sender from bridge prefix when sent by bridge bot', () => {
+    const { result } = renderHook(() => useMatrixClient(creds));
+
+    const onCall = mockClient.on.mock.calls.find(
+      (c: unknown[]) => c[0] === 'Room.timeline'
+    );
+    const handler = onCall![1] as (event: unknown, room: unknown) => void;
+
+    const mockEvent = {
+      getType: () => 'm.room.message',
+      getSender: () => '@brmble:example.com',
+      getId: () => 'evt-bridge1',
+      getContent: () => ({ body: '[Bob]: hello from bridge' }),
+      getTs: () => Date.now(),
+    };
+    const mockRoom = {
+      roomId: '!room:example.com',
+      getMember: (userId: string) =>
+        userId === '@brmble:example.com'
+          ? { name: 'Brmble Bridge', rawDisplayName: 'Brmble Bridge' }
+          : null,
+    };
+
+    act(() => handler(mockEvent, mockRoom));
+    const msgs = result.current.messages.get('42');
+    expect(msgs).toBeDefined();
+    const last = msgs![msgs!.length - 1];
+    expect(last.sender).toBe('Bob');
+    expect(last.content).toBe('hello from bridge');
+  });
+
+  it('timeline handler does NOT parse bridge prefix for non-bot senders', () => {
+    const { result } = renderHook(() => useMatrixClient(creds));
+
+    const onCall = mockClient.on.mock.calls.find(
+      (c: unknown[]) => c[0] === 'Room.timeline'
+    );
+    const handler = onCall![1] as (event: unknown, room: unknown) => void;
+
+    const mockEvent = {
+      getType: () => 'm.room.message',
+      getSender: () => '@1:example.com',
+      getId: () => 'evt-nobridge',
+      getContent: () => ({ body: '[Alice]: this is not bridged' }),
+      getTs: () => Date.now(),
+    };
+    const mockRoom = {
+      roomId: '!room:example.com',
+      getMember: (userId: string) =>
+        userId === '@1:example.com'
+          ? { name: 'Alice', rawDisplayName: 'Alice' }
+          : null,
+    };
+
+    act(() => handler(mockEvent, mockRoom));
+    const msgs = result.current.messages.get('42');
+    expect(msgs).toBeDefined();
+    const last = msgs![msgs!.length - 1];
+    // Sender should be the display name, not parsed from the prefix
+    expect(last.sender).toBe('Alice');
+    // Content should be the full body, not stripped
+    expect(last.content).toBe('[Alice]: this is not bridged');
+  });
 });
