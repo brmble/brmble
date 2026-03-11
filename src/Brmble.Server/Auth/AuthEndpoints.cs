@@ -67,7 +67,7 @@ public static class AuthEndpoints
             if (!string.IsNullOrEmpty(mumbleUsername) &&
                 sessionMapping.TryGetSessionId(mumbleUsername, out var sid))
             {
-                if (sessionMapping.TryAddMatrixUser(sid, result.MatrixUserId, mumbleUsername))
+                if (sessionMapping.TryAddMatrixUser(sid, result.MatrixUserId, mumbleUsername, result.UserId))
                 {
                     await eventBus.BroadcastAsync(new
                     {

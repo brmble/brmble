@@ -29,6 +29,7 @@ interface SidebarProps {
   channelUnreads?: Map<string, { notificationCount: number; highlightCount: number }>;
   sharingChannelId?: number;
   sharingUserSession?: number;
+  onWatchScreenShare?: (roomName: string) => void;
 }
 
 export function Sidebar({
@@ -51,7 +52,8 @@ export function Sidebar({
   pendingChannelAction,
   channelUnreads,
   sharingChannelId,
-  sharingUserSession
+  sharingUserSession,
+  onWatchScreenShare
 }: SidebarProps) {
   const connected = connectionStatus === 'connected';
   const isConnecting = connectionStatus === 'connecting';
@@ -192,6 +194,9 @@ export function Sidebar({
                   e.preventDefault();
                   setContextMenu({ x: e.clientX, y: e.clientY, userId: String(user.session), userName: user.name, isSelf: !!user.self });
                 }}
+                onDoubleClick={user.session === sharingUserSession
+                  ? () => onWatchScreenShare?.(`channel-${rootChannel?.id ?? 0}`)
+                  : undefined}
               >
                 <span className="root-user-status">
                   {sharingUserSession === user.session ? (
@@ -229,6 +234,9 @@ export function Sidebar({
                 </span>
                 <span className="root-user-name">{user.name}</span>
                 {user.self && <span className="root-self-badge">you</span>}
+                {user.session === sharingUserSession && (
+                  <span className="sharing-badge">Sharing</span>
+                )}
               </div>
               </Tooltip>
             ))}
@@ -255,6 +263,7 @@ export function Sidebar({
           channelUnreads={channelUnreads}
           sharingChannelId={sharingChannelId}
           sharingUserSession={sharingUserSession}
+          onWatchScreenShare={onWatchScreenShare}
         />
       </div>
       {contextMenu && (

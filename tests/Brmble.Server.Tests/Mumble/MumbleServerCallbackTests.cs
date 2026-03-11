@@ -1,4 +1,5 @@
 using Brmble.Server.Events;
+using Brmble.Server.LiveKit;
 using Brmble.Server.Mumble;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -14,12 +15,23 @@ public class MumbleServerCallbackTests
         IEnumerable<IMumbleEventHandler> handlers,
         ISessionMappingService? mapping = null,
         IBrmbleEventBus? bus = null,
+        IChannelMembershipService? channelMembership = null,
+        ScreenShareTracker? screenShareTracker = null,
         ILogger<MumbleServerCallback>? logger = null)
     {
+        if (mapping is null)
+        {
+            var defaultMapping = new Mock<ISessionMappingService>();
+            defaultMapping.Setup(m => m.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>());
+            mapping = defaultMapping.Object;
+        }
+
         return new MumbleServerCallback(
             handlers,
-            mapping ?? new Mock<ISessionMappingService>().Object,
+            mapping,
             bus ?? new Mock<IBrmbleEventBus>().Object,
+            channelMembership ?? new Mock<IChannelMembershipService>().Object,
+            screenShareTracker ?? new ScreenShareTracker(),
             logger ?? NullLogger<MumbleServerCallback>.Instance);
     }
 
@@ -142,10 +154,7 @@ public class MumbleServerCallbackTests
         var handler = new Mock<IMumbleEventHandler>();
         handler.Setup(h => h.OnUserConnected(It.IsAny<MumbleUser>())).Returns(Task.CompletedTask);
         var mapping = new Mock<ISessionMappingService>();
-        var bus = new Mock<IBrmbleEventBus>();
-        var callback = new MumbleServerCallback(
-            [handler.Object], mapping.Object, bus.Object,
-            NullLogger<MumbleServerCallback>.Instance);
+        var callback = CreateCallback([handler.Object], mapping: mapping.Object);
 
         await callback.DispatchUserConnected(new MumbleUser("Alice", "", 42));
 
@@ -158,15 +167,82 @@ public class MumbleServerCallbackTests
         var handler = new Mock<IMumbleEventHandler>();
         handler.Setup(h => h.OnUserDisconnected(It.IsAny<MumbleUser>())).Returns(Task.CompletedTask);
         var mapping = new Mock<ISessionMappingService>();
+        mapping.Setup(m => m.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>());
         var bus = new Mock<IBrmbleEventBus>();
         bus.Setup(b => b.BroadcastAsync(It.IsAny<object>())).Returns(Task.CompletedTask);
-        var callback = new MumbleServerCallback(
-            [handler.Object], mapping.Object, bus.Object,
-            NullLogger<MumbleServerCallback>.Instance);
+        var callback = CreateCallback([handler.Object], mapping: mapping.Object, bus: bus.Object);
 
         await callback.DispatchUserDisconnected(new MumbleUser("Alice", "", 42));
 
         mapping.Verify(m => m.RemoveSession(42), Times.Once);
         bus.Verify(b => b.BroadcastAsync(It.IsAny<object>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task DispatchUserStateChanged_UpdatesChannelMembership()
+    {
+        var handler = new Mock<IMumbleEventHandler>();
+        var channelMembership = new Mock<IChannelMembershipService>();
+        var mapping = new Mock<ISessionMappingService>();
+        mapping.Setup(m => m.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>());
+        var callback = CreateCallback([handler.Object], mapping: mapping.Object, channelMembership: channelMembership.Object);
+
+        await callback.DispatchUserStateChanged(new MumbleUser("Alice", "abc", 42), 5);
+
+        channelMembership.Verify(cm => cm.Update(42, 5), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task DispatchUserStateChanged_StopsShareWhenUserChangesChannel()
+    {
+        var bus = new Mock<IBrmbleEventBus>();
+        bus.Setup(b => b.BroadcastToChannelAsync(It.IsAny<int>(), It.IsAny<object>())).Returns(Task.CompletedTask);
+        var channelMembership = new Mock<IChannelMembershipService>();
+        var tracker = new ScreenShareTracker();
+        tracker.Start("channel-5", "Alice", 100L);
+
+        var mapping = new Mock<ISessionMappingService>();
+        mapping.Setup(m => m.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>
+        {
+            { 42, new SessionMapping("@100:x", "Alice", 100L) }
+        });
+
+        var callback = CreateCallback([], mapping: mapping.Object, bus: bus.Object,
+            channelMembership: channelMembership.Object, screenShareTracker: tracker);
+
+        // User moves from channel 5 to channel 10
+        await callback.DispatchUserStateChanged(new MumbleUser("Alice", "abc", 42), 10);
+
+        // Share in channel-5 should be stopped
+        Assert.IsNull(tracker.GetActive("channel-5"));
+        bus.Verify(b => b.BroadcastToChannelAsync(5, It.IsAny<object>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task DispatchUserDisconnected_StopsShareAndCleansUp()
+    {
+        var handler = new Mock<IMumbleEventHandler>();
+        handler.Setup(h => h.OnUserDisconnected(It.IsAny<MumbleUser>())).Returns(Task.CompletedTask);
+        var bus = new Mock<IBrmbleEventBus>();
+        bus.Setup(b => b.BroadcastAsync(It.IsAny<object>())).Returns(Task.CompletedTask);
+        bus.Setup(b => b.BroadcastToChannelAsync(It.IsAny<int>(), It.IsAny<object>())).Returns(Task.CompletedTask);
+        var channelMembership = new Mock<IChannelMembershipService>();
+        var mapping = new Mock<ISessionMappingService>();
+        var tracker = new ScreenShareTracker();
+        tracker.Start("channel-5", "Alice", 100L);
+        mapping.Setup(m => m.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>
+        {
+            { 42, new SessionMapping("@100:x", "Alice", 100L) }
+        });
+
+        var callback = CreateCallback([handler.Object], mapping: mapping.Object, bus: bus.Object,
+            channelMembership: channelMembership.Object, screenShareTracker: tracker);
+
+        await callback.DispatchUserDisconnected(new MumbleUser("Alice", "abc", 42));
+
+        Assert.IsNull(tracker.GetActive("channel-5"));
+        bus.Verify(b => b.BroadcastToChannelAsync(5, It.IsAny<object>()), Times.Once);
+        channelMembership.Verify(cm => cm.Remove(42), Times.Once);
+        mapping.Verify(m => m.RemoveSession(42), Times.Once);
     }
 }

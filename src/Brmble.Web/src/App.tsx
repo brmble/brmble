@@ -25,6 +25,7 @@ import { parseMessageMedia } from './utils/parseMessageMedia';
 import type { StoredDMContact } from './hooks/useChatStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
 import { usePrompt, confirm } from './hooks/usePrompt';
+import { Toast } from './components/Toast/Toast';
 import './App.css';
 
 const SETTINGS_STORAGE_KEY = 'brmble-settings';
@@ -256,6 +257,7 @@ function App() {
   const connectionStatusRef = useRef(connectionStatus);
   connectionStatusRef.current = connectionStatus;
   const handleToggleScreenShareRef = useRef<(() => void) | null>(null);
+  const disconnectViewerRef = useRef<(() => void) | null>(null);
 
   // Load DM contacts scoped to the current server
   useEffect(() => {
@@ -425,7 +427,9 @@ function App() {
       setSelfSession(0);
       setSpeakingUsers(new Map());
       setMatrixCredentials(null);
+      disconnectViewerRef.current?.();
       setSharingChannelId(undefined);
+      setScreenShareToast(null);
       setAppModeRef.current('channels');
       setSelectedDMUserIdRaw(null);
       setSelectedDMUserName('');
@@ -617,6 +621,9 @@ function App() {
       if (d?.leftVoice !== undefined) {
         setSelfLeftVoice(d.leftVoice);
         if (d.leftVoice) {
+          disconnectViewerRef.current?.();
+          setSharingChannelId(undefined);
+          setScreenShareToast(null);
           handleSelectServer();
         }
       }
@@ -1187,10 +1194,17 @@ const handleConnect = (serverData: SavedServer) => {
 
   const { Prompt } = usePrompt();
 
-  const { isSharing, startSharing, stopSharing, error: screenShareError, activeShare, remoteVideoEl, disconnectViewer } = useScreenShare(() => {
+  const { isSharing, startSharing, stopSharing, error: screenShareError, activeShare, remoteVideoEl, disconnectViewer, connectAsViewer } = useScreenShare(() => {
     setSharingChannelId(undefined);
   });
+  disconnectViewerRef.current = disconnectViewer;
   const [sharingChannelId, setSharingChannelId] = useState<string | undefined>();
+  const [screenShareToast, setScreenShareToast] = useState<{
+    userName: string;
+    roomName: string;
+  } | null>(null);
+
+  const handleDismissToast = useCallback(() => setScreenShareToast(null), []);
 
   const channelUnreads = useMemo(() => {
     if (!matrixCredentials?.roomMap) return new Map<string, { notificationCount: number; highlightCount: number }>();
@@ -1211,9 +1225,33 @@ const handleConnect = (serverData: SavedServer) => {
     if (screenShareError) console.error('Screen share error:', screenShareError);
   }, [screenShareError]);
 
+  // Show toast notification when someone starts sharing in the user's voice channel
+  useEffect(() => {
+    const onRemoteShareStarted = (data: unknown) => {
+      const d = data as { roomName: string; userName: string; sessionId?: number };
+      const selfUser = usersRef.current.find(u => u.self);
+      const voiceChannelId = selfUser?.channelId;
+      if (voiceChannelId != null && d.roomName === `channel-${voiceChannelId}` && !isSharing) {
+        setScreenShareToast({ userName: d.userName, roomName: d.roomName });
+      }
+    };
+
+    const onRemoteShareStopped = () => {
+      setScreenShareToast(null);
+    };
+
+    bridge.on('livekit.screenShareStarted', onRemoteShareStarted);
+    bridge.on('livekit.screenShareStopped', onRemoteShareStopped);
+    return () => {
+      bridge.off('livekit.screenShareStarted', onRemoteShareStarted);
+      bridge.off('livekit.screenShareStopped', onRemoteShareStopped);
+    };
+  }, [isSharing]);
+
   // Check for active screen shares when switching channels
   useEffect(() => {
     disconnectViewer();
+    setScreenShareToast(null);
     if (currentChannelId && currentChannelId !== 'server-root') {
       bridge.send('livekit.checkActiveShare', { roomName: `channel-${currentChannelId}` });
     }
@@ -1237,6 +1275,10 @@ const handleConnect = (serverData: SavedServer) => {
     }
   }, [isSharing, startSharing, stopSharing, selfLeftVoice]);
   handleToggleScreenShareRef.current = handleToggleScreenShare;
+
+  const handleWatchScreenShare = useCallback((roomName: string) => {
+    connectAsViewer(roomName);
+  }, [connectAsViewer]);
 
   // Track which channel/DM was last opened so we only snapshot + mark-read on actual switches.
   const prevChannelIdRef = useRef<string | undefined>(undefined);
@@ -1398,8 +1440,9 @@ const handleConnect = (serverData: SavedServer) => {
           onCancelReconnect={handleCancelReconnect}
           pendingChannelAction={pendingChannelAction}
           channelUnreads={channelUnreads}
-          sharingChannelId={sharingChannelId ? Number(sharingChannelId) : undefined}
-          sharingUserSession={isSharing ? selfSession : undefined}
+          sharingChannelId={sharingChannelId ? Number(sharingChannelId) : (activeShare?.roomName ? Number(activeShare.roomName.replace('channel-', '')) : undefined)}
+          sharingUserSession={isSharing ? selfSession : activeShare?.sessionId}
+          onWatchScreenShare={handleWatchScreenShare}
         />
         </ErrorBoundary>
         
@@ -1495,6 +1538,20 @@ const handleConnect = (serverData: SavedServer) => {
       />
 
       <Prompt />
+
+      {screenShareToast && (
+        <Toast
+          message={`${screenShareToast.userName} started sharing their screen`}
+          actions={[
+            { label: 'Dismiss', onClick: () => setScreenShareToast(null) },
+            { label: 'Watch', onClick: () => {
+              connectAsViewer(screenShareToast.roomName);
+              setScreenShareToast(null);
+            }, primary: true },
+          ]}
+          onDismiss={handleDismissToast}
+        />
+      )}
 
       <ZoomIndicator />
       <Version />

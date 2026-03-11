@@ -38,7 +38,7 @@ public static class BrmbleWebSocketHandler
         var eventBus = context.RequestServices.GetRequiredService<IBrmbleEventBus>();
 
         using var ws = await context.WebSockets.AcceptWebSocketAsync();
-        eventBus.AddClient(ws);
+        eventBus.AddClient(ws, user.Id);
 
         try
         {

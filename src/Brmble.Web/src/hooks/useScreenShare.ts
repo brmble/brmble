@@ -5,6 +5,7 @@ import bridge from '../bridge';
 export interface ActiveShare {
   roomName: string;
   userName: string;
+  sessionId?: number;
 }
 
 export function useScreenShare(onDisconnected?: () => void) {
@@ -167,11 +168,8 @@ export function useScreenShare(onDisconnected?: () => void) {
   // Listen for screen share events from bridge
   useEffect(() => {
     const onShareStarted = (data: unknown) => {
-      const d = data as { roomName: string; userName: string };
-      setActiveShare({ roomName: d.roomName, userName: d.userName });
-      if (!publishRoomRef.current) {
-        connectAsViewer(d.roomName);
-      }
+      const d = data as { roomName: string; userName: string; sessionId?: number };
+      setActiveShare({ roomName: d.roomName, userName: d.userName, sessionId: d.sessionId });
     };
 
     const onShareStopped = (data: unknown) => {
@@ -188,12 +186,9 @@ export function useScreenShare(onDisconnected?: () => void) {
     };
 
     const onActiveShareResult = (data: unknown) => {
-      const d = data as { roomName: string; active: boolean; userName?: string };
+      const d = data as { roomName: string; active: boolean; userName?: string; sessionId?: number };
       if (d.active && d.userName) {
-        setActiveShare({ roomName: d.roomName, userName: d.userName });
-        if (!publishRoomRef.current) {
-          connectAsViewer(d.roomName);
-        }
+        setActiveShare({ roomName: d.roomName, userName: d.userName, sessionId: d.sessionId });
       }
     };
 
@@ -206,7 +201,7 @@ export function useScreenShare(onDisconnected?: () => void) {
       bridge.off('livekit.screenShareStopped', onShareStopped);
       bridge.off('livekit.activeShareResult', onActiveShareResult);
     };
-  }, [connectAsViewer]);
+  }, []);
 
   return {
     isSharing,
@@ -216,5 +211,6 @@ export function useScreenShare(onDisconnected?: () => void) {
     activeShare,
     remoteVideoEl,
     disconnectViewer,
+    connectAsViewer,
   };
 }

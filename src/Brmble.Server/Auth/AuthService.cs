@@ -4,7 +4,7 @@ using Brmble.Server.Matrix;
 
 namespace Brmble.Server.Auth;
 
-public record AuthResult(string MatrixUserId, string MatrixAccessToken, string DisplayName)
+public record AuthResult(long UserId, string MatrixUserId, string MatrixAccessToken, string DisplayName)
 {
     /// <summary>Extracts the localpart (e.g. "1") from a full Matrix user ID (e.g. "@1:server").</summary>
     public string Localpart => MatrixUserIdHelper.GetLocalpart(MatrixUserId);
@@ -108,7 +108,7 @@ public class AuthService : IActiveBrmbleSessions
             _activeSessions.Add(certHash);
         }
 
-        return new AuthResult(user.MatrixUserId, user.MatrixAccessToken!, user.DisplayName);
+        return new AuthResult(user.Id, user.MatrixUserId, user.MatrixAccessToken!, user.DisplayName);
     }
 
     public void Deactivate(string certHash)

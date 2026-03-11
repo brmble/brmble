@@ -41,9 +41,10 @@ interface ChannelTreeProps {
   channelUnreads?: Map<string, { notificationCount: number; highlightCount: number }>;
   sharingChannelId?: number;
   sharingUserSession?: number;
+  onWatchScreenShare?: (roomName: string) => void;
 }
 
-export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, speakingUsers, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession }: ChannelTreeProps) {
+export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, speakingUsers, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare }: ChannelTreeProps) {
   const [sortByNamePerChannel, setSortByNamePerChannel] = useState<Record<number, boolean>>({});
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string; isSelf: boolean; channelId?: number } | null>(null);
   const [infoDialogUser, setInfoDialogUser] = useState<{ userId: string; userName: string; isSelf: boolean } | null>(null);
@@ -231,13 +232,16 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
           <div className="channel-children">
             {channel.users.map(user => (
               <Tooltip key={user.session} content={getUserTooltip(user)}>
-              <div 
+              <div
                 className={`user-row ${user.self ? 'self' : ''} ${speakingUsers?.has(user.session) ? 'speaking' : ''}`}
                 style={{ paddingLeft: `calc(40px + ${level * 20}px)` }}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   setContextMenu({ x: e.clientX, y: e.clientY, userId: String(user.session), userName: user.name, isSelf: !!user.self, channelId: channel.id });
                 }}
+                onDoubleClick={user.session === sharingUserSession
+                  ? () => onWatchScreenShare?.(`channel-${channel.id}`)
+                  : undefined}
               >
                 <span className="user-status">
                   {user.session === sharingUserSession ? (
@@ -276,6 +280,9 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                 <span className="user-name">{user.name}</span>
                 {user.self && <span className="self-badge">(you)</span>}
                 {user.matrixUserId && <Tooltip content="Brmble user"><span className="brmble-badge" /></Tooltip>}
+                {user.session === sharingUserSession && (
+                  <span className="sharing-badge">Sharing</span>
+                )}
               </div>
               </Tooltip>
             ))}

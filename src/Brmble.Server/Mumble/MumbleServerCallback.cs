@@ -1,5 +1,6 @@
 using Brmble.Server.Auth;
 using Brmble.Server.Events;
+using Brmble.Server.LiveKit;
 
 namespace Brmble.Server.Mumble;
 
@@ -8,6 +9,8 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     private readonly IEnumerable<IMumbleEventHandler> _handlers;
     private readonly ISessionMappingService _sessionMapping;
     private readonly IBrmbleEventBus _eventBus;
+    private readonly IChannelMembershipService _channelMembership;
+    private readonly ScreenShareTracker _screenShareTracker;
     private readonly ILogger<MumbleServerCallback> _logger;
     private MumbleServer.ServerPrx? _serverProxy;
 
@@ -15,11 +18,15 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         IEnumerable<IMumbleEventHandler> handlers,
         ISessionMappingService sessionMapping,
         IBrmbleEventBus eventBus,
+        IChannelMembershipService channelMembership,
+        ScreenShareTracker screenShareTracker,
         ILogger<MumbleServerCallback> logger)
     {
         _handlers = handlers;
         _sessionMapping = sessionMapping;
         _eventBus = eventBus;
+        _channelMembership = channelMembership;
+        _screenShareTracker = screenShareTracker;
         _logger = logger;
     }
 
@@ -89,8 +96,15 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         }
     }
 
-    // Unused Ice callbacks — empty implementations required by the base class
-    public override void userStateChanged(MumbleServer.User state, Ice.Current current) { }
+    public override void userStateChanged(MumbleServer.User state, Ice.Current current)
+    {
+        var user = ToMumbleUser(state);
+        var channelId = state.channel;
+        _logger.LogDebug("ICE callback: user state changed {User} channel={Channel}", user.Name, channelId);
+        Task.Run(() => SafeDispatch(
+            () => DispatchUserStateChanged(user, channelId),
+            nameof(userStateChanged)));
+    }
 
     // Dispatch methods
 
@@ -109,9 +123,44 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
 
     public async Task DispatchUserDisconnected(MumbleUser user)
     {
+        // Check if user was sharing and stop it before removing session
+        var snapshot = _sessionMapping.GetSnapshot();
+        if (snapshot.TryGetValue(user.SessionId, out var mapping))
+        {
+            var shareRoom = _screenShareTracker.GetActiveByUserId(mapping.UserId);
+            if (shareRoom is not null)
+            {
+                _screenShareTracker.Stop(shareRoom);
+                if (shareRoom.StartsWith("channel-") && int.TryParse(shareRoom.AsSpan("channel-".Length), out var channelId))
+                {
+                    await _eventBus.BroadcastToChannelAsync(channelId, new { type = "screenShare.stopped", roomName = shareRoom });
+                }
+            }
+        }
+
         _sessionMapping.RemoveSession(user.SessionId);
+        _channelMembership.Remove(user.SessionId);
         await _eventBus.BroadcastAsync(new { type = "userMappingRemoved", sessionId = user.SessionId });
         await Task.WhenAll(_handlers.Select(h => h.OnUserDisconnected(user)));
+    }
+
+    public async Task DispatchUserStateChanged(MumbleUser user, int channelId)
+    {
+        _channelMembership.Update(user.SessionId, channelId);
+
+        var snapshot = _sessionMapping.GetSnapshot();
+        if (snapshot.TryGetValue(user.SessionId, out var mapping))
+        {
+            var shareRoom = _screenShareTracker.GetActiveByUserId(mapping.UserId);
+            if (shareRoom is not null && shareRoom != $"channel-{channelId}")
+            {
+                _screenShareTracker.Stop(shareRoom);
+                if (shareRoom.StartsWith("channel-") && int.TryParse(shareRoom.AsSpan("channel-".Length), out var oldChannelId))
+                {
+                    await _eventBus.BroadcastToChannelAsync(oldChannelId, new { type = "screenShare.stopped", roomName = shareRoom });
+                }
+            }
+        }
     }
 
     public Task DispatchChannelCreated(MumbleChannel channel)

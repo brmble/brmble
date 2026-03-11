@@ -7,6 +7,7 @@ public class SessionMappingService : ISessionMappingService
     private readonly ConcurrentDictionary<int, SessionMapping> _sessionToMapping = new();
     private readonly ConcurrentDictionary<string, int> _nameToSession = new();
     private readonly ConcurrentDictionary<int, string> _sessionToName = new();
+    private readonly ConcurrentDictionary<long, int> _userIdToSession = new();
 
     public void SetNameForSession(string name, int sessionId)
     {
@@ -14,14 +15,24 @@ public class SessionMappingService : ISessionMappingService
         _sessionToName[sessionId] = name;
     }
 
-    public bool TryAddMatrixUser(int sessionId, string matrixUserId, string mumbleName)
+    public bool TryAddMatrixUser(int sessionId, string matrixUserId, string mumbleName, long userId)
     {
-        return _sessionToMapping.TryAdd(sessionId, new SessionMapping(matrixUserId, mumbleName));
+        if (_sessionToMapping.TryAdd(sessionId, new SessionMapping(matrixUserId, mumbleName, userId)))
+        {
+            _userIdToSession[userId] = sessionId;
+            return true;
+        }
+        return false;
     }
 
     public void RemoveSession(int sessionId)
     {
-        _sessionToMapping.TryRemove(sessionId, out _);
+        if (_sessionToMapping.TryRemove(sessionId, out var mapping))
+        {
+            // Only remove userId→session if it still points to this session
+            ((ICollection<KeyValuePair<long, int>>)_userIdToSession)
+                .Remove(new KeyValuePair<long, int>(mapping.UserId, sessionId));
+        }
         if (_sessionToName.TryRemove(sessionId, out var name))
         {
             // Only remove name→session if it still points to this session
@@ -45,6 +56,11 @@ public class SessionMappingService : ISessionMappingService
     public bool TryGetSessionId(string mumbleName, out int sessionId)
     {
         return _nameToSession.TryGetValue(mumbleName, out sessionId);
+    }
+
+    public bool TryGetSessionByUserId(long userId, out int sessionId)
+    {
+        return _userIdToSession.TryGetValue(userId, out sessionId);
     }
 
     public IReadOnlyDictionary<int, SessionMapping> GetSnapshot()

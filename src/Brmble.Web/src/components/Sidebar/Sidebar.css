@@ -251,6 +251,16 @@
   text-transform: lowercase;
 }
 
+.sharing-badge {
+  font-size: var(--text-2xs);
+  color: var(--accent-primary);
+  padding: 1px var(--space-xs);
+  background: var(--accent-primary-subtle);
+  border-radius: var(--radius-md);
+  margin-left: var(--space-2xs);
+  flex-shrink: 0;
+}
+
 @keyframes lobby-fade-in {
   from {
     opacity: 0;

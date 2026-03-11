@@ -50,6 +50,7 @@ public static class LiveKitEndpoints
             UserRepository userRepo,
             ScreenShareTracker tracker,
             IBrmbleEventBus eventBus,
+            ISessionMappingService sessionMapping,
             ILogger<LiveKitService> logger) =>
         {
             var certHash = certHashExtractor.GetCertHash(httpContext);
@@ -71,13 +72,18 @@ public static class LiveKitEndpoints
             if (string.IsNullOrWhiteSpace(roomName))
                 return Results.BadRequest(new { error = "roomName is required" });
 
-            tracker.Start(roomName, user.DisplayName, user.MatrixUserId);
-            await eventBus.BroadcastAsync(new
+            if (!roomName.StartsWith("channel-") || !int.TryParse(roomName.AsSpan("channel-".Length), out var channelId))
+                return Results.BadRequest(new { error = "invalid roomName format" });
+
+            tracker.Start(roomName, user.DisplayName, user.Id);
+            var hasSession = sessionMapping.TryGetSessionByUserId(user.Id, out var sessionId);
+            await eventBus.BroadcastToChannelAsync(channelId, new
             {
                 type = "screenShare.started",
                 roomName,
                 userName = user.DisplayName,
-                matrixUserId = user.MatrixUserId
+                userId = user.Id,
+                sessionId = hasSession ? sessionId : (int?)null
             });
             return Results.Ok();
         });
@@ -109,15 +115,18 @@ public static class LiveKitEndpoints
             if (string.IsNullOrWhiteSpace(roomName))
                 return Results.BadRequest(new { error = "roomName is required" });
 
+            if (!roomName.StartsWith("channel-") || !int.TryParse(roomName.AsSpan("channel-".Length), out var channelId))
+                return Results.BadRequest(new { error = "invalid roomName format" });
+
             var activeShare = tracker.GetActive(roomName);
             if (activeShare is null)
                 return Results.BadRequest(new { error = "no active screen share for room" });
 
-            if (activeShare.MatrixUserId != user.MatrixUserId)
+            if (activeShare.UserId != user.Id)
                 return Results.Forbid();
 
             tracker.Stop(roomName);
-            await eventBus.BroadcastAsync(new { type = "screenShare.stopped", roomName });
+            await eventBus.BroadcastToChannelAsync(channelId, new { type = "screenShare.stopped", roomName });
             return Results.Ok();
         });
 
@@ -131,7 +140,7 @@ public static class LiveKitEndpoints
 
             var info = tracker.GetActive(roomName);
             return info is not null
-                ? Results.Ok(new { info.UserName, info.MatrixUserId })
+                ? Results.Ok(new { info.UserName, info.UserId })
                 : Results.NotFound();
         });
 
