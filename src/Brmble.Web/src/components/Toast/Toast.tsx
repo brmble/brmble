@@ -33,7 +33,7 @@ export function Toast({ message, actions, duration = 8000, onDismiss }: ToastPro
   }, [onDismiss]);
 
   return (
-    <div className={`toast ${visible ? 'toast--visible' : ''}`}>
+    <div className={`toast ${visible ? 'toast--visible' : ''}`} role="status" aria-live="polite">
       <span className="toast-message">{message}</span>
       {actions && (
         <div className="toast-actions">

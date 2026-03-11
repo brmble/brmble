@@ -76,14 +76,14 @@ public static class LiveKitEndpoints
                 return Results.BadRequest(new { error = "invalid roomName format" });
 
             tracker.Start(roomName, user.DisplayName, user.Id);
-            sessionMapping.TryGetSessionByUserId(user.Id, out var sessionId);
+            var hasSession = sessionMapping.TryGetSessionByUserId(user.Id, out var sessionId);
             await eventBus.BroadcastToChannelAsync(channelId, new
             {
                 type = "screenShare.started",
                 roomName,
                 userName = user.DisplayName,
                 userId = user.Id,
-                sessionId
+                sessionId = hasSession ? sessionId : (int?)null
             });
             return Results.Ok();
         });

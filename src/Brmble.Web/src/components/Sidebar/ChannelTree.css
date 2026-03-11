@@ -185,16 +185,6 @@
   flex-shrink: 0;
 }
 
-.sharing-badge {
-  font-size: var(--text-2xs);
-  color: var(--accent-primary);
-  padding: 1px var(--space-xs);
-  background: var(--accent-primary-subtle);
-  border-radius: var(--radius-md);
-  margin-left: var(--space-2xs);
-  flex-shrink: 0;
-}
-
 .brmble-badge {
   width: 7px;
   height: 7px;

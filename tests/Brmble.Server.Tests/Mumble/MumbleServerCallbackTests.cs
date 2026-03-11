@@ -235,13 +235,13 @@ public class MumbleServerCallbackTests
             { 42, new SessionMapping("@100:x", "Alice", 100L) }
         });
 
-        var callback = new MumbleServerCallback(
-            [handler.Object], mapping.Object, bus.Object, channelMembership.Object, tracker,
-            NullLogger<MumbleServerCallback>.Instance);
+        var callback = CreateCallback([handler.Object], mapping: mapping.Object, bus: bus.Object,
+            channelMembership: channelMembership.Object, screenShareTracker: tracker);
 
         await callback.DispatchUserDisconnected(new MumbleUser("Alice", "abc", 42));
 
         Assert.IsNull(tracker.GetActive("channel-5"));
+        bus.Verify(b => b.BroadcastToChannelAsync(5, It.IsAny<object>()), Times.Once);
         channelMembership.Verify(cm => cm.Remove(42), Times.Once);
         mapping.Verify(m => m.RemoveSession(42), Times.Once);
     }

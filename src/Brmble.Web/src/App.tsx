@@ -1184,6 +1184,8 @@ const handleConnect = (serverData: SavedServer) => {
     roomName: string;
   } | null>(null);
 
+  const handleDismissToast = useCallback(() => setScreenShareToast(null), []);
+
   const channelUnreads = useMemo(() => {
     if (!matrixCredentials?.roomMap) return new Map<string, { notificationCount: number; highlightCount: number }>();
     const map = new Map<string, { notificationCount: number; highlightCount: number }>();
@@ -1527,7 +1529,7 @@ const handleConnect = (serverData: SavedServer) => {
               setScreenShareToast(null);
             }, primary: true },
           ]}
-          onDismiss={() => setScreenShareToast(null)}
+          onDismiss={handleDismissToast}
         />
       )}
 

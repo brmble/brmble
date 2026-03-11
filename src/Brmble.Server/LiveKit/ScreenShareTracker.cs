@@ -16,7 +16,7 @@ public class ScreenShareTracker
         => _shares.TryGetValue(roomName, out var info) ? info : null;
 
     public string? GetActiveByUserId(long userId)
-        => _shares.FirstOrDefault(kvp => kvp.Value.UserId == userId).Key;
+        => _shares.FirstOrDefault(kvp => kvp.Value.UserId == userId) is { Key: not null } match ? match.Key : null;
 }
 
 public record ScreenShareInfo(string UserName, long UserId);
