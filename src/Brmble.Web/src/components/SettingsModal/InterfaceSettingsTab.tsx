@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Select } from '../Select';
 import './InterfaceSettingsTab.css';
 import type { OverlaySettings, AppearanceSettings } from './InterfaceSettingsTypes';
 import { themes } from '../../themes/theme-registry';
@@ -41,17 +42,11 @@ export function InterfaceSettingsTab({
         <h3 className="heading-section settings-section-title">Theme</h3>
         <div className="settings-item">
           <label>Aesthetic</label>
-          <div className="select-wrapper">
-            <select
-              className="brmble-input"
-              value={localAppearance.theme}
-              onChange={(e) => handleThemeChange(e.target.value)}
-            >
-              {themes.map(t => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
-            </select>
-          </div>
+          <Select
+            value={localAppearance.theme}
+            onChange={handleThemeChange}
+            options={themes.map(t => ({ value: t.id, label: t.name }))}
+          />
         </div>
       </div>
 
