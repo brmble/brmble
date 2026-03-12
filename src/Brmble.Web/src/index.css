@@ -339,7 +339,7 @@ a:hover {
   bottom: 0;
   background-color: var(--border-subtle);
   transition: background var(--transition-fast);
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-lg);
 }
 
 .brmble-toggle-slider::before {
@@ -351,7 +351,7 @@ a:hover {
   top: 2px;
   background-color: var(--text-primary);
   transition: transform var(--transition-fast), width var(--transition-fast);
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-md);
 }
 
 .brmble-toggle input:checked + .brmble-toggle-slider {
