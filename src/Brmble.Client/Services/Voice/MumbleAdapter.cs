@@ -289,8 +289,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
+                bool isFatalConnection = ex is IOException
+                    or System.Net.Sockets.SocketException
+                    or InvalidOperationException
+                    or ObjectDisposedException
+                    or NotImplementedException
+                    or global::ProtoBuf.ProtoException;
+
                 _bridge?.Send("voice.error", new { message = $"Process error: {ex.Message}" });
                 _bridge?.NotifyUiThread();
+
+                if (isFatalConnection)
+                    break; // Exit loop to trigger reconnect logic below
             }
         }
 
