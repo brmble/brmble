@@ -25,6 +25,11 @@ export function Select({ value, onChange, options, disabled, className, placehol
   const dropdownRef = useRef<HTMLDivElement>(null);
   const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
+  const highlightedIndexRef = useRef(highlightedIndex);
+  highlightedIndexRef.current = highlightedIndex;
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+
   const listboxId = useId();
   const triggerId = useId();
 
@@ -98,8 +103,14 @@ export function Select({ value, onChange, options, disabled, className, placehol
   }, [isOpen, close]);
 
   useEffect(() => {
+    optionRefs.current.length = options.length;
+  }, [options.length]);
+
+  useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
+      const opts = optionsRef.current;
+      const hi = highlightedIndexRef.current;
       switch (e.key) {
         case 'Escape':
           e.preventDefault();
@@ -107,11 +118,11 @@ export function Select({ value, onChange, options, disabled, className, placehol
           break;
         case 'ArrowDown':
           e.preventDefault();
-          setHighlightedIndex(i => (i + 1) % options.length);
+          setHighlightedIndex(i => (i + 1) % opts.length);
           break;
         case 'ArrowUp':
           e.preventDefault();
-          setHighlightedIndex(i => (i - 1 + options.length) % options.length);
+          setHighlightedIndex(i => (i - 1 + opts.length) % opts.length);
           break;
         case 'Home':
           e.preventDefault();
@@ -119,26 +130,26 @@ export function Select({ value, onChange, options, disabled, className, placehol
           break;
         case 'End':
           e.preventDefault();
-          setHighlightedIndex(options.length - 1);
+          setHighlightedIndex(opts.length - 1);
           break;
         case 'Enter':
         case ' ':
           e.preventDefault();
-          if (highlightedIndex >= 0 && highlightedIndex < options.length) {
-            selectOption(options[highlightedIndex].value);
+          if (hi >= 0 && hi < opts.length) {
+            selectOption(opts[hi].value);
           }
           break;
         default:
           if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
             const char = e.key.toLowerCase();
-            const idx = options.findIndex(o => o.label.toLowerCase().startsWith(char));
+            const idx = opts.findIndex(o => o.label.toLowerCase().startsWith(char));
             if (idx >= 0) setHighlightedIndex(idx);
           }
       }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, highlightedIndex, options, close, selectOption]);
+  }, [isOpen, close, selectOption]);
 
   const handleTriggerKeyDown = (e: React.KeyboardEvent) => {
     if (!isOpen && (e.key === 'ArrowDown' || e.key === ' ' || e.key === 'Enter')) {

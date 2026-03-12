@@ -18,7 +18,7 @@
   padding-right: 2rem;
   font-family: var(--font-body);
   font-size: var(--text-sm);
-  transition: all var(--transition-fast);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast);
   outline: none;
   cursor: pointer;
   min-width: 150px;
@@ -26,7 +26,7 @@
   width: 100%;
 }
 
-.brmble-select-trigger:focus {
+.brmble-select-trigger:focus-visible {
   border-color: var(--accent-primary);
   box-shadow: 0 0 0 1px var(--accent-primary-glow);
 }
