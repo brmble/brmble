@@ -296,8 +296,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     or NotImplementedException
                     or global::ProtoBuf.ProtoException;
 
-                _bridge?.Send("voice.error", new { message = $"Process error: {ex.Message}" });
-                _bridge?.NotifyUiThread();
+                // Suppress spurious error notifications during intentional shutdown
+                // (e.g. ObjectDisposedException from teardown racing the process thread).
+                if (!_intentionalDisconnect && !ct.IsCancellationRequested)
+                {
+                    _bridge?.Send("voice.error", new { message = $"Process error: {ex.Message}" });
+                    _bridge?.NotifyUiThread();
+                }
 
                 if (isFatalConnection)
                     break; // Exit loop to trigger reconnect logic below
