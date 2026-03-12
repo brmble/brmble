@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Select } from '../Select';
 import './MessagesSettingsTab.css';
 
 interface MessagesSettingsTabProps {
@@ -113,18 +114,14 @@ export function MessagesSettingsTab({ settings, onChange }: MessagesSettingsTabP
 
             <div className="settings-item">
               <label>TTS Voice</label>
-              <select
+              <Select
                 value={localSettings.ttsVoice}
-                onChange={(e) => handleChange('ttsVoice', e.target.value)}
-                className="settings-select"
-              >
-                <option value="">Default</option>
-                {voices.map((voice) => (
-                  <option key={voice.name} value={voice.name}>
-                    {voice.name}
-                  </option>
-                ))}
-              </select>
+                onChange={(v) => handleChange('ttsVoice', v)}
+                options={[
+                  { value: '', label: 'Default' },
+                  ...voices.map(voice => ({ value: voice.name, label: voice.name })),
+                ]}
+              />
             </div>
           </>
         )}

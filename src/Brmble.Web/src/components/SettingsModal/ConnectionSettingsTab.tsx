@@ -1,4 +1,5 @@
 import { Tooltip } from '../Tooltip/Tooltip';
+import { Select } from '../Select';
 import './ConnectionSettingsTab.css';
 
 interface ConnectionSettingsTabProps {
@@ -28,8 +29,7 @@ export function ConnectionSettingsTab({ settings, onChange, servers }: Connectio
     onChange({ ...settings, autoConnectEnabled: !settings.autoConnectEnabled });
   };
 
-  const handleServerChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const value = e.target.value;
+  const handleServerChange = (value: string) => {
     onChange({ ...settings, autoConnectServerId: value === '' ? null : value });
   };
 
@@ -71,23 +71,19 @@ export function ConnectionSettingsTab({ settings, onChange, servers }: Connectio
 
         <div className="server-dropdown-row">
           <label>Connect to</label>
-          <div className="select-wrapper">
-            <Tooltip content={tooltipText}>
-              <div className="select-tooltip-target">
-                <select
-                  className="brmble-input"
-                  value={settings.autoConnectServerId ?? ''}
-                  onChange={handleServerChange}
-                  disabled={!settings.autoConnectEnabled}
-                >
-                  <option value="">Last connected server</option>
-                  {servers.map(s => (
-                    <option key={s.id} value={s.id}>{s.label}</option>
-                  ))}
-                </select>
-              </div>
-            </Tooltip>
-          </div>
+          <Tooltip content={tooltipText}>
+            <div>
+              <Select
+                value={settings.autoConnectServerId ?? ''}
+                onChange={handleServerChange}
+                disabled={!settings.autoConnectEnabled}
+                options={[
+                  { value: '', label: 'Last connected server' },
+                  ...servers.map(s => ({ value: s.id, label: s.label })),
+                ]}
+              />
+            </div>
+          </Tooltip>
         </div>
 
         {servers.length === 0 && (

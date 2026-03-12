@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import bridge from '../../bridge';
 import { type AllBindings, BINDING_LABELS } from './SettingsModal';
 import { confirm } from '../../hooks/usePrompt';
+import { Select } from '../Select';
 import './AudioSettingsTab.css';
 import './ShortcutsSettingsTab.css';
 
@@ -146,15 +147,11 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
         <h3 className="heading-section settings-section-title">Input</h3>
         <div className="settings-item">
           <label>Input Device</label>
-          <div className="select-wrapper">
-            <select
-              className="brmble-input"
-              value={localSettings.inputDevice}
-              onChange={(e) => handleChange('inputDevice', e.target.value)}
-            >
-              <option value="default">Default</option>
-            </select>
-          </div>
+          <Select
+            value={localSettings.inputDevice}
+            onChange={(v) => handleChange('inputDevice', v)}
+            options={[{ value: 'default', label: 'Default' }]}
+          />
         </div>
 
         <div className="settings-item settings-slider">
@@ -185,15 +182,11 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
         <h3 className="heading-section settings-section-title">Output</h3>
         <div className="settings-item">
           <label>Output Device</label>
-          <div className="select-wrapper">
-            <select
-              className="brmble-input"
-              value={localSettings.outputDevice}
-              onChange={(e) => handleChange('outputDevice', e.target.value)}
-            >
-              <option value="default">Default</option>
-            </select>
-          </div>
+          <Select
+            value={localSettings.outputDevice}
+            onChange={(v) => handleChange('outputDevice', v)}
+            options={[{ value: 'default', label: 'Default' }]}
+          />
         </div>
 
         <div className="settings-item settings-slider">
@@ -213,17 +206,15 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
         <h3 className="heading-section settings-section-title">Transmission</h3>
         <div className="settings-item">
           <label>Transmission Mode</label>
-          <div className="select-wrapper">
-            <select
-              className="brmble-input"
-              value={localSettings.transmissionMode}
-              onChange={(e) => handleChange('transmissionMode', e.target.value as TransmissionMode)}
-            >
-              <option value="pushToTalk">Push to Talk</option>
-              <option value="voiceActivity">Voice Activity</option>
-              <option value="continuous">Continuous</option>
-            </select>
-          </div>
+          <Select
+            value={localSettings.transmissionMode}
+            onChange={(v) => handleChange('transmissionMode', v as TransmissionMode)}
+            options={[
+              { value: 'pushToTalk', label: 'Push to Talk' },
+              { value: 'voiceActivity', label: 'Voice Activity' },
+              { value: 'continuous', label: 'Continuous' },
+            ]}
+          />
         </div>
 
         {localSettings.transmissionMode === 'pushToTalk' && (

@@ -339,7 +339,7 @@ a:hover {
   bottom: 0;
   background-color: var(--border-subtle);
   transition: background var(--transition-fast);
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-lg);
 }
 
 .brmble-toggle-slider::before {
@@ -351,7 +351,7 @@ a:hover {
   top: 2px;
   background-color: var(--text-primary);
   transition: transform var(--transition-fast), width var(--transition-fast);
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-md);
 }
 
 .brmble-toggle input:checked + .brmble-toggle-slider {
@@ -395,47 +395,6 @@ a:hover {
 .brmble-input:focus {
   border-color: var(--accent-primary);
   box-shadow: 0 0 0 1px var(--accent-primary-glow);
-}
-
-select.brmble-input {
-  cursor: pointer;
-  min-width: 150px;
-  appearance: none;
-  background-image: none;
-  padding-right: 2rem;
-  position: relative;
-}
-
-/* Theme-adaptive dropdown arrow using CSS border triangle.
-   Inherits --text-secondary so it adapts to every theme. */
-select.brmble-input + .select-arrow,
-select.brmble-input::after {
-  /* ::after won't work on <select>, so we use a wrapper approach below */
-}
-
-/* Wrapper pattern: .select-wrapper > select.brmble-input */
-.select-wrapper {
-  position: relative;
-  display: inline-block;
-}
-
-.select-wrapper::after {
-  content: '';
-  position: absolute;
-  right: 0.75rem;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 0;
-  height: 0;
-  border-left: 5px solid transparent;
-  border-right: 5px solid transparent;
-  border-top: 5px solid var(--text-secondary);
-  pointer-events: none;
-}
-
-select.brmble-input option {
-  background: var(--bg-primary);
-  color: var(--text-primary);
 }
 
 /* Global Animations */

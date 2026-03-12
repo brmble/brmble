@@ -259,11 +259,11 @@ Rules:
 
 ### Form Inputs
 
-| Element | Class | Notes |
+| Element | Class / Component | Notes |
 |---|---|---|
 | Text input | `input.brmble-input` | Global style in `index.css` |
-| Select dropdown | `div.select-wrapper > select.brmble-input` | Wrapper provides custom arrow |
-| Toggle switch | `label.brmble-toggle > input[type=checkbox] + span.brmble-toggle-slider` | 44x24px |
+| Select dropdown | `<Select>` component | Custom themed dropdown (see Select Pattern below) |
+| Toggle switch | `label.brmble-toggle > input[type=checkbox] + span.brmble-toggle-slider` | 44x24px, track uses `--radius-lg`, knob uses `--radius-md` |
 
 ### Buttons
 
@@ -320,6 +320,73 @@ Rules:
 6. Accessible: `role="tooltip"`, `aria-describedby`, Escape key dismissal
 7. For small trigger elements (e.g. `btn-icon`) near window edges, use `align="start"` or `align="end"` to prevent the tooltip from overflowing off-screen
 8. **Disabled elements** don't fire mouse/focus events -- wrap them in a `<span>` or `<div>` and attach the Tooltip to the wrapper instead
+
+### Select Pattern
+
+Reference: `src/Brmble.Web/src/components/Select/Select.tsx`, `Select.css`
+
+```tsx
+import { Select } from '../Select';
+
+const options = [
+  { value: 'option1', label: 'Option One' },
+  { value: 'option2', label: 'Option Two' },
+];
+
+<Select
+  value={selectedValue}
+  onChange={setSelectedValue}
+  options={options}
+/>
+
+// Disabled select (e.g. locked setting)
+<Select value={val} onChange={setVal} options={opts} disabled />
+
+// With placeholder for unset state
+<Select value="" onChange={setVal} options={opts} placeholder="Choose..." />
+```
+
+Props:
+
+| Prop | Type | Default | Description |
+|---|---|---|---|
+| `value` | `string` | required | Currently selected option value |
+| `onChange` | `(value: string) => void` | required | Selection change callback |
+| `options` | `SelectOption[]` | required | Array of `{ value, label }` objects |
+| `disabled` | `boolean` | `false` | Disables the trigger button |
+| `className` | `string` | `''` | Additional CSS classes on the wrapper |
+| `placeholder` | `string` | `undefined` | Shown when no option matches `value` |
+
+#### DOM Structure
+
+```
+div.brmble-select
+  button.brmble-select-trigger[role="combobox"]
+    span  (selected label or placeholder)
+
+// Portal to document.body (when open):
+div.brmble-select-dropdown[role="listbox"]
+  button.brmble-select-option[role="option"]  (one per option)
+```
+
+#### Keyboard Navigation
+
+| Key | Action |
+|---|---|
+| `ArrowDown` / `ArrowUp` | Move highlight (wraps around) |
+| `Home` / `End` | Jump to first / last option |
+| `Enter` / `Space` | Select highlighted option |
+| `Escape` | Close dropdown, return focus to trigger |
+| Any letter | Type-ahead: jump to first matching option |
+
+Rules:
+1. **Always use `<Select>` instead of native `<select>`** -- native selects don't respect theme tokens
+2. Dropdown renders via portal (`document.body`) to escape overflow containers -- follows the same pattern as ContextMenu and Tooltip
+3. Position auto-flips above trigger if there isn't enough space below
+4. Clicking outside or pressing Escape dismisses the dropdown
+5. Full ARIA: `role="combobox"` on trigger, `role="listbox"` on dropdown, `role="option"` on items, `aria-expanded`, `aria-activedescendant`
+6. Trigger and dropdown use theme tokens (`--bg-primary`, `--glass-border`, `--radius-md`, `--shadow-elevated`) -- no hardcoded values
+7. **Disabled selects** with tooltips: wrap `<Select>` in a wrapper and attach `<Tooltip>` to the wrapper, since disabled buttons don't fire mouse events
 
 ---
 

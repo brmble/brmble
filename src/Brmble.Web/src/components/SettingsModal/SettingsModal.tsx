@@ -104,6 +104,23 @@ export function SettingsModal(props: SettingsModalProps) {
     };
   }, []);
 
+  // Reset autoConnectServerId when the selected server is deleted (#264)
+  useEffect(() => {
+    setSettings(prev => {
+      if (
+        !prev.autoConnectServerId ||
+        servers.some(s => s.id === prev.autoConnectServerId)
+      ) {
+        return prev;
+      }
+
+      const newSettings = { ...prev, autoConnectServerId: null };
+      bridge.send('settings.set', { settings: newSettings });
+      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
+      return newSettings;
+    });
+  }, [servers]);
+
   const handleAudioChange = (audio: AudioSettings) => {
     setSettings(prev => {
       const newSettings = { ...prev, audio };

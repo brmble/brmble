@@ -180,10 +180,6 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
           </button>
         </div>
       </div>
-
-      <p className="settings-hint">
-        Click a button and press a key to set a shortcut.
-      </p>
     </div>
   );
 }
