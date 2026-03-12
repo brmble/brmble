@@ -72,15 +72,17 @@ export function ConnectionSettingsTab({ settings, onChange, servers }: Connectio
         <div className="server-dropdown-row">
           <label>Connect to</label>
           <Tooltip content={tooltipText}>
-            <Select
-              value={settings.autoConnectServerId ?? ''}
-              onChange={handleServerChange}
-              disabled={!settings.autoConnectEnabled}
-              options={[
-                { value: '', label: 'Last connected server' },
-                ...servers.map(s => ({ value: s.id, label: s.label })),
-              ]}
-            />
+            <div>
+              <Select
+                value={settings.autoConnectServerId ?? ''}
+                onChange={handleServerChange}
+                disabled={!settings.autoConnectEnabled}
+                options={[
+                  { value: '', label: 'Last connected server' },
+                  ...servers.map(s => ({ value: s.id, label: s.label })),
+                ]}
+              />
+            </div>
           </Tooltip>
         </div>
 

@@ -326,7 +326,7 @@ Rules:
 Reference: `src/Brmble.Web/src/components/Select/Select.tsx`, `Select.css`
 
 ```tsx
-import { Select } from '../Select/Select';
+import { Select } from '../Select';
 
 const options = [
   { value: 'option1', label: 'Option One' },

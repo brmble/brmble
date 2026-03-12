@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useId } from 'react';
+import { useState, useRef, useEffect, useCallback, useId, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import './Select.css';
 
@@ -19,7 +19,7 @@ interface SelectProps {
 export function Select({ value, onChange, options, disabled, className, placeholder }: SelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
-  const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
+  const [dropdownStyle, setDropdownStyle] = useState<CSSProperties>({});
 
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -54,7 +54,7 @@ export function Select({ value, onChange, options, disabled, className, placehol
   }, []);
 
   const open = useCallback(() => {
-    if (disabled) return;
+    if (disabled || options.length === 0) return;
     setIsOpen(true);
     const idx = options.findIndex(o => o.value === value);
     setHighlightedIndex(idx >= 0 ? idx : 0);
@@ -110,10 +110,17 @@ export function Select({ value, onChange, options, disabled, className, placehol
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       const opts = optionsRef.current;
+      if (opts.length === 0) {
+        if (e.key === 'Escape') { e.preventDefault(); close(); }
+        return;
+      }
       const hi = highlightedIndexRef.current;
       switch (e.key) {
         case 'Escape':
           e.preventDefault();
+          close();
+          break;
+        case 'Tab':
           close();
           break;
         case 'ArrowDown':
@@ -151,7 +158,7 @@ export function Select({ value, onChange, options, disabled, className, placehol
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, close, selectOption]);
 
-  const handleTriggerKeyDown = (e: React.KeyboardEvent) => {
+  const handleTriggerKeyDown = (e: ReactKeyboardEvent) => {
     if (!isOpen && (e.key === 'ArrowDown' || e.key === ' ' || e.key === 'Enter')) {
       e.preventDefault();
       open();
