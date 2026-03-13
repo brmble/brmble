@@ -1240,9 +1240,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 case "screenShare.started":
                     var startRoom = root.TryGetProperty("roomName", out var startRoomProp) ? startRoomProp.GetString() : null;
                     var startUser = root.TryGetProperty("userName", out var startUserProp) ? startUserProp.GetString() : null;
+                    var startSession = root.TryGetProperty("sessionId", out var startSessionProp) && startSessionProp.ValueKind == System.Text.Json.JsonValueKind.Number
+                        ? (int?)startSessionProp.GetInt32() : null;
                     if (startRoom is not null)
                     {
-                        _bridge?.Send("livekit.screenShareStarted", new { roomName = startRoom, userName = startUser });
+                        _bridge?.Send("livekit.screenShareStarted", new { roomName = startRoom, userName = startUser, sessionId = startSession });
                         _bridge?.NotifyUiThread();
                     }
                     break;
