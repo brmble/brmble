@@ -9,6 +9,9 @@ interface UserPanelProps {
   dmActive?: boolean;
   unreadDMCount?: number;
   onOpenSettings: () => void;
+  onAvatarClick?: () => void;
+  avatarUrl?: string;
+  matrixUserId?: string;
   muted?: boolean;
   deafened?: boolean;
   leftVoice?: boolean;
@@ -25,7 +28,7 @@ interface UserPanelProps {
   hotkeyPressedBtn?: string | null;
 }
 
-export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, screenSharing, screenShareError, onToggleScreenShare, canScreenShare, speaking, pendingChannelAction, hotkeyPressedBtn }: UserPanelProps) {
+export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, onAvatarClick, avatarUrl, matrixUserId, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, screenSharing, screenShareError, onToggleScreenShare, canScreenShare, speaking, pendingChannelAction, hotkeyPressedBtn }: UserPanelProps) {
   const [pressedBtn, setPressedBtn] = useState<string | null>(null);
   const activeBtn = hotkeyPressedBtn || pressedBtn;
 
@@ -213,8 +216,19 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
       </Tooltip>
       
       <Tooltip content={username || 'Not logged in'} position="bottom" align="end">
-      <div className="user-avatar-trigger" role="button" tabIndex={0}>
-        <Avatar user={{ name: username || '', matrixUserId: undefined, avatarUrl: undefined }} size={20} speaking={speaking} />
+      <div
+        className="user-avatar-trigger"
+        role="button"
+        tabIndex={0}
+        onClick={onAvatarClick}
+        onKeyDown={(e) => {
+          if ((e.key === 'Enter' || e.key === ' ') && onAvatarClick) {
+            e.preventDefault();
+            onAvatarClick();
+          }
+        }}
+      >
+        <Avatar user={{ name: username || '', matrixUserId: matrixUserId, avatarUrl: avatarUrl }} size={20} speaking={speaking} />
       </div>
       </Tooltip>
     </div>

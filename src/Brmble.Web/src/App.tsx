@@ -1436,6 +1436,9 @@ const handleConnect = (serverData: SavedServer) => {
         dmActive={appMode === 'dm'}
         unreadDMCount={totalDmUnreadCount}
         onOpenSettings={() => setShowSettings(true)}
+        onAvatarClick={() => setShowSettings(true)}
+        avatarUrl={currentUserAvatarUrl}
+        matrixUserId={matrixCredentials?.userId}
         muted={selfMuted}
         deafened={selfDeafened}
         leftVoice={selfLeftVoice}
