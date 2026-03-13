@@ -294,5 +294,18 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     await client.scrollback(room, 50);
   }, []);
 
-  return { messages, sendMessage, fetchHistory, dmMessages, dmRoomMap, sendDMMessage, fetchDMHistory, client };
+  const fetchAvatarUrl = useCallback(async (userId: string): Promise<string | null> => {
+    if (!clientRef.current) return null;
+    try {
+      const profile = await clientRef.current.getProfileInfo(userId);
+      if (profile.avatar_url) {
+        return clientRef.current.mxcUrlToHttp(profile.avatar_url, 128, 128, 'crop') || null;
+      }
+    } catch (e) {
+      console.debug('Failed to fetch avatar for', userId, e);
+    }
+    return null;
+  }, []);
+
+  return { messages, sendMessage, fetchHistory, dmMessages, dmRoomMap, sendDMMessage, fetchDMHistory, fetchAvatarUrl, client };
 }
