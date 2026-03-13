@@ -182,6 +182,40 @@ function App() {
   const matrixClient = useMatrixClient(matrixCredentials);
   const { dmMessages: matrixDmMessages, sendDMMessage: sendMatrixDM, fetchDMHistory } = matrixClient;
 
+  // Avatar state and management
+  const [currentUserAvatarUrl, setCurrentUserAvatarUrl] = useState<string | undefined>();
+
+  // Fetch avatar when matrix client becomes available
+  useEffect(() => {
+    if (!matrixCredentials?.userId || !matrixClient.client) return;
+    matrixClient.fetchAvatarUrl(matrixCredentials.userId).then((url) => {
+      if (url) setCurrentUserAvatarUrl(url);
+    });
+  }, [matrixCredentials?.userId, matrixClient.client, matrixClient.fetchAvatarUrl]);
+
+  const onUploadAvatar = useCallback(async (blob: Blob, contentType: string) => {
+    if (!matrixClient.client) return;
+    try {
+      const upload = await matrixClient.client.uploadContent(blob, { name: 'avatar.png', type: contentType });
+      const mxcUrl = upload.content_uri;
+      await matrixClient.client.setAvatarUrl(mxcUrl);
+      const httpUrl = matrixClient.client.mxcUrlToHttp(mxcUrl, 128, 128, 'crop');
+      setCurrentUserAvatarUrl(httpUrl ?? undefined);
+    } catch (e) {
+      console.error('Failed to upload avatar:', e);
+    }
+  }, [matrixClient.client]);
+
+  const onRemoveAvatar = useCallback(async () => {
+    if (!matrixClient.client) return;
+    try {
+      await matrixClient.client.setAvatarUrl('');
+      setCurrentUserAvatarUrl(undefined);
+    } catch (e) {
+      console.error('Failed to remove avatar:', e);
+    }
+  }, [matrixClient.client]);
+
   // Build set of DM room IDs from matrixClient.dmRoomMap
   const dmRoomIds = useMemo(() => {
     const set = new Set<string>();
@@ -1529,6 +1563,13 @@ const handleConnect = (serverData: SavedServer) => {
         onClose={() => setShowSettings(false)}
         username={username}
         certFingerprint={certFingerprint}
+        currentUser={{
+          name: username ?? 'Unknown',
+          matrixUserId: matrixCredentials?.userId,
+          avatarUrl: currentUserAvatarUrl,
+        }}
+        onUploadAvatar={onUploadAvatar}
+        onRemoveAvatar={onRemoveAvatar}
       />
 
       <CloseDialog
