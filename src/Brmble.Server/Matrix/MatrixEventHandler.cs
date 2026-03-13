@@ -59,7 +59,15 @@ public class MatrixEventHandler : IMumbleEventHandler
         try
         {
             var localpart = dbUser.MatrixUserId.Split(':')[0].TrimStart('@');
-            var mxcUrl = await _appService.UploadMedia(textureData, contentType, "avatar.png");
+            var ext = contentType switch
+            {
+                "image/png" => "png",
+                "image/jpeg" => "jpg",
+                "image/gif" => "gif",
+                "image/webp" => "webp",
+                _ => "bin"
+            };
+            var mxcUrl = await _appService.UploadMedia(textureData, contentType, $"avatar.{ext}");
             await _appService.SetAvatarUrl(localpart, mxcUrl);
             await _userRepository.SetAvatarSource(dbUser.Id, "mumble");
             _logger.LogInformation("Set Mumble texture as avatar for {User}", user.Name);
@@ -88,7 +96,9 @@ public class MatrixEventHandler : IMumbleEventHandler
         if (data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47) return "image/png";
         if (data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF) return "image/jpeg";
         if (data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46) return "image/gif";
-        if (data[0] == 0x52 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x46) return "image/webp";
+        if (data.Length >= 12 &&
+            data[0] == 0x52 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x46 &&
+            data[8] == 0x57 && data[9] == 0x45 && data[10] == 0x42 && data[11] == 0x50) return "image/webp";
         return null;
     }
 }
