@@ -1508,6 +1508,30 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             return Task.CompletedTask;
         });
 
+        bridge.RegisterHandler("avatar.setSource", async data =>
+        {
+            if (_apiUrl is null) return;
+
+            using var cert = _certService?.GetExportableCertificate();
+            if (cert is null) return;
+
+            try
+            {
+                var source = data.TryGetProperty("source", out var s) && s.ValueKind != System.Text.Json.JsonValueKind.Null
+                    ? s.GetString() : null;
+                var baseUri = new Uri(_apiUrl, UriKind.Absolute);
+                var uri = new Uri(baseUri, "auth/avatar-source");
+                var jsonBody = System.Text.Json.JsonSerializer.Serialize(new { source });
+                var result = await PostViaBcTls(cert, uri, jsonBody);
+                if (!result.Success)
+                    LogToFile($"[Avatar] avatar-source update failed: {result.Error}");
+            }
+            catch (Exception ex)
+            {
+                LogToFile($"[Avatar] Failed to update avatar-source: {ex.Message}");
+            }
+        });
+
         bridge.RegisterHandler("livekit.requestToken", async data =>
         {
             var roomName = data.TryGetProperty("roomName", out var rn) ? rn.GetString() : null;

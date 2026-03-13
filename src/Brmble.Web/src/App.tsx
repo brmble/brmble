@@ -229,6 +229,8 @@ function App() {
       await matrixClient.client.setAvatarUrl(mxcUrl);
       const httpUrl = matrixClient.client.mxcUrlToHttp(mxcUrl, 128, 128, 'crop');
       setCurrentUserAvatarUrl(httpUrl ?? undefined);
+      // Notify backend so Mumble texture sync won't overwrite this avatar
+      bridge.send('avatar.setSource', { source: 'brmble' });
     } catch (e) {
       console.error('Failed to upload avatar:', e);
     }
@@ -239,6 +241,8 @@ function App() {
     try {
       await matrixClient.client.setAvatarUrl('');
       setCurrentUserAvatarUrl(undefined);
+      // Clear avatar source so Mumble textures can take over again
+      bridge.send('avatar.setSource', { source: null });
     } catch (e) {
       console.error('Failed to remove avatar:', e);
     }
