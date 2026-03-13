@@ -26,14 +26,9 @@
 }
 
 .user-info-avatar {
-  width: 56px;
-  height: 56px;
-  border-radius: var(--radius-full);
-  background: linear-gradient(135deg, var(--accent-primary-wash), var(--bg-hover));
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--accent-primary);
 }
 
 .user-info-title-row {

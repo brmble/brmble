@@ -194,6 +194,10 @@
   margin-left: auto;
 }
 
+.user-row .avatar {
+  margin-right: var(--space-2xs);
+}
+
 .user-row.speaking {
   background: var(--accent-success-subtle);
   box-shadow: 0 0 var(--glow-md) var(--accent-success-glow);

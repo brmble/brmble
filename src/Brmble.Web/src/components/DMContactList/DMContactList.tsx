@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
 import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
 import { Tooltip } from '../Tooltip/Tooltip';
+import Avatar from '../Avatar/Avatar';
 import './DMContactList.css';
 
 interface DMContact {
@@ -82,9 +83,7 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
               setContextMenu({ x: e.clientX, y: e.clientY, userId: contact.userId, userName: contact.userName });
             }}
           >
-            <div className="dm-contact-avatar">
-              <span>{contact.userName.charAt(0).toUpperCase()}</span>
-            </div>
+            <Avatar user={{ name: contact.userName, matrixUserId: undefined, avatarUrl: undefined }} size={28} />
             <div className="dm-contact-info">
               <div className="dm-contact-name-row">
                 <Tooltip content={contact.comment || ''}>

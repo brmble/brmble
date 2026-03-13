@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Tooltip } from '../Tooltip/Tooltip';
+import Avatar from '../Avatar/Avatar';
 import './UserPanel.css';
 
 interface UserPanelProps {
@@ -212,11 +213,8 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
       </Tooltip>
       
       <Tooltip content={username || 'Not logged in'} position="bottom" align="end">
-      <div className={`user-avatar ${speaking ? 'speaking' : ''}`}>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-          <circle cx="12" cy="14" r="8" />
-          <path d="M12 2C12 2 8 2 8 6C8 10 12 14 12 14C12 14 16 10 16 6C16 2 12 2 12 2Z" fill="var(--accent-success)" />
-        </svg>
+      <div className="user-avatar-trigger" role="button" tabIndex={0}>
+        <Avatar user={{ name: username || '', matrixUserId: undefined, avatarUrl: undefined }} size={20} speaking={speaking} />
       </div>
       </Tooltip>
     </div>

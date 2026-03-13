@@ -6,6 +6,7 @@ import { linkifyText } from '../../utils/linkifyText';
 import { ImageAttachment } from './ImageAttachment';
 import { ImageLightbox } from './ImageLightbox';
 import { LinkPreview } from './LinkPreview';
+import Avatar from '../Avatar/Avatar';
 import './MessageBubble.css';
 
 interface MessageBubbleProps {
@@ -97,10 +98,6 @@ export function MessageBubble({ sender, content, timestamp, isOwnMessage, isSyst
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  const getAvatarLetter = (name: string) => {
-    return name.charAt(0).toUpperCase();
-  };
-
   const classes = ['message-bubble'];
   if (isOwnMessage) classes.push('own');
   if (isSystem) classes.push('message-bubble--system');
@@ -117,7 +114,7 @@ export function MessageBubble({ sender, content, timestamp, isOwnMessage, isSyst
         </div>
       ) : (
         <div className="message-avatar">
-          <span className="avatar-letter">{getAvatarLetter(sender)}</span>
+          <Avatar user={{ name: sender, matrixUserId: undefined, avatarUrl: undefined }} size={40} />
         </div>
       )}
       <div className="message-content">

@@ -4,6 +4,7 @@ import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { usePermissions } from '../../hooks/usePermissions';
 import bridge from '../../bridge';
+import Avatar from '../Avatar/Avatar';
 import './ChannelTree.css';
 
 interface User {
@@ -243,6 +244,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                   ? () => onWatchScreenShare?.(`channel-${channel.id}`)
                   : undefined}
               >
+                <Avatar user={{ name: user.name, matrixUserId: user.matrixUserId, avatarUrl: undefined }} size={20} />
                 <span className="user-status">
                   {user.session === sharingUserSession ? (
                     <svg className="status-icon status-icon--sharing" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

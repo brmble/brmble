@@ -12,28 +12,11 @@
 
 .message-avatar {
   width: 40px;
-  height: 40px;
   min-width: 40px;
-  border-radius: var(--radius-full);
-  background: linear-gradient(135deg, var(--border-subtle) 0%, var(--accent-decorative) 100%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
-.message-bubble.own .message-avatar {
-  background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
-}
-
-.message-avatar .avatar-letter {
-  font-family: var(--font-display);
-  font-size: var(--text-base);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.message-bubble.own .message-avatar .avatar-letter {
-  color: var(--bg-deep);
+.message-bubble--system .message-avatar .avatar {
+  opacity: 0.7;
 }
 
 .message-content {
@@ -89,10 +72,6 @@
 
 .message-bubble--system .message-content {
   flex: 1;
-}
-
-.message-bubble--system .message-avatar {
-  background: linear-gradient(135deg, var(--bg-elevated) 0%, var(--border-subtle) 100%);
 }
 
 .message-bubble--system .message-sender {

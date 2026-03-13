@@ -188,6 +188,10 @@
   margin: 2px 0;
 }
 
+.root-user-row .avatar {
+  margin-right: var(--space-2xs);
+}
+
 .root-user-row:hover {
   background: var(--accent-primary-ghost);
 }

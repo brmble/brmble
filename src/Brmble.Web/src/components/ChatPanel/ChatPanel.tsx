@@ -8,6 +8,7 @@ import { formatDateSeparator, formatFullDate } from '../../utils/formatDateSepar
 import type { ChatMessage } from '../../types';
 import { ScreenShareViewer } from '../ScreenShareViewer/ScreenShareViewer';
 import { Tooltip } from '../Tooltip/Tooltip';
+import Avatar from '../Avatar/Avatar';
 import './ChatPanel.css';
 
 interface ChatPanelProps {
@@ -341,9 +342,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
       <div className="chat-header">
         <div className="chat-header-left">
           {isDM ? (
-            <div className="dm-chat-avatar">
-              <span>{channelName?.charAt(0).toUpperCase()}</span>
-            </div>
+            <Avatar user={{ name: channelName || '', matrixUserId: undefined, avatarUrl: undefined }} size={28} />
           ) : (
             <span className="channel-hash">#</span>
           )}
