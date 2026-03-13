@@ -139,6 +139,9 @@ public static class LiveKitEndpoints
             if (string.IsNullOrWhiteSpace(roomName))
                 return Results.BadRequest(new { error = "roomName query parameter is required" });
 
+            if (!roomName.StartsWith("channel-") || !int.TryParse(roomName.AsSpan("channel-".Length), out _))
+                return Results.BadRequest(new { error = "invalid roomName format" });
+
             var info = tracker.GetActive(roomName);
             if (info is null)
                 return Results.NotFound();
