@@ -1,0 +1,176 @@
+/* AvatarUpload — crop overlay for avatar selection */
+
+.avatar-upload-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--bg-overlay);
+  backdrop-filter: var(--glass-blur-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn var(--animation-fast) ease backwards;
+}
+
+.avatar-upload {
+  width: 100%;
+  max-width: 420px;
+  padding: var(--space-xl) var(--space-lg) var(--space-lg);
+  display: flex;
+  flex-direction: column;
+}
+
+.avatar-upload .modal-header {
+  text-align: center;
+  margin-bottom: var(--space-lg);
+}
+
+.avatar-upload .modal-title {
+  margin: 0;
+  opacity: 0;
+  animation: content-fade-in var(--animation-normal) ease forwards;
+  animation-delay: calc(1 * var(--stagger-step));
+}
+
+.avatar-upload .modal-subtitle {
+  color: var(--text-muted);
+  margin: var(--space-2xs) 0 0;
+  font-size: var(--text-sm);
+  opacity: 0;
+  animation: content-fade-in var(--animation-normal) ease forwards;
+  animation-delay: calc(2 * var(--stagger-step));
+}
+
+/* File picker area — shown before an image is selected */
+.avatar-upload-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-2xl) var(--space-lg);
+  border: 2px dashed var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  opacity: 0;
+  animation: content-fade-in var(--animation-normal) ease forwards;
+  animation-delay: calc(3 * var(--stagger-step));
+}
+
+.avatar-upload-picker:hover {
+  border-color: var(--accent-primary);
+  background: var(--bg-hover);
+}
+
+.avatar-upload-picker-icon {
+  width: 48px;
+  height: 48px;
+  color: var(--text-muted);
+}
+
+.avatar-upload-picker-text {
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.avatar-upload-picker-hint {
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* Crop area — shown after an image is selected */
+.avatar-upload-crop-area {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  max-height: 320px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg-deep);
+  opacity: 0;
+  animation: content-fade-in var(--animation-normal) ease forwards;
+  animation-delay: calc(3 * var(--stagger-step));
+}
+
+/* Zoom slider */
+.avatar-upload-zoom {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+  padding: 0 var(--space-xs);
+  opacity: 0;
+  animation: content-fade-in var(--animation-normal) ease forwards;
+  animation-delay: calc(4 * var(--stagger-step));
+}
+
+.avatar-upload-zoom-label {
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.avatar-upload-zoom input[type="range"] {
+  flex: 1;
+  height: 4px;
+  appearance: none;
+  background: var(--border-subtle);
+  border-radius: var(--radius-sm);
+  outline: none;
+  cursor: pointer;
+}
+
+.avatar-upload-zoom input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-full);
+  background: var(--accent-primary);
+  cursor: pointer;
+  transition: transform var(--transition-fast);
+}
+
+.avatar-upload-zoom input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+.avatar-upload-zoom input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--accent-primary);
+  cursor: pointer;
+}
+
+/* Error message */
+.avatar-upload-error {
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  color: var(--accent-danger);
+  text-align: center;
+  margin-top: var(--space-sm);
+}
+
+/* Footer buttons */
+.avatar-upload-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-top: var(--space-lg);
+  opacity: 0;
+  animation: content-fade-in var(--animation-normal) ease forwards;
+  animation-delay: calc(5 * var(--stagger-step));
+}
+
+.avatar-upload-footer .btn {
+  flex: 1;
+  max-width: 160px;
+}
