@@ -153,10 +153,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
             if (shareRoom is not null)
             {
                 _screenShareTracker.Stop(shareRoom);
-                if (shareRoom.StartsWith("channel-") && int.TryParse(shareRoom.AsSpan("channel-".Length), out var channelId))
-                {
-                    await _eventBus.BroadcastToChannelAsync(channelId, new { type = "screenShare.stopped", roomName = shareRoom });
-                }
+                await _eventBus.BroadcastAsync(new { type = "screenShare.stopped", roomName = shareRoom });
             }
         }
 
@@ -177,10 +174,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
             if (shareRoom is not null && shareRoom != $"channel-{channelId}")
             {
                 _screenShareTracker.Stop(shareRoom);
-                if (shareRoom.StartsWith("channel-") && int.TryParse(shareRoom.AsSpan("channel-".Length), out var oldChannelId))
-                {
-                    await _eventBus.BroadcastToChannelAsync(oldChannelId, new { type = "screenShare.stopped", roomName = shareRoom });
-                }
+                await _eventBus.BroadcastAsync(new { type = "screenShare.stopped", roomName = shareRoom });
             }
         }
     }
