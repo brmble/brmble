@@ -9,6 +9,7 @@ import { InterfaceSettingsTab } from './InterfaceSettingsTab';
 import { type AppearanceSettings, type OverlaySettings, DEFAULT_APPEARANCE, DEFAULT_OVERLAY } from './InterfaceSettingsTypes';
 import { IdentitySettingsTab } from './IdentitySettingsTab';
 import { ConnectionSettingsTab, type ConnectionSettings } from './ConnectionSettingsTab';
+import { ProfileSettingsTab } from './ProfileSettingsTab';
 import { useServerlist } from '../../hooks/useServerlist';
 
 /** A flat map of every key binding in the app: bindingId → bound key code (or null). */
@@ -31,6 +32,13 @@ interface SettingsModalProps {
   onClose: () => void;
   username?: string;
   certFingerprint?: string;
+  currentUser?: {
+    name: string;
+    matrixUserId?: string;
+    avatarUrl?: string;
+  };
+  onUploadAvatar?: (blob: Blob, contentType: string) => void;
+  onRemoveAvatar?: () => void;
 }
 
 interface AppSettings {
@@ -59,7 +67,7 @@ const DEFAULT_SETTINGS: AppSettings = {
 
 export function SettingsModal(props: SettingsModalProps) {
   const { isOpen, onClose } = props;
-  const [activeTab, setActiveTab] = useState<'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'identity'>('audio');
+  const [activeTab, setActiveTab] = useState<'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'identity'>('profile');
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const { servers } = useServerlist();
 
@@ -253,6 +261,12 @@ export function SettingsModal(props: SettingsModalProps) {
         </div>
 
         <div className="settings-tabs">
+          <button
+            className={`settings-tab ${activeTab === 'profile' ? 'active' : ''}`}
+            onClick={() => setActiveTab('profile')}
+          >
+            Profile
+          </button>
           <button 
             className={`settings-tab ${activeTab === 'audio' ? 'active' : ''}`}
             onClick={() => setActiveTab('audio')}
@@ -292,6 +306,13 @@ export function SettingsModal(props: SettingsModalProps) {
         </div>
 
         <div className="settings-content">
+          {activeTab === 'profile' && (
+            <ProfileSettingsTab
+              currentUser={props.currentUser ?? { name: props.username ?? 'Unknown' }}
+              onUploadAvatar={props.onUploadAvatar ?? (() => {})}
+              onRemoveAvatar={props.onRemoveAvatar ?? (() => {})}
+            />
+          )}
           {activeTab === 'audio' && <AudioSettingsTab settings={settings.audio} onChange={handleAudioChange} speechEnhancement={settings.speechEnhancement} onSpeechEnhancementChange={handleSpeechEnhancementChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}
           {activeTab === 'shortcuts' && <ShortcutsSettingsTab settings={settings.shortcuts} onChange={handleShortcutsChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}
           {activeTab === 'messages' && <MessagesSettingsTab settings={settings.messages} onChange={handleMessagesChange} />}
