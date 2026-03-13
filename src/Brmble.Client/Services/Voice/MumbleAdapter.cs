@@ -1727,6 +1727,85 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     {
         base.ServerSync(serverSync);
 
+        if (_activeServerId is not null)
+        {
+            _appConfigService?.SaveLastConnectedServerId(_activeServerId);
+        }
+
+        if (!string.IsNullOrEmpty(serverSync.WelcomeText))
+        {
+            _lastWelcomeText = serverSync.WelcomeText;
+            SendSystemMessage(serverSync.WelcomeText, "welcome", html: true);
+        }
+
+        // Reuse or recreated AudioManager (see Connect())
+        // Set up audio packet handlers (need Connection which is now available)
+        _audioManager?.SendVoicePacket += packet =>
+            Connection?.SendVoice(new ArraySegment<byte>(packet.ToArray()));
+        _audioManager?.UserStartedSpeaking += userId =>
+            _bridge?.Send("voice.userSpeaking", new { session = userId });
+        _audioManager?.UserStoppedSpeaking += userId =>
+            _bridge?.Send("voice.userSilent", new { session = userId });
+        if (LocalUser != null)
+            _audioManager?.SetLocalUserId(LocalUser.Id);
+        _audioManager?.StartMic();
+
+        // User starts in root channel on connect — auto-activate leave voice.
+        // _previousChannelId stays null so the rejoin action is disabled until
+        // the user manually joins a channel.
+        ActivateLeaveVoice();
+
+        // Determine the API URL for credential fetch.
+        // We fetch credentials BEFORE sending voice.connected so that session
+        // mappings are already populated and users appear with their matrixUserId
+        // on the very first render (no flash of wrong fallback icon).
+        string? credentialUrl = null;
+
+        // Flow A: discover Brmble API URL from welcome text (restricted to matching host)
+        if (_apiUrl is null && serverSync.WelcomeText is not null)
+        {
+            var discovered = ParseBrmbleApiUrl(serverSync.WelcomeText);
+            if (discovered is not null
+                && Uri.TryCreate(discovered, UriKind.Absolute, out var discoveredUri)
+                && string.Equals(discoveredUri.Host, _reconnectHost, StringComparison.OrdinalIgnoreCase))
+            {
+                _apiUrl = discovered;
+                OnApiUrlDiscovered?.Invoke(discovered);
+                credentialUrl = discovered;
+            }
+            else if (discovered is not null)
+            {
+                Debug.WriteLine($"[Matrix] API URL host mismatch: {discovered} vs {_reconnectHost}");
+            }
+        }
+        // Flow B: _apiUrl already set from /server-info call or voice.connect apiUrl field
+        else if (_apiUrl is not null)
+        {
+            credentialUrl = _apiUrl;
+        }
+
+        if (credentialUrl is not null)
+        {
+            var url = credentialUrl;
+            Task.Run(async () =>
+            {
+                await FetchAndSendCredentials(url);
+                SendVoiceConnected();
+            });
+        }
+        else
+        {
+            // No API URL — credentials fetch not possible; send voice.connected immediately
+            SendVoiceConnected();
+        }
+    }
+
+    /// <summary>
+    /// Build the channel/user snapshot and send voice.connected to the frontend.
+    /// Called after credential fetch (if available) so session mappings are populated.
+    /// </summary>
+    private void SendVoiceConnected()
+    {
         var channels = Channels.Select(c => new { id = c.Id, name = c.Name, parent = c.Parent }).ToList();
         var users = Users.Select(u => new
         {
@@ -1748,62 +1827,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             channels,
             users
         });
-
-        if (_activeServerId is not null)
-        {
-            _appConfigService?.SaveLastConnectedServerId(_activeServerId);
-        }
-
-        if (!string.IsNullOrEmpty(serverSync.WelcomeText))
-        {
-            _lastWelcomeText = serverSync.WelcomeText;
-            SendSystemMessage(serverSync.WelcomeText, "welcome", html: true);
-        }
-
-        // Flow A: discover Brmble API URL from welcome text (restricted to matching host)
-        if (_apiUrl is null && serverSync.WelcomeText is not null)
-        {
-            var discovered = ParseBrmbleApiUrl(serverSync.WelcomeText);
-            if (discovered is not null
-                && Uri.TryCreate(discovered, UriKind.Absolute, out var discoveredUri)
-                && string.Equals(discoveredUri.Host, _reconnectHost, StringComparison.OrdinalIgnoreCase))
-            {
-                _apiUrl = discovered;
-                OnApiUrlDiscovered?.Invoke(discovered);
-                Task.Run(() => FetchAndSendCredentials(discovered));
-            }
-            else if (discovered is not null)
-            {
-                Debug.WriteLine($"[Matrix] API URL host mismatch: {discovered} vs {_reconnectHost}");
-            }
-        }
-        // Flow B: _apiUrl already set from /server-info call or voice.connect apiUrl field
-        else if (_apiUrl is not null)
-        {
-            var url = _apiUrl;
-            Task.Run(() => FetchAndSendCredentials(url));
-        }
-        else
-        {
-            // No API URL and no welcome text — credentials fetch not possible
-        }
-
-        // Reuse or recreated AudioManager (see Connect())
-        // Set up audio packet handlers (need Connection which is now available)
-        _audioManager?.SendVoicePacket += packet =>
-            Connection?.SendVoice(new ArraySegment<byte>(packet.ToArray()));
-        _audioManager?.UserStartedSpeaking += userId =>
-            _bridge?.Send("voice.userSpeaking", new { session = userId });
-        _audioManager?.UserStoppedSpeaking += userId =>
-            _bridge?.Send("voice.userSilent", new { session = userId });
-        if (LocalUser != null)
-            _audioManager?.SetLocalUserId(LocalUser.Id);
-        _audioManager?.StartMic();
-
-        // User starts in root channel on connect — auto-activate leave voice.
-        // _previousChannelId stays null so the rejoin action is disabled until
-        // the user manually joins a channel.
-        ActivateLeaveVoice();
 
         Debug.WriteLine($"[Mumble] Sent {channels.Count} channels and {users.Count} users");
     }

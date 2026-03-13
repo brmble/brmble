@@ -32,16 +32,30 @@ const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
 const DEFAULT_SPLIT = 50;
 
 export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, isDM, matrixClient, readMarkerTs, screenShareVideoEl, screenSharerName, onCloseScreenShare, users }: ChatPanelProps) {
-  // Build a lookup map from sender name → avatar data for MessageBubble
+  // Build lookup maps from sender name and matrixUserId → avatar data for MessageBubble.
+  // Name-based lookup works when Mumble name matches message sender.
+  // MatrixUserId-based lookup handles cases where the user connected with a different
+  // Mumble name than the Matrix display name used in messages.
   const senderAvatarMap = useMemo(() => {
-    const map = new Map<string, { avatarUrl?: string; matrixUserId?: string }>();
+    const byName = new Map<string, { avatarUrl?: string; matrixUserId?: string }>();
+    const byMatrixId = new Map<string, { avatarUrl?: string; matrixUserId?: string }>();
     if (users) {
       for (const u of users) {
-        map.set(u.name, { avatarUrl: u.avatarUrl, matrixUserId: u.matrixUserId });
+        const entry = { avatarUrl: u.avatarUrl, matrixUserId: u.matrixUserId };
+        byName.set(u.name, entry);
+        if (u.matrixUserId) {
+          byMatrixId.set(u.matrixUserId, entry);
+        }
       }
     }
-    return map;
+    return { byName, byMatrixId };
   }, [users]);
+
+  /** Look up avatar data by sender name first, then fall back to matrixUserId. */
+  const lookupAvatar = useCallback((senderName: string, senderMatrixId?: string) => {
+    return senderAvatarMap.byName.get(senderName)
+      ?? (senderMatrixId ? senderAvatarMap.byMatrixId.get(senderMatrixId) : undefined);
+  }, [senderAvatarMap]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -355,7 +369,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
       <div className="chat-header">
         <div className="chat-header-left">
           {isDM ? (
-            <Avatar user={{ name: channelName || '', matrixUserId: senderAvatarMap.get(channelName || '')?.matrixUserId, avatarUrl: senderAvatarMap.get(channelName || '')?.avatarUrl }} size={28} isMumbleOnly={!senderAvatarMap.get(channelName || '')?.matrixUserId} />
+            <Avatar user={{ name: channelName || '', matrixUserId: lookupAvatar(channelName || '')?.matrixUserId, avatarUrl: lookupAvatar(channelName || '')?.avatarUrl }} size={28} isMumbleOnly={!lookupAvatar(channelName || '')?.matrixUserId} />
           ) : (
             <span className="channel-hash">#</span>
           )}
@@ -529,8 +543,8 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
                     searchQuery={searchQuery}
                     isActiveMatch={isActiveMatch}
                     messageIndex={msgIndex}
-                    senderAvatarUrl={senderAvatarMap.get(item.message.sender)?.avatarUrl}
-                    senderMatrixUserId={senderAvatarMap.get(item.message.sender)?.matrixUserId}
+                    senderAvatarUrl={lookupAvatar(item.message.sender, item.message.senderMatrixUserId)?.avatarUrl}
+                    senderMatrixUserId={lookupAvatar(item.message.sender, item.message.senderMatrixUserId)?.matrixUserId}
                   />
                 </Fragment>
                 );

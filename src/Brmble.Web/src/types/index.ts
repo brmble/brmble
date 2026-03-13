@@ -41,6 +41,7 @@ export interface ChatMessage {
   id: string;
   channelId: string;
   sender: string;
+  senderMatrixUserId?: string;
   content: string;
   timestamp: Date;
   type?: 'system';
