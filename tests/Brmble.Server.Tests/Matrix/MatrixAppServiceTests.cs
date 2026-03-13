@@ -191,4 +191,20 @@ public class MatrixAppServiceTests
         StringAssert.Contains(body, "m.image");
         StringAssert.Contains(body, "mxc://server/abc123");
     }
+
+    [TestMethod]
+    public async Task SetAvatarUrl_SendsPutToAvatarUrlEndpoint()
+    {
+        SetupHttpResponse(HttpStatusCode.OK);
+
+        await _svc.SetAvatarUrl("1", "mxc://server/abc123");
+
+        var req = _capturedRequests.Single();
+        Assert.AreEqual(HttpMethod.Put, req.Method);
+        StringAssert.Contains(req.RequestUri!.AbsolutePath,
+            "/_matrix/client/v3/profile/%40" /* @1:localhost encoded */);
+        StringAssert.Contains(req.RequestUri!.AbsolutePath, "avatar_url");
+        var body = await req.Content!.ReadAsStringAsync();
+        StringAssert.Contains(body, "mxc://server/abc123");
+    }
 }
