@@ -72,12 +72,12 @@ public static class LiveKitEndpoints
             if (string.IsNullOrWhiteSpace(roomName))
                 return Results.BadRequest(new { error = "roomName is required" });
 
-            if (!roomName.StartsWith("channel-") || !int.TryParse(roomName.AsSpan("channel-".Length), out var channelId))
+            if (!roomName.StartsWith("channel-") || !int.TryParse(roomName.AsSpan("channel-".Length), out _))
                 return Results.BadRequest(new { error = "invalid roomName format" });
 
             tracker.Start(roomName, user.DisplayName, user.Id);
             var hasSession = sessionMapping.TryGetSessionByUserId(user.Id, out var sessionId);
-            await eventBus.BroadcastToChannelAsync(channelId, new
+            await eventBus.BroadcastAsync(new
             {
                 type = "screenShare.started",
                 roomName,
@@ -115,7 +115,7 @@ public static class LiveKitEndpoints
             if (string.IsNullOrWhiteSpace(roomName))
                 return Results.BadRequest(new { error = "roomName is required" });
 
-            if (!roomName.StartsWith("channel-") || !int.TryParse(roomName.AsSpan("channel-".Length), out var channelId))
+            if (!roomName.StartsWith("channel-") || !int.TryParse(roomName.AsSpan("channel-".Length), out _))
                 return Results.BadRequest(new { error = "invalid roomName format" });
 
             var activeShare = tracker.GetActive(roomName);
@@ -126,22 +126,25 @@ public static class LiveKitEndpoints
                 return Results.Forbid();
 
             tracker.Stop(roomName);
-            await eventBus.BroadcastToChannelAsync(channelId, new { type = "screenShare.stopped", roomName });
+            await eventBus.BroadcastAsync(new { type = "screenShare.stopped", roomName });
             return Results.Ok();
         });
 
         app.MapGet("/livekit/active-share", (
             HttpContext httpContext,
-            ScreenShareTracker tracker) =>
+            ScreenShareTracker tracker,
+            ISessionMappingService sessionMapping) =>
         {
             var roomName = httpContext.Request.Query["roomName"].ToString();
             if (string.IsNullOrWhiteSpace(roomName))
                 return Results.BadRequest(new { error = "roomName query parameter is required" });
 
             var info = tracker.GetActive(roomName);
-            return info is not null
-                ? Results.Ok(new { info.UserName, info.UserId })
-                : Results.NotFound();
+            if (info is null)
+                return Results.NotFound();
+
+            var hasSession = sessionMapping.TryGetSessionByUserId(info.UserId, out var sessionId);
+            return Results.Ok(new { info.UserName, info.UserId, sessionId = hasSession ? sessionId : (int?)null });
         });
 
         return app;

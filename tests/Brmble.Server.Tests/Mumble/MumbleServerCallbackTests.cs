@@ -196,7 +196,7 @@ public class MumbleServerCallbackTests
     public async Task DispatchUserStateChanged_StopsShareWhenUserChangesChannel()
     {
         var bus = new Mock<IBrmbleEventBus>();
-        bus.Setup(b => b.BroadcastToChannelAsync(It.IsAny<int>(), It.IsAny<object>())).Returns(Task.CompletedTask);
+        bus.Setup(b => b.BroadcastAsync(It.IsAny<object>())).Returns(Task.CompletedTask);
         var channelMembership = new Mock<IChannelMembershipService>();
         var tracker = new ScreenShareTracker();
         tracker.Start("channel-5", "Alice", 100L);
@@ -215,7 +215,7 @@ public class MumbleServerCallbackTests
 
         // Share in channel-5 should be stopped
         Assert.IsNull(tracker.GetActive("channel-5"));
-        bus.Verify(b => b.BroadcastToChannelAsync(5, It.IsAny<object>()), Times.Once);
+        bus.Verify(b => b.BroadcastAsync(It.IsAny<object>()), Times.Once);
     }
 
     [TestMethod]
@@ -241,7 +241,7 @@ public class MumbleServerCallbackTests
         await callback.DispatchUserDisconnected(new MumbleUser("Alice", "abc", 42));
 
         Assert.IsNull(tracker.GetActive("channel-5"));
-        bus.Verify(b => b.BroadcastToChannelAsync(5, It.IsAny<object>()), Times.Once);
+        bus.Verify(b => b.BroadcastAsync(It.Is<object>(o => o.ToString()!.Contains("screenShare.stopped"))), Times.Once);
         channelMembership.Verify(cm => cm.Remove(42), Times.Once);
         mapping.Verify(m => m.RemoveSession(42), Times.Once);
     }
