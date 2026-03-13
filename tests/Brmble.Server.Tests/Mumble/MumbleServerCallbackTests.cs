@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Brmble.Server.Events;
 using Brmble.Server.LiveKit;
 using Brmble.Server.Mumble;
@@ -196,7 +197,10 @@ public class MumbleServerCallbackTests
     public async Task DispatchUserStateChanged_StopsShareWhenUserChangesChannel()
     {
         var bus = new Mock<IBrmbleEventBus>();
-        bus.Setup(b => b.BroadcastToChannelAsync(It.IsAny<int>(), It.IsAny<object>())).Returns(Task.CompletedTask);
+        object? capturedMessage = null;
+        bus.Setup(b => b.BroadcastAsync(It.IsAny<object>()))
+            .Callback<object>(msg => capturedMessage = msg)
+            .Returns(Task.CompletedTask);
         var channelMembership = new Mock<IChannelMembershipService>();
         var tracker = new ScreenShareTracker();
         tracker.Start("channel-5", "Alice", 100L);
@@ -215,7 +219,12 @@ public class MumbleServerCallbackTests
 
         // Share in channel-5 should be stopped
         Assert.IsNull(tracker.GetActive("channel-5"));
-        bus.Verify(b => b.BroadcastToChannelAsync(5, It.IsAny<object>()), Times.Once);
+        bus.Verify(b => b.BroadcastAsync(It.IsAny<object>()), Times.Once);
+        Assert.IsNotNull(capturedMessage);
+        var json = JsonSerializer.Serialize(capturedMessage);
+        using var doc = JsonDocument.Parse(json);
+        Assert.AreEqual("screenShare.stopped", doc.RootElement.GetProperty("type").GetString());
+        Assert.AreEqual("channel-5", doc.RootElement.GetProperty("roomName").GetString());
     }
 
     [TestMethod]
@@ -224,8 +233,10 @@ public class MumbleServerCallbackTests
         var handler = new Mock<IMumbleEventHandler>();
         handler.Setup(h => h.OnUserDisconnected(It.IsAny<MumbleUser>())).Returns(Task.CompletedTask);
         var bus = new Mock<IBrmbleEventBus>();
-        bus.Setup(b => b.BroadcastAsync(It.IsAny<object>())).Returns(Task.CompletedTask);
-        bus.Setup(b => b.BroadcastToChannelAsync(It.IsAny<int>(), It.IsAny<object>())).Returns(Task.CompletedTask);
+        var capturedMessages = new List<object>();
+        bus.Setup(b => b.BroadcastAsync(It.IsAny<object>()))
+            .Callback<object>(msg => capturedMessages.Add(msg))
+            .Returns(Task.CompletedTask);
         var channelMembership = new Mock<IChannelMembershipService>();
         var mapping = new Mock<ISessionMappingService>();
         var tracker = new ScreenShareTracker();
@@ -241,7 +252,11 @@ public class MumbleServerCallbackTests
         await callback.DispatchUserDisconnected(new MumbleUser("Alice", "abc", 42));
 
         Assert.IsNull(tracker.GetActive("channel-5"));
-        bus.Verify(b => b.BroadcastToChannelAsync(5, It.IsAny<object>()), Times.Once);
+        var stopMsg = capturedMessages
+            .Select(m => JsonDocument.Parse(JsonSerializer.Serialize(m)))
+            .FirstOrDefault(d => d.RootElement.GetProperty("type").GetString() == "screenShare.stopped");
+        Assert.IsNotNull(stopMsg, "Expected a screenShare.stopped broadcast");
+        Assert.AreEqual("channel-5", stopMsg.RootElement.GetProperty("roomName").GetString());
         channelMembership.Verify(cm => cm.Remove(42), Times.Once);
         mapping.Verify(m => m.RemoveSession(42), Times.Once);
     }
