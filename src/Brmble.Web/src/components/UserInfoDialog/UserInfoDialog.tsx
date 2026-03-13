@@ -10,6 +10,8 @@ export interface UserInfoDialogProps {
   session: number;
   isSelf: boolean;
   comment?: string;
+  matrixUserId?: string;
+  avatarUrl?: string;
   onStartDM?: (userId: string, userName: string) => void;
 }
 
@@ -20,6 +22,8 @@ export function UserInfoDialog({
   session,
   isSelf,
   comment,
+  matrixUserId,
+  avatarUrl,
   onStartDM,
 }: UserInfoDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -147,7 +151,7 @@ export function UserInfoDialog({
       >
         <div className="user-info-header">
           <div className="user-info-avatar">
-            <Avatar user={{ name: userName, matrixUserId: undefined, avatarUrl: undefined }} size={56} />
+            <Avatar user={{ name: userName, matrixUserId, avatarUrl }} size={56} />
           </div>
           <div className="user-info-title-row">
             <h2 id="user-info-title" className="user-info-name">{userName}</h2>

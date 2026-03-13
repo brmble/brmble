@@ -22,6 +22,8 @@ interface MessageBubbleProps {
   searchQuery?: string;
   isActiveMatch?: boolean;
   messageIndex?: number;
+  senderAvatarUrl?: string;
+  senderMatrixUserId?: string;
 }
 
 /** Highlight search matches within a plain-text string, returning React nodes. */
@@ -91,7 +93,7 @@ function highlightHtml(html: string, query: string): string {
   });
 }
 
-export function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex }: MessageBubbleProps) {
+export function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId }: MessageBubbleProps) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const formatTime = (date: Date) => {
@@ -114,7 +116,7 @@ export function MessageBubble({ sender, content, timestamp, isOwnMessage, isSyst
         </div>
       ) : (
         <div className="message-avatar">
-          <Avatar user={{ name: sender, matrixUserId: undefined, avatarUrl: undefined }} size={40} />
+          <Avatar user={{ name: sender, matrixUserId: senderMatrixUserId, avatarUrl: senderAvatarUrl }} size={40} />
         </div>
       )}
       <div className="message-content">

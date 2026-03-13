@@ -109,6 +109,7 @@ interface User {
   self?: boolean;
   comment?: string;
   matrixUserId?: string;
+  avatarUrl?: string;
 }
 
 
@@ -192,6 +193,33 @@ function App() {
       if (url) setCurrentUserAvatarUrl(url);
     });
   }, [matrixCredentials?.userId, matrixClient.client, matrixClient.fetchAvatarUrl]);
+
+  // Track which matrixUserIds we've already fetched avatars for to avoid re-fetching
+  const fetchedAvatarIdsRef = useRef<Set<string>>(new Set());
+
+  // Fetch avatar URLs for all connected users that have a matrixUserId
+  useEffect(() => {
+    if (!matrixClient.client) return;
+    const toFetch = users.filter(u => u.matrixUserId && !u.avatarUrl && !fetchedAvatarIdsRef.current.has(u.matrixUserId!));
+    if (toFetch.length === 0) return;
+
+    // Mark as in-flight so we don't re-fetch on re-render
+    for (const u of toFetch) fetchedAvatarIdsRef.current.add(u.matrixUserId!);
+
+    Promise.all(
+      toFetch.map(async (u) => {
+        const url = await matrixClient.fetchAvatarUrl(u.matrixUserId!);
+        return { session: u.session, avatarUrl: url };
+      })
+    ).then((results) => {
+      const resolved = results.filter(r => r.avatarUrl);
+      if (resolved.length === 0) return;
+      setUsers(prev => prev.map(u => {
+        const match = resolved.find(r => r.session === u.session);
+        return match ? { ...u, avatarUrl: match.avatarUrl! } : u;
+      }));
+    });
+  }, [users, matrixClient.client, matrixClient.fetchAvatarUrl]);
 
   const onUploadAvatar = useCallback(async (blob: Blob, contentType: string) => {
     if (!matrixClient.client) return;
@@ -1171,9 +1199,15 @@ const handleConnect = (serverData: SavedServer) => {
     () =>
       dmContacts.map(c => {
         const comment = userCommentsBySession.get(c.userId);
-        return comment ? { ...c, comment } : c;
+        const user = users.find(u => String(u.session) === c.userId);
+        return {
+          ...c,
+          ...(comment ? { comment } : {}),
+          ...(user?.matrixUserId ? { matrixUserId: user.matrixUserId } : {}),
+          ...(user?.avatarUrl ? { avatarUrl: user.avatarUrl } : {}),
+        };
       }),
-    [dmContacts, userCommentsBySession],
+    [dmContacts, userCommentsBySession, users],
   );
 
   const handleSelectDMUser = (userId: string, userName: string) => {
@@ -1512,6 +1546,7 @@ const handleConnect = (serverData: SavedServer) => {
                   screenShareVideoEl={remoteVideoEl}
                   screenSharerName={activeShare?.userName}
                   onCloseScreenShare={disconnectViewer}
+                  users={users}
                 />
                 </ErrorBoundary>
               </div>
@@ -1526,6 +1561,7 @@ const handleConnect = (serverData: SavedServer) => {
                   isDM={true}
                   matrixClient={matrixClient.client}
                   readMarkerTs={dmDividerTs}
+                  users={users}
                 />
                 </ErrorBoundary>
               </div>

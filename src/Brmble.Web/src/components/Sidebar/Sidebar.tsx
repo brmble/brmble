@@ -364,6 +364,8 @@ export function Sidebar({
             session={parseInt(infoDialogUser.userId)}
             isSelf={infoDialogUser.isSelf}
             comment={user?.comment}
+            matrixUserId={user?.matrixUserId}
+            avatarUrl={user?.avatarUrl}
             onStartDM={onStartDM}
           />
         );

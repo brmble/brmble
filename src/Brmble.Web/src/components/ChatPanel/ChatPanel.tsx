@@ -23,13 +23,26 @@ interface ChatPanelProps {
   screenShareVideoEl?: HTMLVideoElement | null;
   screenSharerName?: string;
   onCloseScreenShare?: () => void;
+  /** Connected users for avatar lookup by sender name */
+  users?: { name: string; matrixUserId?: string; avatarUrl?: string }[];
 }
 
 const SCROLL_THRESHOLD = 150;
 const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
 const DEFAULT_SPLIT = 50;
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, isDM, matrixClient, readMarkerTs, screenShareVideoEl, screenSharerName, onCloseScreenShare }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, isDM, matrixClient, readMarkerTs, screenShareVideoEl, screenSharerName, onCloseScreenShare, users }: ChatPanelProps) {
+  // Build a lookup map from sender name → avatar data for MessageBubble
+  const senderAvatarMap = useMemo(() => {
+    const map = new Map<string, { avatarUrl?: string; matrixUserId?: string }>();
+    if (users) {
+      for (const u of users) {
+        map.set(u.name, { avatarUrl: u.avatarUrl, matrixUserId: u.matrixUserId });
+      }
+    }
+    return map;
+  }, [users]);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const unreadDividerRef = useRef<HTMLDivElement>(null);
@@ -342,7 +355,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
       <div className="chat-header">
         <div className="chat-header-left">
           {isDM ? (
-            <Avatar user={{ name: channelName || '', matrixUserId: undefined, avatarUrl: undefined }} size={28} />
+            <Avatar user={{ name: channelName || '', matrixUserId: senderAvatarMap.get(channelName || '')?.matrixUserId, avatarUrl: senderAvatarMap.get(channelName || '')?.avatarUrl }} size={28} />
           ) : (
             <span className="channel-hash">#</span>
           )}
@@ -516,6 +529,8 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
                     searchQuery={searchQuery}
                     isActiveMatch={isActiveMatch}
                     messageIndex={msgIndex}
+                    senderAvatarUrl={senderAvatarMap.get(item.message.sender)?.avatarUrl}
+                    senderMatrixUserId={senderAvatarMap.get(item.message.sender)?.matrixUserId}
                   />
                 </Fragment>
                 );
