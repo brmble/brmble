@@ -7,7 +7,6 @@ import { ShortcutsSettingsTab, type ShortcutsSettings, DEFAULT_SHORTCUTS } from 
 import { MessagesSettingsTab, type MessagesSettings, DEFAULT_MESSAGES } from './MessagesSettingsTab';
 import { InterfaceSettingsTab } from './InterfaceSettingsTab';
 import { type AppearanceSettings, type OverlaySettings, DEFAULT_APPEARANCE, DEFAULT_OVERLAY } from './InterfaceSettingsTypes';
-import { IdentitySettingsTab } from './IdentitySettingsTab';
 import { ConnectionSettingsTab, type ConnectionSettings } from './ConnectionSettingsTab';
 import { ProfileSettingsTab } from './ProfileSettingsTab';
 import { useServerlist } from '../../hooks/useServerlist';
@@ -67,7 +66,7 @@ const DEFAULT_SETTINGS: AppSettings = {
 
 export function SettingsModal(props: SettingsModalProps) {
   const { isOpen, onClose } = props;
-  const [activeTab, setActiveTab] = useState<'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'identity'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection'>('profile');
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const { servers } = useServerlist();
 
@@ -297,12 +296,7 @@ export function SettingsModal(props: SettingsModalProps) {
           >
             Connection
           </button>
-          <button
-            className={`settings-tab ${activeTab === 'identity' ? 'active' : ''}`}
-            onClick={() => setActiveTab('identity')}
-          >
-            Identity
-          </button>
+
         </div>
 
         <div className="settings-content">
@@ -311,6 +305,8 @@ export function SettingsModal(props: SettingsModalProps) {
               currentUser={props.currentUser ?? { name: props.username ?? 'Unknown' }}
               onUploadAvatar={props.onUploadAvatar ?? (() => {})}
               onRemoveAvatar={props.onRemoveAvatar ?? (() => {})}
+              fingerprint={props.certFingerprint ?? ''}
+              connectedUsername={props.username ?? ''}
             />
           )}
           {activeTab === 'audio' && <AudioSettingsTab settings={settings.audio} onChange={handleAudioChange} speechEnhancement={settings.speechEnhancement} onSpeechEnhancementChange={handleSpeechEnhancementChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}
@@ -335,12 +331,7 @@ export function SettingsModal(props: SettingsModalProps) {
               servers={servers.map(s => ({ id: s.id, label: s.label }))}
             />
           )}
-          {activeTab === 'identity' && (
-            <IdentitySettingsTab
-              fingerprint={props.certFingerprint ?? ''}
-              connectedUsername={props.username ?? ''}
-            />
-          )}
+
         </div>
 
         <div className="settings-footer">
