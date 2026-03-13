@@ -355,7 +355,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
       <div className="chat-header">
         <div className="chat-header-left">
           {isDM ? (
-            <Avatar user={{ name: channelName || '', matrixUserId: senderAvatarMap.get(channelName || '')?.matrixUserId, avatarUrl: senderAvatarMap.get(channelName || '')?.avatarUrl }} size={28} />
+            <Avatar user={{ name: channelName || '', matrixUserId: senderAvatarMap.get(channelName || '')?.matrixUserId, avatarUrl: senderAvatarMap.get(channelName || '')?.avatarUrl }} size={28} isMumbleOnly={!senderAvatarMap.get(channelName || '')?.matrixUserId} />
           ) : (
             <span className="channel-hash">#</span>
           )}

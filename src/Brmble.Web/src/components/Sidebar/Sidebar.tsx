@@ -199,7 +199,7 @@ export function Sidebar({
                   ? () => onWatchScreenShare?.(`channel-${rootChannel?.id ?? 0}`)
                   : undefined}
               >
-                <Avatar user={{ name: user.name, matrixUserId: user.matrixUserId, avatarUrl: user.avatarUrl }} size={20} />
+                <Avatar user={{ name: user.name, matrixUserId: user.matrixUserId, avatarUrl: user.avatarUrl }} size={20} isMumbleOnly={!user.self && !user.matrixUserId} />
                 <span className="root-user-status">
                   {sharingUserSession === user.session ? (
                     <svg className="status-icon status-icon--sharing" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

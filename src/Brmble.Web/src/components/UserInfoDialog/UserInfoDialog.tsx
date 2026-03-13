@@ -151,7 +151,7 @@ export function UserInfoDialog({
       >
         <div className="user-info-header">
           <div className="user-info-avatar">
-            <Avatar user={{ name: userName, matrixUserId, avatarUrl }} size={56} />
+            <Avatar user={{ name: userName, matrixUserId, avatarUrl }} size={56} isMumbleOnly={!matrixUserId} />
           </div>
           <div className="user-info-title-row">
             <h2 id="user-info-title" className="user-info-name">{userName}</h2>

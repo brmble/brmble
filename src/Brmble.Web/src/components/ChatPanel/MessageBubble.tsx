@@ -116,7 +116,7 @@ export function MessageBubble({ sender, content, timestamp, isOwnMessage, isSyst
         </div>
       ) : (
         <div className="message-avatar">
-          <Avatar user={{ name: sender, matrixUserId: senderMatrixUserId, avatarUrl: senderAvatarUrl }} size={40} />
+          <Avatar user={{ name: sender, matrixUserId: senderMatrixUserId, avatarUrl: senderAvatarUrl }} size={40} isMumbleOnly={!isOwnMessage && !senderMatrixUserId} />
         </div>
       )}
       <div className="message-content">

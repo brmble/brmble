@@ -194,6 +194,16 @@ function App() {
     });
   }, [matrixCredentials?.userId, matrixClient.client, matrixClient.fetchAvatarUrl]);
 
+  // Keep the self user's avatarUrl in the users array in sync with currentUserAvatarUrl
+  useEffect(() => {
+    if (currentUserAvatarUrl === undefined) return;
+    setUsers(prev => {
+      const self = prev.find(u => u.self);
+      if (!self || self.avatarUrl === currentUserAvatarUrl) return prev;
+      return prev.map(u => u.self ? { ...u, avatarUrl: currentUserAvatarUrl } : u);
+    });
+  }, [currentUserAvatarUrl]);
+
   // Track which matrixUserIds we've already fetched avatars for to avoid re-fetching
   const fetchedAvatarIdsRef = useRef<Set<string>>(new Set());
 
@@ -229,6 +239,10 @@ function App() {
       await matrixClient.client.setAvatarUrl(mxcUrl);
       const httpUrl = matrixClient.client.mxcUrlToHttp(mxcUrl, 128, 128, 'crop');
       setCurrentUserAvatarUrl(httpUrl ?? undefined);
+      // Also update the self user in the users list so channel tree / chat show the new avatar
+      if (httpUrl) {
+        setUsers(prev => prev.map(u => u.self ? { ...u, avatarUrl: httpUrl } : u));
+      }
       // Notify backend so Mumble texture sync won't overwrite this avatar
       bridge.send('avatar.setSource', { source: 'brmble' });
     } catch (e) {
@@ -241,6 +255,8 @@ function App() {
     try {
       await matrixClient.client.setAvatarUrl('');
       setCurrentUserAvatarUrl(undefined);
+      // Also clear the self user's avatar in the users list
+      setUsers(prev => prev.map(u => u.self ? { ...u, avatarUrl: undefined } : u));
       // Clear avatar source so Mumble textures can take over again
       bridge.send('avatar.setSource', { source: null });
     } catch (e) {
@@ -493,6 +509,8 @@ function App() {
       setSelfSession(0);
       setSpeakingUsers(new Map());
       setMatrixCredentials(null);
+      setCurrentUserAvatarUrl(undefined);
+      fetchedAvatarIdsRef.current.clear();
       disconnectViewerRef.current?.();
       setSharingChannelId(undefined);
       setScreenShareToast(null);
@@ -825,6 +843,7 @@ function App() {
       setSelfCanRejoin(false);
       setSelfSession(0);
       setSpeakingUsers(new Map());
+      setCurrentUserAvatarUrl(undefined);
     };
 
     const onUserMappingUpdated = (data: unknown) => {
@@ -1606,6 +1625,7 @@ const handleConnect = (serverData: SavedServer) => {
         onClose={() => setShowSettings(false)}
         username={username}
         certFingerprint={certFingerprint}
+        connected={connected}
         currentUser={{
           name: username ?? 'Unknown',
           matrixUserId: matrixCredentials?.userId,

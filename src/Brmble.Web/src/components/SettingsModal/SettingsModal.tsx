@@ -31,6 +31,7 @@ interface SettingsModalProps {
   onClose: () => void;
   username?: string;
   certFingerprint?: string;
+  connected?: boolean;
   currentUser?: {
     name: string;
     matrixUserId?: string;
@@ -307,6 +308,7 @@ export function SettingsModal(props: SettingsModalProps) {
               onRemoveAvatar={props.onRemoveAvatar ?? (() => {})}
               fingerprint={props.certFingerprint ?? ''}
               connectedUsername={props.username ?? ''}
+              connected={props.connected ?? false}
             />
           )}
           {activeTab === 'audio' && <AudioSettingsTab settings={settings.audio} onChange={handleAudioChange} speechEnhancement={settings.speechEnhancement} onSpeechEnhancementChange={handleSpeechEnhancementChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}

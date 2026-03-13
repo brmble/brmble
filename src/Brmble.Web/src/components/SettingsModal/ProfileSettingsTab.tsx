@@ -14,6 +14,7 @@ interface ProfileSettingsTabProps {
   onRemoveAvatar: () => void;
   fingerprint: string;
   connectedUsername: string;
+  connected: boolean;
 }
 
 function getAvatarStatusText(user: ProfileSettingsTabProps['currentUser']): string {
@@ -35,7 +36,7 @@ function triggerBlobDownload(base64: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar, fingerprint, connectedUsername }: ProfileSettingsTabProps) {
+export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar, fingerprint, connectedUsername, connected }: ProfileSettingsTabProps) {
   const [showUpload, setShowUpload] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -79,12 +80,16 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
           <div className="profile-avatar-info">
             <span className="profile-display-name">{currentUser.name}</span>
             <span className="profile-avatar-status">{statusText}</span>
-            <div className="profile-avatar-actions">
-              <button className="btn btn-primary" onClick={() => setShowUpload(true)}>Upload</button>
-              {currentUser.avatarUrl && (
-                <button className="btn btn-secondary" onClick={onRemoveAvatar}>Remove</button>
-              )}
-            </div>
+            {connected ? (
+              <div className="profile-avatar-actions">
+                <button className="btn btn-primary" onClick={() => setShowUpload(true)}>Upload</button>
+                {currentUser.avatarUrl && (
+                  <button className="btn btn-secondary" onClick={onRemoveAvatar}>Remove</button>
+                )}
+              </div>
+            ) : (
+              <span className="profile-avatar-hint" style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Connect to a server to change your avatar</span>
+            )}
           </div>
         </div>
       </div>

@@ -85,7 +85,7 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
               setContextMenu({ x: e.clientX, y: e.clientY, userId: contact.userId, userName: contact.userName });
             }}
           >
-            <Avatar user={{ name: contact.userName, matrixUserId: contact.matrixUserId, avatarUrl: contact.avatarUrl }} size={28} />
+            <Avatar user={{ name: contact.userName, matrixUserId: contact.matrixUserId, avatarUrl: contact.avatarUrl }} size={28} isMumbleOnly={!contact.matrixUserId} />
             <div className="dm-contact-info">
               <div className="dm-contact-name-row">
                 <Tooltip content={contact.comment || ''}>
