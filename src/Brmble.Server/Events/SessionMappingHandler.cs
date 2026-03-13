@@ -45,6 +45,7 @@ public class SessionMappingHandler : IMumbleEventHandler
     }
 
     public Task OnUserDisconnected(MumbleUser user) => Task.CompletedTask;
+    public Task OnUserTextureAvailable(MumbleUser user, byte[] textureData) => Task.CompletedTask;
     public Task OnUserTextMessage(MumbleUser sender, string text, int channelId) => Task.CompletedTask;
     public Task OnChannelCreated(MumbleChannel channel) => Task.CompletedTask;
     public Task OnChannelRemoved(MumbleChannel channel) => Task.CompletedTask;

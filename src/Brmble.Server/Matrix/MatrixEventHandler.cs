@@ -1,5 +1,6 @@
 using Brmble.Server.Auth;
 using Brmble.Server.Mumble;
+using Microsoft.Extensions.Logging;
 
 namespace Brmble.Server.Matrix;
 
@@ -7,11 +8,22 @@ public class MatrixEventHandler : IMumbleEventHandler
 {
     private readonly MatrixService _matrixService;
     private readonly IActiveBrmbleSessions _activeSessions;
+    private readonly IMatrixAppService _appService;
+    private readonly UserRepository _userRepository;
+    private readonly ILogger<MatrixEventHandler> _logger;
 
-    public MatrixEventHandler(MatrixService matrixService, IActiveBrmbleSessions activeSessions)
+    public MatrixEventHandler(
+        MatrixService matrixService,
+        IActiveBrmbleSessions activeSessions,
+        IMatrixAppService appService,
+        UserRepository userRepository,
+        ILogger<MatrixEventHandler> logger)
     {
         _matrixService = matrixService;
         _activeSessions = activeSessions;
+        _appService = appService;
+        _userRepository = userRepository;
+        _logger = logger;
     }
 
     public Task OnUserConnected(MumbleUser user) => Task.CompletedTask;
@@ -20,6 +32,42 @@ public class MatrixEventHandler : IMumbleEventHandler
     {
         _activeSessions.UntrackMumbleName(user.Name);
         return Task.CompletedTask;
+    }
+
+    public async Task OnUserTextureAvailable(MumbleUser user, byte[] textureData)
+    {
+        if (string.IsNullOrEmpty(user.CertHash)) return;
+
+        var dbUser = await _userRepository.GetByCertHash(user.CertHash);
+        if (dbUser is null) return;
+
+        var avatarSource = await _userRepository.GetAvatarSource(dbUser.Id);
+        if (avatarSource == "brmble")
+        {
+            _logger.LogDebug("Skipping Mumble texture for {User}: Brmble avatar takes priority", user.Name);
+            return;
+        }
+
+        // Detect content type from magic bytes
+        var contentType = DetectImageContentType(textureData);
+        if (contentType is null)
+        {
+            _logger.LogWarning("Mumble texture for {User} has unrecognized format, skipping", user.Name);
+            return;
+        }
+
+        try
+        {
+            var localpart = dbUser.MatrixUserId.Split(':')[0].TrimStart('@');
+            var mxcUrl = await _appService.UploadMedia(textureData, contentType, "avatar.png");
+            await _appService.SetAvatarUrl(localpart, mxcUrl);
+            await _userRepository.SetAvatarSource(dbUser.Id, "mumble");
+            _logger.LogInformation("Set Mumble texture as avatar for {User}", user.Name);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to upload Mumble texture for {User}", user.Name);
+        }
     }
 
     public Task OnUserTextMessage(MumbleUser sender, string text, int channelId)
@@ -33,4 +81,14 @@ public class MatrixEventHandler : IMumbleEventHandler
 
     public Task OnChannelRenamed(MumbleChannel channel)
         => _matrixService.RenameChannelRoom(channel);
+
+    private static string? DetectImageContentType(byte[] data)
+    {
+        if (data.Length < 4) return null;
+        if (data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47) return "image/png";
+        if (data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF) return "image/jpeg";
+        if (data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46) return "image/gif";
+        if (data[0] == 0x52 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x46) return "image/webp";
+        return null;
+    }
 }

@@ -119,6 +119,28 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         var enriched = await TryResolveCertAsync(user);
 
         await Task.WhenAll(_handlers.Select(h => h.OnUserConnected(enriched)));
+
+        // Attempt to fetch Mumble user texture (avatar) for registered users
+        if (_serverProxy is not null && user.SessionId > 0)
+        {
+            try
+            {
+                // Get the user state to check if they're registered (userid >= 0)
+                var state = await _serverProxy.getStateAsync(user.SessionId);
+                if (state.userid >= 0)
+                {
+                    var texture = await _serverProxy.getTextureAsync(state.userid);
+                    if (texture is { Length: > 0 })
+                    {
+                        await Task.WhenAll(_handlers.Select(h => h.OnUserTextureAvailable(enriched, texture)));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Could not fetch texture for user {User} session {Session}", user.Name, user.SessionId);
+            }
+        }
     }
 
     public async Task DispatchUserDisconnected(MumbleUser user)
