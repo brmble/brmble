@@ -41,5 +41,11 @@ public class Database
             "SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='matrix_access_token'");
         if (hasMatrixToken == 0)
             conn.Execute("ALTER TABLE users ADD COLUMN matrix_access_token TEXT");
+
+        // Migrate: add avatar_source column
+        var hasAvatarSource = conn.ExecuteScalar<int>(
+            "SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='avatar_source'");
+        if (hasAvatarSource == 0)
+            conn.Execute("ALTER TABLE users ADD COLUMN avatar_source TEXT");
     }
 }
