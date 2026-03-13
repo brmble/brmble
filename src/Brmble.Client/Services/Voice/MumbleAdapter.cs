@@ -1241,7 +1241,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     var startRoom = root.TryGetProperty("roomName", out var startRoomProp) ? startRoomProp.GetString() : null;
                     var startUser = root.TryGetProperty("userName", out var startUserProp) ? startUserProp.GetString() : null;
                     var startSession = root.TryGetProperty("sessionId", out var startSessionProp) && startSessionProp.ValueKind == System.Text.Json.JsonValueKind.Number
-                        ? (int?)startSessionProp.GetInt32() : null;
+                        ? startSessionProp.GetInt32() : (int?)null;
                     if (startRoom is not null)
                     {
                         _bridge?.Send("livekit.screenShareStarted", new { roomName = startRoom, userName = startUser, sessionId = startSession });
@@ -1656,7 +1656,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 {
                     using var doc = System.Text.Json.JsonDocument.Parse(result.Body);
                     var userName = doc.RootElement.TryGetProperty("userName", out var un) ? un.GetString() : null;
-                    _bridge?.Send("livekit.activeShareResult", new { roomName, active = true, userName });
+                    var activeSessionId = doc.RootElement.TryGetProperty("sessionId", out var asProp) && asProp.ValueKind == System.Text.Json.JsonValueKind.Number
+                        ? asProp.GetInt32() : (int?)null;
+                    _bridge?.Send("livekit.activeShareResult", new { roomName, active = true, userName, sessionId = activeSessionId });
                 }
                 else
                 {
