@@ -15,6 +15,19 @@
   display: block;
 }
 
+/* Platform icon SVGs rendered inline */
+.avatar-platform-icon {
+  flex-shrink: 0;
+}
+
+.avatar--mumble .avatar-platform-icon {
+  color: var(--text-secondary);
+}
+
+.avatar--brmble .avatar-platform-icon {
+  color: var(--accent-primary);
+}
+
 .avatar-letter {
   color: var(--text-primary);
   font-family: var(--font-display);
@@ -22,13 +35,6 @@
   text-transform: uppercase;
   line-height: 1;
   user-select: none;
-}
-
-.avatar-platform-logo {
-  width: 60%;
-  height: 60%;
-  object-fit: contain;
-  opacity: 0.7;
 }
 
 .avatar.speaking {
