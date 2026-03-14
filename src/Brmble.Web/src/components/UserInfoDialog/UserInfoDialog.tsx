@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import bridge from '../../bridge';
+import Avatar from '../Avatar/Avatar';
 import './UserInfoDialog.css';
 
 export interface UserInfoDialogProps {
@@ -9,6 +10,8 @@ export interface UserInfoDialogProps {
   session: number;
   isSelf: boolean;
   comment?: string;
+  matrixUserId?: string;
+  avatarUrl?: string;
   onStartDM?: (userId: string, userName: string) => void;
 }
 
@@ -19,6 +22,8 @@ export function UserInfoDialog({
   session,
   isSelf,
   comment,
+  matrixUserId,
+  avatarUrl,
   onStartDM,
 }: UserInfoDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -146,10 +151,7 @@ export function UserInfoDialog({
       >
         <div className="user-info-header">
           <div className="user-info-avatar">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-              <circle cx="12" cy="7" r="4" />
-            </svg>
+            <Avatar user={{ name: userName, matrixUserId, avatarUrl }} size={56} isMumbleOnly={!matrixUserId} />
           </div>
           <div className="user-info-title-row">
             <h2 id="user-info-title" className="user-info-name">{userName}</h2>

@@ -81,4 +81,36 @@ public class UserRepository
             """);
         return users.ToList();
     }
+
+    public async Task<string?> GetAvatarSource(long userId)
+    {
+        using var conn = _db.CreateConnection();
+        return await conn.QuerySingleOrDefaultAsync<string?>(
+            "SELECT avatar_source FROM users WHERE id = @Id",
+            new { Id = userId });
+    }
+
+    public async Task SetAvatarSource(long userId, string? source)
+    {
+        using var conn = _db.CreateConnection();
+        await conn.ExecuteAsync(
+            "UPDATE users SET avatar_source = @Source WHERE id = @Id",
+            new { Source = source, Id = userId });
+    }
+
+    public async Task<string?> GetTextureHash(long userId)
+    {
+        using var conn = _db.CreateConnection();
+        return await conn.QuerySingleOrDefaultAsync<string?>(
+            "SELECT texture_hash FROM users WHERE id = @Id",
+            new { Id = userId });
+    }
+
+    public async Task SetTextureHash(long userId, string? hash)
+    {
+        using var conn = _db.CreateConnection();
+        await conn.ExecuteAsync(
+            "UPDATE users SET texture_hash = @Hash WHERE id = @Id",
+            new { Hash = hash, Id = userId });
+    }
 }

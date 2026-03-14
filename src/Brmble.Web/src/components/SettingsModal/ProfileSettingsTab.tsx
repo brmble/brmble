@@ -1,9 +1,28 @@
-import { useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import Avatar from '../Avatar/Avatar';
+import AvatarUpload from '../AvatarUpload/AvatarUpload';
 import bridge from '../../bridge';
+import './ProfileSettingsTab.css';
 
-interface IdentitySettingsTabProps {
+interface ProfileSettingsTabProps {
+  currentUser: {
+    name: string;
+    matrixUserId?: string;
+    avatarUrl?: string;
+  };
+  onUploadAvatar: (blob: Blob, contentType: string) => void;
+  onRemoveAvatar: () => void;
   fingerprint: string;
   connectedUsername: string;
+  connected: boolean;
+}
+
+function getAvatarStatusText(user: ProfileSettingsTabProps['currentUser']): string {
+  if (!user.avatarUrl) return 'Default';
+  if (user.avatarUrl.startsWith('mxc://') || user.avatarUrl.includes('/_matrix/')) {
+    return 'Uploaded';
+  }
+  return 'From Mumble';
 }
 
 function triggerBlobDownload(base64: string, filename: string) {
@@ -17,9 +36,13 @@ function triggerBlobDownload(base64: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-export function IdentitySettingsTab({ fingerprint, connectedUsername }: IdentitySettingsTabProps) {
+export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar, fingerprint, connectedUsername, connected }: ProfileSettingsTabProps) {
+  const [showUpload, setShowUpload] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const statusText = getAvatarStatusText(currentUser);
+
+  // Certificate export handler
   useEffect(() => {
     const onExportData = (data: unknown) => {
       const d = data as { data: string; filename: string } | undefined;
@@ -30,7 +53,6 @@ export function IdentitySettingsTab({ fingerprint, connectedUsername }: Identity
   }, []);
 
   const handleExport = () => bridge.send('cert.export');
-
   const handleImportClick = () => fileInputRef.current?.click();
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -49,15 +71,30 @@ export function IdentitySettingsTab({ fingerprint, connectedUsername }: Identity
   };
 
   return (
-    <div>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".pfx,.p12"
-        style={{ display: 'none' }}
-        onChange={handleFileChange}
-      />
+    <div className="profile-settings-tab">
+      {/* Avatar section */}
+      <div className="settings-section">
+        <h3 className="heading-section settings-section-title">Avatar</h3>
+        <div className="profile-avatar-section">
+          <Avatar user={currentUser} size={80} />
+          <div className="profile-avatar-info">
+            <span className="profile-display-name">{currentUser.name}</span>
+            <span className="profile-avatar-status">{statusText}</span>
+            {connected ? (
+              <div className="profile-avatar-actions">
+                <button className="btn btn-primary" onClick={() => setShowUpload(true)}>Upload</button>
+                {currentUser.avatarUrl && (
+                  <button className="btn btn-secondary" onClick={onRemoveAvatar}>Remove</button>
+                )}
+              </div>
+            ) : (
+              <span className="profile-avatar-hint" style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Connect to a server to change your avatar</span>
+            )}
+          </div>
+        </div>
+      </div>
 
+      {/* Certificate section */}
       <div className="settings-section">
         <h3 className="heading-section settings-section-title">Certificate</h3>
         <div className="settings-item" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.5rem' }}>
@@ -73,7 +110,7 @@ export function IdentitySettingsTab({ fingerprint, connectedUsername }: Identity
             width: '100%',
             boxSizing: 'border-box',
           }}>
-            {fingerprint || '—'}
+            {fingerprint || '\u2014'}
           </span>
         </div>
         <div className="settings-item">
@@ -82,8 +119,16 @@ export function IdentitySettingsTab({ fingerprint, connectedUsername }: Identity
         </div>
       </div>
 
+      {/* Manage section */}
       <div className="settings-section">
         <h3 className="heading-section settings-section-title">Manage</h3>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pfx,.p12"
+          style={{ display: 'none' }}
+          onChange={handleFileChange}
+        />
         <div className="settings-item">
           <div>
             <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Export Certificate</div>
@@ -99,6 +144,16 @@ export function IdentitySettingsTab({ fingerprint, connectedUsername }: Identity
           <button className="btn btn-secondary" onClick={handleImportClick}>Import</button>
         </div>
       </div>
+
+      {showUpload && (
+        <AvatarUpload
+          onUpload={(blob, contentType) => {
+            onUploadAvatar(blob, contentType);
+            setShowUpload(false);
+          }}
+          onCancel={() => setShowUpload(false)}
+        />
+      )}
     </div>
   );
 }

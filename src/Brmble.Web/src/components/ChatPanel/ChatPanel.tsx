@@ -8,6 +8,7 @@ import { formatDateSeparator, formatFullDate } from '../../utils/formatDateSepar
 import type { ChatMessage } from '../../types';
 import { ScreenShareViewer } from '../ScreenShareViewer/ScreenShareViewer';
 import { Tooltip } from '../Tooltip/Tooltip';
+import Avatar from '../Avatar/Avatar';
 import './ChatPanel.css';
 
 interface ChatPanelProps {
@@ -22,13 +23,40 @@ interface ChatPanelProps {
   screenShareVideoEl?: HTMLVideoElement | null;
   screenSharerName?: string;
   onCloseScreenShare?: () => void;
+  /** Connected users for avatar lookup by sender name */
+  users?: { name: string; matrixUserId?: string; avatarUrl?: string }[];
 }
 
 const SCROLL_THRESHOLD = 150;
 const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
 const DEFAULT_SPLIT = 50;
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, isDM, matrixClient, readMarkerTs, screenShareVideoEl, screenSharerName, onCloseScreenShare }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, isDM, matrixClient, readMarkerTs, screenShareVideoEl, screenSharerName, onCloseScreenShare, users }: ChatPanelProps) {
+  // Build lookup maps from sender name and matrixUserId → avatar data for MessageBubble.
+  // Name-based lookup works when Mumble name matches message sender.
+  // MatrixUserId-based lookup handles cases where the user connected with a different
+  // Mumble name than the Matrix display name used in messages.
+  const senderAvatarMap = useMemo(() => {
+    const byName = new Map<string, { avatarUrl?: string; matrixUserId?: string }>();
+    const byMatrixId = new Map<string, { avatarUrl?: string; matrixUserId?: string }>();
+    if (users) {
+      for (const u of users) {
+        const entry = { avatarUrl: u.avatarUrl, matrixUserId: u.matrixUserId };
+        byName.set(u.name, entry);
+        if (u.matrixUserId) {
+          byMatrixId.set(u.matrixUserId, entry);
+        }
+      }
+    }
+    return { byName, byMatrixId };
+  }, [users]);
+
+  /** Look up avatar data by sender name first, then fall back to matrixUserId. */
+  const lookupAvatar = useCallback((senderName: string, senderMatrixId?: string) => {
+    return senderAvatarMap.byName.get(senderName)
+      ?? (senderMatrixId ? senderAvatarMap.byMatrixId.get(senderMatrixId) : undefined);
+  }, [senderAvatarMap]);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const unreadDividerRef = useRef<HTMLDivElement>(null);
@@ -341,9 +369,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
       <div className="chat-header">
         <div className="chat-header-left">
           {isDM ? (
-            <div className="dm-chat-avatar">
-              <span>{channelName?.charAt(0).toUpperCase()}</span>
-            </div>
+            <Avatar user={{ name: channelName || '', matrixUserId: lookupAvatar(channelName || '')?.matrixUserId, avatarUrl: lookupAvatar(channelName || '')?.avatarUrl }} size={28} isMumbleOnly={!lookupAvatar(channelName || '')?.matrixUserId} />
           ) : (
             <span className="channel-hash">#</span>
           )}
@@ -517,6 +543,8 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
                     searchQuery={searchQuery}
                     isActiveMatch={isActiveMatch}
                     messageIndex={msgIndex}
+                    senderAvatarUrl={lookupAvatar(item.message.sender, item.message.senderMatrixUserId)?.avatarUrl}
+                    senderMatrixUserId={lookupAvatar(item.message.sender, item.message.senderMatrixUserId)?.matrixUserId}
                   />
                 </Fragment>
                 );

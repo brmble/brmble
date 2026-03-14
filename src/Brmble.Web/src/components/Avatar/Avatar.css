@@ -1,0 +1,44 @@
+.avatar {
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--bg-avatar-start), var(--bg-avatar-end));
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Platform icon SVGs rendered inline */
+.avatar-platform-icon {
+  flex-shrink: 0;
+}
+
+.avatar--mumble .avatar-platform-icon {
+  color: var(--text-secondary);
+}
+
+.avatar--brmble .avatar-platform-icon {
+  color: var(--accent-primary);
+}
+
+.avatar-letter {
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-weight: 600;
+  text-transform: uppercase;
+  line-height: 1;
+  user-select: none;
+}
+
+.avatar.speaking {
+  box-shadow: 0 0 0 2px var(--accent-primary),
+              0 0 8px var(--accent-primary);
+  transition: box-shadow var(--transition-fast);
+}

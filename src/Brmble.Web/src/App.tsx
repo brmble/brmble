@@ -109,6 +109,7 @@ interface User {
   self?: boolean;
   comment?: string;
   matrixUserId?: string;
+  avatarUrl?: string;
 }
 
 
@@ -181,6 +182,87 @@ function App() {
   const [matrixCredentials, setMatrixCredentials] = useState<MatrixCredentials | null>(null);
   const matrixClient = useMatrixClient(matrixCredentials);
   const { dmMessages: matrixDmMessages, sendDMMessage: sendMatrixDM, fetchDMHistory } = matrixClient;
+
+  // Avatar state and management
+  const [currentUserAvatarUrl, setCurrentUserAvatarUrl] = useState<string | undefined>();
+
+  // Fetch avatar when matrix client becomes available
+  useEffect(() => {
+    if (!matrixCredentials?.userId || !matrixClient.client) return;
+    matrixClient.fetchAvatarUrl(matrixCredentials.userId).then((url) => {
+      if (url) setCurrentUserAvatarUrl(url);
+    });
+  }, [matrixCredentials?.userId, matrixClient.client, matrixClient.fetchAvatarUrl]);
+
+  // Keep the self user's avatarUrl in the users array in sync with currentUserAvatarUrl
+  useEffect(() => {
+    if (currentUserAvatarUrl === undefined) return;
+    setUsers(prev => {
+      const self = prev.find(u => u.self);
+      if (!self || self.avatarUrl === currentUserAvatarUrl) return prev;
+      return prev.map(u => u.self ? { ...u, avatarUrl: currentUserAvatarUrl } : u);
+    });
+  }, [currentUserAvatarUrl]);
+
+  // Track which matrixUserIds we've already fetched avatars for to avoid re-fetching
+  const fetchedAvatarIdsRef = useRef<Set<string>>(new Set());
+
+  // Fetch avatar URLs for all connected users that have a matrixUserId
+  useEffect(() => {
+    if (!matrixClient.client) return;
+    const toFetch = users.filter(u => u.matrixUserId && !u.avatarUrl && !fetchedAvatarIdsRef.current.has(u.matrixUserId!));
+    if (toFetch.length === 0) return;
+
+    // Mark as in-flight so we don't re-fetch on re-render
+    for (const u of toFetch) fetchedAvatarIdsRef.current.add(u.matrixUserId!);
+
+    Promise.all(
+      toFetch.map(async (u) => {
+        const url = await matrixClient.fetchAvatarUrl(u.matrixUserId!);
+        return { session: u.session, avatarUrl: url };
+      })
+    ).then((results) => {
+      const resolved = results.filter(r => r.avatarUrl);
+      if (resolved.length === 0) return;
+      setUsers(prev => prev.map(u => {
+        const match = resolved.find(r => r.session === u.session);
+        return match ? { ...u, avatarUrl: match.avatarUrl! } : u;
+      }));
+    });
+  }, [users, matrixClient.client, matrixClient.fetchAvatarUrl]);
+
+  const onUploadAvatar = useCallback(async (blob: Blob, contentType: string) => {
+    if (!matrixClient.client) return;
+    try {
+      const upload = await matrixClient.client.uploadContent(blob, { name: 'avatar.png', type: contentType });
+      const mxcUrl = upload.content_uri;
+      await matrixClient.client.setAvatarUrl(mxcUrl);
+      const httpUrl = matrixClient.client.mxcUrlToHttp(mxcUrl, 128, 128, 'crop');
+      setCurrentUserAvatarUrl(httpUrl ?? undefined);
+      // Also update the self user in the users list so channel tree / chat show the new avatar
+      if (httpUrl) {
+        setUsers(prev => prev.map(u => u.self ? { ...u, avatarUrl: httpUrl } : u));
+      }
+      // Notify backend so Mumble texture sync won't overwrite this avatar
+      bridge.send('avatar.setSource', { source: 'brmble' });
+    } catch (e) {
+      console.error('Failed to upload avatar:', e);
+    }
+  }, [matrixClient.client]);
+
+  const onRemoveAvatar = useCallback(async () => {
+    if (!matrixClient.client) return;
+    try {
+      await matrixClient.client.setAvatarUrl('');
+      setCurrentUserAvatarUrl(undefined);
+      // Also clear the self user's avatar in the users list
+      setUsers(prev => prev.map(u => u.self ? { ...u, avatarUrl: undefined } : u));
+      // Clear avatar source so Mumble textures can take over again
+      bridge.send('avatar.setSource', { source: null });
+    } catch (e) {
+      console.error('Failed to remove avatar:', e);
+    }
+  }, [matrixClient.client]);
 
   // Build set of DM room IDs from matrixClient.dmRoomMap
   const dmRoomIds = useMemo(() => {
@@ -427,6 +509,8 @@ function App() {
       setSelfSession(0);
       setSpeakingUsers(new Map());
       setMatrixCredentials(null);
+      setCurrentUserAvatarUrl(undefined);
+      fetchedAvatarIdsRef.current.clear();
       disconnectViewerRef.current?.();
       setSharingChannelId(undefined);
       setScreenShareToast(null);
@@ -759,6 +843,7 @@ function App() {
       setSelfCanRejoin(false);
       setSelfSession(0);
       setSpeakingUsers(new Map());
+      setCurrentUserAvatarUrl(undefined);
     };
 
     const onUserMappingUpdated = (data: unknown) => {
@@ -1137,9 +1222,15 @@ const handleConnect = (serverData: SavedServer) => {
     () =>
       dmContacts.map(c => {
         const comment = userCommentsBySession.get(c.userId);
-        return comment ? { ...c, comment } : c;
+        const user = users.find(u => String(u.session) === c.userId);
+        return {
+          ...c,
+          ...(comment ? { comment } : {}),
+          ...(user?.matrixUserId ? { matrixUserId: user.matrixUserId } : {}),
+          ...(user?.avatarUrl ? { avatarUrl: user.avatarUrl } : {}),
+        };
       }),
-    [dmContacts, userCommentsBySession],
+    [dmContacts, userCommentsBySession, users],
   );
 
   const handleSelectDMUser = (userId: string, userName: string) => {
@@ -1402,6 +1493,9 @@ const handleConnect = (serverData: SavedServer) => {
         dmActive={appMode === 'dm'}
         unreadDMCount={totalDmUnreadCount}
         onOpenSettings={() => setShowSettings(true)}
+        onAvatarClick={() => setShowSettings(true)}
+        avatarUrl={currentUserAvatarUrl}
+        matrixUserId={matrixCredentials?.userId}
         muted={selfMuted}
         deafened={selfDeafened}
         leftVoice={selfLeftVoice}
@@ -1475,6 +1569,7 @@ const handleConnect = (serverData: SavedServer) => {
                   screenShareVideoEl={remoteVideoEl}
                   screenSharerName={activeShare?.userName}
                   onCloseScreenShare={disconnectViewer}
+                  users={users}
                 />
                 </ErrorBoundary>
               </div>
@@ -1489,6 +1584,7 @@ const handleConnect = (serverData: SavedServer) => {
                   isDM={true}
                   matrixClient={matrixClient.client}
                   readMarkerTs={dmDividerTs}
+                  users={users}
                 />
                 </ErrorBoundary>
               </div>
@@ -1529,6 +1625,14 @@ const handleConnect = (serverData: SavedServer) => {
         onClose={() => setShowSettings(false)}
         username={username}
         certFingerprint={certFingerprint}
+        connected={connected}
+        currentUser={{
+          name: username ?? 'Unknown',
+          matrixUserId: matrixCredentials?.userId,
+          avatarUrl: currentUserAvatarUrl,
+        }}
+        onUploadAvatar={onUploadAvatar}
+        onRemoveAvatar={onRemoveAvatar}
       />
 
       <CloseDialog

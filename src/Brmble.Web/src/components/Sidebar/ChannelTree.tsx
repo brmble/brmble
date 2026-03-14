@@ -4,6 +4,7 @@ import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { usePermissions } from '../../hooks/usePermissions';
 import bridge from '../../bridge';
+import Avatar from '../Avatar/Avatar';
 import './ChannelTree.css';
 
 interface User {
@@ -16,6 +17,7 @@ interface User {
   prioritySpeaker?: boolean;
   comment?: string;
   matrixUserId?: string;
+  avatarUrl?: string;
 }
 
 interface Channel {
@@ -234,7 +236,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
               <Tooltip key={user.session} content={getUserTooltip(user)}>
               <div
                 className={`user-row ${user.self ? 'self' : ''} ${speakingUsers?.has(user.session) ? 'speaking' : ''}`}
-                style={{ paddingLeft: `calc(40px + ${level * 20}px)` }}
+                style={{ paddingLeft: `calc(4px + ${level * 20}px)` }}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   setContextMenu({ x: e.clientX, y: e.clientY, userId: String(user.session), userName: user.name, isSelf: !!user.self, channelId: channel.id });
@@ -243,40 +245,33 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                   ? () => onWatchScreenShare?.(`channel-${channel.id}`)
                   : undefined}
               >
-                <span className="user-status">
+                <span className="user-status-area">
                   {user.session === sharingUserSession ? (
-                    <svg className="status-icon status-icon--sharing" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <svg className="user-status-icon user-status-icon--sharing" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                       <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
                       <line x1="8" y1="21" x2="16" y2="21"/>
                       <line x1="12" y1="17" x2="12" y2="21"/>
                     </svg>
                   ) : (
                     <>
-                      <span className="user-status-extra">
-                        {user.deafened && (
-                          <svg className="status-icon status-icon--deaf" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <line x1="1" y1="1" x2="23" y2="23"/>
-                            <path d="M3 18v-6a9 9 0 0 1 18 0v6"/>
-                            <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3z"/>
-                            <path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>
-                          </svg>
-                        )}
-                        {user.muted && (
-                          <svg className="status-icon status-icon--muted" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <line x1="1" y1="1" x2="23" y2="23"/>
-                            <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/>
-                          </svg>
-                        )}
-                      </span>
-                      <svg className="status-icon status-icon--mic" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                        <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                        <line x1="12" y1="19" x2="12" y2="23"/>
-                        <line x1="8" y1="23" x2="16" y2="23"/>
-                      </svg>
+                      {user.deafened && (
+                        <svg className="user-status-icon user-status-icon--deaf" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="1" y1="1" x2="23" y2="23"/>
+                          <path d="M3 18v-6a9 9 0 0 1 18 0v6"/>
+                          <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3z"/>
+                          <path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>
+                        </svg>
+                      )}
+                      {user.muted && (
+                        <svg className="user-status-icon user-status-icon--muted" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="1" y1="1" x2="23" y2="23"/>
+                          <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/>
+                        </svg>
+                      )}
                     </>
                   )}
                 </span>
+                <Avatar user={{ name: user.name, matrixUserId: user.matrixUserId, avatarUrl: user.avatarUrl }} size={20} isMumbleOnly={!user.self && !user.matrixUserId} />
                 <span className="user-name">{user.name}</span>
                 {user.self && <span className="self-badge">(you)</span>}
                 {user.matrixUserId && <Tooltip content="Brmble user"><span className="brmble-badge" /></Tooltip>}
@@ -401,6 +396,8 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
             session={parseInt(infoDialogUser.userId)}
             isSelf={infoDialogUser.isSelf}
             comment={user?.comment}
+            matrixUserId={user?.matrixUserId}
+            avatarUrl={user?.avatarUrl}
             onStartDM={onStartDM}
           />
         );

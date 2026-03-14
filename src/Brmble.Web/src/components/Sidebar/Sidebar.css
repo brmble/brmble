@@ -181,7 +181,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-xs);
-  padding: var(--space-2xs) var(--space-xs) var(--space-2xs) 40px;
+  padding: var(--space-2xs) var(--space-xs) var(--space-2xs) 16px;
   border-radius: var(--radius-sm);
   transition: background var(--transition-fast);
   animation: root-user-appear var(--animation-fast) ease backwards;
@@ -192,36 +192,9 @@
   background: var(--accent-primary-ghost);
 }
 
-.root-user-status {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-}
-
-.user-status-extra {
-  position: absolute;
-  right: 100%;
-  margin-right: 4px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.root-user-status .status-icon--deaf,
-.root-user-status .status-icon--muted {
+.root-user-row .user-status-icon--muted,
+.root-user-row .user-status-icon--deaf {
   color: color-mix(in srgb, var(--accent-primary) 55%, transparent);
-}
-
-.root-user-status .status-icon--mic {
-  color: var(--text-muted-dim);
-}
-
-.root-user-self .root-user-status .status-icon--mic {
-  color: var(--text-secondary-dim);
 }
 
 .root-user-name {

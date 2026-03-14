@@ -7,6 +7,7 @@ public interface IMumbleEventHandler
 {
     Task OnUserConnected(MumbleUser user);
     Task OnUserDisconnected(MumbleUser user);
+    Task OnUserTextureAvailable(MumbleUser user, byte[] textureData);
     Task OnUserTextMessage(MumbleUser sender, string text, int channelId);
     Task OnChannelCreated(MumbleChannel channel);
     Task OnChannelRemoved(MumbleChannel channel);
