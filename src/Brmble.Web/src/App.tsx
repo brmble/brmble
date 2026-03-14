@@ -16,6 +16,7 @@ import { ServerList } from './components/ServerList/ServerList';
 import { ConnectionState } from './components/ConnectionState/ConnectionState';
 import type { ServerEntry } from './hooks/useServerlist';
 import { SettingsModal } from './components/SettingsModal/SettingsModal';
+import { AvatarEditorModal } from './components/AvatarEditorModal/AvatarEditorModal';
 import { CloseDialog } from './components/CloseDialog/CloseDialog';
 import { CertWizard } from './components/CertWizard/CertWizard';
 import { Version } from './components/Version/Version';
@@ -175,6 +176,12 @@ function App() {
     setDmDividerTs(null);
   }, []);
   const [showSettings, setShowSettings] = useState(false);
+  const [showAvatarEditor, setShowAvatarEditor] = useState(false);
+
+  // Close avatar editor modal when disconnected — profile is not editable while disconnected
+  useEffect(() => {
+    if (!connected) setShowAvatarEditor(false);
+  }, [connected]);
   const [showCloseDialog, setShowCloseDialog] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [hasPendingInvite] = useState(false);
@@ -1493,7 +1500,7 @@ const handleConnect = (serverData: SavedServer) => {
         dmActive={appMode === 'dm'}
         unreadDMCount={totalDmUnreadCount}
         onOpenSettings={() => setShowSettings(true)}
-        onAvatarClick={() => setShowSettings(true)}
+        onAvatarClick={connected ? () => setShowAvatarEditor(true) : undefined}
         avatarUrl={currentUserAvatarUrl}
         matrixUserId={matrixCredentials?.userId}
         muted={selfMuted}
@@ -1537,6 +1544,7 @@ const handleConnect = (serverData: SavedServer) => {
           sharingChannelId={sharingChannelId ? Number(sharingChannelId) : (activeShare?.roomName ? Number(activeShare.roomName.replace('channel-', '')) : undefined)}
           sharingUserSession={isSharing ? selfSession : activeShare?.sessionId}
           onWatchScreenShare={handleWatchScreenShare}
+          onEditAvatar={connected ? () => setShowAvatarEditor(true) : undefined}
         />
         </ErrorBoundary>
         
@@ -1631,6 +1639,20 @@ const handleConnect = (serverData: SavedServer) => {
           matrixUserId: matrixCredentials?.userId,
           avatarUrl: currentUserAvatarUrl,
         }}
+        onUploadAvatar={onUploadAvatar}
+        onRemoveAvatar={onRemoveAvatar}
+      />
+
+      <AvatarEditorModal
+        isOpen={showAvatarEditor}
+        onClose={() => setShowAvatarEditor(false)}
+        currentUser={{
+          name: username ?? 'Unknown',
+          matrixUserId: matrixCredentials?.userId,
+          avatarUrl: currentUserAvatarUrl,
+        }}
+        comment={users.find(u => u.self)?.comment}
+        onSetComment={(comment) => bridge.send('voice.setComment', { comment })}
         onUploadAvatar={onUploadAvatar}
         onRemoveAvatar={onRemoveAvatar}
       />
