@@ -1,13 +1,5 @@
 .interface-settings-tab {
   display: flex;
   flex-direction: column;
-  gap: 2rem;
 }
-
-.interface-settings-tab .settings-section {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
 
