@@ -128,14 +128,10 @@ export function SettingsModal(props: SettingsModalProps) {
       bridge.send('settings.set', { settings: newSettings });
       localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
 
-      // Notify backend of transmission mode change (only when relevant fields change)
-      if (audio.transmissionMode !== prev.audio.transmissionMode ||
-          audio.pushToTalkKey !== prev.audio.pushToTalkKey) {
-        bridge.send('voice.setTransmissionMode', {
-          mode: audio.transmissionMode,
-          key: audio.transmissionMode === 'pushToTalk' ? audio.pushToTalkKey : null,
-        });
-      }
+      // No need to send voice.setTransmissionMode here — settings.set triggers
+      // ApplySettings on the backend which already calls SetTransmissionMode.
+      // Sending both caused a double-call race that crashed WASAPI capture when
+      // the user's recorded PTT key was still physically held down.
       
       return newSettings;
     });
@@ -173,10 +169,8 @@ export function SettingsModal(props: SettingsModalProps) {
       let newSettings = { ...prev };
       if (bindingId === 'pushToTalkKey') {
         newSettings = { ...newSettings, audio: { ...prev.audio, pushToTalkKey: null } };
-        bridge.send('voice.setTransmissionMode', {
-          mode: prev.audio.transmissionMode,
-          key: null,
-        });
+        // No need to send voice.setTransmissionMode — settings.set triggers
+        // ApplySettings which already calls SetTransmissionMode.
       } else if (bindingId in prev.shortcuts) {
         newSettings = {
           ...newSettings,
