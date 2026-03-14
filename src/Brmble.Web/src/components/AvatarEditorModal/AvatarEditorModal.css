@@ -1,0 +1,81 @@
+/* AvatarEditorModal — standalone avatar editing modal */
+
+.avatar-editor-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--bg-overlay);
+  backdrop-filter: var(--glass-blur-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  animation: fadeIn var(--animation-fast) ease backwards;
+}
+
+.avatar-editor {
+  width: 100%;
+  max-width: 380px;
+  padding: var(--space-xl) var(--space-lg) var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.avatar-editor .modal-header {
+  text-align: center;
+  margin-bottom: var(--space-lg);
+  width: 100%;
+}
+
+.avatar-editor .modal-title {
+  margin: 0;
+  opacity: 0;
+  animation: content-fade-in var(--animation-normal) ease forwards;
+  animation-delay: calc(1 * var(--stagger-step));
+}
+
+.avatar-editor-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+  opacity: 0;
+  animation: content-fade-in var(--animation-normal) ease forwards;
+  animation-delay: calc(2 * var(--stagger-step));
+}
+
+.avatar-editor-name {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.avatar-editor-status {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.avatar-editor-actions {
+  display: flex;
+  gap: var(--space-sm);
+  width: 100%;
+  opacity: 0;
+  animation: content-fade-in var(--animation-normal) ease forwards;
+  animation-delay: calc(3 * var(--stagger-step));
+}
+
+.avatar-editor-actions .btn {
+  flex: 1;
+}
+
+.avatar-editor-footer {
+  display: flex;
+  justify-content: center;
+  margin-top: var(--space-lg);
+  width: 100%;
+  opacity: 0;
+  animation: content-fade-in var(--animation-normal) ease forwards;
+  animation-delay: calc(4 * var(--stagger-step));
+}
