@@ -454,21 +454,35 @@ private int _screenShareHotkeyId = -1;
             // stop; it doesn't wait for it to exit.  If we call StartRecording()
             // before the thread has fully stopped, WasapiCapture throws
             // InvalidOperationException ("Previous recording still in progress").
-            // Spin briefly to let the capture thread finish.
-            if (_waveIn is WasapiCapture wasapiWait)
+            // Wait outside the lock so other threads aren't blocked, then
+            // re-validate state before proceeding.
+            if (_waveIn is WasapiCapture wasapiWait &&
+                wasapiWait.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped)
             {
-                const int maxWaitMs = 300;
-                int waited = 0;
-                while (wasapiWait.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped && waited < maxWaitMs)
+                var localCapture = wasapiWait;
+                Monitor.Exit(_lock);
+                try
                 {
-                    Monitor.Exit(_lock);
-                    Thread.Sleep(10);
-                    Monitor.Enter(_lock);
-                    waited += 10;
+                    const int maxWaitMs = 300;
+                    int waited = 0;
+                    while (localCapture.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped && waited < maxWaitMs)
+                    {
+                        Thread.Sleep(10);
+                        waited += 10;
+                    }
                 }
-                if (wasapiWait.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped)
+                finally
                 {
-                    AudioLog.Write($"[Audio] WASAPI capture still stopping after {maxWaitMs}ms, skipping StartRecording");
+                    Monitor.Enter(_lock);
+                }
+
+                // State may have changed while we were unlocked — re-validate.
+                if (_micStarted || _muted) return;
+
+                if (_waveIn is WasapiCapture recheck &&
+                    recheck.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped)
+                {
+                    AudioLog.Write($"[Audio] WASAPI capture still stopping after wait, skipping StartRecording");
                     return;
                 }
             }
