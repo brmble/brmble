@@ -1,7 +1,5 @@
 # Matrix Avatar System Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
-
 **Goal:** Add full avatar support using Matrix as the single source of truth -- Brmble upload UI, Mumble texture bridging, and display across all 7 components with a graceful fallback chain.
 
 **Architecture:** All avatar images stored in Matrix via `mxc://` URIs. SQLite tracks `avatar_source` for priority logic only. Frontend fetches avatars from Matrix profiles and listens for bridge updates. A shared `<Avatar>` component handles the fallback chain (real image -> platform logo -> letter initial).

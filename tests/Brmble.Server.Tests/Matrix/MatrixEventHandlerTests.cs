@@ -201,4 +201,36 @@ public class MatrixEventHandlerTests
 
         appService.Verify(a => a.UploadMedia(It.IsAny<byte[]>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
+
+    [TestMethod]
+    public async Task OnUserTextureAvailable_SkipsUploadWhenTextureHashUnchanged()
+    {
+        var appService = new Mock<IMatrixAppService>();
+        appService.Setup(a => a.UploadMedia(It.IsAny<byte[]>(), "image/png", "avatar.png"))
+            .ReturnsAsync("mxc://server/texture123");
+        appService.Setup(a => a.SetAvatarUrl(It.IsAny<string>(), It.IsAny<string>()))
+            .Returns(Task.CompletedTask);
+
+        var (db, keepAlive) = CreateDb();
+        using var _ = keepAlive;
+        var settings = Options.Create(new MatrixSettings { ServerDomain = "localhost" });
+        var userRepo = new UserRepository(db, settings);
+        var user = await userRepo.Insert("ghi", "Carol");
+
+        var channelRepo = new ChannelRepository(db);
+        var sessions = new Mock<IActiveBrmbleSessions>();
+        var svc = new MatrixService(channelRepo, appService.Object, sessions.Object, NullLogger<MatrixService>.Instance);
+        _handler = new MatrixEventHandler(svc, sessions.Object, appService.Object, userRepo, NullLogger<MatrixEventHandler>.Instance);
+
+        // PNG magic bytes
+        var texture = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
+
+        // First call should upload
+        await _handler.OnUserTextureAvailable(new MumbleUser("Carol", "ghi", 3), texture);
+        appService.Verify(a => a.UploadMedia(texture, "image/png", "avatar.png"), Times.Once);
+
+        // Second call with same texture should skip
+        await _handler.OnUserTextureAvailable(new MumbleUser("Carol", "ghi", 3), texture);
+        appService.Verify(a => a.UploadMedia(It.IsAny<byte[]>(), It.IsAny<string>(), It.IsAny<string>()), Times.Once);
+    }
 }

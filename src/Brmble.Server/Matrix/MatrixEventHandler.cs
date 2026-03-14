@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Brmble.Server.Auth;
 using Brmble.Server.Mumble;
 using Microsoft.Extensions.Logging;
@@ -56,6 +57,15 @@ public class MatrixEventHandler : IMumbleEventHandler
             return;
         }
 
+        // Skip upload if texture hasn't changed (SHA-256 deduplication)
+        var newHash = Convert.ToHexString(SHA256.HashData(textureData));
+        var existingHash = await _userRepository.GetTextureHash(dbUser.Id);
+        if (string.Equals(existingHash, newHash, StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogDebug("Mumble texture for {User} unchanged (hash match), skipping upload", user.Name);
+            return;
+        }
+
         try
         {
             var localpart = dbUser.MatrixUserId.Split(':')[0].TrimStart('@');
@@ -70,6 +80,7 @@ public class MatrixEventHandler : IMumbleEventHandler
             var mxcUrl = await _appService.UploadMedia(textureData, contentType, $"avatar.{ext}");
             await _appService.SetAvatarUrl(localpart, mxcUrl);
             await _userRepository.SetAvatarSource(dbUser.Id, "mumble");
+            await _userRepository.SetTextureHash(dbUser.Id, newHash);
             _logger.LogInformation("Set Mumble texture as avatar for {User}", user.Name);
         }
         catch (Exception ex)

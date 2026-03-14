@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import Cropper from 'react-easy-crop';
 import type { Area } from 'react-easy-crop';
 import './AvatarUpload.css';
@@ -82,14 +82,20 @@ export default function AvatarUpload({ onUpload, onCancel }: AvatarUploadProps) 
     setCrop({ x: 0, y: 0 });
 
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       const dataUrl = reader.result as string;
       setImageSrc(dataUrl);
 
-      // Pre-load the image so cropImage can draw from it synchronously
+      // Pre-load and decode the image before storing ref for canvas drawing
       const img = new Image();
       img.src = dataUrl;
-      imageRef.current = img;
+      try {
+        await img.decode();
+        imageRef.current = img;
+      } catch {
+        setError('Failed to load image. Please try another file.');
+        setImageSrc(null);
+      }
     };
     reader.readAsDataURL(file);
   }, []);
@@ -118,14 +124,70 @@ export default function AvatarUpload({ onUpload, onCancel }: AvatarUploadProps) 
     fileInputRef.current?.click();
   }, []);
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  // Escape key to close
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onCancel();
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [onCancel]);
+
+  // Focus trap
+  useEffect(() => {
+    const card = dialogRef.current;
+    if (!card) return;
+
+    const focusable = card.querySelectorAll<HTMLElement>(
+      'button, input, [tabindex]:not([tabindex="-1"])'
+    );
+    if (focusable.length === 0) return;
+
+    const first = focusable[0];
+    first.focus();
+
+    const handleTrap = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      // Re-query in case DOM changed (e.g. crop area appeared)
+      const current = card.querySelectorAll<HTMLElement>(
+        'button, input, [tabindex]:not([tabindex="-1"])'
+      );
+      if (current.length === 0) return;
+      const f = current[0];
+      const l = current[current.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === f) {
+          e.preventDefault();
+          l.focus();
+        }
+      } else {
+        if (document.activeElement === l) {
+          e.preventDefault();
+          f.focus();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleTrap);
+    return () => window.removeEventListener('keydown', handleTrap);
+  }, [imageSrc]);
+
   return (
     <div className="avatar-upload-overlay" onClick={onCancel}>
       <div
+        ref={dialogRef}
         className="avatar-upload glass-panel animate-slide-up"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="avatar-upload-title"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-header">
-          <h2 className="heading-title modal-title">Upload Avatar</h2>
+          <h2 id="avatar-upload-title" className="heading-title modal-title">Upload Avatar</h2>
           <p className="modal-subtitle">Choose an image and crop to fit</p>
         </div>
 

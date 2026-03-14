@@ -47,5 +47,11 @@ public class Database
             "SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='avatar_source'");
         if (hasAvatarSource == 0)
             conn.Execute("ALTER TABLE users ADD COLUMN avatar_source TEXT");
+
+        // Migrate: add texture_hash column (for deduplicating Mumble texture uploads)
+        var hasTextureHash = conn.ExecuteScalar<int>(
+            "SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='texture_hash'");
+        if (hasTextureHash == 0)
+            conn.Execute("ALTER TABLE users ADD COLUMN texture_hash TEXT");
     }
 }

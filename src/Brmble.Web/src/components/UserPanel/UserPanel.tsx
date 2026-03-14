@@ -216,11 +216,10 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
       </Tooltip>
       
       <Tooltip content={username || 'Not logged in'} position="bottom" align="end">
-      <div
+      <button
         className="user-avatar-trigger"
-        role="button"
-        tabIndex={0}
         onClick={onAvatarClick}
+        disabled={!onAvatarClick}
         onKeyDown={(e) => {
           if ((e.key === 'Enter' || e.key === ' ') && onAvatarClick) {
             e.preventDefault();
@@ -229,7 +228,7 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
         }}
       >
         <Avatar user={{ name: username || '', matrixUserId: matrixUserId, avatarUrl: avatarUrl }} size={20} speaking={speaking} />
-      </div>
+      </button>
       </Tooltip>
     </div>
   );
