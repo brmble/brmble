@@ -6,6 +6,7 @@ import { linkifyText } from '../../utils/linkifyText';
 import { ImageAttachment } from './ImageAttachment';
 import { ImageLightbox } from './ImageLightbox';
 import { LinkPreview } from './LinkPreview';
+import Avatar from '../Avatar/Avatar';
 import './MessageBubble.css';
 
 interface MessageBubbleProps {
@@ -21,6 +22,8 @@ interface MessageBubbleProps {
   searchQuery?: string;
   isActiveMatch?: boolean;
   messageIndex?: number;
+  senderAvatarUrl?: string;
+  senderMatrixUserId?: string;
 }
 
 /** Highlight search matches within a plain-text string, returning React nodes. */
@@ -90,15 +93,11 @@ function highlightHtml(html: string, query: string): string {
   });
 }
 
-export function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex }: MessageBubbleProps) {
+export function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId }: MessageBubbleProps) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
-
-  const getAvatarLetter = (name: string) => {
-    return name.charAt(0).toUpperCase();
   };
 
   const classes = ['message-bubble'];
@@ -117,7 +116,7 @@ export function MessageBubble({ sender, content, timestamp, isOwnMessage, isSyst
         </div>
       ) : (
         <div className="message-avatar">
-          <span className="avatar-letter">{getAvatarLetter(sender)}</span>
+          <Avatar user={{ name: sender, matrixUserId: senderMatrixUserId, avatarUrl: senderAvatarUrl }} size={40} isMumbleOnly={!isOwnMessage && !senderMatrixUserId} />
         </div>
       )}
       <div className="message-content">

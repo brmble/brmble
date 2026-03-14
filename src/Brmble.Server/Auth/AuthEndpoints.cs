@@ -132,6 +132,43 @@ public static class AuthEndpoints
             });
         });
 
+        app.MapPost("/auth/avatar-source", async (
+            HttpContext httpContext,
+            ICertificateHashExtractor certHashExtractor,
+            UserRepository userRepository,
+            ILogger<AuthService> logger) =>
+        {
+            var certHash = certHashExtractor.GetCertHash(httpContext);
+
+            if (string.IsNullOrWhiteSpace(certHash))
+                return Results.Unauthorized();
+
+            var user = await userRepository.GetByCertHash(certHash);
+            if (user is null)
+                return Results.Unauthorized();
+
+            string? source = null;
+            try
+            {
+                using var doc = await JsonDocument.ParseAsync(httpContext.Request.Body);
+                source = doc.RootElement.TryGetProperty("source", out var prop)
+                    ? prop.GetString() : null;
+            }
+            catch { /* empty or non-JSON body — treat as null (clear) */ }
+
+            // Only allow known source values
+            if (source is not null and not "brmble" and not "mumble")
+                return Results.BadRequest(new { error = "Invalid avatar source. Must be 'brmble', 'mumble', or null." });
+
+            await userRepository.SetAvatarSource(user.Id, source);
+
+            logger.LogInformation(
+                "Avatar source set: UserId={UserId}, Source={Source}",
+                user.Id, source ?? "(cleared)");
+
+            return Results.Ok(new { source });
+        });
+
         return app;
     }
 }

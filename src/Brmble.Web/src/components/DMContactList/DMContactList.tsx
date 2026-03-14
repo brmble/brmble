@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
 import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
 import { Tooltip } from '../Tooltip/Tooltip';
+import Avatar from '../Avatar/Avatar';
 import './DMContactList.css';
 
 interface DMContact {
@@ -11,6 +12,8 @@ interface DMContact {
   lastMessageTime?: Date;
   unread: number;
   comment?: string;
+  matrixUserId?: string;
+  avatarUrl?: string;
 }
 
 interface DMContactListProps {
@@ -82,9 +85,7 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
               setContextMenu({ x: e.clientX, y: e.clientY, userId: contact.userId, userName: contact.userName });
             }}
           >
-            <div className="dm-contact-avatar">
-              <span>{contact.userName.charAt(0).toUpperCase()}</span>
-            </div>
+            <Avatar user={{ name: contact.userName, matrixUserId: contact.matrixUserId, avatarUrl: contact.avatarUrl }} size={28} isMumbleOnly={!contact.matrixUserId} />
             <div className="dm-contact-info">
               <div className="dm-contact-name-row">
                 <Tooltip content={contact.comment || ''}>
@@ -146,17 +147,22 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
         />
       )}
 
-      {infoDialogUser && (
+      {infoDialogUser && (() => {
+        const contact = contacts.find(c => c.userId === infoDialogUser.userId);
+        return (
         <UserInfoDialog
           isOpen={true}
           onClose={() => setInfoDialogUser(null)}
           userName={infoDialogUser.userName}
           session={parseInt(infoDialogUser.userId)}
           isSelf={false}
-          comment={contacts.find(c => c.userId === infoDialogUser.userId)?.comment}
+          comment={contact?.comment}
+          matrixUserId={contact?.matrixUserId}
+          avatarUrl={contact?.avatarUrl}
           onStartDM={(userId, userName) => onSelectContact(userId, userName)}
         />
-      )}
+        );
+      })()}
     </div>
   );
 }

@@ -24,6 +24,7 @@ export interface User {
   speaking?: boolean;
   comment?: string;
   prioritySpeaker?: boolean;
+  avatarUrl?: string;
 }
 
 export interface MediaAttachment {
@@ -40,6 +41,7 @@ export interface ChatMessage {
   id: string;
   channelId: string;
   sender: string;
+  senderMatrixUserId?: string;
   content: string;
   timestamp: Date;
   type?: 'system';

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Tooltip } from '../Tooltip/Tooltip';
+import Avatar from '../Avatar/Avatar';
 import './UserPanel.css';
 
 interface UserPanelProps {
@@ -8,6 +9,9 @@ interface UserPanelProps {
   dmActive?: boolean;
   unreadDMCount?: number;
   onOpenSettings: () => void;
+  onAvatarClick?: () => void;
+  avatarUrl?: string;
+  matrixUserId?: string;
   muted?: boolean;
   deafened?: boolean;
   leftVoice?: boolean;
@@ -24,7 +28,7 @@ interface UserPanelProps {
   hotkeyPressedBtn?: string | null;
 }
 
-export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, screenSharing, screenShareError, onToggleScreenShare, canScreenShare, speaking, pendingChannelAction, hotkeyPressedBtn }: UserPanelProps) {
+export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, onAvatarClick, avatarUrl, matrixUserId, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, screenSharing, screenShareError, onToggleScreenShare, canScreenShare, speaking, pendingChannelAction, hotkeyPressedBtn }: UserPanelProps) {
   const [pressedBtn, setPressedBtn] = useState<string | null>(null);
   const activeBtn = hotkeyPressedBtn || pressedBtn;
 
@@ -212,12 +216,19 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
       </Tooltip>
       
       <Tooltip content={username || 'Not logged in'} position="bottom" align="end">
-      <div className={`user-avatar ${speaking ? 'speaking' : ''}`}>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-          <circle cx="12" cy="14" r="8" />
-          <path d="M12 2C12 2 8 2 8 6C8 10 12 14 12 14C12 14 16 10 16 6C16 2 12 2 12 2Z" fill="var(--accent-success)" />
-        </svg>
-      </div>
+      <button
+        className="user-avatar-trigger"
+        onClick={onAvatarClick}
+        disabled={!onAvatarClick}
+        onKeyDown={(e) => {
+          if ((e.key === 'Enter' || e.key === ' ') && onAvatarClick) {
+            e.preventDefault();
+            onAvatarClick();
+          }
+        }}
+      >
+        <Avatar user={{ name: username || '', matrixUserId: matrixUserId, avatarUrl: avatarUrl }} size={20} speaking={speaking} />
+      </button>
       </Tooltip>
     </div>
   );

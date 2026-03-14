@@ -116,4 +116,31 @@ public class UserRepositoryTests
         var users = await _repo!.GetAllAsync();
         Assert.AreEqual(0, users.Count);
     }
+
+    [TestMethod]
+    public async Task GetAvatarSource_ReturnsNull_WhenNotSet()
+    {
+        var user = await _repo!.Insert("cert1", "Alice");
+        var source = await _repo.GetAvatarSource(user.Id);
+        Assert.IsNull(source);
+    }
+
+    [TestMethod]
+    public async Task SetAvatarSource_StoresAndRetrieves()
+    {
+        var user = await _repo!.Insert("cert2", "Bob");
+        await _repo.SetAvatarSource(user.Id, "brmble");
+        var source = await _repo.GetAvatarSource(user.Id);
+        Assert.AreEqual("brmble", source);
+    }
+
+    [TestMethod]
+    public async Task SetAvatarSource_NullClearsValue()
+    {
+        var user = await _repo!.Insert("cert3", "Carol");
+        await _repo.SetAvatarSource(user.Id, "mumble");
+        await _repo.SetAvatarSource(user.Id, null);
+        var source = await _repo.GetAvatarSource(user.Id);
+        Assert.IsNull(source);
+    }
 }

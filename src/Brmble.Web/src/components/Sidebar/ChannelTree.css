@@ -128,38 +128,24 @@
   color: var(--accent-success);
 }
 
-.user-status {
-  position: relative;
+/* Fixed-width status area to the left of the avatar. Always 24px wide
+   (room for two 11px icons + 2px gap). Icons right-align inside so they
+   sit adjacent to the avatar. When no icons are active, this area is
+   empty space that provides the visual tree indentation under the channel.
+   Nothing outside this container shifts when mute/deafen toggles. */
+.user-status-area {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 14px;
+  justify-content: flex-end;
+  gap: 2px;
+  width: 24px;
   flex-shrink: 0;
 }
 
-.user-status-extra {
-  position: absolute;
-  right: 100%;
-  margin-right: var(--space-2xs);
-  display: flex;
-  align-items: center;
-  gap: var(--space-2xs);
-}
-
-.status-icon--deaf,
-.status-icon--muted {
+.user-status-icon--muted,
+.user-status-icon--deaf {
   color: color-mix(in srgb, var(--accent-primary) 55%, transparent);
   flex-shrink: 0;
-}
-
-.status-icon--mic {
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-
-.user-row.self .status-icon--mic {
-  color: var(--accent-success);
 }
 
 .user-name {

@@ -14,6 +14,7 @@ public interface IMatrixAppService
     Task<string> LoginUser(string localpart);
     Task EnsureUserInRooms(string localpart, IEnumerable<string> roomIds);
     Task SetDisplayName(string localpart, string displayName);
+    Task SetAvatarUrl(string localpart, string avatarUrl);
     Task<string> UploadMedia(byte[] data, string contentType, string fileName);
     Task SendImageMessage(string roomId, string displayName, string mxcUrl, string fileName, string mimetype, int size);
 }
@@ -176,6 +177,14 @@ public class MatrixAppService : IMatrixAppService
         var userId = $"@{localpart}:{_serverDomain}";
         var url = $"{_homeserverUrl}/_matrix/client/v3/profile/{Uri.EscapeDataString(userId)}/displayname";
         var body = JsonSerializer.Serialize(new { displayname = displayName });
+        await SendRequest(HttpMethod.Put, url, body, actAs: userId);
+    }
+
+    public async Task SetAvatarUrl(string localpart, string avatarUrl)
+    {
+        var userId = $"@{localpart}:{_serverDomain}";
+        var url = $"{_homeserverUrl}/_matrix/client/v3/profile/{Uri.EscapeDataString(userId)}/avatar_url";
+        var body = JsonSerializer.Serialize(new { avatar_url = avatarUrl });
         await SendRequest(HttpMethod.Put, url, body, actAs: userId);
     }
 

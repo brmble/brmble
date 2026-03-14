@@ -197,6 +197,35 @@ div.root-users-panel
     div.root-user-row
 ```
 
+### Channel Tree User Row Layout
+
+Reference: `ChannelTree.tsx`, `ChannelTree.css`, `Sidebar.tsx` (root users), `Sidebar.css`
+
+User rows are visually indented under their channel to form a tree structure. The space to the left of the avatar is a **fixed-width status area** that doubles as tree indentation. **Both** channel-tree user rows and root-user rows (the "Connected" section in `Sidebar.tsx`) use the same layout pattern.
+
+```
+# Channel
+  [Deafen] [Muted] [Avatar] Username (you) ● Sharing
+  ╰─ 24px status ─╯
+```
+
+The `.user-status-area` container is **always 24px wide** (room for two 11px icons + 2px gap), with `justify-content: flex-end` so icons right-align against the avatar. When no icons are active, the 24px is empty space providing the tree indent. When icons appear, they fill from right to left within that fixed space. **Nothing outside the status area shifts.**
+
+Channel-tree user rows use `paddingLeft: calc(4px + level * 20px)` for tree indentation. Root user rows use a fixed `padding-left: 16px`.
+
+| Element | Class | Width | Behaviour |
+|---|---|---|---|
+| Status area | `.user-status-area` | 24px (fixed) | Always present; contains deafen/muted icons right-aligned |
+| Avatar | `.avatar` | 20px | Always present, never moves |
+| Username | `.user-name` / `.root-user-name` | flex: 1 | Always present, never moves |
+| Self badge | `.self-badge` / `.root-self-badge` | auto | Only for self user |
+| Brmble badge | `.brmble-badge` | 7px | Only if user has `matrixUserId` |
+| Sharing badge | `.sharing-badge` | auto | Only if screen-sharing |
+
+**Do**: Keep status icons inside `.user-status-area`. Icons are conditionally rendered but the container is always 24px.
+**Don't**: Put icons outside the status area or change its width — this shifts the avatar and breaks the tree alignment.
+**Don't**: Use the old `.root-user-status` / `.user-status-extra` / `.status-icon--mic` pattern — these have been removed.
+
 ### Prompt Pattern
 
 Reference: `src/Brmble.Web/src/hooks/usePrompt.tsx`, `src/Brmble.Web/src/components/Prompt/Prompt.css`

@@ -86,24 +86,6 @@
   background: var(--accent-primary-wash);
 }
 
-.dm-contact-avatar {
-  width: 32px;
-  height: 32px;
-  min-width: 32px;
-  border-radius: var(--radius-full);
-  background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.dm-contact-avatar span {
-  font-family: var(--font-display);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  color: var(--bg-deep);
-}
-
 .dm-contact-info {
   flex: 1;
   min-width: 0;
