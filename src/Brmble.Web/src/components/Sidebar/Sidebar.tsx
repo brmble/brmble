@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { ChannelTree } from './ChannelTree';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
 import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
-import { Tooltip } from '../Tooltip/Tooltip';
+import { UserTooltip } from '../UserTooltip/UserTooltip';
 import { usePermissions } from '../../hooks/usePermissions';
 import bridge from '../../bridge';
 import type { Channel, User, ConnectionStatus } from '../../types';
@@ -189,7 +189,7 @@ export function Sidebar({
           </div>
           <div className="root-users-list">
             {rootUsers.map((user, i) => (
-              <Tooltip key={user.session} content={getRootUserTooltip(user)}>
+              <UserTooltip key={user.session} user={user}>
               <div
                 className={`root-user-row${user.self ? ' root-user-self' : ''}`}
                 style={{ animationDelay: `${i * 50}ms` }}
@@ -234,7 +234,7 @@ export function Sidebar({
                   <span className="sharing-badge">Sharing</span>
                 )}
               </div>
-              </Tooltip>
+              </UserTooltip>
             ))}
           </div>
         </div>
@@ -377,12 +377,4 @@ export function Sidebar({
       })()}
     </aside>
   );
-}
-
-function getRootUserTooltip(user: User): string {
-  const statuses: string[] = [];
-  if (user.muted) statuses.push('Muted');
-  if (user.deafened) statuses.push('Deafened');
-  const statusLine = statuses.length > 0 ? statuses.join(', ') : 'Online';
-  return user.comment ? `${statusLine}\n${user.comment}` : statusLine;
 }
