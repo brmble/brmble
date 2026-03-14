@@ -70,6 +70,81 @@
   flex: 1;
 }
 
+/* Comment section */
+
+.avatar-editor-comment {
+  width: 100%;
+  margin-top: var(--space-lg);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--border-subtle);
+  opacity: 0;
+  animation: content-fade-in var(--animation-normal) ease forwards;
+  animation-delay: calc(4 * var(--stagger-step));
+}
+
+.avatar-editor-comment .heading-label {
+  margin: 0 0 var(--space-sm) 0;
+}
+
+.avatar-editor-comment-box {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.avatar-editor-comment-box:hover {
+  border-color: var(--accent-primary);
+}
+
+.avatar-editor-comment-placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.avatar-editor-comment-edit-hint {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.avatar-editor-comment-textarea {
+  width: 100%;
+  min-height: 72px;
+  resize: vertical;
+  background: var(--bg-surface);
+  border: 1px solid var(--accent-primary);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  box-shadow: 0 0 var(--glow-sm) var(--accent-primary-glow);
+  transition: box-shadow var(--transition-fast);
+  box-sizing: border-box;
+}
+
+.avatar-editor-comment-textarea:focus {
+  outline: none;
+  box-shadow: 0 0 var(--glow-md) var(--accent-primary-glow);
+}
+
+.avatar-editor-comment-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+
 .avatar-editor-footer {
   display: flex;
   justify-content: center;
@@ -77,5 +152,5 @@
   width: 100%;
   opacity: 0;
   animation: content-fade-in var(--animation-normal) ease forwards;
-  animation-delay: calc(4 * var(--stagger-step));
+  animation-delay: calc(5 * var(--stagger-step));
 }

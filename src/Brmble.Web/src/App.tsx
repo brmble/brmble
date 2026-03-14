@@ -1646,6 +1646,8 @@ const handleConnect = (serverData: SavedServer) => {
           matrixUserId: matrixCredentials?.userId,
           avatarUrl: currentUserAvatarUrl,
         }}
+        comment={users.find(u => u.self)?.comment}
+        onSetComment={(comment) => bridge.send('voice.setComment', { comment })}
         onUploadAvatar={onUploadAvatar}
         onRemoveAvatar={onRemoveAvatar}
       />

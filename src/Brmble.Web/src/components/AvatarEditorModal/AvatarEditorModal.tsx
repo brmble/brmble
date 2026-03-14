@@ -11,6 +11,8 @@ interface AvatarEditorModalProps {
     matrixUserId?: string;
     avatarUrl?: string;
   };
+  comment?: string;
+  onSetComment: (comment: string) => void;
   onUploadAvatar: (blob: Blob, contentType: string) => void;
   onRemoveAvatar: () => void;
 }
@@ -23,26 +25,39 @@ function getAvatarStatusText(user: AvatarEditorModalProps['currentUser']): strin
   return 'From Mumble';
 }
 
-export function AvatarEditorModal({ isOpen, onClose, currentUser, onUploadAvatar, onRemoveAvatar }: AvatarEditorModalProps) {
+export function AvatarEditorModal({ isOpen, onClose, currentUser, comment, onSetComment, onUploadAvatar, onRemoveAvatar }: AvatarEditorModalProps) {
   const [showUpload, setShowUpload] = useState(false);
+  const [editingComment, setEditingComment] = useState(false);
+  const [commentDraft, setCommentDraft] = useState(comment || '');
   const dialogRef = useRef<HTMLDivElement>(null);
 
   const statusText = getAvatarStatusText(currentUser);
 
-  // Reset upload view when modal opens/closes
+  // Reset state when modal opens/closes
   useEffect(() => {
-    if (!isOpen) setShowUpload(false);
-  }, [isOpen]);
+    if (!isOpen) {
+      setShowUpload(false);
+      setEditingComment(false);
+    }
+    setCommentDraft(comment || '');
+  }, [isOpen, comment]);
 
-  // Escape key to close (AvatarUpload manages its own Escape when active)
+  // Escape key handling: upload > editing comment > close modal
   useEffect(() => {
     if (!isOpen || showUpload) return;
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        if (editingComment) {
+          setEditingComment(false);
+          setCommentDraft(comment || '');
+        } else {
+          onClose();
+        }
+      }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [isOpen, onClose, showUpload]);
+  }, [isOpen, onClose, showUpload, editingComment, comment]);
 
   // Focus trap
   useEffect(() => {
@@ -50,9 +65,9 @@ export function AvatarEditorModal({ isOpen, onClose, currentUser, onUploadAvatar
     const card = dialogRef.current;
     if (!card) return;
 
-    const focusable = card.querySelectorAll<HTMLElement>(
-      'button, input, [tabindex]:not([tabindex="-1"])'
-    );
+    const focusableSelector = 'button, input, textarea, [tabindex]:not([tabindex="-1"])';
+
+    const focusable = card.querySelectorAll<HTMLElement>(focusableSelector);
     if (focusable.length === 0) return;
 
     const first = focusable[0];
@@ -60,9 +75,7 @@ export function AvatarEditorModal({ isOpen, onClose, currentUser, onUploadAvatar
 
     const handleTrap = (e: KeyboardEvent) => {
       if (e.key !== 'Tab') return;
-      const current = card.querySelectorAll<HTMLElement>(
-        'button, input, [tabindex]:not([tabindex="-1"])'
-      );
+      const current = card.querySelectorAll<HTMLElement>(focusableSelector);
       if (current.length === 0) return;
       const f = current[0];
       const l = current[current.length - 1];
@@ -81,9 +94,19 @@ export function AvatarEditorModal({ isOpen, onClose, currentUser, onUploadAvatar
 
     window.addEventListener('keydown', handleTrap);
     return () => window.removeEventListener('keydown', handleTrap);
-  }, [isOpen, showUpload]);
+  }, [isOpen, showUpload, editingComment]);
 
   if (!isOpen) return null;
+
+  const saveComment = () => {
+    onSetComment(commentDraft);
+    setEditingComment(false);
+  };
+
+  const cancelCommentEdit = () => {
+    setEditingComment(false);
+    setCommentDraft(comment || '');
+  };
 
   // When upload cropper is active, render AvatarUpload instead
   if (showUpload) {
@@ -110,7 +133,7 @@ export function AvatarEditorModal({ isOpen, onClose, currentUser, onUploadAvatar
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-header">
-          <h2 id="avatar-editor-title" className="heading-title modal-title">Edit Avatar</h2>
+          <h2 id="avatar-editor-title" className="heading-title modal-title">Edit Profile</h2>
         </div>
 
         <div className="avatar-editor-preview">
@@ -127,6 +150,43 @@ export function AvatarEditorModal({ isOpen, onClose, currentUser, onUploadAvatar
             <button type="button" className="btn btn-secondary" onClick={() => { onRemoveAvatar(); }}>
               Remove
             </button>
+          )}
+        </div>
+
+        <div className="avatar-editor-comment">
+          <h4 className="heading-label">Comment</h4>
+          {editingComment ? (
+            <>
+              <textarea
+                className="avatar-editor-comment-textarea"
+                value={commentDraft}
+                onChange={(e) => setCommentDraft(e.target.value)}
+                rows={3}
+                autoFocus
+                aria-label="Comment"
+              />
+              <div className="avatar-editor-comment-actions">
+                <button type="button" className="btn btn-secondary btn-sm" onClick={cancelCommentEdit}>
+                  Cancel
+                </button>
+                <button type="button" className="btn btn-primary" onClick={saveComment}>
+                  Save
+                </button>
+              </div>
+            </>
+          ) : (
+            <div
+              className="avatar-editor-comment-box"
+              role="button"
+              tabIndex={0}
+              onClick={() => setEditingComment(true)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditingComment(true); } }}
+            >
+              <span className={comment ? '' : 'avatar-editor-comment-placeholder'}>
+                {comment || 'No comment set'}
+              </span>
+              <span className="avatar-editor-comment-edit-hint">Click to edit</span>
+            </div>
           )}
         </div>
 
