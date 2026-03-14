@@ -319,7 +319,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
               onClick: () => setInfoDialogUser({ userId: contextMenu.userId, userName: contextMenu.userName, isSelf: contextMenu.isSelf }),
             },
             ...(contextMenu.isSelf && onEditAvatar ? [{
-              label: 'Edit Avatar',
+              label: 'Edit Profile',
               icon: (
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />

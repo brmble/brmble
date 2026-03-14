@@ -1,6 +1,6 @@
 # Avatar UI Enhancements Design
 
-Issues: #273, #278, #279
+Issues: #273, #278, #279, #76
 
 ## Overview
 
@@ -45,7 +45,7 @@ Three related avatar improvements that enhance the profile settings layout, add 
 - Location: `src/Brmble.Web/src/components/UserTooltip/`
 - 64px Avatar + bold username + comment (truncated to ~2 lines)
 - Glass-panel card aesthetic, consistent with existing tooltip styling
-- Comment editing stays in UserInfoDialog (no changes needed)
+- Comment editing available in both UserInfoDialog and the Edit Profile modal (AvatarEditorModal)
 
 **Integration:**
 - `ChannelTree.tsx`: Replace `<Tooltip content={user.name}>` on user rows with `<UserTooltip user={user}>`
@@ -68,5 +68,5 @@ UserTooltip
 
 1. **Keep hero avatar in settings** — The 80px avatar in ProfileSettingsTab stays; only button positions change.
 2. **Reuse AvatarUpload** — The crop/zoom flow is mature; the new modal wraps it rather than rebuilding it.
-3. **Comment editing stays in UserInfoDialog** — No duplication of editing UI; tooltip is read-only.
+3. **Comment editing in Edit Profile modal** — Comment editing was added to AvatarEditorModal (#76) in addition to UserInfoDialog, giving users a convenient way to edit their comment from the header avatar.
 4. **Disabled state for disconnected** — Header avatar button gets opacity reduction and no-op click when disconnected.

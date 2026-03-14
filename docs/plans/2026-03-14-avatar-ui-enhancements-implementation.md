@@ -1,6 +1,6 @@
 # Avatar UI Enhancements Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> This plan was executed on the `feature/avatar-ui-enhancements` branch. All tasks are complete.
 
 **Goal:** Implement three avatar-related UI improvements: reposition Upload/Remove buttons (#273), create a dedicated avatar editor modal (#278), and add rich user tooltips with enlarged avatars and comments (#279).
 

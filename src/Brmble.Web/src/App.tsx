@@ -177,6 +177,11 @@ function App() {
   }, []);
   const [showSettings, setShowSettings] = useState(false);
   const [showAvatarEditor, setShowAvatarEditor] = useState(false);
+
+  // Close avatar editor modal when disconnected — profile is not editable while disconnected
+  useEffect(() => {
+    if (!connected) setShowAvatarEditor(false);
+  }, [connected]);
   const [showCloseDialog, setShowCloseDialog] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [hasPendingInvite] = useState(false);
