@@ -450,6 +450,43 @@ private int _screenShareHotkeyId = -1;
                 _waveIn.DataAvailable += OnMicData;
             }
 
+            // WasapiCapture.StopRecording() only signals the capture thread to
+            // stop; it doesn't wait for it to exit.  If we call StartRecording()
+            // before the thread has fully stopped, WasapiCapture throws
+            // InvalidOperationException ("Previous recording still in progress").
+            // Wait outside the lock so other threads aren't blocked, then
+            // re-validate state before proceeding.
+            if (_waveIn is WasapiCapture wasapiWait &&
+                wasapiWait.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped)
+            {
+                var localCapture = wasapiWait;
+                Monitor.Exit(_lock);
+                try
+                {
+                    const int maxWaitMs = 300;
+                    int waited = 0;
+                    while (localCapture.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped && waited < maxWaitMs)
+                    {
+                        Thread.Sleep(10);
+                        waited += 10;
+                    }
+                }
+                finally
+                {
+                    Monitor.Enter(_lock);
+                }
+
+                // State may have changed while we were unlocked — re-validate.
+                if (_micStarted || _muted) return;
+
+                if (_waveIn is WasapiCapture recheck &&
+                    recheck.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped)
+                {
+                    AudioLog.Write($"[Audio] WASAPI capture still stopping after wait, skipping StartRecording");
+                    return;
+                }
+            }
+
             _waveIn.StartRecording();
             _micStarted = true;
             AudioLog.Write("[Audio] Mic started");
@@ -1002,24 +1039,31 @@ private int _screenShareHotkeyId = -1;
 
     private void PttPollCallback(object? state)
     {
-        if (_pttVk == 0 || _transmissionMode != TransmissionMode.PushToTalk)
-            return;
-
-        // GetAsyncKeyState returns negative if key is currently pressed
-        short keyState = GetAsyncKeyState(_pttVk);
-        bool isKeyDown = (keyState & 0x8000) != 0;
-
-        if (isKeyDown && !_pttKeyWasDown)
+        try
         {
-            _pttKeyWasDown = true;
-            AudioLog.Write($"[Audio] PTT key down (polling)");
-            SetPttActive(true);
+            if (_pttVk == 0 || _transmissionMode != TransmissionMode.PushToTalk)
+                return;
+
+            // GetAsyncKeyState returns negative if key is currently pressed
+            short keyState = GetAsyncKeyState(_pttVk);
+            bool isKeyDown = (keyState & 0x8000) != 0;
+
+            if (isKeyDown && !_pttKeyWasDown)
+            {
+                _pttKeyWasDown = true;
+                AudioLog.Write($"[Audio] PTT key down (polling)");
+                SetPttActive(true);
+            }
+            else if (!isKeyDown && _pttKeyWasDown)
+            {
+                _pttKeyWasDown = false;
+                AudioLog.Write($"[Audio] PTT key up (polling)");
+                SetPttActive(false);
+            }
         }
-        else if (!isKeyDown && _pttKeyWasDown)
+        catch (Exception ex)
         {
-            _pttKeyWasDown = false;
-            AudioLog.Write($"[Audio] PTT key up (polling)");
-            SetPttActive(false);
+            AudioLog.Write($"[Audio] PttPollCallback error: {ex.Message}");
         }
     }
 
@@ -1176,7 +1220,11 @@ private int _screenShareHotkeyId = -1;
         switch (action)
         {
             case "pushToTalk":
-                RegisterMouseHookForButton(key);
+                // PTT registration is handled by SetTransmissionMode (keyboard
+                // polling or mouse hook).  Only register a mouse hook here when
+                // the key is actually a mouse button (the isMouseButton early-return
+                // above already covers that), so this is intentionally a no-op for
+                // keyboard keys to avoid clobbering the shared mouse hook.
                 break;
             case "toggleMute":
                 _muteKeyName = key;
