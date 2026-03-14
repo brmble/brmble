@@ -1539,6 +1539,7 @@ const handleConnect = (serverData: SavedServer) => {
           sharingChannelId={sharingChannelId ? Number(sharingChannelId) : (activeShare?.roomName ? Number(activeShare.roomName.replace('channel-', '')) : undefined)}
           sharingUserSession={isSharing ? selfSession : activeShare?.sessionId}
           onWatchScreenShare={handleWatchScreenShare}
+          onEditAvatar={connected ? () => setShowAvatarEditor(true) : undefined}
         />
         </ErrorBoundary>
         

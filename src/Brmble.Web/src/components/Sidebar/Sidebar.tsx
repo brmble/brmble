@@ -31,6 +31,7 @@ interface SidebarProps {
   sharingChannelId?: number;
   sharingUserSession?: number;
   onWatchScreenShare?: (roomName: string) => void;
+  onEditAvatar?: () => void;
 }
 
 export function Sidebar({
@@ -54,7 +55,8 @@ export function Sidebar({
   channelUnreads,
   sharingChannelId,
   sharingUserSession,
-  onWatchScreenShare
+  onWatchScreenShare,
+  onEditAvatar
 }: SidebarProps) {
   const connected = connectionStatus === 'connected';
   const isConnecting = connectionStatus === 'connecting';
@@ -258,6 +260,7 @@ export function Sidebar({
           sharingChannelId={sharingChannelId}
           sharingUserSession={sharingUserSession}
           onWatchScreenShare={onWatchScreenShare}
+          onEditAvatar={onEditAvatar}
         />
       </div>
       {contextMenu && (
@@ -285,6 +288,16 @@ export function Sidebar({
               ),
               onClick: () => setInfoDialogUser({ userId: contextMenu.userId, userName: contextMenu.userName, isSelf: contextMenu.isSelf }),
             },
+            ...(contextMenu.isSelf && onEditAvatar ? [{
+              label: 'Edit Avatar',
+              icon: (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                  <circle cx="12" cy="7" r="4" />
+                </svg>
+              ),
+              onClick: () => onEditAvatar(),
+            }] : []),
             ...(!contextMenu.isSelf && hasPermission(0, Permission.MuteDeafen) ? [
               {
                 label: 'Mute',

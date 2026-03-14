@@ -44,9 +44,10 @@ interface ChannelTreeProps {
   sharingChannelId?: number;
   sharingUserSession?: number;
   onWatchScreenShare?: (roomName: string) => void;
+  onEditAvatar?: () => void;
 }
 
-export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, speakingUsers, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare }: ChannelTreeProps) {
+export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, speakingUsers, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, onEditAvatar }: ChannelTreeProps) {
   const [sortByNamePerChannel, setSortByNamePerChannel] = useState<Record<number, boolean>>({});
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string; isSelf: boolean; channelId?: number } | null>(null);
   const [infoDialogUser, setInfoDialogUser] = useState<{ userId: string; userName: string; isSelf: boolean } | null>(null);
@@ -316,6 +317,16 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
               ),
               onClick: () => setInfoDialogUser({ userId: contextMenu.userId, userName: contextMenu.userName, isSelf: contextMenu.isSelf }),
             },
+            ...(contextMenu.isSelf && onEditAvatar ? [{
+              label: 'Edit Avatar',
+              icon: (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                  <circle cx="12" cy="7" r="4" />
+                </svg>
+              ),
+              onClick: () => onEditAvatar(),
+            }] : []),
             ...(!contextMenu.isSelf && currentChannelId && hasPermission(currentChannelId, Permission.MuteDeafen) ? [
               {
                 label: 'Mute',
