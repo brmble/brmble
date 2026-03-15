@@ -283,7 +283,7 @@
   z-index: 2;
   margin: 0 calc(-1 * var(--space-lg));
   padding: 0 var(--space-lg);
-  background-color: transparent;
+  background-color: var(--bg-deep);
 }
 
 .chat-date-separator {
@@ -314,20 +314,39 @@
 
 /* Cascading dot indicator for sticky date headers */
 .chat-date-dots {
+  --dot-size: 4px;
+  position: absolute;
+  bottom: 0;
+  /* Align with message text start: avatar (48px) + gap (0.75rem) + bubble padding (--space-xs) + container padding (--space-lg) */
+  left: calc(var(--space-lg) + 48px + 0.75rem + var(--space-xs));
   display: flex;
-  flex-direction: column;
-  align-items: center;
+  flex-direction: column-reverse;
+  align-items: flex-start;
   gap: var(--space-2xs);
-  padding: var(--space-2xs) 0;
+  /* Nudge up so the bottom dot centers on the border line */
+  transform: translateY(calc(var(--dot-size) / -2));
+  z-index: 1;
 }
 
 .chat-date-dot {
-  width: 5px;
-  height: 5px;
+  width: var(--dot-size);
+  height: var(--dot-size);
   border-radius: var(--radius-full);
-  background: var(--text-muted);
-  opacity: 0.5;
+  background: var(--heading-section-color);
   transition: opacity var(--transition-fast);
+}
+
+/* Top dot (furthest from line) is most visible; lower dots fade */
+.chat-date-dot:first-child {
+  opacity: 0.3;
+}
+
+.chat-date-dot:nth-child(2) {
+  opacity: 0.5;
+}
+
+.chat-date-dot:nth-child(3) {
+  opacity: 0.8;
 }
 
 /* Unread messages divider */

@@ -601,14 +601,14 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
                   </span>
                 </div>
                 </Tooltip>
+                {stuckSeparators.has(section.dateMessageId) && (hiddenCounts.get(section.dateMessageId) ?? 0) > 0 && (
+                  <div className="chat-date-dots">
+                    {Array.from({ length: (hiddenCounts.get(section.dateMessageId) ?? 0) >= 7 ? 3 : (hiddenCounts.get(section.dateMessageId) ?? 0) >= 3 ? 2 : 1 }, (_, i) => (
+                      <div key={i} className="chat-date-dot" />
+                    ))}
+                  </div>
+                )}
               </div>
-              {stuckSeparators.has(section.dateMessageId) && (hiddenCounts.get(section.dateMessageId) ?? 0) > 0 && (
-                <div className="chat-date-dots">
-                  {Array.from({ length: Math.min(3, hiddenCounts.get(section.dateMessageId) ?? 0) }, (_, i) => (
-                    <div key={i} className="chat-date-dot" />
-                  ))}
-                </div>
-              )}
               {section.items.map((item) => {
                 const msgIndex = messageIndexById.get(item.message.id) ?? -1;
                 const isActiveMatch = searchMatches.length > 0 && msgIndex === searchMatches[searchMatches.length - 1 - currentMatchIndex];
