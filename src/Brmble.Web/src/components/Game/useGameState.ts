@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { GameState, GameActions, INITIAL_STATE, Crop } from './types';
+import type { GameState, GameActions, Crop } from './types';
+import { INITIAL_STATE } from './types';
 
 const STORAGE_KEY = 'idle-farm-save';
 

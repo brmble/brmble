@@ -1,16 +1,16 @@
 import { useState } from 'react';
-import { GameState, GameActions, Crop } from './types';
+import type { Crop } from './types';
+import { useGameState } from './useGameState';
 import './GameUI.css';
 
 interface GameUIProps {
-  state: GameState;
-  actions: GameActions;
   onClose: () => void;
 }
 
 type TabId = 'crops' | 'upgrades' | 'options';
 
-export function GameUI({ state, actions, onClose }: GameUIProps) {
+export function GameUI({ onClose }: GameUIProps) {
+  const { state, actions } = useGameState();
   const [activeTab, setActiveTab] = useState<TabId>('crops');
   
   const visibleCrops = state.crops.filter((crop, index) => {
