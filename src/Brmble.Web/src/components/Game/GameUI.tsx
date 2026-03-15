@@ -5,11 +5,12 @@ import './GameUI.css';
 interface GameUIProps {
   state: GameState;
   actions: GameActions;
+  onClose: () => void;
 }
 
 type TabId = 'crops' | 'upgrades' | 'options';
 
-export function GameUI({ state, actions }: GameUIProps) {
+export function GameUI({ state, actions, onClose }: GameUIProps) {
   const [activeTab, setActiveTab] = useState<TabId>('crops');
   
   const visibleCrops = state.crops.filter((crop, index) => {
@@ -19,38 +20,43 @@ export function GameUI({ state, actions }: GameUIProps) {
   });
 
   return (
-    <div className="game-ui">
-      <Header money={state.money} income={state.incomePerSecond} />
-      <div className="game-body">
-        <TabNav activeTab={activeTab} onTabChange={setActiveTab} />
-        <div className="game-content">
-          {activeTab === 'crops' && (
-            <CropsTab 
-              crops={visibleCrops} 
-              onBuy={actions.buyCrop} 
-              onUpgradeSoil={actions.upgradeSoil}
-              onUpgradeFertilizer={actions.upgradeFertilizer}
-              onUpgradeSeeds={actions.upgradeSeeds}
-              money={state.money} 
-            />
-          )}
-          {activeTab === 'upgrades' && (
-            <UpgradesTab 
-              crops={state.crops} 
-              money={state.money}
-              onUnlock={actions.unlockCrop}
-            />
-          )}
-          {activeTab === 'options' && (
-            <OptionsTab 
-              onSetTheme={actions.setTheme}
-              onSave={actions.saveGame}
-              onLoad={actions.loadGame}
-              onReset={actions.resetGame}
-              onExport={actions.exportSave}
-              onImport={actions.importSave}
-            />
-          )}
+    <div className="game-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="game-modal">
+        <button className="game-close-btn" onClick={onClose} aria-label="Close">×</button>
+        <div className="game-ui">
+          <Header money={state.money} income={state.incomePerSecond} />
+          <div className="game-body">
+            <TabNav activeTab={activeTab} onTabChange={setActiveTab} />
+            <div className="game-content">
+              {activeTab === 'crops' && (
+                <CropsTab 
+                  crops={visibleCrops} 
+                  onBuy={actions.buyCrop} 
+                  onUpgradeSoil={actions.upgradeSoil}
+                  onUpgradeFertilizer={actions.upgradeFertilizer}
+                  onUpgradeSeeds={actions.upgradeSeeds}
+                  money={state.money} 
+                />
+              )}
+              {activeTab === 'upgrades' && (
+                <UpgradesTab 
+                  crops={state.crops} 
+                  money={state.money}
+                  onUnlock={actions.unlockCrop}
+                />
+              )}
+              {activeTab === 'options' && (
+                <OptionsTab 
+                  onSetTheme={actions.setTheme}
+                  onSave={actions.saveGame}
+                  onLoad={actions.loadGame}
+                  onReset={actions.resetGame}
+                  onExport={actions.exportSave}
+                  onImport={actions.importSave}
+                />
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>

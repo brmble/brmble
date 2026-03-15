@@ -1,8 +1,55 @@
+/* Overlay */
+.game-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 1000;
+}
+
+.game-modal {
+  position: relative;
+  width: 100%;
+  max-width: 600px;
+  max-height: 90vh;
+  overflow: auto;
+  background: var(--bg-primary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-dialog);
+}
+
+.game-close-btn {
+  position: absolute;
+  top: var(--space-sm);
+  right: var(--space-sm);
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--text-xl);
+  cursor: pointer;
+  transition: var(--transition-fast);
+  z-index: 1;
+}
+
+.game-close-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--accent-primary);
+}
+
+/* Game UI */
 .game-ui {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
-  background: var(--bg-deep);
 }
 
 .game-body {
@@ -28,7 +75,6 @@
   padding: var(--space-sm) var(--space-lg);
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border-subtle);
-  height: var(--header-height);
 }
 
 .header-stat {
@@ -53,7 +99,6 @@
 
 .header-value.currency {
   color: var(--accent-secondary);
-  text-shadow: var(--glow-sm) var(--accent-secondary);
 }
 
 .header-value.income {
@@ -218,7 +263,7 @@
 
 .progress-fill-sm {
   height: 100%;
-  background: linear-gradient(90deg, var(--accent-primary), var(--accent-primary-glow));
+  background: var(--accent-primary);
   border-radius: var(--radius-sm);
   transition: width var(--transition-fast);
 }
@@ -295,7 +340,7 @@
 
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--accent-primary), var(--accent-primary-glow));
+  background: var(--accent-primary);
   border-radius: var(--radius-sm);
   transition: width var(--transition-normal);
 }
