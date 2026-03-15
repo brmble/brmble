@@ -87,7 +87,7 @@ export function GameUI({ onClose }: GameUIProps) {
         <button className="game-close-btn" onClick={handleClose} aria-label="Close">×</button>
         <div className="game-ui">
           <Header money={state.money} income={state.incomePerSecond} />
-          <div className="game-body" id="game-title"></div>
+          <div className="game-body" id="game-title">
             <TabNav activeTab={activeTab} onTabChange={setActiveTab} />
             <div className="game-content">
               {activeTab === 'crops' && (
