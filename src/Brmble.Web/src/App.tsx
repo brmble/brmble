@@ -26,6 +26,7 @@ import type { StoredDMContact } from './hooks/useChatStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
 import { usePrompt, confirm } from './hooks/usePrompt';
 import { Toast } from './components/Toast/Toast';
+import { GameUI } from './components/Game/GameUI';
 import './App.css';
 
 const SETTINGS_STORAGE_KEY = 'brmble-settings';
@@ -175,6 +176,7 @@ function App() {
     setDmDividerTs(null);
   }, []);
   const [showSettings, setShowSettings] = useState(false);
+  const [showGame, setShowGame] = useState(false);
   const [showCloseDialog, setShowCloseDialog] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [hasPendingInvite] = useState(false);
@@ -1510,6 +1512,7 @@ const handleConnect = (serverData: SavedServer) => {
         speaking={speakingUsers.has(selfSession) || false}
         pendingChannelAction={pendingChannelAction}
         hotkeyPressedBtn={hotkeyPressedBtn}
+        onToggleGame={() => setShowGame(!showGame)}
       />
       </ErrorBoundary>
       
@@ -1659,6 +1662,7 @@ const handleConnect = (serverData: SavedServer) => {
 
       <ZoomIndicator />
       <Version />
+      {showGame && <GameUI onClose={() => setShowGame(false)} />}
     </div>
   );
 }
