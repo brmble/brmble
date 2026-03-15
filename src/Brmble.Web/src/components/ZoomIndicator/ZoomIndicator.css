@@ -1,6 +1,6 @@
 .zoom-indicator {
   position: fixed;
-  bottom: 48px;
+  bottom: var(--space-2xl);
   left: 50%;
   transform: translateX(-50%);
   padding: var(--space-xs) var(--space-sm);

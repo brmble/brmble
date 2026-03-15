@@ -1,6 +1,6 @@
 .image-attachment {
   max-width: 400px;
-  margin-top: 0.5rem;
+  margin-top: var(--space-xs);
   cursor: pointer;
   border-radius: var(--radius-md);
   overflow: hidden;
@@ -35,7 +35,7 @@
   height: 150px;
   background: var(--bg-elevated);
   border-radius: var(--radius-md);
-  animation: pulse 1.5s ease-in-out infinite;
+  animation: pulse var(--animation-loading-dots) ease-in-out infinite;
 }
 
 @keyframes pulse {

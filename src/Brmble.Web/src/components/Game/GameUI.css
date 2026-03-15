@@ -453,22 +453,6 @@
   margin-bottom: var(--space-xs);
 }
 
-.options-select {
-  font-family: var(--font-body);
-  font-size: var(--text-base);
-  padding: var(--space-sm) var(--space-md);
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-
-.options-select:focus {
-  outline: none;
-  border-color: var(--accent-primary);
-}
-
 .options-slider-container {
   display: flex;
   align-items: center;

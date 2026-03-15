@@ -1,7 +1,7 @@
 .version-display {
   position: fixed;
-  bottom: 8px;
-  right: 8px;
+  bottom: var(--space-xs);
+  right: var(--space-xs);
   font-size: var(--text-2xs);
   color: var(--text-muted);
   pointer-events: none;

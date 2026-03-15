@@ -5,7 +5,7 @@
   background: var(--bg-primary);
   border: var(--glass-border);
   border-radius: var(--radius-md);
-  padding: 0.375rem;
+  padding: var(--space-2xs);
   box-shadow: var(--shadow-elevated);
   animation: popIn var(--animation-fast) ease backwards;
 }
@@ -13,9 +13,9 @@
 .context-menu-item {
   display: flex;
   align-items: center;
-  gap: 0.625rem;
+  gap: var(--space-xs);
   width: 100%;
-  padding: 0.5rem 0.75rem;
+  padding: var(--space-xs) var(--space-sm);
   border: none;
   background: none;
   border-radius: var(--radius-xs);

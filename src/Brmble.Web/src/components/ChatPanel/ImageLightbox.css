@@ -12,15 +12,15 @@
 
 .image-lightbox__close {
   position: absolute;
-  top: 1rem;
-  right: 1rem;
+  top: var(--space-md);
+  right: var(--space-md);
   background: none;
   border: none;
   color: var(--text-primary);
   font-size: var(--text-3xl);
   line-height: 1;
   cursor: pointer;
-  padding: 0.25rem 0.5rem;
+  padding: var(--space-2xs) var(--space-xs);
   border-radius: var(--radius-md);
   z-index: 1001;
 }
