@@ -59,9 +59,9 @@ Two parts:
 Add a vertical dot indicator below the sticky header that communicates "there are more messages above from this day."
 
 **Dot behavior:**
-- When stuck with 3+ messages above: show 3 dots
-- When 2 messages remain above: show 2 dots
-- When 1 message remains above: show 1 dot
+- When stuck with 7+ messages hidden above: show 3 dots
+- When 3-6 messages hidden above: show 2 dots
+- When 1-2 messages hidden above: show 1 dot
 - When 0 remain (unsticks): no dots, normal inline divider
 
 **Visual spec:**

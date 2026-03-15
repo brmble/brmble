@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState, forwardRef, type ReactNode } from 'react';
 import type { MatrixClient } from 'matrix-js-sdk';
 import type { MediaAttachment } from '../../types';
 import { extractFirstUrl } from '../../hooks/useLinkPreview';
@@ -93,7 +93,7 @@ function highlightHtml(html: string, query: string): string {
   });
 }
 
-export function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId }: MessageBubbleProps) {
+export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & React.HTMLAttributes<HTMLDivElement>>(function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId, className, ...rest }, ref) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const formatTime = (date: Date) => {
@@ -105,11 +105,12 @@ export function MessageBubble({ sender, content, timestamp, isOwnMessage, isSyst
   if (isSystem) classes.push('message-bubble--system');
   if (collapsed) classes.push('message-bubble--collapsed');
   if (isActiveMatch) classes.push('search-active-match');
+  if (className) classes.push(className);
 
   const firstUrl = (!isSystem && content) ? extractFirstUrl(content) : null;
 
   return (
-    <div className={classes.join(' ')} data-message-index={messageIndex}>
+    <div ref={ref} className={classes.join(' ')} data-message-index={messageIndex} {...rest}>
       {collapsed ? (
         <div className="message-gutter">
           <span className="message-hover-time">{formatTime(timestamp)}</span>
@@ -155,4 +156,4 @@ export function MessageBubble({ sender, content, timestamp, isOwnMessage, isSyst
       )}
     </div>
   );
-}
+});

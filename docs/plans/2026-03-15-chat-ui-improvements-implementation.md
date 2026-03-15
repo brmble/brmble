@@ -1,7 +1,5 @@
 # Chat UI Improvements Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
-
 **Goal:** Implement four chat UI improvements: remove hover highlight, increase avatar size, redesign sticky date divider with cascading dots, and fix unread divider visibility.
 
 **Architecture:** CSS-only changes for #286/#287, IntersectionObserver-based message tracking + CSS for #288, z-index + scroll offset fix for #263. All changes are in the ChatPanel and MessageBubble components.

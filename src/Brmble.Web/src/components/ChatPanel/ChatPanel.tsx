@@ -72,6 +72,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
   const [hiddenCounts, setHiddenCounts] = useState<Map<string, number>>(() => new Map());
   const messageObserverRef = useRef<IntersectionObserver | null>(null);
   const messageElMapRef = useRef<Map<string, HTMLDivElement>>(new Map());
+  const hiddenSetRef = useRef<Set<string>>(new Set());
   const [splitPercent, setSplitPercent] = useState(() => {
     const stored = localStorage.getItem(SPLIT_STORAGE_KEY);
     return stored ? Number(stored) : DEFAULT_SPLIT;
@@ -266,45 +267,41 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
     const container = messagesContainerRef.current;
     if (!container) return;
 
+    hiddenSetRef.current.clear();
     setHiddenCounts(new Map());
 
     const observer = new IntersectionObserver(
       (entries) => {
+        const hiddenSet = hiddenSetRef.current;
+        let changed = false;
+
+        // Incrementally update hidden set from observer entries only —
+        // no full DOM scan. We compute containerRect once per callback batch.
+        const containerRect = container.getBoundingClientRect();
+        for (const entry of entries) {
+          const msgId = (entry.target as HTMLElement).dataset.msgTrack;
+          if (!msgId) continue;
+          const isAbove = entry.boundingClientRect.bottom < containerRect.top;
+          if (!entry.isIntersecting && isAbove) {
+            if (!hiddenSet.has(msgId)) { hiddenSet.add(msgId); changed = true; }
+          } else {
+            if (hiddenSet.has(msgId)) { hiddenSet.delete(msgId); changed = true; }
+          }
+        }
+
+        if (!changed) return;
+
+        // Count hidden messages per section
+        const next = new Map<string, number>();
+        for (const section of dateSections) {
+          let count = 0;
+          for (const item of section.items) {
+            if (hiddenSet.has(item.message.id)) count++;
+          }
+          if (count > 0) next.set(section.dateMessageId, count);
+        }
+
         setHiddenCounts(prev => {
-          const hiddenSet = new Set<string>();
-          // Check all tracked elements
-          messageElMapRef.current.forEach((el, id) => {
-            const rect = el.getBoundingClientRect();
-            const containerRect = container.getBoundingClientRect();
-            if (rect.bottom < containerRect.top) {
-              hiddenSet.add(id);
-            }
-          });
-
-          // Apply observer updates
-          for (const entry of entries) {
-            const el = entry.target as HTMLElement;
-            const msgId = el.dataset.msgTrack;
-            if (!msgId) continue;
-            const containerRect = container.getBoundingClientRect();
-            const isAbove = entry.boundingClientRect.bottom < containerRect.top;
-            if (!entry.isIntersecting && isAbove) {
-              hiddenSet.add(msgId);
-            } else {
-              hiddenSet.delete(msgId);
-            }
-          }
-
-          // Count hidden messages per section
-          const next = new Map<string, number>();
-          for (const section of dateSections) {
-            let count = 0;
-            for (const item of section.items) {
-              if (hiddenSet.has(item.message.id)) count++;
-            }
-            if (count > 0) next.set(section.dateMessageId, count);
-          }
-
           // Only update state if changed
           if (next.size !== prev.size) return next;
           for (const [k, v] of next) {
@@ -601,13 +598,17 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
                   </span>
                 </div>
                 </Tooltip>
-                {stuckSeparators.has(section.dateMessageId) && (hiddenCounts.get(section.dateMessageId) ?? 0) > 0 && (
-                  <div className="chat-date-dots">
-                    {Array.from({ length: (hiddenCounts.get(section.dateMessageId) ?? 0) >= 7 ? 3 : (hiddenCounts.get(section.dateMessageId) ?? 0) >= 3 ? 2 : 1 }, (_, i) => (
-                      <div key={i} className="chat-date-dot" />
-                    ))}
-                  </div>
-                )}
+                {stuckSeparators.has(section.dateMessageId) && (hiddenCounts.get(section.dateMessageId) ?? 0) > 0 && (() => {
+                  const hiddenCount = hiddenCounts.get(section.dateMessageId) ?? 0;
+                  const dotCount = hiddenCount >= 7 ? 3 : hiddenCount >= 3 ? 2 : 1;
+                  return (
+                    <div className="chat-date-dots">
+                      {Array.from({ length: dotCount }, (_, i) => (
+                        <div key={i} className="chat-date-dot" />
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
               {section.items.map((item) => {
                 const msgIndex = messageIndexById.get(item.message.id) ?? -1;
@@ -619,24 +620,24 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
                       <span className="chat-unread-divider-label">New Messages</span>
                     </div>
                   )}
-                  <div ref={messageRefCallback(item.message.id)} data-msg-track={item.message.id}>
-                    <MessageBubble
-                      sender={item.message.sender}
-                      content={item.message.content}
-                      timestamp={item.message.timestamp}
-                      isOwnMessage={!item.message.type && item.message.sender === currentUsername}
-                      isSystem={item.message.type === 'system'}
-                      collapsed={!item.isGroupStart}
-                      html={item.message.html}
-                      media={item.message.media}
-                      matrixClient={matrixClient}
-                      searchQuery={searchQuery}
-                      isActiveMatch={isActiveMatch}
-                      messageIndex={msgIndex}
-                      senderAvatarUrl={lookupAvatar(item.message.sender, item.message.senderMatrixUserId)?.avatarUrl}
-                      senderMatrixUserId={lookupAvatar(item.message.sender, item.message.senderMatrixUserId)?.matrixUserId}
-                    />
-                  </div>
+                  <MessageBubble
+                    ref={messageRefCallback(item.message.id)}
+                    data-msg-track={item.message.id}
+                    sender={item.message.sender}
+                    content={item.message.content}
+                    timestamp={item.message.timestamp}
+                    isOwnMessage={!item.message.type && item.message.sender === currentUsername}
+                    isSystem={item.message.type === 'system'}
+                    collapsed={!item.isGroupStart}
+                    html={item.message.html}
+                    media={item.message.media}
+                    matrixClient={matrixClient}
+                    searchQuery={searchQuery}
+                    isActiveMatch={isActiveMatch}
+                    messageIndex={msgIndex}
+                    senderAvatarUrl={lookupAvatar(item.message.sender, item.message.senderMatrixUserId)?.avatarUrl}
+                    senderMatrixUserId={lookupAvatar(item.message.sender, item.message.senderMatrixUserId)?.matrixUserId}
+                  />
                 </Fragment>
                 );
               })}
