@@ -149,7 +149,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
       if (pendingSlideScrollRef.current) {
         pendingSlideScrollRef.current = false;
         if (unreadDividerRef.current) {
-          unreadDividerRef.current.scrollIntoView({ behavior: 'auto', block: 'start' });
+          unreadDividerRef.current.scrollIntoView({ behavior: 'auto', block: 'center' });
         } else if (messagesEndRef.current) {
           messagesEndRef.current.scrollIntoView({ behavior: 'auto' });
         }
@@ -188,7 +188,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
     const timer = setTimeout(() => {
       pendingSlideScrollRef.current = false;
       if (unreadDividerRef.current) {
-        unreadDividerRef.current.scrollIntoView({ behavior: 'auto', block: 'start' });
+        unreadDividerRef.current.scrollIntoView({ behavior: 'auto', block: 'center' });
       } else if (messagesEndRef.current) {
         messagesEndRef.current.scrollIntoView();
       }

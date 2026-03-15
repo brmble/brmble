@@ -338,6 +338,8 @@
   padding: var(--space-sm) 0;
   margin: var(--space-sm) 0;
   user-select: none;
+  position: relative;
+  z-index: 3;
 }
 
 .chat-unread-divider::before,
