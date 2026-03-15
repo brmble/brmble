@@ -6,8 +6,8 @@
 }
 
 .message-avatar {
-  width: 40px;
-  min-width: 40px;
+  width: 48px;
+  min-width: 48px;
 }
 
 .message-bubble--system .message-avatar .avatar {
@@ -84,8 +84,8 @@
 }
 
 .message-gutter {
-  width: 40px;
-  min-width: 40px;
+  width: 48px;
+  min-width: 48px;
   display: flex;
   align-items: center;
   justify-content: center;
