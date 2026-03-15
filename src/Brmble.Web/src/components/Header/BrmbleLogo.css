@@ -17,7 +17,7 @@
 .brmble-logo-svg {
   color: var(--text-primary);
   flex-shrink: 0;
-  cursor: default;
+  cursor: pointer;
   overflow: visible;
 }
 
