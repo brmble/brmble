@@ -12,7 +12,7 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
-  background: #000;
+  background: var(--bg-deep);
 }
 
 .screen-share-overlay {
@@ -31,10 +31,10 @@
   bottom: var(--space-sm);
   left: var(--space-sm);
   padding: var(--space-xs) var(--space-sm);
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--bg-deep-glass);
   border-radius: var(--radius-sm);
   font-size: var(--text-sm);
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .screen-share-overlay--controls {
@@ -46,13 +46,13 @@
 }
 
 .screen-share-control-btn {
-  background: rgba(0, 0, 0, 0.6) !important;
-  color: #fff !important;
+  background: var(--bg-deep-glass) !important;
+  color: var(--text-primary) !important;
   border-radius: var(--radius-sm) !important;
   width: 32px;
   height: 32px;
 }
 
 .screen-share-control-btn:hover {
-  background: rgba(0, 0, 0, 0.8) !important;
+  background: var(--bg-hover-strong) !important;
 }

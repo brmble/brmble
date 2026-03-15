@@ -11,14 +11,14 @@
 .cert-wizard {
   width: 100%;
   max-width: 480px;
-  padding: 2.5rem;
+  padding: var(--space-xl);
   animation: slideUp var(--animation-normal) ease backwards;
 }
 
 .cert-wizard-step-indicator {
   display: flex;
-  gap: 6px;
-  margin-bottom: 2rem;
+  gap: var(--space-2xs);
+  margin-bottom: var(--space-xl);
 }
 
 .cert-wizard-dot {
@@ -35,43 +35,43 @@
 
 .cert-wizard-icon {
   font-size: var(--text-4xl);
-  margin-bottom: 1rem;
+  margin-bottom: var(--space-md);
 }
 
 .cert-wizard-title {
-  margin: 0 0 0.75rem;
+  margin: 0 0 var(--space-sm);
 }
 
 .cert-wizard-body {
   font-size: var(--text-sm);
   color: var(--text-secondary);
   line-height: 1.6;
-  margin: 0 0 2rem;
+  margin: 0 0 var(--space-xl);
 }
 
 .cert-wizard-warning {
   background: var(--accent-danger-subtle);
   border: 1px solid var(--accent-danger-border);
   border-radius: var(--radius-md);
-  padding: 1.25rem;
+  padding: var(--space-lg);
   color: var(--accent-danger-text);
   font-size: var(--text-sm);
   line-height: 1.7;
-  margin-bottom: 1.5rem;
+  margin-bottom: var(--space-lg);
 }
 
 .cert-wizard-warning strong {
   display: block;
   font-size: var(--text-base);
-  margin-bottom: 0.5rem;
+  margin-bottom: var(--space-xs);
   color: var(--accent-danger-strong);
 }
 
 .cert-wizard-ack {
   display: flex;
   align-items: flex-start;
-  gap: 0.75rem;
-  margin-bottom: 2rem;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xl);
   cursor: pointer;
 }
 
@@ -93,15 +93,15 @@
 .cert-wizard-choices {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  margin-bottom: 2rem;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xl);
 }
 
 .cert-wizard-choice {
   display: flex;
   align-items: center;
-  gap: 1rem;
-  padding: 1rem 1.25rem;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
   background: var(--bg-glass);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
@@ -133,7 +133,7 @@
 
 .cert-wizard-actions {
   display: flex;
-  gap: 0.75rem;
+  gap: var(--space-sm);
   justify-content: flex-end;
 }
 
@@ -141,10 +141,10 @@
 .cert-wizard-generating {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: var(--space-sm);
   color: var(--text-muted);
   font-size: var(--text-sm);
-  margin-bottom: 2rem;
+  margin-bottom: var(--space-xl);
 }
 
 .cert-wizard-spinner {
@@ -162,7 +162,7 @@
   color: var(--text-muted);
   word-break: break-all;
   background: var(--bg-glass);
-  padding: 0.5rem 0.75rem;
+  padding: var(--space-xs) var(--space-sm);
   border-radius: var(--radius-sm);
-  margin-bottom: 1rem;
+  margin-bottom: var(--space-md);
 }

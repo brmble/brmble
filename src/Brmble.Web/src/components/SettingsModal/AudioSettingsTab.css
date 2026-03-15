@@ -4,7 +4,7 @@
 }
 
 .settings-slider label {
-  margin-bottom: 8px;
+  margin-bottom: var(--space-xs);
 }
 
 .settings-slider input[type="range"] {
@@ -51,7 +51,7 @@
   font-size: var(--text-2xs);
   font-weight: 600;
   cursor: help;
-  margin-left: 6px;
+  margin-left: var(--space-2xs);
   position: relative;
 }
 
@@ -62,7 +62,7 @@
   left: 0;
   background: var(--bg-deep);
   color: var(--text-primary);
-  padding: 8px 12px;
+  padding: var(--space-xs) var(--space-sm);
   border-radius: var(--radius-sm);
   font-size: var(--text-xs);
   font-weight: 400;
@@ -82,9 +82,9 @@
 
 .settings-dev-label {
   background: var(--accent-danger);
-  color: white;
+  color: var(--text-primary);
   font-size: var(--text-2xs);
-  padding: 2px 6px;
+  padding: 2px var(--space-2xs);
   border-radius: var(--radius-xs);
   margin-right: var(--space-sm);
   text-transform: uppercase;
@@ -114,5 +114,5 @@
 .toggle-btn.active {
   background: var(--accent-primary);
   border-color: var(--accent-primary);
-  color: white;
+  color: var(--text-primary);
 }

@@ -236,7 +236,7 @@
 
 .soil-level.maxed {
   background: var(--accent-primary);
-  color: white;
+  color: var(--text-primary);
 }
 
 .crop-actions {
@@ -451,22 +451,6 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: var(--space-xs);
-}
-
-.options-select {
-  font-family: var(--font-body);
-  font-size: var(--text-base);
-  padding: var(--space-sm) var(--space-md);
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-
-.options-select:focus {
-  outline: none;
-  border-color: var(--accent-primary);
 }
 
 .options-slider-container {

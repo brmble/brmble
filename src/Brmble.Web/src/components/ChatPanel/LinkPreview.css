@@ -67,5 +67,5 @@
   margin-top: var(--space-xs);
   background: var(--bg-elevated);
   border-radius: var(--radius-md);
-  animation: pulse 1.5s ease-in-out infinite;
+  animation: pulse var(--animation-loading-dots) ease-in-out infinite;
 }

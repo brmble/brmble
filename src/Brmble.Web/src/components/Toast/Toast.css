@@ -12,8 +12,8 @@
   align-items: center;
   gap: var(--space-md);
   z-index: 1100;
-  transition: opacity 0.2s ease, transform 0.2s ease;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+  box-shadow: var(--shadow-elevated);
 }
 
 .toast--visible {

@@ -1,5 +1,5 @@
 .shortcuts-settings-tab .settings-hint {
   color: var(--text-muted);
   font-size: var(--text-xs);
-  margin-top: 12px;
+  margin-top: var(--space-sm);
 }

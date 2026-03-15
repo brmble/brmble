@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import type { Crop } from './types';
 import { useGameState } from './useGameState';
 import { confirm } from '../../hooks/usePrompt';
+import { Select } from '../Select/Select';
 import './GameUI.css';
 
 interface GameUIProps {
@@ -368,6 +369,7 @@ function OptionsTab({
   const [importData, setImportData] = useState('');
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [volume, setVolume] = useState(50);
+  const [theme, setTheme] = useState('classic');
 
   const handleExport = async () => {
     const data = onExport();
@@ -410,14 +412,14 @@ function OptionsTab({
 
       <div className="options-section">
         <h3 className="options-section-title">Theme</h3>
-        <select 
-          className="options-select"
-          onChange={(e) => onSetTheme(e.target.value)}
-          defaultValue="classic"
-        >
-          <option value="classic">Classic</option>
-          <option value="retro-terminal">Retro Terminal</option>
-        </select>
+        <Select
+          value={theme}
+          onChange={(val) => { setTheme(val); onSetTheme(val); }}
+          options={[
+            { value: 'classic', label: 'Classic' },
+            { value: 'retro-terminal', label: 'Retro Terminal' },
+          ]}
+        />
       </div>
 
       <div className="options-section">
