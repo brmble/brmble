@@ -1512,7 +1512,7 @@ const handleConnect = (serverData: SavedServer) => {
         speaking={speakingUsers.has(selfSession) || false}
         pendingChannelAction={pendingChannelAction}
         hotkeyPressedBtn={hotkeyPressedBtn}
-        onToggleGame={() => setShowGame(!showGame)}
+        onToggleGame={() => setShowGame(prev => !prev)}
       />
       </ErrorBoundary>
       

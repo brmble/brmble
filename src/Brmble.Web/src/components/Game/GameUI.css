@@ -5,20 +5,23 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.7);
+  background: var(--bg-overlay);
+  backdrop-filter: var(--glass-blur-overlay);
   z-index: 1000;
 }
 
 .game-modal {
   position: relative;
   width: 100%;
-  max-width: 600px;
-  max-height: 90vh;
+  max-width: 900px;
+  max-height: 85vh;
   overflow: auto;
   background: var(--bg-primary);
   border-radius: var(--radius-lg);
   border: 1px solid var(--border-subtle);
   box-shadow: var(--shadow-dialog);
+  resize: both;
+  overflow: auto;
 }
 
 .game-close-btn {

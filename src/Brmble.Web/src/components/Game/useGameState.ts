@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { GameState, GameActions, Crop } from './types';
 import { INITIAL_STATE } from './types';
+import { applyTheme } from '../../themes/theme-loader';
 
 const STORAGE_KEY = 'idle-farm-save';
 
@@ -11,7 +12,7 @@ function calculateIncome(crops: Crop[]): number {
     const fertilizerMultiplier = 1 + (crop.fertilizerLevel * 0.25);
     const seedsMultiplier = 1 + (crop.seedsLevel * 1.0);
     const totalMultiplier = soilMultiplier * fertilizerMultiplier * seedsMultiplier;
-    return total + (crop.baseIncome * crop.owned * totalMultiplier);
+    return total + Math.floor(crop.baseIncome * crop.owned * totalMultiplier);
   }, 0);
 }
 
@@ -33,6 +34,9 @@ export function useGameState() {
     return INITIAL_STATE;
   });
 
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
   useEffect(() => {
     const income = calculateIncome(state.crops);
     setState(prev => ({ ...prev, incomePerSecond: income }));
@@ -40,10 +44,10 @@ export function useGameState() {
 
   useEffect(() => {
     const interval = setInterval(() => {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, lastSaved: Date.now() }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...stateRef.current, lastSaved: Date.now() }));
     }, 30000);
     return () => clearInterval(interval);
-  }, [state]);
+  }, []);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -156,7 +160,7 @@ export function useGameState() {
   }, []);
 
   const setTheme = useCallback((theme: string) => {
-    document.documentElement.setAttribute('data-theme', theme);
+    applyTheme(theme);
     localStorage.setItem('idle-farm-theme', theme);
   }, []);
 

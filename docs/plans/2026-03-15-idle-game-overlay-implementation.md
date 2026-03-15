@@ -1,7 +1,5 @@
 # Idle Game Overlay Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
-
 **Goal:** Add an idle farming game as a floating overlay triggered by clicking the Brmble logo in the header.
 
 **Architecture:** Copy game React components into Brmble.Web, add overlay state in App.tsx, adapt game's CSS to use Brmble's theme tokens.
@@ -20,19 +18,19 @@
 
 **Step 1: Copy game types**
 
-Copy contents of `C:\PrOgram project\brmble\new game for brmble\src\types.ts` to `src/Brmble.Web/src/components/Game/types.ts`
+Copy contents of `new game for brmble/src/types.ts` to `src/Brmble.Web/src/components/Game/types.ts`
 
 **Step 2: Copy game hook**
 
-Copy contents of `C:\PrOgram project\brmble\new game for brmble\src\hooks\useGameState.ts` to `src/Brmble.Web/src/components/Game/useGameState.ts`
+Copy contents of `new game for brmble/src/hooks/useGameState.ts` to `src/Brmble.Web/src/components/Game/useGameState.ts`
 
 **Step 3: Copy GameUI component**
 
-Copy contents of `C:\PrOgram project\brmble\new game for brmble\src\components\GameUI\GameUI.tsx` to `src/Brmble.Web/src/components/Game/GameUI.tsx`
+Copy contents of `new game for brmble/src/components/GameUI/GameUI.tsx` to `src/Brmble.Web/src/components/Game/GameUI.tsx`
 
 **Step 4: Copy GameUI styles**
 
-Copy contents of `C:\PrOgram project\brmble\new game for brmble\src\components\GameUI\GameUI.css` to `src/Brmble.Web/src/components/Game/GameUI.css`
+Copy contents of `new game for brmble/src/components/GameUI/GameUI.css` to `src/Brmble.Web/src/components/Game/GameUI.css`
 
 **Step 5: Commit**
 

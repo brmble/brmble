@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import type { Crop } from './types';
 import { useGameState } from './useGameState';
+import { confirm } from '../../hooks/usePrompt';
 import './GameUI.css';
 
 interface GameUIProps {
@@ -12,6 +13,56 @@ type TabId = 'crops' | 'upgrades' | 'options';
 export function GameUI({ onClose }: GameUIProps) {
   const { state, actions } = useGameState();
   const [activeTab, setActiveTab] = useState<TabId>('crops');
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    return () => {
+      actions.saveGame();
+    };
+  }, [actions]);
+
+  const handleClose = useCallback(() => {
+    actions.saveGame();
+    onClose();
+  }, [actions, onClose]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleClose();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [handleClose]);
+
+  useEffect(() => {
+    return () => {
+      actions.saveGame();
+    };
+  }, [actions]);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).tagName === 'BUTTON') return;
+    setIsDragging(true);
+    setDragOffset({
+      x: e.clientX - (modalRef.current?.offsetLeft || 0),
+      y: e.clientY - (modalRef.current?.offsetTop || 0)
+    });
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging || !modalRef.current) return;
+    modalRef.current.style.position = 'absolute';
+    modalRef.current.style.left = `${e.clientX - dragOffset.x}px`;
+    modalRef.current.style.top = `${e.clientY - dragOffset.y}px`;
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
   
   const visibleCrops = state.crops.filter((crop, index) => {
     if (crop.unlocked) return true;
@@ -20,12 +71,23 @@ export function GameUI({ onClose }: GameUIProps) {
   });
 
   return (
-    <div className="game-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="game-modal">
-        <button className="game-close-btn" onClick={onClose} aria-label="Close">×</button>
+    <div className="game-overlay" onClick={(e) => e.target === e.currentTarget && handleClose()}>
+      <div 
+        ref={modalRef}
+        className="game-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="game-title"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+      >
+        <button className="game-close-btn" onClick={handleClose} aria-label="Close">×</button>
         <div className="game-ui">
           <Header money={state.money} income={state.incomePerSecond} />
-          <div className="game-body">
+          <div className="game-body" id="game-title"></div>
             <TabNav activeTab={activeTab} onTabChange={setActiveTab} />
             <div className="game-content">
               {activeTab === 'crops' && (
@@ -73,7 +135,7 @@ function formatNumber(value: number): string {
 
 function Header({ money, income }: { money: number; income: number }) {
   return (
-    <header className="game-header">
+    <header className="game-header" id="game-title">
       <div className="header-stat">
         <span className="header-label">MONEY:</span>
         <span className="header-value currency">${formatNumber(money)}</span>
@@ -307,10 +369,14 @@ function OptionsTab({
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [volume, setVolume] = useState(50);
 
-  const handleExport = () => {
+  const handleExport = async () => {
     const data = onExport();
-    navigator.clipboard.writeText(data);
-    setImportStatus('Save data copied to clipboard!');
+    try {
+      await navigator.clipboard.writeText(data);
+      setImportStatus('Save data copied to clipboard!');
+    } catch {
+      setImportStatus('Failed to copy to clipboard');
+    }
     setTimeout(() => setImportStatus(null), 3000);
   };
 
@@ -325,8 +391,13 @@ function OptionsTab({
     setTimeout(() => setImportStatus(null), 3000);
   };
 
-  const handleReset = () => {
-    if (confirm('Are you sure you want to reset all progress? This cannot be undone.')) {
+  const handleReset = async () => {
+    const confirmed = await confirm({
+      title: 'Reset Game',
+      message: 'Are you sure you want to reset all progress? This cannot be undone.',
+      confirmLabel: 'Reset',
+    });
+    if (confirmed) {
       onReset();
       setImportStatus('Game reset!');
       setTimeout(() => setImportStatus(null), 3000);

@@ -28,9 +28,16 @@ interface BrmbleLogoProps {
 }
 
 export function BrmbleLogo({ size = 32, className = '', heartbeat = false, onClick }: BrmbleLogoProps) {
-  // Unique prefix so multiple instances don't collide on gradient IDs
   const [prefix] = useState(() => `logo-${++instanceCounter}`);
   const svgClass = `brmble-logo-svg ${heartbeat ? 'brmble-logo-heartbeat' : ''} ${className}`;
+  const isClickable = !!onClick;
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (onClick && (e.key === 'Enter' || e.key === ' ')) {
+      e.preventDefault();
+      onClick();
+    }
+  };
 
   return (
     <svg
@@ -40,7 +47,11 @@ export function BrmbleLogo({ size = 32, className = '', heartbeat = false, onCli
       viewBox="0 0 1024 1024"
       xmlns="http://www.w3.org/2000/svg"
       aria-label="Brmble logo"
+      role={isClickable ? 'button' : undefined}
+      tabIndex={isClickable ? 0 : undefined}
       onClick={onClick}
+      onKeyDown={handleKeyDown}
+      data-clickable={isClickable}
       style={{
         '--grad-center': `url(#${prefix}-grad-center)`,
         '--grad-inner': `url(#${prefix}-grad-inner)`,
