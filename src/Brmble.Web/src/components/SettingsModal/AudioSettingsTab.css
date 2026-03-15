@@ -82,7 +82,7 @@
 
 .settings-dev-label {
   background: var(--accent-danger);
-  color: white;
+  color: var(--text-primary);
   font-size: var(--text-2xs);
   padding: 2px 6px;
   border-radius: var(--radius-xs);
@@ -114,5 +114,5 @@
 .toggle-btn.active {
   background: var(--accent-primary);
   border-color: var(--accent-primary);
-  color: white;
+  color: var(--text-primary);
 }

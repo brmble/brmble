@@ -236,7 +236,7 @@
 
 .soil-level.maxed {
   background: var(--accent-primary);
-  color: white;
+  color: var(--text-primary);
 }
 
 .crop-actions {

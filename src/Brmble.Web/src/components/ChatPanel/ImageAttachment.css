@@ -51,6 +51,6 @@
   height: 100px;
   background: var(--bg-elevated);
   color: var(--text-muted);
-  font-size: 0.8125rem;
+  font-size: var(--text-sm);
   cursor: default;
 }
