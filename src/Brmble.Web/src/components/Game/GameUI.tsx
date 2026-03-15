@@ -258,7 +258,7 @@ function CropsTab({ crops, onBuy, onUpgradeSoil, onUpgradeFertilizer, onUpgradeS
                       disabled={!nextUpgrade.canBuy}
                       onClick={nextUpgrade.action}
                     >
-                      {nextUpgrade.name === 'MAX' ? 'MAXED' : `${nextUpgrade.name}+ $${nextUpgrade.cost.toLocaleString()}`}
+                      {nextUpgrade.name === 'MAX' ? 'MAXED' : `${nextUpgrade.name}+ $${formatNumber(nextUpgrade.cost)}`}
                     </button>
                   ) : '-'}
                 </td>

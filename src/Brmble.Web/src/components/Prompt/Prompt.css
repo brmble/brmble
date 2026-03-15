@@ -1,7 +1,8 @@
 .prompt {
   width: 100%;
-  max-width: 380px;
+  max-width: 420px;
   padding: var(--space-xl) var(--space-lg) var(--space-lg);
+  word-wrap: break-word;
 }
 
 .prompt .modal-header {
