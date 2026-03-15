@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
 import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
 import { Tooltip } from '../Tooltip/Tooltip';
+import { UserTooltip } from '../UserTooltip/UserTooltip';
 import { usePermissions } from '../../hooks/usePermissions';
 import bridge from '../../bridge';
 import Avatar from '../Avatar/Avatar';
@@ -44,9 +45,10 @@ interface ChannelTreeProps {
   sharingChannelId?: number;
   sharingUserSession?: number;
   onWatchScreenShare?: (roomName: string) => void;
+  onEditAvatar?: () => void;
 }
 
-export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, speakingUsers, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare }: ChannelTreeProps) {
+export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, speakingUsers, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, onEditAvatar }: ChannelTreeProps) {
   const [sortByNamePerChannel, setSortByNamePerChannel] = useState<Record<number, boolean>>({});
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string; isSelf: boolean; channelId?: number } | null>(null);
   const [infoDialogUser, setInfoDialogUser] = useState<{ userId: string; userName: string; isSelf: boolean } | null>(null);
@@ -233,7 +235,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
         {isExpanded && (
           <div className="channel-children">
             {channel.users.map(user => (
-              <Tooltip key={user.session} content={getUserTooltip(user)}>
+              <UserTooltip key={user.session} user={user}>
               <div
                 className={`user-row ${user.self ? 'self' : ''} ${speakingUsers?.has(user.session) ? 'speaking' : ''}`}
                 style={{ paddingLeft: `calc(4px + ${level * 20}px)` }}
@@ -279,7 +281,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                   <span className="sharing-badge">Sharing</span>
                 )}
               </div>
-              </Tooltip>
+              </UserTooltip>
             ))}
             {channel.children.map(child => renderChannel(child, level + 1))}
           </div>
@@ -316,6 +318,16 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
               ),
               onClick: () => setInfoDialogUser({ userId: contextMenu.userId, userName: contextMenu.userName, isSelf: contextMenu.isSelf }),
             },
+            ...(contextMenu.isSelf && onEditAvatar ? [{
+              label: 'Edit Profile',
+              icon: (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                  <circle cx="12" cy="7" r="4" />
+                </svg>
+              ),
+              onClick: () => onEditAvatar(),
+            }] : []),
             ...(!contextMenu.isSelf && currentChannelId && hasPermission(currentChannelId, Permission.MuteDeafen) ? [
               {
                 label: 'Mute',
@@ -404,12 +416,4 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
       })()}
     </div>
   );
-}
-
-function getUserTooltip(user: User): string {
-  const statuses: string[] = [];
-  if (user.muted) statuses.push('Muted');
-  if (user.deafened) statuses.push('Deafened');
-  const statusLine = statuses.length > 0 ? statuses.join(', ') : 'Online';
-  return user.comment ? `${statusLine}\n${user.comment}` : statusLine;
 }

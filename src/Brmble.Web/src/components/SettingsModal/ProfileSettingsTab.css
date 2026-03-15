@@ -9,6 +9,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-xs);
+  flex: 1;
 }
 
 .profile-display-name {
@@ -24,6 +25,16 @@
 
 .profile-avatar-actions {
   display: flex;
+  flex-direction: column;
   gap: var(--space-sm);
-  margin-top: var(--space-xs);
+  flex-shrink: 0;
+}
+
+.profile-avatar-actions .btn {
+  min-width: 100px;
+}
+
+.profile-avatar-hint {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
 }
