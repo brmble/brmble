@@ -26,13 +26,14 @@ interface HeaderProps {
   speaking?: boolean;
   pendingChannelAction?: number | 'leave' | null;
   hotkeyPressedBtn?: string | null;
+  onToggleGame?: () => void;
 }
 
-export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, onAvatarClick, avatarUrl, matrixUserId, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, screenSharing, screenShareError, onToggleScreenShare, canScreenShare, speaking, pendingChannelAction, hotkeyPressedBtn }: HeaderProps) {
+export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, onAvatarClick, avatarUrl, matrixUserId, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, screenSharing, screenShareError, onToggleScreenShare, canScreenShare, speaking, pendingChannelAction, hotkeyPressedBtn, onToggleGame }: HeaderProps) {
   return (
     <header className="header">
       <div className="header-left">
-        <BrmbleLogo size={32} />
+        <BrmbleLogo size={32} onClick={onToggleGame} />
         <h1 className="header-logo">BRMBLE</h1>
       </div>
 

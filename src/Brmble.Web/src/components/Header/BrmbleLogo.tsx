@@ -24,9 +24,10 @@ interface BrmbleLogoProps {
   className?: string;
   /** Enable continuous heartbeat animation instead of hover-only */
   heartbeat?: boolean;
+  onClick?: () => void;
 }
 
-export function BrmbleLogo({ size = 32, className = '', heartbeat = false }: BrmbleLogoProps) {
+export function BrmbleLogo({ size = 32, className = '', heartbeat = false, onClick }: BrmbleLogoProps) {
   // Unique prefix so multiple instances don't collide on gradient IDs
   const [prefix] = useState(() => `logo-${++instanceCounter}`);
   const svgClass = `brmble-logo-svg ${heartbeat ? 'brmble-logo-heartbeat' : ''} ${className}`;
@@ -39,6 +40,7 @@ export function BrmbleLogo({ size = 32, className = '', heartbeat = false }: Brm
       viewBox="0 0 1024 1024"
       xmlns="http://www.w3.org/2000/svg"
       aria-label="Brmble logo"
+      onClick={onClick}
       style={{
         '--grad-center': `url(#${prefix}-grad-center)`,
         '--grad-inner': `url(#${prefix}-grad-inner)`,
