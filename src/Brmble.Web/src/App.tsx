@@ -27,6 +27,7 @@ import type { StoredDMContact } from './hooks/useChatStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
 import { usePrompt, confirm } from './hooks/usePrompt';
 import { Toast } from './components/Toast/Toast';
+import { GameUI } from './components/Game/GameUI';
 import './App.css';
 
 const SETTINGS_STORAGE_KEY = 'brmble-settings';
@@ -176,6 +177,7 @@ function App() {
     setDmDividerTs(null);
   }, []);
   const [showSettings, setShowSettings] = useState(false);
+  const [showGame, setShowGame] = useState(false);
   const [showAvatarEditor, setShowAvatarEditor] = useState(false);
 
   // Close avatar editor modal when disconnected — profile is not editable while disconnected
@@ -1517,6 +1519,7 @@ const handleConnect = (serverData: SavedServer) => {
         speaking={speakingUsers.has(selfSession) || false}
         pendingChannelAction={pendingChannelAction}
         hotkeyPressedBtn={hotkeyPressedBtn}
+        onToggleGame={() => setShowGame(prev => !prev)}
       />
       </ErrorBoundary>
       
@@ -1681,6 +1684,7 @@ const handleConnect = (serverData: SavedServer) => {
 
       <ZoomIndicator />
       <Version />
+      {showGame && <GameUI onClose={() => setShowGame(false)} />}
     </div>
   );
 }
