@@ -79,6 +79,7 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
           <Avatar user={currentUser} size={80} />
           <div className="profile-avatar-info">
             <span className="profile-display-name">{currentUser.name}</span>
+            <span className="profile-display-name-hint">Set by Mumble registration</span>
             <span className="profile-avatar-status">{statusText}</span>
             {connected ? (
               <div className="profile-avatar-actions">
