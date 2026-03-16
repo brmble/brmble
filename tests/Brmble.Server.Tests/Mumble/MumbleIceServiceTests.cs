@@ -33,8 +33,11 @@ public class MumbleIceServiceTests
         var sessions = new Mock<IActiveBrmbleSessions>().Object;
         var matrixService = new MatrixService(channelRepo, appService, sessions, NullLogger<MatrixService>.Instance);
 
+        var registrationService = new MumbleRegistrationService(NullLogger<MumbleRegistrationService>.Instance);
+
         return new MumbleIceService(
             callback,
+            registrationService,
             matrixService,
             iceSettings,
             NullLogger<MumbleIceService>.Instance);
