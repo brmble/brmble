@@ -17,6 +17,7 @@ export function ServerList({ onConnect }: ServerListProps) {
   const [form, setForm] = useState({ label: '', host: '', port: '64738', username: '', password: '' });
   const [showPassword, setShowPassword] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
+  const [toggleFocused, setToggleFocused] = useState(false);
 
   const getInitial = (label: string) => (label?.charAt(0) || '?').toUpperCase();
 
@@ -32,6 +33,7 @@ export function ServerList({ onConnect }: ServerListProps) {
     }
     setForm({ label: '', host: '', port: '64738', username: '', password: '' });
     setShowPassword(false);
+    setToggleFocused(false);
   };
 
   const handleEdit = (server: ServerEntry) => {
@@ -45,6 +47,7 @@ export function ServerList({ onConnect }: ServerListProps) {
     });
     setIsAdding(false);
     setShowPassword(false);
+    setToggleFocused(false);
   };
 
   const handleCancel = () => {
@@ -52,6 +55,7 @@ export function ServerList({ onConnect }: ServerListProps) {
     setIsAdding(false);
     setForm({ label: '', host: '', port: '64738', username: '', password: '' });
     setShowPassword(false);
+    setToggleFocused(false);
   };
 
   const handleDelete = async (server: ServerEntry) => {
@@ -73,6 +77,7 @@ export function ServerList({ onConnect }: ServerListProps) {
         setIsAdding(false);
         setForm({ label: '', host: '', port: '64738', username: '', password: '' });
         setShowPassword(false);
+        setToggleFocused(false);
       }
     };
     window.addEventListener('keydown', handleKey);
@@ -184,7 +189,7 @@ export function ServerList({ onConnect }: ServerListProps) {
                     onChange={e => setForm(f => ({ ...f, port: e.target.value }))}
                   />
                 </div>
-                <div className={`server-list-password-wrapper${passwordFocused ? ' focused' : ''}`}>
+                <div className={`server-list-password-wrapper${passwordFocused || toggleFocused ? ' focused' : ''}`}>
                   <input
                     className="brmble-input server-list-input server-list-password-input"
                     placeholder="Server Password (optional)"
@@ -192,15 +197,17 @@ export function ServerList({ onConnect }: ServerListProps) {
                     value={form.password}
                     onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
                     onFocus={() => setPasswordFocused(true)}
-                    onBlur={() => { setPasswordFocused(false); setShowPassword(false); }}
+                    onBlur={() => { setPasswordFocused(false); if (!toggleFocused) setShowPassword(false); }}
                   />
-                  {passwordFocused && (
+                  {(passwordFocused || toggleFocused) && (
                     <button
                       type="button"
                       className="server-list-password-toggle"
-                      onMouseDown={e => { e.preventDefault(); setShowPassword(v => !v); }}
-                      tabIndex={-1}
+                      onClick={() => setShowPassword(v => !v)}
+                      onFocus={() => setToggleFocused(true)}
+                      onBlur={() => { setToggleFocused(false); setShowPassword(false); }}
                       aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      aria-pressed={showPassword}
                     >
                       {showPassword ? (
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

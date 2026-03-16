@@ -300,6 +300,10 @@
   background: var(--bg-active);
 }
 
+.server-list-password-toggle:focus-visible {
+  outline: none;
+}
+
 .server-list-input-host {
   flex: 2;
 }
