@@ -6,7 +6,8 @@ public record ServerEntry(
     string? ApiUrl,
     string? Host,
     int? Port,
-    string Username
+    string Username,
+    string Password = ""
 );
 
 public interface IServerlistService
