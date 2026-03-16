@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Brmble.Server.Events;
 using Brmble.Server.Matrix;
+using Brmble.Server.Mumble;
 using Microsoft.Extensions.Options;
 
 namespace Brmble.Server.Auth;
@@ -51,6 +52,16 @@ public static class AuthEndpoints
             try
             {
                 result = await authService.Authenticate(certHash, mumbleUsername);
+            }
+            catch (MumbleNameConflictException ex)
+            {
+                logger.LogWarning("Name conflict during auth: {Message}", ex.Message);
+                return Results.Conflict(new { error = "name_taken", message = ex.Message, name = ex.RequestedName });
+            }
+            catch (MumbleRegistrationException ex)
+            {
+                logger.LogError(ex, "Mumble registration error during auth");
+                return Results.StatusCode(503);
             }
             catch (Exception ex)
             {
@@ -128,6 +139,8 @@ public static class AuthEndpoints
                     .ToDictionary(
                         kvp => kvp.Key.ToString(),
                         kvp => new { matrixUserId = kvp.Value.MatrixUserId, mumbleName = kvp.Value.MumbleName }),
+                registered = result.IsRegistered,
+                registeredName = result.DisplayName,
                 livekit = (object?)null
             });
         });
