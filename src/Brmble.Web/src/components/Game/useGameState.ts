@@ -101,7 +101,7 @@ export function useGameState() {
       }));
     }, 100);
     return () => clearInterval(interval);
-  }, [derivedValues]);
+  }, [derivedValues.incomePerSecond]);
 
   const buyInfrastructure = useCallback((infraId: string) => {
     setState(prev => {
