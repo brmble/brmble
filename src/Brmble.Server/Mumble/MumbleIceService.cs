@@ -6,6 +6,7 @@ namespace Brmble.Server.Mumble;
 public class MumbleIceService : IHostedService
 {
     private readonly MumbleServerCallback _callback;
+    private readonly MumbleRegistrationService _registrationService;
     private readonly MatrixService _matrixService;
     private readonly IceSettings _settings;
     private readonly ILogger<MumbleIceService> _logger;
@@ -13,11 +14,13 @@ public class MumbleIceService : IHostedService
 
     public MumbleIceService(
         MumbleServerCallback callback,
+        MumbleRegistrationService registrationService,
         MatrixService matrixService,
         IOptions<IceSettings> settings,
         ILogger<MumbleIceService> logger)
     {
         _callback = callback;
+        _registrationService = registrationService;
         _matrixService = matrixService;
         _settings = settings.Value;
         _logger = logger;
@@ -67,6 +70,7 @@ public class MumbleIceService : IHostedService
                 adapter.addWithUUID(_callback));
             adapter.activate();
             _callback.SetServerProxy(serverProxy);
+            _registrationService.SetServerProxy(serverProxy);
             serverProxy.addCallback(callbackPrx);
 
             _logger.LogInformation("Connected to Mumble server at {Host}:{Port}", _settings.Host, _settings.Port);
