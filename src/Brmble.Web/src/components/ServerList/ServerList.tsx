@@ -8,9 +8,11 @@ import './ServerList.css';
 
 interface ServerListProps {
   onConnect: (server: ServerEntry) => void;
+  connectionError?: string | null;
+  onClearError?: () => void;
 }
 
-export function ServerList({ onConnect }: ServerListProps) {
+export function ServerList({ onConnect, connectionError, onClearError }: ServerListProps) {
   const { servers, loading, addServer, updateServer, removeServer } = useServerlist();
   const [editing, setEditing] = useState<ServerEntry | null>(null);
   const [isAdding, setIsAdding] = useState(false);
@@ -92,6 +94,17 @@ export function ServerList({ onConnect }: ServerListProps) {
           <h2 className="heading-title server-list-title">Choose a Server</h2>
           <p className="server-list-subtitle">Select a server to start talking and chatting</p>
         </div>
+
+        {connectionError && (
+          <div className="server-list-error" role="alert">
+            <span>{connectionError}</span>
+            {onClearError && (
+              <button className="server-list-error-dismiss" onClick={onClearError} aria-label="Dismiss error">
+                ✕
+              </button>
+            )}
+          </div>
+        )}
 
         <div className="server-list-content">
           {servers.length > 0 ? (
