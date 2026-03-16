@@ -182,6 +182,8 @@ export function ServerList({ onConnect }: ServerListProps) {
                   placeholder="Username"
                   value={form.username}
                   onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
+                  disabled={editing?.registered === true}
+                  title={editing?.registered ? 'Username is locked after registration' : undefined}
                 />
               </div>
               <div className="server-list-form-actions">
