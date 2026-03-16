@@ -32,23 +32,6 @@ export interface Service {
 }
 
 /**
- * Possible reward values for upgrades
- */
-export type Reward = 'Unlock Server Rack' | 'Unlock Server Room' | 'Unlock Small Data Center' | 'Unlock Blog Hosting' | 'Unlock File Hosting';
-
-/**
- * Upgrades that can be purchased
- */
-export interface Upgrade {
-  id: string;
-  name: string;
-  description: string;
-  requirement: number;
-  unlocked: boolean;
-  rewards: Reward[];
-}
-
-/**
  * Main game state
  */
 export interface GameState {
@@ -59,7 +42,6 @@ export interface GameState {
   bandwidthDemanded: number;
   infrastructure: Infrastructure[];
   services: Service[];
-  upgrades: Upgrade[];
   lastSaved: number;
 }
 
@@ -401,49 +383,6 @@ export const INITIAL_SERVICES: Service[] = [
   },
 ];
 
-export const INITIAL_UPGRADES: Upgrade[] = [
-  { 
-    id: 'server-rack-unlock', 
-    name: 'Unlock Server Rack', 
-    description: 'Unlock Server Rack infrastructure', 
-    requirement: 5000, 
-    unlocked: false, 
-    rewards: ['Unlock Server Rack'] 
-  },
-  { 
-    id: 'server-room-unlock', 
-    name: 'Unlock Server Room', 
-    description: 'Unlock Server Room infrastructure', 
-    requirement: 50000, 
-    unlocked: false, 
-    rewards: ['Unlock Server Room'] 
-  },
-  { 
-    id: 'small-dc-unlock', 
-    name: 'Unlock Small Data Center', 
-    description: 'Unlock Small Data Center infrastructure', 
-    requirement: 500000, 
-    unlocked: false, 
-    rewards: ['Unlock Small Data Center'] 
-  },
-  { 
-    id: 'blog-unlock', 
-    name: 'Unlock Blog Hosting', 
-    description: 'Unlock Blog Hosting service', 
-    requirement: 100, 
-    unlocked: false, 
-    rewards: ['Unlock Blog Hosting'] 
-  },
-  { 
-    id: 'file-hosting-unlock', 
-    name: 'Unlock File Hosting', 
-    description: 'Unlock File Hosting service', 
-    requirement: 500, 
-    unlocked: false, 
-    rewards: ['Unlock File Hosting'] 
-  },
-];
-
 export const INITIAL_STATE: GameState = {
   money: 20,
   incomePerSecond: 0,
@@ -452,6 +391,5 @@ export const INITIAL_STATE: GameState = {
   bandwidthDemanded: 0,
   infrastructure: INITIAL_INFRASTRUCTURE,
   services: INITIAL_SERVICES,
-  upgrades: INITIAL_UPGRADES,
   lastSaved: Date.now(),
 };

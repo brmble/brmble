@@ -1,7 +1,5 @@
 # Data Theme Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task.
-
 **Goal:** Transform the idle game from farm theme to data hosting theme, replacing crops with infrastructure, adding services, and implementing bandwidth-based income.
 
 **Architecture:** Modify existing game state in types.ts, update UI components to reflect new naming (infrastructure, bandwidth, services), add new services tab with automatic/manual toggle.

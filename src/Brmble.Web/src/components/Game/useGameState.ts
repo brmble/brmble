@@ -46,7 +46,10 @@ function hasServices(state: unknown): state is GameState {
   if (typeof state !== 'object' || state === null) return false;
   if (!('services' in state) || !Array.isArray((state as GameState).services)) return false;
   const services = (state as GameState).services;
-  return services.length > 0 && 'baseCost' in services[0];
+  if (services.length === 0) return false;
+  const first = services[0];
+  if (!first || typeof first !== 'object') return false;
+  return 'baseCost' in first;
 }
 
 export function useGameState() {
@@ -83,6 +86,10 @@ export function useGameState() {
   useEffect(() => {
     incomeRef.current = derivedValues.incomePerSecond;
   }, [derivedValues.incomePerSecond]);
+
+  useEffect(() => {
+    setState(prev => ({ ...prev, ...derivedValues }));
+  }, [derivedValues]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -279,7 +286,7 @@ export function useGameState() {
   };
 
   return {
-    state: { ...state, ...derivedValues },
+    state,
     actions,
   };
 }

@@ -134,7 +134,7 @@
 }
 
 .header-value.overage {
-  color: #ff6b6b;
+  color: var(--accent-danger);
 }
 
 /* TabNav */
@@ -641,47 +641,18 @@
 
 .service-row.locked {
   opacity: 0.6;
-}
-
-.service-row.active {
-  border-left: 3px solid #4caf50;
-}
-
-.infra-info {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-  flex: 1;
-}
-
-.infra-stats {
-  font-size: var(--text-base);
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-}
-
-.infra-upgrades {
-  display: flex;
-  gap: var(--space-sm);
-}
-
-.service-row.locked {
-  opacity: 0.6;
-}
-
-.service-row.locked {
   display: grid;
   grid-template-columns: 1fr auto auto;
   gap: var(--space-md);
 }
 
 .service-row.active {
-  border-left: 3px solid #4caf50;
+  border-left: 3px solid var(--accent-success);
 }
 
 .service-status {
   font-size: 12px;
-  color: #4caf50;
+  color: var(--accent-success);
   font-weight: 600;
 }
 
@@ -694,10 +665,7 @@
 .service-cost {
   font-family: var(--font-mono);
   font-size: 14px;
-}
-
-.service-cost {
-  color: #ffa500;
+  color: var(--accent-secondary);
 }
 
 .service-requirement {

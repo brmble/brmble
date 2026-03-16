@@ -15,6 +15,11 @@ export function GameUI({ onClose }: GameUIProps) {
   const { state, actions } = useGameState();
   const [activeTab, setActiveTab] = useState<TabId>('infrastructure');
   
+  const handleClose = useCallback(() => {
+    actions.saveGame();
+    onClose();
+  }, [actions, onClose]);
+  
   const visibleInfrastructure = state.infrastructure.filter((infra, index) => {
     if (infra.unlocked) return true;
     const prevInfra = state.infrastructure[index - 1];
@@ -24,8 +29,7 @@ export function GameUI({ onClose }: GameUIProps) {
   return (
     <div className="game-container">
       <div className="game-header-row">
-        <Header money={state.money} income={state.incomePerSecond} uploadSpeed={state.uploadSpeed} bandwidthSold={state.bandwidthSold} bandwidthDemanded={state.bandwidthDemanded} onClose={onClose} />
-        <button className="game-close-btn" onClick={onClose} aria-label="Close">×</button>
+        <Header money={state.money} income={state.incomePerSecond} uploadSpeed={state.uploadSpeed} bandwidthSold={state.bandwidthSold} bandwidthDemanded={state.bandwidthDemanded} onClose={handleClose} />
       </div>
       <div className="game-body">
         <TabNav activeTab={activeTab} onTabChange={setActiveTab} />
