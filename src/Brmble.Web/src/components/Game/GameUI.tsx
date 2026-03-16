@@ -47,8 +47,10 @@ export function GameUI({ onClose }: GameUIProps) {
         {activeTab === 'upgrades' && (
           <TechUpgradesTab 
             infrastructure={state.infrastructure} 
+            services={state.services}
             money={state.money}
-            onUnlock={actions.unlockInfrastructure}
+            onUnlockInfrastructure={actions.unlockInfrastructure}
+            onUnlockService={actions.unlockService}
           />
         )}
         {activeTab === 'hosting' && (
@@ -57,7 +59,6 @@ export function GameUI({ onClose }: GameUIProps) {
             uploadSpeed={state.uploadSpeed}
             bandwidthSold={state.bandwidthSold}
             onBuyService={actions.buyService}
-            onUnlockService={actions.unlockService}
             money={state.money}
           />
         )}
@@ -261,11 +262,14 @@ function InfrastructureTab({ infrastructure, onBuy, onUpgrade1, onUpgrade2, onUp
   );
 }
 
-function TechUpgradesTab({ infrastructure, money, onUnlock }: { infrastructure: Infrastructure[]; money: number; onUnlock: (infrastructureId: string) => void }) {
-  const nextUnlock = infrastructure.find(i => !i.unlocked && i.unlockCost);
+function TechUpgradesTab({ infrastructure, services, money, onUnlockInfrastructure, onUnlockService }: { infrastructure: Infrastructure[]; services: Service[]; money: number; onUnlockInfrastructure: (infrastructureId: string) => void; onUnlockService: (serviceId: string) => void }) {
+  const nextInfraUnlock = infrastructure.find(i => !i.unlocked && i.unlockCost);
   const unlockedInfrastructure = infrastructure.filter(i => i.unlocked);
+  const nextServiceUnlock = services.find(s => !s.unlocked);
+  const unlockedServices = services.filter(s => s.unlocked);
 
-  const progress = nextUnlock ? Math.min((money / nextUnlock.unlockCost!) * 100, 100) : 100;
+  const infraProgress = nextInfraUnlock ? Math.min((money / nextInfraUnlock.unlockCost!) * 100, 100) : 100;
+  const serviceProgress = nextServiceUnlock ? Math.min((money / nextServiceUnlock.unlockRequirement) * 100, 100) : 100;
 
   return (
     <div className="upgrades-tab">
@@ -284,46 +288,104 @@ function TechUpgradesTab({ infrastructure, money, onUnlock }: { infrastructure: 
           </div>
         </div>
       )}
+
+      {unlockedServices.length > 0 && (
+        <div className="unlocked-section">
+          <h3 className="unlocked-title">Unlocked Services</h3>
+          <div className="unlocked-list">
+            {unlockedServices.map(service => (
+              <div key={service.id} className="unlocked-item">
+                <span className="unlocked-check">✓</span>
+                <span className="unlocked-name">{service.name}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       
-      {nextUnlock ? (
+      {nextInfraUnlock ? (
         <div className="unlock-card">
           <div className="unlock-info">
             <span className="unlock-label">Next Infrastructure:</span>
-            <span className="unlock-value">{nextUnlock.name}</span>
+            <span className="unlock-value">{nextInfraUnlock.name}</span>
           </div>
           <div className="unlock-info">
             <span className="unlock-label">Unlock Requirement:</span>
-            <span className="unlock-value cost">${nextUnlock.unlockCost?.toLocaleString()}</span>
+            <span className="unlock-value cost">${nextInfraUnlock.unlockCost?.toLocaleString()}</span>
           </div>
           
           <div className="unlock-progress">
             <div className="progress-container">
               <div className="progress-bar">
-                <div className="progress-fill" style={{ width: `${progress}%` }} />
+                <div className="progress-fill" style={{ width: `${infraProgress}%` }} />
               </div>
-              <span className="progress-percent">{Math.round(progress)}%</span>
+              <span className="progress-percent">{Math.round(infraProgress)}%</span>
             </div>
           </div>
 
-          {progress >= 100 ? (
+          {infraProgress >= 100 ? (
             <button
               className="btn btn-primary unlock-btn"
-              onClick={() => onUnlock(nextUnlock.id)}
+              onClick={() => onUnlockInfrastructure(nextInfraUnlock.id)}
             >
-              UNLOCK {nextUnlock.name.toUpperCase()}
+              UNLOCK {nextInfraUnlock.name.toUpperCase()}
             </button>
           ) : (
             <div className="unlock-rewards">
               <span className="rewards-label">Reward:</span>
               <ul className="rewards-list">
-                <li>Unlock {nextUnlock.name}</li>
+                <li>Unlock {nextInfraUnlock.name}</li>
               </ul>
             </div>
           )}
         </div>
-      ) : (
+      ) : nextServiceUnlock ? null : (
         <div className="all-unlocked">
           <p>All infrastructure unlocked!</p>
+        </div>
+      )}
+
+      {nextServiceUnlock && (
+        <div className="unlock-card">
+          <div className="unlock-info">
+            <span className="unlock-label">Next Service:</span>
+            <span className="unlock-value">{nextServiceUnlock.name}</span>
+          </div>
+          <div className="unlock-info">
+            <span className="unlock-label">Unlock Requirement:</span>
+            <span className="unlock-value cost">${nextServiceUnlock.unlockRequirement.toLocaleString()}</span>
+          </div>
+          
+          <div className="unlock-progress">
+            <div className="progress-container">
+              <div className="progress-bar">
+                <div className="progress-fill" style={{ width: `${serviceProgress}%` }} />
+              </div>
+              <span className="progress-percent">{Math.round(serviceProgress)}%</span>
+            </div>
+          </div>
+
+          {serviceProgress >= 100 ? (
+            <button
+              className="btn btn-primary unlock-btn"
+              onClick={() => onUnlockService(nextServiceUnlock.id)}
+            >
+              UNLOCK {nextServiceUnlock.name.toUpperCase()}
+            </button>
+          ) : (
+            <div className="unlock-rewards">
+              <span className="rewards-label">Reward:</span>
+              <ul className="rewards-list">
+                <li>Unlock {nextServiceUnlock.name}</li>
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!nextInfraUnlock && !nextServiceUnlock && (
+        <div className="all-unlocked">
+          <p>All upgrades unlocked!</p>
         </div>
       )}
     </div>
@@ -335,11 +397,10 @@ interface HostingTabProps {
   uploadSpeed: number;
   bandwidthSold: number;
   onBuyService: (serviceId: string) => void;
-  onUnlockService: (serviceId: string) => void;
   money: number;
 }
 
-function HostingTab({ services, uploadSpeed, bandwidthSold, onBuyService, onUnlockService, money }: HostingTabProps) {
+function HostingTab({ services, uploadSpeed, bandwidthSold, onBuyService, money }: HostingTabProps) {
   const availableBandwidth = uploadSpeed - bandwidthSold;
   
   const unlockedServices = services.filter(s => s.unlocked);
@@ -365,8 +426,6 @@ function HostingTab({ services, uploadSpeed, bandwidthSold, onBuyService, onUnlo
               service={service} 
               cost={cost}
               onBuy={onBuyService} 
-              onUnlock={onUnlockService} 
-              money={money}
               canBuy={canBuy}
             />
           );
@@ -378,8 +437,6 @@ function HostingTab({ services, uploadSpeed, bandwidthSold, onBuyService, onUnlo
             service={nextLockedService} 
             cost={0}
             onBuy={onBuyService} 
-            onUnlock={onUnlockService} 
-            money={money}
             canBuy={false}
           />
         )}
@@ -388,14 +445,17 @@ function HostingTab({ services, uploadSpeed, bandwidthSold, onBuyService, onUnlo
   );
 }
 
-function ServiceRow({ service, cost, onBuy, onUnlock, money, canBuy }: { service: Service; cost: number; onBuy: (id: string) => void; onUnlock: (id: string) => void; money: number; canBuy: boolean }) {
+function ServiceRow({ service, cost, onBuy, canBuy }: { service: Service; cost: number; onBuy: (id: string) => void; canBuy: boolean }) {
   if (!service.unlocked) {
     return (
       <div className="service-row locked">
         <span className="service-name">{service.name}</span>
-        <span className="service-requirement">Unlock: ${service.unlockRequirement.toLocaleString()}</span>
-        <button className="btn btn-secondary" disabled={money < service.unlockRequirement} onClick={() => onUnlock(service.id)}>
-          Unlock
+        <span className="service-owned">0</span>
+        <span className="service-bandwidth">{formatBandwidth(service.baseBandwidthRequired)}</span>
+        <span className="service-income">${service.baseIncomePerSecond.toLocaleString()}/s</span>
+        <span className="service-cost">${service.unlockRequirement.toLocaleString()}</span>
+        <button className="btn btn-secondary" disabled>
+          Locked
         </button>
       </div>
     );
