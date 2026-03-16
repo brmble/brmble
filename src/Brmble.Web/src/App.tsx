@@ -1018,7 +1018,7 @@ const handleConnect = (serverData: SavedServer) => {
       host: server.host, 
       port: server.port, 
       username: server.username, 
-      password: '' 
+      password: server.password || '' 
     });
   };
 

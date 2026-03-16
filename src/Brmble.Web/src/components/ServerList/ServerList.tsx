@@ -14,7 +14,7 @@ export function ServerList({ onConnect }: ServerListProps) {
   const { servers, loading, addServer, updateServer, removeServer } = useServerlist();
   const [editing, setEditing] = useState<ServerEntry | null>(null);
   const [isAdding, setIsAdding] = useState(false);
-  const [form, setForm] = useState({ label: '', host: '', port: '64738', username: '' });
+  const [form, setForm] = useState({ label: '', host: '', port: '64738', username: '', password: '' });
 
   const getInitial = (label: string) => (label?.charAt(0) || '?').toUpperCase();
 
@@ -28,7 +28,7 @@ export function ServerList({ onConnect }: ServerListProps) {
       addServer(server);
       setIsAdding(false);
     }
-    setForm({ label: '', host: '', port: '64738', username: '' });
+    setForm({ label: '', host: '', port: '64738', username: '', password: '' });
   };
 
   const handleEdit = (server: ServerEntry) => {
@@ -37,7 +37,8 @@ export function ServerList({ onConnect }: ServerListProps) {
       label: server.label,
       host: server.host,
       port: String(server.port),
-      username: server.username
+      username: server.username,
+      password: server.password || ''
     });
     setIsAdding(false);
   };
@@ -45,7 +46,7 @@ export function ServerList({ onConnect }: ServerListProps) {
   const handleCancel = () => {
     setEditing(null);
     setIsAdding(false);
-    setForm({ label: '', host: '', port: '64738', username: '' });
+    setForm({ label: '', host: '', port: '64738', username: '', password: '' });
   };
 
   const handleDelete = async (server: ServerEntry) => {
@@ -65,7 +66,7 @@ export function ServerList({ onConnect }: ServerListProps) {
       if (e.key === 'Escape') {
         setEditing(null);
         setIsAdding(false);
-        setForm({ label: '', host: '', port: '64738', username: '' });
+        setForm({ label: '', host: '', port: '64738', username: '', password: '' });
       }
     };
     window.addEventListener('keydown', handleKey);
@@ -182,6 +183,13 @@ export function ServerList({ onConnect }: ServerListProps) {
                   placeholder="Username"
                   value={form.username}
                   onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
+                />
+                <input
+                  className="brmble-input server-list-input"
+                  placeholder="Password (optional)"
+                  type="password"
+                  value={form.password}
+                  onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
                 />
               </div>
               <div className="server-list-form-actions">
