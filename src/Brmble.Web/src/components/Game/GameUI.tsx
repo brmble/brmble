@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
-import type { Crop } from './types';
+import { useState } from 'react';
+import type { Infrastructure, Service } from './types';
 import { useGameState } from './useGameState';
 import { confirm } from '../../hooks/usePrompt';
 import { Select } from '../Select/Select';
@@ -9,118 +9,69 @@ interface GameUIProps {
   onClose: () => void;
 }
 
-type TabId = 'crops' | 'upgrades' | 'options';
+type TabId = 'infrastructure' | 'upgrades' | 'hosting' | 'options';
 
 export function GameUI({ onClose }: GameUIProps) {
   const { state, actions } = useGameState();
-  const [activeTab, setActiveTab] = useState<TabId>('crops');
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const modalRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    return () => {
-      actions.saveGame();
-    };
-  }, [actions]);
-
+  const [activeTab, setActiveTab] = useState<TabId>('infrastructure');
+  
   const handleClose = useCallback(() => {
     actions.saveGame();
     onClose();
   }, [actions, onClose]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        handleClose();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [handleClose]);
-
-  useEffect(() => {
-    return () => {
-      actions.saveGame();
-    };
-  }, [actions]);
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).tagName === 'BUTTON') return;
-    setIsDragging(true);
-    setDragOffset({
-      x: e.clientX - (modalRef.current?.offsetLeft || 0),
-      y: e.clientY - (modalRef.current?.offsetTop || 0)
-    });
-  };
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging || !modalRef.current) return;
-    modalRef.current.style.position = 'absolute';
-    modalRef.current.style.left = `${e.clientX - dragOffset.x}px`;
-    modalRef.current.style.top = `${e.clientY - dragOffset.y}px`;
-  };
-
-  const handleMouseUp = () => {
-    setIsDragging(false);
-  };
   
-  const visibleCrops = state.crops.filter((crop, index) => {
-    if (crop.unlocked) return true;
-    const prevCrop = state.crops[index - 1];
-    return prevCrop && prevCrop.unlocked;
+  const visibleInfrastructure = state.infrastructure.filter((infra, index) => {
+    if (infra.unlocked) return true;
+    const prevInfra = state.infrastructure[index - 1];
+    return prevInfra && prevInfra.unlocked;
   });
 
   return (
-    <div className="game-overlay" onClick={(e) => e.target === e.currentTarget && handleClose()}>
-      <div 
-        ref={modalRef}
-        className="game-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="game-title"
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-        style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
-      >
-        <button className="game-close-btn" onClick={handleClose} aria-label="Close">×</button>
-        <div className="game-ui">
-          <Header money={state.money} income={state.incomePerSecond} />
-          <div className="game-body" id="game-title">
-            <TabNav activeTab={activeTab} onTabChange={setActiveTab} />
-            <div className="game-content">
-              {activeTab === 'crops' && (
-                <CropsTab 
-                  crops={visibleCrops} 
-                  onBuy={actions.buyCrop} 
-                  onUpgradeSoil={actions.upgradeSoil}
-                  onUpgradeFertilizer={actions.upgradeFertilizer}
-                  onUpgradeSeeds={actions.upgradeSeeds}
-                  money={state.money} 
-                />
-              )}
-              {activeTab === 'upgrades' && (
-                <UpgradesTab 
-                  crops={state.crops} 
-                  money={state.money}
-                  onUnlock={actions.unlockCrop}
-                />
-              )}
-              {activeTab === 'options' && (
-                <OptionsTab 
-                  onSetTheme={actions.setTheme}
-                  onSave={actions.saveGame}
-                  onLoad={actions.loadGame}
-                  onReset={actions.resetGame}
-                  onExport={actions.exportSave}
-                  onImport={actions.importSave}
-                />
-              )}
-            </div>
-          </div>
-        </div>
+    <div className="game-container">
+      <div className="game-header-row">
+        <Header money={state.money} income={state.incomePerSecond} uploadSpeed={state.uploadSpeed} bandwidthSold={state.bandwidthSold} bandwidthDemanded={state.bandwidthDemanded} onClose={handleClose} />
+      </div>
+      <div className="game-body">
+        <TabNav activeTab={activeTab} onTabChange={setActiveTab} />
+        <div className="game-content">
+        {activeTab === 'infrastructure' && (
+          <InfrastructureTab 
+            infrastructure={visibleInfrastructure} 
+            onBuy={actions.buyInfrastructure} 
+            onUpgrade1={actions.upgrade1}
+            onUpgrade2={actions.upgrade2}
+            onUpgrade3={actions.upgrade3}
+            money={state.money} 
+          />
+        )}
+        {activeTab === 'upgrades' && (
+          <TechUpgradesTab 
+            infrastructure={state.infrastructure} 
+            money={state.money}
+            onUnlock={actions.unlockInfrastructure}
+          />
+        )}
+        {activeTab === 'hosting' && (
+          <HostingTab 
+            services={state.services}
+            uploadSpeed={state.uploadSpeed}
+            bandwidthSold={state.bandwidthSold}
+            onBuyService={actions.buyService}
+            onUnlockService={actions.unlockService}
+            money={state.money}
+          />
+        )}
+        {activeTab === 'options' && (
+          <OptionsTab 
+            onSetTheme={actions.setTheme}
+            onSave={actions.saveGame}
+            onLoad={actions.loadGame}
+            onReset={actions.resetGame}
+            onExport={actions.exportSave}
+            onImport={actions.importSave}
+          />
+        )}
+      </div>
       </div>
     </div>
   );
@@ -134,7 +85,19 @@ function formatNumber(value: number): string {
   return Math.floor(value).toLocaleString();
 }
 
-function Header({ money, income }: { money: number; income: number }) {
+function formatBandwidth(bytes: number): string {
+  if (bytes >= 1099511627776) return (bytes / 1099511627776).toFixed(2) + ' TB/s';
+  if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(2) + ' GB/s';
+  if (bytes >= 1048576) return (bytes / 1048576).toFixed(2) + ' MB/s';
+  if (bytes >= 1024) return (bytes / 1024).toFixed(2) + ' KB/s';
+  return bytes + ' B/s';
+}
+
+function Header({ money, income, uploadSpeed, bandwidthSold, bandwidthDemanded, onClose }: { money: number; income: number; uploadSpeed: number; bandwidthSold: number; bandwidthDemanded: number; onClose?: () => void }) {
+  const isOverage = bandwidthDemanded > uploadSpeed;
+  const freeAmount = isOverage ? 0 : uploadSpeed - bandwidthDemanded;
+  const overageAmount = isOverage ? bandwidthDemanded - uploadSpeed : 0;
+  
   return (
     <header className="game-header" id="game-title">
       <div className="header-stat">
@@ -142,9 +105,26 @@ function Header({ money, income }: { money: number; income: number }) {
         <span className="header-value currency">${formatNumber(money)}</span>
       </div>
       <div className="header-stat">
+        <span className="header-label">UPLOAD:</span>
+        <span className="header-value upload">{formatBandwidth(uploadSpeed)}</span>
+      </div>
+      <div className="header-stat">
+        <span className="header-label">USED:</span>
+        <span className="header-value bandwidth">{formatBandwidth(bandwidthSold)}</span>
+      </div>
+      <div className="header-stat">
+        <span className="header-label">{isOverage ? 'OVER:' : 'FREE:'}</span>
+        <span className={`header-value ${isOverage ? 'overage' : 'free'}`}>{isOverage ? '+' : ''}{formatBandwidth(isOverage ? overageAmount : freeAmount)}</span>
+      </div>
+      <div className="header-stat">
         <span className="header-label">INCOME:</span>
         <span className="header-value income">+${formatNumber(income)}/s</span>
       </div>
+      {onClose && (
+        <button className="btn btn-secondary" onClick={onClose} style={{ marginLeft: 'auto' }}>
+          Close
+        </button>
+      )}
     </header>
   );
 }
@@ -156,8 +136,9 @@ type TabNavProps = {
 
 function TabNav({ activeTab, onTabChange }: TabNavProps) {
   const tabs: { id: TabId; label: string }[] = [
-    { id: 'crops', label: 'Crops' },
-    { id: 'upgrades', label: 'Upgrades' },
+    { id: 'infrastructure', label: 'Infrastructure' },
+    { id: 'hosting', label: 'Hosting' },
+    { id: 'upgrades', label: 'Tech Upgrades' },
     { id: 'options', label: 'Options' },
   ];
 
@@ -176,115 +157,113 @@ function TabNav({ activeTab, onTabChange }: TabNavProps) {
   );
 }
 
-interface CropsTabProps {
-  crops: Crop[];
-  onBuy: (cropId: string) => void;
-  onUpgradeSoil: (cropId: string) => void;
-  onUpgradeFertilizer: (cropId: string) => void;
-  onUpgradeSeeds: (cropId: string) => void;
+interface InfrastructureTabProps {
+  infrastructure: Infrastructure[];
+  onBuy: (infrastructureId: string) => void;
+  onUpgrade1: (infrastructureId: string) => void;
+  onUpgrade2: (infrastructureId: string) => void;
+  onUpgrade3: (infrastructureId: string) => void;
   money: number;
 }
 
-function calculateCost(crop: Crop): number {
-  return Math.floor(crop.baseCost * Math.pow(1.15, crop.owned));
+function calculateCost(infra: Infrastructure): number {
+  return Math.floor(infra.baseCost * Math.pow(1.15, infra.owned));
 }
 
-function calculateIncome(crop: Crop): number {
-  const soilMultiplier = 1 + (crop.soilLevel * 0.5);
-  const fertilizerMultiplier = 1 + (crop.fertilizerLevel * 0.25);
-  const seedsMultiplier = 1 + (crop.seedsLevel * 1.0);
-  const totalMultiplier = soilMultiplier * fertilizerMultiplier * seedsMultiplier;
-  return Math.floor(crop.baseIncome * totalMultiplier);
+function calculateBandwidth(infra: Infrastructure): number {
+  const upgrade1Multiplier = 1 + (infra.upgrade1Level * 0.25);
+  const upgrade2Multiplier = 1 + (infra.upgrade2Level * 0.25);
+  const upgrade3Multiplier = 1 + (infra.upgrade3Level * 0.25);
+  const totalMultiplier = upgrade1Multiplier * upgrade2Multiplier * upgrade3Multiplier;
+  return Math.floor(infra.bandwidthBytesPerSecond * totalMultiplier);
 }
 
-function CropsTab({ crops, onBuy, onUpgradeSoil, onUpgradeFertilizer, onUpgradeSeeds, money }: CropsTabProps) {
-  const getNextUpgrade = (crop: Crop) => {
-    if (crop.soilLevel < 10) {
-      return { name: 'Soil', cost: crop.soilUpgradeCost, action: () => onUpgradeSoil(crop.id), canBuy: money >= crop.soilUpgradeCost };
+function InfrastructureTab({ infrastructure, onBuy, onUpgrade1, onUpgrade2, onUpgrade3, money }: InfrastructureTabProps) {
+  const upgradeNames = [
+    'Better Cooling',
+    'Heat Sink Array',
+    'High-Speed Modem',
+    'Water Cooling',
+    'Fiber Backbone',
+    'Signal Booster',
+    'Multi-Threaded Uplink',
+    'Packet Optimizer',
+    'AI Packet Routing',
+    'Turbo Upload Core'
+  ];
+  
+  const getNextUpgrade = (infra: Infrastructure) => {
+    const totalLevel = infra.upgrade1Level + infra.upgrade2Level + infra.upgrade3Level;
+    const upgradeName = upgradeNames[totalLevel % upgradeNames.length];
+    
+    if (infra.upgrade1Level < 10) {
+      return { name: upgradeName, cost: infra.upgrade1Cost, action: () => onUpgrade1(infra.id), canBuy: money >= infra.upgrade1Cost };
     }
-    if (crop.fertilizerLevel < 10) {
-      return { name: 'Fert', cost: crop.fertilizerUpgradeCost, action: () => onUpgradeFertilizer(crop.id), canBuy: money >= crop.fertilizerUpgradeCost };
+    if (infra.upgrade2Level < 10) {
+      return { name: upgradeName, cost: infra.upgrade2Cost, action: () => onUpgrade2(infra.id), canBuy: money >= infra.upgrade2Cost };
     }
-    if (crop.seedsLevel < 5) {
-      return { name: 'Seeds', cost: crop.seedsUpgradeCost, action: () => onUpgradeSeeds(crop.id), canBuy: money >= crop.seedsUpgradeCost };
+    if (infra.upgrade3Level < 5) {
+      return { name: upgradeName, cost: infra.upgrade3Cost, action: () => onUpgrade3(infra.id), canBuy: money >= infra.upgrade3Cost };
     }
-    return { name: 'MAX', cost: 0, action: () => {}, canBuy: false };
+    return { name: 'MAXED', cost: 0, action: () => {}, canBuy: false };
   };
 
   return (
-    <div className="crops-tab">
-      <h2 className="heading-section">Crops</h2>
-      <table className="crops-table">
-        <thead>
-          <tr>
-            <th>CROP</th>
-            <th>COST</th>
-            <th>OWNED</th>
-            <th>GAIN/s</th>
-            <th>UPGRADE</th>
-            <th>BUY</th>
-          </tr>
-        </thead>
-        <tbody>
-          {crops.map(crop => {
-            const cost = calculateCost(crop);
-            const incomePerCrop = calculateIncome(crop);
-            const totalIncome = incomePerCrop * crop.owned;
-            const canBuy = crop.unlocked && money >= cost;
-            const nextUpgrade = getNextUpgrade(crop);
+    <div className="hosting-tab">
+      <div className="services-section">
+        {infrastructure.map(infra => {
+          const cost = calculateCost(infra);
+          const bandwidthPerUnit = calculateBandwidth(infra);
+          const canBuy = infra.unlocked && money >= cost;
+          const nextUpgrade = getNextUpgrade(infra);
 
+          if (!infra.unlocked) {
             return (
-              <tr key={crop.id} className={!crop.unlocked ? 'locked' : ''}>
-                <td className="crop-name">{crop.name}</td>
-                <td className="crop-cost">
-                  {crop.unlocked ? `$${cost.toLocaleString()}` : `$${crop.unlockCost?.toLocaleString()}`}
-                </td>
-                <td className="crop-owned">
-                  {crop.unlocked ? crop.owned : 'LOCKED'}
-                </td>
-                <td className="crop-gain">
-                  {crop.unlocked && crop.owned > 0 ? (
-                    <span className="gain-detail">
-                      {crop.owned} × ${incomePerCrop.toLocaleString()} = <span className="gain-total">${totalIncome.toLocaleString()}/s</span>
-                    </span>
-                  ) : crop.unlocked ? (
-                    <span className="gain-base">${incomePerCrop.toLocaleString()}/s</span>
-                  ) : '-'}
-                </td>
-                <td className="crop-upgrade">
-                  {crop.unlocked ? (
-                    <button
-                      className="btn btn-secondary upgrade-btn"
-                      disabled={!nextUpgrade.canBuy}
-                      onClick={nextUpgrade.action}
-                    >
-                      {nextUpgrade.name === 'MAX' ? 'MAXED' : `${nextUpgrade.name}+ $${nextUpgrade.cost.toLocaleString()}`}
-                    </button>
-                  ) : '-'}
-                </td>
-                <td className="crop-actions">
-                  {crop.unlocked && (
-                    <button
-                      className="btn btn-primary buy-button"
-                      disabled={!canBuy}
-                      onClick={() => onBuy(crop.id)}
-                    >
-                      BUY
-                    </button>
-                  )}
-                </td>
-              </tr>
+              <div key={infra.id} className="service-row locked">
+                <span className="service-name">{infra.name}</span>
+                <span className="service-requirement">Unlock: ${infra.unlockCost?.toLocaleString()}</span>
+              </div>
             );
-          })}
-        </tbody>
-      </table>
+          }
+
+          return (
+            <div key={infra.id} className="service-row">
+              <div className="infra-info">
+                <span className="service-name">{infra.name}</span>
+                <span className="infra-stats">
+                  Owned: {infra.owned} | {formatBandwidth(bandwidthPerUnit)}/unit
+                </span>
+              </div>
+              <div className="infra-upgrades">
+                <button
+                  className="btn btn-secondary upgrade-btn"
+                  disabled={!nextUpgrade.canBuy}
+                  onClick={nextUpgrade.action}
+                >
+                  {nextUpgrade.name === 'MAXED' ? 'MAXED' : `${nextUpgrade.name} $${nextUpgrade.cost.toLocaleString()}`}
+                </button>
+              </div>
+              <div className="service-cost-col">
+                <span className="service-cost">${cost.toLocaleString()}</span>
+              </div>
+              <button
+                className="btn btn-primary"
+                disabled={!canBuy}
+                onClick={() => onBuy(infra.id)}
+              >
+                Buy
+              </button>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-function UpgradesTab({ crops, money, onUnlock }: { crops: Crop[]; money: number; onUnlock: (cropId: string) => void }) {
-  const nextUnlock = crops.find(c => !c.unlocked && c.unlockCost);
-  const unlockedCrops = crops.filter(c => c.unlocked);
+function TechUpgradesTab({ infrastructure, money, onUnlock }: { infrastructure: Infrastructure[]; money: number; onUnlock: (infrastructureId: string) => void }) {
+  const nextUnlock = infrastructure.find(i => !i.unlocked && i.unlockCost);
+  const unlockedInfrastructure = infrastructure.filter(i => i.unlocked);
 
   const progress = nextUnlock ? Math.min((money / nextUnlock.unlockCost!) * 100, 100) : 100;
 
@@ -292,14 +271,14 @@ function UpgradesTab({ crops, money, onUnlock }: { crops: Crop[]; money: number;
     <div className="upgrades-tab">
       <h2 className="heading-section">Unlocks</h2>
       
-      {unlockedCrops.length > 0 && (
+      {unlockedInfrastructure.length > 0 && (
         <div className="unlocked-section">
-          <h3 className="unlocked-title">Unlocked Crops</h3>
+          <h3 className="unlocked-title">Unlocked Infrastructure</h3>
           <div className="unlocked-list">
-            {unlockedCrops.map(crop => (
-              <div key={crop.id} className="unlocked-item">
+            {unlockedInfrastructure.map(infra => (
+              <div key={infra.id} className="unlocked-item">
                 <span className="unlocked-check">✓</span>
-                <span className="unlocked-name">{crop.name}</span>
+                <span className="unlocked-name">{infra.name}</span>
               </div>
             ))}
           </div>
@@ -309,7 +288,7 @@ function UpgradesTab({ crops, money, onUnlock }: { crops: Crop[]; money: number;
       {nextUnlock ? (
         <div className="unlock-card">
           <div className="unlock-info">
-            <span className="unlock-label">Next Crop:</span>
+            <span className="unlock-label">Next Infrastructure:</span>
             <span className="unlock-value">{nextUnlock.name}</span>
           </div>
           <div className="unlock-info">
@@ -344,9 +323,94 @@ function UpgradesTab({ crops, money, onUnlock }: { crops: Crop[]; money: number;
         </div>
       ) : (
         <div className="all-unlocked">
-          <p>All crops unlocked!</p>
+          <p>All infrastructure unlocked!</p>
         </div>
       )}
+    </div>
+  );
+}
+
+interface HostingTabProps {
+  services: Service[];
+  uploadSpeed: number;
+  bandwidthSold: number;
+  onBuyService: (serviceId: string) => void;
+  onUnlockService: (serviceId: string) => void;
+  money: number;
+}
+
+function HostingTab({ services, uploadSpeed, bandwidthSold, onBuyService, onUnlockService, money }: HostingTabProps) {
+  const availableBandwidth = uploadSpeed - bandwidthSold;
+  
+  const unlockedServices = services.filter(s => s.unlocked);
+  const nextLockedService = services.find(s => !s.unlocked);
+  
+  return (
+    <div className="hosting-tab">
+      <div className="hosting-stats">
+        <div className="stat">
+          <span className="stat-label">Available:</span>
+          <span className="stat-value">{formatBandwidth(availableBandwidth)}</span>
+        </div>
+      </div>
+      
+      <div className="services-section">
+        <h3 className="heading-label">Services</h3>
+        {unlockedServices.map(service => {
+          const cost = Math.floor(service.baseCost * Math.pow(1.15, service.owned));
+          const canBuy = money >= cost;
+          return (
+            <ServiceRow 
+              key={service.id} 
+              service={service} 
+              cost={cost}
+              onBuy={onBuyService} 
+              onUnlock={onUnlockService} 
+              money={money}
+              canBuy={canBuy}
+            />
+          );
+        })}
+        
+        {nextLockedService && (
+          <ServiceRow 
+            key={nextLockedService.id} 
+            service={nextLockedService} 
+            cost={0}
+            onBuy={onBuyService} 
+            onUnlock={onUnlockService} 
+            money={money}
+            canBuy={false}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ServiceRow({ service, cost, onBuy, onUnlock, money, canBuy }: { service: Service; cost: number; onBuy: (id: string) => void; onUnlock: (id: string) => void; money: number; canBuy: boolean }) {
+  if (!service.unlocked) {
+    return (
+      <div className="service-row locked">
+        <span className="service-name">{service.name}</span>
+        <span className="service-requirement">Unlock: ${service.unlockRequirement.toLocaleString()}</span>
+        <button className="btn btn-secondary" disabled={money < service.unlockRequirement} onClick={() => onUnlock(service.id)}>
+          Unlock
+        </button>
+      </div>
+    );
+  }
+  
+  return (
+    <div className={`service-row ${service.owned > 0 ? 'active' : 'inactive'}`}>
+      <span className="service-name">{service.name}</span>
+      <span className="service-owned">{service.owned}</span>
+      <span className="service-bandwidth">{formatBandwidth(service.baseBandwidthRequired)}</span>
+      <span className="service-income">${service.baseIncomePerSecond.toLocaleString()}/s</span>
+      <span className="service-cost">${cost.toLocaleString()}</span>
+      <button className="btn btn-primary" disabled={!canBuy} onClick={() => onBuy(service.id)}>
+        Buy
+      </button>
     </div>
   );
 }
@@ -480,4 +544,4 @@ function OptionsTab({
   );
 }
 
-export { Header, TabNav, CropsTab, UpgradesTab, OptionsTab };
+export { Header, TabNav, InfrastructureTab, TechUpgradesTab, HostingTab, OptionsTab };
