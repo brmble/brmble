@@ -18,10 +18,16 @@ function calculateBandwidth(infra: Infrastructure[]): number {
 }
 
 function calculateIncome(services: Service[], bandwidth: number): { income: number; bandwidthUsed: number } {
+  const sortedServices = [...services].sort((a, b) => {
+    const efficiencyA = a.baseIncomePerSecond / a.baseBandwidthRequired;
+    const efficiencyB = b.baseIncomePerSecond / b.baseBandwidthRequired;
+    return efficiencyB - efficiencyA;
+  });
+  
   let bandwidthUsed = 0;
   let income = 0;
   
-  for (const service of services) {
+  for (const service of sortedServices) {
     if (!service.unlocked || service.owned === 0) continue;
     
     const serviceBandwidth = service.baseBandwidthRequired;

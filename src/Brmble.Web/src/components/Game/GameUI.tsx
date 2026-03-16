@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import type { Infrastructure, Service } from './types';
 import { useGameState } from './useGameState';
 import { confirm } from '../../hooks/usePrompt';
@@ -14,6 +14,12 @@ type TabId = 'infrastructure' | 'upgrades' | 'hosting' | 'options';
 export function GameUI({ onClose }: GameUIProps) {
   const { state, actions } = useGameState();
   const [activeTab, setActiveTab] = useState<TabId>('infrastructure');
+
+  useEffect(() => {
+    return () => {
+      actions.saveGame();
+    };
+  }, [actions]);
   
   const handleClose = useCallback(() => {
     actions.saveGame();
