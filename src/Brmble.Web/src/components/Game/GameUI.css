@@ -641,9 +641,10 @@
 
 .service-row.locked {
   opacity: 0.6;
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: var(--space-md);
+}
+
+.service-row.locked .btn {
+  opacity: 0.5;
 }
 
 .service-row.active {
