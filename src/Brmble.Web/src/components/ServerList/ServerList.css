@@ -256,6 +256,50 @@
   width: 100%;
 }
 
+.server-list-password-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.server-list-password-input {
+  padding-right: var(--space-xl) !important;
+}
+
+/* Hide browser's native password reveal */
+.server-list-password-input::-ms-reveal,
+.server-list-password-input::-ms-clear {
+  display: none;
+}
+
+.server-list-password-toggle {
+  position: absolute;
+  right: var(--space-xs);
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.server-list-password-toggle:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.server-list-password-toggle:active {
+  color: var(--text-primary);
+  background: var(--bg-active);
+}
+
 .server-list-input-host {
   flex: 2;
 }
