@@ -58,3 +58,10 @@ export interface DMConversation {
 }
 
 export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed' | 'disconnected';
+
+export interface MentionableUser {
+  displayName: string;
+  matrixUserId?: string;
+  avatarUrl?: string;
+  isOnline: boolean;
+}

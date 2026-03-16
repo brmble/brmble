@@ -299,10 +299,29 @@ function App() {
     return null;
   }, [selectedDMUserId, currentChannelId, matrixClient?.dmRoomMap, matrixCredentials?.roomMap, users]);
 
+  // Per-panel Matrix room IDs for scoping mention suggestions
+  const channelMatrixRoomId = useMemo(() => {
+    if (currentChannelId && currentChannelId !== 'server-root' && matrixCredentials?.roomMap?.[currentChannelId]) {
+      return matrixCredentials.roomMap[currentChannelId];
+    }
+    return null;
+  }, [currentChannelId, matrixCredentials?.roomMap]);
+
+  const dmMatrixRoomId = useMemo(() => {
+    if (selectedDMUserId && matrixClient?.dmRoomMap) {
+      const targetUser = users.find(u => String(u.session) === selectedDMUserId);
+      if (targetUser?.matrixUserId) {
+        return matrixClient.dmRoomMap.get(targetUser.matrixUserId) ?? null;
+      }
+    }
+    return null;
+  }, [selectedDMUserId, matrixClient?.dmRoomMap, users]);
+
   const unreadTracker = useUnreadTracker(
     matrixClient?.client ?? null,
     dmRoomIds,
     activeMatrixRoomId,
+    username || null,
   );
 
   const channelKey = currentChannelId === 'server-root' ? 'server-root' : currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
@@ -1572,13 +1591,14 @@ const handleConnect = (serverData: SavedServer) => {
               <div className={`content-slider ${appMode === 'dm' ? 'dm-active' : ''}`}>
                 <div className="content-slide">
                   <ErrorBoundary label="ChatPanel:Channel">
-                  <ChatPanel
+                   <ChatPanel
                     channelId={currentChannelId || undefined}
                     channelName={currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName}
                     messages={isMatrixActive ? (matrixMessages ?? []) : messages}
                     currentUsername={username}
                     onSendMessage={handleSendMessage}
                     matrixClient={matrixClient.client}
+                    matrixRoomId={channelMatrixRoomId}
                     readMarkerTs={channelDividerTs}
                     screenShareVideoEl={remoteVideoEl}
                     screenSharerName={activeShare?.userName}
@@ -1589,7 +1609,7 @@ const handleConnect = (serverData: SavedServer) => {
                 </div>
                 <div className="content-slide">
                   <ErrorBoundary label="ChatPanel:DM">
-                  <ChatPanel
+                   <ChatPanel
                     channelId={selectedDMUserId ? `dm-${selectedDMUserId}` : undefined}
                     channelName={selectedDMUserName}
                     messages={activeDmMessages}
@@ -1597,6 +1617,7 @@ const handleConnect = (serverData: SavedServer) => {
                     onSendMessage={handleSendDMMessage}
                     isDM={true}
                     matrixClient={matrixClient.client}
+                    matrixRoomId={dmMatrixRoomId}
                     readMarkerTs={dmDividerTs}
                     users={users}
                   />

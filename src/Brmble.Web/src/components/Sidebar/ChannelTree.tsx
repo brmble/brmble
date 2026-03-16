@@ -208,14 +208,21 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
           <span className="channel-name">{channel.name}</span>
           {(() => {
             const unread = channelUnreads?.get(String(channel.id));
-            if (unread && unread.notificationCount > 0) {
-              return (
-                <span className={`channel-unread-badge${unread.highlightCount > 0 ? ' channel-unread-badge--mention' : ''}`}>
-                  {unread.notificationCount}
-                </span>
-              );
-            }
-            return null;
+            if (!unread) return null;
+            return (
+              <>
+                {unread.notificationCount > 0 && (
+                  <span className="channel-unread-badge">
+                    {unread.notificationCount}
+                  </span>
+                )}
+                {unread.highlightCount > 0 && (
+                  <span className="channel-unread-badge channel-unread-badge--mention">
+                    @{unread.highlightCount}
+                  </span>
+                )}
+              </>
+            );
           })()}
           {channel.users.length > 0 && (
             <>
