@@ -81,12 +81,6 @@ export function useGameState() {
     return { uploadSpeed: bandwidth, bandwidthSold: bandwidthUsed, bandwidthDemanded: totalBandwidthDemanded, incomePerSecond: income };
   }, [state.infrastructure, state.services]);
 
-  const incomeRef = useRef(derivedValues.incomePerSecond);
-
-  useEffect(() => {
-    incomeRef.current = derivedValues.incomePerSecond;
-  }, [derivedValues.incomePerSecond]);
-
   useEffect(() => {
     setState(prev => ({ ...prev, ...derivedValues }));
   }, [derivedValues]);
@@ -100,13 +94,14 @@ export function useGameState() {
 
   useEffect(() => {
     const interval = setInterval(() => {
+      const currentIncome = derivedValues.incomePerSecond;
       setState(prev => ({
         ...prev,
-        money: prev.money + (incomeRef.current / 10),
+        money: prev.money + (currentIncome / 10),
       }));
     }, 100);
     return () => clearInterval(interval);
-  }, []);
+  }, [derivedValues.incomePerSecond]);
 
   const buyInfrastructure = useCallback((infraId: string) => {
     setState(prev => {
