@@ -209,8 +209,20 @@ export function useUnreadTracker(
     const serverCount = room.getUnreadNotificationCount(NotificationCountType.Total) ?? 0;
     const serverHighlight = room.getUnreadNotificationCount(NotificationCountType.Highlight) ?? 0;
 
+    // Always run client-side mention detection when we have a marker,
+    // because the Matrix server doesn't know about @DisplayName mentions
+    // (it only detects Matrix-ID-based mentions via push rules).
+    const myUserId = client?.getUserId() ?? null;
+    const { count: clientCount, mentionCount } = localMarker
+      ? countUnreadFromTimeline(room, localMarker, myUserId, currentDisplayName)
+      : { count: 0, mentionCount: 0 };
+
     if (serverCount > 0) {
-      return { notificationCount: serverCount, highlightCount: serverHighlight, fullyReadEventId };
+      return {
+        notificationCount: serverCount,
+        highlightCount: Math.max(serverHighlight, mentionCount),
+        fullyReadEventId,
+      };
     }
 
     // Only count client-side unreads when we have a localStorage marker with
@@ -218,9 +230,6 @@ export function useUnreadTracker(
     if (!localMarker) {
       return { notificationCount: 0, highlightCount: 0, fullyReadEventId };
     }
-
-    const myUserId = client?.getUserId() ?? null;
-    const { count: clientCount, mentionCount } = countUnreadFromTimeline(room, localMarker, myUserId, currentDisplayName);
 
     return {
       notificationCount: clientCount,
