@@ -5,7 +5,7 @@ import { MessageInput } from './MessageInput';
 import { BrmbleLogo } from '../Header/BrmbleLogo';
 import { groupMessages } from '../../utils/groupMessages';
 import { formatDateSeparator, formatFullDate } from '../../utils/formatDateSeparator';
-import type { ChatMessage } from '../../types';
+import type { ChatMessage, MentionableUser } from '../../types';
 import { ScreenShareViewer } from '../ScreenShareViewer/ScreenShareViewer';
 import { Tooltip } from '../Tooltip/Tooltip';
 import Avatar from '../Avatar/Avatar';
@@ -56,6 +56,51 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
     return senderAvatarMap.byName.get(senderName)
       ?? (senderMatrixId ? senderAvatarMap.byMatrixId.get(senderMatrixId) : undefined);
   }, [senderAvatarMap]);
+
+  const mentionableUsers = useMemo<MentionableUser[]>(() => {
+    const result: MentionableUser[] = [];
+    const seen = new Set<string>();
+
+    // Add connected Mumble users first (they're online)
+    if (users) {
+      for (const u of users) {
+        result.push({
+          displayName: u.name,
+          matrixUserId: u.matrixUserId,
+          avatarUrl: u.avatarUrl,
+          isOnline: true,
+        });
+        seen.add(u.name.toLowerCase());
+        if (u.matrixUserId) seen.add(u.matrixUserId);
+      }
+    }
+
+    // Add Matrix room members who aren't already in the list
+    if (matrixClient && channelId) {
+      const rooms = matrixClient.getRooms();
+      for (const room of rooms) {
+        const members = room.getJoinedMembers();
+        for (const member of members) {
+          const userId = member.userId;
+          const displayName = member.name || member.rawDisplayName || userId;
+          if (seen.has(userId) || seen.has(displayName.toLowerCase())) continue;
+          seen.add(userId);
+          seen.add(displayName.toLowerCase());
+          result.push({
+            displayName,
+            matrixUserId: userId,
+            isOnline: false,
+          });
+        }
+      }
+    }
+
+    return result;
+  }, [users, matrixClient, channelId]);
+
+  const knownUsernames = useMemo(() => {
+    return new Set(mentionableUsers.map(u => u.displayName));
+  }, [mentionableUsers]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -637,6 +682,8 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
                     messageIndex={msgIndex}
                     senderAvatarUrl={lookupAvatar(item.message.sender, item.message.senderMatrixUserId)?.avatarUrl}
                     senderMatrixUserId={lookupAvatar(item.message.sender, item.message.senderMatrixUserId)?.matrixUserId}
+                    currentUsername={currentUsername}
+                    knownUsernames={knownUsernames}
                   />
                 </Fragment>
                 );
@@ -662,7 +709,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
           </button>
           </Tooltip>
         )}
-        <MessageInput onSend={onSendMessage} placeholder={isDM ? `Message @${channelName}` : `Message #${channelName}`} />
+        <MessageInput onSend={onSendMessage} placeholder={isDM ? `Message @${channelName}` : `Message #${channelName}`} mentionableUsers={mentionableUsers} />
       </div>
     </div>
   );
