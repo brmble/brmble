@@ -196,6 +196,18 @@ export function useGameState() {
     });
   }, []);
 
+  const unlockService = useCallback((serviceId: string) => {
+    setState(prev => {
+      const service = prev.services.find(s => s.id === serviceId);
+      if (!service || service.unlocked || prev.money < service.unlockRequirement) return prev;
+      return {
+        ...prev,
+        services: prev.services.map(s => s.id === serviceId ? { ...s, unlocked: true } : s),
+        money: prev.money - service.unlockRequirement
+      };
+    });
+  }, []);
+
   const setTheme = useCallback((theme: string) => {
     applyTheme(theme);
     localStorage.setItem('idle-farm-theme', theme);
@@ -250,6 +262,7 @@ export function useGameState() {
     upgrade3,
     unlockInfrastructure,
     toggleService,
+    unlockService,
     setTheme,
     saveGame,
     loadGame,

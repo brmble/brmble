@@ -39,12 +39,6 @@ export function GameUI({ onClose }: GameUIProps) {
     return () => window.removeEventListener('keydown', onKey);
   }, [handleClose]);
 
-  useEffect(() => {
-    return () => {
-      actions.saveGame();
-    };
-  }, [actions]);
-
   const handleMouseDown = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).tagName === 'BUTTON') return;
     setIsDragging(true);
@@ -114,6 +108,8 @@ export function GameUI({ onClose }: GameUIProps) {
                   uploadSpeed={state.uploadSpeed}
                   bandwidthSold={state.bandwidthSold}
                   onToggleService={actions.toggleService}
+                  onUnlockService={actions.unlockService}
+                  money={state.money}
                 />
               )}
               {activeTab === 'options' && (
@@ -381,9 +377,11 @@ interface HostingTabProps {
   uploadSpeed: number;
   bandwidthSold: number;
   onToggleService: (serviceId: string) => void;
+  onUnlockService: (serviceId: string) => void;
+  money: number;
 }
 
-function HostingTab({ services, uploadSpeed, bandwidthSold, onToggleService }: HostingTabProps) {
+function HostingTab({ services, uploadSpeed, bandwidthSold, onToggleService, onUnlockService, money }: HostingTabProps) {
   return (
     <div className="hosting-tab">
       <div className="hosting-stats">
@@ -396,26 +394,29 @@ function HostingTab({ services, uploadSpeed, bandwidthSold, onToggleService }: H
       <div className="services-section">
         <h3 className="heading-label">Automatic Services</h3>
         {services.filter(s => s.automatic).map(service => (
-          <ServiceRow key={service.id} service={service} onToggle={onToggleService} />
+          <ServiceRow key={service.id} service={service} onToggle={onToggleService} onUnlock={onUnlockService} money={money} />
         ))}
       </div>
       
       <div className="services-section">
         <h3 className="heading-label">Manual Services</h3>
         {services.filter(s => !s.automatic).map(service => (
-          <ServiceRow key={service.id} service={service} onToggle={onToggleService} />
+          <ServiceRow key={service.id} service={service} onToggle={onToggleService} onUnlock={onUnlockService} money={money} />
         ))}
       </div>
     </div>
   );
 }
 
-function ServiceRow({ service, onToggle }: { service: Service; onToggle: (id: string) => void }) {
+function ServiceRow({ service, onToggle, onUnlock, money }: { service: Service; onToggle: (id: string) => void; onUnlock: (id: string) => void; money: number }) {
   if (!service.unlocked) {
     return (
       <div className="service-row locked">
         <span className="service-name">{service.name}</span>
         <span className="service-requirement">Unlock: ${service.unlockRequirement.toLocaleString()}</span>
+        <button className="btn btn-secondary" disabled={money < service.unlockRequirement} onClick={() => onUnlock(service.id)}>
+          Unlock
+        </button>
       </div>
     );
   }

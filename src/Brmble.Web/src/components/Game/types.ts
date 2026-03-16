@@ -72,6 +72,7 @@ export interface GameActions {
   upgrade3: (infrastructureId: string) => void;
   unlockInfrastructure: (infrastructureId: string) => void;
   toggleService: (serviceId: string) => void;
+  unlockService: (serviceId: string) => void;
   setTheme: (theme: string) => void;
   saveGame: () => void;
   loadGame: () => void;
