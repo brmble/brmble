@@ -22,10 +22,15 @@ function calculateIncome(services: Service[], bandwidth: number): { income: numb
   let income = 0;
   
   for (const service of services) {
-    if (!service.unlocked || !service.active) continue;
-    if (bandwidthUsed + service.bandwidthRequired <= bandwidth) {
-      bandwidthUsed += service.bandwidthRequired;
-      income += service.incomePerSecond;
+    if (!service.unlocked || service.owned === 0) continue;
+    
+    const serviceBandwidth = service.baseBandwidthRequired;
+    const maxCanFit = Math.floor((bandwidth - bandwidthUsed) / serviceBandwidth);
+    const toActivate = Math.min(service.owned, maxCanFit);
+    
+    if (toActivate > 0) {
+      bandwidthUsed += serviceBandwidth * toActivate;
+      income += service.baseIncomePerSecond * toActivate;
     }
   }
   
@@ -39,7 +44,9 @@ function hasInfrastructure(state: unknown): state is GameState {
 
 function hasServices(state: unknown): state is GameState {
   if (typeof state !== 'object' || state === null) return false;
-  return 'services' in state && Array.isArray((state as GameState).services);
+  if (!('services' in state) || !Array.isArray((state as GameState).services)) return false;
+  const services = (state as GameState).services;
+  return services.length > 0 && 'baseCost' in services[0];
 }
 
 export function useGameState() {
@@ -65,7 +72,10 @@ export function useGameState() {
   const derivedValues = useMemo(() => {
     const bandwidth = calculateBandwidth(state.infrastructure);
     const { income, bandwidthUsed } = calculateIncome(state.services, bandwidth);
-    return { uploadSpeed: bandwidth, bandwidthSold: bandwidthUsed, incomePerSecond: income };
+    const totalBandwidthDemanded = state.services
+      .filter(s => s.unlocked && s.owned > 0)
+      .reduce((total, s) => total + (s.baseBandwidthRequired * s.owned), 0);
+    return { uploadSpeed: bandwidth, bandwidthSold: bandwidthUsed, bandwidthDemanded: totalBandwidthDemanded, incomePerSecond: income };
   }, [state.infrastructure, state.services]);
 
   const incomeRef = useRef(derivedValues.incomePerSecond);
@@ -177,21 +187,18 @@ export function useGameState() {
     });
   }, []);
 
-  const toggleService = useCallback((serviceId: string) => {
+  const buyService = useCallback((serviceId: string) => {
     setState(prev => {
       const service = prev.services.find(s => s.id === serviceId);
       if (!service || !service.unlocked) return prev;
       
-      const currentUsed = prev.bandwidthSold;
-      const wouldBeUsed = service.active 
-        ? currentUsed - service.bandwidthRequired 
-        : currentUsed + service.bandwidthRequired;
-      
-      if (!service.active && wouldBeUsed > prev.uploadSpeed) return prev;
+      const cost = Math.floor(service.baseCost * Math.pow(1.15, service.owned));
+      if (prev.money < cost) return prev;
       
       return {
         ...prev,
-        services: prev.services.map(s => s.id === serviceId ? { ...s, active: !s.active } : s)
+        money: prev.money - cost,
+        services: prev.services.map(s => s.id === serviceId ? { ...s, owned: s.owned + 1 } : s)
       };
     });
   }, []);
@@ -261,7 +268,7 @@ export function useGameState() {
     upgrade2,
     upgrade3,
     unlockInfrastructure,
-    toggleService,
+    buyService,
     unlockService,
     setTheme,
     saveGame,

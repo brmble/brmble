@@ -23,12 +23,12 @@ export interface Infrastructure {
 export interface Service {
   id: string;
   name: string;
-  bandwidthRequired: number;
-  incomePerSecond: number;
+  baseBandwidthRequired: number;
+  baseIncomePerSecond: number;
+  baseCost: number;
+  owned: number;
   unlocked: boolean;
   unlockRequirement: number;
-  automatic: boolean;
-  active: boolean;
 }
 
 /**
@@ -56,6 +56,7 @@ export interface GameState {
   incomePerSecond: number;
   uploadSpeed: number;
   bandwidthSold: number;
+  bandwidthDemanded: number;
   infrastructure: Infrastructure[];
   services: Service[];
   upgrades: Upgrade[];
@@ -71,7 +72,7 @@ export interface GameActions {
   upgrade2: (infrastructureId: string) => void;
   upgrade3: (infrastructureId: string) => void;
   unlockInfrastructure: (infrastructureId: string) => void;
-  toggleService: (serviceId: string) => void;
+  buyService: (serviceId: string) => void;
   unlockService: (serviceId: string) => void;
   setTheme: (theme: string) => void;
   saveGame: () => void;
@@ -281,122 +282,122 @@ export const INITIAL_SERVICES: Service[] = [
   { 
     id: 'website', 
     name: 'Personal Website', 
-    bandwidthRequired: 1024, 
-    incomePerSecond: 1, 
+    baseBandwidthRequired: 1024, 
+    baseIncomePerSecond: 1, 
+    baseCost: 10,
+    owned: 1, 
     unlocked: true, 
-    unlockRequirement: 0, 
-    automatic: true, 
-    active: false 
+    unlockRequirement: 0
   },
   { 
     id: 'blog', 
     name: 'Blog Hosting', 
-    bandwidthRequired: 5120, 
-    incomePerSecond: 4, 
+    baseBandwidthRequired: 5120, 
+    baseIncomePerSecond: 4, 
+    baseCost: 100,
+    owned: 0, 
     unlocked: false, 
-    unlockRequirement: 100, 
-    automatic: true, 
-    active: false 
+    unlockRequirement: 100
   },
   { 
     id: 'file-hosting', 
     name: 'File Hosting', 
-    bandwidthRequired: 20480, 
-    incomePerSecond: 15, 
+    baseBandwidthRequired: 20480, 
+    baseIncomePerSecond: 15, 
+    baseCost: 1100,
+    owned: 0, 
     unlocked: false, 
-    unlockRequirement: 500, 
-    automatic: true, 
-    active: false 
+    unlockRequirement: 500
   },
   { 
     id: 'video-streaming', 
     name: 'Video Streaming', 
-    bandwidthRequired: 102400, 
-    incomePerSecond: 90, 
+    baseBandwidthRequired: 102400, 
+    baseIncomePerSecond: 90, 
+    baseCost: 12000,
+    owned: 0, 
     unlocked: false, 
-    unlockRequirement: 1000, 
-    automatic: false, 
-    active: false 
+    unlockRequirement: 1000
   },
   { 
     id: 'game-downloads', 
     name: 'Game Downloads', 
-    bandwidthRequired: 1048576, 
-    incomePerSecond: 900, 
+    baseBandwidthRequired: 1048576, 
+    baseIncomePerSecond: 900, 
+    baseCost: 500000,
+    owned: 0, 
     unlocked: false, 
-    unlockRequirement: 10000, 
-    automatic: false, 
-    active: false 
+    unlockRequirement: 10000
   },
   { 
     id: 'cloud-storage', 
     name: 'Cloud Storage', 
-    bandwidthRequired: 10485760, 
-    incomePerSecond: 8000, 
+    baseBandwidthRequired: 10485760, 
+    baseIncomePerSecond: 8000, 
+    baseCost: 5000000,
+    owned: 0, 
     unlocked: false, 
-    unlockRequirement: 100000, 
-    automatic: false, 
-    active: false 
+    unlockRequirement: 100000
   },
   { 
     id: 'live-streaming', 
     name: 'Live Streaming Platform', 
-    bandwidthRequired: 52428800, 
-    incomePerSecond: 40000, 
+    baseBandwidthRequired: 52428800, 
+    baseIncomePerSecond: 40000, 
+    baseCost: 50000000,
+    owned: 0, 
     unlocked: false, 
-    unlockRequirement: 500000, 
-    automatic: false, 
-    active: false 
+    unlockRequirement: 500000
   },
   { 
     id: 'video-cdn', 
     name: 'Video CDN', 
-    bandwidthRequired: 209715200, 
-    incomePerSecond: 180000, 
+    baseBandwidthRequired: 209715200, 
+    baseIncomePerSecond: 180000, 
+    baseCost: 1000000000,
+    owned: 0, 
     unlocked: false, 
-    unlockRequirement: 5000000, 
-    automatic: false, 
-    active: false 
+    unlockRequirement: 5000000
   },
   { 
     id: 'game-servers', 
     name: 'Multiplayer Game Servers', 
-    bandwidthRequired: 1073741824, 
-    incomePerSecond: 900000, 
+    baseBandwidthRequired: 1073741824, 
+    baseIncomePerSecond: 900000, 
+    baseCost: 200000000000,
+    owned: 0, 
     unlocked: false, 
-    unlockRequirement: 50000000, 
-    automatic: false, 
-    active: false 
+    unlockRequirement: 50000000
   },
   { 
     id: 'ai-hosting', 
     name: 'AI Model Hosting', 
-    bandwidthRequired: 5368709120, 
-    incomePerSecond: 4500000, 
+    baseBandwidthRequired: 5368709120, 
+    baseIncomePerSecond: 4500000, 
+    baseCost: 5000000000000,
+    owned: 0, 
     unlocked: false, 
-    unlockRequirement: 500000000, 
-    automatic: false, 
-    active: false 
+    unlockRequirement: 500000000
   },
   { 
     id: 'global-cdn', 
     name: 'Global CDN Network', 
-    bandwidthRequired: 21474836480, 
-    incomePerSecond: 18000000, 
+    baseBandwidthRequired: 21474836480, 
+    baseIncomePerSecond: 18000000, 
+    baseCost: 50000000000000,
+    owned: 0, 
     unlocked: false, 
-    unlockRequirement: 5000000000, 
-    automatic: false, 
-    active: false 
+    unlockRequirement: 5000000000
   },
   { 
     id: 'ai-pipeline', 
     name: 'AI Training Data Pipeline', 
-    bandwidthRequired: 107374182400, 
-    incomePerSecond: 90000000, 
+    baseBandwidthRequired: 107374182400, 
+    baseIncomePerSecond: 90000000, 
+    baseCost: 500000000000000,
+    owned: 0, 
     unlocked: false, 
-    unlockRequirement: 50000000000, 
-    automatic: false, 
-    active: false 
+    unlockRequirement: 50000000000
   },
 ];
 
@@ -448,6 +449,7 @@ export const INITIAL_STATE: GameState = {
   incomePerSecond: 0,
   uploadSpeed: 0,
   bandwidthSold: 0,
+  bandwidthDemanded: 0,
   infrastructure: INITIAL_INFRASTRUCTURE,
   services: INITIAL_SERVICES,
   upgrades: INITIAL_UPGRADES,

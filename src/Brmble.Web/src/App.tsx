@@ -1566,40 +1566,44 @@ const handleConnect = (serverData: SavedServer) => {
               </div>
             )
           ) : connectionStatus === 'connected' ? (
-            <div className={`content-slider ${appMode === 'dm' ? 'dm-active' : ''}`}>
-              <div className="content-slide">
-                <ErrorBoundary label="ChatPanel:Channel">
-                <ChatPanel
-                  channelId={currentChannelId || undefined}
-                  channelName={currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName}
-                  messages={isMatrixActive ? (matrixMessages ?? []) : messages}
-                  currentUsername={username}
-                  onSendMessage={handleSendMessage}
-                  matrixClient={matrixClient.client}
-                  readMarkerTs={channelDividerTs}
-                  screenShareVideoEl={remoteVideoEl}
-                  screenSharerName={activeShare?.userName}
-                  onCloseScreenShare={disconnectViewer}
-                  users={users}
-                />
-                </ErrorBoundary>
+            showGame ? (
+              <GameUI onClose={() => setShowGame(false)} />
+            ) : (
+              <div className={`content-slider ${appMode === 'dm' ? 'dm-active' : ''}`}>
+                <div className="content-slide">
+                  <ErrorBoundary label="ChatPanel:Channel">
+                  <ChatPanel
+                    channelId={currentChannelId || undefined}
+                    channelName={currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName}
+                    messages={isMatrixActive ? (matrixMessages ?? []) : messages}
+                    currentUsername={username}
+                    onSendMessage={handleSendMessage}
+                    matrixClient={matrixClient.client}
+                    readMarkerTs={channelDividerTs}
+                    screenShareVideoEl={remoteVideoEl}
+                    screenSharerName={activeShare?.userName}
+                    onCloseScreenShare={disconnectViewer}
+                    users={users}
+                  />
+                  </ErrorBoundary>
+                </div>
+                <div className="content-slide">
+                  <ErrorBoundary label="ChatPanel:DM">
+                  <ChatPanel
+                    channelId={selectedDMUserId ? `dm-${selectedDMUserId}` : undefined}
+                    channelName={selectedDMUserName}
+                    messages={activeDmMessages}
+                    currentUsername={username}
+                    onSendMessage={handleSendDMMessage}
+                    isDM={true}
+                    matrixClient={matrixClient.client}
+                    readMarkerTs={dmDividerTs}
+                    users={users}
+                  />
+                  </ErrorBoundary>
+                </div>
               </div>
-              <div className="content-slide">
-                <ErrorBoundary label="ChatPanel:DM">
-                <ChatPanel
-                  channelId={selectedDMUserId ? `dm-${selectedDMUserId}` : undefined}
-                  channelName={selectedDMUserName}
-                  messages={activeDmMessages}
-                  currentUsername={username}
-                  onSendMessage={handleSendDMMessage}
-                  isDM={true}
-                  matrixClient={matrixClient.client}
-                  readMarkerTs={dmDividerTs}
-                  users={users}
-                />
-                </ErrorBoundary>
-              </div>
-            </div>
+            )
           ) : (
             <ConnectionState
               connectionStatus={connectionStatus}
@@ -1684,7 +1688,6 @@ const handleConnect = (serverData: SavedServer) => {
 
       <ZoomIndicator />
       <Version />
-      {showGame && <GameUI onClose={() => setShowGame(false)} />}
     </div>
   );
 }
