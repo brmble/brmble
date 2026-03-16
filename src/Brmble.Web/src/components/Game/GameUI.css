@@ -130,7 +130,7 @@
 }
 
 .header-value.free {
-  color: var(--text-muted);
+  color: var(--accent-success);
 }
 
 .header-value.overage {
@@ -658,6 +658,25 @@
 
 .service-name {
   font-weight: 600;
+}
+
+.infra-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.infra-stats {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.service-row {
+  position: relative;
 }
 
 .service-bandwidth,

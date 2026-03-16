@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import type { Infrastructure, Service } from './types';
 import { useGameState } from './useGameState';
 import { confirm } from '../../hooks/usePrompt';
