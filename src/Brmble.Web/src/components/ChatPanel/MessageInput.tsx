@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, type KeyboardEvent } from 'react';
+import { useState, useRef, useEffect, useCallback, useId, type KeyboardEvent } from 'react';
 import type { MentionableUser } from '../../types';
 import { MentionDropdown } from './MentionDropdown';
 import { Tooltip } from '../Tooltip/Tooltip';
@@ -20,6 +20,9 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
   const [mentionAnchorRect, setMentionAnchorRect] = useState<DOMRect | null>(null);
   const mentionStartRef = useRef<number>(-1);
 
+  // ARIA IDs for combobox pattern
+  const listboxId = useId();
+
   const resizeTextarea = useCallback(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
@@ -35,6 +38,18 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
     textareaRef.current?.focus();
   }, [placeholder]);
 
+  // Compute filtered users for reuse across handlers
+  const filteredUsers = (() => {
+    if (!mentionActive) return [];
+    const q = mentionQuery.toLowerCase();
+    return mentionableUsers
+      .filter(u => u.displayName.toLowerCase().startsWith(q))
+      .sort((a, b) => {
+        if (a.isOnline !== b.isOnline) return a.isOnline ? -1 : 1;
+        return a.displayName.localeCompare(b.displayName);
+      });
+  })();
+
   const updateMentionState = useCallback((value: string, cursorPos: number) => {
     // Look backwards from cursor for @ that starts a mention
     let atIndex = -1;
@@ -47,10 +62,7 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
         }
         break;
       }
-      if (ch === ' ' && i < cursorPos - 1) {
-        // Allow spaces in usernames, but break on double space or newline
-        continue;
-      }
+      // Allow spaces in usernames (e.g. "First Last"), but stop at newlines
       if (ch === '\n') break;
     }
 
@@ -62,7 +74,7 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
         setMentionQuery(query);
         setMentionActiveIndex(0);
         mentionStartRef.current = atIndex;
-        // Position dropdown based on wrapper
+        // Recalculate anchor position each time
         if (wrapperRef.current) {
           setMentionAnchorRect(wrapperRef.current.getBoundingClientRect());
         }
@@ -75,13 +87,36 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
     mentionStartRef.current = -1;
   }, []);
 
+  // Recalculate dropdown position on scroll/resize while mention is active
+  useEffect(() => {
+    if (!mentionActive) return;
+    const recalc = () => {
+      if (wrapperRef.current) {
+        setMentionAnchorRect(wrapperRef.current.getBoundingClientRect());
+      }
+    };
+    window.addEventListener('scroll', recalc, true);
+    window.addEventListener('resize', recalc);
+    return () => {
+      window.removeEventListener('scroll', recalc, true);
+      window.removeEventListener('resize', recalc);
+    };
+  }, [mentionActive]);
+
   const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
     setMessage(value);
     updateMentionState(value, e.target.selectionStart ?? value.length);
   }, [updateMentionState]);
 
-  const handleSelect = useCallback((user: MentionableUser) => {
+  // Recompute mention state when cursor moves without text change
+  const handleSelect = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    updateMentionState(textarea.value, textarea.selectionStart ?? textarea.value.length);
+  }, [updateMentionState]);
+
+  const handleMentionSelect = useCallback((user: MentionableUser) => {
     const start = mentionStartRef.current;
     if (start < 0) return;
     const textarea = textareaRef.current;
@@ -113,7 +148,7 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (mentionActive && mentionableUsers.length > 0) {
+    if (mentionActive && filteredUsers.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         setMentionActiveIndex(prev => prev + 1);
@@ -125,26 +160,10 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
         return;
       }
       if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
-        // Only intercept if there are filtered results
-        const q = mentionQuery.toLowerCase();
-        const hasMatch = mentionableUsers.some(u =>
-          u.displayName.toLowerCase().startsWith(q)
-        );
-        if (hasMatch) {
-          e.preventDefault();
-          // Find the filtered user at activeIndex
-          const filtered = mentionableUsers
-            .filter(u => u.displayName.toLowerCase().startsWith(q))
-            .sort((a, b) => {
-              if (a.isOnline !== b.isOnline) return a.isOnline ? -1 : 1;
-              return a.displayName.localeCompare(b.displayName);
-            });
-          if (filtered.length > 0) {
-            const idx = Math.min(mentionActiveIndex, filtered.length - 1);
-            handleSelect(filtered[idx]);
-          }
-          return;
-        }
+        e.preventDefault();
+        const idx = Math.min(mentionActiveIndex, filteredUsers.length - 1);
+        handleMentionSelect(filteredUsers[idx]);
+        return;
       }
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -159,17 +178,24 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
     }
   };
 
-  // Close mention dropdown when clicking outside
+  // Close mention dropdown when clicking outside (handles portaled dropdown)
   useEffect(() => {
     if (!mentionActive) return;
     const handleClick = (e: MouseEvent) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
-        setMentionActive(false);
-      }
+      const target = e.target as Node;
+      // Check if click is inside the wrapper OR inside the portaled dropdown
+      if (wrapperRef.current?.contains(target)) return;
+      if ((target as Element).closest?.('.mention-dropdown')) return;
+      setMentionActive(false);
     };
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, [mentionActive]);
+
+  // Compute ARIA active descendant
+  const activeDescendant = mentionActive && filteredUsers.length > 0
+    ? `${listboxId}-option-${Math.min(mentionActiveIndex, filteredUsers.length - 1)}`
+    : undefined;
 
   return (
     <div className="message-input-container">
@@ -180,11 +206,15 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
           value={message}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
+          onSelect={handleSelect}
           placeholder={placeholder}
           rows={1}
           role="combobox"
-          aria-expanded={mentionActive}
+          aria-expanded={mentionActive && filteredUsers.length > 0}
           aria-autocomplete="list"
+          aria-haspopup="listbox"
+          aria-controls={mentionActive ? listboxId : undefined}
+          aria-activedescendant={activeDescendant}
         />
         <Tooltip content="Send message">
         <button
@@ -205,8 +235,9 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
           users={mentionableUsers}
           activeIndex={mentionActiveIndex}
           anchorRect={mentionAnchorRect}
-          onSelect={handleSelect}
+          onSelect={handleMentionSelect}
           onActiveIndexChange={setMentionActiveIndex}
+          listboxId={listboxId}
         />
       )}
     </div>

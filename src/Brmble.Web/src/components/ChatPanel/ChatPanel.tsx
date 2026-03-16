@@ -19,6 +19,7 @@ interface ChatPanelProps {
   onSendMessage: (content: string) => void;
   isDM?: boolean;
   matrixClient?: MatrixClient | null;
+  matrixRoomId?: string | null;
   readMarkerTs?: number | null;
   screenShareVideoEl?: HTMLVideoElement | null;
   screenSharerName?: string;
@@ -31,7 +32,7 @@ const SCROLL_THRESHOLD = 150;
 const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
 const DEFAULT_SPLIT = 50;
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, isDM, matrixClient, readMarkerTs, screenShareVideoEl, screenSharerName, onCloseScreenShare, users }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, screenShareVideoEl, screenSharerName, onCloseScreenShare, users }: ChatPanelProps) {
   // Build lookup maps from sender name and matrixUserId → avatar data for MessageBubble.
   // Name-based lookup works when Mumble name matches message sender.
   // MatrixUserId-based lookup handles cases where the user connected with a different
@@ -75,10 +76,10 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
       }
     }
 
-    // Add Matrix room members who aren't already in the list
-    if (matrixClient && channelId) {
-      const rooms = matrixClient.getRooms();
-      for (const room of rooms) {
+    // Add Matrix room members who aren't already in the list (scoped to active room)
+    if (matrixClient && matrixRoomId) {
+      const room = matrixClient.getRoom(matrixRoomId);
+      if (room) {
         const members = room.getJoinedMembers();
         for (const member of members) {
           const userId = member.userId;
@@ -96,7 +97,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
     }
 
     return result;
-  }, [users, matrixClient, channelId]);
+  }, [users, matrixClient, matrixRoomId]);
 
   const knownUsernames = useMemo(() => {
     return new Set(mentionableUsers.map(u => u.displayName));

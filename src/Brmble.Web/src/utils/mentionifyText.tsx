@@ -1,5 +1,20 @@
 import type { ReactNode } from 'react';
 
+// Cache compiled regex by Set identity to avoid rebuilding on every render
+let cachedSet: Set<string> | null = null;
+let cachedPattern: RegExp | null = null;
+
+function getMentionPattern(knownUsernames: Set<string>): RegExp | null {
+  if (knownUsernames === cachedSet && cachedPattern) return cachedPattern;
+  if (knownUsernames.size === 0) return null;
+
+  const sortedNames = Array.from(knownUsernames).sort((a, b) => b.length - a.length);
+  const escaped = sortedNames.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  cachedPattern = new RegExp(`@(${escaped.join('|')})(?=\\s|$|[.,!?;:])`, 'gi');
+  cachedSet = knownUsernames;
+  return cachedPattern;
+}
+
 /**
  * Detects @Username patterns in text and wraps them in styled spans.
  * Only matches known usernames to avoid false positives.
@@ -14,13 +29,11 @@ export function mentionifyText(
   knownUsernames: Set<string>,
   currentUsername?: string,
 ): ReactNode {
-  if (knownUsernames.size === 0) return text;
+  const pattern = getMentionPattern(knownUsernames);
+  if (!pattern) return text;
 
-  // Build regex that matches @username for all known users
-  // Sort by length descending so longer names match first
-  const sortedNames = Array.from(knownUsernames).sort((a, b) => b.length - a.length);
-  const escaped = sortedNames.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-  const pattern = new RegExp(`@(${escaped.join('|')})(?=\\s|$|[.,!?;:])`, 'gi');
+  // Reset lastIndex since the regex is cached with the 'g' flag
+  pattern.lastIndex = 0;
 
   const parts: ReactNode[] = [];
   let lastIndex = 0;

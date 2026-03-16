@@ -1,7 +1,5 @@
 # @Mention Feature Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
-
 **Goal:** Add an @mention system to chat with typeahead dropdown, styled rendering, and unread mention badges.
 
 **Architecture:** Portal-based autocomplete dropdown in MessageInput, extended linkifyText pipeline for mention rendering in MessageBubble, client-side mention detection feeding into the existing two-badge unread system in ChannelTree. User sources are connected Mumble users + Matrix room members.

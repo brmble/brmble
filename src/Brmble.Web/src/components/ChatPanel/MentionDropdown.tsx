@@ -11,6 +11,7 @@ interface MentionDropdownProps {
   anchorRect: DOMRect | null;
   onSelect: (user: MentionableUser) => void;
   onActiveIndexChange: (index: number) => void;
+  listboxId?: string;
 }
 
 export function MentionDropdown({
@@ -20,6 +21,7 @@ export function MentionDropdown({
   anchorRect,
   onSelect,
   onActiveIndexChange,
+  listboxId,
 }: MentionDropdownProps) {
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -61,10 +63,11 @@ export function MentionDropdown({
   };
 
   return createPortal(
-    <div className="mention-dropdown" style={style} ref={listRef} role="listbox">
+    <div className="mention-dropdown" style={style} ref={listRef} role="listbox" id={listboxId}>
       {filtered.map((user, i) => (
         <button
           key={user.displayName}
+          id={listboxId ? `${listboxId}-option-${i}` : undefined}
           className={`mention-dropdown-item${i === activeIndex ? ' mention-dropdown-item--active' : ''}${!user.isOnline ? ' mention-dropdown-item--offline' : ''}`}
           role="option"
           aria-selected={i === activeIndex}

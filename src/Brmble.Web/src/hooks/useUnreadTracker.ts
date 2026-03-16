@@ -133,13 +133,14 @@ function findLastMessageEventId(room: Room, targetEventId: string): string | nul
 }
 
 /**
- * Count unread messages after the read marker.
+ * Count unread messages and @mentions after the read marker.
  *
  * Only counts m.room.message events from other users whose
  * origin_server_ts is strictly greater than the marker's saved timestamp.
  * This prevents backfilled/paginated old events from being counted as unread.
  *
- * Returns 0 if no marker exists (room never opened).
+ * Returns { count: 0, mentionCount: 0 } if no marker exists (room never opened).
+ * mentionCount tracks @DisplayName patterns in message bodies (client-side detection).
  */
 function countUnreadFromTimeline(
   room: Room,
@@ -212,6 +213,9 @@ export function useUnreadTracker(
     // Always run client-side mention detection when we have a marker,
     // because the Matrix server doesn't know about @DisplayName mentions
     // (it only detects Matrix-ID-based mentions via push rules).
+    // The two sources are disjoint: serverHighlight counts Matrix-ID push rule
+    // matches, mentionCount counts @DisplayName text patterns. We add them
+    // together to get the total highlight count.
     const myUserId = client?.getUserId() ?? null;
     const { count: clientCount, mentionCount } = localMarker
       ? countUnreadFromTimeline(room, localMarker, myUserId, currentDisplayName)
@@ -220,7 +224,7 @@ export function useUnreadTracker(
     if (serverCount > 0) {
       return {
         notificationCount: serverCount,
-        highlightCount: Math.max(serverHighlight, mentionCount),
+        highlightCount: serverHighlight + mentionCount,
         fullyReadEventId,
       };
     }
@@ -233,7 +237,7 @@ export function useUnreadTracker(
 
     return {
       notificationCount: clientCount,
-      highlightCount: Math.max(serverHighlight, mentionCount),
+      highlightCount: serverHighlight + mentionCount,
       fullyReadEventId,
     };
   }, [client, currentDisplayName]);
