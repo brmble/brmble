@@ -116,3 +116,17 @@
   background: var(--bg-hover);
   box-shadow: inset 3px 0 0 var(--accent-primary);
 }
+
+/* @mention highlighting */
+.mention {
+  color: var(--accent-primary);
+  font-weight: 600;
+  background: var(--accent-primary-wash);
+  padding: 0 2px;
+  border-radius: var(--radius-xs);
+}
+
+.mention--self {
+  color: var(--accent-secondary);
+  background: var(--accent-secondary-wash, color-mix(in srgb, var(--accent-secondary) 15%, transparent));
+}
