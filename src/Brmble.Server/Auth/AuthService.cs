@@ -1,5 +1,6 @@
 // src/Brmble.Server/Auth/AuthService.cs
 using System.Collections.Concurrent;
+using System.Text.RegularExpressions;
 using Brmble.Server.Matrix;
 
 namespace Brmble.Server.Auth;
@@ -26,6 +27,9 @@ public interface IActiveBrmbleSessions
 
 public class AuthService : IActiveBrmbleSessions
 {
+    private static readonly Regex InvalidCharsRegex =
+        new(@"[\x00-\x1F/#]", RegexOptions.Compiled);
+
     private readonly UserRepository _userRepository;
     private readonly IMatrixAppService _matrixAppService;
     private readonly ILogger<AuthService> _logger;
@@ -59,6 +63,20 @@ public class AuthService : IActiveBrmbleSessions
     public void UntrackMumbleName(string mumbleName)
     {
         lock (_lock) { _activeNames.Remove(mumbleName); }
+    }
+
+    public static (bool IsValid, string? Error) ValidateMumbleUsername(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return (false, "Username cannot be empty.");
+
+        if (name.Length > 128)
+            return (false, "Username must be 128 characters or fewer.");
+
+        if (InvalidCharsRegex.IsMatch(name))
+            return (false, "Username contains invalid characters.");
+
+        return (true, null);
     }
 
     public async Task<AuthResult> Authenticate(string certHash, string? mumbleUsername = null)
