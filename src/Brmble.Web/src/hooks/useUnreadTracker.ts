@@ -145,21 +145,27 @@ function countUnreadFromTimeline(
   room: Room,
   marker: StoredMarker | null,
   myUserId: string | null,
-): number {
-  if (!marker) return 0;
+  currentDisplayName?: string | null,
+): { count: number; mentionCount: number } {
+  if (!marker) return { count: 0, mentionCount: 0 };
 
   const timeline = room.getLiveTimeline().getEvents();
-  if (timeline.length === 0) return 0;
+  if (timeline.length === 0) return { count: 0, mentionCount: 0 };
 
   // If the marker IS the last event, there's nothing unread
   const lastEvent = timeline[timeline.length - 1];
-  if (lastEvent.getId() === marker.eventId) return 0;
+  if (lastEvent.getId() === marker.eventId) return { count: 0, mentionCount: 0 };
+
+  const mentionPattern = currentDisplayName
+    ? new RegExp(`@${currentDisplayName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\s|$|[.,!?;:])`, 'i')
+    : null;
 
   // Count only messages that are:
   // 1. After the marker's timestamp (truly new, not backfilled)
   // 2. m.room.message type
   // 3. From other users
   let count = 0;
+  let mentionCount = 0;
   for (let i = timeline.length - 1; i >= 0; i--) {
     const event = timeline[i];
     // Stop if we've reached the marker event itself
@@ -168,16 +174,23 @@ function countUnreadFromTimeline(
     if (event.getTs() <= marker.ts) continue;
     if (event.getType() === 'm.room.message' && event.getSender() !== myUserId) {
       count++;
+      if (mentionPattern) {
+        const body = (event.getContent() as { body?: string }).body ?? '';
+        if (mentionPattern.test(body)) {
+          mentionCount++;
+        }
+      }
     }
   }
 
-  return count;
+  return { count, mentionCount };
 }
 
 export function useUnreadTracker(
   client: MatrixClient | null,
   dmRoomIds: Set<string>,
   activeRoomId: string | null,
+  currentDisplayName?: string | null,
 ): UnreadTracker {
   const [roomUnreads, setRoomUnreads] = useState<Map<string, RoomUnreadState>>(new Map());
   const activeRoomIdRef = useRef(activeRoomId);
@@ -207,14 +220,14 @@ export function useUnreadTracker(
     }
 
     const myUserId = client?.getUserId() ?? null;
-    const clientCount = countUnreadFromTimeline(room, localMarker, myUserId);
+    const { count: clientCount, mentionCount } = countUnreadFromTimeline(room, localMarker, myUserId, currentDisplayName);
 
     return {
       notificationCount: clientCount,
-      highlightCount: serverHighlight,
+      highlightCount: Math.max(serverHighlight, mentionCount),
       fullyReadEventId,
     };
-  }, [client]);
+  }, [client, currentDisplayName]);
 
   const refreshAll = useCallback(() => {
     if (!client) return;

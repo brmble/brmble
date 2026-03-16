@@ -303,6 +303,7 @@ function App() {
     matrixClient?.client ?? null,
     dmRoomIds,
     activeMatrixRoomId,
+    username || null,
   );
 
   const channelKey = currentChannelId === 'server-root' ? 'server-root' : currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
