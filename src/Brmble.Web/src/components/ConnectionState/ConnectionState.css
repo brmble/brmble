@@ -26,6 +26,19 @@
   margin: 0 0 var(--space-lg);
 }
 
+.connection-state-error {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  color: var(--accent-danger-text);
+  background: var(--accent-danger-subtle);
+  border: 1px solid var(--accent-danger-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-xs) var(--space-sm);
+  margin: 0 auto var(--space-lg);
+  max-width: 420px;
+  word-break: break-word;
+}
+
 .connection-state-actions {
   display: flex;
   gap: var(--space-sm);

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createClient, RoomEvent, ClientEvent, EventType, MsgType, Preset } from 'matrix-js-sdk';
 import type { MatrixClient, MatrixEvent, Room } from 'matrix-js-sdk';
 import type { ChatMessage, MediaAttachment } from '../types';
+import { useServiceStatus } from './useServiceStatus';
 
 /** Insert a message into a chronologically sorted array, deduplicating by id. Returns the same array if already present. */
 function insertMessage(existing: ChatMessage[], msg: ChatMessage): ChatMessage[] {
@@ -33,6 +34,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
   const clientRef = useRef<MatrixClient | null>(null);
   const [client, setClient] = useState<MatrixClient | null>(null);
   const [messages, setMessages] = useState<Map<string, ChatMessage[]>>(new Map());
+  const { updateStatus } = useServiceStatus();
 
   // DM room tracking: matrixUserId -> roomId
   const [dmRoomMap, setDmRoomMap] = useState<Map<string, string>>(new Map());
@@ -63,6 +65,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       setDmMessages(new Map());
       dmRoomMapRef.current = new Map();
       roomIdToDMUserIdRef.current = new Map();
+      updateStatus('chat', { state: 'unavailable', error: undefined });
       return;
     }
 
@@ -192,6 +195,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     };
 
     client.on(RoomEvent.Timeline, onTimeline);
+    updateStatus('chat', { state: 'connecting', error: undefined });
     client.startClient({ initialSyncLimit: 20 });
     clientRef.current = client;
     setClient(client);
@@ -211,11 +215,20 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     };
 
     const onSync = (state: string) => {
-      if (state === 'PREPARED') {
-        const directEvent = client.getAccountData(EventType.Direct);
-        if (directEvent) {
-          refreshDMRoomMaps(directEvent.getContent() as Record<string, string[]>);
+      if (state === 'PREPARED' || state === 'SYNCING') {
+        updateStatus('chat', { state: 'connected', error: undefined });
+        if (state === 'PREPARED') {
+          const directEvent = client.getAccountData(EventType.Direct);
+          if (directEvent) {
+            refreshDMRoomMaps(directEvent.getContent() as Record<string, string[]>);
+          }
         }
+      } else if (state === 'ERROR') {
+        updateStatus('chat', { state: 'disconnected', error: 'Sync error' });
+      } else if (state === 'RECONNECTING') {
+        updateStatus('chat', { state: 'connecting', error: undefined });
+      } else if (state === 'STOPPED') {
+        updateStatus('chat', { state: 'disconnected' });
       }
     };
 
@@ -224,7 +237,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       refreshDMRoomMaps(event.getContent() as Record<string, string[]>);
     };
 
-    client.once(ClientEvent.Sync, onSync);
+    client.on(ClientEvent.Sync, onSync);
     client.on(ClientEvent.AccountData, onAccountData);
 
     return () => {
@@ -234,8 +247,9 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       client.stopClient();
       clientRef.current = null;
       setClient(null);
+      updateStatus('chat', { state: 'unavailable', error: undefined });
     };
-  }, [credentials, roomIdToChannelId]);
+  }, [credentials, roomIdToChannelId, updateStatus]);
 
   const sendMessage = useCallback(async (channelId: string, text: string) => {
     if (!credentials || !clientRef.current) return;

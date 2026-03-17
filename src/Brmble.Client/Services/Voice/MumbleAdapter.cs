@@ -110,6 +110,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (string.IsNullOrWhiteSpace(host))
         {
             _bridge?.Send("voice.error", new { message = "Server address is required" });
+            _bridge?.Send("voice.disconnected", new { reason = "Server address is required" });
             _bridge?.NotifyUiThread();
             return;
         }
@@ -117,6 +118,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (string.IsNullOrWhiteSpace(username))
         {
             _bridge?.Send("voice.error", new { message = "Username is required" });
+            _bridge?.Send("voice.disconnected", new { reason = "Username is required" });
             _bridge?.NotifyUiThread();
             return;
         }
@@ -124,6 +126,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (port is <= 0 or > 65535)
         {
             _bridge?.Send("voice.error", new { message = "Port must be between 1 and 65535" });
+            _bridge?.Send("voice.disconnected", new { reason = "Port must be between 1 and 65535" });
             _bridge?.NotifyUiThread();
             return;
         }
@@ -1104,6 +1107,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         catch (Exception ex)
         {
             Debug.WriteLine($"[Matrix] Failed to fetch credentials: {ex.Message}");
+            _bridge?.Send("voice.error", new { message = $"Failed to fetch chat credentials: {ex.Message}" });
+            _bridge?.NotifyUiThread();
         }
     }
 
@@ -2049,6 +2054,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     {
         base.Reject(reject);
         _bridge?.Send("voice.error", new { message = reject.Reason, type = reject.Type });
+        _bridge?.NotifyUiThread();
     }
 
     public override void PermissionDenied(PermissionDenied permissionDenied)
@@ -2060,6 +2066,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             : $"Permission denied: {permissionDenied.Type}";
 
         _bridge?.Send("voice.error", new { message = reason, type = "permissionDenied" });
+        _bridge?.NotifyUiThread();
     }
 
     public override void PermissionQuery(PermissionQuery permissionQuery)

@@ -3,9 +3,13 @@ import { ChannelTree } from './ChannelTree';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
 import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
 import { UserTooltip } from '../UserTooltip/UserTooltip';
+import { Tooltip } from '../Tooltip/Tooltip';
 import { usePermissions } from '../../hooks/usePermissions';
+import { useServiceStatus } from '../../hooks/useServiceStatus';
 import bridge from '../../bridge';
 import type { Channel, User, ConnectionStatus } from '../../types';
+import { SERVICE_DISPLAY_NAMES } from '../../types';
+import type { ServiceName, ServiceState } from '../../types';
 import Avatar from '../Avatar/Avatar';
 import './Sidebar.css';
 
@@ -68,6 +72,19 @@ export function Sidebar({
   const nonRootChannels = rootChannel ? channels.filter(ch => ch !== rootChannel) : channels;
   const nonRootUsers = rootChannel ? users.filter(u => u.channelId !== rootChannel.id) : users;
 
+  const { statuses } = useServiceStatus();
+
+  const serviceOrder: ServiceName[] = ['voice', 'chat', 'server', 'livekit'];
+
+  const stateLabel = (state: ServiceState): string => {
+    switch (state) {
+      case 'connected': return 'Connected';
+      case 'connecting': return 'Connecting';
+      case 'disconnected': return 'Disconnected';
+      case 'unavailable': return 'Unavailable';
+    }
+  };
+
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -121,7 +138,16 @@ export function Sidebar({
             )}
 
             <div className="server-status-line" aria-live="polite" aria-atomic="true">
-              <span className={`status-dot status-dot--${connectionStatus}`} aria-hidden="true" />
+              <div className="service-status-dots" aria-label="Service status">
+                {serviceOrder.map(svc => (
+                  <Tooltip key={svc} content={`${SERVICE_DISPLAY_NAMES[svc]}: ${stateLabel(statuses[svc].state)}`} position="top">
+                    <span
+                      className={`service-dot service-dot--${statuses[svc].state}`}
+                      aria-label={`${SERVICE_DISPLAY_NAMES[svc]} ${stateLabel(statuses[svc].state)}`}
+                    />
+                  </Tooltip>
+                ))}
+              </div>
               <span className="status-text">
                 {connectionStatus === 'idle' && 'Not connected'}
                 {connectionStatus === 'connected' && 'Connected'}
@@ -151,7 +177,16 @@ export function Sidebar({
         ) : (
           <div className="server-info-header">
             <div className="server-status-line" aria-live="polite" aria-atomic="true">
-              <span className={`status-dot status-dot--${connectionStatus}`} aria-hidden="true" />
+              <div className="service-status-dots" aria-label="Service status">
+                {serviceOrder.map(svc => (
+                  <Tooltip key={svc} content={`${SERVICE_DISPLAY_NAMES[svc]}: ${stateLabel(statuses[svc].state)}`} position="top">
+                    <span
+                      className={`service-dot service-dot--${statuses[svc].state}`}
+                      aria-label={`${SERVICE_DISPLAY_NAMES[svc]} ${stateLabel(statuses[svc].state)}`}
+                    />
+                  </Tooltip>
+                ))}
+              </div>
               <span className="status-text">
                 {connectionStatus === 'idle' && 'Not connected'}
                 {connectionStatus === 'connected' && 'Connected'}

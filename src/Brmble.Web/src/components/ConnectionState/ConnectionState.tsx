@@ -5,6 +5,7 @@ import './ConnectionState.css';
 interface ConnectionStateProps {
   connectionStatus: ConnectionStatus;
   serverLabel?: string;
+  errorMessage?: string;
   onCancel?: () => void;
   onReconnect?: () => void;
   onBackToServerList?: () => void;
@@ -13,6 +14,7 @@ interface ConnectionStateProps {
 export function ConnectionState({
   connectionStatus,
   serverLabel,
+  errorMessage,
   onCancel,
   onReconnect,
   onBackToServerList,
@@ -41,6 +43,9 @@ export function ConnectionState({
         </div>
         <h2 className="heading-title">{heading[connectionStatus] ?? connectionStatus}</h2>
         <p className="connection-state-subtext">{subtext[connectionStatus] ?? ''}</p>
+        {errorMessage && (
+          <p className="connection-state-error">{errorMessage}</p>
+        )}
         <div className="connection-state-actions">
           {(connectionStatus === 'connecting' || connectionStatus === 'reconnecting') && onCancel && (
             <button className="btn btn-secondary" onClick={onCancel}>

@@ -6,6 +6,7 @@ import type { MatrixCredentials } from './hooks/useMatrixClient';
 import { useScreenShare } from './hooks/useScreenShare';
 import { useUnreadTracker } from './hooks/useUnreadTracker';
 import { useServiceStatus } from './hooks/useServiceStatus';
+import { useServerHealth } from './hooks/useServerHealth';
 
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Header } from './components/Header/Header';
@@ -131,7 +132,7 @@ function App() {
   const [certFingerprint, setCertFingerprint] = useState('');
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
-  const { updateStatus } = useServiceStatus();
+  const { statuses, updateStatus } = useServiceStatus();
   const connected = connectionStatus === 'connected';
   const [username, setUsername] = useState('');
   const [serverAddress, setServerAddress] = useState('');
@@ -193,6 +194,7 @@ function App() {
   const [matrixCredentials, setMatrixCredentials] = useState<MatrixCredentials | null>(null);
   const matrixClient = useMatrixClient(matrixCredentials);
   const { dmMessages: matrixDmMessages, sendDMMessage: sendMatrixDM, fetchDMHistory } = matrixClient;
+  useServerHealth(matrixCredentials?.homeserverUrl);
 
   // Avatar state and management
   const [currentUserAvatarUrl, setCurrentUserAvatarUrl] = useState<string | undefined>();
@@ -553,6 +555,7 @@ function App() {
       setAppModeRef.current('channels');
       setSelectedDMUserIdRaw(null);
       setSelectedDMUserName('');
+      updateStatus('livekit', { state: 'unavailable', error: undefined });
     };
 
     const onServerCredentials = (data: unknown) => {
@@ -1355,8 +1358,21 @@ const handleConnect = (serverData: SavedServer) => {
   }, [matrixCredentials?.roomMap, unreadTracker.roomUnreads]);
 
   useEffect(() => {
-    if (screenShareError) console.error('Screen share error:', screenShareError);
-  }, [screenShareError]);
+    if (screenShareError) {
+      console.error('Screen share error:', screenShareError);
+      updateStatus('livekit', { state: 'disconnected', error: screenShareError });
+    }
+  }, [screenShareError, updateStatus]);
+
+  // Track screenshare connection state for service status indicator
+  useEffect(() => {
+    if (isSharing) {
+      updateStatus('livekit', { state: 'connected', error: undefined });
+    } else if (!screenShareError) {
+      // Only reset to unavailable if there's no active error (error case handled above)
+      updateStatus('livekit', { state: 'unavailable', error: undefined });
+    }
+  }, [isSharing, screenShareError, updateStatus]);
 
   // Show toast notification when someone starts sharing in the user's voice channel
   useEffect(() => {
@@ -1398,15 +1414,16 @@ const handleConnect = (serverData: SavedServer) => {
       const selfUser = usersRef.current.find(u => u.self);
       const voiceChannelId = selfUser?.channelId;
       if (voiceChannelId != null && voiceChannelId !== 0) {
+        updateStatus('livekit', { state: 'connecting', error: undefined });
         try {
           await startSharing(`channel-${voiceChannelId}`);
           setSharingChannelId(String(voiceChannelId));
         } catch {
-          // startSharing sets error state internally
+          // startSharing sets error state internally; useEffect above handles status
         }
       }
     }
-  }, [isSharing, startSharing, stopSharing, selfLeftVoice]);
+  }, [isSharing, startSharing, stopSharing, selfLeftVoice, updateStatus]);
   handleToggleScreenShareRef.current = handleToggleScreenShare;
 
   const handleWatchScreenShare = useCallback((roomName: string) => {
@@ -1643,6 +1660,7 @@ const handleConnect = (serverData: SavedServer) => {
             <ConnectionState
               connectionStatus={connectionStatus}
               serverLabel={serverLabel}
+              errorMessage={statuses.voice.error}
               onCancel={connectionStatus === 'connecting' || connectionStatus === 'reconnecting' ? handleCancelReconnect : undefined}
               onReconnect={connectionStatus === 'disconnected' ? handleReconnect : undefined}
               onBackToServerList={handleBackToServerList}
