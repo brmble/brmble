@@ -8,12 +8,10 @@ import './ShortcutsSettingsTab.css';
 
 interface AudioSettingsTabProps {
   settings: AudioSettings;
-  speechDenoise: SpeechDenoiseSettings;
   noiseSuppressionMode: NoiseSuppressionMode;
   echoCancellation: EchoCancellationSettings;
   agc: AgcSettings;
   onChange: (settings: AudioSettings) => void;
-  onSpeechDenoiseChange: (settings: SpeechDenoiseSettings) => void;
   onNoiseSuppressionModeChange: (mode: NoiseSuppressionMode) => void;
   onEchoCancellationChange: (settings: EchoCancellationSettings) => void;
   onAgcChange: (settings: AgcSettings) => void;
@@ -41,8 +39,6 @@ export interface SpeechEnhancementSettings {
   model: string;
 }
 
-export type SpeechDenoiseMode = 'none' | 'rnnoise' | 'gtcrn';
-
 export type NoiseSuppressionMode = 'GTCRN' | 'RNNoise' | 'Speex';
 export type EchoCancellationMode = 'Disabled' | 'Mixed' | 'Multichannel';
 export type AgcMode = 'Speex' | 'Existing' | 'Disabled';
@@ -63,14 +59,6 @@ export const DEFAULT_AGC: AgcSettings = {
   mode: 'Speex',
 };
 
-export interface SpeechDenoiseSettings {
-  mode: SpeechDenoiseMode;
-}
-
-export const DEFAULT_SPEECH_DENOISE: SpeechDenoiseSettings = {
-  mode: 'rnnoise',
-};
-
 export const DEFAULT_SETTINGS: AudioSettings = {
   inputDevice: 'default',
   outputDevice: 'default',
@@ -89,15 +77,10 @@ export const DEFAULT_SPEECH_ENHANCEMENT: SpeechEnhancementSettings = {
   model: 'dns3',
 };
 
-export function AudioSettingsTab({ settings, speechDenoise, noiseSuppressionMode, echoCancellation, agc, onChange, onSpeechDenoiseChange, onNoiseSuppressionModeChange, onEchoCancellationChange, onAgcChange, allBindings, onClearBinding }: AudioSettingsTabProps) {
+export function AudioSettingsTab({ settings, noiseSuppressionMode, echoCancellation, agc, onChange, onNoiseSuppressionModeChange, onEchoCancellationChange, onAgcChange, allBindings, onClearBinding }: AudioSettingsTabProps) {
   const [localSettings, setLocalSettings] = useState<AudioSettings>(settings);
   const [recording, setRecording] = useState(false);
   const [isPromptOpen, setIsPromptOpen] = useState(false);
-
-  // Ensure speechDenoise.mode is always valid
-  const validSpeechDenoise = speechDenoise?.mode && ['none', 'rnnoise', 'gtcrn'].includes(speechDenoise.mode)
-    ? speechDenoise
-    : DEFAULT_SPEECH_DENOISE;
 
   useEffect(() => {
     setLocalSettings(settings);

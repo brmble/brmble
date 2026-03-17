@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import './SettingsModal.css';
 import bridge from '../../bridge';
 import { applyTheme } from '../../themes/theme-loader';
-import { AudioSettingsTab, type AudioSettings, type SpeechDenoiseSettings, DEFAULT_SETTINGS as DEFAULT_AUDIO, DEFAULT_SPEECH_DENOISE, type NoiseSuppressionMode, type EchoCancellationSettings, type AgcSettings, DEFAULT_ECHO_CANCELLATION, DEFAULT_AGC } from './AudioSettingsTab';
+import { AudioSettingsTab, type AudioSettings, DEFAULT_SETTINGS as DEFAULT_AUDIO, type NoiseSuppressionMode, type EchoCancellationSettings, type AgcSettings, DEFAULT_ECHO_CANCELLATION, DEFAULT_AGC } from './AudioSettingsTab';
 import { ShortcutsSettingsTab, type ShortcutsSettings, DEFAULT_SHORTCUTS } from './ShortcutsSettingsTab';
 import { MessagesSettingsTab, type MessagesSettings, DEFAULT_MESSAGES } from './MessagesSettingsTab';
 import { InterfaceSettingsTab } from './InterfaceSettingsTab';
@@ -47,7 +47,6 @@ interface AppSettings {
   messages: MessagesSettings;
   appearance: AppearanceSettings;
   overlay: OverlaySettings;
-  speechDenoise: SpeechDenoiseSettings;
   noiseSuppressionMode: NoiseSuppressionMode;
   echoCancellation: EchoCancellationSettings;
   agc: AgcSettings;
@@ -62,7 +61,6 @@ const DEFAULT_SETTINGS: AppSettings = {
   messages: DEFAULT_MESSAGES,
   appearance: DEFAULT_APPEARANCE,
   overlay: DEFAULT_OVERLAY,
-  speechDenoise: DEFAULT_SPEECH_DENOISE,
   noiseSuppressionMode: 'RNNoise',
   echoCancellation: DEFAULT_ECHO_CANCELLATION,
   agc: DEFAULT_AGC,
@@ -106,7 +104,6 @@ export function SettingsModal(props: SettingsModalProps) {
         setSettings({ 
           ...DEFAULT_SETTINGS, 
           ...d.settings,
-          speechDenoise: { ...DEFAULT_SETTINGS.speechDenoise, ...d.settings.speechDenoise },
           echoCancellation: { ...DEFAULT_SETTINGS.echoCancellation, ...d.settings.echoCancellation },
           agc: { ...DEFAULT_SETTINGS.agc, ...d.settings.agc },
         });
@@ -237,13 +234,6 @@ export function SettingsModal(props: SettingsModalProps) {
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
   };
 
-  const handleSpeechDenoiseChange = (speechDenoise: SpeechDenoiseSettings) => {
-    const newSettings = { ...settings, speechDenoise };
-    setSettings(newSettings);
-    bridge.send('settings.set', { settings: newSettings });
-    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
-  };
-
   const handleNoiseSuppressionModeChange = (noiseSuppressionMode: NoiseSuppressionMode) => {
     const newSettings = { ...settings, noiseSuppressionMode };
     setSettings(newSettings);
@@ -338,7 +328,7 @@ export function SettingsModal(props: SettingsModalProps) {
               connected={props.connected ?? false}
             />
           )}
-          {activeTab === 'audio' && <AudioSettingsTab settings={settings.audio} onChange={handleAudioChange} speechDenoise={settings.speechDenoise} onSpeechDenoiseChange={handleSpeechDenoiseChange} noiseSuppressionMode={settings.noiseSuppressionMode} onNoiseSuppressionModeChange={handleNoiseSuppressionModeChange} echoCancellation={settings.echoCancellation} onEchoCancellationChange={handleEchoCancellationChange} agc={settings.agc} onAgcChange={handleAgcChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}
+          {activeTab === 'audio' && <AudioSettingsTab settings={settings.audio} onChange={handleAudioChange} noiseSuppressionMode={settings.noiseSuppressionMode} onNoiseSuppressionModeChange={handleNoiseSuppressionModeChange} echoCancellation={settings.echoCancellation} onEchoCancellationChange={handleEchoCancellationChange} agc={settings.agc} onAgcChange={handleAgcChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}
           {activeTab === 'shortcuts' && <ShortcutsSettingsTab settings={settings.shortcuts} onChange={handleShortcutsChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}
           {activeTab === 'messages' && <MessagesSettingsTab settings={settings.messages} onChange={handleMessagesChange} />}
           {activeTab === 'appearance' && (
