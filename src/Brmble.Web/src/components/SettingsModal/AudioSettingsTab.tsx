@@ -273,15 +273,47 @@ export function AudioSettingsTab({ settings, speechDenoise, noiseSuppressionMode
         <div className="settings-item">
           <label>
             Noise Suppression
-            <span className="tooltip-icon" data-tooltip="Reduces background noise. RNNoise is lightweight; GTCRN is more aggressive but uses more CPU.">?</span>
+            <span className="tooltip-icon" data-tooltip="Reduces background noise. RNNoise is lightweight; GTCRN is more aggressive but uses more CPU; Speex provides classic DSP-based denoising.">?</span>
           </label>
           <Select
-            value={validSpeechDenoise.mode}
-            onChange={(v) => onSpeechDenoiseChange({ ...validSpeechDenoise, mode: v as SpeechDenoiseMode })}
+            value={noiseSuppressionMode}
+            onChange={(v) => onNoiseSuppressionModeChange(v as NoiseSuppressionMode)}
             options={[
-              { value: 'none', label: 'None' },
-              { value: 'rnnoise', label: 'RNNoise' },
-              { value: 'gtcrn', label: 'GTCRN' },
+              { value: 'GTCRN', label: 'GTCRN' },
+              { value: 'RNNoise', label: 'RNNoise' },
+              { value: 'Speex', label: 'Speex' },
+            ]}
+          />
+        </div>
+
+        <div className="settings-item">
+          <label>
+            Echo Cancellation
+            <span className="tooltip-icon" data-tooltip="Cancels echo from speakers/headphones. Mixed is for simple setups; Multichannel is for more complex audio paths.">?</span>
+          </label>
+          <Select
+            value={echoCancellation.mode}
+            onChange={(v) => onEchoCancellationChange({ mode: v as EchoCancellationMode })}
+            options={[
+              { value: 'Disabled', label: 'Disabled' },
+              { value: 'Mixed', label: 'Mixed (speex)' },
+              { value: 'Multichannel', label: 'Multichannel (speex)' },
+            ]}
+          />
+        </div>
+
+        <div className="settings-item">
+          <label>
+            Automatic Gain Control
+            <span className="tooltip-icon" data-tooltip="Keeps your voice volume consistent. Speex AGC uses the Speex library; Existing uses the built-in AGC.">?</span>
+          </label>
+          <Select
+            value={agc.mode}
+            onChange={(v) => onAgcChange({ mode: v as AgcMode })}
+            options={[
+              { value: 'Speex', label: 'Speex AGC' },
+              { value: 'Existing', label: 'Existing AGC' },
+              { value: 'Disabled', label: 'Disabled' },
             ]}
           />
         </div>
