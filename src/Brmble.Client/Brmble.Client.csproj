@@ -40,6 +40,12 @@
     </None>
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="native\renamenoise.dll" Condition="Exists('native\renamenoise.dll')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
   <Target Name="FetchVersion" BeforeTargets="CopyWebDist">
     <PropertyGroup>
       <_PrJson>$(MSBuildProjectDirectory)/../../.github/pr-version.json</_PrJson>

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.SpeechEnhancement;
 using MumbleVoiceEngine.Pipeline;
 using NAudio.Wave;
@@ -217,6 +218,7 @@ private int _screenShareHotkeyId = -1;
     private SpeechEnhancementService? _speechEnhancement;
     private AudioResampler? _to16kResampler;
     private AudioResampler? _to48kResampler;
+    private RnnoiseService? _rnnoise;
 
     public void SetLocalUserId(uint sessionId) => _localUserId = sessionId;
 
@@ -334,6 +336,15 @@ private int _screenShareHotkeyId = -1;
             _speechEnhancement = new SpeechEnhancementService(modelsPath, enabled, variant);
             _to16kResampler = new AudioResampler(48000, 16000, 1);
             _to48kResampler = new AudioResampler(16000, 48000, 1);
+        }
+    }
+
+    public void ConfigureRnnoise(SpeechDenoiseMode mode)
+    {
+        lock (_lock)
+        {
+            _rnnoise?.Dispose();
+            _rnnoise = new RnnoiseService(mode);
         }
     }
 
@@ -640,6 +651,33 @@ private int _screenShareHotkeyId = -1;
         // Apply input volume (after AGC to avoid clipping on boost)
         if (_inputVolume != 1.0f)
             ApplyInputVolume(processedBuffer, processedBytes);
+
+        // Apply RNNoise noise cancellation if enabled
+        if (_rnnoise?.IsEnabled == true)
+        {
+            try
+            {
+                int sampleCount = processedBytes / 2;
+                var floatBuf = new float[sampleCount];
+                for (int i = 0; i < sampleCount; i++)
+                    floatBuf[i] = (short)(processedBuffer[i * 2] | (processedBuffer[i * 2 + 1] << 8));
+
+                for (int offset = 0; offset + RnnoiseService.FrameSize <= sampleCount; offset += RnnoiseService.FrameSize)
+                    _rnnoise.ProcessFrame(floatBuf, offset);
+
+                for (int i = 0; i < sampleCount; i++)
+                {
+                    var s = (short)Math.Clamp(floatBuf[i], short.MinValue, short.MaxValue);
+                    processedBuffer[i * 2] = (byte)(s & 0xFF);
+                    processedBuffer[i * 2 + 1] = (byte)((s >> 8) & 0xFF);
+                }
+            }
+            catch (Exception ex)
+            {
+                AudioLog.Write($"[Audio] RNNoise error, disabling: {ex.Message}");
+                _rnnoise = null;
+            }
+        }
 
         // Apply speech enhancement if enabled
         if (_speechEnhancement?.IsEnabled == true && _to16kResampler != null && _to48kResampler != null)
@@ -1639,6 +1677,7 @@ private int _screenShareHotkeyId = -1;
     public void Dispose()
     {
         _speechEnhancement?.Dispose();
+        _rnnoise?.Dispose();
         _speakingTimer.Dispose();
         StopPttPolling();
         StopShortcutKeyboardPolling();
