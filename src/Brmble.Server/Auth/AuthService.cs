@@ -215,10 +215,11 @@ public class AuthService : IActiveBrmbleSessions
                     }
                     catch (MumbleNameConflictException)
                     {
+                        var previousName = user.DisplayName;
                         var fallback = $"user_{user.Id}";
                         await _userRepository.UpdateDisplayName(user.Id, fallback);
                         user = user with { DisplayName = fallback };
-                        _logger.LogWarning("Existing name '{Name}' conflicted, reset to '{Fallback}'", user.DisplayName, fallback);
+                        _logger.LogWarning("Existing name '{Name}' conflicted, reset to '{Fallback}'", previousName, fallback);
                     }
                 }
             }

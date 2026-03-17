@@ -18,7 +18,7 @@ export function ConnectModal({ isOpen, onClose, onConnect, registeredUsername }:
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onConnect({ host, port, username, password });
+    onConnect({ host, port, username: registeredUsername ?? username, password });
     onClose();
   };
 

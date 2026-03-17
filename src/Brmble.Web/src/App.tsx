@@ -88,10 +88,12 @@ function speakText(text: string) {
 }
 
 interface SavedServer {
+  id?: string;
   host: string;
   port: number;
   username: string;
   password: string;
+  registered?: boolean;
 }
 
 interface Channel {
@@ -522,12 +524,33 @@ function App() {
 
     const onServerCredentials = (data: unknown) => {
       setConnectionError(null);
-      const wrapped = data as { matrix?: MatrixCredentials } | undefined;
+      const wrapped = data as { matrix?: MatrixCredentials; registered?: boolean; registeredName?: string } | undefined;
       const d = wrapped?.matrix;
       if (d?.homeserverUrl && d.accessToken && d.userId && d.roomMap) {
         // Clear stale chat data from previous sessions
         clearChatStorage();
         setMatrixCredentials(d);
+      }
+
+      // Persist registration status to the saved server entry
+      if (wrapped?.registered) {
+        try {
+          const stored = localStorage.getItem('brmble-server');
+          if (stored) {
+            const savedServer = JSON.parse(stored) as SavedServer;
+            const updatedServer = {
+              ...savedServer,
+              registered: true,
+              username: wrapped.registeredName ?? savedServer.username,
+            };
+            localStorage.setItem('brmble-server', JSON.stringify(updatedServer));
+
+            // Update server list entry if we have an ID
+            if (savedServer.id) {
+              bridge.send('servers.update', updatedServer);
+            }
+          }
+        } catch { /* ignore parse errors */ }
       }
     };
 
@@ -1019,10 +1042,11 @@ const handleConnect = (serverData: SavedServer) => {
   const handleServerConnect = (server: ServerEntry) => {
     setServerLabel(server.label || `${server.host}:${server.port}`);
     handleConnect({
-      host: server.host, 
-      port: server.port, 
-      username: server.username, 
-      password: '' 
+      id: server.id,
+      host: server.host,
+      port: server.port,
+      username: server.username,
+      password: ''
     });
   };
 

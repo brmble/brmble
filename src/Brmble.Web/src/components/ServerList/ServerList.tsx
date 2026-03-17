@@ -24,7 +24,7 @@ export function ServerList({ onConnect, connectionError, onClearError }: ServerL
     e.preventDefault();
     const server = { ...form, port: parseInt(form.port) };
     if (editing) {
-      updateServer({ ...server, id: editing.id });
+      updateServer({ ...server, id: editing.id, registered: editing.registered });
       setEditing(null);
     } else {
       addServer(server);

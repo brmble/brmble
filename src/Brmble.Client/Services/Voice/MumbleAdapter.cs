@@ -830,13 +830,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             var statusLine = response[..statusEnd].Trim();
             Debug.WriteLine($"[Brmble:mTLS] BC TLS response: {statusLine}");
 
-            if (!statusLine.Contains("200"))
+            // Parse numeric status code from status line (e.g. "HTTP/1.1 409 Conflict")
+            var statusCode = 0;
+            var parts = statusLine.Split(' ');
+            if (parts.Length >= 2) int.TryParse(parts[1], out statusCode);
+
+            if (statusCode != 200)
             {
                 Debug.WriteLine($"[Brmble:mTLS] Non-200 response: {statusLine}");
-                // Extract status code from the status line (e.g. "HTTP/1.1 409 Conflict")
-                var statusCode = 0;
-                var parts = statusLine.Split(' ');
-                if (parts.Length >= 2) int.TryParse(parts[1], out statusCode);
                 // Extract body for error details
                 string? errorBody = null;
                 var errBodyStart = response.IndexOf("\r\n\r\n", StringComparison.Ordinal);
