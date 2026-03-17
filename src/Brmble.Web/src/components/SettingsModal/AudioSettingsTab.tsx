@@ -9,8 +9,14 @@ import './ShortcutsSettingsTab.css';
 interface AudioSettingsTabProps {
   settings: AudioSettings;
   speechDenoise: SpeechDenoiseSettings;
+  noiseSuppressionMode: NoiseSuppressionMode;
+  echoCancellation: EchoCancellationSettings;
+  agc: AgcSettings;
   onChange: (settings: AudioSettings) => void;
   onSpeechDenoiseChange: (settings: SpeechDenoiseSettings) => void;
+  onNoiseSuppressionModeChange: (mode: NoiseSuppressionMode) => void;
+  onEchoCancellationChange: (settings: EchoCancellationSettings) => void;
+  onAgcChange: (settings: AgcSettings) => void;
   allBindings: AllBindings;
   onClearBinding: (bindingId: string) => void;
 }
@@ -36,6 +42,26 @@ export interface SpeechEnhancementSettings {
 }
 
 export type SpeechDenoiseMode = 'none' | 'rnnoise' | 'gtcrn';
+
+export type NoiseSuppressionMode = 'GTCRN' | 'RNNoise' | 'Speex';
+export type EchoCancellationMode = 'Disabled' | 'Mixed' | 'Multichannel';
+export type AgcMode = 'Speex' | 'Existing' | 'Disabled';
+
+export interface EchoCancellationSettings {
+  mode: EchoCancellationMode;
+}
+
+export interface AgcSettings {
+  mode: AgcMode;
+}
+
+export const DEFAULT_ECHO_CANCELLATION: EchoCancellationSettings = {
+  mode: 'Disabled',
+};
+
+export const DEFAULT_AGC: AgcSettings = {
+  mode: 'Speex',
+};
 
 export interface SpeechDenoiseSettings {
   mode: SpeechDenoiseMode;
@@ -63,7 +89,7 @@ export const DEFAULT_SPEECH_ENHANCEMENT: SpeechEnhancementSettings = {
   model: 'dns3',
 };
 
-export function AudioSettingsTab({ settings, speechDenoise, onChange, onSpeechDenoiseChange, allBindings, onClearBinding }: AudioSettingsTabProps) {
+export function AudioSettingsTab({ settings, speechDenoise, noiseSuppressionMode, echoCancellation, agc, onChange, onSpeechDenoiseChange, onNoiseSuppressionModeChange, onEchoCancellationChange, onAgcChange, allBindings, onClearBinding }: AudioSettingsTabProps) {
   const [localSettings, setLocalSettings] = useState<AudioSettings>(settings);
   const [recording, setRecording] = useState(false);
   const [isPromptOpen, setIsPromptOpen] = useState(false);
