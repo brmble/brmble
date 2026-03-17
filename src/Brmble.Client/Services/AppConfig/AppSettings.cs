@@ -43,7 +43,36 @@ public enum SpeechDenoiseMode
     Gtcrn
 }
 
+public enum NoiseSuppressionMode
+{
+    GTCRN,
+    RNNoise,
+    Speex
+}
+
+public enum EchoCancellationMode
+{
+    Disabled,
+    Mixed,
+    Multichannel
+}
+
+public enum AgcMode
+{
+    Speex,
+    Existing,
+    Disabled
+}
+
 public record SpeechDenoiseSettings(SpeechDenoiseMode Mode = SpeechDenoiseMode.Rnnoise);
+
+public record EchoCancellationSettings(
+    EchoCancellationMode Mode = EchoCancellationMode.Disabled
+);
+
+public record AgcSettings(
+    AgcMode Mode = AgcMode.Speex
+);
 
 public record AppearanceSettings(
     string Theme = "classic"
@@ -59,12 +88,17 @@ public record AppSettings(
     bool AutoConnectEnabled = false,
     string? AutoConnectServerId = null,
     bool ReconnectEnabled = true,
-    AppearanceSettings? Appearance = null
+    AppearanceSettings? Appearance = null,
+    EchoCancellationSettings? EchoCancellation = null,
+    AgcSettings? Agc = null,
+    NoiseSuppressionMode NoiseSuppressionMode = NoiseSuppressionMode.RNNoise
 )
 {
     public SpeechEnhancementSettings SpeechEnhancement { get; init; } = SpeechEnhancement ?? new SpeechEnhancementSettings();
     public SpeechDenoiseSettings SpeechDenoise { get; init; } = SpeechDenoise ?? new SpeechDenoiseSettings();
     public AppearanceSettings Appearance { get; init; } = Appearance ?? new AppearanceSettings();
+    public EchoCancellationSettings EchoCancellation { get; init; } = EchoCancellation ?? new EchoCancellationSettings();
+    public AgcSettings Agc { get; init; } = Agc ?? new AgcSettings();
 
     public static AppSettings Default => new(
         new AudioSettings(),
