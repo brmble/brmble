@@ -10,6 +10,24 @@ public sealed class SpeexDspService : IDisposable
     public const int FrameSize = 480;
     public const int SampleRate = 48000;
 
+    private const int SPEEX_PREPROCESS_SET_DENOISE = 0;
+    private const int SPEEX_PREPROCESS_GET_DENOISE = 1;
+    private const int SPEEX_PREPROCESS_SET_AGC = 2;
+    private const int SPEEX_PREPROCESS_GET_AGC = 3;
+    private const int SPEEX_PREPROCESS_SET_AGC_LEVEL = 4;
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern IntPtr speex_preprocess_state_init(int frame_size, int sampling_rate);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern void speex_preprocess_state_destroy(IntPtr st);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int speex_preprocess(IntPtr st, float[] input, float[] output);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int speex_preprocess_ctl(IntPtr st, int request, IntPtr ptr);
+
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
     private static extern IntPtr speex_echo_state_init(int frame_size, int filter_length);
 
@@ -25,68 +43,28 @@ public sealed class SpeexDspService : IDisposable
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
     private static extern int speex_echo_ctl(IntPtr st, int request, IntPtr ptr);
 
-    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-    private static extern IntPtr speex_agc_init();
-
-    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-    private static extern void speex_agc_destroy(IntPtr st);
-
-    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-    private static extern void speex_agc_process(IntPtr st, float[] input, float[] output, int length);
-
-    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-    private static extern int speex_agc_ctl(IntPtr st, int request, IntPtr ptr);
-
-    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-    private static extern IntPtr speex_denoise_init();
-
-    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-    private static extern void speex_denoise_destroy(IntPtr st);
-
-    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-    private static extern void speex_denoise_process(IntPtr st, float[] input, float[] output, int length);
-
-    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-    private static extern int speex_denoise_ctl(IntPtr st, int request, IntPtr ptr);
-
+    private IntPtr _preprocessState = IntPtr.Zero;
     private IntPtr _echoState = IntPtr.Zero;
-    private IntPtr _agcState = IntPtr.Zero;
-    private IntPtr _denoiseState = IntPtr.Zero;
     private bool _disposed;
 
     private bool _echoEnabled;
     private bool _agcEnabled;
     private bool _denoiseEnabled;
 
-    private readonly float[] _echoFrame = new float[FrameSize];
-    private readonly float[] _outputFrame = new float[FrameSize];
-
     public SpeexDspService()
     {
         try
         {
+            _preprocessState = speex_preprocess_state_init(FrameSize, SampleRate);
+            if (_preprocessState == IntPtr.Zero)
+            {
+                Console.Error.WriteLine("[SpeexDSP] Failed to initialize preprocessor");
+            }
+
             _echoState = speex_echo_state_init(FrameSize, SampleRate * 2);
             if (_echoState == IntPtr.Zero)
             {
                 Console.Error.WriteLine("[SpeexDSP] Failed to initialize echo canceller");
-            }
-
-            _agcState = speex_agc_init();
-            if (_agcState == IntPtr.Zero)
-            {
-                Console.Error.WriteLine("[SpeexDSP] Failed to initialize AGC");
-            }
-
-            _denoiseState = speex_denoise_init();
-            if (_denoiseState == IntPtr.Zero)
-            {
-                Console.Error.WriteLine("[SpeexDSP] Failed to initialize denoiser");
-            }
-
-            if (_agcState != IntPtr.Zero)
-            {
-                var level = (int)(1.0f * 32768.0f);
-                speex_agc_ctl(_agcState, 0, (IntPtr)level);
             }
 
             Console.WriteLine("[SpeexDSP] Initialized successfully");
@@ -111,8 +89,22 @@ public sealed class SpeexDspService : IDisposable
 
     public void EnableAGC()
     {
-        if (_agcState == IntPtr.Zero) return;
+        if (_preprocessState == IntPtr.Zero) return;
         _agcEnabled = true;
+        
+        try
+        {
+            var level = 8000;
+            var levelPtr = Marshal.AllocHGlobal(4);
+            Marshal.WriteInt32(levelPtr, 0, level);
+            speex_preprocess_ctl(_preprocessState, SPEEX_PREPROCESS_SET_AGC, levelPtr);
+            Marshal.FreeHGlobal(levelPtr);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[SpeexDSP] AGC config failed: {ex.Message}");
+        }
+        
         Console.WriteLine("[SpeexDSP] AGC enabled");
     }
 
@@ -123,8 +115,22 @@ public sealed class SpeexDspService : IDisposable
 
     public void EnableDenoise()
     {
-        if (_denoiseState == IntPtr.Zero) return;
+        if (_preprocessState == IntPtr.Zero) return;
         _denoiseEnabled = true;
+        
+        try
+        {
+            var enable = 1;
+            var enablePtr = Marshal.AllocHGlobal(4);
+            Marshal.WriteInt32(enablePtr, 0, enable);
+            speex_preprocess_ctl(_preprocessState, SPEEX_PREPROCESS_SET_DENOISE, enablePtr);
+            Marshal.FreeHGlobal(enablePtr);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[SpeexDSP] Denoise config failed: {ex.Message}");
+        }
+        
         Console.WriteLine("[SpeexDSP] Denoise enabled");
     }
 
@@ -135,7 +141,7 @@ public sealed class SpeexDspService : IDisposable
 
     public void ProcessDenoise(Span<float> buffer)
     {
-        if (!_denoiseEnabled || _denoiseState == IntPtr.Zero || buffer.Length < FrameSize) return;
+        if (!_denoiseEnabled || _preprocessState == IntPtr.Zero || buffer.Length < FrameSize) return;
 
         for (int i = 0; i < buffer.Length - FrameSize; i += FrameSize)
         {
@@ -143,14 +149,14 @@ public sealed class SpeexDspService : IDisposable
             var tempInput = new float[FrameSize];
             var tempOutput = new float[FrameSize];
             input.CopyTo(tempInput.AsSpan());
-            speex_denoise_process(_denoiseState, tempInput, tempOutput, FrameSize);
+            speex_preprocess(_preprocessState, tempInput, tempOutput);
             tempOutput.AsSpan().CopyTo(input);
         }
     }
 
     public void ProcessAGC(Span<float> buffer)
     {
-        if (!_agcEnabled || _agcState == IntPtr.Zero || buffer.Length < FrameSize) return;
+        if (!_agcEnabled || _preprocessState == IntPtr.Zero || buffer.Length < FrameSize) return;
 
         for (int i = 0; i < buffer.Length - FrameSize; i += FrameSize)
         {
@@ -158,7 +164,7 @@ public sealed class SpeexDspService : IDisposable
             var tempInput = new float[FrameSize];
             var tempOutput = new float[FrameSize];
             input.CopyTo(tempInput.AsSpan());
-            speex_agc_process(_agcState, tempInput, tempOutput, FrameSize);
+            speex_preprocess(_preprocessState, tempInput, tempOutput);
             tempOutput.AsSpan().CopyTo(input);
         }
     }
@@ -192,17 +198,13 @@ public sealed class SpeexDspService : IDisposable
             _echoState = IntPtr.Zero;
         }
 
-        if (_agcState != IntPtr.Zero)
-        {
-            speex_agc_destroy(_agcState);
-            _agcState = IntPtr.Zero;
-        }
-
-        if (_denoiseState != IntPtr.Zero)
-        {
-            speex_denoise_destroy(_denoiseState);
-            _denoiseState = IntPtr.Zero;
-        }
+            if (_preprocessState != IntPtr.Zero)
+            {
+                var enable = 1;
+                var enablePtr = (IntPtr)enable;
+                speex_preprocess_ctl(_preprocessState, SPEEX_PREPROCESS_SET_DENOISE, enablePtr);
+                speex_preprocess_ctl(_preprocessState, SPEEX_PREPROCESS_SET_AGC, enablePtr);
+            }
 
         Console.WriteLine("[SpeexDSP] Disposed");
     }
