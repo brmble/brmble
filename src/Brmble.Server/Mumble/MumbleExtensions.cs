@@ -12,6 +12,8 @@ public static class MumbleExtensions
         services.AddSingleton<IChannelMembershipService, ChannelMembershipService>();
         services.AddSingleton<IBrmbleEventBus, BrmbleEventBus>();
         services.AddSingleton<IMumbleEventHandler, SessionMappingHandler>();
+        services.AddSingleton<MumbleRegistrationService>();
+        services.AddSingleton<IMumbleRegistrationService>(sp => sp.GetRequiredService<MumbleRegistrationService>());
         services.AddSingleton<MumbleServerCallback>();
         services.AddHostedService<MumbleIceService>();
         return services;

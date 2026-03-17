@@ -8,6 +8,7 @@ export interface ServerEntry {
   port: number;
   username: string;
   password: string;
+  registered?: boolean;
 }
 
 export function useServerlist() {

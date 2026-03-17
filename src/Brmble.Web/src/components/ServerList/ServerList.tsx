@@ -8,9 +8,11 @@ import './ServerList.css';
 
 interface ServerListProps {
   onConnect: (server: ServerEntry) => void;
+  connectionError?: string | null;
+  onClearError?: () => void;
 }
 
-export function ServerList({ onConnect }: ServerListProps) {
+export function ServerList({ onConnect, connectionError, onClearError }: ServerListProps) {
   const { servers, loading, addServer, updateServer, removeServer } = useServerlist();
   const [editing, setEditing] = useState<ServerEntry | null>(null);
   const [isAdding, setIsAdding] = useState(false);
@@ -25,7 +27,7 @@ export function ServerList({ onConnect }: ServerListProps) {
     e.preventDefault();
     const server = { ...form, port: parseInt(form.port) };
     if (editing) {
-      updateServer({ ...server, id: editing.id });
+      updateServer({ ...server, id: editing.id, registered: editing.registered });
       setEditing(null);
     } else {
       addServer(server);
@@ -104,6 +106,17 @@ export function ServerList({ onConnect }: ServerListProps) {
           <h2 className="heading-title server-list-title">Choose a Server</h2>
           <p className="server-list-subtitle">Select a server to start talking and chatting</p>
         </div>
+
+        {connectionError && (
+          <div className="server-list-error" role="alert">
+            <span>{connectionError}</span>
+            {onClearError && (
+              <button className="server-list-error-dismiss" onClick={onClearError} aria-label="Dismiss error">
+                ✕
+              </button>
+            )}
+          </div>
+        )}
 
         <div className="server-list-content">
           {servers.length > 0 ? (
@@ -229,6 +242,8 @@ export function ServerList({ onConnect }: ServerListProps) {
                   placeholder="Username"
                   value={form.username}
                   onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
+                  disabled={editing?.registered === true}
+                  title={editing?.registered ? 'Username is locked after registration' : undefined}
                 />
               </div>
               <div className="server-list-form-actions">

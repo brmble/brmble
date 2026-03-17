@@ -1,7 +1,9 @@
 // tests/Brmble.Server.Tests/Auth/AuthServiceTests.cs
 using Brmble.Server.Auth;
 using Brmble.Server.Data;
+using Brmble.Server.Events;
 using Brmble.Server.Matrix;
+using Brmble.Server.Mumble;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -19,6 +21,8 @@ public class AuthServiceTests
     private AuthService? _svc;
     private UserRepository? _repo;
     private Mock<IMatrixAppService>? _mockMatrix;
+    private Mock<IMumbleRegistrationService>? _mockMumbleReg;
+    private Mock<ISessionMappingService>? _mockSessionMapping;
 
     [TestInitialize]
     public void Setup()
@@ -37,7 +41,10 @@ public class AuthServiceTests
                    .ReturnsAsync("syt_new_token");
         _mockMatrix.Setup(m => m.LoginUser(It.IsAny<string>()))
                    .ReturnsAsync("syt_refresh_token");
-        _svc = new AuthService(repo, _mockMatrix.Object, NullLogger<AuthService>.Instance);
+        _mockMumbleReg = new Mock<IMumbleRegistrationService>();
+        _mockSessionMapping = new Mock<ISessionMappingService>();
+        _svc = new AuthService(repo, _mockMatrix.Object, NullLogger<AuthService>.Instance,
+            _mockMumbleReg.Object, _mockSessionMapping.Object);
     }
 
     [TestCleanup]

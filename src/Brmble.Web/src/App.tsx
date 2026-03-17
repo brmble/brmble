@@ -92,10 +92,12 @@ function speakText(text: string) {
 }
 
 interface SavedServer {
+  id?: string;
   host: string;
   port: number;
   username: string;
   password: string;
+  registered?: boolean;
 }
 
 interface Channel {
@@ -134,6 +136,7 @@ function App() {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
   const { statuses, updateStatus } = useServiceStatus();
   const connected = connectionStatus === 'connected';
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   const [username, setUsername] = useState('');
   const [serverAddress, setServerAddress] = useState('');
   const [serverLabel, setServerLabel] = useState('');
@@ -559,12 +562,43 @@ function App() {
     };
 
     const onServerCredentials = (data: unknown) => {
-      const wrapped = data as { matrix?: MatrixCredentials } | undefined;
+      setConnectionError(null);
+      const wrapped = data as { matrix?: MatrixCredentials; registered?: boolean; registeredName?: string } | undefined;
       const d = wrapped?.matrix;
       if (d?.homeserverUrl && d.accessToken && d.userId && d.roomMap) {
         // Clear stale chat data from previous sessions
         clearChatStorage();
         setMatrixCredentials(d);
+      }
+
+      // Persist registration status to the saved server entry
+      if (wrapped?.registered) {
+        try {
+          const stored = localStorage.getItem('brmble-server');
+          if (stored) {
+            const savedServer = JSON.parse(stored) as SavedServer;
+            const updatedServer = {
+              ...savedServer,
+              registered: true,
+              username: wrapped.registeredName ?? savedServer.username,
+            };
+            localStorage.setItem('brmble-server', JSON.stringify(updatedServer));
+
+            // Update server list entry if we have an ID
+            if (savedServer.id) {
+              bridge.send('servers.update', updatedServer);
+            }
+          }
+        } catch { /* ignore parse errors */ }
+      }
+    };
+
+    const onVoiceAuthError = (data: unknown) => {
+      const d = data as { error?: string; message?: string; name?: string } | undefined;
+      if (d?.error === 'name_taken') {
+        setConnectionError(`Username "${d.name || ''}" is already taken. Please choose a different name.`);
+      } else {
+        setConnectionError(d?.message || 'Authentication failed.');
       }
     };
 
@@ -947,6 +981,7 @@ function App() {
     bridge.on('voice.reconnecting', onVoiceReconnecting);
     bridge.on('voice.reconnectFailed', onVoiceReconnectFailed);
     bridge.on('server.credentials', onServerCredentials);
+    bridge.on('voice.authError', onVoiceAuthError);
     bridge.on('voice.userMappingUpdated', onUserMappingUpdated);
     bridge.on('voice.sessionMappingSnapshot', onSessionMappingSnapshot);
 
@@ -980,6 +1015,7 @@ function App() {
       bridge.off('voice.reconnecting', onVoiceReconnecting);
       bridge.off('voice.reconnectFailed', onVoiceReconnectFailed);
       bridge.off('server.credentials', onServerCredentials);
+      bridge.off('voice.authError', onVoiceAuthError);
       bridge.off('voice.userMappingUpdated', onUserMappingUpdated);
       bridge.off('voice.sessionMappingSnapshot', onSessionMappingSnapshot);
     };
@@ -1051,10 +1087,11 @@ const handleConnect = (serverData: SavedServer) => {
   const handleServerConnect = (server: ServerEntry) => {
     setServerLabel(server.label || `${server.host}:${server.port}`);
     handleConnect({
-      host: server.host, 
-      port: server.port, 
-      username: server.username, 
-      password: server.password || '' 
+      id: server.id,
+      host: server.host,
+      port: server.port,
+      username: server.username,
+      password: server.password || ''
     });
   };
 
@@ -1604,7 +1641,7 @@ const handleConnect = (serverData: SavedServer) => {
         <main className="main-content">
           {connectionStatus === 'idle' ? (
             certExists === true ? (
-              <ServerList onConnect={handleServerConnect} />
+              <ServerList onConnect={handleServerConnect} connectionError={connectionError} onClearError={() => setConnectionError(null)} />
             ) : (
               <div className="connection-state">
                 <div className="connection-state-content">

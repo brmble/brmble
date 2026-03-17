@@ -779,7 +779,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// Fetches credentials via BouncyCastle managed TLS, bypassing Windows SChannel
     /// which silently refuses to present self-signed client certificates.
     /// </summary>
-    private static async Task<System.Text.Json.JsonElement?> FetchCredentialsViaBcTls(X509Certificate2 cert, Uri tokenUri, string? mumbleUsername = null)
+    private static async Task<(System.Text.Json.JsonElement? Credentials, int StatusCode, string? ErrorBody)> FetchCredentialsViaBcTls(X509Certificate2 cert, Uri tokenUri, string? mumbleUsername = null)
     {
         using var tcp = new TcpClient();
         await tcp.ConnectAsync(tokenUri.Host, tokenUri.Port);
@@ -827,16 +827,31 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             if (statusEnd < 0)
             {
                 Debug.WriteLine("[Brmble:mTLS] No HTTP status line in response");
-                return null;
+                return (null, 0, null);
             }
 
             var statusLine = response[..statusEnd].Trim();
             Debug.WriteLine($"[Brmble:mTLS] BC TLS response: {statusLine}");
 
-            if (!statusLine.Contains("200"))
+            // Parse numeric status code from status line (e.g. "HTTP/1.1 409 Conflict")
+            var statusCode = 0;
+            var parts = statusLine.Split(' ');
+            if (parts.Length >= 2) int.TryParse(parts[1], out statusCode);
+
+            if (statusCode != 200)
             {
                 Debug.WriteLine($"[Brmble:mTLS] Non-200 response: {statusLine}");
-                return null;
+                // Extract body for error details
+                string? errorBody = null;
+                var errBodyStart = response.IndexOf("\r\n\r\n", StringComparison.Ordinal);
+                if (errBodyStart < 0)
+                    errBodyStart = response.IndexOf("\n\n", StringComparison.Ordinal);
+                if (errBodyStart >= 0)
+                {
+                    var errSepLen = response[errBodyStart] == '\r' ? 4 : 2;
+                    errorBody = response[(errBodyStart + errSepLen)..].Trim();
+                }
+                return (null, statusCode, errorBody);
             }
 
             // Find body after header separator
@@ -846,7 +861,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             if (bodyStart < 0)
             {
                 Debug.WriteLine("[Brmble:mTLS] No HTTP body found");
-                return null;
+                return (null, 200, null);
             }
 
             var separatorLength = response[bodyStart] == '\r' ? 4 : 2;
@@ -878,10 +893,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             }
 
             if (string.IsNullOrWhiteSpace(body))
-                return null;
+                return (null, 200, null);
 
             using var doc = System.Text.Json.JsonDocument.Parse(body);
-            return doc.RootElement.Clone();
+            return (doc.RootElement.Clone(), 200, null);
         }
         finally
         {
@@ -1061,9 +1076,48 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             var baseUri = new Uri(apiUrl, UriKind.Absolute);
             var tokenUri = new Uri(baseUri, "auth/token");
 
-            var credentials = await FetchCredentialsViaBcTls(cert, tokenUri, _reconnectUsername);
+            var (credentials, httpStatus, errorBody) = await FetchCredentialsViaBcTls(cert, tokenUri, _reconnectUsername);
             if (credentials is null)
+            {
+                if (httpStatus == 409)
+                {
+                    // Name conflict — parse error body and send to frontend
+                    try
+                    {
+                        string? conflictName = null;
+                        string? conflictMsg = null;
+                        if (errorBody is not null)
+                        {
+                            using var errorDoc = System.Text.Json.JsonDocument.Parse(errorBody);
+                            var errorRoot = errorDoc.RootElement;
+                            conflictMsg = errorRoot.TryGetProperty("message", out var msg) ? msg.GetString() : null;
+                            conflictName = errorRoot.TryGetProperty("name", out var n) ? n.GetString() : null;
+                        }
+                        _bridge?.Send("voice.authError", new
+                        {
+                            error = "name_taken",
+                            message = conflictMsg ?? "Username already taken",
+                            name = conflictName
+                        });
+                        _bridge?.NotifyUiThread();
+                    }
+                    catch
+                    {
+                        _bridge?.Send("voice.authError", new { error = "name_taken", message = "Username already taken" });
+                        _bridge?.NotifyUiThread();
+                    }
+                }
+                else if (httpStatus == 503)
+                {
+                    _bridge?.Send("voice.authError", new
+                    {
+                        error = "registration_unavailable",
+                        message = "Mumble registration service is temporarily unavailable. Please try again."
+                    });
+                    _bridge?.NotifyUiThread();
+                }
                 return;
+            }
 
             // Parse user mappings (displayName -> matrixUserId) from the auth response
             if (credentials.Value.TryGetProperty("userMappings", out var mappingsElement))
