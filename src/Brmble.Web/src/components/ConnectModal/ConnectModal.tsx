@@ -5,9 +5,10 @@ interface ConnectModalProps {
   isOpen: boolean;
   onClose: () => void;
   onConnect: (serverData: { host: string; port: number; username: string; password: string }) => void;
+  registeredUsername?: string;
 }
 
-export function ConnectModal({ isOpen, onClose, onConnect }: ConnectModalProps) {
+export function ConnectModal({ isOpen, onClose, onConnect, registeredUsername }: ConnectModalProps) {
   const [host, setHost] = useState('mumble.hashbang.dk');
   const [port, setPort] = useState(64738);
   const [username, setUsername] = useState('');
@@ -17,7 +18,7 @@ export function ConnectModal({ isOpen, onClose, onConnect }: ConnectModalProps) 
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onConnect({ host, port, username, password });
+    onConnect({ host, port, username: registeredUsername ?? username, password });
     onClose();
   };
 
@@ -67,9 +68,11 @@ export function ConnectModal({ isOpen, onClose, onConnect }: ConnectModalProps) 
               id="username"
               className="brmble-input"
               type="text"
-              value={username}
+              value={registeredUsername || username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="Your display name"
+              disabled={!!registeredUsername}
+              title={registeredUsername ? 'Username is locked after registration' : undefined}
               required
             />
           </div>
