@@ -594,6 +594,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private bool _lastSpeechEnhancementEnabled = false;
     private string _lastSpeechEnhancementModel = "";
     private SpeechDenoiseMode _lastSpeechDenoiseMode = SpeechDenoiseMode.Rnnoise;
+    private NoiseSuppressionMode _lastNoiseSuppressionMode = NoiseSuppressionMode.RNNoise;
+    private AgcMode _lastAgcMode = AgcMode.Speex;
+    private EchoCancellationMode _lastEchoCancellationMode = EchoCancellationMode.Disabled;
 
     public void ApplySettings(AppSettings settings)
     {
@@ -634,6 +637,17 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         {
             _lastSpeechDenoiseMode = denoiseMode;
             _audioManager?.ConfigureRnnoise(denoiseMode);
+        }
+
+        var noiseMode = settings.NoiseSuppressionMode;
+        var agcMode = settings.Agc.Mode;
+        var echoMode = settings.EchoCancellation.Mode;
+        if (noiseMode != _lastNoiseSuppressionMode || agcMode != _lastAgcMode || echoMode != _lastEchoCancellationMode)
+        {
+            _lastNoiseSuppressionMode = noiseMode;
+            _lastAgcMode = agcMode;
+            _lastEchoCancellationMode = echoMode;
+            _audioManager?.ConfigureSpeexDsp(noiseMode, agcMode, echoMode);
         }
     }
 
