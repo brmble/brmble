@@ -2,7 +2,7 @@
   position: fixed;
   inset: 0;
   z-index: 1000;
-  background: rgba(0, 0, 0, 0.85);
+  background: var(--bg-overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -12,21 +12,21 @@
 
 .image-lightbox__close {
   position: absolute;
-  top: 1rem;
-  right: 1rem;
+  top: var(--space-md);
+  right: var(--space-md);
   background: none;
   border: none;
-  color: white;
-  font-size: 2rem;
+  color: var(--text-primary);
+  font-size: var(--text-3xl);
   line-height: 1;
   cursor: pointer;
-  padding: 0.25rem 0.5rem;
+  padding: var(--space-2xs) var(--space-xs);
   border-radius: var(--radius-md);
   z-index: 1001;
 }
 
 .image-lightbox__close:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--bg-hover-light);
 }
 
 .image-lightbox__img {

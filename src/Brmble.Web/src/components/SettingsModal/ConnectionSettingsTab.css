@@ -1,13 +1,13 @@
 .connection-settings-tab .settings-hint {
   color: var(--text-muted);
   font-size: var(--text-xs);
-  margin-top: 12px;
+  margin-top: var(--space-sm);
 }
 
 .connection-settings-tab .server-dropdown-row {
   display: flex;
   align-items: center;
-  padding: 0.75rem 0;
+  padding: var(--space-sm) 0;
 }
 
 .connection-settings-tab .server-dropdown-row label {

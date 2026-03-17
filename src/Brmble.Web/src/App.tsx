@@ -16,6 +16,7 @@ import { ServerList } from './components/ServerList/ServerList';
 import { ConnectionState } from './components/ConnectionState/ConnectionState';
 import type { ServerEntry } from './hooks/useServerlist';
 import { SettingsModal } from './components/SettingsModal/SettingsModal';
+import { AvatarEditorModal } from './components/AvatarEditorModal/AvatarEditorModal';
 import { CloseDialog } from './components/CloseDialog/CloseDialog';
 import { CertWizard } from './components/CertWizard/CertWizard';
 import { Version } from './components/Version/Version';
@@ -26,6 +27,7 @@ import type { StoredDMContact } from './hooks/useChatStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
 import { usePrompt, confirm } from './hooks/usePrompt';
 import { Toast } from './components/Toast/Toast';
+import { GameUI } from './components/Game/GameUI';
 import './App.css';
 
 const SETTINGS_STORAGE_KEY = 'brmble-settings';
@@ -178,6 +180,13 @@ function App() {
     setDmDividerTs(null);
   }, []);
   const [showSettings, setShowSettings] = useState(false);
+  const [showGame, setShowGame] = useState(false);
+  const [showAvatarEditor, setShowAvatarEditor] = useState(false);
+
+  // Close avatar editor modal when disconnected — profile is not editable while disconnected
+  useEffect(() => {
+    if (!connected) setShowAvatarEditor(false);
+  }, [connected]);
   const [showCloseDialog, setShowCloseDialog] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [hasPendingInvite] = useState(false);
@@ -293,10 +302,29 @@ function App() {
     return null;
   }, [selectedDMUserId, currentChannelId, matrixClient?.dmRoomMap, matrixCredentials?.roomMap, users]);
 
+  // Per-panel Matrix room IDs for scoping mention suggestions
+  const channelMatrixRoomId = useMemo(() => {
+    if (currentChannelId && currentChannelId !== 'server-root' && matrixCredentials?.roomMap?.[currentChannelId]) {
+      return matrixCredentials.roomMap[currentChannelId];
+    }
+    return null;
+  }, [currentChannelId, matrixCredentials?.roomMap]);
+
+  const dmMatrixRoomId = useMemo(() => {
+    if (selectedDMUserId && matrixClient?.dmRoomMap) {
+      const targetUser = users.find(u => String(u.session) === selectedDMUserId);
+      if (targetUser?.matrixUserId) {
+        return matrixClient.dmRoomMap.get(targetUser.matrixUserId) ?? null;
+      }
+    }
+    return null;
+  }, [selectedDMUserId, matrixClient?.dmRoomMap, users]);
+
   const unreadTracker = useUnreadTracker(
     matrixClient?.client ?? null,
     dmRoomIds,
     activeMatrixRoomId,
+    username || null,
   );
 
   const channelKey = currentChannelId === 'server-root' ? 'server-root' : currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
@@ -1046,7 +1074,7 @@ const handleConnect = (serverData: SavedServer) => {
       host: server.host,
       port: server.port,
       username: server.username,
-      password: ''
+      password: server.password || ''
     });
   };
 
@@ -1530,7 +1558,7 @@ const handleConnect = (serverData: SavedServer) => {
         dmActive={appMode === 'dm'}
         unreadDMCount={totalDmUnreadCount}
         onOpenSettings={() => setShowSettings(true)}
-        onAvatarClick={() => setShowSettings(true)}
+        onAvatarClick={connected ? () => setShowAvatarEditor(true) : undefined}
         avatarUrl={currentUserAvatarUrl}
         matrixUserId={matrixCredentials?.userId}
         muted={selfMuted}
@@ -1547,6 +1575,7 @@ const handleConnect = (serverData: SavedServer) => {
         speaking={speakingUsers.has(selfSession) || false}
         pendingChannelAction={pendingChannelAction}
         hotkeyPressedBtn={hotkeyPressedBtn}
+        onToggleGame={() => setShowGame(prev => !prev)}
       />
       </ErrorBoundary>
       
@@ -1574,6 +1603,7 @@ const handleConnect = (serverData: SavedServer) => {
           sharingChannelId={sharingChannelId ? Number(sharingChannelId) : (activeShare?.roomName ? Number(activeShare.roomName.replace('channel-', '')) : undefined)}
           sharingUserSession={isSharing ? selfSession : activeShare?.sessionId}
           onWatchScreenShare={handleWatchScreenShare}
+          onEditAvatar={connected ? () => setShowAvatarEditor(true) : undefined}
         />
         </ErrorBoundary>
         
@@ -1592,40 +1622,46 @@ const handleConnect = (serverData: SavedServer) => {
               </div>
             )
           ) : connectionStatus === 'connected' ? (
-            <div className={`content-slider ${appMode === 'dm' ? 'dm-active' : ''}`}>
-              <div className="content-slide">
-                <ErrorBoundary label="ChatPanel:Channel">
-                <ChatPanel
-                  channelId={currentChannelId || undefined}
-                  channelName={currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName}
-                  messages={isMatrixActive ? (matrixMessages ?? []) : messages}
-                  currentUsername={username}
-                  onSendMessage={handleSendMessage}
-                  matrixClient={matrixClient.client}
-                  readMarkerTs={channelDividerTs}
-                  screenShareVideoEl={remoteVideoEl}
-                  screenSharerName={activeShare?.userName}
-                  onCloseScreenShare={disconnectViewer}
-                  users={users}
-                />
-                </ErrorBoundary>
+            showGame ? (
+              <GameUI onClose={() => setShowGame(false)} />
+            ) : (
+              <div className={`content-slider ${appMode === 'dm' ? 'dm-active' : ''}`}>
+                <div className="content-slide">
+                  <ErrorBoundary label="ChatPanel:Channel">
+                   <ChatPanel
+                    channelId={currentChannelId || undefined}
+                    channelName={currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName}
+                    messages={isMatrixActive ? (matrixMessages ?? []) : messages}
+                    currentUsername={username}
+                    onSendMessage={handleSendMessage}
+                    matrixClient={matrixClient.client}
+                    matrixRoomId={channelMatrixRoomId}
+                    readMarkerTs={channelDividerTs}
+                    screenShareVideoEl={remoteVideoEl}
+                    screenSharerName={activeShare?.userName}
+                    onCloseScreenShare={disconnectViewer}
+                    users={users}
+                  />
+                  </ErrorBoundary>
+                </div>
+                <div className="content-slide">
+                  <ErrorBoundary label="ChatPanel:DM">
+                   <ChatPanel
+                    channelId={selectedDMUserId ? `dm-${selectedDMUserId}` : undefined}
+                    channelName={selectedDMUserName}
+                    messages={activeDmMessages}
+                    currentUsername={username}
+                    onSendMessage={handleSendDMMessage}
+                    isDM={true}
+                    matrixClient={matrixClient.client}
+                    matrixRoomId={dmMatrixRoomId}
+                    readMarkerTs={dmDividerTs}
+                    users={users}
+                  />
+                  </ErrorBoundary>
+                </div>
               </div>
-              <div className="content-slide">
-                <ErrorBoundary label="ChatPanel:DM">
-                <ChatPanel
-                  channelId={selectedDMUserId ? `dm-${selectedDMUserId}` : undefined}
-                  channelName={selectedDMUserName}
-                  messages={activeDmMessages}
-                  currentUsername={username}
-                  onSendMessage={handleSendDMMessage}
-                  isDM={true}
-                  matrixClient={matrixClient.client}
-                  readMarkerTs={dmDividerTs}
-                  users={users}
-                />
-                </ErrorBoundary>
-              </div>
-            </div>
+            )
           ) : (
             <ConnectionState
               connectionStatus={connectionStatus}
@@ -1668,6 +1704,20 @@ const handleConnect = (serverData: SavedServer) => {
           matrixUserId: matrixCredentials?.userId,
           avatarUrl: currentUserAvatarUrl,
         }}
+        onUploadAvatar={onUploadAvatar}
+        onRemoveAvatar={onRemoveAvatar}
+      />
+
+      <AvatarEditorModal
+        isOpen={showAvatarEditor}
+        onClose={() => setShowAvatarEditor(false)}
+        currentUser={{
+          name: username ?? 'Unknown',
+          matrixUserId: matrixCredentials?.userId,
+          avatarUrl: currentUserAvatarUrl,
+        }}
+        comment={users.find(u => u.self)?.comment}
+        onSetComment={(comment) => bridge.send('voice.setComment', { comment })}
         onUploadAvatar={onUploadAvatar}
         onRemoveAvatar={onRemoveAvatar}
       />

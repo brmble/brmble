@@ -218,6 +218,10 @@
   animation-delay: var(--animation-badge-pulse-delay);
 }
 
+.channel-unread-badge + .channel-unread-badge--mention {
+  margin-left: var(--space-2xs);
+}
+
 @keyframes badge-pulse {
   0%, 100% {
     transform: scale(1);

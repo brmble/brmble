@@ -1,7 +1,7 @@
 .user-panel {
   display: flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: var(--space-2xs);
 }
 
 .user-panel .tooltip-wrapper {
@@ -27,7 +27,7 @@
   right: 1px;
   min-width: 16px;
   height: 16px;
-  padding: 0 4px;
+  padding: 0 var(--space-2xs);
   border-radius: var(--radius-md);
   background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-primary-light) 100%);
   color: var(--text-primary);

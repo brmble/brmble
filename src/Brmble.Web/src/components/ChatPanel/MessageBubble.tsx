@@ -1,8 +1,9 @@
-import { useState, type ReactNode } from 'react';
+import { useState, forwardRef, type ReactNode } from 'react';
 import type { MatrixClient } from 'matrix-js-sdk';
 import type { MediaAttachment } from '../../types';
 import { extractFirstUrl } from '../../hooks/useLinkPreview';
 import { linkifyText } from '../../utils/linkifyText';
+import { mentionifyText } from '../../utils/mentionifyText';
 import { ImageAttachment } from './ImageAttachment';
 import { ImageLightbox } from './ImageLightbox';
 import { LinkPreview } from './LinkPreview';
@@ -24,6 +25,8 @@ interface MessageBubbleProps {
   messageIndex?: number;
   senderAvatarUrl?: string;
   senderMatrixUserId?: string;
+  currentUsername?: string;
+  knownUsernames?: Set<string>;
 }
 
 /** Highlight search matches within a plain-text string, returning React nodes. */
@@ -93,7 +96,41 @@ function highlightHtml(html: string, query: string): string {
   });
 }
 
-export function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId }: MessageBubbleProps) {
+/**
+ * Process message content: mentionify, then linkify+highlight remaining text.
+ */
+function processMessageContent(
+  text: string,
+  knownUsernames: Set<string> | undefined,
+  currentUsername: string | undefined,
+  searchQuery: string,
+): ReactNode {
+  if (!knownUsernames || knownUsernames.size === 0) {
+    return linkifyAndHighlight(text, searchQuery);
+  }
+
+  const mentionified = mentionifyText(text, knownUsernames, currentUsername);
+
+  // If no mentions found, fall through to linkify
+  if (typeof mentionified === 'string') {
+    return linkifyAndHighlight(mentionified, searchQuery);
+  }
+
+  // mentionifyText returned an array — linkify only string segments
+  if (Array.isArray(mentionified)) {
+    return mentionified.map((node, i) => {
+      if (typeof node === 'string') {
+        const result = linkifyAndHighlight(node, searchQuery);
+        return typeof result === 'string' ? result : <span key={`lh-${i}`}>{result}</span>;
+      }
+      return node; // Already a React element (mention span)
+    });
+  }
+
+  return mentionified;
+}
+
+export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & React.HTMLAttributes<HTMLDivElement>>(function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId, currentUsername, knownUsernames, className, ...rest }, ref) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const formatTime = (date: Date) => {
@@ -105,18 +142,19 @@ export function MessageBubble({ sender, content, timestamp, isOwnMessage, isSyst
   if (isSystem) classes.push('message-bubble--system');
   if (collapsed) classes.push('message-bubble--collapsed');
   if (isActiveMatch) classes.push('search-active-match');
+  if (className) classes.push(className);
 
   const firstUrl = (!isSystem && content) ? extractFirstUrl(content) : null;
 
   return (
-    <div className={classes.join(' ')} data-message-index={messageIndex}>
+    <div ref={ref} className={classes.join(' ')} data-message-index={messageIndex} {...rest}>
       {collapsed ? (
         <div className="message-gutter">
           <span className="message-hover-time">{formatTime(timestamp)}</span>
         </div>
       ) : (
         <div className="message-avatar">
-          <Avatar user={{ name: sender, matrixUserId: senderMatrixUserId, avatarUrl: senderAvatarUrl }} size={40} isMumbleOnly={!isOwnMessage && !senderMatrixUserId} />
+          <Avatar user={{ name: sender, matrixUserId: senderMatrixUserId, avatarUrl: senderAvatarUrl }} size={48} isMumbleOnly={!isOwnMessage && !senderMatrixUserId} />
         </div>
       )}
       <div className="message-content">
@@ -131,7 +169,7 @@ export function MessageBubble({ sender, content, timestamp, isOwnMessage, isSyst
             <div className="message-text" dangerouslySetInnerHTML={{ __html: searchQuery ? highlightHtml(content, searchQuery) : content }} />
           ) : (
             <p className="message-text">
-              {linkifyAndHighlight(content, searchQuery || '')}
+              {processMessageContent(content, knownUsernames, currentUsername, searchQuery || '')}
             </p>
           )
         )}
@@ -155,4 +193,4 @@ export function MessageBubble({ sender, content, timestamp, isOwnMessage, isSyst
       )}
     </div>
   );
-}
+});

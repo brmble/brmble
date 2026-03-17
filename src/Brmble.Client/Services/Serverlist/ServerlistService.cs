@@ -139,6 +139,7 @@ internal sealed class ServerlistService : IServerlistService
             : Guid.NewGuid().ToString();
 
         var apiUrl = data.TryGetProperty("apiUrl", out var apiEl) ? apiEl.GetString() : null;
+        var password = data.TryGetProperty("password", out var pwEl) ? pwEl.GetString() ?? "" : "";
 
         return new ServerEntry(
             id!,
@@ -146,7 +147,8 @@ internal sealed class ServerlistService : IServerlistService
             apiUrl,
             data.TryGetProperty("host", out var hostEl) ? hostEl.GetString() : null,
             data.TryGetProperty("port", out var portEl) && portEl.ValueKind == JsonValueKind.Number ? portEl.GetInt32() : null,
-            username.GetString() ?? ""
+            username.GetString() ?? "",
+            password
         );
     }
 

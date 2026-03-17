@@ -4,7 +4,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 2rem;
+  padding: var(--space-xl);
   overflow-y: auto;
 }
 
@@ -14,7 +14,7 @@
   background: var(--bg-glass);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-xl);
-  padding: 2rem;
+  padding: var(--space-xl);
   box-shadow: 
     var(--shadow-elevated),
     0 0 0 1px var(--accent-primary-ghost) inset;
@@ -42,7 +42,7 @@
 
 .server-list-loading {
   text-align: center;
-  padding: 3rem;
+  padding: var(--space-2xl);
 }
 
 .loading-dots::after {
@@ -58,11 +58,11 @@
 
 .server-list-header {
   text-align: center;
-  margin-bottom: 2rem;
+  margin-bottom: var(--space-xl);
 }
 
 .server-list-title {
-  margin: 0 0 0.5rem 0;
+  margin: 0 0 var(--space-xs) 0;
 }
 
 .server-list-subtitle {
@@ -111,14 +111,14 @@
 .server-list-items {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: var(--space-sm);
 }
 
 .server-list-item {
   display: flex;
   align-items: center;
-  gap: 1rem;
-  padding: 1rem;
+  gap: var(--space-md);
+  padding: var(--space-md);
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
@@ -186,17 +186,17 @@
 .server-list-actions {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--space-xs);
   flex-shrink: 0;
 }
 
 .server-list-connect-btn {
-  padding: 0.5rem 1rem;
+  padding: var(--space-xs) var(--space-md);
   font-size: var(--text-sm);
 }
 
 .server-list-edit-btn {
-  padding: 0.5rem 0.75rem;
+  padding: var(--space-xs) var(--space-sm);
   font-size: var(--text-xs);
 }
 
@@ -228,12 +228,12 @@
 
 .server-list-empty {
   text-align: center;
-  padding: 3rem 1rem;
+  padding: var(--space-2xl) var(--space-md);
 }
 
 .server-list-empty-icon {
   font-size: var(--text-4xl);
-  margin-bottom: 1rem;
+  margin-bottom: var(--space-md);
   opacity: 0.6;
 }
 
@@ -244,14 +244,14 @@
 }
 
 .server-list-empty-hint {
-  margin-top: 0.5rem !important;
+  margin-top: var(--space-xs) !important;
   color: var(--text-muted) !important;
   font-size: var(--text-sm) !important;
 }
 
 .server-list-form {
-  margin-top: 1.5rem;
-  padding: 1.5rem;
+  margin-top: var(--space-lg);
+  padding: var(--space-lg);
   background: var(--bg-deep-glass);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
@@ -270,23 +270,71 @@
 }
 
 .server-list-form-title {
-  margin-bottom: 1.25rem;
+  margin-bottom: var(--space-lg);
   text-align: center;
 }
 
 .server-list-form-fields {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: var(--space-sm);
 }
 
 .server-list-form-row {
   display: flex;
-  gap: 0.75rem;
+  gap: var(--space-sm);
 }
 
 .server-list-input {
   width: 100%;
+}
+
+.server-list-password-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.server-list-password-input {
+  padding-right: var(--space-xl) !important;
+}
+
+/* Hide browser's native password reveal */
+.server-list-password-input::-ms-reveal,
+.server-list-password-input::-ms-clear {
+  display: none;
+}
+
+.server-list-password-toggle {
+  position: absolute;
+  right: var(--space-xs);
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.server-list-password-toggle:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.server-list-password-toggle:active {
+  color: var(--text-primary);
+  background: var(--bg-active);
+}
+
+.server-list-password-toggle:focus-visible {
+  outline: none;
 }
 
 .server-list-input-host {
@@ -299,8 +347,8 @@
 
 .server-list-form-actions {
   display: flex;
-  gap: 0.75rem;
-  margin-top: 1.25rem;
+  gap: var(--space-sm);
+  margin-top: var(--space-lg);
 }
 
 .server-list-submit-btn {
@@ -313,8 +361,8 @@
 
 .server-list-add-btn {
   width: 100%;
-  margin-top: 1.5rem;
-  padding: 1rem;
+  margin-top: var(--space-lg);
+  padding: var(--space-md);
   border: 2px dashed var(--border-subtle);
   border-radius: var(--radius-lg);
 }

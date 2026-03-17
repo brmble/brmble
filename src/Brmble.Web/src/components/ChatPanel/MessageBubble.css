@@ -1,18 +1,13 @@
 .message-bubble {
   display: flex;
-  gap: 0.75rem;
+  gap: var(--space-sm);
   padding: var(--space-2xs) var(--space-xs);
   border-radius: var(--radius-md);
-  transition: background var(--transition-fast);
-}
-
-.message-bubble:hover {
-  background: var(--bg-hover-light);
 }
 
 .message-avatar {
-  width: 40px;
-  min-width: 40px;
+  width: 48px;
+  min-width: 48px;
 }
 
 .message-bubble--system .message-avatar .avatar {
@@ -27,8 +22,8 @@
 .message-header {
   display: flex;
   align-items: baseline;
-  gap: 0.5rem;
-  margin-bottom: 0.25rem;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-2xs);
 }
 
 .message-sender {
@@ -89,8 +84,8 @@
 }
 
 .message-gutter {
-  width: 40px;
-  min-width: 40px;
+  width: 48px;
+  min-width: 48px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -113,11 +108,25 @@
 .search-highlight {
   background: var(--accent-primary);
   color: var(--bg-deep);
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   padding: 0 1px;
 }
 
 .search-active-match {
   background: var(--bg-hover);
   box-shadow: inset 3px 0 0 var(--accent-primary);
+}
+
+/* @mention highlighting */
+.mention {
+  color: var(--accent-primary);
+  font-weight: 600;
+  background: var(--accent-primary-wash);
+  padding: 0 2px;
+  border-radius: var(--radius-xs);
+}
+
+.mention--self {
+  color: var(--accent-secondary);
+  background: var(--accent-secondary-wash, color-mix(in srgb, var(--accent-secondary) 15%, transparent));
 }

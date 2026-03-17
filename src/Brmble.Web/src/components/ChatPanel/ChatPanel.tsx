@@ -5,7 +5,7 @@ import { MessageInput } from './MessageInput';
 import { BrmbleLogo } from '../Header/BrmbleLogo';
 import { groupMessages } from '../../utils/groupMessages';
 import { formatDateSeparator, formatFullDate } from '../../utils/formatDateSeparator';
-import type { ChatMessage } from '../../types';
+import type { ChatMessage, MentionableUser } from '../../types';
 import { ScreenShareViewer } from '../ScreenShareViewer/ScreenShareViewer';
 import { Tooltip } from '../Tooltip/Tooltip';
 import Avatar from '../Avatar/Avatar';
@@ -19,6 +19,7 @@ interface ChatPanelProps {
   onSendMessage: (content: string) => void;
   isDM?: boolean;
   matrixClient?: MatrixClient | null;
+  matrixRoomId?: string | null;
   readMarkerTs?: number | null;
   screenShareVideoEl?: HTMLVideoElement | null;
   screenSharerName?: string;
@@ -31,7 +32,7 @@ const SCROLL_THRESHOLD = 150;
 const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
 const DEFAULT_SPLIT = 50;
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, isDM, matrixClient, readMarkerTs, screenShareVideoEl, screenSharerName, onCloseScreenShare, users }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, screenShareVideoEl, screenSharerName, onCloseScreenShare, users }: ChatPanelProps) {
   // Build lookup maps from sender name and matrixUserId → avatar data for MessageBubble.
   // Name-based lookup works when Mumble name matches message sender.
   // MatrixUserId-based lookup handles cases where the user connected with a different
@@ -57,6 +58,51 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
       ?? (senderMatrixId ? senderAvatarMap.byMatrixId.get(senderMatrixId) : undefined);
   }, [senderAvatarMap]);
 
+  const mentionableUsers = useMemo<MentionableUser[]>(() => {
+    const result: MentionableUser[] = [];
+    const seen = new Set<string>();
+
+    // Add connected Mumble users first (they're online)
+    if (users) {
+      for (const u of users) {
+        result.push({
+          displayName: u.name,
+          matrixUserId: u.matrixUserId,
+          avatarUrl: u.avatarUrl,
+          isOnline: true,
+        });
+        seen.add(u.name.toLowerCase());
+        if (u.matrixUserId) seen.add(u.matrixUserId);
+      }
+    }
+
+    // Add Matrix room members who aren't already in the list (scoped to active room)
+    if (matrixClient && matrixRoomId) {
+      const room = matrixClient.getRoom(matrixRoomId);
+      if (room) {
+        const members = room.getJoinedMembers();
+        for (const member of members) {
+          const userId = member.userId;
+          const displayName = member.name || member.rawDisplayName || userId;
+          if (seen.has(userId) || seen.has(displayName.toLowerCase())) continue;
+          seen.add(userId);
+          seen.add(displayName.toLowerCase());
+          result.push({
+            displayName,
+            matrixUserId: userId,
+            isOnline: false,
+          });
+        }
+      }
+    }
+
+    return result;
+  }, [users, matrixClient, matrixRoomId]);
+
+  const knownUsernames = useMemo(() => {
+    return new Set(mentionableUsers.map(u => u.displayName));
+  }, [mentionableUsers]);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const unreadDividerRef = useRef<HTMLDivElement>(null);
@@ -69,6 +115,10 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
   const [stuckSeparators, setStuckSeparators] = useState<Set<string>>(() => new Set());
   const stickyObserverRef = useRef<IntersectionObserver | null>(null);
   const sentinelMapRef = useRef<Map<string, HTMLDivElement>>(new Map());
+  const [hiddenCounts, setHiddenCounts] = useState<Map<string, number>>(() => new Map());
+  const messageObserverRef = useRef<IntersectionObserver | null>(null);
+  const messageElMapRef = useRef<Map<string, HTMLDivElement>>(new Map());
+  const hiddenSetRef = useRef<Set<string>>(new Set());
   const [splitPercent, setSplitPercent] = useState(() => {
     const stored = localStorage.getItem(SPLIT_STORAGE_KEY);
     return stored ? Number(stored) : DEFAULT_SPLIT;
@@ -146,7 +196,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
       if (pendingSlideScrollRef.current) {
         pendingSlideScrollRef.current = false;
         if (unreadDividerRef.current) {
-          unreadDividerRef.current.scrollIntoView({ behavior: 'auto', block: 'start' });
+          unreadDividerRef.current.scrollIntoView({ behavior: 'auto', block: 'center' });
         } else if (messagesEndRef.current) {
           messagesEndRef.current.scrollIntoView({ behavior: 'auto' });
         }
@@ -185,7 +235,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
     const timer = setTimeout(() => {
       pendingSlideScrollRef.current = false;
       if (unreadDividerRef.current) {
-        unreadDividerRef.current.scrollIntoView({ behavior: 'auto', block: 'start' });
+        unreadDividerRef.current.scrollIntoView({ behavior: 'auto', block: 'center' });
       } else if (messagesEndRef.current) {
         messagesEndRef.current.scrollIntoView();
       }
@@ -238,9 +288,104 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
     };
   }, [channelId]);
 
+  const grouped = useMemo(() => groupMessages(messages, readMarkerTs), [messages, readMarkerTs]);
+
+  // Precompute message-id → index map to avoid O(n²) indexOf in render loop
+  const messageIndexById = useMemo(() => new Map(messages.map((m, i) => [m.id, i])), [messages]);
+
+  // Group messages into date sections for proper sticky push-out behavior.
+  // Each section contains a date separator header + its messages.
+  const dateSections = useMemo(() => {
+    const sections: { dateMessageId: string; timestamp: Date; items: typeof grouped }[] = [];
+    for (const item of grouped) {
+      if (item.showDateSeparator) {
+        sections.push({ dateMessageId: item.message.id, timestamp: item.message.timestamp, items: [] });
+      }
+      if (sections.length > 0) {
+        sections[sections.length - 1].items.push(item);
+      }
+    }
+    return sections;
+  }, [grouped]);
+
+  // --- Hidden message counting for cascading dots ---
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    hiddenSetRef.current.clear();
+    setHiddenCounts(new Map());
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const hiddenSet = hiddenSetRef.current;
+        let changed = false;
+
+        // Incrementally update hidden set from observer entries only —
+        // no full DOM scan. We compute containerRect once per callback batch.
+        const containerRect = container.getBoundingClientRect();
+        for (const entry of entries) {
+          const msgId = (entry.target as HTMLElement).dataset.msgTrack;
+          if (!msgId) continue;
+          const isAbove = entry.boundingClientRect.bottom < containerRect.top;
+          if (!entry.isIntersecting && isAbove) {
+            if (!hiddenSet.has(msgId)) { hiddenSet.add(msgId); changed = true; }
+          } else {
+            if (hiddenSet.has(msgId)) { hiddenSet.delete(msgId); changed = true; }
+          }
+        }
+
+        if (!changed) return;
+
+        // Count hidden messages per section
+        const next = new Map<string, number>();
+        for (const section of dateSections) {
+          let count = 0;
+          for (const item of section.items) {
+            if (hiddenSet.has(item.message.id)) count++;
+          }
+          if (count > 0) next.set(section.dateMessageId, count);
+        }
+
+        setHiddenCounts(prev => {
+          // Only update state if changed
+          if (next.size !== prev.size) return next;
+          for (const [k, v] of next) {
+            if (prev.get(k) !== v) return next;
+          }
+          return prev;
+        });
+      },
+      { root: container, threshold: 0 }
+    );
+
+    messageObserverRef.current = observer;
+    messageElMapRef.current.forEach((el) => observer.observe(el));
+
+    return () => {
+      observer.disconnect();
+      messageObserverRef.current = null;
+    };
+  }, [channelId, dateSections]);
+
   const sentinelRefCallback = useCallback((id: string) => (el: HTMLDivElement | null) => {
     const map = sentinelMapRef.current;
     const observer = stickyObserverRef.current;
+    const prev = map.get(id);
+
+    if (prev && observer) observer.unobserve(prev);
+
+    if (el) {
+      map.set(id, el);
+      if (observer) observer.observe(el);
+    } else {
+      map.delete(id);
+    }
+  }, []);
+
+  const messageRefCallback = useCallback((id: string) => (el: HTMLDivElement | null) => {
+    const map = messageElMapRef.current;
+    const observer = messageObserverRef.current;
     const prev = map.get(id);
 
     if (prev && observer) observer.unobserve(prev);
@@ -320,26 +465,6 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
       target.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }, [currentMatchIndex, searchMatches]);
-
-  const grouped = useMemo(() => groupMessages(messages, readMarkerTs), [messages, readMarkerTs]);
-
-  // Precompute message-id → index map to avoid O(n²) indexOf in render loop
-  const messageIndexById = useMemo(() => new Map(messages.map((m, i) => [m.id, i])), [messages]);
-
-  // Group messages into date sections for proper sticky push-out behavior.
-  // Each section contains a date separator header + its messages.
-  const dateSections = useMemo(() => {
-    const sections: { dateMessageId: string; timestamp: Date; items: typeof grouped }[] = [];
-    for (const item of grouped) {
-      if (item.showDateSeparator) {
-        sections.push({ dateMessageId: item.message.id, timestamp: item.message.timestamp, items: [] });
-      }
-      if (sections.length > 0) {
-        sections[sections.length - 1].items.push(item);
-      }
-    }
-    return sections;
-  }, [grouped]);
 
   if (!channelId) {
     return (
@@ -511,7 +636,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
                 ref={sentinelRefCallback(section.dateMessageId)}
                 data-sentinel-for={section.dateMessageId}
               />
-              <div className={`chat-date-separator-wrapper${stuckSeparators.has(section.dateMessageId) ? ' is-stuck' : ''}`}>
+              <div className="chat-date-separator-wrapper">
                 <Tooltip content={formatFullDate(section.timestamp)}>
                 <div className="chat-date-separator">
                   <span className="chat-date-separator-label">
@@ -519,6 +644,17 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
                   </span>
                 </div>
                 </Tooltip>
+                {stuckSeparators.has(section.dateMessageId) && (hiddenCounts.get(section.dateMessageId) ?? 0) > 0 && (() => {
+                  const hiddenCount = hiddenCounts.get(section.dateMessageId) ?? 0;
+                  const dotCount = hiddenCount >= 7 ? 3 : hiddenCount >= 3 ? 2 : 1;
+                  return (
+                    <div className="chat-date-dots">
+                      {Array.from({ length: dotCount }, (_, i) => (
+                        <div key={i} className="chat-date-dot" />
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
               {section.items.map((item) => {
                 const msgIndex = messageIndexById.get(item.message.id) ?? -1;
@@ -531,6 +667,8 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
                     </div>
                   )}
                   <MessageBubble
+                    ref={messageRefCallback(item.message.id)}
+                    data-msg-track={item.message.id}
                     sender={item.message.sender}
                     content={item.message.content}
                     timestamp={item.message.timestamp}
@@ -545,6 +683,8 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
                     messageIndex={msgIndex}
                     senderAvatarUrl={lookupAvatar(item.message.sender, item.message.senderMatrixUserId)?.avatarUrl}
                     senderMatrixUserId={lookupAvatar(item.message.sender, item.message.senderMatrixUserId)?.matrixUserId}
+                    currentUsername={currentUsername}
+                    knownUsernames={knownUsernames}
                   />
                 </Fragment>
                 );
@@ -570,7 +710,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
           </button>
           </Tooltip>
         )}
-        <MessageInput onSend={onSendMessage} placeholder={isDM ? `Message @${channelName}` : `Message #${channelName}`} />
+        <MessageInput onSend={onSendMessage} placeholder={isDM ? `Message @${channelName}` : `Message #${channelName}`} mentionableUsers={mentionableUsers} />
       </div>
     </div>
   );

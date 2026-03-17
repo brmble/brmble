@@ -17,8 +17,11 @@
 .brmble-logo-svg {
   color: var(--text-primary);
   flex-shrink: 0;
-  cursor: default;
   overflow: visible;
+}
+
+.brmble-logo-svg[data-clickable="true"] {
+  cursor: pointer;
 }
 
 /* All animated paths share the same transition */

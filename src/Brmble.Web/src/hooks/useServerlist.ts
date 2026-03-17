@@ -7,6 +7,7 @@ export interface ServerEntry {
   host: string;
   port: number;
   username: string;
+  password: string;
   registered?: boolean;
 }
 
