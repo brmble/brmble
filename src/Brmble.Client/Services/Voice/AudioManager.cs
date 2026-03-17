@@ -219,6 +219,10 @@ private int _screenShareHotkeyId = -1;
     private AudioResampler? _to16kResampler;
     private AudioResampler? _to48kResampler;
     private RnnoiseService? _rnnoise;
+    private SpeexDspService? _speexDsp;
+    private NoiseSuppressionMode _currentNoiseMode = NoiseSuppressionMode.RNNoise;
+    private AgcMode _currentAgcMode = AgcMode.Speex;
+    private EchoCancellationMode _currentEchoMode = EchoCancellationMode.Disabled;
 
     public void SetLocalUserId(uint sessionId) => _localUserId = sessionId;
 
@@ -345,6 +349,45 @@ private int _screenShareHotkeyId = -1;
         {
             _rnnoise?.Dispose();
             _rnnoise = new RnnoiseService(mode);
+        }
+    }
+
+    public void ConfigureSpeexDsp(NoiseSuppressionMode noiseMode, AgcMode agcMode, EchoCancellationMode echoMode)
+    {
+        lock (_lock)
+        {
+            _currentNoiseMode = noiseMode;
+            _currentAgcMode = agcMode;
+            _currentEchoMode = echoMode;
+
+            _speexDsp ??= new SpeexDspService();
+
+            if (noiseMode == NoiseSuppressionMode.Speex)
+            {
+                _speexDsp.EnableDenoise();
+            }
+            else
+            {
+                _speexDsp.DisableDenoise();
+            }
+
+            if (agcMode == AgcMode.Speex)
+            {
+                _speexDsp.EnableAGC();
+            }
+            else if (agcMode == AgcMode.Disabled)
+            {
+                _speexDsp.DisableAGC();
+            }
+
+            if (echoMode != EchoCancellationMode.Disabled)
+            {
+                _speexDsp.ConfigureAEC(echoMode);
+            }
+            else
+            {
+                _speexDsp.ConfigureAEC(EchoCancellationMode.Disabled);
+            }
         }
     }
 
@@ -644,16 +687,64 @@ private int _screenShareHotkeyId = -1;
         if (_muted) return;
         if (_transmissionMode == TransmissionMode.PushToTalk && !_pttActive) return;
 
-        // Apply AGC first (boost quiet audio, compress loud before user gain)
-        if (_maxAmplification != 1.0f)
+        // Apply AGC - Speex AGC or existing AGC based on settings
+        if (_currentAgcMode == AgcMode.Speex && _speexDsp != null)
+        {
+            try
+            {
+                int sampleCount = processedBytes / 2;
+                var floatBuf = new float[sampleCount];
+                for (int i = 0; i < sampleCount; i++)
+                    floatBuf[i] = (short)(processedBuffer[i * 2] | (processedBuffer[i * 2 + 1] << 8));
+
+                _speexDsp.ProcessAGC(floatBuf.AsSpan());
+
+                for (int i = 0; i < sampleCount; i++)
+                {
+                    var s = (short)Math.Clamp(floatBuf[i], short.MinValue, short.MaxValue);
+                    processedBuffer[i * 2] = (byte)(s & 0xFF);
+                    processedBuffer[i * 2 + 1] = (byte)((s >> 8) & 0xFF);
+                }
+            }
+            catch (Exception ex)
+            {
+                AudioLog.Write($"[Audio] Speex AGC error, disabling: {ex.Message}");
+            }
+        }
+        else if (_currentAgcMode == AgcMode.Existing && _maxAmplification != 1.0f)
+        {
             ApplyAGC(processedBuffer, processedBytes);
+        }
 
         // Apply input volume (after AGC to avoid clipping on boost)
         if (_inputVolume != 1.0f)
             ApplyInputVolume(processedBuffer, processedBytes);
 
-        // Apply RNNoise noise cancellation if enabled
-        if (_rnnoise?.IsEnabled == true)
+        // Apply noise suppression - RNNoise or Speex based on settings
+        if (_currentNoiseMode == NoiseSuppressionMode.Speex && _speexDsp != null)
+        {
+            try
+            {
+                int sampleCount = processedBytes / 2;
+                var floatBuf = new float[sampleCount];
+                for (int i = 0; i < sampleCount; i++)
+                    floatBuf[i] = (short)(processedBuffer[i * 2] | (processedBuffer[i * 2 + 1] << 8));
+
+                _speexDsp.ProcessDenoise(floatBuf.AsSpan());
+
+                for (int i = 0; i < sampleCount; i++)
+                {
+                    var s = (short)Math.Clamp(floatBuf[i], short.MinValue, short.MaxValue);
+                    processedBuffer[i * 2] = (byte)(s & 0xFF);
+                    processedBuffer[i * 2 + 1] = (byte)((s >> 8) & 0xFF);
+                }
+            }
+            catch (Exception ex)
+            {
+                AudioLog.Write($"[Audio] Speex denoise error, disabling: {ex.Message}");
+            }
+        }
+        else if (_rnnoise?.IsEnabled == true)
         {
             try
             {
@@ -1678,6 +1769,7 @@ private int _screenShareHotkeyId = -1;
     {
         _speechEnhancement?.Dispose();
         _rnnoise?.Dispose();
+        _speexDsp?.Dispose();
         _speakingTimer.Dispose();
         StopPttPolling();
         StopShortcutKeyboardPolling();
