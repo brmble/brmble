@@ -68,6 +68,11 @@ export function AudioSettingsTab({ settings, speechDenoise, onChange, onSpeechDe
   const [recording, setRecording] = useState(false);
   const [isPromptOpen, setIsPromptOpen] = useState(false);
 
+  // Ensure speechDenoise.mode is always valid
+  const validSpeechDenoise = speechDenoise?.mode && ['none', 'rnnoise', 'gtcrn'].includes(speechDenoise.mode)
+    ? speechDenoise
+    : DEFAULT_SPEECH_DENOISE;
+
   useEffect(() => {
     setLocalSettings(settings);
   }, [settings]);
@@ -245,8 +250,8 @@ export function AudioSettingsTab({ settings, speechDenoise, onChange, onSpeechDe
             <span className="tooltip-icon" data-tooltip="Reduces background noise. RNNoise is lightweight; GTCRN is more aggressive but uses more CPU.">?</span>
           </label>
           <Select
-            value={speechDenoise.mode}
-            onChange={(v) => onSpeechDenoiseChange({ ...speechDenoise, mode: v as SpeechDenoiseMode })}
+            value={validSpeechDenoise.mode}
+            onChange={(v) => onSpeechDenoiseChange({ ...validSpeechDenoise, mode: v as SpeechDenoiseMode })}
             options={[
               { value: 'none', label: 'None' },
               { value: 'rnnoise', label: 'RNNoise' },

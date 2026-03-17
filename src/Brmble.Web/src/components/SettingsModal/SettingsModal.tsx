@@ -97,7 +97,11 @@ export function SettingsModal(props: SettingsModalProps) {
     const handleCurrent = (data: unknown) => {
       const d = data as { settings?: AppSettings } | undefined;
       if (d?.settings) {
-        setSettings({ ...DEFAULT_SETTINGS, ...d.settings });
+        setSettings({ 
+          ...DEFAULT_SETTINGS, 
+          ...d.settings,
+          speechDenoise: { ...DEFAULT_SETTINGS.speechDenoise, ...d.settings.speechDenoise }
+        });
         if (d.settings.appearance?.theme) {
           applyTheme(d.settings.appearance.theme);
         }
