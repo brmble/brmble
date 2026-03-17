@@ -207,24 +207,31 @@ public class AppConfigServiceTests
     public void Settings_SpeechDenoiseDefaults_WhenMissingFromJson()
     {
         var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
-        Directory.CreateDirectory(dir);
-        var configPath = Path.Combine(dir, "config.json");
-        File.WriteAllText(configPath, """
+        try
         {
-          "servers": [],
-          "settings": {
-            "audio": { "inputDevice": "default", "outputDevice": "default", "inputVolume": 250, "maxAmplification": 100, "outputVolume": 250, "transmissionMode": "voiceActivity", "pushToTalkKey": null, "opusBitrate": 72000, "opusFrameSize": 20 },
-            "shortcuts": {},
-            "messages": { "ttsEnabled": false, "ttsVolume": 100, "notificationsEnabled": true },
-            "overlay": { "overlayEnabled": false }
-          }
+            Directory.CreateDirectory(dir);
+            var configPath = Path.Combine(dir, "config.json");
+            File.WriteAllText(configPath, """
+            {
+              "servers": [],
+              "settings": {
+                "audio": { "inputDevice": "default", "outputDevice": "default", "inputVolume": 250, "maxAmplification": 100, "outputVolume": 250, "transmissionMode": "voiceActivity", "pushToTalkKey": null, "opusBitrate": 72000, "opusFrameSize": 20 },
+                "shortcuts": {},
+                "messages": { "ttsEnabled": false, "ttsVolume": 100, "notificationsEnabled": true },
+                "overlay": { "overlayEnabled": false }
+              }
+            }
+            """);
+
+            var service = new AppConfigService(dir);
+            var loaded = service.GetSettings();
+
+            Assert.AreEqual(SpeechDenoiseMode.Rnnoise, loaded.SpeechDenoise?.Mode ?? SpeechDenoiseMode.None);
         }
-        """);
-
-        var service = new AppConfigService(dir);
-        var loaded = service.GetSettings();
-
-        Assert.AreEqual(SpeechDenoiseMode.Rnnoise, loaded.SpeechDenoise?.Mode ?? SpeechDenoiseMode.None);
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
     }
 
     [TestMethod]

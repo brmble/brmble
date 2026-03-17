@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Brmble.Client.Bridge;
 using Brmble.Client.Services.Serverlist;
 
@@ -10,6 +11,7 @@ internal sealed class AppConfigService : IAppConfigService
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = true,
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: true) },
     };
 
     private readonly string _configPath;

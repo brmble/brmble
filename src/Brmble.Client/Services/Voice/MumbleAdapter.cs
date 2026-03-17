@@ -626,18 +626,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         var seModel = noiseMode == NoiseSuppressionMode.GTCRN
             ? "dns3"
             : (settings.SpeechEnhancement.Model ?? "").Trim().ToLowerInvariant();
+        var seModelVariant = seModel switch
+        {
+            "vctk-demand" => GtcrnModelVariant.VctkDemand,
+            _ => GtcrnModelVariant.Dns3
+        };
         if (seEnabled != _lastSpeechEnhancementEnabled || seModel != _lastSpeechEnhancementModel)
         {
             _lastSpeechEnhancementEnabled = seEnabled;
             _lastSpeechEnhancementModel = seModel;
 
-            var modelVariant = seModel switch
-            {
-                "vctk-demand" => GtcrnModelVariant.VctkDemand,
-                _ => GtcrnModelVariant.Dns3
-            };
             var modelsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "models");
-            _audioManager?.ConfigureSpeechEnhancement(modelsPath, seEnabled, modelVariant);
+            _audioManager?.ConfigureSpeechEnhancement(modelsPath, seEnabled, seModelVariant);
         }
 
         var denoiseMode = settings.SpeechDenoise.Mode;

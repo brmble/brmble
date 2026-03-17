@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Runtime.InteropServices;
 using Brmble.Client.Services.AppConfig;
 
@@ -19,6 +20,8 @@ public sealed class RnnoiseService : IDisposable
 
     private IntPtr _state = IntPtr.Zero;
     private bool _disposed;
+    private float[]? _inputBuffer;
+    private float[]? _outputBuffer;
 
     public bool IsEnabled { get; private set; }
 
@@ -54,11 +57,12 @@ public sealed class RnnoiseService : IDisposable
         if (!IsEnabled || _state == IntPtr.Zero || buffer.Length - offset < FrameSize)
             return;
 
-        var input = new float[FrameSize];
-        Array.Copy(buffer, offset, input, 0, FrameSize);
-        var output = new float[FrameSize];
-        rnnoise_process_frame(_state, output, input);
-        Array.Copy(output, 0, buffer, offset, FrameSize);
+        _inputBuffer ??= new float[FrameSize];
+        _outputBuffer ??= new float[FrameSize];
+
+        Array.Copy(buffer, offset, _inputBuffer, 0, FrameSize);
+        rnnoise_process_frame(_state, _outputBuffer, _inputBuffer);
+        Array.Copy(_outputBuffer, 0, buffer, offset, FrameSize);
     }
 
     public void Dispose()
@@ -70,5 +74,7 @@ public sealed class RnnoiseService : IDisposable
             rnnoise_destroy(_state);
             _state = IntPtr.Zero;
         }
+        _inputBuffer = null;
+        _outputBuffer = null;
     }
 }

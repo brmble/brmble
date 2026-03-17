@@ -15,6 +15,7 @@ public sealed class SpeexDspService : IDisposable
     private const int SPEEX_PREPROCESS_SET_AGC = 2;
     private const int SPEEX_PREPROCESS_GET_AGC = 3;
     private const int SPEEX_PREPROCESS_SET_AGC_LEVEL = 4;
+    private const int SPEEX_PREPROCESS_GET_AGC_LEVEL = 5;
 
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
     private static extern IntPtr speex_preprocess_state_init(int frame_size, int sampling_rate);
@@ -53,6 +54,9 @@ public sealed class SpeexDspService : IDisposable
 
     public SpeexDspService()
     {
+        bool preprocessOk = false;
+        bool echoOk = false;
+
         try
         {
             _preprocessState = speex_preprocess_state_init(FrameSize, SampleRate);
@@ -60,14 +64,29 @@ public sealed class SpeexDspService : IDisposable
             {
                 Console.Error.WriteLine("[SpeexDSP] Failed to initialize preprocessor");
             }
+            else
+            {
+                preprocessOk = true;
+            }
 
             _echoState = speex_echo_state_init(FrameSize, SampleRate * 2);
             if (_echoState == IntPtr.Zero)
             {
                 Console.Error.WriteLine("[SpeexDSP] Failed to initialize echo canceller");
             }
+            else
+            {
+                echoOk = true;
+            }
 
-            Console.WriteLine("[SpeexDSP] Initialized successfully");
+            if (preprocessOk || echoOk)
+            {
+                Console.WriteLine($"[SpeexDSP] Initialized (preprocess: {(preprocessOk ? "ok" : "failed")}, echo: {(echoOk ? "ok" : "failed")})");
+            }
+            else
+            {
+                Console.Error.WriteLine("[SpeexDSP] Failed to initialize — disabled");
+            }
         }
         catch (DllNotFoundException ex)
         {
@@ -94,10 +113,16 @@ public sealed class SpeexDspService : IDisposable
         
         try
         {
-            var level = 8000;
+            var enable = 1;
+            var enablePtr = Marshal.AllocHGlobal(4);
+            Marshal.WriteInt32(enablePtr, 0, enable);
+            speex_preprocess_ctl(_preprocessState, SPEEX_PREPROCESS_SET_AGC, enablePtr);
+            Marshal.FreeHGlobal(enablePtr);
+
+            var level = 8000f;
             var levelPtr = Marshal.AllocHGlobal(4);
-            Marshal.WriteInt32(levelPtr, 0, level);
-            speex_preprocess_ctl(_preprocessState, SPEEX_PREPROCESS_SET_AGC, levelPtr);
+            Marshal.WriteInt32(levelPtr, 0, BitConverter.SingleToInt32Bits(level));
+            speex_preprocess_ctl(_preprocessState, SPEEX_PREPROCESS_SET_AGC_LEVEL, levelPtr);
             Marshal.FreeHGlobal(levelPtr);
         }
         catch (Exception ex)
@@ -110,7 +135,21 @@ public sealed class SpeexDspService : IDisposable
 
     public void DisableAGC()
     {
+        if (_preprocessState == IntPtr.Zero) return;
         _agcEnabled = false;
+
+        try
+        {
+            var enable = 0;
+            var enablePtr = Marshal.AllocHGlobal(4);
+            Marshal.WriteInt32(enablePtr, 0, enable);
+            speex_preprocess_ctl(_preprocessState, SPEEX_PREPROCESS_SET_AGC, enablePtr);
+            Marshal.FreeHGlobal(enablePtr);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[SpeexDSP] AGC disable failed: {ex.Message}");
+        }
     }
 
     public void EnableDenoise()
@@ -136,7 +175,21 @@ public sealed class SpeexDspService : IDisposable
 
     public void DisableDenoise()
     {
+        if (_preprocessState == IntPtr.Zero) return;
         _denoiseEnabled = false;
+
+        try
+        {
+            var enable = 0;
+            var enablePtr = Marshal.AllocHGlobal(4);
+            Marshal.WriteInt32(enablePtr, 0, enable);
+            speex_preprocess_ctl(_preprocessState, SPEEX_PREPROCESS_SET_DENOISE, enablePtr);
+            Marshal.FreeHGlobal(enablePtr);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[SpeexDSP] Denoise disable failed: {ex.Message}");
+        }
     }
 
     public void ProcessDenoise(Span<float> buffer)

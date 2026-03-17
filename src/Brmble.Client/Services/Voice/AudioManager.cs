@@ -610,6 +610,9 @@ private int _screenShareHotkeyId = -1;
     [ThreadStatic] private static float[]? _wasapiMonoScratch;
     [ThreadStatic] private static byte[]? _wasapiInt16Scratch;
 
+    // Reusable scratch buffers for Speex processing (avoid per-callback GC allocations).
+    [ThreadStatic] private static float[]? _speexScratch;
+
     private void OnMicData(object? sender, WaveInEventArgs e)
     {
         byte[] processedBuffer = e.Buffer;
@@ -695,15 +698,16 @@ private int _screenShareHotkeyId = -1;
             try
             {
                 int sampleCount = processedBytes / 2;
-                var floatBuf = new float[sampleCount];
+                if (_speexScratch == null || _speexScratch.Length < sampleCount)
+                    _speexScratch = new float[sampleCount];
                 for (int i = 0; i < sampleCount; i++)
-                    floatBuf[i] = (short)(processedBuffer[i * 2] | (processedBuffer[i * 2 + 1] << 8));
+                    _speexScratch[i] = (short)(processedBuffer[i * 2] | (processedBuffer[i * 2 + 1] << 8));
 
-                _speexDsp.ProcessAGC(floatBuf.AsSpan());
+                _speexDsp.ProcessAGC(_speexScratch.AsSpan(0, sampleCount));
 
                 for (int i = 0; i < sampleCount; i++)
                 {
-                    var s = (short)Math.Clamp(floatBuf[i], short.MinValue, short.MaxValue);
+                    var s = (short)Math.Clamp(_speexScratch[i], short.MinValue, short.MaxValue);
                     processedBuffer[i * 2] = (byte)(s & 0xFF);
                     processedBuffer[i * 2 + 1] = (byte)((s >> 8) & 0xFF);
                 }
@@ -711,6 +715,8 @@ private int _screenShareHotkeyId = -1;
             catch (Exception ex)
             {
                 AudioLog.Write($"[Audio] Speex AGC error, disabling: {ex.Message}");
+                _speexDsp?.DisableAGC();
+                _currentAgcMode = AgcMode.Disabled;
             }
         }
         else if (_currentAgcMode == AgcMode.Existing && _maxAmplification != 1.0f)
@@ -728,15 +734,16 @@ private int _screenShareHotkeyId = -1;
             try
             {
                 int sampleCount = processedBytes / 2;
-                var floatBuf = new float[sampleCount];
+                if (_speexScratch == null || _speexScratch.Length < sampleCount)
+                    _speexScratch = new float[sampleCount];
                 for (int i = 0; i < sampleCount; i++)
-                    floatBuf[i] = (short)(processedBuffer[i * 2] | (processedBuffer[i * 2 + 1] << 8));
+                    _speexScratch[i] = (short)(processedBuffer[i * 2] | (processedBuffer[i * 2 + 1] << 8));
 
-                _speexDsp.ProcessDenoise(floatBuf.AsSpan());
+                _speexDsp.ProcessDenoise(_speexScratch.AsSpan(0, sampleCount));
 
                 for (int i = 0; i < sampleCount; i++)
                 {
-                    var s = (short)Math.Clamp(floatBuf[i], short.MinValue, short.MaxValue);
+                    var s = (short)Math.Clamp(_speexScratch[i], short.MinValue, short.MaxValue);
                     processedBuffer[i * 2] = (byte)(s & 0xFF);
                     processedBuffer[i * 2 + 1] = (byte)((s >> 8) & 0xFF);
                 }
@@ -744,23 +751,26 @@ private int _screenShareHotkeyId = -1;
             catch (Exception ex)
             {
                 AudioLog.Write($"[Audio] Speex denoise error, disabling: {ex.Message}");
+                _speexDsp?.DisableDenoise();
+                _currentNoiseMode = NoiseSuppressionMode.Disabled;
             }
         }
-        else if (_rnnoise?.IsEnabled == true)
+        else if (_currentNoiseMode == NoiseSuppressionMode.RNNoise && _rnnoise?.IsEnabled == true)
         {
             try
             {
                 int sampleCount = processedBytes / 2;
-                var floatBuf = new float[sampleCount];
+                if (_speexScratch == null || _speexScratch.Length < sampleCount)
+                    _speexScratch = new float[sampleCount];
                 for (int i = 0; i < sampleCount; i++)
-                    floatBuf[i] = (short)(processedBuffer[i * 2] | (processedBuffer[i * 2 + 1] << 8));
+                    _speexScratch[i] = (short)(processedBuffer[i * 2] | (processedBuffer[i * 2 + 1] << 8));
 
                 for (int offset = 0; offset + RnnoiseService.FrameSize <= sampleCount; offset += RnnoiseService.FrameSize)
-                    _rnnoise.ProcessFrame(floatBuf, offset);
+                    _rnnoise.ProcessFrame(_speexScratch, offset);
 
                 for (int i = 0; i < sampleCount; i++)
                 {
-                    var s = (short)Math.Clamp(floatBuf[i], short.MinValue, short.MaxValue);
+                    var s = (short)Math.Clamp(_speexScratch[i], short.MinValue, short.MaxValue);
                     processedBuffer[i * 2] = (byte)(s & 0xFF);
                     processedBuffer[i * 2 + 1] = (byte)((s >> 8) & 0xFF);
                 }
