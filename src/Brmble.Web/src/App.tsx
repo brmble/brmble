@@ -5,6 +5,7 @@ import { useMatrixClient } from './hooks/useMatrixClient';
 import type { MatrixCredentials } from './hooks/useMatrixClient';
 import { useScreenShare } from './hooks/useScreenShare';
 import { useUnreadTracker } from './hooks/useUnreadTracker';
+import { useServiceStatus } from './hooks/useServiceStatus';
 
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Header } from './components/Header/Header';
@@ -130,6 +131,7 @@ function App() {
   const [certFingerprint, setCertFingerprint] = useState('');
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
+  const { updateStatus } = useServiceStatus();
   const connected = connectionStatus === 'connected';
   const [username, setUsername] = useState('');
   const [serverAddress, setServerAddress] = useState('');
@@ -495,6 +497,7 @@ function App() {
   useEffect(() => {
     const onVoiceConnected = ((data: unknown) => {
       setConnectionStatus('connected');
+      updateStatus('voice', { state: 'connected', error: undefined });
       setCurrentChannelId('server-root');
       setCurrentChannelName('');
       const d = data as { username?: string; channels?: Channel[]; users?: User[] } | undefined;
@@ -525,6 +528,11 @@ function App() {
         setConnectionStatus('idle');
         setServerAddress('');
         setServerLabel('');
+      }
+      if (d?.reconnectAvailable) {
+        updateStatus('voice', { state: 'disconnected' });
+      } else {
+        updateStatus('voice', { state: 'disconnected', label: undefined });
       }
       setChannels([]);
       setUsers([]);
@@ -559,8 +567,10 @@ function App() {
 
     const onVoiceError = ((data: unknown) => {
       clearPendingAction();
-      const d = data as { message: string } | undefined;
-      console.error('Voice error:', d?.message);
+      const d = data as { message?: string } | undefined;
+      const errorMsg = d?.message || 'Unknown error';
+      console.error('Voice error:', errorMsg);
+      updateStatus('voice', { error: errorMsg });
     });
 
     const onVoiceMessage = ((data: unknown) => {
@@ -855,10 +865,13 @@ function App() {
 
     const onVoiceReconnecting = () => {
       setConnectionStatus('reconnecting');
+      updateStatus('voice', { state: 'connecting' });
     };
-    const onVoiceReconnectFailed = () => {
+    const onVoiceReconnectFailed = (data?: unknown) => {
       clearPendingAction();
       setConnectionStatus('failed');
+      const d = data as { reason?: string } | undefined;
+      updateStatus('voice', { state: 'disconnected', error: d?.reason || 'Reconnect failed' });
       setServerAddress('');
       setServerLabel('');
       setChannels([]);
@@ -1013,6 +1026,7 @@ const handleConnect = (serverData: SavedServer) => {
     setServerAddress(`${serverData.host}:${serverData.port}`);
     setConnectionStatus('connecting');
     bridge.send('voice.connect', serverData);
+    updateStatus('voice', { state: 'connecting', error: undefined, label: `${serverData.host}:${serverData.port}` });
     
     // Send transmission mode from settings
     try {
