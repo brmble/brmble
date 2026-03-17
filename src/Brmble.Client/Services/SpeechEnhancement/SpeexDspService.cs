@@ -143,7 +143,7 @@ public sealed class SpeexDspService : IDisposable
     {
         if (!_denoiseEnabled || _preprocessState == IntPtr.Zero || buffer.Length < FrameSize) return;
 
-        for (int i = 0; i < buffer.Length - FrameSize; i += FrameSize)
+        for (int i = 0; i + FrameSize <= buffer.Length; i += FrameSize)
         {
             var input = buffer.Slice(i, FrameSize);
             var tempInput = new float[FrameSize];
@@ -158,7 +158,7 @@ public sealed class SpeexDspService : IDisposable
     {
         if (!_agcEnabled || _preprocessState == IntPtr.Zero || buffer.Length < FrameSize) return;
 
-        for (int i = 0; i < buffer.Length - FrameSize; i += FrameSize)
+        for (int i = 0; i + FrameSize <= buffer.Length; i += FrameSize)
         {
             var input = buffer.Slice(i, FrameSize);
             var tempInput = new float[FrameSize];
@@ -173,7 +173,7 @@ public sealed class SpeexDspService : IDisposable
     {
         if (!_echoEnabled || _echoState == IntPtr.Zero || captured.Length < FrameSize || playback.Length < FrameSize) return;
 
-        for (int i = 0; i < captured.Length - FrameSize && i < playback.Length - FrameSize; i += FrameSize)
+        for (int i = 0; i + FrameSize <= captured.Length && i + FrameSize <= playback.Length; i += FrameSize)
         {
             var capturedFrame = captured.Slice(i, FrameSize);
             var playbackFrame = playback.Slice(i, FrameSize);
@@ -198,13 +198,11 @@ public sealed class SpeexDspService : IDisposable
             _echoState = IntPtr.Zero;
         }
 
-            if (_preprocessState != IntPtr.Zero)
-            {
-                var enable = 1;
-                var enablePtr = (IntPtr)enable;
-                speex_preprocess_ctl(_preprocessState, SPEEX_PREPROCESS_SET_DENOISE, enablePtr);
-                speex_preprocess_ctl(_preprocessState, SPEEX_PREPROCESS_SET_AGC, enablePtr);
-            }
+        if (_preprocessState != IntPtr.Zero)
+        {
+            speex_preprocess_state_destroy(_preprocessState);
+            _preprocessState = IntPtr.Zero;
+        }
 
         Console.WriteLine("[SpeexDSP] Disposed");
     }

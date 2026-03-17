@@ -45,6 +45,7 @@ public enum SpeechDenoiseMode
 
 public enum NoiseSuppressionMode
 {
+    Disabled,
     GTCRN,
     RNNoise,
     Speex
@@ -91,7 +92,7 @@ public record AppSettings(
     AppearanceSettings? Appearance = null,
     EchoCancellationSettings? EchoCancellation = null,
     AgcSettings? Agc = null,
-    NoiseSuppressionMode NoiseSuppressionMode = NoiseSuppressionMode.RNNoise
+    NoiseSuppressionMode NoiseSuppressionMode = NoiseSuppressionMode.Disabled
 )
 {
     public SpeechEnhancementSettings SpeechEnhancement { get; init; } = SpeechEnhancement ?? new SpeechEnhancementSettings();

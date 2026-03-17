@@ -220,7 +220,7 @@ private int _screenShareHotkeyId = -1;
     private AudioResampler? _to48kResampler;
     private RnnoiseService? _rnnoise;
     private SpeexDspService? _speexDsp;
-    private NoiseSuppressionMode _currentNoiseMode = NoiseSuppressionMode.RNNoise;
+    private NoiseSuppressionMode _currentNoiseMode = NoiseSuppressionMode.Disabled;
     private AgcMode _currentAgcMode = AgcMode.Speex;
     private EchoCancellationMode _currentEchoMode = EchoCancellationMode.Disabled;
 
@@ -375,8 +375,10 @@ private int _screenShareHotkeyId = -1;
             {
                 _speexDsp.EnableAGC();
             }
-            else if (agcMode == AgcMode.Disabled)
+            else
             {
+                // AgcMode.Existing and AgcMode.Disabled both disable Speex AGC;
+                // Existing falls back to the built-in AGC path in OnMicData.
                 _speexDsp.DisableAGC();
             }
 

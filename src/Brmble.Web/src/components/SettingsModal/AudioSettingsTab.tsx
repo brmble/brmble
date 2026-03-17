@@ -39,7 +39,7 @@ export interface SpeechEnhancementSettings {
   model: string;
 }
 
-export type NoiseSuppressionMode = 'GTCRN' | 'RNNoise' | 'Speex';
+export type NoiseSuppressionMode = 'Disabled' | 'GTCRN' | 'RNNoise' | 'Speex';
 export type EchoCancellationMode = 'Disabled' | 'Mixed' | 'Multichannel';
 export type AgcMode = 'Speex' | 'Existing' | 'Disabled';
 
@@ -262,6 +262,7 @@ export function AudioSettingsTab({ settings, noiseSuppressionMode, echoCancellat
             value={noiseSuppressionMode}
             onChange={(v) => onNoiseSuppressionModeChange(v as NoiseSuppressionMode)}
             options={[
+              { value: 'Disabled', label: 'Disabled' },
               { value: 'GTCRN', label: 'GTCRN' },
               { value: 'RNNoise', label: 'RNNoise' },
               { value: 'Speex', label: 'Speex' },

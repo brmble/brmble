@@ -61,7 +61,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   messages: DEFAULT_MESSAGES,
   appearance: DEFAULT_APPEARANCE,
   overlay: DEFAULT_OVERLAY,
-  noiseSuppressionMode: 'RNNoise',
+  noiseSuppressionMode: 'Disabled',
   echoCancellation: DEFAULT_ECHO_CANCELLATION,
   agc: DEFAULT_AGC,
   reconnectEnabled: true,

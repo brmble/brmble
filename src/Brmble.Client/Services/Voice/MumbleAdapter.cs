@@ -594,7 +594,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private bool _lastSpeechEnhancementEnabled = false;
     private string _lastSpeechEnhancementModel = "";
     private SpeechDenoiseMode _lastSpeechDenoiseMode = SpeechDenoiseMode.Rnnoise;
-    private NoiseSuppressionMode _lastNoiseSuppressionMode = NoiseSuppressionMode.RNNoise;
+    private NoiseSuppressionMode _lastNoiseSuppressionMode = NoiseSuppressionMode.Disabled;
     private AgcMode _lastAgcMode = AgcMode.Speex;
     private EchoCancellationMode _lastEchoCancellationMode = EchoCancellationMode.Disabled;
 
@@ -613,11 +613,19 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.SetOpusFrameMs(settings.Audio.OpusFrameSize);
         _audioManager?.SetCaptureApi(settings.Audio.CaptureApi);
 
+        var noiseMode = settings.NoiseSuppressionMode;
+        var agcMode = settings.Agc.Mode;
+        var echoMode = settings.EchoCancellation.Mode;
+
         // Only reinitialise speech enhancement when its settings actually change.
         // ConfigureSpeechEnhancement disposes and recreates the ONNX InferenceSession,
         // which causes a native crash if the mic callback is mid-inference at that moment.
-        var seEnabled = settings.SpeechEnhancement.Enabled;
-        var seModel = (settings.SpeechEnhancement.Model ?? "").Trim().ToLowerInvariant();
+        // GTCRN noise suppression drives the speech enhancement model, so treat a GTCRN
+        // mode change as a speech-enhancement settings change.
+        var seEnabled = settings.SpeechEnhancement.Enabled || noiseMode == NoiseSuppressionMode.GTCRN;
+        var seModel = noiseMode == NoiseSuppressionMode.GTCRN
+            ? "dns3"
+            : (settings.SpeechEnhancement.Model ?? "").Trim().ToLowerInvariant();
         if (seEnabled != _lastSpeechEnhancementEnabled || seModel != _lastSpeechEnhancementModel)
         {
             _lastSpeechEnhancementEnabled = seEnabled;
@@ -639,22 +647,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _audioManager?.ConfigureRnnoise(denoiseMode);
         }
 
-        var noiseMode = settings.NoiseSuppressionMode;
-        var agcMode = settings.Agc.Mode;
-        var echoMode = settings.EchoCancellation.Mode;
         if (noiseMode != _lastNoiseSuppressionMode || agcMode != _lastAgcMode || echoMode != _lastEchoCancellationMode)
         {
             _lastNoiseSuppressionMode = noiseMode;
             _lastAgcMode = agcMode;
             _lastEchoCancellationMode = echoMode;
             _audioManager?.ConfigureSpeexDsp(noiseMode, agcMode, echoMode);
-        }
-
-        // When GTCRN is selected in Noise Suppression, enable Speech Enhancement
-        if (noiseMode == NoiseSuppressionMode.GTCRN)
-        {
-            var modelsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "models");
-            _audioManager?.ConfigureSpeechEnhancement(modelsPath, true, GtcrnModelVariant.Dns3);
         }
     }
 
