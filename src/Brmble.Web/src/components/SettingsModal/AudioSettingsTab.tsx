@@ -8,9 +8,9 @@ import './ShortcutsSettingsTab.css';
 
 interface AudioSettingsTabProps {
   settings: AudioSettings;
-  speechEnhancement: SpeechEnhancementSettings;
+  speechDenoise: SpeechDenoiseSettings;
   onChange: (settings: AudioSettings) => void;
-  onSpeechEnhancementChange: (settings: SpeechEnhancementSettings) => void;
+  onSpeechDenoiseChange: (settings: SpeechDenoiseSettings) => void;
   allBindings: AllBindings;
   onClearBinding: (bindingId: string) => void;
 }
@@ -35,6 +35,16 @@ export interface SpeechEnhancementSettings {
   model: string;
 }
 
+export type SpeechDenoiseMode = 'none' | 'rnnoise' | 'gtcrn';
+
+export interface SpeechDenoiseSettings {
+  mode: SpeechDenoiseMode;
+}
+
+export const DEFAULT_SPEECH_DENOISE: SpeechDenoiseSettings = {
+  mode: 'rnnoise',
+};
+
 export const DEFAULT_SETTINGS: AudioSettings = {
   inputDevice: 'default',
   outputDevice: 'default',
@@ -53,7 +63,7 @@ export const DEFAULT_SPEECH_ENHANCEMENT: SpeechEnhancementSettings = {
   model: 'dns3',
 };
 
-export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpeechEnhancementChange, allBindings, onClearBinding }: AudioSettingsTabProps) {
+export function AudioSettingsTab({ settings, speechDenoise, onChange, onSpeechDenoiseChange, allBindings, onClearBinding }: AudioSettingsTabProps) {
   const [localSettings, setLocalSettings] = useState<AudioSettings>(settings);
   const [recording, setRecording] = useState(false);
   const [isPromptOpen, setIsPromptOpen] = useState(false);
@@ -229,19 +239,20 @@ export function AudioSettingsTab({ settings, speechEnhancement, onChange, onSpee
           </div>
         )}
 
-        <div className="settings-item settings-toggle">
+        <div className="settings-item">
           <label>
-            Speech Enhancement
-            <span className="settings-hint-inline"> — AI noise reduction (GTCRN)</span>
+            Noise Suppression
+            <span className="tooltip-icon" data-tooltip="Reduces background noise. RNNoise is lightweight; GTCRN is more aggressive but uses more CPU.">?</span>
           </label>
-          <label className="brmble-toggle">
-            <input
-              type="checkbox"
-              checked={speechEnhancement.enabled}
-              onChange={() => onSpeechEnhancementChange({ ...speechEnhancement, enabled: !speechEnhancement.enabled })}
-            />
-            <span className="brmble-toggle-slider"></span>
-          </label>
+          <Select
+            value={speechDenoise.mode}
+            onChange={(v) => onSpeechDenoiseChange({ ...speechDenoise, mode: v as SpeechDenoiseMode })}
+            options={[
+              { value: 'none', label: 'None' },
+              { value: 'rnnoise', label: 'RNNoise' },
+              { value: 'gtcrn', label: 'GTCRN' },
+            ]}
+          />
         </div>
       </div>
 
