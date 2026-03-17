@@ -36,6 +36,17 @@ public record SpeechEnhancementSettings(
     string Model = "dns3"
 );
 
+public enum SpeechDenoiseMode
+{
+    Disabled,
+    Rnnoise,
+    Gtcrn
+}
+
+public record SpeechDenoiseSettings(
+    SpeechDenoiseMode Mode = SpeechDenoiseMode.Disabled
+);
+
 public record AppearanceSettings(
     string Theme = "classic"
 );
@@ -46,6 +57,7 @@ public record AppSettings(
     MessagesSettings Messages,
     OverlaySettings Overlay,
     SpeechEnhancementSettings? SpeechEnhancement = null,
+    SpeechDenoiseSettings? SpeechDenoise = null,
     bool AutoConnectEnabled = false,
     string? AutoConnectServerId = null,
     bool ReconnectEnabled = true,
@@ -53,6 +65,7 @@ public record AppSettings(
 )
 {
     public SpeechEnhancementSettings SpeechEnhancement { get; init; } = SpeechEnhancement ?? new SpeechEnhancementSettings();
+    public SpeechDenoiseSettings SpeechDenoise { get; init; } = SpeechDenoise ?? new SpeechDenoiseSettings();
     public AppearanceSettings Appearance { get; init; } = Appearance ?? new AppearanceSettings();
 
     public static AppSettings Default => new(
