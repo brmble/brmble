@@ -649,6 +649,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _lastEchoCancellationMode = echoMode;
             _audioManager?.ConfigureSpeexDsp(noiseMode, agcMode, echoMode);
         }
+
+        // When GTCRN is selected in Noise Suppression, enable Speech Enhancement
+        if (noiseMode == NoiseSuppressionMode.GTCRN)
+        {
+            var modelsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "models");
+            _audioManager?.ConfigureSpeechEnhancement(modelsPath, true, GtcrnModelVariant.Dns3);
+        }
     }
 
     /// <summary>Called from WndProc on WM_HOTKEY.</summary>
