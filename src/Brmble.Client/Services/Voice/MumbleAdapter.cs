@@ -216,6 +216,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         // is created on reconnect, ConfigureSpeechEnhancement is always called.
         _lastSpeechEnhancementEnabled = false;
         _lastSpeechEnhancementModel = "";
+        _lastSpeechDenoiseMode = SpeechDenoiseMode.None;
 
         try
         {
@@ -592,6 +593,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     private bool _lastSpeechEnhancementEnabled = false;
     private string _lastSpeechEnhancementModel = "";
+    private SpeechDenoiseMode _lastSpeechDenoiseMode = SpeechDenoiseMode.Rnnoise;
 
     public void ApplySettings(AppSettings settings)
     {
@@ -625,6 +627,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             };
             var modelsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "models");
             _audioManager?.ConfigureSpeechEnhancement(modelsPath, seEnabled, modelVariant);
+        }
+
+        var denoiseMode = settings.SpeechDenoise.Mode;
+        if (denoiseMode != _lastSpeechDenoiseMode)
+        {
+            _lastSpeechDenoiseMode = denoiseMode;
+            _audioManager?.ConfigureRnnoise(denoiseMode);
         }
     }
 
