@@ -48,7 +48,7 @@ export const DEFAULT_SETTINGS: AudioSettings = {
 };
 
 export const DEFAULT_SPEECH_DENOISE: SpeechDenoiseSettings = {
-  mode: 'disabled',
+  mode: 'rnnoise',
 };
 
 export function AudioSettingsTab({ settings, speechDenoise, onChange, onSpeechDenoiseChange, allBindings, onClearBinding }: AudioSettingsTabProps) {

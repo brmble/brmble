@@ -97,7 +97,13 @@ export function SettingsModal(props: SettingsModalProps) {
     const handleCurrent = (data: unknown) => {
       const d = data as { settings?: AppSettings } | undefined;
       if (d?.settings) {
-        setSettings({ ...DEFAULT_SETTINGS, ...d.settings });
+        // Normalize speechDenoise mode to valid values
+        const normalizedDenoise = { ...DEFAULT_SPEECH_DENOISE, ...d.settings.speechDenoise };
+        const validModes = ['disabled', 'rnnoise', 'gtcrn'];
+        if (!validModes.includes(normalizedDenoise.mode)) {
+          normalizedDenoise.mode = 'rnnoise';
+        }
+        setSettings({ ...DEFAULT_SETTINGS, ...d.settings, speechDenoise: normalizedDenoise });
         if (d.settings.appearance?.theme) {
           applyTheme(d.settings.appearance.theme);
         }
