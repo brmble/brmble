@@ -7,8 +7,8 @@ public sealed class RnnoiseService : IDisposable
 {
     public const int FrameSize = 480;
 
+    private bool _enabled;
     private readonly IntPtr _state;
-    private readonly bool _enabled;
     private bool _disposed;
 
     [DllImport("renamenoise.dll", CallingConvention = CallingConvention.Cdecl, EntryPoint = "rnnoise_create")]

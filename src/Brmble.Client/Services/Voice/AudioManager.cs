@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Buffers;
 using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.SpeechEnhancement;
 using MumbleVoiceEngine.Pipeline;
@@ -222,6 +223,7 @@ private int _screenShareHotkeyId = -1;
     // RNNoise denoising
     private RnnoiseService? _rnnoise;
     private SpeechDenoiseMode _lastDenoiseMode = SpeechDenoiseMode.Disabled;
+    private float[]? _rnnoiseRemainder;
 
     public void SetLocalUserId(uint sessionId) => _localUserId = sessionId;
 
@@ -352,6 +354,7 @@ private int _screenShareHotkeyId = -1;
             _lastDenoiseMode = mode;
             _rnnoise?.Dispose();
             _rnnoise = mode == SpeechDenoiseMode.Rnnoise ? new RnnoiseService(mode) : null;
+            _rnnoiseRemainder = null;
         }
     }
 
@@ -660,31 +663,72 @@ private int _screenShareHotkeyId = -1;
             ApplyInputVolume(processedBuffer, processedBytes);
 
         // Apply RNNoise denoising if enabled (processes 48kHz float samples in-place)
-        if (_rnnoise?.IsEnabled == true)
+        RnnoiseService? rnnoise;
+        lock (_lock)
+        {
+            rnnoise = _rnnoise;
+        }
+        if (rnnoise?.IsEnabled == true)
         {
             var sampleCount = processedBytes / 2;
-            var offset = 0;
-            while (offset + RnnoiseService.FrameSize <= sampleCount)
+            var totalSamples = sampleCount;
+
+            if (_rnnoiseRemainder != null)
             {
-                var frame = new float[RnnoiseService.FrameSize];
-                for (int i = 0; i < RnnoiseService.FrameSize; i++)
+                totalSamples += _rnnoiseRemainder.Length;
+            }
+
+            var combinedSamples = totalSamples;
+            var scratchBuffer = ArrayPool<float>.Shared.Rent(RnnoiseService.FrameSize * 2);
+            try
+            {
+                int combinedIndex = 0;
+
+                if (_rnnoiseRemainder != null)
                 {
-                    short s = (short)(processedBuffer[(offset + i) * 2] | (processedBuffer[(offset + i) * 2 + 1] << 8));
-                    frame[i] = s / 32768f;
+                    Array.Copy(_rnnoiseRemainder, 0, scratchBuffer, 0, _rnnoiseRemainder.Length);
+                    combinedIndex = _rnnoiseRemainder.Length;
+                    ArrayPool<float>.Shared.Return(_rnnoiseRemainder);
+                    _rnnoiseRemainder = null;
                 }
 
-                var denoised = _rnnoise.Process(frame);
-                if (denoised != null)
+                for (int i = 0; i < sampleCount; i++)
                 {
-                    for (int i = 0; i < RnnoiseService.FrameSize; i++)
+                    short s = (short)(processedBuffer[i * 2] | (processedBuffer[i * 2 + 1] << 8));
+                    scratchBuffer[combinedIndex + i] = s / 32768f;
+                }
+
+                var offset = 0;
+                while (offset + RnnoiseService.FrameSize <= combinedIndex + sampleCount)
+                {
+                    var frame = scratchBuffer.AsSpan(offset, RnnoiseService.FrameSize);
+                    var frameCopy = new float[RnnoiseService.FrameSize];
+                    frame.CopyTo(frameCopy);
+
+                    var denoised = rnnoise.Process(frameCopy);
+                    if (denoised != null)
                     {
-                        var sample = (short)Math.Clamp(denoised[i] * 32768f, short.MinValue, short.MaxValue);
-                        processedBuffer[(offset + i) * 2] = (byte)(sample & 0xFF);
-                        processedBuffer[(offset + i) * 2 + 1] = (byte)((sample >> 8) & 0xFF);
+                        for (int i = 0; i < RnnoiseService.FrameSize; i++)
+                        {
+                            var sample = (short)Math.Clamp(denoised[i] * 32768f, short.MinValue, short.MaxValue);
+                            processedBuffer[(offset + i) * 2] = (byte)(sample & 0xFF);
+                            processedBuffer[(offset + i) * 2 + 1] = (byte)((sample >> 8) & 0xFF);
+                        }
                     }
+
+                    offset += RnnoiseService.FrameSize;
                 }
 
-                offset += RnnoiseService.FrameSize;
+                var remaining = (combinedIndex + sampleCount) - offset;
+                if (remaining > 0)
+                {
+                    _rnnoiseRemainder = new float[remaining];
+                    Array.Copy(scratchBuffer, offset, _rnnoiseRemainder, 0, remaining);
+                }
+            }
+            finally
+            {
+                ArrayPool<float>.Shared.Return(scratchBuffer);
             }
         }
 
@@ -1686,6 +1730,7 @@ private int _screenShareHotkeyId = -1;
     public void Dispose()
     {
         _rnnoise?.Dispose();
+        _rnnoiseRemainder = null;
         _speechEnhancement?.Dispose();
         _speakingTimer.Dispose();
         StopPttPolling();

@@ -1,7 +1,5 @@
 # RNNoise Noise Suppression Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
-
 **Goal:** Add RNNoise as an alternative noise suppression option alongside GTCRN, with a dropdown in Options > Audio to select between GTCRN, RNNoise, or Disabled.
 
 **Architecture:** A new `RnnoiseService` wraps the native `renamenoise.dll` via P/Invoke. `AudioManager` calls it in `OnMicData` on 480-sample chunks (48kHz) before the existing GTCRN speech enhancement. Settings flow through the existing `AppSettings` → `MumbleAdapter.ApplySettings` → `AudioManager.ConfigureRnnoise` path. The UI provides a dropdown with three options: Disabled, RNNoise, and GTCRN.

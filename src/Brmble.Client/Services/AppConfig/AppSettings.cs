@@ -44,7 +44,7 @@ public enum SpeechDenoiseMode
 }
 
 public record SpeechDenoiseSettings(
-    SpeechDenoiseMode Mode = SpeechDenoiseMode.Disabled
+    SpeechDenoiseMode Mode = SpeechDenoiseMode.Rnnoise
 );
 
 public record AppearanceSettings(
