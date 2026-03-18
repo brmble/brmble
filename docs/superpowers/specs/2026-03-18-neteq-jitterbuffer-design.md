@@ -61,12 +61,20 @@ src/Brmble.Audio/
 ```csharp
 public class JitterBuffer : IDisposable
 {
+    // Constructor — each JitterBuffer owns its own IOpusDecoder instance.
+    // The decoder MUST be exclusive to this buffer (Opus PLC is state-dependent).
+    JitterBuffer(IOpusDecoder decoder);
+
     // Network thread calls this on incoming packet
     void InsertPacket(EncodedPacket packet);
 
     // PlayoutTimer calls this every 20ms
-    // ALWAYS returns exactly 960 samples (20ms @ 48kHz mono)
-    short[] GetAudio();
+    // Writes exactly 960 samples into the provided buffer (20ms @ 48kHz mono)
+    // The caller owns the buffer to avoid GC pressure on the audio thread.
+    void GetAudio(Span<short> output);
+
+    // Per-user volume (0.0 – 1.0). Applied during GetAudio() before output.
+    float Volume { get; set; }
 
     // Diagnostics
     JitterBufferStats GetStats();
@@ -77,7 +85,7 @@ public class JitterBuffer : IDisposable
 }
 ```
 
-One `JitterBuffer` instance per speaker. `AudioManager` creates one per user, replacing the current `UserAudioPipeline`.
+One `JitterBuffer` instance per speaker. `AudioManager` creates one per user, replacing the current `UserAudioPipeline`. Each `JitterBuffer` owns its `IOpusDecoder` — this is required because Opus PLC depends on the decoder's internal state from previous frames. The decoder is disposed when the `JitterBuffer` is disposed.
 
 ---
 
@@ -87,7 +95,7 @@ One `JitterBuffer` instance per speaker. `AudioManager` creates one per user, re
 
 Stores encoded (not decoded) Opus packets, sorted by timestamp.
 
-**Data structure:** `SortedList<long, EncodedPacket>` keyed on timestamp.
+**Data structure:** `SortedList<long, EncodedPacket>` keyed on timestamp. Note: `SortedList` has O(n) insert due to array shifting, but at a maximum capacity of ~25 frames this is negligible. `SortedDictionary` (O(log n) insert) was considered but loses cache locality and ordered enumeration efficiency at this small size.
 
 **`EncodedPacket` model:**
 ```csharp
@@ -95,9 +103,14 @@ public record EncodedPacket(
     long Sequence,          // Mumble sequence counter
     long Timestamp,         // Derived: Sequence × 960 (samples per frame)
     byte[] Payload,         // Opus-encoded data
-    long ArrivalTimeMs      // Local clock at receipt
+    long ArrivalTimeMs      // Local clock at receipt (Stopwatch.GetElapsedTime())
 );
 ```
+
+**Mumble sequence number edge cases:**
+- **Sequence resets:** Mumble may reset sequence numbers on reconnect or new speech burst. Detect large backward jumps (e.g., > 100 frames) and reset the buffer state (flush PacketBuffer, reset DelayManager histogram).
+- **Multi-frame packets:** Some Mumble encodings pack multiple frames per packet. For Opus this is uncommon but possible — if detected, split into individual `EncodedPacket` entries with sequential timestamps.
+- **First packet after silence:** The first packet of a new speech burst should reset the expected timestamp tracker rather than being treated as "late".
 
 **Behavior:**
 - Thread-safe via `lock` (one producer: network thread, one consumer: playout thread)
@@ -182,9 +195,20 @@ GetAudio() call
 **Decisions:**
 - **Normal** — decode packet, output at normal speed
 - **Expand (PLC)** — no packet available, use `opus_decode(NULL)` to generate synthetic audio
-- **Accelerate** — buffer too full, drop one frame with linear cross-fade at boundaries (2ms overlap)
+- **Accelerate** — buffer too full, drop one frame with linear cross-fade at boundaries
 - **Decelerate** — buffer too low, repeat last frame with cross-fade
 - **Merge** — transition from PLC back to real audio, cross-fade between PLC output and new decoded frame to prevent clicks
+
+**Cross-fade pseudocode (Accelerate/Decelerate/Merge):**
+```
+overlap_samples = 96  // 2ms at 48kHz
+for i in 0..overlap_samples:
+    alpha = i / overlap_samples           // 0.0 → 1.0
+    output[i] = (short)(outgoing[i] * (1 - alpha) + incoming[i] * alpha)
+```
+For **Accelerate**: decode two frames, cross-fade the tail of frame 1 with the head of frame 2, output one combined frame (960 samples). The extra frame is consumed, shrinking the buffer.
+For **Decelerate**: output current frame, then cross-fade its tail with a repeated copy of itself, producing one extra frame of output. The buffer grows by one frame.
+For **Merge**: cross-fade the last PLC frame with the first real decoded frame.
 
 Phase 3 will replace the simple cross-fade in Accelerate/Decelerate with WSOLA for inaudible time-stretching.
 
@@ -200,21 +224,35 @@ Dedicated high-priority thread that drives the playout loop.
 
 **Design:**
 - `Thread` with `ThreadPriority.AboveNormal`
-- `Stopwatch`-based timing loop targeting 20ms intervals
+- `Stopwatch`-based timing loop targeting 20ms intervals with drift compensation: track cumulative expected time vs actual elapsed time, adjusting each sleep to stay aligned with the 20ms grid
 - Each tick: calls `GetAudio()` on all active `JitterBuffer` instances, mixes output, writes to ring buffer
-- Mixing: sample-by-sample addition with clipping
+- Mixing: sample-by-sample addition with `Math.Clamp` to `short.MinValue`/`short.MaxValue`
+- Per-user volume is applied inside `JitterBuffer.GetAudio()` before returning samples
+
+**Ring buffer (PlayoutTimer → NAudio):**
+- Lock-free single-producer single-consumer circular buffer
+- Capacity: 100ms (5 × 960 samples = 4800 samples)
+- PlayoutTimer writes mixed PCM each tick; NAudio callback reads on demand
+- If NAudio reads faster than writes (underrun): output silence. If writes overtake reads (overrun): drop oldest samples. Both conditions are logged in stats.
 
 ### 6. IOpusDecoder
 
 ```csharp
 public interface IOpusDecoder : IDisposable
 {
-    short[] Decode(byte[] encodedData);   // normal decode
-    short[] DecodePlc();                   // packet loss concealment
+    // Decode encoded Opus data into PCM samples.
+    // Writes into the provided span to avoid allocation.
+    // Returns number of samples written.
+    int Decode(ReadOnlySpan<byte> encodedData, Span<short> output);
+
+    // Generate PLC audio (packet loss concealment).
+    // Uses decoder internal state from previous frames.
+    // Returns number of samples written.
+    int DecodePlc(Span<short> output);
 }
 ```
 
-Wrapper around MumbleSharp's `OpusDecoder`. The interface enables unit testing with mock decoders.
+The implementation wraps MumbleSharp's `OpusDecoder`, adapting its `byte[]`-based API to the `Span<short>` interface (MumbleSharp decodes to `byte[]` which is reinterpreted as `short[]`). Each `JitterBuffer` owns its decoder instance exclusively — sharing decoders would corrupt PLC state. The interface enables unit testing with mock decoders.
 
 ---
 
@@ -263,6 +301,15 @@ Wrapper around MumbleSharp's `OpusDecoder`. The interface enables unit testing w
 - `EncodePipeline` (mic → Opus encode → send) remains unchanged
 - Per-user `WaveOutEvent` replaced by single `WaveOutEvent` on mixed output
 - `PlayoutTimer` owned by `AudioManager`, which also contains the mixer
+- **Per-user volume and local mute:** Preserved via `JitterBuffer.Volume` property. Setting volume to 0.0 effectively mutes a user. The current per-user volume functionality maps directly to this property.
+- **Deafen:** When self-deafened, `AudioManager` stops reading from the ring buffer (outputs silence to NAudio) rather than stopping individual buffers. This preserves jitter buffer state so audio resumes cleanly when undeafened.
+- **Speaking detection:** `JitterBuffer` exposes an `IsSpeaking` property based on whether `GetAudio()` returned real audio (Normal/Accelerate/Decelerate) vs silence/PLC in the last N ticks. `AudioManager` polls this to emit `voice.userSpeaking`/`voice.userSilent` bridge events, replacing the current detection in `UserAudioPipeline`.
+
+### User Lifecycle
+- **User joins channel:** `AudioManager` creates a new `JitterBuffer` with a fresh `IOpusDecoder` instance
+- **User leaves channel:** `AudioManager` disposes the `JitterBuffer` (which disposes the decoder)
+- **Reconnect:** All `JitterBuffer` instances are disposed and recreated — no state carries over between connections
+- **User starts speaking after silence:** First packet triggers a buffer reset (see "First packet after silence" in PacketBuffer section)
 
 ### Changes to `MumbleAdapter`
 - `EncodedVoice()` creates `EncodedPacket` (with `ArrivalTimeMs`) and calls `JitterBuffer.InsertPacket()`
