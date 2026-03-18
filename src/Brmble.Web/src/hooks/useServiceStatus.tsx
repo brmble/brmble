@@ -12,6 +12,7 @@ const DEFAULT_STATUSES: ServiceStatusMap = {
 interface ServiceStatusContextValue {
   statuses: ServiceStatusMap;
   updateStatus: (service: ServiceName, update: Partial<ServiceStatus>) => void;
+  resetStatuses: () => void;
 }
 
 const ServiceStatusContext = createContext<ServiceStatusContextValue | null>(null);
@@ -26,8 +27,12 @@ export function ServiceStatusProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
+  const resetStatuses = useCallback(() => {
+    setStatuses(DEFAULT_STATUSES);
+  }, []);
+
   return (
-    <ServiceStatusContext.Provider value={{ statuses, updateStatus }}>
+    <ServiceStatusContext.Provider value={{ statuses, updateStatus, resetStatuses }}>
       {children}
     </ServiceStatusContext.Provider>
   );
