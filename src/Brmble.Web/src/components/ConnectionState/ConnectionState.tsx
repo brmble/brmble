@@ -32,7 +32,7 @@ export function ConnectionState({
     connecting: `Reaching ${serverLabel || 'server'}...`,
     reconnecting: `Trying to reach ${serverLabel || 'server'}...`,
     disconnected: `You were disconnected from ${serverLabel || 'the server'}`,
-    failed: `Could not reconnect to ${serverLabel || 'the server'}`,
+    failed: `Could not connect to ${serverLabel || 'the server'}`,
   };
 
   return (

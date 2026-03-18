@@ -85,6 +85,13 @@ export function Sidebar({
     }
   };
 
+  const dotTooltip = (svc: ServiceName): string => {
+    const name = SERVICE_DISPLAY_NAMES[svc];
+    const state = stateLabel(statuses[svc].state);
+    const error = statuses[svc].error;
+    return error ? `${name}: ${state} — ${error}` : `${name}: ${state}`;
+  };
+
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -140,10 +147,10 @@ export function Sidebar({
             <div className="server-status-line" aria-live="polite" aria-atomic="true">
               <div className="service-status-dots" aria-label="Service status">
                 {serviceOrder.map(svc => (
-                  <Tooltip key={svc} content={`${SERVICE_DISPLAY_NAMES[svc]}: ${stateLabel(statuses[svc].state)}`} position="top">
+                  <Tooltip key={svc} content={dotTooltip(svc)} position="top">
                     <span
                       className={`service-dot service-dot--${statuses[svc].state}`}
-                      aria-label={`${SERVICE_DISPLAY_NAMES[svc]} ${stateLabel(statuses[svc].state)}`}
+                      aria-label={dotTooltip(svc)}
                     />
                   </Tooltip>
                 ))}
@@ -179,10 +186,10 @@ export function Sidebar({
             <div className="server-status-line" aria-live="polite" aria-atomic="true">
               <div className="service-status-dots" aria-label="Service status">
                 {serviceOrder.map(svc => (
-                  <Tooltip key={svc} content={`${SERVICE_DISPLAY_NAMES[svc]}: ${stateLabel(statuses[svc].state)}`} position="top">
+                  <Tooltip key={svc} content={dotTooltip(svc)} position="top">
                     <span
                       className={`service-dot service-dot--${statuses[svc].state}`}
-                      aria-label={`${SERVICE_DISPLAY_NAMES[svc]} ${stateLabel(statuses[svc].state)}`}
+                      aria-label={dotTooltip(svc)}
                     />
                   </Tooltip>
                 ))}

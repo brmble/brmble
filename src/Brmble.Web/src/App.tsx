@@ -134,7 +134,7 @@ function App() {
   const [certFingerprint, setCertFingerprint] = useState('');
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
-  const { statuses, updateStatus } = useServiceStatus();
+  const { statuses, updateStatus, resetStatuses } = useServiceStatus();
   const connected = connectionStatus === 'connected';
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [username, setUsername] = useState('');
@@ -911,8 +911,9 @@ function App() {
     };
 
     const onVoiceReconnecting = () => {
+      pendingVoiceErrorRef.current = false;
       setConnectionStatus('reconnecting');
-      updateStatus('voice', { state: 'connecting' });
+      updateStatus('voice', { state: 'connecting', error: undefined });
     };
     const onVoiceReconnectFailed = (data?: unknown) => {
       clearPendingAction();
@@ -1221,7 +1222,9 @@ const handleConnect = (serverData: SavedServer) => {
   const handleBackToServerList = () => {
     bridge.send('voice.disconnect');
     clearPendingAction();
+    pendingVoiceErrorRef.current = false;
     setConnectionStatus('idle');
+    resetStatuses();
     setServerLabel('');
     setServerAddress('');
     setUsername('');
