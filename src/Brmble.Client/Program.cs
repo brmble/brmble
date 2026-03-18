@@ -520,6 +520,7 @@ static class Program
                 }
                 _mumbleClient?.Disconnect();
                 TrayIcon.Destroy();
+                TaskbarBadge.Destroy();
                 Win32Window.PostQuitMessage(0);
                 return IntPtr.Zero;
 

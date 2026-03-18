@@ -333,7 +333,7 @@ function App() {
   const updateBadge = useCallback((unread: number, invite: boolean) => {
     const effectiveUnreadDMs = unread > 0;
     bridge.send('notification.badge', { unreadDMs: effectiveUnreadDMs, pendingInvite: invite });
-  }, []);
+  }, [bridge]);
 
   // Refs to avoid re-registering bridge handlers on every state change
   const usersRef = useRef(users);

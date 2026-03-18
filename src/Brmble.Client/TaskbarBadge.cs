@@ -66,6 +66,9 @@ internal static class TaskbarBadge
     [DllImport("user32.dll")]
     private static extern IntPtr CreateIconIndirect(ref ICONINFO piconinfo);
 
+    [DllImport("user32.dll")]
+    private static extern bool DestroyIcon(IntPtr hIcon);
+
     [DllImport("gdi32.dll")]
     private static extern IntPtr CreateBitmap(int nWidth, int nHeight, uint cPlanes, uint cBitsPerPel, byte[]? lpvBits);
 
@@ -99,24 +102,14 @@ internal static class TaskbarBadge
 
     private static IntPtr LoadBrmbleOverlayIcon()
     {
-        // Try to load the Brmble 16x16 icon from the base Resources folder
-        var icoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "brmble-16.png");
-        
-        if (File.Exists(icoPath))
+        try
         {
-            try
-            {
-                using var bitmap = new System.Drawing.Bitmap(icoPath);
-                return bitmap.GetHicon();
-            }
-            catch
-            {
-                // Fallback to generated icon
-            }
+            return Win32Window.LoadAppIcon(16);
         }
-
-        // Fallback: create a smaller Brmble-colored circle
-        return CreateSmallBrmbleIcon();
+        catch
+        {
+            return CreateSmallBrmbleIcon();
+        }
     }
 
     private static IntPtr CreateSmallBrmbleIcon()
@@ -191,7 +184,8 @@ internal static class TaskbarBadge
 
         Marshal.Copy(pixels, 0, bits, pixels.Length);
 
-        var maskBits = new byte[size * size / 8];
+        var stride = ((size + 15) / 16) * 2;
+        var maskBits = new byte[stride * size];
         var hbmMask = CreateBitmap(size, size, 1, 1, maskBits);
 
         var iconInfo = new ICONINFO
@@ -207,5 +201,16 @@ internal static class TaskbarBadge
         DeleteObject(hbmMask);
 
         return hIcon;
+    }
+
+    public static void Destroy()
+    {
+        if (_badgeIcon != IntPtr.Zero)
+        {
+            DestroyIcon(_badgeIcon);
+            _badgeIcon = IntPtr.Zero;
+        }
+        _taskbarList = null;
+        _initialized = false;
     }
 }
