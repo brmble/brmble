@@ -372,6 +372,7 @@ function App() {
   connectionStatusRef.current = connectionStatus;
   const handleToggleScreenShareRef = useRef<(() => void) | null>(null);
   const disconnectViewerRef = useRef<(() => void) | null>(null);
+  const pendingVoiceErrorRef = useRef(false);
 
   // Load DM contacts scoped to the current server
   useEffect(() => {
@@ -498,6 +499,7 @@ function App() {
   // Register all bridge handlers once on mount
   useEffect(() => {
     const onVoiceConnected = ((data: unknown) => {
+      pendingVoiceErrorRef.current = false;
       setConnectionStatus('connected');
       updateStatus('voice', { state: 'connected', error: undefined });
       setCurrentChannelId('server-root');
@@ -522,12 +524,18 @@ function App() {
     });
 
     const onVoiceDisconnected = (data: unknown) => {
+      console.log('[DEBUG] voice.disconnected received:', JSON.stringify(data));
       clearPendingAction();
       const d = data as { reconnectAvailable?: boolean } | null;
       if (d?.reconnectAvailable) {
         setConnectionStatus('disconnected');
       } else {
-        setConnectionStatus('idle');
+        if (pendingVoiceErrorRef.current) {
+          setConnectionStatus('failed');
+          pendingVoiceErrorRef.current = false;
+        } else {
+          setConnectionStatus('idle');
+        }
         setServerAddress('');
         setServerLabel('');
       }
@@ -605,6 +613,7 @@ function App() {
       const errorMsg = d?.message || 'Unknown error';
       console.error('Voice error:', errorMsg);
       updateStatus('voice', { error: errorMsg });
+      pendingVoiceErrorRef.current = true;
     });
 
     const onVoiceMessage = ((data: unknown) => {
