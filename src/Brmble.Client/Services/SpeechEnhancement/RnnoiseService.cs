@@ -11,13 +11,16 @@ public sealed class RnnoiseService : IDisposable
     private readonly IntPtr _state;
     private bool _disposed;
 
-    [DllImport("renamenoise.dll", CallingConvention = CallingConvention.Cdecl, EntryPoint = "rnnoise_create")]
+    [DllImport("renamenoise.dll", CallingConvention = CallingConvention.Cdecl, EntryPoint = "renamenoise_create")]
     private static extern IntPtr RnnoiseCreate(IntPtr ctx);
 
-    [DllImport("renamenoise.dll", CallingConvention = CallingConvention.Cdecl, EntryPoint = "rnnoise_process_frame")]
-    private static extern int RnnoiseProcessFrame(IntPtr state, float[] input, float[] output);
+    [DllImport("renamenoise.dll", CallingConvention = CallingConvention.Cdecl, EntryPoint = "renamenoise_init")]
+    private static extern int RnnoiseInit(IntPtr state);
 
-    [DllImport("renamenoise.dll", CallingConvention = CallingConvention.Cdecl, EntryPoint = "rnnoise_destroy")]
+    [DllImport("renamenoise.dll", CallingConvention = CallingConvention.Cdecl, EntryPoint = "renamenoise_process_frame")]
+    private static extern float RnnoiseProcessFrame(IntPtr state, float[] input, float[] output);
+
+    [DllImport("renamenoise.dll", CallingConvention = CallingConvention.Cdecl, EntryPoint = "renamenoise_destroy")]
     private static extern void RnnoiseDestroy(IntPtr state);
 
     public RnnoiseService(SpeechDenoiseMode mode)
@@ -34,6 +37,15 @@ public sealed class RnnoiseService : IDisposable
             {
                 Console.Error.WriteLine("RNNoise: Failed to create denoiser state. Disabling.");
                 _enabled = false;
+                return;
+            }
+
+            var initResult = RnnoiseInit(_state);
+            if (initResult != 0)
+            {
+                Console.Error.WriteLine($"RNNoise: Init returned {initResult}. Disabling.");
+                _enabled = false;
+                return;
             }
         }
         catch (DllNotFoundException)
@@ -62,13 +74,8 @@ public sealed class RnnoiseService : IDisposable
             throw new ArgumentException($"Input must be exactly {FrameSize} samples (10ms at 48kHz).", nameof(input));
 
         var output = new float[FrameSize];
-        var result = RnnoiseProcessFrame(_state, input, output);
-
-        if (result < 0)
-        {
-            Console.Error.WriteLine($"RNNoise: Process returned error code {result}.");
-            return input;
-        }
+        Array.Copy(input, output, FrameSize);
+        var vad = RnnoiseProcessFrame(_state, output, output);
 
         return output;
     }
