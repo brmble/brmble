@@ -81,6 +81,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager.ShortcutPressed += action => {
             _bridge?.Send("voice.shortcutPressed", new { action });
             _bridge?.NotifyUiThread();
+            if (action == "toggleGame")
+            {
+                _bridge?.Send("game.toggle", null);
+                _bridge?.NotifyUiThread();
+            }
         };
         _audioManager.ShortcutReleased += action => {
             _bridge?.Send("voice.shortcutReleased", new { action });
@@ -219,6 +224,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         // is created on reconnect, ConfigureSpeechEnhancement is always called.
         _lastSpeechEnhancementEnabled = false;
         _lastSpeechEnhancementModel = "";
+        _lastSpeechDenoiseMode = SpeechDenoiseMode.Disabled;
 
         try
         {
@@ -595,6 +601,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     private bool _lastSpeechEnhancementEnabled = false;
     private string _lastSpeechEnhancementModel = "";
+    private SpeechDenoiseMode _lastSpeechDenoiseMode = SpeechDenoiseMode.Disabled;
 
     public void ApplySettings(AppSettings settings)
     {
@@ -604,6 +611,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.SetShortcut("toggleLeaveVoice", settings.Shortcuts.ToggleLeaveVoiceKey);
         _audioManager?.SetShortcut("toggleDmScreen", settings.Shortcuts.ToggleDMScreenKey);
         _audioManager?.SetShortcut("toggleScreenShare", settings.Shortcuts.ToggleScreenShareKey);
+        _audioManager?.SetShortcut("toggleGame", settings.Shortcuts.ToggleGameKey);
         _audioManager?.SetInputVolume(settings.Audio.InputVolume);
         _audioManager?.SetOutputVolume(settings.Audio.OutputVolume);
         _audioManager?.SetMaxAmplification(settings.Audio.MaxAmplification);
@@ -628,6 +636,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             };
             var modelsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "models");
             _audioManager?.ConfigureSpeechEnhancement(modelsPath, seEnabled, modelVariant);
+        }
+
+        // Configure RNNoise denoising
+        var denoiseMode = settings.SpeechDenoise.Mode;
+        if (denoiseMode != _lastSpeechDenoiseMode)
+        {
+            _lastSpeechDenoiseMode = denoiseMode;
+            _audioManager?.ConfigureRnnoise(denoiseMode);
         }
     }
 

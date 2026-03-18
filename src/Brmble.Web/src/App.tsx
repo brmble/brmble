@@ -338,12 +338,9 @@ function App() {
   const { messages: dmMessages, addMessage: addDMMessage } = useChatStore(dmKey);
 
   const updateBadge = useCallback((unread: number, invite: boolean) => {
-    // When Matrix is connected, prefer its DM unread count over localStorage
-    const effectiveUnreadDMs = matrixClient?.client
-      ? unreadTracker.totalDmUnreadCount > 0
-      : unread > 0;
+    const effectiveUnreadDMs = unread > 0;
     bridge.send('notification.badge', { unreadDMs: effectiveUnreadDMs, pendingInvite: invite });
-  }, [matrixClient?.client, unreadTracker.totalDmUnreadCount]);
+  }, [bridge]);
 
   // Refs to avoid re-registering bridge handlers on every state change
   const usersRef = useRef(users);
@@ -863,6 +860,10 @@ function App() {
       handleToggleScreenShareRef.current?.();
     };
 
+    const onToggleGame = () => {
+      setShowGame(prev => !prev);
+    };
+
     const onShowCloseDialog = () => {
       setShowCloseDialog(true);
     };
@@ -973,6 +974,7 @@ function App() {
     bridge.on('voice.shortcutReleased', onShortcutReleased);
     bridge.on('voice.toggleDmScreen', onToggleDmScreen);
     bridge.on('voice.toggleScreenShare', onToggleScreenShare);
+    bridge.on('game.toggle', onToggleGame);
     bridge.on('window.showCloseDialog', onShowCloseDialog);
     bridge.on('cert.status', onCertStatus);
     bridge.on('cert.generated', onCertGenerated);
@@ -1007,6 +1009,7 @@ function App() {
       bridge.off('voice.shortcutReleased', onShortcutReleased);
       bridge.off('voice.toggleDmScreen', onToggleDmScreen);
       bridge.off('voice.toggleScreenShare', onToggleScreenShare);
+      bridge.off('game.toggle', onToggleGame);
       bridge.off('window.showCloseDialog', onShowCloseDialog);
       bridge.off('cert.status', onCertStatus);
       bridge.off('cert.generated', onCertGenerated);
@@ -1121,6 +1124,7 @@ const handleConnect = (serverData: SavedServer) => {
       setCurrentChannelName(channel.name);
       setUnreadCount(0);
       updateBadge(0, hasPendingInvite);
+      setShowGame(false);
 
       if (appMode === 'dm') {
         setAppMode('channels');
@@ -1271,6 +1275,7 @@ const handleConnect = (serverData: SavedServer) => {
   }, []);
 
   const toggleDMMode = () => {
+    setShowGame(false);
     setAppMode(prev => prev === 'channels' ? 'dm' : 'channels');
   };
 
@@ -1280,10 +1285,8 @@ const handleConnect = (serverData: SavedServer) => {
     0,
   );
 
-  // Use Matrix-backed DM unread count when Matrix is connected, fall back to local aggregate
-  const totalDmUnreadCount = matrixClient?.client
-    ? unreadTracker.totalDmUnreadCount
-    : localTotalDmUnreadCount;
+  // Combine Matrix DM unread count with local Mumble DM unread count
+  const totalDmUnreadCount = (matrixClient?.client ? unreadTracker.totalDmUnreadCount : 0) + localTotalDmUnreadCount;
 
   // Push DM badge state to native side whenever unread count changes
   useEffect(() => {

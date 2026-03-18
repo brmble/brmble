@@ -314,7 +314,7 @@ export function useUnreadTracker(
       client.off(RoomEvent.Receipt, onReceipt);
       client.off(RoomEvent.AccountData, onRoomAccountData);
     };
-  }, [client, refreshAll, refreshRoom]);
+  }, [client, refreshAll, refreshRoom, dmRoomIds]);
 
   /**
    * Send the read marker to the server (debounced, fire-and-forget).
