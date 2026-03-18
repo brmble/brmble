@@ -18,7 +18,8 @@ public record ShortcutsSettings(
     string? ToggleMuteDeafenKey = null,
     string? ToggleLeaveVoiceKey = null,
     string? ToggleDMScreenKey = null,
-    string? ToggleScreenShareKey = null
+    string? ToggleScreenShareKey = null,
+    string? ToggleGameKey = null
 );
 
 public record MessagesSettings(

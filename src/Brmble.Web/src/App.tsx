@@ -816,6 +816,10 @@ function App() {
       handleToggleScreenShareRef.current?.();
     };
 
+    const onToggleGame = () => {
+      setShowGame(prev => !prev);
+    };
+
     const onShowCloseDialog = () => {
       setShowCloseDialog(true);
     };
@@ -923,6 +927,7 @@ function App() {
     bridge.on('voice.shortcutReleased', onShortcutReleased);
     bridge.on('voice.toggleDmScreen', onToggleDmScreen);
     bridge.on('voice.toggleScreenShare', onToggleScreenShare);
+    bridge.on('game.toggle', onToggleGame);
     bridge.on('window.showCloseDialog', onShowCloseDialog);
     bridge.on('cert.status', onCertStatus);
     bridge.on('cert.generated', onCertGenerated);
@@ -956,6 +961,7 @@ function App() {
       bridge.off('voice.shortcutReleased', onShortcutReleased);
       bridge.off('voice.toggleDmScreen', onToggleDmScreen);
       bridge.off('voice.toggleScreenShare', onToggleScreenShare);
+      bridge.off('game.toggle', onToggleGame);
       bridge.off('window.showCloseDialog', onShowCloseDialog);
       bridge.off('cert.status', onCertStatus);
       bridge.off('cert.generated', onCertGenerated);
@@ -1067,6 +1073,7 @@ const handleConnect = (serverData: SavedServer) => {
       setCurrentChannelName(channel.name);
       setUnreadCount(0);
       updateBadge(0, hasPendingInvite);
+      setShowGame(false);
 
       if (appMode === 'dm') {
         setAppMode('channels');
@@ -1217,6 +1224,7 @@ const handleConnect = (serverData: SavedServer) => {
   }, []);
 
   const toggleDMMode = () => {
+    setShowGame(false);
     setAppMode(prev => prev === 'channels' ? 'dm' : 'channels');
   };
 

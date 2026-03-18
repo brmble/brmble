@@ -81,6 +81,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager.ShortcutPressed += action => {
             _bridge?.Send("voice.shortcutPressed", new { action });
             _bridge?.NotifyUiThread();
+            if (action == "toggleGame")
+            {
+                _bridge?.Send("game.toggle", null);
+                _bridge?.NotifyUiThread();
+            }
         };
         _audioManager.ShortcutReleased += action => {
             _bridge?.Send("voice.shortcutReleased", new { action });
@@ -601,6 +606,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.SetShortcut("toggleLeaveVoice", settings.Shortcuts.ToggleLeaveVoiceKey);
         _audioManager?.SetShortcut("toggleDmScreen", settings.Shortcuts.ToggleDMScreenKey);
         _audioManager?.SetShortcut("toggleScreenShare", settings.Shortcuts.ToggleScreenShareKey);
+        _audioManager?.SetShortcut("toggleGame", settings.Shortcuts.ToggleGameKey);
         _audioManager?.SetInputVolume(settings.Audio.InputVolume);
         _audioManager?.SetOutputVolume(settings.Audio.OutputVolume);
         _audioManager?.SetMaxAmplification(settings.Audio.MaxAmplification);

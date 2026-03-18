@@ -17,6 +17,7 @@ export interface ShortcutsSettings {
   toggleLeaveVoiceKey: string | null;
   toggleDMScreenKey: string | null;
   toggleScreenShareKey: string | null;
+  toggleGameKey: string | null;
 }
 
 export const DEFAULT_SHORTCUTS: ShortcutsSettings = {
@@ -25,6 +26,7 @@ export const DEFAULT_SHORTCUTS: ShortcutsSettings = {
   toggleLeaveVoiceKey: null,
   toggleDMScreenKey: null,
   toggleScreenShareKey: null,
+  toggleGameKey: null,
 };
 
 export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearBinding }: ShortcutsSettingsTabProps) {
@@ -177,6 +179,19 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
             onClick={() => setRecordingKey(recordingKey === 'toggleScreenShareKey' ? null : 'toggleScreenShareKey')}
           >
             {recordingKey === 'toggleScreenShareKey' ? 'Press any key...' : (localSettings.toggleScreenShareKey || 'Not bound')}
+          </button>
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <h3 className="heading-section settings-section-title">Game</h3>
+        <div className="settings-item">
+          <label>Toggle Game Panel</label>
+          <button
+            className={`btn btn-secondary key-binding-btn ${recordingKey === 'toggleGameKey' ? 'recording' : ''}`}
+            onClick={() => setRecordingKey(recordingKey === 'toggleGameKey' ? null : 'toggleGameKey')}
+          >
+            {recordingKey === 'toggleGameKey' ? 'Press any key...' : (localSettings.toggleGameKey || 'Not bound')}
           </button>
         </div>
       </div>
