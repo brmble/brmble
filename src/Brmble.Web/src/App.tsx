@@ -331,12 +331,9 @@ function App() {
   const { messages: dmMessages, addMessage: addDMMessage } = useChatStore(dmKey);
 
   const updateBadge = useCallback((unread: number, invite: boolean) => {
-    // When Matrix is connected, prefer its DM unread count over localStorage
-    const effectiveUnreadDMs = matrixClient?.client
-      ? unreadTracker.totalDmUnreadCount > 0
-      : unread > 0;
+    const effectiveUnreadDMs = unread > 0;
     bridge.send('notification.badge', { unreadDMs: effectiveUnreadDMs, pendingInvite: invite });
-  }, [matrixClient?.client, unreadTracker.totalDmUnreadCount]);
+  }, []);
 
   // Refs to avoid re-registering bridge handlers on every state change
   const usersRef = useRef(users);
@@ -1226,10 +1223,8 @@ const handleConnect = (serverData: SavedServer) => {
     0,
   );
 
-  // Use Matrix-backed DM unread count when Matrix is connected, fall back to local aggregate
-  const totalDmUnreadCount = matrixClient?.client
-    ? unreadTracker.totalDmUnreadCount
-    : localTotalDmUnreadCount;
+  // Combine Matrix DM unread count with local Mumble DM unread count
+  const totalDmUnreadCount = (matrixClient?.client ? unreadTracker.totalDmUnreadCount : 0) + localTotalDmUnreadCount;
 
   // Push DM badge state to native side whenever unread count changes
   useEffect(() => {

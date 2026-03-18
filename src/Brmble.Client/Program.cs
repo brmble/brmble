@@ -88,6 +88,7 @@ static class Program
             Win32Window.ExtendFrameIntoClientArea(_hwnd);
             Win32Window.ForceFrameChange(_hwnd);
             TrayIcon.Create(_hwnd);
+            TaskbarBadge.Initialize(_hwnd);
             _ = InitWebView2Async(_hwnd, useDevServer);
             Win32Window.RunMessageLoop();
         }
@@ -345,6 +346,7 @@ static class Program
             var hasUnreadDMs = data.TryGetProperty("unreadDMs", out var u) && u.GetBoolean();
             var hasPendingInvite = data.TryGetProperty("pendingInvite", out var p) && p.GetBoolean();
             TrayIcon.UpdateBadge(hasUnreadDMs, hasPendingInvite);
+            TaskbarBadge.SetHasBadge(hasUnreadDMs || hasPendingInvite);
             return Task.CompletedTask;
         });
     }
