@@ -24,7 +24,6 @@
 | `src/Brmble.Audio/NetEQ/PacketBuffer.cs` | SortedList-based encoded packet storage with reordering |
 | `src/Brmble.Audio/NetEQ/DelayManager.cs` | Relative delay calculation, histogram, target_level |
 | `src/Brmble.Audio/NetEQ/DecisionLogic.cs` | Per-tick playout state machine |
-| `src/Brmble.Audio/NetEQ/SyncBuffer.cs` | Circular PCM buffer for decoded samples |
 | `src/Brmble.Audio/NetEQ/JitterBuffer.cs` | Public API orchestrator |
 | `src/Brmble.Audio/NetEQ/PlayoutTimer.cs` | Dedicated 20ms timer thread |
 | `src/Brmble.Audio/NetEQ/AudioMixer.cs` | Multi-user sample mixing + ring buffer output |
@@ -41,7 +40,6 @@
 | `tests/Brmble.Audio.Tests/NetEQ/PacketBufferTest.cs` | PacketBuffer unit tests |
 | `tests/Brmble.Audio.Tests/NetEQ/DelayManagerTest.cs` | DelayManager unit tests |
 | `tests/Brmble.Audio.Tests/NetEQ/DecisionLogicTest.cs` | DecisionLogic unit tests |
-| `tests/Brmble.Audio.Tests/NetEQ/SyncBufferTest.cs` | SyncBuffer unit tests |
 | `tests/Brmble.Audio.Tests/NetEQ/RingBufferTest.cs` | RingBuffer unit tests |
 | `tests/Brmble.Audio.Tests/NetEQ/JitterBufferTest.cs` | JitterBuffer integration tests |
 | `tests/Brmble.Audio.Tests/Helpers/FakeOpusDecoder.cs` | Test double for IOpusDecoder |
@@ -463,6 +461,16 @@ public class PacketBuffer
     }
 
     /// <summary>
+    /// Check if a packet with the given timestamp exists in the buffer.
+    /// Does not consume the packet.
+    /// </summary>
+    public bool Contains(long timestamp)
+    {
+        lock (_lock)
+            return _packets.ContainsKey(timestamp);
+    }
+
+    /// <summary>
     /// Insert an encoded packet. Rejects duplicates and stale packets.
     /// Returns true if the packet was accepted.
     /// </summary>
@@ -537,165 +545,7 @@ git commit -m "feat: implement PacketBuffer with sorted storage, reordering, and
 
 ---
 
-## Task 5: SyncBuffer (TDD)
-
-**Files:**
-- Create: `src/Brmble.Audio/NetEQ/SyncBuffer.cs`
-- Create: `tests/Brmble.Audio.Tests/NetEQ/SyncBufferTest.cs`
-
-- [ ] **Step 1: Write failing tests**
-
-```csharp
-// tests/Brmble.Audio.Tests/NetEQ/SyncBufferTest.cs
-using Brmble.Audio.NetEQ;
-
-namespace Brmble.Audio.Tests.NetEQ;
-
-[TestClass]
-public class SyncBufferTest
-{
-    [TestMethod]
-    public void Write_ThenRead_ReturnsSamples()
-    {
-        var buf = new SyncBuffer(capacity: 1920); // 2 frames
-        short[] data = Enumerable.Range(0, 960).Select(i => (short)i).ToArray();
-        buf.Write(data);
-
-        var output = new short[960];
-        int read = buf.Read(output);
-        Assert.AreEqual(960, read);
-        Assert.AreEqual((short)0, output[0]);
-        Assert.AreEqual((short)959, output[959]);
-    }
-
-    [TestMethod]
-    public void Read_Empty_ReturnsZero()
-    {
-        var buf = new SyncBuffer(capacity: 1920);
-        var output = new short[960];
-        int read = buf.Read(output);
-        Assert.AreEqual(0, read);
-    }
-
-    [TestMethod]
-    public void AvailableSamples_TracksWrites()
-    {
-        var buf = new SyncBuffer(capacity: 3840);
-        Assert.AreEqual(0, buf.AvailableSamples);
-
-        buf.Write(new short[960]);
-        Assert.AreEqual(960, buf.AvailableSamples);
-
-        buf.Write(new short[960]);
-        Assert.AreEqual(1920, buf.AvailableSamples);
-
-        buf.Read(new short[960]);
-        Assert.AreEqual(960, buf.AvailableSamples);
-    }
-
-    [TestMethod]
-    public void Write_Wraps_AroundCapacity()
-    {
-        var buf = new SyncBuffer(capacity: 1920); // exactly 2 frames
-        buf.Write(new short[960]); // fill half
-        buf.Read(new short[960]);  // read it back, readPos advances
-
-        // Now write again — should wrap around
-        short[] data = Enumerable.Range(100, 960).Select(i => (short)i).ToArray();
-        buf.Write(data);
-
-        var output = new short[960];
-        buf.Read(output);
-        Assert.AreEqual((short)100, output[0]);
-        Assert.AreEqual((short)1059, output[959]);
-    }
-
-    [TestMethod]
-    public void Clear_ResetsBuffer()
-    {
-        var buf = new SyncBuffer(capacity: 1920);
-        buf.Write(new short[960]);
-        buf.Clear();
-        Assert.AreEqual(0, buf.AvailableSamples);
-    }
-}
-```
-
-- [ ] **Step 2: Run tests to verify they fail**
-
-Run: `dotnet test tests/Brmble.Audio.Tests/ --filter "FullyQualifiedName~SyncBufferTest" -v n`
-Expected: Build failure — `SyncBuffer` does not exist yet.
-
-- [ ] **Step 3: Implement SyncBuffer**
-
-```csharp
-// src/Brmble.Audio/NetEQ/SyncBuffer.cs
-namespace Brmble.Audio.NetEQ;
-
-/// <summary>
-/// Circular buffer for decoded PCM samples.
-/// Single-threaded use only (called within GetAudio on playout thread).
-/// </summary>
-public class SyncBuffer
-{
-    private readonly short[] _buffer;
-    private int _readPos;
-    private int _writePos;
-    private int _count;
-
-    public SyncBuffer(int capacity = 3840) // 4 frames × 960 samples
-    {
-        _buffer = new short[capacity];
-    }
-
-    public int AvailableSamples => _count;
-
-    public void Write(ReadOnlySpan<short> samples)
-    {
-        for (int i = 0; i < samples.Length && _count < _buffer.Length; i++)
-        {
-            _buffer[_writePos] = samples[i];
-            _writePos = (_writePos + 1) % _buffer.Length;
-            _count++;
-        }
-    }
-
-    public int Read(Span<short> output)
-    {
-        int toRead = Math.Min(output.Length, _count);
-        for (int i = 0; i < toRead; i++)
-        {
-            output[i] = _buffer[_readPos];
-            _readPos = (_readPos + 1) % _buffer.Length;
-        }
-        _count -= toRead;
-        return toRead;
-    }
-
-    public void Clear()
-    {
-        _readPos = 0;
-        _writePos = 0;
-        _count = 0;
-    }
-}
-```
-
-- [ ] **Step 4: Run tests to verify they pass**
-
-Run: `dotnet test tests/Brmble.Audio.Tests/ --filter "FullyQualifiedName~SyncBufferTest" -v n`
-Expected: All 5 tests pass.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/Brmble.Audio/NetEQ/SyncBuffer.cs tests/Brmble.Audio.Tests/NetEQ/SyncBufferTest.cs
-git commit -m "feat: implement SyncBuffer circular PCM buffer"
-```
-
----
-
-## Task 6: DelayManager (TDD)
+## Task 5: DelayManager (TDD)
 
 **Files:**
 - Create: `src/Brmble.Audio/NetEQ/DelayManager.cs`
@@ -960,7 +810,7 @@ git commit -m "feat: implement DelayManager with relative delay and histogram"
 
 ---
 
-## Task 7: DecisionLogic (TDD)
+## Task 6: DecisionLogic (TDD)
 
 **Files:**
 - Create: `src/Brmble.Audio/NetEQ/DecisionLogic.cs`
@@ -1127,7 +977,7 @@ git commit -m "feat: implement DecisionLogic playout state machine"
 
 ---
 
-## Task 8: RingBuffer (TDD)
+## Task 7: RingBuffer (TDD)
 
 **Files:**
 - Create: `src/Brmble.Audio/NetEQ/RingBuffer.cs`
@@ -1209,8 +1059,9 @@ Expected: Build failure — `RingBuffer` does not exist yet.
 namespace Brmble.Audio.NetEQ;
 
 /// <summary>
-/// Lock-free single-producer single-consumer ring buffer for PCM samples.
+/// Single-producer single-consumer ring buffer for PCM samples.
 /// Used between PlayoutTimer (writer) and NAudio callback (reader).
+/// Uses a lock for simplicity — contention is negligible at 20ms intervals.
 /// On overrun, oldest samples are dropped.
 /// </summary>
 public class RingBuffer
@@ -1283,7 +1134,7 @@ git commit -m "feat: implement SPSC RingBuffer for playout-to-NAudio bridge"
 
 ---
 
-## Task 9: JitterBuffer Orchestrator (TDD)
+## Task 8: JitterBuffer Orchestrator (TDD)
 
 **Files:**
 - Create: `src/Brmble.Audio/NetEQ/JitterBuffer.cs`
@@ -1472,7 +1323,7 @@ namespace Brmble.Audio.NetEQ;
 
 /// <summary>
 /// Adaptive jitter buffer for a single speaker. Orchestrates PacketBuffer,
-/// DelayManager, DecisionLogic, and SyncBuffer to produce continuous PCM output.
+/// DelayManager, and DecisionLogic to produce continuous PCM output.
 /// Thread safety: InsertPacket() from network thread, GetAudio() from playout thread.
 /// </summary>
 public class JitterBuffer : IDisposable
@@ -1483,15 +1334,19 @@ public class JitterBuffer : IDisposable
     private readonly PacketBuffer _packetBuffer;
     private readonly DelayManager _delayManager;
     private readonly DecisionLogic _decisionLogic;
-    private readonly SyncBuffer _syncBuffer;
     private readonly JitterBufferStats _stats;
+
+    // Pre-allocated buffers to avoid GC pressure on the playout thread
+    private readonly short[] _frameBuffer = new short[FrameSize];
+    private readonly short[] _secondFrameBuffer = new short[FrameSize];
 
     // Cross-fade buffer for Merge/Accelerate/Decelerate
     private const int OverlapSamples = 96; // 2ms at 48kHz
 
     private long _expectedTimestamp;
     private PlayoutDecision _previousDecision = PlayoutDecision.Normal;
-    private short[]? _lastDecodedFrame; // for Merge cross-fade
+    private readonly short[] _lastDecodedFrame = new short[FrameSize]; // for Merge cross-fade
+    private bool _hasLastDecodedFrame;
     private bool _firstPacketReceived;
     private bool _disposed;
 
@@ -1511,7 +1366,6 @@ public class JitterBuffer : IDisposable
         _packetBuffer = new PacketBuffer();
         _delayManager = new DelayManager();
         _decisionLogic = new DecisionLogic();
-        _syncBuffer = new SyncBuffer();
         _stats = new JitterBufferStats();
     }
 
@@ -1561,14 +1415,12 @@ public class JitterBuffer : IDisposable
         _stats.BufferLevel = _packetBuffer.Count;
         _stats.TargetLevel = _delayManager.TargetLevel;
 
-        // Try to get the expected packet
-        var packet = _packetBuffer.TryGetNext(_expectedTimestamp);
-        bool packetAvailable = packet != null;
+        // Peek to see if the expected packet is available (don't consume yet)
+        bool packetAvailable = _packetBuffer.Contains(_expectedTimestamp);
 
         // Track late packets
         if (!packetAvailable && _firstPacketReceived)
         {
-            // Check if there are later packets (meaning this one was lost/late)
             if (_packetBuffer.Count > 0)
                 _stats.LatePackets++;
         }
@@ -1579,29 +1431,43 @@ public class JitterBuffer : IDisposable
             _delayManager.TargetLevel,
             _previousDecision);
 
-        Span<short> frame = stackalloc short[FrameSize];
+        // Use pre-allocated buffers instead of stackalloc to avoid
+        // stack pressure on the playout thread
+        Span<short> frame = _frameBuffer;
+
+        // Consume the packet only for decisions that need it
+        EncodedPacket? packet = decision != PlayoutDecision.Decelerate
+            ? _packetBuffer.TryGetNext(_expectedTimestamp)
+            : null;
 
         switch (decision)
         {
             case PlayoutDecision.Normal:
                 _decoder.Decode(packet!.Payload, frame);
-                frame.CopyTo(output);
-                _lastDecodedFrame = frame.ToArray();
+                frame[..FrameSize].CopyTo(output);
+                frame[..FrameSize].CopyTo(_lastDecodedFrame);
+                _hasLastDecodedFrame = true;
                 _stats.NormalFrames++;
                 break;
 
             case PlayoutDecision.Expand:
                 _decoder.DecodePlc(frame);
-                frame.CopyTo(output);
+                frame[..FrameSize].CopyTo(output);
+                frame[..FrameSize].CopyTo(_lastDecodedFrame);
+                _hasLastDecodedFrame = true;
                 _stats.ExpandFrames++;
                 break;
 
             case PlayoutDecision.Merge:
-                Span<short> newFrame = stackalloc short[FrameSize];
-                _decoder.Decode(packet!.Payload, newFrame);
+                Span<short> mergeFrame = _secondFrameBuffer;
+                _decoder.Decode(packet!.Payload, mergeFrame);
                 // Cross-fade from PLC to real audio
-                CrossFade(output, _lastDecodedFrame ?? frame, newFrame);
-                _lastDecodedFrame = newFrame.ToArray();
+                if (_hasLastDecodedFrame)
+                    CrossFade(output, _lastDecodedFrame, mergeFrame);
+                else
+                    mergeFrame[..FrameSize].CopyTo(output);
+                mergeFrame[..FrameSize].CopyTo(_lastDecodedFrame);
+                _hasLastDecodedFrame = true;
                 _stats.NormalFrames++; // Merge counts as normal
                 break;
 
@@ -1611,26 +1477,38 @@ public class JitterBuffer : IDisposable
                 var nextPacket = _packetBuffer.TryGetNext(_expectedTimestamp + FrameSize);
                 if (nextPacket != null)
                 {
-                    Span<short> nextFrame = stackalloc short[FrameSize];
+                    Span<short> nextFrame = _secondFrameBuffer;
                     _decoder.Decode(nextPacket.Payload, nextFrame);
                     CrossFade(output, frame, nextFrame);
                     _expectedTimestamp += FrameSize; // skip extra frame
-                    _lastDecodedFrame = nextFrame.ToArray();
+                    nextFrame[..FrameSize].CopyTo(_lastDecodedFrame);
                 }
                 else
                 {
-                    frame.CopyTo(output);
-                    _lastDecodedFrame = frame.ToArray();
+                    frame[..FrameSize].CopyTo(output);
+                    frame[..FrameSize].CopyTo(_lastDecodedFrame);
                 }
+                _hasLastDecodedFrame = true;
                 _stats.AccelerateFrames++;
                 break;
 
             case PlayoutDecision.Decelerate:
-                _decoder.Decode(packet!.Payload, frame);
-                // Output the frame but don't advance expectedTimestamp
-                // (effectively repeating this frame's time slot)
-                frame.CopyTo(output);
-                _lastDecodedFrame = frame.ToArray();
+                // Do NOT consume the packet — we'll decode it again next tick.
+                // Output a repeat of the last frame with cross-fade to stretch time.
+                if (_hasLastDecodedFrame)
+                {
+                    // Cross-fade last frame with itself to produce a smooth repeat
+                    _lastDecodedFrame.AsSpan(0, FrameSize).CopyTo(output);
+                }
+                else
+                {
+                    // No previous frame — generate PLC as fallback
+                    _decoder.DecodePlc(frame);
+                    frame[..FrameSize].CopyTo(output);
+                    frame[..FrameSize].CopyTo(_lastDecodedFrame);
+                    _hasLastDecodedFrame = true;
+                }
+                // Don't advance expectedTimestamp — same packet will be consumed next tick
                 _expectedTimestamp -= FrameSize; // undo the advance below
                 _stats.DecelerateFrames++;
                 break;
@@ -1708,7 +1586,7 @@ git commit -m "feat: implement JitterBuffer orchestrator with PLC, cross-fade, a
 
 ---
 
-## Task 10: PlayoutTimer
+## Task 9: PlayoutTimer
 
 **Files:**
 - Create: `src/Brmble.Audio/NetEQ/PlayoutTimer.cs`
@@ -1819,7 +1697,7 @@ git commit -m "feat: implement PlayoutTimer with drift-compensated 20ms tick"
 
 ---
 
-## Task 11: AudioMixer
+## Task 10: AudioMixer
 
 **Files:**
 - Create: `src/Brmble.Audio/NetEQ/AudioMixer.cs`
@@ -1937,7 +1815,7 @@ git commit -m "feat: implement AudioMixer with multi-user mixing and ring buffer
 
 ---
 
-## Task 12: MumbleOpusDecoder Wrapper
+## Task 11: MumbleOpusDecoder Wrapper
 
 **Files:**
 - Create: `src/Brmble.Audio/Codecs/MumbleOpusDecoder.cs`
@@ -2033,7 +1911,7 @@ git commit -m "feat: implement MumbleOpusDecoder wrapper with PLC support"
 
 ---
 
-## Task 13: Integrate into AudioManager
+## Task 12: Integrate into AudioManager
 
 **Files:**
 - Modify: `src/Brmble.Client/Brmble.Client.csproj` (add ProjectReference)
@@ -2059,6 +1937,7 @@ In `AudioManager.cs`, add these fields (replacing `_pipelines` and `_players` di
 // With:
 private AudioMixer? _mixer;
 private WaveOutEvent? _outputPlayer;
+private readonly long _startTimestamp = Stopwatch.GetTimestamp();
 ```
 
 Add an inner `IWaveProvider` adapter that reads from the mixer's ring buffer:
@@ -2116,6 +1995,9 @@ public void FeedVoice(uint userId, byte[] opusData, long sequence)
 {
     if (_deafened || _mixer == null) return;
 
+    // Respect local mute — don't create buffers for locally muted users
+    if (_localMutes.Contains(userId)) return;
+
     var jb = _mixer.GetBuffer(userId);
     if (jb == null)
     {
@@ -2136,13 +2018,13 @@ public void FeedVoice(uint userId, byte[] opusData, long sequence)
         Sequence: sequence,
         Timestamp: sequence * 960,
         Payload: opusData,
-        ArrivalTimeMs: Stopwatch.GetElapsedTime(_startTimestamp).Milliseconds
+        ArrivalTimeMs: (long)Stopwatch.GetElapsedTime(_startTimestamp).TotalMilliseconds
     );
     jb.InsertPacket(packet);
 }
 ```
 
-Note: Use `Stopwatch.GetTimestamp()` captured at startup for `ArrivalTimeMs`. The exact approach depends on the existing timing mechanism in `AudioManager`.
+Note: `_startTimestamp` is captured via `Stopwatch.GetTimestamp()` at AudioManager construction. `TotalMilliseconds` (not `Milliseconds`) gives the total elapsed time — `Milliseconds` wraps at 1000ms which would break the DelayManager.
 
 - [ ] **Step 5: Update RemoveUser method**
 
@@ -2156,16 +2038,49 @@ public void RemoveUser(uint userId)
 
 - [ ] **Step 6: Update speaking detection**
 
-Replace the `_lastVoicePacket` based detection in `CheckSpeakingState` with:
+Replace the `_lastVoicePacket` based detection in `CheckSpeakingState`. Remove the `_lastVoicePacket` dictionary and `_speakingUsers` set. Replace with a set tracking the previous speaking state, and poll `AudioMixer.IsUserSpeaking()`:
 
 ```csharp
+private readonly HashSet<uint> _currentlySpeaking = new();
+
 private void CheckSpeakingState(object? state)
 {
     if (_mixer == null) return;
 
-    // Check each user's JitterBuffer.IsSpeaking
-    // Compare with previous state to emit events
-    // (Implementation depends on current event mechanism)
+    lock (_lock)
+    {
+        // Check all users with active buffers
+        foreach (uint userId in _mixer.GetActiveUserIds())
+        {
+            bool speaking = _mixer.IsUserSpeaking(userId);
+            bool wasSpeaking = _currentlySpeaking.Contains(userId);
+
+            if (speaking && !wasSpeaking)
+            {
+                _currentlySpeaking.Add(userId);
+                UserStartedSpeaking?.Invoke(userId);
+            }
+            else if (!speaking && wasSpeaking)
+            {
+                _currentlySpeaking.Remove(userId);
+                UserStoppedSpeaking?.Invoke(userId);
+            }
+        }
+
+        // Clean up users that were removed
+        _currentlySpeaking.IntersectWith(_mixer.GetActiveUserIds());
+    }
+}
+```
+
+This also requires adding `GetActiveUserIds()` to `AudioMixer`:
+
+```csharp
+// In AudioMixer, add:
+public IReadOnlyCollection<uint> GetActiveUserIds()
+{
+    lock (_lock)
+        return _buffers.Keys.ToArray();
 }
 ```
 
@@ -2189,13 +2104,23 @@ public void SetDeafened(bool deafened)
 
 - [ ] **Step 8: Update per-user volume**
 
+Update the existing `SetUserVolume` method to also set volume on the JitterBuffer. Keep the existing signature (`int percentage`) and convert to float for the JitterBuffer:
+
 ```csharp
-public void SetUserVolume(uint userId, float volume)
+// In the existing SetUserVolume method, after storing to _userVolumes, add:
+var jb = _mixer?.GetBuffer(userId);
+if (jb != null)
+    jb.Volume = volume; // volume is already a float in _userVolumes
+```
+
+Similarly, update `SetOutputVolume` to apply the new global volume to all active buffers that don't have a per-user override:
+
+```csharp
+// In SetOutputVolume, after setting _outputVolume, iterate active buffers:
+if (_mixer != null)
 {
-    _userVolumes[userId] = volume;
-    var jb = _mixer?.GetBuffer(userId);
-    if (jb != null)
-        jb.Volume = volume;
+    // For each user without a per-user override, update to new global volume
+    // (Implementation depends on how _userVolumes tracks overrides)
 }
 ```
 
@@ -2222,7 +2147,7 @@ git commit -m "feat: integrate JitterBuffer into AudioManager, replacing UserAud
 
 ---
 
-## Task 14: Update MumbleAdapter
+## Task 13: Update MumbleAdapter
 
 **Files:**
 - Modify: `src/Brmble.Client/Services/Voice/MumbleAdapter.cs:2133-2139`
@@ -2257,12 +2182,12 @@ git commit -m "refactor: update MumbleAdapter for jitter buffer integration"
 
 ---
 
-## Task 15: Run Full Test Suite
+## Task 14: Run Full Test Suite
 
 - [ ] **Step 1: Run all Brmble.Audio tests**
 
 Run: `dotnet test tests/Brmble.Audio.Tests/ -v n`
-Expected: All tests pass (PacketBuffer: 8, SyncBuffer: 5, DelayManager: 7, DecisionLogic: 6, RingBuffer: 4, JitterBuffer: 7 = ~37 tests).
+Expected: All tests pass (PacketBuffer: 8, DelayManager: 7, DecisionLogic: 6, RingBuffer: 4, JitterBuffer: 7 = ~32 tests).
 
 - [ ] **Step 2: Run existing MumbleVoiceEngine tests**
 
@@ -2278,7 +2203,7 @@ Expected: Build succeeded with 0 errors.
 
 ---
 
-## Task 16: Create Follow-Up Issues
+## Task 15: Create Follow-Up Issues
 
 Create GitHub issues for the remaining NetEQ phases.
 
@@ -2336,18 +2261,17 @@ Continuation of #324 (NetEQ jitter buffer). Final phase for production-grade aud
 | 2 | Models | — | 5 |
 | 3 | IOpusDecoder + Fake | — | 4 |
 | 4 | PacketBuffer | 8 | 5 |
-| 5 | SyncBuffer | 5 | 5 |
-| 6 | DelayManager | 7 | 5 |
-| 7 | DecisionLogic | 6 | 5 |
-| 8 | RingBuffer | 4 | 5 |
-| 9 | JitterBuffer | 7 | 5 |
-| 10 | PlayoutTimer | — | 3 |
-| 11 | AudioMixer | — | 3 |
-| 12 | MumbleOpusDecoder | — | 4 |
-| 13 | AudioManager integration | — | 11 |
-| 14 | MumbleAdapter integration | — | 3 |
-| 15 | Full test suite | all | 4 |
-| 16 | Follow-up issues | — | 3 |
-| **Total** | | **~37** | **~81** |
+| 5 | DelayManager | 7 | 5 |
+| 6 | DecisionLogic | 6 | 5 |
+| 7 | RingBuffer | 4 | 5 |
+| 8 | JitterBuffer | 7 | 5 |
+| 9 | PlayoutTimer | — | 3 |
+| 10 | AudioMixer | — | 3 |
+| 11 | MumbleOpusDecoder | — | 4 |
+| 12 | AudioManager integration | — | 11 |
+| 13 | MumbleAdapter integration | — | 3 |
+| 14 | Full test suite | all | 4 |
+| 15 | Follow-up issues | — | 3 |
+| **Total** | | **~32** | **~76** |
 
-Tasks 1-12 are independent library work in `Brmble.Audio` and can be done in isolation. Tasks 13-14 are the integration with the existing client. Task 15 validates everything. Task 16 creates tracking for future work.
+Tasks 1-11 are independent library work in `Brmble.Audio` and can be done in isolation. Tasks 12-13 are the integration with the existing client. Task 14 validates everything. Task 15 creates tracking for future work.
