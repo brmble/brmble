@@ -84,7 +84,9 @@ export function useGameState() {
     const totalBandwidthDemanded = state.services
       .filter(s => s.unlocked && s.owned > 0)
       .reduce((total, s) => total + (s.baseBandwidthRequired * s.owned), 0);
-    return { uploadSpeed: bandwidth, bandwidthSold: bandwidthUsed, bandwidthDemanded: totalBandwidthDemanded, incomePerSecond: income };
+    const isOverage = totalBandwidthDemanded > bandwidth;
+    const incomeAfterPenalty = isOverage ? Math.floor(income * 0.85) : income;
+    return { uploadSpeed: bandwidth, bandwidthSold: bandwidthUsed, bandwidthDemanded: totalBandwidthDemanded, incomePerSecond: incomeAfterPenalty };
   }, [state.infrastructure, state.services]);
 
   useEffect(() => {

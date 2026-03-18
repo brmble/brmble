@@ -650,7 +650,7 @@ function OptionsTab({
   onImport: (data: string) => boolean;
 }) {
   const [importData, setImportData] = useState('');
-  const [importStatus, setImportStatus] = useState<string | null>(null);
+  const [importStatus, setImportStatus] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
   const [volume, setVolume] = useState(50);
   const [theme, setTheme] = useState('classic');
 
@@ -658,20 +658,22 @@ function OptionsTab({
     const data = onExport();
     try {
       await navigator.clipboard.writeText(data);
-      setImportStatus('Save data copied to clipboard!');
+      setImportStatus({ kind: 'success', message: 'Save data copied to clipboard!' });
     } catch {
-      setImportStatus('Failed to copy to clipboard');
+      setImportStatus({ kind: 'error', message: 'Failed to copy to clipboard' });
     }
     setTimeout(() => setImportStatus(null), 3000);
   };
 
   const handleImport = () => {
     if (!importData.trim()) {
-      setImportStatus('Please paste save data first');
+      setImportStatus({ kind: 'error', message: 'Please paste save data first' });
       return;
     }
     const success = onImport(importData);
-    setImportStatus(success ? 'Save imported successfully!' : 'Invalid save data');
+    setImportStatus(success 
+      ? { kind: 'success', message: 'Save imported successfully!' } 
+      : { kind: 'error', message: 'Invalid save data' });
     if (success) setImportData('');
     setTimeout(() => setImportStatus(null), 3000);
   };
@@ -684,7 +686,7 @@ function OptionsTab({
     });
     if (confirmed) {
       onReset();
-      setImportStatus('Game reset!');
+      setImportStatus({ kind: 'success', message: 'Game reset!' });
       setTimeout(() => setImportStatus(null), 3000);
     }
   };
@@ -757,7 +759,7 @@ function OptionsTab({
       </div>
 
       {importStatus && (
-        <div className="import-status">{importStatus}</div>
+        <div className={`import-status ${importStatus.kind}`}>{importStatus.message}</div>
       )}
     </div>
   );

@@ -622,8 +622,15 @@
   padding: var(--space-sm);
   background: var(--bg-primary);
   border-radius: var(--radius-sm);
-  color: var(--accent-success);
   text-align: center;
+}
+
+.import-status.success {
+  color: var(--accent-success);
+}
+
+.import-status.error {
+  color: var(--accent-danger);
 }
 
 /* Hosting Tab */

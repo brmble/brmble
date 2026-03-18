@@ -22,6 +22,7 @@ export const BINDING_LABELS: Record<string, string> = {
   toggleMuteKey: 'Toggle Mute',
   toggleDMScreenKey: 'Toggle Direct Messages Screen',
   toggleScreenShareKey: 'Toggle Screen Share',
+  toggleGameKey: 'Toggle Game Panel',
 };
 
 const SETTINGS_STORAGE_KEY = 'brmble-settings';
@@ -91,6 +92,7 @@ export function SettingsModal(props: SettingsModalProps) {
     toggleMuteKey: settings.shortcuts.toggleMuteKey,
     toggleDMScreenKey: settings.shortcuts.toggleDMScreenKey,
     toggleScreenShareKey: settings.shortcuts.toggleScreenShareKey,
+    toggleGameKey: settings.shortcuts.toggleGameKey,
   }), [settings.audio.pushToTalkKey, settings.shortcuts]);
 
   useEffect(() => {
