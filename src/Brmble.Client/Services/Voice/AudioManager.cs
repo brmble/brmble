@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.SpeechEnhancement;
 using MumbleVoiceEngine.Pipeline;
 using NAudio.Wave;
@@ -218,6 +219,10 @@ private int _screenShareHotkeyId = -1;
     private AudioResampler? _to16kResampler;
     private AudioResampler? _to48kResampler;
 
+    // RNNoise denoising
+    private RnnoiseService? _rnnoise;
+    private SpeechDenoiseMode _lastDenoiseMode = SpeechDenoiseMode.Disabled;
+
     public void SetLocalUserId(uint sessionId) => _localUserId = sessionId;
 
     /// <summary>Fired when an encoded voice packet is ready to send to the server.</summary>
@@ -334,6 +339,19 @@ private int _screenShareHotkeyId = -1;
             _speechEnhancement = new SpeechEnhancementService(modelsPath, enabled, variant);
             _to16kResampler = new AudioResampler(48000, 16000, 1);
             _to48kResampler = new AudioResampler(16000, 48000, 1);
+        }
+    }
+
+    public void ConfigureRnnoise(SpeechDenoiseMode mode)
+    {
+        lock (_lock)
+        {
+            if (mode == _lastDenoiseMode)
+                return;
+
+            _lastDenoiseMode = mode;
+            _rnnoise?.Dispose();
+            _rnnoise = mode == SpeechDenoiseMode.Rnnoise ? new RnnoiseService(mode) : null;
         }
     }
 
@@ -640,6 +658,35 @@ private int _screenShareHotkeyId = -1;
         // Apply input volume (after AGC to avoid clipping on boost)
         if (_inputVolume != 1.0f)
             ApplyInputVolume(processedBuffer, processedBytes);
+
+        // Apply RNNoise denoising if enabled (processes 48kHz float samples in-place)
+        if (_rnnoise?.IsEnabled == true)
+        {
+            var sampleCount = processedBytes / 2;
+            var offset = 0;
+            while (offset + RnnoiseService.FrameSize <= sampleCount)
+            {
+                var frame = new float[RnnoiseService.FrameSize];
+                for (int i = 0; i < RnnoiseService.FrameSize; i++)
+                {
+                    short s = (short)(processedBuffer[(offset + i) * 2] | (processedBuffer[(offset + i) * 2 + 1] << 8));
+                    frame[i] = s / 32768f;
+                }
+
+                var denoised = _rnnoise.Process(frame);
+                if (denoised != null)
+                {
+                    for (int i = 0; i < RnnoiseService.FrameSize; i++)
+                    {
+                        var sample = (short)Math.Clamp(denoised[i] * 32768f, short.MinValue, short.MaxValue);
+                        processedBuffer[(offset + i) * 2] = (byte)(sample & 0xFF);
+                        processedBuffer[(offset + i) * 2 + 1] = (byte)((sample >> 8) & 0xFF);
+                    }
+                }
+
+                offset += RnnoiseService.FrameSize;
+            }
+        }
 
         // Apply speech enhancement if enabled
         if (_speechEnhancement?.IsEnabled == true && _to16kResampler != null && _to48kResampler != null)
@@ -1638,6 +1685,7 @@ private int _screenShareHotkeyId = -1;
 
     public void Dispose()
     {
+        _rnnoise?.Dispose();
         _speechEnhancement?.Dispose();
         _speakingTimer.Dispose();
         StopPttPolling();
