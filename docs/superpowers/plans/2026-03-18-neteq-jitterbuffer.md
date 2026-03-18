@@ -1950,17 +1950,19 @@ private class MixerWaveProvider : IWaveProvider
 
     public MixerWaveProvider(RingBuffer ringBuffer) => _ringBuffer = ringBuffer;
 
+    // Pre-allocated buffer for reading from ring buffer (avoid stackalloc)
+    private readonly short[] _readBuffer = new short[4800]; // matches RingBuffer capacity
+
     public int Read(byte[] buffer, int offset, int count)
     {
-        int samplesToRead = count / sizeof(short);
-        Span<short> samples = stackalloc short[samplesToRead];
-        int read = _ringBuffer.Read(samples);
+        int samplesToRead = Math.Min(count / sizeof(short), _readBuffer.Length);
+        int read = _ringBuffer.Read(_readBuffer.AsSpan(0, samplesToRead));
 
         // Convert short[] to byte[] for NAudio
         for (int i = 0; i < read; i++)
         {
-            buffer[offset + i * 2] = (byte)(samples[i] & 0xFF);
-            buffer[offset + i * 2 + 1] = (byte)((samples[i] >> 8) & 0xFF);
+            buffer[offset + i * 2] = (byte)(_readBuffer[i] & 0xFF);
+            buffer[offset + i * 2 + 1] = (byte)((_readBuffer[i] >> 8) & 0xFF);
         }
 
         // Fill remainder with silence
@@ -2102,6 +2104,8 @@ public void SetDeafened(bool deafened)
 }
 ```
 
+**Note:** This changes behavior from the current destroy-and-recreate approach. The old code fired `UserStoppedSpeaking` for all users on deafen. The new code does not — speaking indicators should be suppressed on the frontend when self-deafened, independent of speaking events. Verify the frontend handles this (the `voice.selfDeafChanged` bridge message should be sufficient).
+
 - [ ] **Step 8: Update per-user volume**
 
 Update the existing `SetUserVolume` method to also set volume on the JitterBuffer. Keep the existing signature (`int percentage`) and convert to float for the JitterBuffer:
@@ -2116,11 +2120,17 @@ if (jb != null)
 Similarly, update `SetOutputVolume` to apply the new global volume to all active buffers that don't have a per-user override:
 
 ```csharp
-// In SetOutputVolume, after setting _outputVolume, iterate active buffers:
+// In SetOutputVolume, after setting _outputVolume:
 if (_mixer != null)
 {
-    // For each user without a per-user override, update to new global volume
-    // (Implementation depends on how _userVolumes tracks overrides)
+    foreach (uint userId in _mixer.GetActiveUserIds())
+    {
+        if (!_userVolumes.ContainsKey(userId))
+        {
+            var jb = _mixer.GetBuffer(userId);
+            if (jb != null) jb.Volume = _outputVolume;
+        }
+    }
 }
 ```
 
