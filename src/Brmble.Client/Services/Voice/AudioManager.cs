@@ -1,6 +1,9 @@
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using Brmble.Audio.Codecs;
+using Brmble.Audio.NetEQ;
+using Brmble.Audio.NetEQ.Models;
 using Brmble.Client.Services.SpeechEnhancement;
 using MumbleVoiceEngine.Pipeline;
 using NAudio.Wave;
@@ -138,9 +141,10 @@ internal sealed class AudioManager : IDisposable
     private volatile bool _micStarted;
     private string _captureApi = "wasapi";
 
-    // Decode (network → speakers)
-    private readonly Dictionary<uint, UserAudioPipeline> _pipelines = new();
-    private readonly Dictionary<uint, WaveOutEvent> _players = new();
+    // Decode (network → speakers) — JitterBuffer-based pipeline
+    private AudioMixer? _mixer;
+    private WaveOutEvent? _outputPlayer;
+    private readonly long _startTimestamp = Stopwatch.GetTimestamp();
 
     // State
     private volatile bool _muted;
@@ -195,10 +199,9 @@ private int _screenShareHotkeyId = -1;
     private string? _heldMouseAction; // action name for mouse shortcut currently held
     private int _shortcutMouseVk; // VK code for the mouse button bound to a toggle shortcut
 
-    // Speaking detection
-    private readonly Dictionary<uint, DateTime> _lastVoicePacket = new();
+    // Speaking detection (polls JitterBuffer.IsSpeaking via AudioMixer)
+    private readonly HashSet<uint> _currentlySpeaking = new();
     private readonly Timer _speakingTimer;
-    private const int SpeakingTimeoutMs = 200;
     private const int PttSilenceTailFrames = 4; // 4 × 20 ms = 80 ms tail
     private uint _localUserId = 0;
 
@@ -371,10 +374,16 @@ private int _screenShareHotkeyId = -1;
     public void SetOutputVolume(int percentage)
     {
         _outputVolume = Math.Clamp(percentage, 0, 250) / 100f;
-        lock (_lock)
+        if (_mixer != null)
         {
-            foreach (var pipeline in _pipelines.Values)
-                pipeline.Volume = _outputVolume;
+            foreach (uint userId in _mixer.GetActiveUserIds())
+            {
+                if (!_userVolumes.ContainsKey(userId))
+                {
+                    var jb = _mixer.GetBuffer(userId);
+                    if (jb != null) jb.Volume = _outputVolume;
+                }
+            }
         }
     }
 
@@ -384,9 +393,10 @@ private int _screenShareHotkeyId = -1;
         lock (_lock)
         {
             _userVolumes[userId] = volume;
-            if (_pipelines.TryGetValue(userId, out var pipeline))
-                pipeline.Volume = volume;
         }
+        var jb = _mixer?.GetBuffer(userId);
+        if (jb != null)
+            jb.Volume = volume;
     }
 
     public void SetLocalMute(uint userId, bool muted)
@@ -404,6 +414,43 @@ private int _screenShareHotkeyId = -1;
     {
         _hwnd = hwnd;
         _speakingTimer = new Timer(CheckSpeakingState, null, 100, 100);
+
+        // Initialize the jitter buffer mixer and single audio output
+        _mixer = new AudioMixer();
+        _outputPlayer = new WaveOutEvent { DesiredLatency = 80, NumberOfBuffers = 4 };
+        _outputPlayer.Init(new MixerWaveProvider(_mixer.Output));
+        _outputPlayer.Play();
+        _mixer.Start();
+    }
+
+    /// <summary>
+    /// IWaveProvider adapter that reads mixed PCM from the AudioMixer's RingBuffer.
+    /// </summary>
+    private class MixerWaveProvider : IWaveProvider
+    {
+        private readonly RingBuffer _ringBuffer;
+        private readonly short[] _readBuffer = new short[4800];
+        public WaveFormat WaveFormat { get; } = new WaveFormat(48000, 16, 1);
+
+        public MixerWaveProvider(RingBuffer ringBuffer) => _ringBuffer = ringBuffer;
+
+        public int Read(byte[] buffer, int offset, int count)
+        {
+            int samplesToRead = Math.Min(count / sizeof(short), _readBuffer.Length);
+            int read = _ringBuffer.Read(_readBuffer.AsSpan(0, samplesToRead));
+
+            for (int i = 0; i < read; i++)
+            {
+                buffer[offset + i * 2] = (byte)(_readBuffer[i] & 0xFF);
+                buffer[offset + i * 2 + 1] = (byte)((_readBuffer[i] >> 8) & 0xFF);
+            }
+
+            int bytesWritten = read * sizeof(short);
+            if (bytesWritten < count)
+                Array.Clear(buffer, offset + bytesWritten, count - bytesWritten);
+
+            return count;
+        }
     }
 
     /// <summary>Start mic capture and encoding. No-op if already started or muted.</summary>
@@ -702,11 +749,10 @@ private int _screenShareHotkeyId = -1;
         EncodePipeline? pipeline;
         lock (_lock)
         {
-            if (!_lastVoicePacket.ContainsKey(_localUserId))
+            if (_currentlySpeaking.Add(_localUserId))
             {
                 UserStartedSpeaking?.Invoke(_localUserId);
             }
-            _lastVoicePacket[_localUserId] = DateTime.UtcNow;
             pipeline = _encodePipeline;
         }
 
@@ -786,67 +832,52 @@ private int _screenShareHotkeyId = -1;
     }
 
     /// <summary>
-    /// Feed an incoming voice packet for a user. Decodes Opus and queues PCM
-    /// for speaker playback. Creates per-user pipeline lazily.
+    /// Feed an incoming voice packet for a user. Creates per-user JitterBuffer
+    /// lazily and inserts the encoded packet for adaptive playout.
     /// Called from MumbleSharp process thread.
     /// </summary>
     public void FeedVoice(uint userId, byte[] opusData, long sequence)
     {
-        if (_deafened) return;
+        if (_deafened || _mixer == null) return;
 
-        bool startedSpeaking = false;
-        lock (_lock)
+        // Respect local mute — don't create buffers for locally muted users
+        if (_localMutes.Contains(userId)) return;
+
+        var jb = _mixer.GetBuffer(userId);
+        if (jb == null)
         {
-            if (_localMutes.Contains(userId)) return;
+            // First packet from this user — create JitterBuffer
+            var decoder = new MumbleOpusDecoder(sampleRate: 48000, channels: 1);
+            jb = new JitterBuffer(decoder);
 
-            if (!_pipelines.TryGetValue(userId, out var pipeline))
-            {
-                var userVolume = _userVolumes.TryGetValue(userId, out var v) ? v : _outputVolume;
-                pipeline = new UserAudioPipeline(sampleRate: 48000, channels: 1);
-                pipeline.Volume = userVolume;
-                _pipelines[userId] = pipeline;
+            // Apply per-user volume if set
+            if (_userVolumes.TryGetValue(userId, out var vol))
+                jb.Volume = vol;
+            else
+                jb.Volume = _outputVolume;
 
-                var player = new WaveOutEvent
-                {
-                    DesiredLatency = 80,
-                    NumberOfBuffers = 4
-                };
-                player.Init(pipeline);
-                player.Play();
-                _players[userId] = player;
-
-                AudioLog.Write($"[Audio] Created playback pipeline for user {userId}");
-            }
-
-            pipeline.FeedEncodedPacket(opusData, sequence);
-
-            // Speaking detection: track first packet after silence
-            var now = DateTime.UtcNow;
-            if (!_lastVoicePacket.ContainsKey(userId))
-                startedSpeaking = true;
-            _lastVoicePacket[userId] = now;
+            _mixer.AddBuffer(userId, jb);
+            AudioLog.Write($"[Audio] Created JitterBuffer for user {userId}");
         }
 
-        if (startedSpeaking)
-            UserStartedSpeaking?.Invoke(userId);
+        var packet = new EncodedPacket(
+            Sequence: sequence,
+            Timestamp: sequence * 960,
+            Payload: opusData,
+            ArrivalTimeMs: (long)Stopwatch.GetElapsedTime(_startTimestamp).TotalMilliseconds
+        );
+        jb.InsertPacket(packet);
     }
 
     /// <summary>Clean up a user's audio pipeline when they disconnect.</summary>
     public void RemoveUser(uint userId)
     {
+        _mixer?.RemoveBuffer(userId);
         bool wasSpeaking;
         lock (_lock)
         {
-            if (_players.Remove(userId, out var player))
-            {
-                player.Stop();
-                player.Dispose();
-            }
-            if (_pipelines.Remove(userId, out var pipeline))
-                pipeline.Dispose();
-            wasSpeaking = _lastVoicePacket.Remove(userId);
+            wasSpeaking = _currentlySpeaking.Remove(userId);
         }
-
         if (wasSpeaking)
             UserStoppedSpeaking?.Invoke(userId);
     }
@@ -866,31 +897,18 @@ private int _screenShareHotkeyId = -1;
             StartMic();
     }
 
-    /// <summary>Set deafen state. Stops all playback when deafened.</summary>
+    /// <summary>Set deafen state. Mutes output when deafened, preserving jitter buffer state.</summary>
     public void SetDeafened(bool deafened)
     {
         _deafened = deafened;
         if (deafened)
         {
-            List<uint> wasSpeaking;
-            lock (_lock)
-            {
-                foreach (var player in _players.Values)
-                {
-                    player.Stop();
-                    player.Dispose();
-                }
-                foreach (var pipeline in _pipelines.Values)
-                    pipeline.Dispose();
-                _players.Clear();
-                _pipelines.Clear();
-
-                wasSpeaking = new List<uint>(_lastVoicePacket.Keys);
-                _lastVoicePacket.Clear();
-            }
-
-            foreach (var userId in wasSpeaking)
-                UserStoppedSpeaking?.Invoke(userId);
+            // Mute output — mixer keeps running to preserve buffer state
+            _outputPlayer?.Stop();
+        }
+        else
+        {
+            _outputPlayer?.Play();
         }
     }
 
@@ -1618,22 +1636,41 @@ private int _screenShareHotkeyId = -1;
 
     private void CheckSpeakingState(object? state)
     {
-        List<uint> stopped;
+        if (_mixer == null) return;
+
+        List<uint>? started = null;
+        List<uint>? stopped = null;
+
         lock (_lock)
         {
-            var now = DateTime.UtcNow;
-            stopped = new List<uint>();
-            foreach (var (userId, lastPacket) in _lastVoicePacket)
+            foreach (uint userId in _mixer.GetActiveUserIds())
             {
-                if ((now - lastPacket).TotalMilliseconds > SpeakingTimeoutMs)
-                    stopped.Add(userId);
+                bool speaking = _mixer.IsUserSpeaking(userId);
+                bool wasSpeaking = _currentlySpeaking.Contains(userId);
+
+                if (speaking && !wasSpeaking)
+                {
+                    _currentlySpeaking.Add(userId);
+                    (started ??= new()).Add(userId);
+                }
+                else if (!speaking && wasSpeaking)
+                {
+                    _currentlySpeaking.Remove(userId);
+                    (stopped ??= new()).Add(userId);
+                }
             }
-            foreach (var userId in stopped)
-                _lastVoicePacket.Remove(userId);
+
+            // Clean up users that were removed
+            _currentlySpeaking.IntersectWith(_mixer.GetActiveUserIds());
         }
 
-        foreach (var userId in stopped)
-            UserStoppedSpeaking?.Invoke(userId);
+        if (started != null)
+            foreach (var userId in started)
+                UserStartedSpeaking?.Invoke(userId);
+
+        if (stopped != null)
+            foreach (var userId in stopped)
+                UserStoppedSpeaking?.Invoke(userId);
     }
 
     public void Dispose()
@@ -1661,19 +1698,11 @@ private int _screenShareHotkeyId = -1;
         _encodePipeline?.Dispose();
         _encodePipeline = null;
 
-        lock (_lock)
-        {
-            foreach (var player in _players.Values)
-            {
-                player.Stop();
-                player.Dispose();
-            }
-            foreach (var pipeline in _pipelines.Values)
-                pipeline.Dispose();
-            _players.Clear();
-            _pipelines.Clear();
-            _lastVoicePacket.Clear();
-        }
+        _mixer?.Dispose();
+        _mixer = null;
+        _outputPlayer?.Stop();
+        _outputPlayer?.Dispose();
+        _outputPlayer = null;
     }
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
