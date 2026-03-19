@@ -141,9 +141,9 @@ internal sealed class AudioManager : IDisposable
     private volatile bool _micStarted;
     private string _captureApi = "wasapi";
 
-    // Decode (network → speakers) — JitterBuffer-based pipeline
-    private AudioMixer? _mixer;
-    private WaveOutEvent? _outputPlayer;
+    // Decode (network → speakers) — per-user JitterBuffer pipeline
+    private readonly Dictionary<uint, JitterBuffer> _jitterBuffers = new();
+    private readonly Dictionary<uint, WaveOutEvent> _players = new();
     private readonly long _startTimestamp = Stopwatch.GetTimestamp();
 
     // State
@@ -374,15 +374,12 @@ private int _screenShareHotkeyId = -1;
     public void SetOutputVolume(int percentage)
     {
         _outputVolume = Math.Clamp(percentage, 0, 250) / 100f;
-        if (_mixer != null)
+        lock (_lock)
         {
-            foreach (uint userId in _mixer.GetActiveUserIds())
+            foreach (var (userId, jb) in _jitterBuffers)
             {
                 if (!_userVolumes.ContainsKey(userId))
-                {
-                    var jb = _mixer.GetBuffer(userId);
-                    if (jb != null) jb.Volume = _outputVolume;
-                }
+                    jb.Volume = _outputVolume;
             }
         }
     }
@@ -393,10 +390,9 @@ private int _screenShareHotkeyId = -1;
         lock (_lock)
         {
             _userVolumes[userId] = volume;
+            if (_jitterBuffers.TryGetValue(userId, out var jb))
+                jb.Volume = volume;
         }
-        var jb = _mixer?.GetBuffer(userId);
-        if (jb != null)
-            jb.Volume = volume;
     }
 
     public void SetLocalMute(uint userId, bool muted)
@@ -414,41 +410,44 @@ private int _screenShareHotkeyId = -1;
     {
         _hwnd = hwnd;
         _speakingTimer = new Timer(CheckSpeakingState, null, 100, 100);
-
-        // Initialize the jitter buffer mixer and single audio output
-        _mixer = new AudioMixer();
-        _outputPlayer = new WaveOutEvent { DesiredLatency = 80, NumberOfBuffers = 4 };
-        _outputPlayer.Init(new MixerWaveProvider(_mixer.Output));
-        _outputPlayer.Play();
-        _mixer.Start();
     }
 
     /// <summary>
-    /// IWaveProvider adapter that reads mixed PCM from the AudioMixer's RingBuffer.
+    /// IWaveProvider adapter that pulls PCM from a JitterBuffer on NAudio's callback thread.
+    /// This pull-model avoids timing issues from a separate playout timer.
     /// </summary>
-    private class MixerWaveProvider : IWaveProvider
+    private class JitterBufferWaveProvider : IWaveProvider
     {
-        private readonly RingBuffer _ringBuffer;
-        private readonly short[] _readBuffer = new short[4800];
+        private readonly JitterBuffer _jitterBuffer;
+        private readonly short[] _frameBuf = new short[960];
         public WaveFormat WaveFormat { get; } = new WaveFormat(48000, 16, 1);
 
-        public MixerWaveProvider(RingBuffer ringBuffer) => _ringBuffer = ringBuffer;
+        public JitterBufferWaveProvider(JitterBuffer jitterBuffer) => _jitterBuffer = jitterBuffer;
 
         public int Read(byte[] buffer, int offset, int count)
         {
-            int samplesToRead = Math.Min(count / sizeof(short), _readBuffer.Length);
-            int read = _ringBuffer.Read(_readBuffer.AsSpan(0, samplesToRead));
-
-            for (int i = 0; i < read; i++)
+            int bytesWritten = 0;
+            while (bytesWritten < count)
             {
-                buffer[offset + i * 2] = (byte)(_readBuffer[i] & 0xFF);
-                buffer[offset + i * 2 + 1] = (byte)((_readBuffer[i] >> 8) & 0xFF);
+                int remaining = count - bytesWritten;
+                int samplesToGet = Math.Min(remaining / sizeof(short), 960);
+                if (samplesToGet < 960)
+                {
+                    // Partial frame at end — fill with silence
+                    Array.Clear(buffer, offset + bytesWritten, remaining);
+                    bytesWritten = count;
+                    break;
+                }
+
+                _jitterBuffer.GetAudio(_frameBuf);
+
+                for (int i = 0; i < 960; i++)
+                {
+                    buffer[offset + bytesWritten] = (byte)(_frameBuf[i] & 0xFF);
+                    buffer[offset + bytesWritten + 1] = (byte)((_frameBuf[i] >> 8) & 0xFF);
+                    bytesWritten += 2;
+                }
             }
-
-            int bytesWritten = read * sizeof(short);
-            if (bytesWritten < count)
-                Array.Clear(buffer, offset + bytesWritten, count - bytesWritten);
-
             return count;
         }
     }
@@ -838,26 +837,37 @@ private int _screenShareHotkeyId = -1;
     /// </summary>
     public void FeedVoice(uint userId, byte[] opusData, long sequence)
     {
-        if (_deafened || _mixer == null) return;
+        if (_deafened) return;
 
-        // Respect local mute — don't create buffers for locally muted users
-        if (_localMutes.Contains(userId)) return;
-
-        var jb = _mixer.GetBuffer(userId);
-        if (jb == null)
+        JitterBuffer? jb;
+        lock (_lock)
         {
-            // First packet from this user — create JitterBuffer
-            var decoder = new MumbleOpusDecoder(sampleRate: 48000, channels: 1);
-            jb = new JitterBuffer(decoder);
+            if (_localMutes.Contains(userId)) return;
 
-            // Apply per-user volume if set
-            if (_userVolumes.TryGetValue(userId, out var vol))
-                jb.Volume = vol;
-            else
-                jb.Volume = _outputVolume;
+            if (!_jitterBuffers.TryGetValue(userId, out jb))
+            {
+                // First packet from this user — create JitterBuffer + WaveOutEvent
+                var decoder = new MumbleOpusDecoder(sampleRate: 48000, channels: 1);
+                jb = new JitterBuffer(decoder);
 
-            _mixer.AddBuffer(userId, jb);
-            AudioLog.Write($"[Audio] Created JitterBuffer for user {userId}");
+                if (_userVolumes.TryGetValue(userId, out var vol))
+                    jb.Volume = vol;
+                else
+                    jb.Volume = _outputVolume;
+
+                _jitterBuffers[userId] = jb;
+
+                var player = new WaveOutEvent
+                {
+                    DesiredLatency = 80,
+                    NumberOfBuffers = 4
+                };
+                player.Init(new JitterBufferWaveProvider(jb));
+                player.Play();
+                _players[userId] = player;
+
+                AudioLog.Write($"[Audio] Created JitterBuffer for user {userId}");
+            }
         }
 
         var packet = new EncodedPacket(
@@ -872,10 +882,16 @@ private int _screenShareHotkeyId = -1;
     /// <summary>Clean up a user's audio pipeline when they disconnect.</summary>
     public void RemoveUser(uint userId)
     {
-        _mixer?.RemoveBuffer(userId);
         bool wasSpeaking;
         lock (_lock)
         {
+            if (_players.Remove(userId, out var player))
+            {
+                player.Stop();
+                player.Dispose();
+            }
+            if (_jitterBuffers.Remove(userId, out var jb))
+                jb.Dispose();
             wasSpeaking = _currentlySpeaking.Remove(userId);
         }
         if (wasSpeaking)
@@ -897,18 +913,30 @@ private int _screenShareHotkeyId = -1;
             StartMic();
     }
 
-    /// <summary>Set deafen state. Mutes output when deafened, preserving jitter buffer state.</summary>
+    /// <summary>Set deafen state. Stops all playback when deafened.</summary>
     public void SetDeafened(bool deafened)
     {
         _deafened = deafened;
         if (deafened)
         {
-            // Mute output — mixer keeps running to preserve buffer state
-            _outputPlayer?.Stop();
-        }
-        else
-        {
-            _outputPlayer?.Play();
+            lock (_lock)
+            {
+                foreach (var player in _players.Values)
+                {
+                    player.Stop();
+                    player.Dispose();
+                }
+                foreach (var jb in _jitterBuffers.Values)
+                    jb.Dispose();
+                _players.Clear();
+                _jitterBuffers.Clear();
+
+                var wasSpeaking = _currentlySpeaking.ToList();
+                _currentlySpeaking.Clear();
+
+                foreach (var userId in wasSpeaking)
+                    UserStoppedSpeaking?.Invoke(userId);
+            }
         }
     }
 
@@ -1636,16 +1664,14 @@ private int _screenShareHotkeyId = -1;
 
     private void CheckSpeakingState(object? state)
     {
-        if (_mixer == null) return;
-
         List<uint>? started = null;
         List<uint>? stopped = null;
 
         lock (_lock)
         {
-            foreach (uint userId in _mixer.GetActiveUserIds())
+            foreach (var (userId, jb) in _jitterBuffers)
             {
-                bool speaking = _mixer.IsUserSpeaking(userId);
+                bool speaking = jb.IsSpeaking;
                 bool wasSpeaking = _currentlySpeaking.Contains(userId);
 
                 if (speaking && !wasSpeaking)
@@ -1661,7 +1687,7 @@ private int _screenShareHotkeyId = -1;
             }
 
             // Clean up users that were removed
-            _currentlySpeaking.IntersectWith(_mixer.GetActiveUserIds());
+            _currentlySpeaking.IntersectWith(_jitterBuffers.Keys);
         }
 
         if (started != null)
@@ -1698,11 +1724,18 @@ private int _screenShareHotkeyId = -1;
         _encodePipeline?.Dispose();
         _encodePipeline = null;
 
-        _mixer?.Dispose();
-        _mixer = null;
-        _outputPlayer?.Stop();
-        _outputPlayer?.Dispose();
-        _outputPlayer = null;
+        lock (_lock)
+        {
+            foreach (var player in _players.Values)
+            {
+                player.Stop();
+                player.Dispose();
+            }
+            foreach (var jb in _jitterBuffers.Values)
+                jb.Dispose();
+            _players.Clear();
+            _jitterBuffers.Clear();
+        }
     }
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
