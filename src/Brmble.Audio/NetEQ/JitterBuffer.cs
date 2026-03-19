@@ -31,6 +31,8 @@ public class JitterBuffer : IDisposable
     private readonly short[] _lastDecodedFrame = new short[FrameSize];
     private bool _hasLastDecodedFrame;
     private bool _firstPacketReceived;
+    private bool _playoutStarted; // true once we've buffered enough to start
+    private readonly int _initialBufferFrames;
     private bool _disposed;
 
     // Sequence reset detection
@@ -47,9 +49,10 @@ public class JitterBuffer : IDisposable
     private int _consecutiveExpandCount;
     private const int SilenceResetThreshold = 25; // 25 frames = 500ms
 
-    public JitterBuffer(IOpusDecoder decoder)
+    public JitterBuffer(IOpusDecoder decoder, int initialBufferFrames = 3)
     {
         _decoder = decoder;
+        _initialBufferFrames = initialBufferFrames;
         _packetBuffer = new PacketBuffer();
         _delayManager = new DelayManager();
         _decisionLogic = new DecisionLogic();
@@ -106,6 +109,19 @@ public class JitterBuffer : IDisposable
         _stats.TotalFrames++;
         _stats.BufferLevel = _packetBuffer.Count;
         _stats.TargetLevel = _delayManager.TargetLevel;
+
+        // Wait for initial buffer to fill before starting playout.
+        // Until then, return silence to avoid PLC noise on a fresh decoder.
+        if (!_playoutStarted && _initialBufferFrames > 0)
+        {
+            if (_firstPacketReceived && _packetBuffer.Count >= _initialBufferFrames)
+                _playoutStarted = true;
+            else
+            {
+                output[..FrameSize].Clear();
+                return;
+            }
+        }
 
         // Peek to see if the expected packet is available (don't consume yet)
         bool packetAvailable = _packetBuffer.Contains(_expectedTimestamp);
@@ -233,6 +249,7 @@ public class JitterBuffer : IDisposable
             if (_consecutiveExpandCount >= SilenceResetThreshold)
             {
                 _firstPacketReceived = false;
+                _playoutStarted = false;
                 _packetBuffer.Flush();
                 _consecutiveExpandCount = 0;
             }

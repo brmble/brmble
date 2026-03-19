@@ -26,7 +26,7 @@ public class JitterBufferTest
     public void GetAudio_NoPackets_ReturnsPLC()
     {
         var decoder = new FakeOpusDecoder();
-        var jb = new JitterBuffer(decoder);
+        var jb = new JitterBuffer(decoder, initialBufferFrames: 0);
 
         var output = new short[FrameSize];
         jb.GetAudio(output);
@@ -42,7 +42,7 @@ public class JitterBufferTest
     public void InsertThenGetAudio_DecodesNormally()
     {
         var decoder = new FakeOpusDecoder();
-        var jb = new JitterBuffer(decoder);
+        var jb = new JitterBuffer(decoder, initialBufferFrames: 0);
 
         jb.InsertPacket(MakePacket(0, arrivalMs: 0));
 
@@ -60,7 +60,7 @@ public class JitterBufferTest
     public void OutOfOrderPackets_ReorderedCorrectly()
     {
         var decoder = new FakeOpusDecoder();
-        var jb = new JitterBuffer(decoder);
+        var jb = new JitterBuffer(decoder, initialBufferFrames: 0);
 
         jb.InsertPacket(MakePacket(1, arrivalMs: 5));
         jb.InsertPacket(MakePacket(0, arrivalMs: 10));
@@ -78,7 +78,7 @@ public class JitterBufferTest
     public void MissingPacket_TriggersPLC_ThenMerge()
     {
         var decoder = new FakeOpusDecoder();
-        var jb = new JitterBuffer(decoder);
+        var jb = new JitterBuffer(decoder, initialBufferFrames: 0);
 
         jb.InsertPacket(MakePacket(0, arrivalMs: 0));
         jb.InsertPacket(MakePacket(2, arrivalMs: 40));
@@ -106,7 +106,7 @@ public class JitterBufferTest
     public void GetAudio_AlwaysReturnsSamples()
     {
         var decoder = new FakeOpusDecoder();
-        var jb = new JitterBuffer(decoder);
+        var jb = new JitterBuffer(decoder, initialBufferFrames: 0);
 
         var output = new short[FrameSize];
         for (int i = 0; i < 100; i++)
@@ -119,7 +119,7 @@ public class JitterBufferTest
     public void Volume_ScalesOutput()
     {
         var decoder = new FakeOpusDecoder();
-        var jb = new JitterBuffer(decoder);
+        var jb = new JitterBuffer(decoder, initialBufferFrames: 0);
         jb.Volume = 0.5f;
 
         jb.InsertPacket(MakePacket(0, arrivalMs: 0));
@@ -135,7 +135,7 @@ public class JitterBufferTest
     public void Stats_TracksAllDecisions()
     {
         var decoder = new FakeOpusDecoder();
-        var jb = new JitterBuffer(decoder);
+        var jb = new JitterBuffer(decoder, initialBufferFrames: 0);
 
         var output = new short[FrameSize];
         for (int i = 0; i < 5; i++)
