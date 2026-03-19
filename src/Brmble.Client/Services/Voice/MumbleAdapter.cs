@@ -2135,6 +2135,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     {
         // Don't call base — we use our own decode pipeline instead of
         // MumbleSharp's AudioDecodingBuffer (fixed 350ms buffer, poor quality).
+        if (sequence == 0)
+        {
+            var userName = Users.FirstOrDefault(u => u.Id == userId)?.Name ?? "?";
+            AudioLog.Write($"[JB] user={userId} name={userName} first-packet payloadLen={data.Length}");
+        }
         _audioManager?.FeedVoice(userId, data, sequence);
     }
 }
