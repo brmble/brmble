@@ -5,4 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\lib\MumbleSharp\MumbleSharp\MumbleSharp.csproj" />
+  </ItemGroup>
 </Project>
