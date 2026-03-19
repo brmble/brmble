@@ -30,7 +30,6 @@ public class JitterBuffer : IDisposable
     // Cross-fade buffer for Merge/Accelerate/Decelerate
     private const int OverlapSamples = 96; // 2ms at 48kHz
 
-    private long _expectedTimestamp;
     private PlayoutDecision _previousDecision = PlayoutDecision.Normal;
     private readonly short[] _lastDecodedFrame = new short[FrameSize];
     private bool _hasLastDecodedFrame;
@@ -118,16 +117,31 @@ public class JitterBuffer : IDisposable
             }
         }
 
-        // First drain any excess samples from previous large-frame decode
+        // Fill SyncBuffer from packets until we have enough for one output frame.
+        // This handles both small frames (<960, e.g. 10ms) and large frames (>960, e.g. 60ms).
+        Span<short> frame = _frameBuffer;
+        while (_syncBuffer.AvailableSamples < FrameSize && _packetBuffer.Count > 0)
+        {
+            var pkt = _packetBuffer.TryPopFirst();
+            if (pkt == null) break;
+            int decoded = _decoder.Decode(pkt.Payload, frame);
+            if (decoded > 0)
+                _syncBuffer.Write(frame[..decoded]);
+        }
+
+        // If SyncBuffer has enough, serve from it directly
         if (_syncBuffer.AvailableSamples >= FrameSize)
         {
             _syncBuffer.Read(output[..FrameSize]);
+            output[..FrameSize].CopyTo(_lastDecodedFrame);
+            _hasLastDecodedFrame = true;
             _stats.NormalFrames++;
+            _stats.TotalFrames++; // already incremented above, adjust
+            _stats.TotalFrames--; // undo double-count
             _previousDecision = PlayoutDecision.Normal;
             _consecutiveExpandCount = 0;
             _realAudioTicks = Math.Min(_realAudioTicks + 1, SpeakingThreshold + 1);
             IsSpeaking = _realAudioTicks >= SpeakingThreshold;
-            // Apply volume
             float v = Volume;
             if (v < 0.999f || v > 1.001f)
                 for (int i = 0; i < FrameSize; i++)
@@ -135,84 +149,26 @@ public class JitterBuffer : IDisposable
             return;
         }
 
-        // Check if packets are available (sequence-agnostic)
-        bool packetAvailable = _packetBuffer.Count > 0;
+        // Not enough samples even after draining all packets — check what to do
+        bool packetAvailable = _syncBuffer.AvailableSamples > 0;
 
-        var decision = _decisionLogic.Decide(
-            packetAvailable,
-            _packetBuffer.Count,
-            _delayManager.TargetLevel,
-            _previousDecision);
-
-        // Use pre-allocated buffers instead of stackalloc
-        Span<short> frame = _frameBuffer;
-
-        // Pop the next packet sequentially (sorted by sequence number)
-        // Don't consume for Decelerate (we repeat the last frame instead)
-        EncodedPacket? packet = (decision != PlayoutDecision.Decelerate && decision != PlayoutDecision.Expand)
-            ? _packetBuffer.TryPopFirst()
-            : null;
-
-        switch (decision)
+        // If we reach here, buffer is empty or has < 960 samples.
+        // Use PLC to fill (maintains decoder state for smooth transitions).
         {
-            case PlayoutDecision.Normal:
-                DecodeToOutput(packet!.Payload, frame, output);
-                output[..FrameSize].CopyTo(_lastDecodedFrame);
-                _hasLastDecodedFrame = true;
-                _stats.NormalFrames++;
-                break;
+            int partial = _syncBuffer.AvailableSamples > 0
+                ? _syncBuffer.Read(output[..FrameSize])
+                : 0;
 
-            case PlayoutDecision.Expand:
+            if (partial < FrameSize)
+            {
                 _decoder.DecodePlc(frame);
-                frame[..FrameSize].CopyTo(output);
-                frame[..FrameSize].CopyTo(_lastDecodedFrame);
-                _hasLastDecodedFrame = true;
-                _stats.ExpandFrames++;
-                break;
+                frame[..(FrameSize - partial)].CopyTo(output[partial..FrameSize]);
+            }
 
-            case PlayoutDecision.Merge:
-                Span<short> mergeFrame = _secondFrameBuffer;
-                DecodeToOutput(packet!.Payload, mergeFrame, mergeFrame);
-                if (_hasLastDecodedFrame)
-                    CrossFade(output, _lastDecodedFrame, mergeFrame);
-                else
-                    mergeFrame[..FrameSize].CopyTo(output);
-                output[..FrameSize].CopyTo(_lastDecodedFrame);
-                _hasLastDecodedFrame = true;
-                _stats.NormalFrames++;
-                break;
-
-            case PlayoutDecision.Accelerate:
-                // Decode current and skip one to shrink buffer
-                DecodeToOutput(packet!.Payload, frame, output);
-                var nextPacket = _packetBuffer.TryPopFirst();
-                if (nextPacket != null)
-                {
-                    // Decode the skipped packet to keep decoder state consistent
-                    Span<short> nextFrame = _secondFrameBuffer;
-                    _decoder.Decode(nextPacket.Payload, nextFrame);
-                    // Don't store excess — we're skipping this frame
-                }
-                output[..FrameSize].CopyTo(_lastDecodedFrame);
-                _hasLastDecodedFrame = true;
-                _stats.AccelerateFrames++;
-                break;
-
-            case PlayoutDecision.Decelerate:
-                // Repeat last frame to grow the buffer
-                if (_hasLastDecodedFrame)
-                {
-                    _lastDecodedFrame.AsSpan(0, FrameSize).CopyTo(output);
-                }
-                else
-                {
-                    _decoder.DecodePlc(frame);
-                    frame[..FrameSize].CopyTo(output);
-                    frame[..FrameSize].CopyTo(_lastDecodedFrame);
-                    _hasLastDecodedFrame = true;
-                }
-                _stats.DecelerateFrames++;
-                break;
+            output[..FrameSize].CopyTo(_lastDecodedFrame);
+            _hasLastDecodedFrame = true;
+            _stats.ExpandFrames++;
+            _previousDecision = PlayoutDecision.Expand;
         }
 
         // Apply volume
@@ -224,7 +180,7 @@ public class JitterBuffer : IDisposable
         }
 
         // Update speaking state
-        bool isRealAudio = decision is PlayoutDecision.Normal
+        bool isRealAudio = _previousDecision is PlayoutDecision.Normal
             or PlayoutDecision.Merge
             or PlayoutDecision.Accelerate
             or PlayoutDecision.Decelerate;
@@ -235,10 +191,9 @@ public class JitterBuffer : IDisposable
             _realAudioTicks = Math.Max(_realAudioTicks - 1, 0);
 
         IsSpeaking = _realAudioTicks >= SpeakingThreshold;
-        _previousDecision = decision;
 
         // After prolonged silence, reset so initial buffering kicks in again
-        if (decision == PlayoutDecision.Expand)
+        if (_previousDecision == PlayoutDecision.Expand)
         {
             _consecutiveExpandCount++;
             if (_consecutiveExpandCount >= SilenceResetThreshold)
