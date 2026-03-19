@@ -19,9 +19,13 @@ public class JitterBuffer : IDisposable
     private readonly DecisionLogic _decisionLogic;
     private readonly JitterBufferStats _stats;
 
-    // Pre-allocated buffers to avoid GC pressure on the playout thread
-    private readonly short[] _frameBuffer = new short[FrameSize];
-    private readonly short[] _secondFrameBuffer = new short[FrameSize];
+    // Pre-allocated buffers — large enough for max Opus frame (120ms = 5760 samples)
+    private const int MaxDecodeSamples = 5760;
+    private readonly short[] _frameBuffer = new short[MaxDecodeSamples];
+    private readonly short[] _secondFrameBuffer = new short[MaxDecodeSamples];
+
+    // SyncBuffer for excess decoded samples (when frame > 20ms)
+    private readonly SyncBuffer _syncBuffer = new(capacity: MaxDecodeSamples);
 
     // Cross-fade buffer for Merge/Accelerate/Decelerate
     private const int OverlapSamples = 96; // 2ms at 48kHz
@@ -114,6 +118,23 @@ public class JitterBuffer : IDisposable
             }
         }
 
+        // First drain any excess samples from previous large-frame decode
+        if (_syncBuffer.AvailableSamples >= FrameSize)
+        {
+            _syncBuffer.Read(output[..FrameSize]);
+            _stats.NormalFrames++;
+            _previousDecision = PlayoutDecision.Normal;
+            _consecutiveExpandCount = 0;
+            _realAudioTicks = Math.Min(_realAudioTicks + 1, SpeakingThreshold + 1);
+            IsSpeaking = _realAudioTicks >= SpeakingThreshold;
+            // Apply volume
+            float v = Volume;
+            if (v < 0.999f || v > 1.001f)
+                for (int i = 0; i < FrameSize; i++)
+                    output[i] = (short)Math.Clamp(output[i] * v, short.MinValue, short.MaxValue);
+            return;
+        }
+
         // Check if packets are available (sequence-agnostic)
         bool packetAvailable = _packetBuffer.Count > 0;
 
@@ -135,9 +156,8 @@ public class JitterBuffer : IDisposable
         switch (decision)
         {
             case PlayoutDecision.Normal:
-                _decoder.Decode(packet!.Payload, frame);
-                frame[..FrameSize].CopyTo(output);
-                frame[..FrameSize].CopyTo(_lastDecodedFrame);
+                DecodeToOutput(packet!.Payload, frame, output);
+                output[..FrameSize].CopyTo(_lastDecodedFrame);
                 _hasLastDecodedFrame = true;
                 _stats.NormalFrames++;
                 break;
@@ -152,32 +172,28 @@ public class JitterBuffer : IDisposable
 
             case PlayoutDecision.Merge:
                 Span<short> mergeFrame = _secondFrameBuffer;
-                _decoder.Decode(packet!.Payload, mergeFrame);
+                DecodeToOutput(packet!.Payload, mergeFrame, mergeFrame);
                 if (_hasLastDecodedFrame)
                     CrossFade(output, _lastDecodedFrame, mergeFrame);
                 else
                     mergeFrame[..FrameSize].CopyTo(output);
-                mergeFrame[..FrameSize].CopyTo(_lastDecodedFrame);
+                output[..FrameSize].CopyTo(_lastDecodedFrame);
                 _hasLastDecodedFrame = true;
                 _stats.NormalFrames++;
                 break;
 
             case PlayoutDecision.Accelerate:
                 // Decode current and skip one to shrink buffer
-                _decoder.Decode(packet!.Payload, frame);
+                DecodeToOutput(packet!.Payload, frame, output);
                 var nextPacket = _packetBuffer.TryPopFirst();
                 if (nextPacket != null)
                 {
+                    // Decode the skipped packet to keep decoder state consistent
                     Span<short> nextFrame = _secondFrameBuffer;
                     _decoder.Decode(nextPacket.Payload, nextFrame);
-                    CrossFade(output, frame, nextFrame);
-                    nextFrame[..FrameSize].CopyTo(_lastDecodedFrame);
+                    // Don't store excess — we're skipping this frame
                 }
-                else
-                {
-                    frame[..FrameSize].CopyTo(output);
-                    frame[..FrameSize].CopyTo(_lastDecodedFrame);
-                }
+                output[..FrameSize].CopyTo(_lastDecodedFrame);
                 _hasLastDecodedFrame = true;
                 _stats.AccelerateFrames++;
                 break;
@@ -253,6 +269,28 @@ public class JitterBuffer : IDisposable
             output[nonOverlap + i] = (short)(
                 outgoing[nonOverlap + i] * (1 - alpha) +
                 incoming[i] * alpha);
+        }
+    }
+
+    /// <summary>
+    /// Decode a packet into the output buffer (FrameSize samples).
+    /// If the decoded frame is larger than FrameSize, excess goes into SyncBuffer.
+    /// </summary>
+    private void DecodeToOutput(byte[] payload, Span<short> decodeBuf, Span<short> output)
+    {
+        int decoded = _decoder.Decode(payload, decodeBuf);
+        if (decoded <= FrameSize)
+        {
+            decodeBuf[..Math.Min(decoded, FrameSize)].CopyTo(output[..FrameSize]);
+            // Zero-fill if decoded < FrameSize
+            if (decoded < FrameSize)
+                output[decoded..FrameSize].Clear();
+        }
+        else
+        {
+            // Output first 960 samples, store rest in SyncBuffer
+            decodeBuf[..FrameSize].CopyTo(output[..FrameSize]);
+            _syncBuffer.Write(decodeBuf[FrameSize..decoded]);
         }
     }
 

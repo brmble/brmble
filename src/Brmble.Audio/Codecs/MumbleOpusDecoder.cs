@@ -8,15 +8,16 @@ namespace Brmble.Audio.Codecs;
 /// </summary>
 public class MumbleOpusDecoder : IOpusDecoder
 {
-    private const int FrameSize = 960;
+    // Max Opus frame is 120ms = 5760 samples at 48kHz
+    private const int MaxFrameSamples = 5760;
     private readonly OpusDecoder _decoder;
-    private readonly byte[] _decodeBuffer; // MumbleSharp outputs bytes (PCM16)
+    private readonly byte[] _decodeBuffer;
     private bool _disposed;
 
     public MumbleOpusDecoder(int sampleRate = 48000, int channels = 1)
     {
         _decoder = new OpusDecoder(sampleRate, channels);
-        _decodeBuffer = new byte[FrameSize * channels * sizeof(short)];
+        _decodeBuffer = new byte[MaxFrameSamples * channels * sizeof(short)];
     }
 
     public int Decode(ReadOnlySpan<byte> encodedData, Span<short> output)
