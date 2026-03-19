@@ -6,10 +6,12 @@
     <Project Path="lib/MumbleSharp/MumbleSharp/MumbleSharp.csproj" />
   </Folder>
   <Folder Name="/src/">
+    <Project Path="src/Brmble.Audio/Brmble.Audio.csproj" />
     <Project Path="src/Brmble.Client/Brmble.Client.csproj" />
     <Project Path="src/Brmble.Server/Brmble.Server.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Brmble.Audio.Tests/Brmble.Audio.Tests.csproj" />
     <Project Path="tests/Brmble.Client.Tests/Brmble.Client.Tests.csproj" />
     <Project Path="tests/Brmble.Server.Tests/Brmble.Server.Tests.csproj" />
     <Project Path="tests/MumbleVoiceEngine.Tests/MumbleVoiceEngine.Tests.csproj" />
