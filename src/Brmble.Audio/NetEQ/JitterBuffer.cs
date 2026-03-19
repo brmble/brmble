@@ -43,6 +43,10 @@ public class JitterBuffer : IDisposable
     private int _realAudioTicks;
     private const int SpeakingThreshold = 3;
 
+    // Silence detection: reset state after prolonged silence
+    private int _consecutiveExpandCount;
+    private const int SilenceResetThreshold = 25; // 25 frames = 500ms
+
     public JitterBuffer(IOpusDecoder decoder)
     {
         _decoder = decoder;
@@ -218,6 +222,25 @@ public class JitterBuffer : IDisposable
 
         IsSpeaking = _realAudioTicks >= SpeakingThreshold;
         _previousDecision = decision;
+
+        // Reset state after prolonged silence to prevent timestamp drift.
+        // When NAudio keeps calling GetAudio during silence, _expectedTimestamp
+        // races ahead. After SilenceResetThreshold Expand frames, reset so the
+        // next InsertPacket re-initializes _expectedTimestamp.
+        if (decision == PlayoutDecision.Expand)
+        {
+            _consecutiveExpandCount++;
+            if (_consecutiveExpandCount >= SilenceResetThreshold)
+            {
+                _firstPacketReceived = false;
+                _packetBuffer.Flush();
+                _consecutiveExpandCount = 0;
+            }
+        }
+        else
+        {
+            _consecutiveExpandCount = 0;
+        }
     }
 
     /// <summary>

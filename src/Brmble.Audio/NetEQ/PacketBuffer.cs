@@ -76,9 +76,8 @@ public class PacketBuffer
                 _lastDecodedTimestamp = expectedTimestamp;
                 return packet;
             }
-            // Also advance lastDecoded even on miss (so stale check works)
-            if (expectedTimestamp > _lastDecodedTimestamp)
-                _lastDecodedTimestamp = expectedTimestamp;
+            // Don't advance _lastDecodedTimestamp on miss — doing so causes
+            // timestamp drift during silence, rejecting valid packets as stale.
             return null;
         }
     }
