@@ -70,23 +70,14 @@ public class JitterBuffer : IDisposable
         {
             _packetBuffer.Flush();
             _delayManager.Reset();
-            _expectedTimestamp = packet.Timestamp;
             _firstPacketReceived = false;
+            _playoutStarted = false;
         }
 
         _lastInsertedSequence = packet.Sequence;
 
-        // Set expected timestamp from first packet, or adjust backward
-        // if an earlier packet arrives before playout has consumed it
         if (!_firstPacketReceived)
-        {
-            _expectedTimestamp = packet.Timestamp;
             _firstPacketReceived = true;
-        }
-        else if (packet.Timestamp < _expectedTimestamp)
-        {
-            _expectedTimestamp = packet.Timestamp;
-        }
 
         if (!_packetBuffer.Insert(packet))
         {
@@ -123,15 +114,8 @@ public class JitterBuffer : IDisposable
             }
         }
 
-        // Peek to see if the expected packet is available (don't consume yet)
-        bool packetAvailable = _packetBuffer.Contains(_expectedTimestamp);
-
-        // Track late packets
-        if (!packetAvailable && _firstPacketReceived)
-        {
-            if (_packetBuffer.Count > 0)
-                _stats.LatePackets++;
-        }
+        // Check if packets are available (sequence-agnostic)
+        bool packetAvailable = _packetBuffer.Count > 0;
 
         var decision = _decisionLogic.Decide(
             packetAvailable,
@@ -142,9 +126,10 @@ public class JitterBuffer : IDisposable
         // Use pre-allocated buffers instead of stackalloc
         Span<short> frame = _frameBuffer;
 
-        // Consume the packet only for decisions that need it
-        EncodedPacket? packet = decision != PlayoutDecision.Decelerate
-            ? _packetBuffer.TryGetNext(_expectedTimestamp)
+        // Pop the next packet sequentially (sorted by sequence number)
+        // Don't consume for Decelerate (we repeat the last frame instead)
+        EncodedPacket? packet = (decision != PlayoutDecision.Decelerate && decision != PlayoutDecision.Expand)
+            ? _packetBuffer.TryPopFirst()
             : null;
 
         switch (decision)
@@ -178,14 +163,14 @@ public class JitterBuffer : IDisposable
                 break;
 
             case PlayoutDecision.Accelerate:
+                // Decode current and skip one to shrink buffer
                 _decoder.Decode(packet!.Payload, frame);
-                var nextPacket = _packetBuffer.TryGetNext(_expectedTimestamp + FrameSize);
+                var nextPacket = _packetBuffer.TryPopFirst();
                 if (nextPacket != null)
                 {
                     Span<short> nextFrame = _secondFrameBuffer;
                     _decoder.Decode(nextPacket.Payload, nextFrame);
                     CrossFade(output, frame, nextFrame);
-                    _expectedTimestamp += FrameSize;
                     nextFrame[..FrameSize].CopyTo(_lastDecodedFrame);
                 }
                 else
@@ -198,6 +183,7 @@ public class JitterBuffer : IDisposable
                 break;
 
             case PlayoutDecision.Decelerate:
+                // Repeat last frame to grow the buffer
                 if (_hasLastDecodedFrame)
                 {
                     _lastDecodedFrame.AsSpan(0, FrameSize).CopyTo(output);
@@ -209,7 +195,6 @@ public class JitterBuffer : IDisposable
                     frame[..FrameSize].CopyTo(_lastDecodedFrame);
                     _hasLastDecodedFrame = true;
                 }
-                _expectedTimestamp -= FrameSize;
                 _stats.DecelerateFrames++;
                 break;
         }
@@ -221,9 +206,6 @@ public class JitterBuffer : IDisposable
             for (int i = 0; i < FrameSize; i++)
                 output[i] = (short)Math.Clamp(output[i] * vol, short.MinValue, short.MaxValue);
         }
-
-        // Advance expected timestamp
-        _expectedTimestamp += FrameSize;
 
         // Update speaking state
         bool isRealAudio = decision is PlayoutDecision.Normal
@@ -239,10 +221,7 @@ public class JitterBuffer : IDisposable
         IsSpeaking = _realAudioTicks >= SpeakingThreshold;
         _previousDecision = decision;
 
-        // Reset state after prolonged silence to prevent timestamp drift.
-        // When NAudio keeps calling GetAudio during silence, _expectedTimestamp
-        // races ahead. After SilenceResetThreshold Expand frames, reset so the
-        // next InsertPacket re-initializes _expectedTimestamp.
+        // After prolonged silence, reset so initial buffering kicks in again
         if (decision == PlayoutDecision.Expand)
         {
             _consecutiveExpandCount++;

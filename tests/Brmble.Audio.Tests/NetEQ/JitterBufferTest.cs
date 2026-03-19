@@ -75,13 +75,13 @@ public class JitterBufferTest
     }
 
     [TestMethod]
-    public void MissingPacket_TriggersPLC_ThenMerge()
+    public void EmptyBuffer_TriggersPLC_ThenMerge()
     {
         var decoder = new FakeOpusDecoder();
         var jb = new JitterBuffer(decoder, initialBufferFrames: 0);
 
+        // Insert only one packet
         jb.InsertPacket(MakePacket(0, arrivalMs: 0));
-        jb.InsertPacket(MakePacket(2, arrivalMs: 40));
 
         var output = new short[FrameSize];
 
@@ -89,17 +89,17 @@ public class JitterBufferTest
         jb.GetAudio(output);
         Assert.AreEqual(1, decoder.DecodeCallCount);
 
-        // Tick 2: seq 1 missing → PLC (Expand)
+        // Tick 2: buffer empty → PLC (Expand)
         jb.GetAudio(output);
         Assert.AreEqual(1, decoder.PlcCallCount);
 
-        // Tick 3: seq 2 available, previous was Expand → Merge
+        // Tick 3: new packet arrives, previous was Expand → Merge
+        jb.InsertPacket(MakePacket(1, arrivalMs: 40));
         jb.GetAudio(output);
         Assert.AreEqual(2, decoder.DecodeCallCount);
 
         var stats = jb.GetStats();
         Assert.AreEqual(1L, stats.ExpandFrames);
-        Assert.IsTrue(stats.NormalFrames > 0 || stats.TotalFrames == 3);
     }
 
     [TestMethod]

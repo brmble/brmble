@@ -870,12 +870,18 @@ private int _screenShareHotkeyId = -1;
             }
         }
 
+        var arrivalMs = (long)Stopwatch.GetElapsedTime(_startTimestamp).TotalMilliseconds;
         var packet = new EncodedPacket(
             Sequence: sequence,
-            Timestamp: sequence * 960,
+            Timestamp: sequence * 480, // Mumble sequence is in 10ms units
             Payload: opusData,
-            ArrivalTimeMs: (long)Stopwatch.GetElapsedTime(_startTimestamp).TotalMilliseconds
+            ArrivalTimeMs: arrivalMs
         );
+
+        // Diagnostic logging — first 30 packets per user + every 100th
+        if (sequence < 30 || sequence % 100 == 0)
+            AudioLog.Write($"[JB] user={userId} seq={sequence} ts={sequence * 960} bufCount={jb.GetStats().BufferLevel} payloadLen={opusData.Length}");
+
         jb.InsertPacket(packet);
     }
 

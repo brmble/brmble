@@ -76,9 +76,23 @@ public class PacketBuffer
                 _lastDecodedTimestamp = expectedTimestamp;
                 return packet;
             }
-            // Don't advance _lastDecodedTimestamp on miss — doing so causes
-            // timestamp drift during silence, rejecting valid packets as stale.
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Pop the first (lowest-key) packet from the buffer.
+    /// Works regardless of sequence numbering scheme.
+    /// </summary>
+    public EncodedPacket? TryPopFirst()
+    {
+        lock (_lock)
+        {
+            if (_packets.Count == 0) return null;
+            var packet = _packets.GetValueAtIndex(0);
+            _lastDecodedTimestamp = packet.Timestamp;
+            _packets.RemoveAt(0);
+            return packet;
         }
     }
 
