@@ -53,7 +53,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private readonly IAppConfigService? _appConfigService;
     private System.Threading.Timer? _healthTimer;
     private long _healthGeneration;
-    private static readonly HttpClient _healthHttpClient = new()
+    // Accept self-signed certs: Brmble servers use self-signed TLS certificates
+    // (same pattern as WebSocket at line ~1290 and Mumble's BouncyCastle TLS).
+    private static readonly HttpClient _healthHttpClient = new(new HttpClientHandler
+    {
+        ServerCertificateCustomValidationCallback = (_, _, _, _) => true,
+    })
     { Timeout = TimeSpan.FromSeconds(5) };
 
     private record SessionMappingEntry(string MatrixUserId, string MumbleName);
