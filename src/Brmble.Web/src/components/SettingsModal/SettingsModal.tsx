@@ -6,7 +6,7 @@ import { AudioSettingsTab, type AudioSettings, type SpeechDenoiseSettings, DEFAU
 import { ShortcutsSettingsTab, type ShortcutsSettings, DEFAULT_SHORTCUTS } from './ShortcutsSettingsTab';
 import { MessagesSettingsTab, type MessagesSettings, DEFAULT_MESSAGES } from './MessagesSettingsTab';
 import { InterfaceSettingsTab } from './InterfaceSettingsTab';
-import { type AppearanceSettings, type OverlaySettings, DEFAULT_APPEARANCE, DEFAULT_OVERLAY } from './InterfaceSettingsTypes';
+import { type AppearanceSettings, type OverlaySettings, type BrmblegotchiSettings, DEFAULT_APPEARANCE, DEFAULT_OVERLAY, DEFAULT_BRMBLEGOTCHI } from './InterfaceSettingsTypes';
 import { ConnectionSettingsTab, type ConnectionSettings } from './ConnectionSettingsTab';
 import { ProfileSettingsTab } from './ProfileSettingsTab';
 import { useServerlist } from '../../hooks/useServerlist';
@@ -48,6 +48,7 @@ interface AppSettings {
   messages: MessagesSettings;
   appearance: AppearanceSettings;
   overlay: OverlaySettings;
+  brmblegotchi: BrmblegotchiSettings;
   speechDenoise: SpeechDenoiseSettings;
   reconnectEnabled: boolean;
   autoConnectEnabled: boolean;
@@ -60,6 +61,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   messages: DEFAULT_MESSAGES,
   appearance: DEFAULT_APPEARANCE,
   overlay: DEFAULT_OVERLAY,
+  brmblegotchi: DEFAULT_BRMBLEGOTCHI,
   speechDenoise: DEFAULT_SPEECH_DENOISE,
   reconnectEnabled: true,
   autoConnectEnabled: false,
@@ -136,6 +138,29 @@ export function SettingsModal(props: SettingsModalProps) {
       return newSettings;
     });
   }, [servers]);
+
+  // Keep brmblegotchi setting in sync with localStorage
+  useEffect(() => {
+    if (!isOpen) return;
+    const checkBrmblegotchi = () => {
+      try {
+        const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          const newBrmblegotchi = parsed.brmblegotchi ?? DEFAULT_BRMBLEGOTCHI;
+          setSettings(prev => {
+            if (prev.brmblegotchi.enabled !== newBrmblegotchi.enabled) {
+              return { ...prev, brmblegotchi: newBrmblegotchi };
+            }
+            return prev;
+          });
+        }
+      } catch {}
+    };
+    checkBrmblegotchi();
+    const interval = setInterval(checkBrmblegotchi, 500);
+    return () => clearInterval(interval);
+  }, [isOpen]);
 
   const handleAudioChange = (audio: AudioSettings) => {
     setSettings(prev => {
@@ -233,6 +258,13 @@ export function SettingsModal(props: SettingsModalProps) {
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
   };
 
+  const handleBrmblegotchiChange = (brmblegotchi: BrmblegotchiSettings) => {
+    const newSettings = { ...settings, brmblegotchi };
+    setSettings(newSettings);
+    bridge.send('settings.set', { settings: newSettings });
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
+  };
+
   const handleSpeechDenoiseChange = (speechDenoise: SpeechDenoiseSettings) => {
     const newSettings = { ...settings, speechDenoise };
     setSettings(newSettings);
@@ -320,8 +352,10 @@ export function SettingsModal(props: SettingsModalProps) {
             <InterfaceSettingsTab 
               appearanceSettings={settings.appearance || DEFAULT_APPEARANCE} 
               overlaySettings={settings.overlay || DEFAULT_OVERLAY}
+              brmblegotchiSettings={settings.brmblegotchi || DEFAULT_BRMBLEGOTCHI}
               onAppearanceChange={handleAppearanceChange} 
               onOverlayChange={handleOverlayChange}
+              onBrmblegotchiChange={handleBrmblegotchiChange}
             />
           )}
           {activeTab === 'connection' && (
