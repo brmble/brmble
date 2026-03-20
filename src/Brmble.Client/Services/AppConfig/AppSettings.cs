@@ -62,6 +62,7 @@ public record AppSettings(
     bool AutoConnectEnabled = false,
     string? AutoConnectServerId = null,
     bool ReconnectEnabled = true,
+    bool RememberLastChannel = true,
     AppearanceSettings? Appearance = null
 )
 {

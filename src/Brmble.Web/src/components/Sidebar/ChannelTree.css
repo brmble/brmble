@@ -21,6 +21,10 @@
   background: var(--bg-hover);
 }
 
+.channel-row:focus-visible {
+  box-shadow: none;
+}
+
 .channel-row.current {
   background: var(--accent-primary-wash);
 }
@@ -29,6 +33,25 @@
   color: var(--accent-primary);
   font-weight: 500;
   opacity: 1;
+}
+
+/* Dim empty channels (no users, no unreads) */
+.channel-row--empty .channel-name {
+  opacity: 0.45;
+}
+
+.channel-row--empty .channel-icon {
+  opacity: 0.35;
+}
+
+.channel-row--empty:hover .channel-name,
+.channel-row--empty:hover .channel-icon {
+  opacity: 1;
+}
+
+/* Channels with users or unreads get primary text color */
+.channel-row:not(.channel-row--empty):not(.current) .channel-name {
+  color: var(--text-primary);
 }
 
 .expand-icon {
@@ -96,6 +119,13 @@
   cursor: pointer;
   transition: all var(--transition-fast);
   flex-shrink: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.channel-row:hover .channel-sort-btn {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .channel-sort-btn:hover {
@@ -218,7 +248,7 @@
   animation-delay: var(--animation-badge-pulse-delay);
 }
 
-.channel-unread-badge + .channel-unread-badge--mention {
+.channel-unread-badge--mention + .channel-unread-badge {
   margin-left: var(--space-2xs);
 }
 

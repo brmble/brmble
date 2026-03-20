@@ -51,6 +51,7 @@ interface AppSettings {
   brmblegotchi: BrmblegotchiSettings;
   speechDenoise: SpeechDenoiseSettings;
   reconnectEnabled: boolean;
+  rememberLastChannel: boolean;
   autoConnectEnabled: boolean;
   autoConnectServerId: string | null;
 }
@@ -64,6 +65,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   brmblegotchi: DEFAULT_BRMBLEGOTCHI,
   speechDenoise: DEFAULT_SPEECH_DENOISE,
   reconnectEnabled: true,
+  rememberLastChannel: true,
   autoConnectEnabled: false,
   autoConnectServerId: null,
 };
@@ -276,6 +278,7 @@ export function SettingsModal(props: SettingsModalProps) {
     const newSettings = {
       ...settings,
       reconnectEnabled: connection.reconnectEnabled,
+      rememberLastChannel: connection.rememberLastChannel,
       autoConnectEnabled: connection.autoConnectEnabled,
       autoConnectServerId: connection.autoConnectServerId,
     };
@@ -362,6 +365,7 @@ export function SettingsModal(props: SettingsModalProps) {
             <ConnectionSettingsTab
               settings={{
                 reconnectEnabled: settings.reconnectEnabled,
+                rememberLastChannel: settings.rememberLastChannel,
                 autoConnectEnabled: settings.autoConnectEnabled,
                 autoConnectServerId: settings.autoConnectServerId,
               }}

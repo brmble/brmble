@@ -38,6 +38,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private TransmissionMode _previousMode = TransmissionMode.Continuous;
     private volatile bool _intentionalDisconnect = false;
     private volatile bool _rejected = false;
+    private volatile bool _isReconnect = false;
     private volatile CancellationTokenSource? _reconnectCts;
     private string? _reconnectHost;
     private int _reconnectPort;
@@ -117,6 +118,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     public void Connect(string host, int port, string username, string password = "", string? apiUrl = null)
     {
+        // Clear reconnect flag on every fresh Connect() call.  ReconnectLoop
+        // sets it to true *after* calling Connect(); clearing here prevents
+        // stale state if a previous connection dropped before ServerSync.
+        _isReconnect = false;
+
         if (apiUrl is not null)
             _apiUrl = apiUrl;
 
@@ -225,6 +231,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     public void Disconnect()
     {
+        _isReconnect = false;
         _cts?.Cancel();
         _processThread?.Join(2000);
         _processThread = null;
@@ -402,6 +409,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 try
                 {
                     Connect(_reconnectHost!, _reconnectPort, _reconnectUsername!, _reconnectPassword ?? "");
+                    _isReconnect = true;
                     return; // ServerSync will emit voice.connected
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
@@ -1899,10 +1907,44 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _audioManager?.SetLocalUserId(LocalUser.Id);
         _audioManager?.StartMic();
 
-        // User starts in root channel on connect — auto-activate leave voice.
-        // _previousChannelId stays null so the rejoin action is disabled until
-        // the user manually joins a channel.
-        ActivateLeaveVoice();
+        // Check which channel the server placed us in.  Unregistered users
+        // land in root (channel 0).  Registered users may be placed in their
+        // last channel automatically by the Mumble server.
+        var initialChannelId = LocalUser?.Channel?.Id ?? 0;
+        var rememberLastChannel = _appConfigService?.GetSettings().RememberLastChannel ?? true;
+
+        // Track explicit channel override for voice.connected payload.
+        // When we call JoinChannel(0) below, LocalUser.Channel won't update
+        // until the server echoes the UserState — so we pass the target
+        // channelId explicitly to avoid a race.
+        uint? voiceConnectedChannelId = null;
+
+        if (initialChannelId == 0)
+        {
+            // Root channel — auto-activate leave voice as before.
+            // _previousChannelId stays null so the rejoin action is disabled
+            // until the user manually joins a channel.
+            ActivateLeaveVoice();
+        }
+        else if (_isReconnect || rememberLastChannel)
+        {
+            // Reconnect (always keep channel) or setting is on — stay in the
+            // non-root channel the server placed us in.
+            _leftVoice = false;
+            _previousChannelId = null;
+            _bridge?.Send("voice.leftVoiceChanged", new { leftVoice = false });
+            EmitCanRejoin(false);
+        }
+        else
+        {
+            // Fresh connect with "remember last channel" off — move to root
+            // and activate leave-voice so the user starts in the lobby.
+            JoinChannel(0);
+            voiceConnectedChannelId = 0;
+            ActivateLeaveVoice(channelMoveInProgress: true);
+        }
+
+        _isReconnect = false;
 
         // Determine the API URL for credential fetch.
         // We fetch credentials BEFORE sending voice.connected so that session
@@ -1939,13 +1981,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             Task.Run(async () =>
             {
                 await FetchAndSendCredentials(url);
-                SendVoiceConnected();
+                SendVoiceConnected(voiceConnectedChannelId);
             });
         }
         else
         {
             // No API URL — credentials fetch not possible; send voice.connected immediately
-            SendVoiceConnected();
+            SendVoiceConnected(voiceConnectedChannelId);
         }
     }
 
@@ -1953,8 +1995,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// Build the channel/user snapshot and send voice.connected to the frontend.
     /// Called after credential fetch (if available) so session mappings are populated.
     /// </summary>
-    private void SendVoiceConnected()
+    /// <param name="overrideChannelId">
+    /// When non-null, use this channel ID in the payload instead of reading
+    /// <c>LocalUser.Channel.Id</c>.  This avoids a race when the server hasn't
+    /// echoed a channel move yet (e.g. fresh connect moving to root).
+    /// </param>
+    private void SendVoiceConnected(uint? overrideChannelId = null)
     {
+        var channelId = overrideChannelId ?? (uint)(LocalUser?.Channel?.Id ?? 0);
         var channels = Channels.Select(c => new { id = c.Id, name = c.Name, parent = c.Parent }).ToList();
         var users = Users.Select(u => new
         {
@@ -1973,6 +2021,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _bridge?.Send("voice.connected", new
         {
             username = LocalUser?.Name,
+            channelId,
             channels,
             users
         });

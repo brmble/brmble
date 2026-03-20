@@ -480,6 +480,7 @@ function App() {
       if (pttKey) {
         const pressedKey = e.code;
         if (pressedKey === pttKey && !pttPressed) {
+          e.preventDefault();
           pttPressed = true;
           bridge.send('voice.pttKey', { pressed: true });
         }
@@ -495,14 +496,14 @@ function App() {
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('keydown', handleKeyDown, true);
+    window.addEventListener('keyup', handleKeyUp, true);
 
     return () => {
       bridge.off('settings.current', handleSettingsCurrent);
       bridge.off('settings.updated', handleSettingsCurrent);
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('keydown', handleKeyDown, true);
+      window.removeEventListener('keyup', handleKeyUp, true);
       window.removeEventListener('storage', handleStorage);
     };
   }, []);
@@ -512,9 +513,19 @@ function App() {
     const onVoiceConnected = ((data: unknown) => {
       setConnectionStatus('connected');
       updateStatus('voice', { state: 'connected', error: undefined });
-      setCurrentChannelId('server-root');
-      setCurrentChannelName('');
-      const d = data as { username?: string; channels?: Channel[]; users?: User[] } | undefined;
+      const d = data as { username?: string; channelId?: number; channels?: Channel[]; users?: User[] } | undefined;
+
+      // Use actual channel from server instead of assuming root.
+      // Registered Mumble users may be placed in their last channel.
+      const initialChannelId = d?.channelId ?? 0;
+      if (initialChannelId === 0) {
+        setCurrentChannelId('server-root');
+        setCurrentChannelName('');
+      } else {
+        setCurrentChannelId(String(initialChannelId));
+        const channelName = d?.channels?.find(ch => ch.id === initialChannelId)?.name;
+        setCurrentChannelName(channelName || '');
+      }
       
       if (d?.username) {
         setUsername(d.username);
