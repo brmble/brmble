@@ -1,10 +1,15 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import './Brmblegotchi.css';
 
-interface BrmblegotchiWidgetProps {
+const STATE_KEY = 'brmblegotchi-state';
+const SETTINGS_KEY = 'brmble-settings';
+
+interface PetState {
   hunger: number;
   happiness: number;
   cleanliness: number;
+  lastUpdate: number;
+  lastActionTime: number;
 }
 
 type Mood = 'happy' | 'content' | 'sad';
@@ -79,22 +84,82 @@ function CleanlinessIcon() {
   );
 }
 
-const STORAGE_KEY = 'brmblegotchi-dismissed';
-
-export function BrmblegotchiWidget({ hunger, happiness, cleanliness }: BrmblegotchiWidgetProps) {
-  const [isVisible, setIsVisible] = useState(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored !== 'true';
-  });
+export function BrmblegotchiWidget() {
+  const [isEnabled, setIsEnabled] = useState(true);
+  const [isVisible, setIsVisible] = useState(true);
   const [showActions, setShowActions] = useState(false);
-  const [position, setPosition] = useState({ bottom: 24, right: 24 });
+  const [position, setPosition] = useState({ bottom: 150, right: 24 });
   const [isDragging, setIsDragging] = useState(false);
-  const dragOffset = useRef({ x: 0, y: 0 });
+  const [cooldownRemaining, setCooldownRemaining] = useState(0);
+  const [petState, setPetState] = useState<PetState>(() => {
+    try {
+      const stored = localStorage.getItem(STATE_KEY);
+      if (stored) {
+        const saved = JSON.parse(stored) as PetState;
+        const elapsed = (Date.now() - saved.lastUpdate) / 1000;
+        return {
+          hunger: Math.max(0, saved.hunger - elapsed * 0.0069),
+          happiness: Math.max(0, saved.happiness - elapsed * 0.0139),
+          cleanliness: Math.max(0, saved.cleanliness - elapsed * 0.0278),
+          lastUpdate: Date.now(),
+          lastActionTime: saved.lastActionTime ?? 0,
+        };
+      }
+    } catch {}
+    return { hunger: 80, happiness: 75, cleanliness: 85, lastUpdate: Date.now(), lastActionTime: 0 };
+  });
+
+  const dragStart = useRef({ mouseX: 0, mouseY: 0, right: 0, bottom: 0 });
   const widgetRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const checkSettings = () => {
+      try {
+        const stored = localStorage.getItem(SETTINGS_KEY);
+        if (stored) {
+          const settings = JSON.parse(stored);
+          setIsEnabled(settings.brmblegotchi?.enabled ?? true);
+          setIsVisible(settings.brmblegotchi?.enabled ?? true);
+        }
+      } catch {}
+    };
+    checkSettings();
+    const interval = setInterval(checkSettings, 500);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setPetState(prev => {
+        const newState = {
+          hunger: Math.max(0, prev.hunger - 0.0069),
+          happiness: Math.max(0, prev.happiness - 0.0139),
+          cleanliness: Math.max(0, prev.cleanliness - 0.0278),
+          lastUpdate: Date.now(),
+          lastActionTime: prev.lastActionTime,
+        };
+        localStorage.setItem(STATE_KEY, JSON.stringify(newState));
+        return newState;
+      });
+      const now = Date.now();
+      setPetState(prev => {
+        const elapsed = (now - prev.lastActionTime) / 1000;
+        const remaining = Math.max(0, 600 - elapsed);
+        setCooldownRemaining(remaining);
+        return prev;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleDismiss = useCallback(() => {
     setIsVisible(false);
-    localStorage.setItem(STORAGE_KEY, 'true');
+    try {
+      const stored = localStorage.getItem(SETTINGS_KEY);
+      const settings = stored ? JSON.parse(stored) : {};
+      settings.brmblegotchi = { ...settings.brmblegotchi, enabled: false };
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    } catch {}
   }, []);
 
   const handlePetClick = useCallback((e: React.MouseEvent) => {
@@ -102,10 +167,30 @@ export function BrmblegotchiWidget({ hunger, happiness, cleanliness }: Brmblegot
     setShowActions(prev => !prev);
   }, []);
 
-  const handleAction = useCallback((action: string) => {
-    console.log(`Brmblegotchi action: ${action}`);
+  const handleAction = useCallback((action: 'feed' | 'play' | 'clean') => {
+    const now = Date.now();
+    const elapsed = (now - petState.lastActionTime) / 1000;
+    if (elapsed < 600) return;
+
+    setPetState(prev => {
+      let newState: PetState;
+      switch (action) {
+        case 'feed':
+          newState = { ...prev, hunger: Math.min(100, prev.hunger + 25), lastUpdate: Date.now(), lastActionTime: now };
+          break;
+        case 'play':
+          newState = { ...prev, happiness: Math.min(100, prev.happiness + 20), lastUpdate: Date.now(), lastActionTime: now };
+          break;
+        case 'clean':
+          newState = { ...prev, cleanliness: Math.min(100, prev.cleanliness + 30), lastUpdate: Date.now(), lastActionTime: now };
+          break;
+      }
+      localStorage.setItem(STATE_KEY, JSON.stringify(newState));
+      setCooldownRemaining(600);
+      return newState;
+    });
     setShowActions(false);
-  }, []);
+  }, [petState.lastActionTime]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('.brmblegotchi-actions') || 
@@ -113,17 +198,22 @@ export function BrmblegotchiWidget({ hunger, happiness, cleanliness }: Brmblegot
         (e.target as HTMLElement).closest('.brmblegotchi-pet')) {
       return;
     }
+    e.preventDefault();
     setIsDragging(true);
-    dragOffset.current = {
-      x: e.clientX - position.right,
-      y: window.innerHeight - e.clientY - position.bottom,
+    dragStart.current = {
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      right: position.right,
+      bottom: position.bottom,
     };
   }, [position]);
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (!isDragging) return;
-    const newRight = Math.max(0, window.innerWidth - e.clientX - dragOffset.current.x);
-    const newBottom = Math.max(0, e.clientY - dragOffset.current.y);
+    const deltaX = e.clientX - dragStart.current.mouseX;
+    const deltaY = e.clientY - dragStart.current.mouseY;
+    const newRight = Math.max(0, dragStart.current.right - deltaX);
+    const newBottom = Math.max(0, dragStart.current.bottom - deltaY);
     setPosition({ right: newRight, bottom: newBottom });
   }, [isDragging]);
 
@@ -156,9 +246,9 @@ export function BrmblegotchiWidget({ hunger, happiness, cleanliness }: Brmblegot
     };
   }, [showActions]);
 
-  if (!isVisible) return null;
+  if (!isEnabled || !isVisible) return null;
 
-  const mood = getMood(hunger, happiness, cleanliness);
+  const mood = getMood(petState.hunger, petState.happiness, petState.cleanliness);
 
   return (
     <div
@@ -168,11 +258,14 @@ export function BrmblegotchiWidget({ hunger, happiness, cleanliness }: Brmblegot
         bottom: `${position.bottom}px`,
         right: `${position.right}px`,
       }}
-      onMouseDown={handleMouseDown}
     >
       <button className="brmblegotchi-dismiss" onClick={handleDismiss} aria-label="Dismiss pet">
         <CloseIcon />
       </button>
+      
+      <div className="brmblegotchi-drag-handle" onMouseDown={handleMouseDown}>
+        <span /><span /><span />
+      </div>
 
       <div className="brmblegotchi-pet" onClick={handlePetClick}>
         <div className="brmblegotchi-ring brmblegotchi-ring-outer" />
@@ -190,25 +283,40 @@ export function BrmblegotchiWidget({ hunger, happiness, cleanliness }: Brmblegot
         {showActions && (
           <div className="brmblegotchi-actions">
             <button
-              className="brmblegotchi-action-btn"
+              className={`brmblegotchi-action-btn ${cooldownRemaining > 0 ? 'disabled' : ''}`}
               onClick={(e) => { e.stopPropagation(); handleAction('feed'); }}
               aria-label="Feed"
+              disabled={cooldownRemaining > 0}
             >
-              <FoodIcon />
+              {cooldownRemaining > 0 ? (
+                <span className="brmblegotchi-cooldown">{Math.ceil(cooldownRemaining / 60)}m</span>
+              ) : (
+                <FoodIcon />
+              )}
             </button>
             <button
-              className="brmblegotchi-action-btn"
+              className={`brmblegotchi-action-btn ${cooldownRemaining > 0 ? 'disabled' : ''}`}
               onClick={(e) => { e.stopPropagation(); handleAction('play'); }}
               aria-label="Play"
+              disabled={cooldownRemaining > 0}
             >
-              <PlayIcon />
+              {cooldownRemaining > 0 ? (
+                <span className="brmblegotchi-cooldown">{Math.ceil(cooldownRemaining / 60)}m</span>
+              ) : (
+                <PlayIcon />
+              )}
             </button>
             <button
-              className="brmblegotchi-action-btn"
+              className={`brmblegotchi-action-btn ${cooldownRemaining > 0 ? 'disabled' : ''}`}
               onClick={(e) => { e.stopPropagation(); handleAction('clean'); }}
               aria-label="Clean"
+              disabled={cooldownRemaining > 0}
             >
-              <CleanIcon />
+              {cooldownRemaining > 0 ? (
+                <span className="brmblegotchi-cooldown">{Math.ceil(cooldownRemaining / 60)}m</span>
+              ) : (
+                <CleanIcon />
+              )}
             </button>
           </div>
         )}
@@ -220,7 +328,7 @@ export function BrmblegotchiWidget({ hunger, happiness, cleanliness }: Brmblegot
             <HungerIcon />
           </div>
           <div className="brmblegotchi-stat-bar">
-            <div className="brmblegotchi-stat-fill hunger" style={{ width: `${hunger}%` }} />
+            <div className="brmblegotchi-stat-fill hunger" style={{ width: `${petState.hunger}%` }} />
           </div>
         </div>
         <div className="brmblegotchi-stat">
@@ -228,7 +336,7 @@ export function BrmblegotchiWidget({ hunger, happiness, cleanliness }: Brmblegot
             <HappinessIcon />
           </div>
           <div className="brmblegotchi-stat-bar">
-            <div className="brmblegotchi-stat-fill happiness" style={{ width: `${happiness}%` }} />
+            <div className="brmblegotchi-stat-fill happiness" style={{ width: `${petState.happiness}%` }} />
           </div>
         </div>
         <div className="brmblegotchi-stat">
@@ -236,7 +344,7 @@ export function BrmblegotchiWidget({ hunger, happiness, cleanliness }: Brmblegot
             <CleanlinessIcon />
           </div>
           <div className="brmblegotchi-stat-bar">
-            <div className="brmblegotchi-stat-fill cleanliness" style={{ width: `${cleanliness}%` }} />
+            <div className="brmblegotchi-stat-fill cleanliness" style={{ width: `${petState.cleanliness}%` }} />
           </div>
         </div>
       </div>
@@ -244,25 +352,4 @@ export function BrmblegotchiWidget({ hunger, happiness, cleanliness }: Brmblegot
   );
 }
 
-export function BrmblegotchiDemo() {
-  const [hunger, setHunger] = useState(75);
-  const [happiness, setHappiness] = useState(60);
-  const [cleanliness, setCleanliness] = useState(85);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setHunger(prev => Math.max(0, prev - Math.random() * 2));
-      setHappiness(prev => Math.max(0, prev - Math.random() * 1.5));
-      setCleanliness(prev => Math.max(0, prev - Math.random() * 1));
-    }, 2000);
-    return () => clearInterval(interval);
-  }, []);
-
-  return (
-    <BrmblegotchiWidget
-      hunger={hunger}
-      happiness={happiness}
-      cleanliness={cleanliness}
-    />
-  );
-}
+export { BrmblegotchiWidget as Brmblegotchi }

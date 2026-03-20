@@ -28,6 +28,7 @@ import { DMContactList } from './components/DMContactList/DMContactList';
 import { usePrompt, confirm } from './hooks/usePrompt';
 import { Toast } from './components/Toast/Toast';
 import { GameUI } from './components/Game/GameUI';
+import { Brmblegotchi } from './components/Brmblegotchi/Brmblegotchi';
 import './App.css';
 
 const SETTINGS_STORAGE_KEY = 'brmble-settings';
@@ -1749,6 +1750,7 @@ const handleConnect = (serverData: SavedServer) => {
 
       <ZoomIndicator />
       <Version />
+      <Brmblegotchi />
     </div>
   );
 }
