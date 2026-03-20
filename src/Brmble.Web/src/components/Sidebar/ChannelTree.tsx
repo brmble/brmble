@@ -167,13 +167,14 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     return (
       <div key={channel.id} className={`channel-item${pendingChannelAction !== null ? ' channel-item--pending' : ''}`} data-level={level}>
         <div 
-          className={`channel-row ${isCurrentChannel ? 'current' : ''}${hasUnread ? ' channel-row--unread' : ''}${isFolder ? ' is-folder' : ''}`}
+          className={`channel-row ${isCurrentChannel ? 'current' : ''}${hasUnread ? ' channel-row--unread' : ''}${channel.users.length === 0 && !hasUnread ? ' channel-row--empty' : ''}${isFolder ? ' is-folder' : ''}`}
           style={{ paddingLeft: `calc(16px + ${level * 20}px)` }}
           role="button"
           tabIndex={0}
           onClick={() => handleChannelClick(channel.id)}
           onDoubleClick={pendingChannelAction === null ? () => onJoinChannel(channel.id) : undefined}
           onKeyDown={(e) => {
+            if (e.defaultPrevented) return;
             if (e.key === ' ') {
               e.preventDefault();
               handleChannelClick(channel.id);
@@ -206,36 +207,36 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
             )}
           </span>
           <span className="channel-name">{channel.name}</span>
+          {channel.users.length > 0 && (
+            <Tooltip content={(sortByNamePerChannel[channel.id] ?? false) ? 'Sort by join order' : 'Sort alphabetically'}>
+            <button
+              className="channel-sort-btn"
+              onClick={(e) => toggleSort(channel.id, e)}
+            >
+              {(sortByNamePerChannel[channel.id] ?? false) ? 'A-Z' : '↺'}
+            </button>
+            </Tooltip>
+          )}
           {(() => {
             const unread = channelUnreads?.get(String(channel.id));
             if (!unread) return null;
             return (
               <>
-                {unread.notificationCount > 0 && (
-                  <span className="channel-unread-badge">
-                    {unread.notificationCount}
-                  </span>
-                )}
                 {unread.highlightCount > 0 && (
                   <span className="channel-unread-badge channel-unread-badge--mention">
                     @{unread.highlightCount}
+                  </span>
+                )}
+                {unread.notificationCount > 0 && (
+                  <span className="channel-unread-badge">
+                    {unread.notificationCount}
                   </span>
                 )}
               </>
             );
           })()}
           {channel.users.length > 0 && (
-            <>
-              <Tooltip content={(sortByNamePerChannel[channel.id] ?? false) ? 'Sort by join order' : 'Sort alphabetically'}>
-              <button
-                className="channel-sort-btn"
-                onClick={(e) => toggleSort(channel.id, e)}
-              >
-                {(sortByNamePerChannel[channel.id] ?? false) ? 'A-Z' : '↺'}
-              </button>
-              </Tooltip>
-              <span className="user-count">({channel.users.length})</span>
-            </>
+            <span className="user-count">({channel.users.length})</span>
           )}
         </div>
         
