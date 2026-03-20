@@ -9,6 +9,7 @@ export interface ServerEntry {
   username: string;
   password: string;
   registered?: boolean;
+  registeredName?: string;
 }
 
 export function useServerlist() {

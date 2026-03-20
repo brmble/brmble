@@ -99,6 +99,7 @@ interface SavedServer {
   username: string;
   password: string;
   registered?: boolean;
+  registeredName?: string;
 }
 
 interface Channel {
@@ -542,6 +543,22 @@ function App() {
           setSelfDeafened(selfUser.deafened || false);
           setSelfSession(selfUser.session);
         }
+      }
+
+      // Persist Mumble registration status to the saved server entry
+      const reg = data as { registered?: boolean; registeredName?: string } | undefined;
+      if (reg?.registered) {
+        try {
+          const stored = localStorage.getItem('brmble-server');
+          if (stored) {
+            const savedServer = JSON.parse(stored) as SavedServer;
+            if (savedServer.id) {
+              const updated = { ...savedServer, registered: true, username: reg.registeredName ?? savedServer.username, registeredName: reg.registeredName };
+              bridge.send('servers.update', updated);
+              localStorage.setItem('brmble-server', JSON.stringify(updated));
+            }
+          }
+        } catch { /* ignore parse errors */ }
       }
     });
 
@@ -1005,6 +1022,12 @@ function App() {
       }
     };
 
+    const onRegistrationStatus = (data: unknown) => {
+      const d = data as { serverId?: string; registered?: boolean; registeredName?: string } | undefined;
+      if (!d?.registered || !d.serverId) return;
+      bridge.send('servers.update', { id: d.serverId, registered: true, registeredName: d.registeredName });
+    };
+
     bridge.on('voice.connected', onVoiceConnected);
     bridge.on('voice.disconnected', onVoiceDisconnected);
     bridge.on('voice.error', onVoiceError);
@@ -1040,6 +1063,7 @@ function App() {
     bridge.on('voice.authError', onVoiceAuthError);
     bridge.on('voice.userMappingUpdated', onUserMappingUpdated);
     bridge.on('voice.sessionMappingSnapshot', onSessionMappingSnapshot);
+    bridge.on('voice.registrationStatus', onRegistrationStatus);
 
     return () => {
       bridge.off('voice.connected', onVoiceConnected);
@@ -1077,6 +1101,7 @@ function App() {
       bridge.off('voice.authError', onVoiceAuthError);
       bridge.off('voice.userMappingUpdated', onUserMappingUpdated);
       bridge.off('voice.sessionMappingSnapshot', onSessionMappingSnapshot);
+      bridge.off('voice.registrationStatus', onRegistrationStatus);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
