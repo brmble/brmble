@@ -31,7 +31,6 @@ interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   username?: string;
-  certFingerprint?: string;
   connected?: boolean;
   currentUser?: {
     name: string;

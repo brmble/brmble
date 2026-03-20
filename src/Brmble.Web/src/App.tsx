@@ -1791,7 +1791,6 @@ const handleConnect = (serverData: SavedServer) => {
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
         username={username}
-        certFingerprint={certFingerprint}
         connected={connected}
         currentUser={{
           name: username ?? 'Unknown',
