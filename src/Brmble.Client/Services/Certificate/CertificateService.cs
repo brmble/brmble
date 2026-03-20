@@ -72,7 +72,9 @@ internal sealed class CertificateService : IService
 
     private void LoadActiveCertificate()
     {
+        var old = ActiveCertificate;
         ActiveCertificate = null;
+        old?.Dispose();
         if (ActiveCertPath is string path && File.Exists(path))
         {
             try
@@ -129,7 +131,9 @@ internal sealed class CertificateService : IService
             File.WriteAllBytes(certPath, pfxBytes);
 
             // Reload from file to get a clean X509Certificate2 (DefaultKeySet — exportable not needed for status display)
+            var oldCert = ActiveCertificate;
             ActiveCertificate = X509CertificateLoader.LoadPkcs12FromFile(certPath, password: null, keyStorageFlags: X509KeyStorageFlags.DefaultKeySet);
+            oldCert?.Dispose();
 
             _bridge.Send("cert.generated", new
             {
@@ -160,7 +164,9 @@ internal sealed class CertificateService : IService
 
             Directory.CreateDirectory(Path.GetDirectoryName(certPath)!);
             File.WriteAllBytes(certPath, bytes);
+            var oldCert = ActiveCertificate;
             ActiveCertificate = testCert;
+            oldCert?.Dispose();
 
             _bridge.Send("cert.imported", new
             {
