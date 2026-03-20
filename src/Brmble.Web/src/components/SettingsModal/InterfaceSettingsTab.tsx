@@ -81,9 +81,10 @@ export function InterfaceSettingsTab({
       <div className="settings-section">
         <h3 className="heading-section settings-section-title">Brmblegotchi</h3>
         <div className="settings-item settings-toggle">
-          <label>Enable Pet</label>
+          <label htmlFor="brmblegotchi-enabled">Enable Pet</label>
           <label className="brmble-toggle">
             <input
+              id="brmblegotchi-enabled"
               type="checkbox"
               checked={brmblegotchiSettings.enabled}
               onChange={handleBrmblegotchiToggle}

@@ -3,6 +3,7 @@ import './Brmblegotchi.css';
 
 const STATE_KEY = 'brmblegotchi-state';
 const SETTINGS_KEY = 'brmble-settings';
+const POSITION_KEY = 'brmblegotchi-position';
 
 interface PetState {
   hunger: number;
@@ -88,7 +89,15 @@ export function BrmblegotchiWidget() {
   const [isEnabled, setIsEnabled] = useState(true);
   const [isVisible, setIsVisible] = useState(true);
   const [showActions, setShowActions] = useState(false);
-  const [position, setPosition] = useState({ bottom: 150, right: 24 });
+  const [position, setPosition] = useState(() => {
+    try {
+      const stored = localStorage.getItem(POSITION_KEY);
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch { /* empty */ }
+    return { bottom: 150, right: 24 };
+  });
   const [isDragging, setIsDragging] = useState(false);
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
   const [petState, setPetState] = useState<PetState>(() => {
@@ -105,7 +114,7 @@ export function BrmblegotchiWidget() {
           lastActionTime: saved.lastActionTime ?? 0,
         };
       }
-    } catch {}
+    } catch { /* empty */ }
     return { hunger: 80, happiness: 75, cleanliness: 85, lastUpdate: Date.now(), lastActionTime: 0 };
   });
 
@@ -118,10 +127,11 @@ export function BrmblegotchiWidget() {
         const stored = localStorage.getItem(SETTINGS_KEY);
         if (stored) {
           const settings = JSON.parse(stored);
-          setIsEnabled(settings.brmblegotchi?.enabled ?? true);
-          setIsVisible(settings.brmblegotchi?.enabled ?? true);
+          const enabled = settings.brmblegotchi?.enabled ?? true;
+          setIsEnabled(prev => prev !== enabled ? enabled : prev);
+          setIsVisible(prev => prev !== enabled ? enabled : prev);
         }
-      } catch {}
+      } catch { /* empty */ }
     };
     checkSettings();
     const interval = setInterval(checkSettings, 500);
@@ -130,23 +140,28 @@ export function BrmblegotchiWidget() {
 
   useEffect(() => {
     const interval = setInterval(() => {
-      setPetState(prev => {
-        const newState = {
-          hunger: Math.max(0, prev.hunger - 0.0069),
-          happiness: Math.max(0, prev.happiness - 0.0139),
-          cleanliness: Math.max(0, prev.cleanliness - 0.0278),
-          lastUpdate: Date.now(),
-          lastActionTime: prev.lastActionTime,
-        };
-        localStorage.setItem(STATE_KEY, JSON.stringify(newState));
-        return newState;
-      });
       const now = Date.now();
       setPetState(prev => {
-        const elapsed = (now - prev.lastActionTime) / 1000;
-        const remaining = Math.max(0, 600 - elapsed);
+        const elapsedSinceUpdateSeconds = Math.max(0, (now - prev.lastUpdate) / 1000);
+
+        const hungerDecayPerSecond = 0.0069;
+        const happinessDecayPerSecond = 0.0139;
+        const cleanlinessDecayPerSecond = 0.0278;
+
+        const newState = {
+          hunger: Math.max(0, prev.hunger - hungerDecayPerSecond * elapsedSinceUpdateSeconds),
+          happiness: Math.max(0, prev.happiness - happinessDecayPerSecond * elapsedSinceUpdateSeconds),
+          cleanliness: Math.max(0, prev.cleanliness - cleanlinessDecayPerSecond * elapsedSinceUpdateSeconds),
+          lastUpdate: now,
+          lastActionTime: prev.lastActionTime,
+        };
+
+        const elapsedSinceActionSeconds = Math.max(0, (now - prev.lastActionTime) / 1000);
+        const remaining = Math.max(0, 600 - elapsedSinceActionSeconds);
         setCooldownRemaining(remaining);
-        return prev;
+
+        localStorage.setItem(STATE_KEY, JSON.stringify(newState));
+        return newState;
       });
     }, 1000);
     return () => clearInterval(interval);
@@ -159,7 +174,7 @@ export function BrmblegotchiWidget() {
       const settings = stored ? JSON.parse(stored) : {};
       settings.brmblegotchi = { ...settings.brmblegotchi, enabled: false };
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    } catch {}
+    } catch { /* empty */ }
   }, []);
 
   const handlePetClick = useCallback((e: React.MouseEvent) => {
@@ -233,6 +248,10 @@ export function BrmblegotchiWidget() {
   }, [isDragging, handleMouseMove, handleMouseUp]);
 
   useEffect(() => {
+    localStorage.setItem(POSITION_KEY, JSON.stringify(position));
+  }, [position]);
+
+  useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (widgetRef.current && !widgetRef.current.contains(e.target as Node)) {
         setShowActions(false);
@@ -277,7 +296,7 @@ export function BrmblegotchiWidget() {
             <div className={`brmblegotchi-eye ${mood === 'happy' ? 'happy' : mood === 'sad' ? 'sad' : ''}`} />
             <div className={`brmblegotchi-eye ${mood === 'happy' ? 'happy' : mood === 'sad' ? 'sad' : ''}`} />
           </div>
-          <div className={`brmblegotchi-mouth ${mood}`} />
+          <div className={`brmblegotchi-mouth ${mood === 'content' ? 'neutral' : mood}`} />
         </div>
 
         {showActions && (

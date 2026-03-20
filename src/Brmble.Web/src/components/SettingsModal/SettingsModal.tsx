@@ -147,10 +147,13 @@ export function SettingsModal(props: SettingsModalProps) {
         const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
         if (stored) {
           const parsed = JSON.parse(stored);
-          setSettings(prev => ({
-            ...prev,
-            brmblegotchi: parsed.brmblegotchi ?? DEFAULT_BRMBLEGOTCHI,
-          }));
+          const newBrmblegotchi = parsed.brmblegotchi ?? DEFAULT_BRMBLEGOTCHI;
+          setSettings(prev => {
+            if (prev.brmblegotchi.enabled !== newBrmblegotchi.enabled) {
+              return { ...prev, brmblegotchi: newBrmblegotchi };
+            }
+            return prev;
+          });
         }
       } catch {}
     };

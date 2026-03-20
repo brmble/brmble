@@ -74,8 +74,6 @@ All elements use CSS custom property tokens:
 
 ## Out of Scope (for prototype)
 
-- Actual stat decay logic
-- Save/load game state
 - Sound effects
 - Pet progression/aging
 - Achievements
@@ -92,7 +90,8 @@ BrmblegotchiWidget (container, draggable)
 
 ## Implementation Notes
 
-- Pure React + CSS prototype (no game logic)
+- React + CSS prototype with real-time stat decay
 - Uses existing BrmbleLogo ring animation as base
-- Mock stat values for visual demo (random decay simulation)
+- Stats decay over time using time-based calculation (not fixed ticks)
+- State persisted to localStorage on every update
 - CSS transitions for all state changes
