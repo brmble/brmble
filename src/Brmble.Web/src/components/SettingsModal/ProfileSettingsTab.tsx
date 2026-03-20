@@ -4,6 +4,7 @@ import AvatarUpload from '../AvatarUpload/AvatarUpload';
 import bridge from '../../bridge';
 import { useProfiles } from '../../hooks/useProfiles';
 import { confirm } from '../../hooks/usePrompt';
+import { Select } from '../Select/Select';
 import { Tooltip } from '../Tooltip/Tooltip';
 import './ProfileSettingsTab.css';
 import './ProfilesSettingsTab.css';
@@ -60,27 +61,28 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
     return () => bridge.off('cert.exportData', onExportData);
   }, []);
 
-  // Cancel forms on Escape
+  // Cancel forms on Escape — stop propagation so SettingsModal doesn't also close
   useEffect(() => {
     if (!isAdding && !editingId) return;
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        e.stopPropagation();
+        e.preventDefault();
         setIsAdding(false);
         setEditingId(null);
         setAddName('');
         setEditName('');
       }
     };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
+    window.addEventListener('keydown', handleKey, true);
+    return () => window.removeEventListener('keydown', handleKey, true);
   }, [isAdding, editingId]);
 
   const getInitial = (name: string) => (name?.charAt(0) || '?').toUpperCase();
 
-  const truncateFingerprint = (fp: string | null) => {
+  const formatFingerprint = (fp: string | null) => {
     if (!fp) return 'No certificate';
-    if (fp.length <= 20) return fp;
-    return fp.slice(0, 8) + '...' + fp.slice(-8);
+    return fp;
   };
 
   const handleAddGenerate = (e: React.FormEvent) => {
@@ -181,19 +183,15 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
         <div className="settings-item">
           <label>Active Profile</label>
           <Tooltip content={connected ? 'Disconnect to switch profiles' : 'Select your active profile'}>
-            <select
-              className="brmble-input profile-select"
-              value={activeProfileId ?? ''}
-              onChange={(e) => setActive(e.target.value)}
-              disabled={connected || loading || profiles.length === 0}
-            >
-              {profiles.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-              {profiles.length === 0 && (
-                <option value="">No profiles</option>
-              )}
-            </select>
+            <div className="profile-select-wrapper">
+              <Select
+                value={activeProfileId ?? ''}
+                onChange={(val) => setActive(val)}
+                options={profiles.map(p => ({ value: p.id, label: p.name }))}
+                disabled={connected || loading || profiles.length === 0}
+                placeholder="No profiles"
+              />
+            </div>
           </Tooltip>
         </div>
       </div>
@@ -252,10 +250,18 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
                   </div>
                   <div className="profiles-info">
                     <span className="profiles-name">{profile.name}</span>
-                    <span className="profiles-fingerprint">{truncateFingerprint(profile.fingerprint)}</span>
-                    {isActive && <span className="profiles-active-badge">Active</span>}
+                    <span className="profiles-fingerprint">{formatFingerprint(profile.fingerprint)}</span>
+
                   </div>
                   <div className="profiles-actions">
+                    <Tooltip content="Delete profile">
+                      <button
+                        className="btn btn-ghost profiles-delete-btn"
+                        onClick={() => handleDelete(profile)}
+                      >
+                        ✕
+                      </button>
+                    </Tooltip>
                     <Tooltip content="Rename profile">
                       <button
                         className="btn btn-secondary profiles-action-btn"
@@ -266,18 +272,10 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
                     </Tooltip>
                     <Tooltip content="Export certificate">
                       <button
-                        className="btn btn-secondary profiles-action-btn"
+                        className="btn btn-primary profiles-action-btn"
                         onClick={() => exportCert()}
                       >
                         Export
-                      </button>
-                    </Tooltip>
-                    <Tooltip content="Delete profile">
-                      <button
-                        className="btn btn-ghost profiles-delete-btn"
-                        onClick={() => handleDelete(profile)}
-                      >
-                        ✕
                       </button>
                     </Tooltip>
                   </div>
@@ -311,14 +309,16 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
               />
             </div>
             <div className="profiles-form-actions">
-              <button type="button" className="btn btn-secondary" onClick={handleCancel}>
-                Cancel
-              </button>
               <button type="button" className="btn btn-secondary" onClick={handleAddImport} disabled={!addName.trim()}>
                 Import Certificate
               </button>
               <button type="submit" className="btn btn-primary" disabled={!addName.trim()}>
                 Generate New Certificate
+              </button>
+            </div>
+            <div className="profiles-form-actions">
+              <button type="button" className="btn btn-secondary" onClick={handleCancel}>
+                Cancel
               </button>
             </div>
           </form>

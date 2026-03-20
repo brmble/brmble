@@ -45,6 +45,6 @@
   color: var(--text-muted);
 }
 
-.profile-select {
+.profile-select-wrapper {
   min-width: 200px;
 }
