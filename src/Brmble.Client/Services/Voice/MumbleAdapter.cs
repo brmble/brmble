@@ -2023,7 +2023,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             username = LocalUser?.Name,
             channelId,
             channels,
-            users
+            users,
+            registered = LocalUser?.IsRegistered ?? false,
+            registeredName = LocalUser?.IsRegistered == true ? LocalUser.Name : (string?)null
         });
 
         Debug.WriteLine($"[Mumble] Sent {channels.Count} channels and {users.Count} users");
@@ -2057,9 +2059,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         // Track previous channel for all users to detect when they leave our channel
         uint? previousUserChannel = null;
+        bool wasRegistered = false;
         if (UserDictionary.TryGetValue(userState.Session, out var existingUser))
         {
             previousUserChannel = existingUser.Channel?.Id;
+            wasRegistered = existingUser.IsRegistered;
         }
 
         base.UserState(userState);
@@ -2076,6 +2080,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         var isSelf = LocalUser != null && userState.Session == LocalUser.Id;
         var currentChannelId = user?.Channel?.Id ?? userState.ChannelId;
+
+        // Detect registration change for local user (e.g. after auto-registration)
+        if (isSelf && !wasRegistered && user != null && user.IsRegistered && _activeServerId != null)
+        {
+            Debug.WriteLine($"[Mumble] Local user became registered: {user.Name} (userId: {user.RegisteredUserId})");
+            _bridge?.Send("voice.registrationStatus", new
+            {
+                serverId = _activeServerId,
+                registered = true,
+                registeredName = user.Name
+            });
+        }
 
         // Check if a user left our channel (moved from our channel to a different one)
         if (!isSelf && previousUserChannel.HasValue && previousChannel.HasValue && 
