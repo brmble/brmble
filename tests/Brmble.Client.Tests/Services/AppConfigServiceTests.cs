@@ -217,4 +217,94 @@ public class AppConfigServiceTests
 
         Assert.AreEqual("blue-lagoon", svc2.GetSettings().Appearance.Theme);
     }
+
+    [TestMethod]
+    public void LoadsEmptyProfiles_WhenNoFileExists()
+    {
+        var svc = new AppConfigService(_tempDir);
+        Assert.AreEqual(0, svc.GetProfiles().Count);
+        Assert.IsNull(svc.GetActiveProfileId());
+    }
+
+    [TestMethod]
+    public void SavesAndReloads_Profiles()
+    {
+        var svc = new AppConfigService(_tempDir);
+        var profile = new ProfileEntry("p1", "Roan");
+        svc.AddProfile(profile);
+        svc.SetActiveProfileId("p1");
+
+        var svc2 = new AppConfigService(_tempDir);
+        Assert.AreEqual(1, svc2.GetProfiles().Count);
+        Assert.AreEqual("Roan", svc2.GetProfiles()[0].Name);
+        Assert.AreEqual("p1", svc2.GetActiveProfileId());
+    }
+
+    [TestMethod]
+    public void RemoveProfile_RemovesFromConfig_ButNotCertFile()
+    {
+        var svc = new AppConfigService(_tempDir);
+        var certsDir = Path.Combine(_tempDir, "certs");
+        Directory.CreateDirectory(certsDir);
+        File.WriteAllBytes(Path.Combine(certsDir, "p1.pfx"), new byte[] { 1, 2, 3 });
+
+        svc.AddProfile(new ProfileEntry("p1", "Test"));
+        svc.RemoveProfile("p1");
+
+        Assert.AreEqual(0, svc.GetProfiles().Count);
+        Assert.IsTrue(File.Exists(Path.Combine(certsDir, "p1.pfx")), "Cert file should NOT be deleted");
+    }
+
+    [TestMethod]
+    public void RemoveActiveProfile_ClearsActiveId_WhenLastProfile()
+    {
+        var svc = new AppConfigService(_tempDir);
+        svc.AddProfile(new ProfileEntry("p1", "Only"));
+        svc.SetActiveProfileId("p1");
+
+        svc.RemoveProfile("p1");
+
+        Assert.IsNull(svc.GetActiveProfileId());
+    }
+
+    [TestMethod]
+    public void RemoveActiveProfile_SwitchesToAnother_WhenOthersExist()
+    {
+        var svc = new AppConfigService(_tempDir);
+        svc.AddProfile(new ProfileEntry("p1", "First"));
+        svc.AddProfile(new ProfileEntry("p2", "Second"));
+        svc.SetActiveProfileId("p1");
+
+        svc.RemoveProfile("p1");
+
+        Assert.AreEqual("p2", svc.GetActiveProfileId());
+    }
+
+    [TestMethod]
+    public void RenameProfile_UpdatesName()
+    {
+        var svc = new AppConfigService(_tempDir);
+        svc.AddProfile(new ProfileEntry("p1", "Old Name"));
+
+        svc.RenameProfile("p1", "New Name");
+        var svc2 = new AppConfigService(_tempDir);
+
+        Assert.AreEqual("New Name", svc2.GetProfiles()[0].Name);
+    }
+
+    [TestMethod]
+    public void MigratesIdentityPfx_ToProfileOnLoad()
+    {
+        // Create a legacy identity.pfx
+        File.WriteAllBytes(Path.Combine(_tempDir, "identity.pfx"), new byte[] { 1, 2, 3 });
+
+        var svc = new AppConfigService(_tempDir);
+
+        Assert.AreEqual(1, svc.GetProfiles().Count);
+        Assert.IsNotNull(svc.GetActiveProfileId());
+        var profile = svc.GetProfiles()[0];
+        Assert.AreEqual("Default", profile.Name);
+        Assert.IsTrue(File.Exists(Path.Combine(_tempDir, "certs", profile.Id + ".pfx")));
+        Assert.IsFalse(File.Exists(Path.Combine(_tempDir, "identity.pfx")), "Old file should be moved");
+    }
 }

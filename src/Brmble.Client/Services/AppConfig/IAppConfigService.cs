@@ -2,6 +2,8 @@ using Brmble.Client.Services.Serverlist;
 
 namespace Brmble.Client.Services.AppConfig;
 
+public record ProfileEntry(string Id, string Name);
+
 public interface IAppConfigService
 {
     IReadOnlyList<ServerEntry> GetServers();
@@ -18,4 +20,11 @@ public interface IAppConfigService
     void SaveLastConnectedServerId(string? serverId);
     double? GetZoomFactor();
     void SaveZoomFactor(double? factor);
+    IReadOnlyList<ProfileEntry> GetProfiles();
+    void AddProfile(ProfileEntry profile);
+    void RemoveProfile(string id);
+    void RenameProfile(string id, string newName);
+    string? GetActiveProfileId();
+    void SetActiveProfileId(string? id);
+    string GetCertsDir();
 }

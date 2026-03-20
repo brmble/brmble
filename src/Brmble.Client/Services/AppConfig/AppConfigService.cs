@@ -16,12 +16,16 @@ internal sealed class AppConfigService : IAppConfigService
 
     private readonly string _configPath;
     private readonly string _legacyServersPath;
+    private readonly string _dir;
     private List<ServerEntry> _servers = new();
     private AppSettings _settings = AppSettings.Default;
     private WindowState? _windowState;
     private string? _closePreference;
     private string? _lastConnectedServerId;
     private double? _zoomFactor;
+    private List<ProfileEntry> _profiles = new();
+    private string? _activeProfileId;
+    private readonly string _certsDir;
     private readonly object _lock = new();
 
     public string ServiceName => "appConfig";
@@ -33,8 +37,11 @@ internal sealed class AppConfigService : IAppConfigService
 
     internal AppConfigService(string dir)
     {
+        _dir = dir;
         _configPath = Path.Combine(dir, "config.json");
         _legacyServersPath = Path.Combine(dir, "servers.json");
+        _certsDir = Path.Combine(dir, "certs");
+        Directory.CreateDirectory(_certsDir);
         Load();
     }
 
@@ -191,6 +198,56 @@ internal sealed class AppConfigService : IAppConfigService
         lock (_lock) { _zoomFactor = factor; Save(); }
     }
 
+    public string GetCertsDir() => _certsDir;
+
+    public IReadOnlyList<ProfileEntry> GetProfiles() { lock (_lock) return _profiles.ToList(); }
+
+    public void AddProfile(ProfileEntry profile)
+    {
+        lock (_lock)
+        {
+            if (_profiles.Any(p => p.Id == profile.Id)) return;
+            _profiles.Add(profile);
+            Save();
+        }
+    }
+
+    public void RemoveProfile(string id)
+    {
+        lock (_lock)
+        {
+            _profiles.RemoveAll(p => p.Id == id);
+            if (_activeProfileId == id)
+                _activeProfileId = _profiles.FirstOrDefault()?.Id;
+            Save();
+        }
+    }
+
+    public void RenameProfile(string id, string newName)
+    {
+        lock (_lock)
+        {
+            var idx = _profiles.FindIndex(p => p.Id == id);
+            if (idx >= 0)
+            {
+                _profiles[idx] = _profiles[idx] with { Name = newName };
+                Save();
+            }
+        }
+    }
+
+    public string? GetActiveProfileId() { lock (_lock) return _activeProfileId; }
+
+    public void SetActiveProfileId(string? id)
+    {
+        lock (_lock)
+        {
+            if (id != null && !_profiles.Any(p => p.Id == id)) return;
+            _activeProfileId = id;
+            Save();
+        }
+    }
+
     private void Load()
     {
         try
@@ -205,6 +262,9 @@ internal sealed class AppConfigService : IAppConfigService
                 _closePreference = data?.ClosePreference;
                 _lastConnectedServerId = data?.LastConnectedServerId;
                 _zoomFactor = data?.ZoomFactor;
+                _profiles = data?.Profiles ?? new List<ProfileEntry>();
+                _activeProfileId = data?.ActiveProfileId;
+                MigrateIdentityPfx();
                 return;
             }
 
@@ -215,6 +275,7 @@ internal sealed class AppConfigService : IAppConfigService
                 var legacy = JsonSerializer.Deserialize<LegacyServerlistData>(json);
                 _servers = legacy?.Servers ?? new List<ServerEntry>();
                 Save(); // write config.json immediately
+                MigrateIdentityPfx();
                 return;
             }
         }
@@ -226,12 +287,20 @@ internal sealed class AppConfigService : IAppConfigService
             _closePreference = null;
             _lastConnectedServerId = null;
             _zoomFactor = null;
+            _profiles = new List<ProfileEntry>();
+            _activeProfileId = null;
         }
+
+        MigrateIdentityPfx();
     }
 
     private void Save()
     {
-        var data = new ConfigData { Servers = _servers, Settings = _settings, Window = _windowState, ClosePreference = _closePreference, LastConnectedServerId = _lastConnectedServerId, ZoomFactor = _zoomFactor };
+        var data = new ConfigData {
+            Servers = _servers, Settings = _settings, Window = _windowState,
+            ClosePreference = _closePreference, LastConnectedServerId = _lastConnectedServerId,
+            ZoomFactor = _zoomFactor, Profiles = _profiles, ActiveProfileId = _activeProfileId
+        };
         File.WriteAllText(_configPath, JsonSerializer.Serialize(data, _jsonOptions));
     }
 
@@ -266,6 +335,46 @@ internal sealed class AppConfigService : IAppConfigService
         public string? ClosePreference { get; init; } = null;
         public string? LastConnectedServerId { get; init; } = null;
         public double? ZoomFactor { get; init; } = null;
+        public List<ProfileEntry> Profiles { get; init; } = [];
+        public string? ActiveProfileId { get; init; } = null;
+    }
+
+    private void MigrateIdentityPfx()
+    {
+        if (_profiles.Count > 0) return;
+
+        var oldCertPath = Path.Combine(_dir, "identity.pfx");
+        if (!File.Exists(oldCertPath)) return;
+
+        var id = Guid.NewGuid().ToString();
+        var newCertPath = Path.Combine(_certsDir, id + ".pfx");
+
+        try
+        {
+            File.Move(oldCertPath, newCertPath);
+
+            _profiles.Add(new ProfileEntry(id, "Default"));
+            _activeProfileId = id;
+
+            try
+            {
+                Save();
+            }
+            catch
+            {
+                // Save() failed — roll back the file move and profile state
+                _profiles.RemoveAll(p => p.Id == id);
+                _activeProfileId = null;
+                File.Move(newCertPath, oldCertPath);
+                return;
+            }
+        }
+        catch
+        {
+            // File.Move or rollback failed — ensure profile state is clean
+            _profiles.RemoveAll(p => p.Id == id);
+            _activeProfileId = null;
+        }
     }
 
     private record LegacyServerlistData
