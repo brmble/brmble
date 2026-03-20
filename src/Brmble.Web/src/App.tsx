@@ -133,6 +133,7 @@ function App() {
   // null = status not yet received, false = no cert, true = cert exists
   const [certExists, setCertExists] = useState<boolean | null>(null);
   const [certFingerprint, setCertFingerprint] = useState('');
+  const [activeProfileName, setActiveProfileName] = useState('');
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
   const { statuses, updateStatus, resetStatuses } = useServiceStatus();
@@ -918,6 +919,27 @@ function App() {
       setCertFingerprint(d?.fingerprint ?? '');
     };
 
+    const onProfilesActiveChanged = (data: unknown) => {
+      const d = data as { id: string | null; name: string | null; fingerprint: string | null };
+      if (d.id) {
+        setCertExists(true);
+        setCertFingerprint(d.fingerprint ?? '');
+        setActiveProfileName(d.name ?? '');
+      } else {
+        setCertExists(false);
+        setCertFingerprint('');
+        setActiveProfileName('');
+      }
+    };
+
+    const onProfilesList = (data: unknown) => {
+      const d = data as { profiles: Array<{ id: string; name: string }>; activeProfileId: string | null };
+      if (d.activeProfileId) {
+        const active = d.profiles.find(p => p.id === d.activeProfileId);
+        if (active) setActiveProfileName(active.name);
+      }
+    };
+
     const onAutoConnect = (data: unknown) => {
       const server = data as { id: string; label: string; apiUrl?: string; host?: string; port?: number; username: string } | undefined;
       if (server) {
@@ -925,7 +947,7 @@ function App() {
         handleConnect({
           host: server.host || '',
           port: server.port || 0,
-          username: server.username,
+          username: server.username || activeProfileName || 'Brmble User',
           password: '',
         });
       }
@@ -1009,6 +1031,8 @@ function App() {
     bridge.on('cert.status', onCertStatus);
     bridge.on('cert.generated', onCertGenerated);
     bridge.on('cert.imported', onCertImported);
+    bridge.on('profiles.activeChanged', onProfilesActiveChanged);
+    bridge.on('profiles.list', onProfilesList);
     bridge.on('voice.autoConnect', onAutoConnect);
     bridge.on('voice.reconnecting', onVoiceReconnecting);
     bridge.on('voice.reconnectFailed', onVoiceReconnectFailed);
@@ -1044,6 +1068,8 @@ function App() {
       bridge.off('cert.status', onCertStatus);
       bridge.off('cert.generated', onCertGenerated);
       bridge.off('cert.imported', onCertImported);
+      bridge.off('profiles.activeChanged', onProfilesActiveChanged);
+      bridge.off('profiles.list', onProfilesList);
       bridge.off('voice.autoConnect', onAutoConnect);
       bridge.off('voice.reconnecting', onVoiceReconnecting);
       bridge.off('voice.reconnectFailed', onVoiceReconnectFailed);
@@ -1057,6 +1083,7 @@ function App() {
 
   useEffect(() => {
     bridge.send('cert.requestStatus');
+    bridge.send('profiles.list');
   }, []);
 
   useEffect(() => {
@@ -1124,7 +1151,7 @@ const handleConnect = (serverData: SavedServer) => {
       id: server.id,
       host: server.host,
       port: server.port,
-      username: server.username,
+      username: server.username || activeProfileName || 'Brmble User',
       password: server.password || ''
     });
   };
