@@ -136,8 +136,6 @@ public class JitterBuffer : IDisposable
             output[..FrameSize].CopyTo(_lastDecodedFrame);
             _hasLastDecodedFrame = true;
             _stats.NormalFrames++;
-            _stats.TotalFrames++; // already incremented above, adjust
-            _stats.TotalFrames--; // undo double-count
             _previousDecision = PlayoutDecision.Normal;
             _consecutiveExpandCount = 0;
             _realAudioTicks = Math.Min(_realAudioTicks + 1, SpeakingThreshold + 1);

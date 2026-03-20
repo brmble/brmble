@@ -68,8 +68,8 @@ public class JitterBuffer : IDisposable
     // Network thread calls this on incoming packet
     void InsertPacket(EncodedPacket packet);
 
-    // PlayoutTimer calls this every 20ms
-    // Writes exactly 960 samples into the provided buffer (20ms @ 48kHz mono)
+    // NAudio callback pulls audio via this method (20ms = 960 samples).
+    // Writes exactly 960 samples into the provided buffer (20ms @ 48kHz mono).
     // The caller owns the buffer to avoid GC pressure on the audio thread.
     void GetAudio(Span<short> output);
 
@@ -78,10 +78,6 @@ public class JitterBuffer : IDisposable
 
     // Diagnostics
     JitterBufferStats GetStats();
-
-    // Lifecycle
-    void Start();
-    void Stop();
 }
 ```
 
@@ -101,7 +97,7 @@ Stores encoded (not decoded) Opus packets, sorted by timestamp.
 ```csharp
 public record EncodedPacket(
     long Sequence,          // Mumble sequence counter
-    long Timestamp,         // Derived: Sequence × 960 (samples per frame)
+    long Timestamp,         // Derived: Sequence × 480 (10ms units at 48kHz)
     byte[] Payload,         // Opus-encoded data
     long ArrivalTimeMs      // Local clock at receipt (Stopwatch.GetElapsedTime())
 );
@@ -230,7 +226,7 @@ Dedicated high-priority thread that drives the playout loop.
 - Per-user volume is applied inside `JitterBuffer.GetAudio()` before returning samples
 
 **Ring buffer (PlayoutTimer → NAudio):**
-- Lock-free single-producer single-consumer circular buffer
+- Single-producer single-consumer circular buffer using a lock (lock-free SPSC is a future optimization)
 - Capacity: 100ms (5 × 960 samples = 4800 samples)
 - PlayoutTimer writes mixed PCM each tick; NAudio callback reads on demand
 - If NAudio reads faster than writes (underrun): output silence. If writes overtake reads (overrun): drop oldest samples. Both conditions are logged in stats.

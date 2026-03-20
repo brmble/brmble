@@ -13,8 +13,10 @@ public class PacketBuffer
     private readonly int _maxCapacity;
     private long _lastDecodedTimestamp = -1;
 
-    // Packets this far behind lastDecoded are considered stale (in timestamp units).
-    private const int StaleThreshold = 5 * 960; // 5 frames
+    // Timestamps are in 10ms units at 48kHz (480 samples per unit).
+    // Packets more than 100ms behind lastDecoded are considered stale.
+    private const int TimestampUnitsPer10Ms = 480;
+    private const int StaleThreshold = 10 * TimestampUnitsPer10Ms; // 100ms
 
     public PacketBuffer(int maxCapacity = 25) // ~500ms at 20ms/frame
     {

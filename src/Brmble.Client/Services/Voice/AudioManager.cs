@@ -199,7 +199,7 @@ private int _screenShareHotkeyId = -1;
     private string? _heldMouseAction; // action name for mouse shortcut currently held
     private int _shortcutMouseVk; // VK code for the mouse button bound to a toggle shortcut
 
-    // Speaking detection (polls JitterBuffer.IsSpeaking via AudioMixer)
+    // Speaking detection (polls per-user JitterBuffer.IsSpeaking directly)
     private readonly HashSet<uint> _currentlySpeaking = new();
     private readonly Timer _speakingTimer;
     private const int PttSilenceTailFrames = 4; // 4 × 20 ms = 80 ms tail
@@ -839,12 +839,11 @@ private int _screenShareHotkeyId = -1;
     {
         if (_deafened) return;
 
-        JitterBuffer? jb;
         lock (_lock)
         {
             if (_localMutes.Contains(userId)) return;
 
-            if (!_jitterBuffers.TryGetValue(userId, out jb))
+            if (!_jitterBuffers.TryGetValue(userId, out var jb))
             {
                 // First packet from this user — create JitterBuffer + WaveOutEvent
                 var decoder = new MumbleOpusDecoder(sampleRate: 48000, channels: 1);
@@ -868,21 +867,20 @@ private int _screenShareHotkeyId = -1;
 
                 AudioLog.Write($"[Audio] Created JitterBuffer for user {userId}");
             }
+
+            var packet = new EncodedPacket(
+                Sequence: sequence,
+                Timestamp: sequence * 480, // Mumble sequence is in 10ms units
+                Payload: opusData,
+                ArrivalTimeMs: (long)Stopwatch.GetElapsedTime(_startTimestamp).TotalMilliseconds
+            );
+
+            // Diagnostic logging — first 30 packets per user + every 100th
+            if (sequence < 30 || sequence % 100 == 0)
+                AudioLog.Write($"[JB] user={userId} seq={sequence} ts={packet.Timestamp} bufCount={jb.GetStats().BufferLevel} payloadLen={opusData.Length}");
+
+            jb.InsertPacket(packet);
         }
-
-        var arrivalMs = (long)Stopwatch.GetElapsedTime(_startTimestamp).TotalMilliseconds;
-        var packet = new EncodedPacket(
-            Sequence: sequence,
-            Timestamp: sequence * 480, // Mumble sequence is in 10ms units
-            Payload: opusData,
-            ArrivalTimeMs: arrivalMs
-        );
-
-        // Diagnostic logging — first 30 packets per user + every 100th
-        if (sequence < 30 || sequence % 100 == 0)
-            AudioLog.Write($"[JB] user={userId} seq={sequence} ts={sequence * 960} bufCount={jb.GetStats().BufferLevel} payloadLen={opusData.Length}");
-
-        jb.InsertPacket(packet);
     }
 
     /// <summary>Clean up a user's audio pipeline when they disconnect.</summary>

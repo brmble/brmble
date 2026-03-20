@@ -5,7 +5,7 @@ namespace Brmble.Audio.Tests.Helpers;
 /// <summary>
 /// Test double for IOpusDecoder. Generates predictable PCM output:
 /// - Decode: fills output with ascending values starting from sequence-based seed
-/// - DecodePlc: fills output with zeros (silence) to simulate basic PLC
+/// - DecodePlc: fills output with a low-amplitude, predictable pattern to simulate basic PLC
 /// </summary>
 public class FakeOpusDecoder : IOpusDecoder
 {
