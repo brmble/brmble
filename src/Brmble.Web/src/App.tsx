@@ -132,7 +132,7 @@ const mapStoredContacts = (contacts: StoredDMContact[]) =>
 function App() {
   // null = status not yet received, false = no cert, true = cert exists
   const [certExists, setCertExists] = useState<boolean | null>(null);
-  const [certFingerprint, setCertFingerprint] = useState('');
+  const [, setCertFingerprint] = useState('');
   const [activeProfileName, setActiveProfileName] = useState('');
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
