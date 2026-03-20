@@ -162,7 +162,8 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     const isFolder = channel.children.length > 0;
     const isExpanded = expandedChannels.has(channel.id);
     const isCurrentChannel = currentChannelId === channel.id;
-    const hasUnread = (channelUnreads?.get(String(channel.id))?.notificationCount ?? 0) > 0;
+    const unreadInfo = channelUnreads?.get(String(channel.id));
+    const hasUnread = ((unreadInfo?.notificationCount ?? 0) + (unreadInfo?.highlightCount ?? 0)) > 0;
 
     return (
       <div key={channel.id} className={`channel-item${pendingChannelAction !== null ? ' channel-item--pending' : ''}`} data-level={level}>
