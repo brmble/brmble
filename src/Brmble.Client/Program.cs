@@ -233,7 +233,7 @@ static class Program
             _appConfigService!.OnSettingsChanged = settings => _mumbleClient?.ApplySettings(settings);
             _appConfigService!.RegisterHandlers(_bridge);
 
-            _certService = new CertificateService(_bridge);
+            _certService = new CertificateService(_bridge, _appConfigService);
             _certService.RegisterHandlers(_bridge);
 
             _mumbleClient = new MumbleAdapter(_bridge, _hwnd, _certService, _appConfigService);

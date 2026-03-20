@@ -1,5 +1,6 @@
 using System.Security.Cryptography.X509Certificates;
 using Brmble.Client.Bridge;
+using Brmble.Client.Services.AppConfig;
 
 namespace Brmble.Client.Services.Certificate;
 
@@ -13,16 +14,18 @@ internal sealed class CertificateService : IService
         ActiveCertificate?.Thumbprint?.ToLowerInvariant();
 
     private readonly NativeBridge _bridge;
+    private readonly IAppConfigService _config;
 
-    private static string CertPath =>
-        Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "Brmble",
-            "identity.pfx");
+    private string GetCertPath(string profileId) =>
+        Path.Combine(_config.GetCertsDir(), profileId + ".pfx");
 
-    public CertificateService(NativeBridge bridge)
+    private string? ActiveCertPath =>
+        _config.GetActiveProfileId() is string id ? GetCertPath(id) : null;
+
+    public CertificateService(NativeBridge bridge, IAppConfigService config)
     {
         _bridge = bridge;
+        _config = config;
     }
 
     public void Initialize(NativeBridge bridge) { }
@@ -63,36 +66,52 @@ internal sealed class CertificateService : IService
     /// Returns null if no certificate exists.
     /// </summary>
     internal X509Certificate2? GetExportableCertificate() =>
-        ActiveCertificate is not null && File.Exists(CertPath)
-            ? X509CertificateLoader.LoadPkcs12FromFile(CertPath, password: null, keyStorageFlags: X509KeyStorageFlags.Exportable)
+        ActiveCertificate is not null && ActiveCertPath is string path && File.Exists(path)
+            ? X509CertificateLoader.LoadPkcs12FromFile(path, password: null, keyStorageFlags: X509KeyStorageFlags.Exportable)
             : null;
 
-    private void SendStatus()
+    private void LoadActiveCertificate()
     {
-        if (File.Exists(CertPath))
+        ActiveCertificate = null;
+        if (ActiveCertPath is string path && File.Exists(path))
         {
             try
             {
-                ActiveCertificate = X509CertificateLoader.LoadPkcs12FromFile(CertPath, password: null, keyStorageFlags: X509KeyStorageFlags.DefaultKeySet);
-                _bridge.Send("cert.status", new
-                {
-                    exists = true,
-                    fingerprint = ActiveCertificate.Thumbprint,
-                    subject = ActiveCertificate.Subject
-                });
-                return;
+                ActiveCertificate = X509CertificateLoader.LoadPkcs12FromFile(path, password: null, keyStorageFlags: X509KeyStorageFlags.DefaultKeySet);
             }
-            catch { /* fall through to exists=false */ }
+            catch { }
         }
+    }
 
-        _bridge.Send("cert.status", new { exists = false });
+    private void SendStatus()
+    {
+        LoadActiveCertificate();
+        if (ActiveCertificate != null)
+        {
+            _bridge.Send("cert.status", new
+            {
+                exists = true,
+                fingerprint = ActiveCertificate.Thumbprint,
+                subject = ActiveCertificate.Subject
+            });
+        }
+        else
+        {
+            _bridge.Send("cert.status", new { exists = false });
+        }
     }
 
     private void GenerateCertificate()
     {
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(CertPath)!);
+            if (ActiveCertPath is not string certPath)
+            {
+                _bridge.Send("cert.error", new { message = "No active profile selected." });
+                return;
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(certPath)!);
 
             using var ecdsa = System.Security.Cryptography.ECDsa.Create(
                 System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
@@ -107,10 +126,10 @@ internal sealed class CertificateService : IService
 
             // Export WITH private key (PFX = PKCS#12)
             var pfxBytes = cert.Export(X509ContentType.Pfx);
-            File.WriteAllBytes(CertPath, pfxBytes);
+            File.WriteAllBytes(certPath, pfxBytes);
 
             // Reload from file to get a clean X509Certificate2 (DefaultKeySet — exportable not needed for status display)
-            ActiveCertificate = X509CertificateLoader.LoadPkcs12FromFile(CertPath, password: null, keyStorageFlags: X509KeyStorageFlags.DefaultKeySet);
+            ActiveCertificate = X509CertificateLoader.LoadPkcs12FromFile(certPath, password: null, keyStorageFlags: X509KeyStorageFlags.DefaultKeySet);
 
             _bridge.Send("cert.generated", new
             {
@@ -123,17 +142,24 @@ internal sealed class CertificateService : IService
             _bridge.Send("cert.error", new { message = $"Failed to generate certificate: {ex.Message}" });
         }
     }
+
     private void ImportCertificate(string base64Data)
     {
         try
         {
+            if (ActiveCertPath is not string certPath)
+            {
+                _bridge.Send("cert.error", new { message = "No active profile selected." });
+                return;
+            }
+
             var bytes = Convert.FromBase64String(base64Data);
 
             // Validate it loads before overwriting (DefaultKeySet — no need for exportable during import validation)
             var testCert = X509CertificateLoader.LoadPkcs12(bytes, password: null, keyStorageFlags: X509KeyStorageFlags.DefaultKeySet);
 
-            Directory.CreateDirectory(Path.GetDirectoryName(CertPath)!);
-            File.WriteAllBytes(CertPath, bytes);
+            Directory.CreateDirectory(Path.GetDirectoryName(certPath)!);
+            File.WriteAllBytes(certPath, bytes);
             ActiveCertificate = testCert;
 
             _bridge.Send("cert.imported", new
@@ -147,17 +173,18 @@ internal sealed class CertificateService : IService
             _bridge.Send("cert.error", new { message = $"Failed to import certificate: {ex.Message}" });
         }
     }
+
     private void ExportCertificate()
     {
         try
         {
-            if (!File.Exists(CertPath))
+            if (ActiveCertPath is not string certPath || !File.Exists(certPath))
             {
                 _bridge.Send("cert.error", new { message = "No certificate to export." });
                 return;
             }
 
-            var bytes = File.ReadAllBytes(CertPath);
+            var bytes = File.ReadAllBytes(certPath);
             var base64 = Convert.ToBase64String(bytes);
             _bridge.Send("cert.exportData", new { data = base64, filename = "brmble-identity.pfx" });
         }
