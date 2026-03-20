@@ -197,7 +197,7 @@ function App() {
   const [matrixCredentials, setMatrixCredentials] = useState<MatrixCredentials | null>(null);
   const matrixClient = useMatrixClient(matrixCredentials);
   const { dmMessages: matrixDmMessages, sendDMMessage: sendMatrixDM, fetchDMHistory } = matrixClient;
-  useServerHealth(matrixCredentials?.homeserverUrl);
+  useServerHealth();
 
   // Avatar state and management
   const [currentUserAvatarUrl, setCurrentUserAvatarUrl] = useState<string | undefined>();
@@ -372,7 +372,17 @@ function App() {
   connectionStatusRef.current = connectionStatus;
   const handleToggleScreenShareRef = useRef<(() => void) | null>(null);
   const disconnectViewerRef = useRef<(() => void) | null>(null);
-  const pendingVoiceErrorRef = useRef(false);
+
+  // Tracks whether the user ever saw the 'connected' UI (ChatPanel rendered).
+  // Set to true via useEffect (fires after render commit), so transient
+  // connecting→connected→disconnected batches won't set it.
+  // Reset to false when starting a new connection attempt.
+  const userSawConnectedRef = useRef(false);
+  useEffect(() => {
+    if (connectionStatus === 'connected') {
+      userSawConnectedRef.current = true;
+    }
+  }, [connectionStatus]);
 
   // Load DM contacts scoped to the current server
   useEffect(() => {
@@ -499,7 +509,6 @@ function App() {
   // Register all bridge handlers once on mount
   useEffect(() => {
     const onVoiceConnected = ((data: unknown) => {
-      pendingVoiceErrorRef.current = false;
       setConnectionStatus('connected');
       updateStatus('voice', { state: 'connected', error: undefined });
       setCurrentChannelId('server-root');
@@ -524,24 +533,24 @@ function App() {
     });
 
     const onVoiceDisconnected = (data: unknown) => {
-      console.log('[DEBUG] voice.disconnected received:', JSON.stringify(data));
       clearPendingAction();
       const d = data as { reconnectAvailable?: boolean } | null;
-      if (d?.reconnectAvailable) {
+
+      if (d?.reconnectAvailable && userSawConnectedRef.current) {
+        // User was connected and saw the UI, then lost connection
         setConnectionStatus('disconnected');
-      } else {
-        if (pendingVoiceErrorRef.current) {
-          setConnectionStatus('failed');
-          pendingVoiceErrorRef.current = false;
-        } else {
-          setConnectionStatus('idle');
-        }
+        updateStatus('voice', { state: 'disconnected' });
+      } else if (!userSawConnectedRef.current && connectionStatusRef.current !== 'idle') {
+        // User never saw the connected UI — initial connect failed
+        setConnectionStatus('failed');
         setServerAddress('');
         setServerLabel('');
-      }
-      if (d?.reconnectAvailable) {
-        updateStatus('voice', { state: 'disconnected' });
+        updateStatus('voice', { state: 'disconnected', label: undefined });
       } else {
+        // Normal intentional disconnect — go back to server list
+        setConnectionStatus('idle');
+        setServerAddress('');
+        setServerLabel('');
         updateStatus('voice', { state: 'disconnected', label: undefined });
       }
       setChannels([]);
@@ -613,7 +622,6 @@ function App() {
       const errorMsg = d?.message || 'Unknown error';
       console.error('Voice error:', errorMsg);
       updateStatus('voice', { error: errorMsg });
-      pendingVoiceErrorRef.current = true;
     });
 
     const onVoiceMessage = ((data: unknown) => {
@@ -911,7 +919,6 @@ function App() {
     };
 
     const onVoiceReconnecting = () => {
-      pendingVoiceErrorRef.current = false;
       setConnectionStatus('reconnecting');
       updateStatus('voice', { state: 'connecting', error: undefined });
     };
@@ -1077,6 +1084,7 @@ const handleConnect = (serverData: SavedServer) => {
     localStorage.setItem('brmble-server', JSON.stringify(serverData));
     setServerAddress(`${serverData.host}:${serverData.port}`);
     setConnectionStatus('connecting');
+    userSawConnectedRef.current = false;
     bridge.send('voice.connect', serverData);
     updateStatus('voice', { state: 'connecting', error: undefined, label: `${serverData.host}:${serverData.port}` });
     
@@ -1222,7 +1230,7 @@ const handleConnect = (serverData: SavedServer) => {
   const handleBackToServerList = () => {
     bridge.send('voice.disconnect');
     clearPendingAction();
-    pendingVoiceErrorRef.current = false;
+    userSawConnectedRef.current = false;
     setConnectionStatus('idle');
     resetStatuses();
     setServerLabel('');
@@ -1639,7 +1647,6 @@ const handleConnect = (serverData: SavedServer) => {
           serverAddress={serverAddress}
           username={username}
           onDisconnect={handleDisconnect}
-          onReconnect={handleReconnect}
           onStartDM={handleSelectDMUser}
           speakingUsers={speakingUsers}
           connectionStatus={connectionStatus}

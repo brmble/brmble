@@ -36,6 +36,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private bool _canRejoin;
     private TransmissionMode _previousMode = TransmissionMode.Continuous;
     private volatile bool _intentionalDisconnect = false;
+    private volatile bool _rejected = false;
     private volatile CancellationTokenSource? _reconnectCts;
     private string? _reconnectHost;
     private int _reconnectPort;
@@ -49,6 +50,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private readonly ConcurrentDictionary<uint, SessionMappingEntry> _sessionMappings = new();
     private CancellationTokenSource? _wsCts;
     private readonly IAppConfigService? _appConfigService;
+    private System.Threading.Timer? _healthTimer;
+    private static readonly HttpClient _healthHttpClient = new(new HttpClientHandler
+    {
+        ServerCertificateCustomValidationCallback = (_, _, _, _) => true,
+    })
+    { Timeout = TimeSpan.FromSeconds(5) };
 
     private record SessionMappingEntry(string MatrixUserId, string MumbleName);
 
@@ -137,6 +144,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         }
 
         _intentionalDisconnect = false;
+        _rejected = false;
 
         // Recreate audio manager if disposed by a previous Disconnect()
         if (_audioManager == null)
@@ -245,6 +253,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _wsCts?.Cancel();
         _wsCts?.Dispose();
         _wsCts = null;
+        StopHealthCheck();
         _sessionMappings.Clear();
 
         UserDictionary.Clear();
@@ -306,8 +315,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     or global::ProtoBuf.ProtoException;
 
                 // Suppress spurious error notifications during intentional shutdown
-                // (e.g. ObjectDisposedException from teardown racing the process thread).
-                if (!_intentionalDisconnect && !ct.IsCancellationRequested)
+                // (e.g. ObjectDisposedException from teardown racing the process thread)
+                // or after a server reject (the real error was already sent by Reject callback).
+                if (!_intentionalDisconnect && !ct.IsCancellationRequested && !_rejected)
                 {
                     _bridge?.Send("voice.error", new { message = $"Process error: {ex.Message}" });
                     _bridge?.NotifyUiThread();
@@ -319,21 +329,39 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         }
 
         // Loop exited — either intentional (CTS cancelled) or unexpected connection drop.
+        Debug.WriteLine($"[Mumble] ProcessLoop exited: _intentionalDisconnect={_intentionalDisconnect}, ct.IsCancellationRequested={ct.IsCancellationRequested}, _reconnectHost={_reconnectHost}, _reconnectCts={_reconnectCts}, _rejected={_rejected}");
         if (!_intentionalDisconnect && !ct.IsCancellationRequested && _reconnectHost != null && _reconnectCts == null)
         {
-            var reconnectEnabled = _appConfigService?.GetSettings().ReconnectEnabled ?? true;
-            if (reconnectEnabled)
+            if (_rejected)
             {
-                // Unexpected drop — clean up and start reconnect loop.
-                Disconnect();
-                Task.Run(() => ReconnectLoop());
-            }
-            else
-            {
-                // Reconnect disabled — clean up and emit disconnected with manual reconnect option.
+                // Server rejected the connection (ban, auth failure, etc.) — the specific
+                // error was already sent by the Reject callback. Don't overwrite it with a
+                // generic message, and don't auto-reconnect (it will just fail again).
+                Debug.WriteLine("[Mumble] Reject path: calling Disconnect() then sending voice.disconnected");
                 Disconnect();
                 _bridge?.Send("voice.disconnected", new { reconnectAvailable = true });
                 _bridge?.NotifyUiThread();
+            }
+            else
+            {
+                // Notify UI of the connection loss so the error is visible during reconnect.
+                _bridge?.Send("voice.error", new { message = "Connection to server lost" });
+                _bridge?.NotifyUiThread();
+
+                var reconnectEnabled = _appConfigService?.GetSettings().ReconnectEnabled ?? true;
+                if (reconnectEnabled)
+                {
+                    // Unexpected drop — clean up and start reconnect loop.
+                    Disconnect();
+                    Task.Run(() => ReconnectLoop());
+                }
+                else
+                {
+                    // Reconnect disabled — clean up and emit disconnected with manual reconnect option.
+                    Disconnect();
+                    _bridge?.Send("voice.disconnected", new { reconnectAvailable = true });
+                    _bridge?.NotifyUiThread();
+                }
             }
         }
         // If intentional or CTS was cancelled, Disconnect() was already called by the handler.
@@ -1173,6 +1201,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
             // Start WebSocket connection for real-time session mapping updates
             StartWebSocketConnection(apiUrl);
+
+            // Start periodic health checks (runs from C# to avoid CORS issues)
+            StartHealthCheck(apiUrl);
         }
         catch (Exception ex)
         {
@@ -1180,6 +1211,39 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _bridge?.Send("voice.error", new { message = $"Failed to fetch chat credentials: {ex.Message}" });
             _bridge?.NotifyUiThread();
         }
+    }
+
+    private void StartHealthCheck(string apiUrl)
+    {
+        StopHealthCheck();
+        var url = apiUrl.TrimEnd('/') + "/health";
+
+        // Immediately report connecting, then run first check
+        _bridge?.Send("server.healthStatus", new { state = "connecting", label = apiUrl });
+        _bridge?.NotifyUiThread();
+
+        _healthTimer = new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                var res = await _healthHttpClient.GetAsync(url);
+                if (res.IsSuccessStatusCode)
+                    _bridge?.Send("server.healthStatus", new { state = "connected", label = apiUrl });
+                else
+                    _bridge?.Send("server.healthStatus", new { state = "disconnected", error = $"Health check returned {(int)res.StatusCode}" });
+            }
+            catch (Exception ex)
+            {
+                _bridge?.Send("server.healthStatus", new { state = "disconnected", error = ex.Message });
+            }
+            _bridge?.NotifyUiThread();
+        }, null, TimeSpan.Zero, TimeSpan.FromSeconds(30));
+    }
+
+    private void StopHealthCheck()
+    {
+        _healthTimer?.Dispose();
+        _healthTimer = null;
     }
 
     private void StartWebSocketConnection(string apiUrl)
@@ -1381,6 +1445,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _activeServerId = data.TryGetProperty("id",  out var sid)  ? sid.GetString()         : null;
 
             _intentionalDisconnect = false;
+            _rejected = false;
 
             if (!string.IsNullOrEmpty(apiUrl) && string.IsNullOrEmpty(h))
             {
@@ -2123,6 +2188,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     public override void Reject(Reject reject)
     {
         base.Reject(reject);
+        _rejected = true;
+        Debug.WriteLine($"[Mumble] Reject callback fired: reason={reject.Reason}, type={reject.Type}, _rejected={_rejected}");
         _bridge?.Send("voice.error", new { message = reject.Reason, type = reject.Type });
         _bridge?.NotifyUiThread();
     }

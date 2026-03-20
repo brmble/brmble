@@ -1,37 +1,29 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
+import bridge from '../bridge';
 import { useServiceStatus } from './useServiceStatus';
+import type { ServiceState } from '../types';
 
-const POLL_INTERVAL = 30_000; // 30 seconds
-
-export function useServerHealth(apiUrl: string | undefined) {
+/**
+ * Listens for server.healthStatus bridge messages from the C# backend,
+ * which performs periodic health checks to avoid CORS issues with cross-origin fetches.
+ */
+export function useServerHealth() {
   const { updateStatus } = useServiceStatus();
-  const intervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
   useEffect(() => {
-    if (!apiUrl) {
-      updateStatus('server', { state: 'unavailable', error: undefined });
-      return;
-    }
-
-    const check = async () => {
-      try {
-        const res = await fetch(`${apiUrl}/health`, { signal: AbortSignal.timeout(5000) });
-        if (res.ok) {
-          updateStatus('server', { state: 'connected', error: undefined, label: apiUrl });
-        } else {
-          updateStatus('server', { state: 'disconnected', error: `Health check returned ${res.status}` });
-        }
-      } catch (err) {
-        updateStatus('server', { state: 'disconnected', error: err instanceof Error ? err.message : 'Health check failed' });
-      }
+    const onHealthStatus = (data: unknown) => {
+      const d = data as { state?: ServiceState; error?: string; label?: string } | undefined;
+      if (!d?.state) return;
+      updateStatus('server', {
+        state: d.state,
+        error: d.error,
+        label: d.label,
+      });
     };
 
-    updateStatus('server', { state: 'connecting', label: apiUrl });
-    check();
-    intervalRef.current = setInterval(check, POLL_INTERVAL);
-
+    bridge.on('server.healthStatus', onHealthStatus);
     return () => {
-      clearInterval(intervalRef.current);
+      bridge.off('server.healthStatus', onHealthStatus);
     };
-  }, [apiUrl, updateStatus]);
+  }, [updateStatus]);
 }

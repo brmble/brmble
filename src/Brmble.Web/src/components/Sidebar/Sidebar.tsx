@@ -27,7 +27,6 @@ interface SidebarProps {
   serverAddress?: string;
   username?: string;
   onDisconnect?: () => void;
-  onReconnect?: () => void;
   onStartDM?: (userId: string, userName: string) => void;
   speakingUsers?: Map<number, boolean>;
   pendingChannelAction?: number | 'leave' | null;
@@ -52,7 +51,6 @@ export function Sidebar({
   serverAddress,
   username,
   onDisconnect,
-  onReconnect,
   onStartDM,
   speakingUsers,
   pendingChannelAction,
@@ -65,7 +63,6 @@ export function Sidebar({
   const connected = connectionStatus === 'connected';
   const isConnecting = connectionStatus === 'connecting';
   const isReconnecting = connectionStatus === 'reconnecting';
-  const isDisconnected = connectionStatus === 'disconnected';
 
   const rootChannel = channels.find(ch => ch.id === 0 || ch.parent === ch.id);
   const rootUsers = rootChannel ? users.filter(u => u.channelId === rootChannel.id) : [];
@@ -163,20 +160,20 @@ export function Sidebar({
                 {connectionStatus === 'failed' && 'Connection failed'}
                 {connectionStatus === 'disconnected' && 'Disconnected'}
               </span>
-              {isDisconnected && onReconnect && (
-                <button
-                  className="btn btn-sm reconnect-btn"
-                  onClick={(e) => { e.stopPropagation(); onReconnect(); }}
-                >
-                  Reconnect
-                </button>
-              )}
-              {(onDisconnect || onCancelReconnect) && (connected || isConnecting || isReconnecting || isDisconnected) && (
+              {(isConnecting || isReconnecting) && onCancelReconnect && (
                 <button
                   className="btn btn-sm disconnect-btn"
-                  onClick={(e) => { e.stopPropagation(); (isReconnecting ? onCancelReconnect : onDisconnect)?.(); }}
+                  onClick={(e) => { e.stopPropagation(); onCancelReconnect(); }}
                 >
-                  {(isConnecting || isReconnecting) ? 'Cancel' : isDisconnected ? 'Back' : 'Disconnect'}
+                  Cancel
+                </button>
+              )}
+              {connected && onDisconnect && (
+                <button
+                  className="btn btn-sm disconnect-btn"
+                  onClick={(e) => { e.stopPropagation(); onDisconnect(); }}
+                >
+                  Disconnect
                 </button>
               )}
             </div>
@@ -202,20 +199,20 @@ export function Sidebar({
                 {connectionStatus === 'failed' && 'Connection failed'}
                 {connectionStatus === 'disconnected' && 'Disconnected'}
               </span>
-              {isDisconnected && onReconnect && (
-                <button
-                  className="btn btn-sm reconnect-btn"
-                  onClick={(e) => { e.stopPropagation(); onReconnect(); }}
-                >
-                  Reconnect
-                </button>
-              )}
-              {(onDisconnect || onCancelReconnect) && (connected || isConnecting || isReconnecting || isDisconnected) && (
+              {(isConnecting || isReconnecting) && onCancelReconnect && (
                 <button
                   className="btn btn-sm disconnect-btn"
-                  onClick={(e) => { e.stopPropagation(); (isReconnecting ? onCancelReconnect : onDisconnect)?.(); }}
+                  onClick={(e) => { e.stopPropagation(); onCancelReconnect(); }}
                 >
-                  {(isConnecting || isReconnecting) ? 'Cancel' : isDisconnected ? 'Back' : 'Disconnect'}
+                  Cancel
+                </button>
+              )}
+              {connected && onDisconnect && (
+                <button
+                  className="btn btn-sm disconnect-btn"
+                  onClick={(e) => { e.stopPropagation(); onDisconnect(); }}
+                >
+                  Disconnect
                 </button>
               )}
             </div>
