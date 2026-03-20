@@ -9,6 +9,7 @@ import { InterfaceSettingsTab } from './InterfaceSettingsTab';
 import { type AppearanceSettings, type OverlaySettings, type BrmblegotchiSettings, DEFAULT_APPEARANCE, DEFAULT_OVERLAY, DEFAULT_BRMBLEGOTCHI } from './InterfaceSettingsTypes';
 import { ConnectionSettingsTab, type ConnectionSettings } from './ConnectionSettingsTab';
 import { ProfileSettingsTab } from './ProfileSettingsTab';
+import { ProfilesSettingsTab } from './ProfilesSettingsTab';
 import { useServerlist } from '../../hooks/useServerlist';
 
 /** A flat map of every key binding in the app: bindingId → bound key code (or null). */
@@ -72,7 +73,7 @@ const DEFAULT_SETTINGS: AppSettings = {
 
 export function SettingsModal(props: SettingsModalProps) {
   const { isOpen, onClose } = props;
-  const [activeTab, setActiveTab] = useState<'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'profiles' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection'>('profile');
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const { servers } = useServerlist();
 
@@ -304,6 +305,12 @@ export function SettingsModal(props: SettingsModalProps) {
           >
             Profile
           </button>
+          <button
+            className={`settings-tab ${activeTab === 'profiles' ? 'active' : ''}`}
+            onClick={() => setActiveTab('profiles')}
+          >
+            Profiles
+          </button>
           <button 
             className={`settings-tab ${activeTab === 'audio' ? 'active' : ''}`}
             onClick={() => setActiveTab('audio')}
@@ -347,6 +354,9 @@ export function SettingsModal(props: SettingsModalProps) {
               connectedUsername={props.username ?? ''}
               connected={props.connected ?? false}
             />
+          )}
+          {activeTab === 'profiles' && (
+            <ProfilesSettingsTab connected={props.connected ?? false} />
           )}
           {activeTab === 'audio' && <AudioSettingsTab settings={settings.audio} onChange={handleAudioChange} speechDenoise={settings.speechDenoise} onSpeechDenoiseChange={handleSpeechDenoiseChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}
           {activeTab === 'shortcuts' && <ShortcutsSettingsTab settings={settings.shortcuts} onChange={handleShortcutsChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}
