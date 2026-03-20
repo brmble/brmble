@@ -27,7 +27,7 @@ export function ServerList({ onConnect, connectionError, onClearError }: ServerL
     e.preventDefault();
     const server = { ...form, port: parseInt(form.port) };
     if (editing) {
-      updateServer({ ...server, id: editing.id, registered: editing.registered });
+      updateServer({ ...server, id: editing.id, registered: editing.registered, registeredName: editing.registeredName });
       setEditing(null);
     } else {
       addServer(server);
@@ -237,14 +237,21 @@ export function ServerList({ onConnect, connectionError, onClearError }: ServerL
                     </button>
                   )}
                 </div>
-                <input
-                  className="brmble-input server-list-input"
-                  placeholder="Username"
-                  value={form.username}
-                  onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
-                  disabled={editing?.registered === true}
-                  title={editing?.registered ? 'Username is locked after registration' : undefined}
-                />
+                <div className="server-list-username-wrapper">
+                  <input
+                    className={`brmble-input server-list-input${editing?.registered ? ' server-list-input-registered' : ''}`}
+                    placeholder="Username"
+                    value={editing?.registered ? (editing.registeredName ?? form.username) : form.username}
+                    onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
+                    disabled={editing?.registered === true}
+                    title={editing?.registered ? `Registered as "${editing.registeredName}" on this server` : undefined}
+                  />
+                  {editing?.registered && (
+                    <svg className="server-list-registered-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-label="Registered">
+                      <polyline points="3.5 8 6.5 11 12.5 5" />
+                    </svg>
+                  )}
+                </div>
               </div>
               <div className="server-list-form-actions">
                 <button type="button" className="btn btn-secondary server-list-cancel-btn" onClick={handleCancel}>
