@@ -137,7 +137,8 @@ internal sealed class CertificateService : IService
                 try
                 {
                     var bytes = Convert.FromBase64String(base64);
-                    var testCert = X509CertificateLoader.LoadPkcs12(bytes, password: null, keyStorageFlags: X509KeyStorageFlags.DefaultKeySet);
+                    using var testCert = X509CertificateLoader.LoadPkcs12(bytes, password: null, keyStorageFlags: X509KeyStorageFlags.DefaultKeySet);
+                    var fingerprint = testCert.Thumbprint;
 
                     var id = Guid.NewGuid().ToString();
                     var certPath = GetCertPath(id);
@@ -151,10 +152,10 @@ internal sealed class CertificateService : IService
                     {
                         _config.SetActiveProfileId(id);
                         LoadActiveCertificate();
-                        bridge.Send("profiles.activeChanged", new { id, name, fingerprint = testCert.Thumbprint });
+                        bridge.Send("profiles.activeChanged", new { id, name, fingerprint });
                     }
 
-                    bridge.Send("profiles.added", new { id, name, fingerprint = testCert.Thumbprint, certValid = true });
+                    bridge.Send("profiles.added", new { id, name, fingerprint, certValid = true });
                 }
                 catch (Exception ex)
                 {
