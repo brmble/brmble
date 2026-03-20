@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createClient, RoomEvent, ClientEvent, EventType, MsgType, Preset } from 'matrix-js-sdk';
 import type { MatrixClient, MatrixEvent, Room } from 'matrix-js-sdk';
 import type { ChatMessage, MediaAttachment } from '../types';
+import { useServiceStatus } from './useServiceStatus';
 
 /** Insert a message into a chronologically sorted array, deduplicating by id. Returns the same array if already present. */
 function insertMessage(existing: ChatMessage[], msg: ChatMessage): ChatMessage[] {
@@ -33,6 +34,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
   const clientRef = useRef<MatrixClient | null>(null);
   const [client, setClient] = useState<MatrixClient | null>(null);
   const [messages, setMessages] = useState<Map<string, ChatMessage[]>>(new Map());
+  const { updateStatus } = useServiceStatus();
 
   // DM room tracking: matrixUserId -> roomId
   const [dmRoomMap, setDmRoomMap] = useState<Map<string, string>>(new Map());
@@ -44,6 +46,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
   useEffect(() => { dmRoomMapRef.current = dmRoomMap; }, [dmRoomMap]);
 
   const roomIdToDMUserIdRef = useRef<Map<string, string>>(new Map());
+  const lastSyncStateRef = useRef<string | null>(null);
 
   // Reverse lookup: matrixRoomId → mumbleChannelId
   const roomIdToChannelId = useMemo(() => {
@@ -63,6 +66,8 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       setDmMessages(new Map());
       dmRoomMapRef.current = new Map();
       roomIdToDMUserIdRef.current = new Map();
+      lastSyncStateRef.current = null;
+      updateStatus('chat', { state: 'idle', error: undefined });
       return;
     }
 
@@ -192,6 +197,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     };
 
     client.on(RoomEvent.Timeline, onTimeline);
+    updateStatus('chat', { state: 'connecting', error: undefined });
     client.startClient({ initialSyncLimit: 20 });
     clientRef.current = client;
     setClient(client);
@@ -211,11 +217,36 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     };
 
     const onSync = (state: string) => {
-      if (state === 'PREPARED') {
-        const directEvent = client.getAccountData(EventType.Direct);
-        if (directEvent) {
-          refreshDMRoomMaps(directEvent.getContent() as Record<string, string[]>);
+      let derivedState: string;
+      if (state === 'PREPARED' || state === 'SYNCING') {
+        derivedState = 'connected';
+        if (state === 'PREPARED') {
+          const directEvent = client.getAccountData(EventType.Direct);
+          if (directEvent) {
+            refreshDMRoomMaps(directEvent.getContent() as Record<string, string[]>);
+          }
         }
+      } else if (state === 'ERROR') {
+        derivedState = 'disconnected';
+      } else if (state === 'RECONNECTING') {
+        derivedState = 'connecting';
+      } else if (state === 'STOPPED') {
+        derivedState = 'disconnected';
+      } else {
+        return;
+      }
+
+      if (derivedState === lastSyncStateRef.current) return;
+      lastSyncStateRef.current = derivedState;
+
+      if (derivedState === 'connected') {
+        updateStatus('chat', { state: 'connected', error: undefined });
+      } else if (state === 'ERROR') {
+        updateStatus('chat', { state: 'disconnected', error: 'Sync error' });
+      } else if (derivedState === 'connecting') {
+        updateStatus('chat', { state: 'connecting', error: undefined });
+      } else {
+        updateStatus('chat', { state: 'disconnected' });
       }
     };
 
@@ -224,7 +255,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       refreshDMRoomMaps(event.getContent() as Record<string, string[]>);
     };
 
-    client.once(ClientEvent.Sync, onSync);
+    client.on(ClientEvent.Sync, onSync);
     client.on(ClientEvent.AccountData, onAccountData);
 
     return () => {
@@ -234,8 +265,9 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       client.stopClient();
       clientRef.current = null;
       setClient(null);
+      updateStatus('chat', { state: 'idle', error: undefined });
     };
-  }, [credentials, roomIdToChannelId]);
+  }, [credentials, roomIdToChannelId, updateStatus]);
 
   const sendMessage = useCallback(async (channelId: string, text: string) => {
     if (!credentials || !clientRef.current) return;

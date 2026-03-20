@@ -5,6 +5,8 @@ import { useMatrixClient } from './hooks/useMatrixClient';
 import type { MatrixCredentials } from './hooks/useMatrixClient';
 import { useScreenShare } from './hooks/useScreenShare';
 import { useUnreadTracker } from './hooks/useUnreadTracker';
+import { useServiceStatus } from './hooks/useServiceStatus';
+import { useServerHealth } from './hooks/useServerHealth';
 
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Header } from './components/Header/Header';
@@ -132,6 +134,7 @@ function App() {
   const [certFingerprint, setCertFingerprint] = useState('');
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
+  const { statuses, updateStatus, resetStatuses } = useServiceStatus();
   const connected = connectionStatus === 'connected';
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [username, setUsername] = useState('');
@@ -194,6 +197,7 @@ function App() {
   const [matrixCredentials, setMatrixCredentials] = useState<MatrixCredentials | null>(null);
   const matrixClient = useMatrixClient(matrixCredentials);
   const { dmMessages: matrixDmMessages, sendDMMessage: sendMatrixDM, fetchDMHistory } = matrixClient;
+  useServerHealth();
 
   // Avatar state and management
   const [currentUserAvatarUrl, setCurrentUserAvatarUrl] = useState<string | undefined>();
@@ -369,6 +373,17 @@ function App() {
   const handleToggleScreenShareRef = useRef<(() => void) | null>(null);
   const disconnectViewerRef = useRef<(() => void) | null>(null);
 
+  // Tracks whether the user ever saw the 'connected' UI (ChatPanel rendered).
+  // Set to true via useEffect (fires after render commit), so transient
+  // connecting→connected→disconnected batches won't set it.
+  // Reset to false when starting a new connection attempt.
+  const userSawConnectedRef = useRef(false);
+  useEffect(() => {
+    if (connectionStatus === 'connected') {
+      userSawConnectedRef.current = true;
+    }
+  }, [connectionStatus]);
+
   // Load DM contacts scoped to the current server
   useEffect(() => {
     if (serverAddress) {
@@ -495,6 +510,7 @@ function App() {
   useEffect(() => {
     const onVoiceConnected = ((data: unknown) => {
       setConnectionStatus('connected');
+      updateStatus('voice', { state: 'connected', error: undefined });
       setCurrentChannelId('server-root');
       setCurrentChannelName('');
       const d = data as { username?: string; channels?: Channel[]; users?: User[] } | undefined;
@@ -519,12 +535,23 @@ function App() {
     const onVoiceDisconnected = (data: unknown) => {
       clearPendingAction();
       const d = data as { reconnectAvailable?: boolean } | null;
-      if (d?.reconnectAvailable) {
+
+      if (d?.reconnectAvailable && userSawConnectedRef.current) {
+        // User was connected and saw the UI, then lost connection
         setConnectionStatus('disconnected');
+        updateStatus('voice', { state: 'disconnected' });
+      } else if (!userSawConnectedRef.current && connectionStatusRef.current !== 'idle') {
+        // User never saw the connected UI — initial connect failed
+        setConnectionStatus('failed');
+        setServerAddress('');
+        setServerLabel('');
+        updateStatus('voice', { state: 'disconnected', label: undefined });
       } else {
+        // Normal intentional disconnect — go back to server list
         setConnectionStatus('idle');
         setServerAddress('');
         setServerLabel('');
+        updateStatus('voice', { state: 'disconnected', label: undefined });
       }
       setChannels([]);
       setUsers([]);
@@ -545,6 +572,8 @@ function App() {
       setAppModeRef.current('channels');
       setSelectedDMUserIdRaw(null);
       setSelectedDMUserName('');
+      updateStatus('livekit', { state: 'idle', error: undefined });
+      updateStatus('server', { state: 'idle', error: undefined });
     };
 
     const onServerCredentials = (data: unknown) => {
@@ -590,8 +619,10 @@ function App() {
 
     const onVoiceError = ((data: unknown) => {
       clearPendingAction();
-      const d = data as { message: string } | undefined;
-      console.error('Voice error:', d?.message);
+      const d = data as { message?: string } | undefined;
+      const errorMsg = d?.message || 'Unknown error';
+      console.error('Voice error:', errorMsg);
+      updateStatus('voice', { error: errorMsg });
     });
 
     const onVoiceMessage = ((data: unknown) => {
@@ -890,10 +921,13 @@ function App() {
 
     const onVoiceReconnecting = () => {
       setConnectionStatus('reconnecting');
+      updateStatus('voice', { state: 'connecting' });
     };
-    const onVoiceReconnectFailed = () => {
+    const onVoiceReconnectFailed = (data?: unknown) => {
       clearPendingAction();
       setConnectionStatus('failed');
+      const d = data as { reason?: string } | undefined;
+      updateStatus('voice', { state: 'disconnected', error: d?.reason || 'Reconnect failed' });
       setServerAddress('');
       setServerLabel('');
       setChannels([]);
@@ -1051,7 +1085,9 @@ const handleConnect = (serverData: SavedServer) => {
     localStorage.setItem('brmble-server', JSON.stringify(serverData));
     setServerAddress(`${serverData.host}:${serverData.port}`);
     setConnectionStatus('connecting');
+    userSawConnectedRef.current = false;
     bridge.send('voice.connect', serverData);
+    updateStatus('voice', { state: 'connecting', error: undefined, label: `${serverData.host}:${serverData.port}` });
     
     // Send transmission mode from settings
     try {
@@ -1195,7 +1231,9 @@ const handleConnect = (serverData: SavedServer) => {
   const handleBackToServerList = () => {
     bridge.send('voice.disconnect');
     clearPendingAction();
+    userSawConnectedRef.current = false;
     setConnectionStatus('idle');
+    resetStatuses();
     setServerLabel('');
     setServerAddress('');
     setUsername('');
@@ -1381,8 +1419,21 @@ const handleConnect = (serverData: SavedServer) => {
   }, [matrixCredentials?.roomMap, unreadTracker.roomUnreads]);
 
   useEffect(() => {
-    if (screenShareError) console.error('Screen share error:', screenShareError);
-  }, [screenShareError]);
+    if (screenShareError) {
+      console.error('Screen share error:', screenShareError);
+      updateStatus('livekit', { state: 'disconnected', error: screenShareError });
+    }
+  }, [screenShareError, updateStatus]);
+
+  // Track screenshare connection state for service status indicator
+  useEffect(() => {
+    if (isSharing) {
+      updateStatus('livekit', { state: 'connected', error: undefined });
+    } else if (!screenShareError) {
+      // Only reset to idle if there's no active error (error case handled above)
+      updateStatus('livekit', { state: 'idle', error: undefined });
+    }
+  }, [isSharing, screenShareError, updateStatus]);
 
   // Show toast notification when someone starts sharing in the user's voice channel
   useEffect(() => {
@@ -1424,15 +1475,16 @@ const handleConnect = (serverData: SavedServer) => {
       const selfUser = usersRef.current.find(u => u.self);
       const voiceChannelId = selfUser?.channelId;
       if (voiceChannelId != null && voiceChannelId !== 0) {
+        updateStatus('livekit', { state: 'connecting', error: undefined });
         try {
           await startSharing(`channel-${voiceChannelId}`);
           setSharingChannelId(String(voiceChannelId));
         } catch {
-          // startSharing sets error state internally
+          // startSharing sets error state internally; useEffect above handles status
         }
       }
     }
-  }, [isSharing, startSharing, stopSharing, selfLeftVoice]);
+  }, [isSharing, startSharing, stopSharing, selfLeftVoice, updateStatus]);
   handleToggleScreenShareRef.current = handleToggleScreenShare;
 
   const handleWatchScreenShare = useCallback((roomName: string) => {
@@ -1596,7 +1648,6 @@ const handleConnect = (serverData: SavedServer) => {
           serverAddress={serverAddress}
           username={username}
           onDisconnect={handleDisconnect}
-          onReconnect={handleReconnect}
           onStartDM={handleSelectDMUser}
           speakingUsers={speakingUsers}
           connectionStatus={connectionStatus}
@@ -1669,6 +1720,7 @@ const handleConnect = (serverData: SavedServer) => {
             <ConnectionState
               connectionStatus={connectionStatus}
               serverLabel={serverLabel}
+              errorMessage={statuses.voice.error}
               onCancel={connectionStatus === 'connecting' || connectionStatus === 'reconnecting' ? handleCancelReconnect : undefined}
               onReconnect={connectionStatus === 'disconnected' ? handleReconnect : undefined}
               onBackToServerList={handleBackToServerList}
