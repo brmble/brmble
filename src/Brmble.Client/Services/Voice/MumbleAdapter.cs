@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Security.Cryptography.X509Certificates;
+using System.Threading;
 using Org.BouncyCastle.Tls;
 using MumbleSharp;
 using MumbleSharp.Audio;
@@ -51,10 +52,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private CancellationTokenSource? _wsCts;
     private readonly IAppConfigService? _appConfigService;
     private System.Threading.Timer? _healthTimer;
-    private static readonly HttpClient _healthHttpClient = new(new HttpClientHandler
-    {
-        ServerCertificateCustomValidationCallback = (_, _, _, _) => true,
-    })
+    private long _healthGeneration;
+    private static readonly HttpClient _healthHttpClient = new()
     { Timeout = TimeSpan.FromSeconds(5) };
 
     private record SessionMappingEntry(string MatrixUserId, string MumbleName);
@@ -1217,6 +1216,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     {
         StopHealthCheck();
         var url = apiUrl.TrimEnd('/') + "/health";
+        var gen = Interlocked.Increment(ref _healthGeneration);
 
         // Immediately report connecting, then run first check
         _bridge?.Send("server.healthStatus", new { state = "connecting", label = apiUrl });
@@ -1224,9 +1224,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         _healthTimer = new System.Threading.Timer(async _ =>
         {
+            if (Interlocked.Read(ref _healthGeneration) != gen) return;
             try
             {
                 var res = await _healthHttpClient.GetAsync(url);
+                if (Interlocked.Read(ref _healthGeneration) != gen) return;
                 if (res.IsSuccessStatusCode)
                     _bridge?.Send("server.healthStatus", new { state = "connected", label = apiUrl });
                 else
@@ -1234,6 +1236,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             }
             catch (Exception ex)
             {
+                if (Interlocked.Read(ref _healthGeneration) != gen) return;
                 _bridge?.Send("server.healthStatus", new { state = "disconnected", error = ex.Message });
             }
             _bridge?.NotifyUiThread();
@@ -1242,6 +1245,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     private void StopHealthCheck()
     {
+        Interlocked.Increment(ref _healthGeneration);
         _healthTimer?.Dispose();
         _healthTimer = null;
     }

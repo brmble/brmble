@@ -21,7 +21,7 @@ Additionally, the sidebar shows a single status dot for voice only. Users have n
 ```ts
 type ServiceName = 'voice' | 'chat' | 'server' | 'livekit';
 
-type ServiceState = 'connected' | 'connecting' | 'disconnected' | 'unavailable';
+type ServiceState = 'connected' | 'connecting' | 'disconnected' | 'unavailable' | 'idle';
 
 type ServiceStatus = {
   state: ServiceState;
@@ -45,10 +45,10 @@ type ServiceStatusMap = Record<ServiceName, ServiceStatus>;
 
 | Service | Initial State | Reason |
 |---------|--------------|--------|
-| Voice | `disconnected` | No connection attempted |
-| Chat | `unavailable` | Depends on voice credentials |
-| Brmble | `unavailable` | No server URL configured |
-| Screenshare | `unavailable` | Feature under development |
+| Voice | `idle` | No connection attempted |
+| Chat | `idle` | Depends on voice credentials |
+| Brmble | `idle` | No server URL configured |
+| Screenshare | `idle` | Only active when a user starts sharing |
 
 ### Error Lifecycle
 

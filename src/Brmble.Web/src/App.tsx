@@ -921,7 +921,7 @@ function App() {
 
     const onVoiceReconnecting = () => {
       setConnectionStatus('reconnecting');
-      updateStatus('voice', { state: 'connecting', error: undefined });
+      updateStatus('voice', { state: 'connecting' });
     };
     const onVoiceReconnectFailed = (data?: unknown) => {
       clearPendingAction();

@@ -124,6 +124,7 @@
 .service-dot--disconnected { background: var(--accent-danger); }
 .service-dot--unavailable  { background: var(--text-muted); opacity: 0.3; }
 .service-dot--idle         { background: var(--text-muted); opacity: 0.3; }
+.service-dot:focus         { outline: none; }
 
 .sidebar-channels {
   flex: 1;

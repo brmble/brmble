@@ -46,6 +46,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
   useEffect(() => { dmRoomMapRef.current = dmRoomMap; }, [dmRoomMap]);
 
   const roomIdToDMUserIdRef = useRef<Map<string, string>>(new Map());
+  const lastSyncStateRef = useRef<string | null>(null);
 
   // Reverse lookup: matrixRoomId → mumbleChannelId
   const roomIdToChannelId = useMemo(() => {
@@ -65,6 +66,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       setDmMessages(new Map());
       dmRoomMapRef.current = new Map();
       roomIdToDMUserIdRef.current = new Map();
+      lastSyncStateRef.current = null;
       updateStatus('chat', { state: 'idle', error: undefined });
       return;
     }
@@ -215,8 +217,9 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     };
 
     const onSync = (state: string) => {
+      let derivedState: string;
       if (state === 'PREPARED' || state === 'SYNCING') {
-        updateStatus('chat', { state: 'connected', error: undefined });
+        derivedState = 'connected';
         if (state === 'PREPARED') {
           const directEvent = client.getAccountData(EventType.Direct);
           if (directEvent) {
@@ -224,10 +227,25 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
           }
         }
       } else if (state === 'ERROR') {
-        updateStatus('chat', { state: 'disconnected', error: 'Sync error' });
+        derivedState = 'disconnected';
       } else if (state === 'RECONNECTING') {
-        updateStatus('chat', { state: 'connecting', error: undefined });
+        derivedState = 'connecting';
       } else if (state === 'STOPPED') {
+        derivedState = 'disconnected';
+      } else {
+        return;
+      }
+
+      if (derivedState === lastSyncStateRef.current) return;
+      lastSyncStateRef.current = derivedState;
+
+      if (derivedState === 'connected') {
+        updateStatus('chat', { state: 'connected', error: undefined });
+      } else if (state === 'ERROR') {
+        updateStatus('chat', { state: 'disconnected', error: 'Sync error' });
+      } else if (derivedState === 'connecting') {
+        updateStatus('chat', { state: 'connecting', error: undefined });
+      } else {
         updateStatus('chat', { state: 'disconnected' });
       }
     };

@@ -28,7 +28,7 @@
 
 .connection-state-error {
   font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
+  font-size: var(--text-sm);
   color: var(--accent-danger-text);
   background: var(--accent-danger-subtle);
   border: 1px solid var(--accent-danger-border);

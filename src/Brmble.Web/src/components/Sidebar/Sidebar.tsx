@@ -149,6 +149,7 @@ export function Sidebar({
                     <span
                       className={`service-dot service-dot--${statuses[svc].state}`}
                       aria-label={dotTooltip(svc)}
+                      tabIndex={0}
                     />
                   </Tooltip>
                 ))}
@@ -188,6 +189,7 @@ export function Sidebar({
                     <span
                       className={`service-dot service-dot--${statuses[svc].state}`}
                       aria-label={dotTooltip(svc)}
+                      tabIndex={0}
                     />
                   </Tooltip>
                 ))}
