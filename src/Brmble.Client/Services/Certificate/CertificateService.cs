@@ -57,6 +57,171 @@ internal sealed class CertificateService : IService
             Task.Run(ExportCertificate);
             return Task.CompletedTask;
         });
+
+        // ── Profile handlers ──────────────────────────────────────────
+
+        bridge.RegisterHandler("profiles.list", _ =>
+        {
+            var profiles = _config.GetProfiles().Select(p =>
+            {
+                var certPath = GetCertPath(p.Id);
+                string? fingerprint = null;
+                bool certValid = false;
+                if (File.Exists(certPath))
+                {
+                    try
+                    {
+                        using var cert = X509CertificateLoader.LoadPkcs12FromFile(certPath, password: null, keyStorageFlags: X509KeyStorageFlags.DefaultKeySet);
+                        fingerprint = cert.Thumbprint;
+                        certValid = true;
+                    }
+                    catch { }
+                }
+                return new { id = p.Id, name = p.Name, fingerprint, certValid };
+            }).ToList();
+            bridge.Send("profiles.list", new { profiles, activeProfileId = _config.GetActiveProfileId() });
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("profiles.add", data =>
+        {
+            var name = data.TryGetProperty("name", out var n) ? n.GetString() ?? "Unnamed" : "Unnamed";
+            Task.Run(() =>
+            {
+                try
+                {
+                    var id = Guid.NewGuid().ToString();
+                    var certPath = GetCertPath(id);
+                    Directory.CreateDirectory(Path.GetDirectoryName(certPath)!);
+
+                    using var ecdsa = System.Security.Cryptography.ECDsa.Create(
+                        System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+                    var req = new System.Security.Cryptography.X509Certificates.CertificateRequest(
+                        "CN=Brmble User", ecdsa, System.Security.Cryptography.HashAlgorithmName.SHA256);
+                    var now = DateTimeOffset.UtcNow;
+                    using var cert = req.CreateSelfSigned(now, now.AddYears(100));
+                    File.WriteAllBytes(certPath, cert.Export(X509ContentType.Pfx));
+
+                    var profile = new ProfileEntry(id, name);
+                    _config.AddProfile(profile);
+
+                    // If this is the first profile, make it active
+                    if (_config.GetActiveProfileId() == null)
+                    {
+                        _config.SetActiveProfileId(id);
+                        LoadActiveCertificate();
+                        bridge.Send("profiles.activeChanged", new { id, name, fingerprint = ActiveCertificate?.Thumbprint });
+                    }
+
+                    bridge.Send("profiles.added", new { id, name, fingerprint = cert.Thumbprint, certValid = true });
+                }
+                catch (Exception ex)
+                {
+                    bridge.Send("profiles.error", new { message = $"Failed to create profile: {ex.Message}" });
+                }
+            });
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("profiles.import", data =>
+        {
+            var name = data.TryGetProperty("name", out var n) ? n.GetString() ?? "Unnamed" : "Unnamed";
+            var base64 = data.TryGetProperty("data", out var d) ? d.GetString() : null;
+            if (base64 == null)
+            {
+                bridge.Send("profiles.error", new { message = "No certificate data provided." });
+                return Task.CompletedTask;
+            }
+            Task.Run(() =>
+            {
+                try
+                {
+                    var bytes = Convert.FromBase64String(base64);
+                    var testCert = X509CertificateLoader.LoadPkcs12(bytes, password: null, keyStorageFlags: X509KeyStorageFlags.DefaultKeySet);
+
+                    var id = Guid.NewGuid().ToString();
+                    var certPath = GetCertPath(id);
+                    Directory.CreateDirectory(Path.GetDirectoryName(certPath)!);
+                    File.WriteAllBytes(certPath, bytes);
+
+                    var profile = new ProfileEntry(id, name);
+                    _config.AddProfile(profile);
+
+                    if (_config.GetActiveProfileId() == null)
+                    {
+                        _config.SetActiveProfileId(id);
+                        LoadActiveCertificate();
+                        bridge.Send("profiles.activeChanged", new { id, name, fingerprint = testCert.Thumbprint });
+                    }
+
+                    bridge.Send("profiles.added", new { id, name, fingerprint = testCert.Thumbprint, certValid = true });
+                }
+                catch (Exception ex)
+                {
+                    bridge.Send("profiles.error", new { message = $"Failed to import profile: {ex.Message}" });
+                }
+            });
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("profiles.remove", data =>
+        {
+            var id = data.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+            if (id == null) return Task.CompletedTask;
+
+            var wasActive = _config.GetActiveProfileId() == id;
+            _config.RemoveProfile(id);
+            bridge.Send("profiles.removed", new { id });
+
+            if (wasActive)
+            {
+                var newActiveId = _config.GetActiveProfileId();
+                if (newActiveId != null)
+                {
+                    var newProfile = _config.GetProfiles().FirstOrDefault(p => p.Id == newActiveId);
+                    LoadActiveCertificate();
+                    bridge.Send("profiles.activeChanged", new { id = newActiveId, name = newProfile?.Name, fingerprint = ActiveCertificate?.Thumbprint });
+                }
+                else
+                {
+                    var old = ActiveCertificate;
+                    ActiveCertificate = null;
+                    old?.Dispose();
+                    bridge.Send("profiles.activeChanged", new { id = (string?)null, name = (string?)null, fingerprint = (string?)null });
+                    bridge.Send("cert.status", new { exists = false });
+                }
+            }
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("profiles.rename", data =>
+        {
+            var id = data.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+            var name = data.TryGetProperty("name", out var n) ? n.GetString() : null;
+            if (id == null || name == null) return Task.CompletedTask;
+
+            _config.RenameProfile(id, name);
+            bridge.Send("profiles.renamed", new { id, name });
+
+            if (_config.GetActiveProfileId() == id)
+                bridge.Send("profiles.activeChanged", new { id, name, fingerprint = ActiveCertificate?.Thumbprint });
+
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("profiles.setActive", data =>
+        {
+            var id = data.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+            if (id == null) return Task.CompletedTask;
+
+            _config.SetActiveProfileId(id);
+            LoadActiveCertificate();
+
+            var profile = _config.GetProfiles().FirstOrDefault(p => p.Id == id);
+            bridge.Send("profiles.activeChanged", new { id, name = profile?.Name, fingerprint = ActiveCertificate?.Thumbprint });
+            bridge.Send("cert.status", new { exists = ActiveCertificate != null, fingerprint = ActiveCertificate?.Thumbprint, subject = ActiveCertificate?.Subject });
+            return Task.CompletedTask;
+        });
     }
 
     /// <summary>
