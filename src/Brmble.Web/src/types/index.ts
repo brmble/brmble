@@ -61,7 +61,7 @@ export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecti
 
 export type ServiceName = 'voice' | 'chat' | 'server' | 'livekit';
 
-export type ServiceState = 'connected' | 'connecting' | 'disconnected' | 'unavailable';
+export type ServiceState = 'connected' | 'connecting' | 'disconnected' | 'unavailable' | 'idle';
 
 export interface ServiceStatus {
   state: ServiceState;

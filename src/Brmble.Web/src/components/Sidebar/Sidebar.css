@@ -123,6 +123,7 @@
 .service-dot--connecting   { background: var(--accent-secondary); animation: status-blink var(--animation-blink) ease-in-out infinite alternate; }
 .service-dot--disconnected { background: var(--accent-danger); }
 .service-dot--unavailable  { background: var(--text-muted); opacity: 0.3; }
+.service-dot--idle         { background: var(--text-muted); opacity: 0.3; }
 
 .sidebar-channels {
   flex: 1;

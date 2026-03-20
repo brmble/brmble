@@ -3,10 +3,10 @@ import type { ReactNode } from 'react';
 import type { ServiceName, ServiceStatus, ServiceStatusMap } from '../types';
 
 const DEFAULT_STATUSES: ServiceStatusMap = {
-  voice: { state: 'disconnected' },
-  chat: { state: 'unavailable' },
-  server: { state: 'unavailable' },
-  livekit: { state: 'unavailable' },
+  voice: { state: 'idle' },
+  chat: { state: 'idle' },
+  server: { state: 'idle' },
+  livekit: { state: 'idle' },
 };
 
 interface ServiceStatusContextValue {

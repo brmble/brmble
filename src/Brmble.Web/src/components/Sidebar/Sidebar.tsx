@@ -79,6 +79,7 @@ export function Sidebar({
       case 'connecting': return 'Connecting';
       case 'disconnected': return 'Disconnected';
       case 'unavailable': return 'Unavailable';
+      case 'idle': return 'Idle';
     }
   };
 

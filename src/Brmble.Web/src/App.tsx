@@ -572,7 +572,8 @@ function App() {
       setAppModeRef.current('channels');
       setSelectedDMUserIdRaw(null);
       setSelectedDMUserName('');
-      updateStatus('livekit', { state: 'unavailable', error: undefined });
+      updateStatus('livekit', { state: 'idle', error: undefined });
+      updateStatus('server', { state: 'idle', error: undefined });
     };
 
     const onServerCredentials = (data: unknown) => {
@@ -1429,8 +1430,8 @@ const handleConnect = (serverData: SavedServer) => {
     if (isSharing) {
       updateStatus('livekit', { state: 'connected', error: undefined });
     } else if (!screenShareError) {
-      // Only reset to unavailable if there's no active error (error case handled above)
-      updateStatus('livekit', { state: 'unavailable', error: undefined });
+      // Only reset to idle if there's no active error (error case handled above)
+      updateStatus('livekit', { state: 'idle', error: undefined });
     }
   }, [isSharing, screenShareError, updateStatus]);
 

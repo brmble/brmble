@@ -65,7 +65,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       setDmMessages(new Map());
       dmRoomMapRef.current = new Map();
       roomIdToDMUserIdRef.current = new Map();
-      updateStatus('chat', { state: 'unavailable', error: undefined });
+      updateStatus('chat', { state: 'idle', error: undefined });
       return;
     }
 
@@ -247,7 +247,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       client.stopClient();
       clientRef.current = null;
       setClient(null);
-      updateStatus('chat', { state: 'unavailable', error: undefined });
+      updateStatus('chat', { state: 'idle', error: undefined });
     };
   }, [credentials, roomIdToChannelId, updateStatus]);
 
