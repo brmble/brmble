@@ -655,7 +655,7 @@ internal sealed class CertificateService : IService
         lock (_certLock)
         {
             exists = ActiveCertificate != null;
-            fingerprint = ActiveCertificate?.Thumbprint;
+            fingerprint = ActiveCertificate?.Thumbprint?.ToLowerInvariant();
             subject = ActiveCertificate?.Subject;
         }
         if (exists)

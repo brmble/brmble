@@ -261,6 +261,26 @@ export function useUnreadTracker(
   const refreshAll = useCallback(() => {
     if (!client) return;
     const rooms = client.getRooms();
+
+    // When switching to a profile that has no markers at all (e.g. a brand-new
+    // profile or first switch), bootstrap markers for every room so that
+    // future messages correctly show as unread.  Without this, the
+    // `!localMarker → 0` guard in buildRoomUnread would suppress all unreads.
+    const markers = loadMarkers(fp);
+    if (Object.keys(markers).length === 0 && rooms.length > 0) {
+      const now = Date.now();
+      for (const room of rooms) {
+        const timeline = room.getLiveTimeline().getEvents();
+        if (timeline.length > 0) {
+          const lastEvent = timeline[timeline.length - 1];
+          const lastEventId = lastEvent.getId();
+          if (lastEventId) {
+            saveMarker(room.roomId, lastEventId, now, fp);
+          }
+        }
+      }
+    }
+
     const newMap = new Map<string, RoomUnreadState>();
     const activeId = activeRoomIdRef.current;
     for (const room of rooms) {
@@ -278,7 +298,7 @@ export function useUnreadTracker(
       }
     }
     setRoomUnreads(newMap);
-  }, [client, buildRoomUnread]);
+  }, [client, buildRoomUnread, fp]);
 
   const refreshRoom = useCallback((roomId: string) => {
     if (!client) return;
