@@ -31,6 +31,8 @@ import { usePrompt, confirm } from './hooks/usePrompt';
 import { Toast } from './components/Toast/Toast';
 import { GameUI } from './components/Game/GameUI';
 import { Brmblegotchi } from './components/Brmblegotchi/Brmblegotchi';
+import { ProfileProvider } from './contexts/ProfileContext';
+import { migrateLocalStorage } from './utils/migrateLocalStorage';
 import './App.css';
 
 const SETTINGS_STORAGE_KEY = 'brmble-settings';
@@ -133,8 +135,15 @@ const mapStoredContacts = (contacts: StoredDMContact[]) =>
 function App() {
   // null = status not yet received, false = no cert, true = cert exists
   const [certExists, setCertExists] = useState<boolean | null>(null);
-  const [, setCertFingerprint] = useState('');
+  const [certFingerprint, setCertFingerprint] = useState('');
   const [activeProfileName, setActiveProfileName] = useState('');
+
+  // Migrate global localStorage keys to per-profile scoped keys
+  useEffect(() => {
+    if (certFingerprint) {
+      migrateLocalStorage(certFingerprint);
+    }
+  }, [certFingerprint]);
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
   const { statuses, updateStatus, resetStatuses } = useServiceStatus();
@@ -1672,6 +1681,7 @@ const handleConnect = (serverData: SavedServer) => {
 
   return (
     <div className="app">
+      <ProfileProvider value={certFingerprint}>
       <ErrorBoundary label="Header">
       <Header
         username={username}
@@ -1867,6 +1877,7 @@ const handleConnect = (serverData: SavedServer) => {
       <ZoomIndicator />
       <Version />
       <Brmblegotchi />
+      </ProfileProvider>
     </div>
   );
 }
