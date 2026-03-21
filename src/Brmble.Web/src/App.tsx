@@ -96,6 +96,7 @@ function speakText(text: string) {
 
 interface SavedServer {
   id?: string;
+  label?: string;
   host: string;
   port: number;
   username: string;
@@ -1190,6 +1191,7 @@ const handleConnect = (serverData: SavedServer) => {
     setServerLabel(server.label || `${server.host}:${server.port}`);
     handleConnect({
       id: server.id,
+      label: server.label,
       host: server.host,
       port: server.port,
       username: server.username || activeProfileName || 'Brmble User',
