@@ -307,4 +307,36 @@ public class AppConfigServiceTests
         Assert.IsTrue(File.Exists(Path.Combine(_tempDir, "certs", "Default_" + profile.Id + ".pfx")));
         Assert.IsFalse(File.Exists(Path.Combine(_tempDir, "identity.pfx")), "Old file should be moved");
     }
+
+    [TestMethod]
+    public void AddProfile_RejectsDuplicateName()
+    {
+        var svc = CreateService();
+        svc.AddProfile(new ProfileEntry("id1", "MyProfile"));
+        var result = svc.AddProfile(new ProfileEntry("id2", "myprofile"));
+        Assert.IsFalse(result);
+        Assert.AreEqual(1, svc.GetProfiles().Count);
+    }
+
+    [TestMethod]
+    public void RenameProfile_RejectsDuplicateName()
+    {
+        var svc = CreateService();
+        svc.AddProfile(new ProfileEntry("id1", "Alpha"));
+        svc.AddProfile(new ProfileEntry("id2", "Beta"));
+        var result = svc.RenameProfile("id2", "alpha");
+        Assert.IsFalse(result);
+        Assert.AreEqual("Beta", svc.GetProfiles().First(p => p.Id == "id2").Name);
+    }
+
+    [TestMethod]
+    public void RenameProfile_AllowsSameNameForSameProfile()
+    {
+        var svc = CreateService();
+        svc.AddProfile(new ProfileEntry("id1", "Alpha"));
+        var result = svc.RenameProfile("id1", "Alpha");
+        Assert.IsTrue(result);
+    }
+
+    private AppConfigService CreateService() => new AppConfigService(_tempDir);
 }

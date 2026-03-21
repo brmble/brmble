@@ -22,9 +22,9 @@ public interface IAppConfigService
     double? GetZoomFactor();
     void SaveZoomFactor(double? factor);
     IReadOnlyList<ProfileEntry> GetProfiles();
-    void AddProfile(ProfileEntry profile);
+    bool AddProfile(ProfileEntry profile);
     void RemoveProfile(string id);
-    void RenameProfile(string id, string newName);
+    bool RenameProfile(string id, string newName);
     string? GetActiveProfileId();
     void SetActiveProfileId(string? id);
     string GetCertsDir();

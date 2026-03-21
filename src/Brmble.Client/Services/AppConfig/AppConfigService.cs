@@ -259,13 +259,15 @@ internal sealed class AppConfigService : IAppConfigService
 
     public IReadOnlyList<ProfileEntry> GetProfiles() { lock (_lock) return _profiles.ToList(); }
 
-    public void AddProfile(ProfileEntry profile)
+    public bool AddProfile(ProfileEntry profile)
     {
         lock (_lock)
         {
-            if (_profiles.Any(p => p.Id == profile.Id)) return;
+            if (_profiles.Any(p => p.Id == profile.Id)) return false;
+            if (_profiles.Any(p => p.Name.Equals(profile.Name, StringComparison.OrdinalIgnoreCase))) return false;
             _profiles.Add(profile);
             Save();
+            return true;
         }
     }
 
@@ -280,16 +282,19 @@ internal sealed class AppConfigService : IAppConfigService
         }
     }
 
-    public void RenameProfile(string id, string newName)
+    public bool RenameProfile(string id, string newName)
     {
         lock (_lock)
         {
+            if (_profiles.Any(p => p.Id != id && p.Name.Equals(newName, StringComparison.OrdinalIgnoreCase))) return false;
             var idx = _profiles.FindIndex(p => p.Id == id);
             if (idx >= 0)
             {
                 _profiles[idx] = _profiles[idx] with { Name = newName };
                 Save();
+                return true;
             }
+            return false;
         }
     }
 
