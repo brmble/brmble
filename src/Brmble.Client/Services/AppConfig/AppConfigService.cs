@@ -142,19 +142,9 @@ internal sealed class AppConfigService : IAppConfigService
             var i = _servers.FindIndex(s => s.Id == server.Id);
             if (i >= 0)
             {
-                var existing = _servers[i];
-                // Merge: only overwrite fields that have non-default values in the incoming entry
-                _servers[i] = existing with
-                {
-                    Label = !string.IsNullOrEmpty(server.Label) ? server.Label : existing.Label,
-                    ApiUrl = server.ApiUrl ?? existing.ApiUrl,
-                    Host = server.Host ?? existing.Host,
-                    Port = server.Port ?? existing.Port,
-                    Username = !string.IsNullOrEmpty(server.Username) ? server.Username : existing.Username,
-                    Password = !string.IsNullOrEmpty(server.Password) ? server.Password : existing.Password,
-                    Registered = server.Registered,
-                    RegisteredName = server.Registered ? (server.RegisteredName ?? existing.RegisteredName) : null,
-                };
+                // Replace the existing entry wholesale with the incoming server entry.
+                // The frontend sends a full ServerEntry on edit, so this allows fields to be cleared.
+                _servers[i] = server;
                 Save();
                 return _servers[i];
             }

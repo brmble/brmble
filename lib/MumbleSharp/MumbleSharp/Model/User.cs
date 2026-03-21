@@ -24,7 +24,7 @@ namespace MumbleSharp.Model
         public System.Collections.Generic.Dictionary<uint, float> ListeningVolumeAdjustments { get; } = new System.Collections.Generic.Dictionary<uint, float>();
 
         public uint? RegisteredUserId { get; set; }
-        public string CertificateHash { get; set; }
+        public string CertificateHash { get; set; } = string.Empty;
         public bool IsRegistered => RegisteredUserId.HasValue;
 
         private Channel _channel;

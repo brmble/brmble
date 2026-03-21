@@ -249,7 +249,7 @@ export function ServerList({ onConnect, connectionError, onClearError, activePro
                 </div>
                 {editing?.registered && (
                 <Tooltip content={`Registered as "${editing.registeredName}" on this server`}>
-                <div className="server-list-username-wrapper">
+                <div className="server-list-username-wrapper" tabIndex={0}>
                   <input
                     className="brmble-input server-list-input server-list-input-registered"
                     placeholder="Username"

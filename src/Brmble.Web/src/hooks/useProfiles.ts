@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import bridge from '../bridge';
+import { confirm } from './usePrompt';
 
 export interface Profile {
   id: string;
@@ -46,11 +47,19 @@ export function useProfiles() {
       setActiveProfileId(d.id);
     };
 
+    const onError = (data: unknown) => {
+      const d = data as { message?: string };
+      if (d.message) {
+        confirm({ title: 'Profile Error', message: d.message, confirmLabel: 'OK', cancelLabel: 'Dismiss' });
+      }
+    };
+
     bridge.on('profiles.list', onList);
     bridge.on('profiles.added', onAdded);
     bridge.on('profiles.removed', onRemoved);
     bridge.on('profiles.renamed', onRenamed);
     bridge.on('profiles.activeChanged', onActiveChanged);
+    bridge.on('profiles.error', onError);
     bridge.send('profiles.list');
 
     return () => {
@@ -59,6 +68,7 @@ export function useProfiles() {
       bridge.off('profiles.removed', onRemoved);
       bridge.off('profiles.renamed', onRenamed);
       bridge.off('profiles.activeChanged', onActiveChanged);
+      bridge.off('profiles.error', onError);
     };
   }, []);
 

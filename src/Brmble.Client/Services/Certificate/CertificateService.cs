@@ -249,7 +249,11 @@ internal sealed class CertificateService : IService
                 var fingerprint = cert.Thumbprint;
 
                 var profile = new ProfileEntry(idPart, name);
-                _config.AddProfile(profile);
+                if (!_config.AddProfile(profile))
+                {
+                    bridge.Send("profiles.error", new { message = "A profile with that name already exists." });
+                    return Task.CompletedTask;
+                }
 
                 if (_config.GetActiveProfileId() == null)
                 {
@@ -316,7 +320,14 @@ internal sealed class CertificateService : IService
                     File.WriteAllBytes(certPath, cert.Export(X509ContentType.Pfx));
 
                     var profile = new ProfileEntry(id, name);
-                    _config.AddProfile(profile);
+                    if (!_config.AddProfile(profile))
+                    {
+                        // Duplicate name/id — clean up the orphaned cert file
+                        try { File.Delete(certPath); } catch { }
+                        bridge.Send("profiles.error", new { message = "A profile with that name already exists." });
+                        bridge.NotifyUiThread();
+                        return;
+                    }
 
                     // If this is the first profile, make it active
                     if (_config.GetActiveProfileId() == null)
@@ -368,7 +379,14 @@ internal sealed class CertificateService : IService
                     File.WriteAllBytes(certPath, bytes);
 
                     var profile = new ProfileEntry(id, name);
-                    _config.AddProfile(profile);
+                    if (!_config.AddProfile(profile))
+                    {
+                        // Duplicate name/id — clean up the orphaned cert file
+                        try { File.Delete(certPath); } catch { }
+                        bridge.Send("profiles.error", new { message = "A profile with that name already exists." });
+                        bridge.NotifyUiThread();
+                        return;
+                    }
 
                     if (_config.GetActiveProfileId() == null)
                     {
@@ -449,7 +467,11 @@ internal sealed class CertificateService : IService
                 var oldProfile = _config.GetProfiles().FirstOrDefault(p => p.Id == id);
                 var oldCertPath = oldProfile != null ? FindCertPath(id, oldProfile.Name) : null;
 
-                _config.RenameProfile(id, name);
+                if (!_config.RenameProfile(id, name))
+                {
+                    bridge.Send("profiles.error", new { message = "A profile with that name already exists." });
+                    return Task.CompletedTask;
+                }
 
                 // Rename the cert file on disk to match the new profile name
                 if (oldCertPath != null && File.Exists(oldCertPath))
@@ -523,7 +545,11 @@ internal sealed class CertificateService : IService
                 var oldProfile = _config.GetProfiles().FirstOrDefault(p => p.Id == id);
 
                 // Rename the profile in config
-                _config.RenameProfile(id, name);
+                if (!_config.RenameProfile(id, name))
+                {
+                    bridge.Send("profiles.error", new { message = "A profile with that name already exists." });
+                    return Task.CompletedTask;
+                }
 
                 // Rename the matched cert file to use this profile's ID: {name}_{id}.pfx
                 var targetPath = GetCertPath(id, name);

@@ -93,7 +93,7 @@ export function ProfilesSettingsTab({ connected }: ProfilesSettingsTabProps) {
   const handleDelete = async (profile: { id: string; name: string }) => {
     const confirmed = await confirm({
       title: 'Delete profile',
-      message: `Remove "${profile.name}" and its certificate? This cannot be undone.`,
+      message: `Remove "${profile.name}"? The certificate file will be kept on disk.`,
       confirmLabel: 'Delete',
       cancelLabel: 'Cancel',
     });
