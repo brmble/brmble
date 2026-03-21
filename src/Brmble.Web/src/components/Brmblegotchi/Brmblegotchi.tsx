@@ -11,6 +11,7 @@ type GrowthStage = 'egg' | 'baby' | 'child' | 'teen' | 'adult' | 'ghost';
 interface GrowthState {
   stage: GrowthStage;
   stageStartTime: number;
+  birthTime: number;
   eggClicks: number;
   hasDied: boolean;
 }
@@ -37,6 +38,7 @@ const EGG_CLICKS_TO_HATCH = 10;
 const DEFAULT_GROWTH_STATE: GrowthState = {
   stage: 'egg',
   stageStartTime: Date.now(),
+  birthTime: Date.now(),
   eggClicks: 0,
   hasDied: false,
 };
@@ -158,6 +160,19 @@ export function BrmblegotchiWidget() {
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
   const [eggClickAnim, setEggClickAnim] = useState(false);
+  const [totalAge, setTotalAge] = useState(0);
+  const [showContextMenu, setShowContextMenu] = useState(false);
+
+  const formatAge = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    if (mins >= 60) {
+      const hours = Math.floor(mins / 60);
+      const remainingMins = mins % 60;
+      return `${hours}h ${remainingMins}m`;
+    }
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
   const [petState, setPetState] = useState<PetState>(() => {
     try {
       const stored = localStorage.getItem(stateKey);
@@ -184,6 +199,7 @@ export function BrmblegotchiWidget() {
           return {
             stage: saved.stage,
             stageStartTime: saved.stageStartTime ?? Date.now(),
+            birthTime: saved.birthTime ?? Date.now(),
             eggClicks: saved.eggClicks ?? 0,
             hasDied: saved.hasDied ?? false,
           };
@@ -209,9 +225,21 @@ export function BrmblegotchiWidget() {
         }
       } catch { /* empty */ }
     };
+    const handleHide = () => {
+      try {
+        const stored = localStorage.getItem(SETTINGS_KEY);
+        const settings = stored ? JSON.parse(stored) : {};
+        settings.brmblegotchi = { ...settings.brmblegotchi, enabled: false };
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+      } catch { /* empty */ }
+    };
     checkSettings();
     const interval = setInterval(checkSettings, 500);
-    return () => clearInterval(interval);
+    window.addEventListener('brmblegotchi-hide', handleHide);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('brmblegotchi-hide', handleHide);
+    };
   }, []);
 
   useEffect(() => {
@@ -260,6 +288,7 @@ export function BrmblegotchiWidget() {
       ...prev,
       stage: 'baby',
       stageStartTime: Date.now(),
+      birthTime: prev.birthTime || Date.now(),
       eggClicks: 0,
     }));
   }, []);
@@ -287,9 +316,11 @@ export function BrmblegotchiWidget() {
     const newGrowthState: GrowthState = {
       ...DEFAULT_GROWTH_STATE,
       stageStartTime: Date.now(),
+      birthTime: Date.now(),
     };
     setPetState(newPetState);
     setGrowthState(newGrowthState);
+    setTotalAge(0);
     localStorage.setItem(STATE_KEY, JSON.stringify({ ...newPetState, ...newGrowthState }));
   }, []);
 
@@ -334,16 +365,6 @@ export function BrmblegotchiWidget() {
     }, 1000);
     return () => clearInterval(interval);
   }, [stateKey, growthState.stage]);
-
-  const handleDismiss = useCallback(() => {
-    setIsVisible(false);
-    try {
-      const stored = localStorage.getItem(SETTINGS_KEY);
-      const settings = stored ? JSON.parse(stored) : {};
-      settings.brmblegotchi = { ...settings.brmblegotchi, enabled: false };
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    } catch { /* empty */ }
-  }, []);
 
   const handleAction = useCallback((action: 'feed' | 'play' | 'clean') => {
     const now = Date.now();
@@ -469,6 +490,31 @@ export function BrmblegotchiWidget() {
     };
   }, [showActions]);
 
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (widgetRef.current && !widgetRef.current.contains(e.target as Node)) {
+        setShowContextMenu(false);
+      }
+    };
+    if (showContextMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showContextMenu]);
+
+  useEffect(() => {
+    if (growthState.birthTime) {
+      const elapsedSeconds = Math.floor((Date.now() - growthState.birthTime) / 1000);
+      setTotalAge(Math.max(0, elapsedSeconds));
+    }
+    const ageInterval = setInterval(() => {
+      setTotalAge(prev => prev + 1);
+    }, 1000);
+    return () => clearInterval(ageInterval);
+  }, [growthState.birthTime]);
+
   if (!isEnabled || !isVisible) return null;
 
   const mood = getMood(petState.hunger, petState.happiness, petState.cleanliness);
@@ -476,6 +522,17 @@ export function BrmblegotchiWidget() {
   const showHunger = growthState.stage !== 'egg' && growthState.stage !== 'baby';
   const showHappiness = growthState.stage !== 'egg' && growthState.stage !== 'baby' && growthState.stage !== 'child';
   const ringCount = getRingCount(growthState.stage);
+
+  const nextStageDurations: Record<string, number> = {
+    egg: STAGE_DURATIONS.egg,
+    baby: STAGE_DURATIONS.baby,
+    child: STAGE_DURATIONS.child,
+    teen: STAGE_DURATIONS.teen,
+  };
+  const currentStageDuration = nextStageDurations[growthState.stage] ?? 0;
+  const stageProgress = currentStageDuration > 0 
+    ? Math.min(100, ((Date.now() - growthState.stageStartTime) / currentStageDuration) * 100) 
+    : 0;
 
   const handlePetClickWithStage = (e: React.MouseEvent) => {
     if (growthState.stage === 'egg') {
@@ -492,7 +549,14 @@ export function BrmblegotchiWidget() {
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    handleDismiss();
+    e.stopPropagation();
+    setShowContextMenu(prev => !prev);
+  }, []);
+
+  const handleContextClose = useCallback(() => {
+    setShowContextMenu(false);
+    setIsVisible(false);
+    window.dispatchEvent(new CustomEvent('brmblegotchi-hide'));
   }, []);
 
   return (
@@ -507,6 +571,18 @@ export function BrmblegotchiWidget() {
     >
       {showActions && growthState.stage !== 'egg' && growthState.stage !== 'ghost' && (
         <div className="brmblegotchi-actions">
+          <button
+            className={`brmblegotchi-action-btn ${cooldownRemaining > 0 ? 'disabled' : ''}`}
+            onClick={(e) => { e.stopPropagation(); handleAction('clean'); }}
+            aria-label="Clean"
+            disabled={cooldownRemaining > 0}
+          >
+            {cooldownRemaining > 0 ? (
+              <span className="brmblegotchi-cooldown">{Math.ceil(cooldownRemaining)}s</span>
+            ) : (
+              <CleanIcon />
+            )}
+          </button>
           {(growthState.stage === 'child' || growthState.stage === 'teen' || growthState.stage === 'adult') && (
             <button
               className={`brmblegotchi-action-btn ${cooldownRemaining > 0 ? 'disabled' : ''}`}
@@ -535,18 +611,6 @@ export function BrmblegotchiWidget() {
               )}
             </button>
           )}
-          <button
-            className={`brmblegotchi-action-btn ${cooldownRemaining > 0 ? 'disabled' : ''}`}
-            onClick={(e) => { e.stopPropagation(); handleAction('clean'); }}
-            aria-label="Clean"
-            disabled={cooldownRemaining > 0}
-          >
-            {cooldownRemaining > 0 ? (
-              <span className="brmblegotchi-cooldown">{Math.ceil(cooldownRemaining)}s</span>
-            ) : (
-              <CleanIcon />
-            )}
-          </button>
         </div>
       )}
 
@@ -611,7 +675,40 @@ export function BrmblegotchiWidget() {
             </div>
           </div>
         )}
+        {growthState.stage !== 'egg' && growthState.stage !== 'adult' && growthState.stage !== 'ghost' && (
+          <div className="brmblegotchi-progress">
+            <div className="brmblegotchi-progress-bar">
+              <div className="brmblegotchi-progress-fill" style={{ width: `${stageProgress}%` }} />
+            </div>
+          </div>
+        )}
+        <div className="brmblegotchi-age">
+          {growthState.stage === 'egg' ? 'Egg' : `${growthState.stage.charAt(0).toUpperCase() + growthState.stage.slice(1)} • ${formatAge(totalAge)}`}
+        </div>
       </div>
+
+      {showContextMenu && (
+        <div className="brmblegotchi-context-menu">
+          <div className="brmblegotchi-context-header">Status</div>
+          <div className="brmblegotchi-context-item">
+            <span>Stage</span>
+            <span>{growthState.stage === 'egg' ? 'Egg' : growthState.stage.charAt(0).toUpperCase() + growthState.stage.slice(1)}</span>
+          </div>
+          <div className="brmblegotchi-context-item">
+            <span>Age</span>
+            <span>{formatAge(totalAge)}</span>
+          </div>
+          {growthState.stage !== 'egg' && growthState.stage !== 'adult' && growthState.stage !== 'ghost' && (
+            <div className="brmblegotchi-context-item">
+              <span>Next stage</span>
+              <span>{Math.ceil((100 - stageProgress) / 100 * 60)}s</span>
+            </div>
+          )}
+          <button className="brmblegotchi-context-close" onClick={handleContextClose}>
+            Close
+          </button>
+        </div>
+      )}
 
       <div className="brmblegotchi-drag-handle" onMouseDown={handleMouseDown}>
         <span /><span /><span />
