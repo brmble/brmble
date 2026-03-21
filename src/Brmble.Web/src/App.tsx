@@ -4,7 +4,7 @@ import type { ConnectionStatus } from './types';
 import { useMatrixClient } from './hooks/useMatrixClient';
 import type { MatrixCredentials } from './hooks/useMatrixClient';
 import { useScreenShare } from './hooks/useScreenShare';
-import { useUnreadTracker } from './hooks/useUnreadTracker';
+import { useUnreadTracker, resetMarkersCache } from './hooks/useUnreadTracker';
 import { useServiceStatus } from './hooks/useServiceStatus';
 import { useServerHealth } from './hooks/useServerHealth';
 
@@ -341,6 +341,7 @@ function App() {
     dmRoomIds,
     activeMatrixRoomId,
     username || null,
+    certFingerprint,
   );
 
   const channelKey = currentChannelId === 'server-root' ? 'server-root' : currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
@@ -939,6 +940,7 @@ function App() {
 
     const onProfilesActiveChanged = (data: unknown) => {
       const d = data as { id: string | null; name: string | null; fingerprint: string | null };
+      resetMarkersCache();
       if (d.id) {
         setCertExists(true);
         setCertFingerprint(d.fingerprint ?? '');

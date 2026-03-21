@@ -65,13 +65,25 @@ interface StoredMarker {
 // In-memory cache of markers. Loaded once from localStorage; all subsequent
 // reads use this cache to avoid JSON.parse on every timeline event / refresh.
 let markersCache: Record<string, StoredMarker> | null = null;
+let markersCacheFingerprint: string | null = null;
 
-function loadMarkers(): Record<string, StoredMarker> {
-  if (markersCache) return markersCache;
+function getStorageKey(fingerprint: string): string {
+  return fingerprint ? `${STORAGE_KEY}_${fingerprint}` : STORAGE_KEY;
+}
+
+export function resetMarkersCache(): void {
+  markersCache = null;
+  markersCacheFingerprint = null;
+}
+
+function loadMarkers(fingerprint: string): Record<string, StoredMarker> {
+  if (markersCache && markersCacheFingerprint === fingerprint) return markersCache;
+  const key = getStorageKey(fingerprint);
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) {
       markersCache = {};
+      markersCacheFingerprint = fingerprint;
       return markersCache;
     }
     const parsed = JSON.parse(raw);
@@ -87,25 +99,27 @@ function loadMarkers(): Record<string, StoredMarker> {
       }
     }
     markersCache = result;
+    markersCacheFingerprint = fingerprint;
     return markersCache;
   } catch {
     markersCache = {};
+    markersCacheFingerprint = fingerprint;
     return markersCache;
   }
 }
 
-function saveMarker(roomId: string, eventId: string, ts: number): void {
-  const markers = loadMarkers();
+function saveMarker(roomId: string, eventId: string, ts: number, fingerprint: string): void {
+  const markers = loadMarkers(fingerprint);
   markers[roomId] = { eventId, ts };
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(markers));
+    localStorage.setItem(getStorageKey(fingerprint), JSON.stringify(markers));
   } catch {
     // localStorage may be full or unavailable
   }
 }
 
-function getMarker(roomId: string): StoredMarker | null {
-  return loadMarkers()[roomId] ?? null;
+function getMarker(roomId: string, fingerprint: string): StoredMarker | null {
+  return loadMarkers(fingerprint)[roomId] ?? null;
 }
 
 // ── Timeline counting ─────────────────────────────────────────────────
@@ -192,7 +206,9 @@ export function useUnreadTracker(
   dmRoomIds: Set<string>,
   activeRoomId: string | null,
   currentDisplayName?: string | null,
+  fingerprint?: string,
 ): UnreadTracker {
+  const fp = fingerprint ?? '';
   const [roomUnreads, setRoomUnreads] = useState<Map<string, RoomUnreadState>>(new Map());
   const activeRoomIdRef = useRef(activeRoomId);
   activeRoomIdRef.current = activeRoomId;
@@ -203,7 +219,7 @@ export function useUnreadTracker(
   const pendingMarkRef = useRef<Map<string, string>>(new Map());
 
   const buildRoomUnread = useCallback((room: Room): RoomUnreadState => {
-    const localMarker = getMarker(room.roomId);
+    const localMarker = getMarker(room.roomId, fp);
     const sdkMarkerId = room.getAccountData('m.fully_read')?.getContent()?.event_id ?? null;
     const fullyReadEventId = localMarker?.eventId ?? sdkMarkerId;
 
@@ -240,7 +256,7 @@ export function useUnreadTracker(
       highlightCount: serverHighlight + mentionCount,
       fullyReadEventId,
     };
-  }, [client, currentDisplayName]);
+  }, [client, currentDisplayName, fp]);
 
   const refreshAll = useCallback(() => {
     if (!client) return;
@@ -250,7 +266,7 @@ export function useUnreadTracker(
     for (const room of rooms) {
       if (room.roomId === activeId) {
         // Active room always shows 0 unreads — the user is looking at it.
-        const localMarker = getMarker(room.roomId);
+        const localMarker = getMarker(room.roomId, fp);
         const sdkMarkerId = room.getAccountData('m.fully_read')?.getContent()?.event_id ?? null;
         newMap.set(room.roomId, {
           notificationCount: 0,
@@ -356,7 +372,7 @@ export function useUnreadTracker(
     }
 
     // Persist locally (authoritative source)
-    saveMarker(roomId, messageEventId, markerTs);
+    saveMarker(roomId, messageEventId, markerTs, fp);
 
     // Update React state immediately
     setRoomUnreads(prev => {
@@ -385,7 +401,7 @@ export function useUnreadTracker(
       }
       markReadTimerRef.current.delete(roomId);
     }, 1000));
-  }, [client, flushMarkToServer]);
+  }, [client, flushMarkToServer, fp]);
 
   // Auto-mark active room as read when new m.room.message events arrive
   useEffect(() => {
@@ -427,9 +443,9 @@ export function useUnreadTracker(
   }, [roomUnreads]);
 
   const getMarkerTimestamp = useCallback((roomId: string): number | null => {
-    const marker = getMarker(roomId);
+    const marker = getMarker(roomId, fp);
     return marker?.ts ?? null;
-  }, []);
+  }, [fp]);
 
   // Compute totals from the current state (derived, not stored)
   let totalUnreadCount = 0;
