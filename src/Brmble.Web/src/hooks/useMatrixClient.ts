@@ -83,7 +83,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       if (channelId) {
         const senderId = event.getSender() ?? 'Unknown';
         const senderMember = room?.getMember(senderId);
-        const displayName = senderMember?.name || senderMember?.rawDisplayName || senderId;
+        const displayName = senderMember?.rawDisplayName || senderMember?.name || senderId;
 
         const content = event.getContent() as {
           body?: string;
@@ -143,7 +143,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
 
       const dmSenderId = event.getSender() ?? 'Unknown';
       const dmSenderMember = room?.getMember(dmSenderId);
-      const dmDisplayName = dmSenderMember?.name || dmSenderMember?.rawDisplayName || dmSenderId;
+      const dmDisplayName = dmSenderMember?.rawDisplayName || dmSenderMember?.name || dmSenderId;
 
       const dmContent = event.getContent() as {
         body?: string;
