@@ -178,11 +178,16 @@ export function BrmblegotchiWidget() {
       const stored = localStorage.getItem(stateKey);
       if (stored) {
         const saved = JSON.parse(stored) as PetState & Partial<GrowthState>;
+        const stage = saved.stage ?? 'adult';
         const elapsed = (Date.now() - saved.lastUpdate) / 1000;
+        const baseDecay = 0.0069;
+        const hungerDecay = baseDecay * getDecayMultiplier('hunger', stage);
+        const happinessDecay = baseDecay * 2 * getDecayMultiplier('happiness', stage);
+        const cleanlinessDecay = baseDecay * 4 * getDecayMultiplier('cleanliness', stage);
         return {
-          hunger: Math.max(0, saved.hunger - elapsed * 0.0069),
-          happiness: Math.max(0, saved.happiness - elapsed * 0.0139),
-          cleanliness: Math.max(0, saved.cleanliness - elapsed * 0.0278),
+          hunger: Math.max(0, saved.hunger - hungerDecay * elapsed),
+          happiness: Math.max(0, saved.happiness - happinessDecay * elapsed),
+          cleanliness: Math.max(0, saved.cleanliness - cleanlinessDecay * elapsed),
           lastUpdate: Date.now(),
           lastActionTime: saved.lastActionTime ?? 0,
         };
@@ -294,19 +299,32 @@ export function BrmblegotchiWidget() {
   }, []);
 
   const handleEggClick = useCallback(() => {
-    if (growthState.stage !== 'egg') return;
-    
     setEggClickAnim(true);
     setTimeout(() => setEggClickAnim(false), 300);
 
-    const newClicks = growthState.eggClicks + 1;
-    
-    if (newClicks >= EGG_CLICKS_TO_HATCH) {
-      hatchToBaby();
-    } else {
-      setGrowthState(prev => ({ ...prev, eggClicks: newClicks }));
-    }
-  }, [growthState.stage, growthState.eggClicks, hatchToBaby]);
+    setGrowthState(prev => {
+      if (prev.stage !== 'egg') {
+        return prev;
+      }
+
+      const newClicks = prev.eggClicks + 1;
+
+      if (newClicks >= EGG_CLICKS_TO_HATCH) {
+        return {
+          ...prev,
+          stage: 'baby',
+          stageStartTime: Date.now(),
+          birthTime: prev.birthTime || Date.now(),
+          eggClicks: 0,
+        };
+      }
+
+      return {
+        ...prev,
+        eggClicks: newClicks,
+      };
+    });
+  }, [setGrowthState, setEggClickAnim]);
 
   const handleRestart = useCallback(() => {
     const newPetState: PetState = {
@@ -387,12 +405,12 @@ export function BrmblegotchiWidget() {
           newState = { ...prev, cleanliness: Math.min(100, prev.cleanliness + 30), lastUpdate: Date.now(), lastActionTime: now };
           break;
       }
-      localStorage.setItem(stateKey, JSON.stringify(newState));
+      localStorage.setItem(stateKey, JSON.stringify({ ...newState, ...growthState }));
       setCooldownRemaining(5);
       return newState;
     });
     setShowActions(false);
-  }, [petState.lastActionTime, stateKey]);
+  }, [petState.lastActionTime, stateKey, growthState]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('.brmblegotchi-actions') || 

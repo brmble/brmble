@@ -21,7 +21,7 @@
   padding: var(--space-xs);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-elevated);
-  border: 1px solid var(--glass-border);
+  border: var(--glass-border);
   animation: brmblegotchi-pop-up 200ms ease-out;
   z-index: 100;
 }
@@ -290,7 +290,7 @@
   letter-spacing: 0.5px;
   margin-bottom: var(--space-xs);
   padding-bottom: var(--space-xs);
-  border-bottom: 1px solid var(--glass-border);
+  border-bottom: var(--glass-border);
 }
 
 .brmblegotchi-context-item {
