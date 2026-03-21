@@ -351,22 +351,26 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
                   </div>
                   <div className="profiles-actions">
                     <Tooltip content={connected && isActive ? 'Disconnect to delete this profile' : 'Delete profile'}>
-                      <button
-                        className="btn btn-ghost profiles-delete-btn"
-                        onClick={() => handleDelete(profile)}
-                        disabled={connected && isActive}
-                      >
-                        ✕
-                      </button>
+                      <span>
+                        <button
+                          className="btn btn-ghost profiles-delete-btn"
+                          onClick={() => handleDelete(profile)}
+                          disabled={connected && isActive}
+                        >
+                          ✕
+                        </button>
+                      </span>
                     </Tooltip>
                     <Tooltip content={connected ? 'Disconnect to rename profiles' : 'Rename profile'}>
-                      <button
-                        className="btn btn-secondary profiles-action-btn"
-                        onClick={() => handleEditStart(profile)}
-                        disabled={connected}
-                      >
-                        Edit
-                      </button>
+                      <span>
+                        <button
+                          className="btn btn-secondary profiles-action-btn"
+                          onClick={() => handleEditStart(profile)}
+                          disabled={connected}
+                        >
+                          Edit
+                        </button>
+                      </span>
                     </Tooltip>
                     <Tooltip content="Export certificate">
                       <button
