@@ -304,7 +304,7 @@ public class AppConfigServiceTests
         Assert.IsNotNull(svc.GetActiveProfileId());
         var profile = svc.GetProfiles()[0];
         Assert.AreEqual("Default", profile.Name);
-        Assert.IsTrue(File.Exists(Path.Combine(_tempDir, "certs", profile.Id + ".pfx")));
+        Assert.IsTrue(File.Exists(Path.Combine(_tempDir, "certs", "Default_" + profile.Id + ".pfx")));
         Assert.IsFalse(File.Exists(Path.Combine(_tempDir, "identity.pfx")), "Old file should be moved");
     }
 }
