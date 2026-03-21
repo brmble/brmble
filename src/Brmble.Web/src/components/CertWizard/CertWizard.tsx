@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import bridge from '../../bridge';
+import { confirm } from '../../hooks/usePrompt';
 import './CertWizard.css';
 
 type WizardStep = 'welcome' | 'choose' | 'warning' | 'action' | 'backup';
@@ -18,6 +19,18 @@ function triggerBlobDownload(base64: string, filename: string) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function checkExistingCert(name: string): Promise<{ exists: boolean; fingerprint: string | null }> {
+  return new Promise((resolve) => {
+    const handler = (data: unknown) => {
+      bridge.off('profiles.checkCertResult', handler);
+      const d = data as { exists: boolean; fingerprint?: string | null };
+      resolve({ exists: d.exists, fingerprint: d.fingerprint ?? null });
+    };
+    bridge.on('profiles.checkCertResult', handler);
+    bridge.send('profiles.checkCert', { name });
+  });
 }
 
 export function CertWizard({ onComplete }: CertWizardProps) {
@@ -63,6 +76,44 @@ export function CertWizard({ onComplete }: CertWizardProps) {
       bridge.off('profiles.error', onError);
     };
   }, []);
+
+  const handleChooseGenerate = async () => {
+    const existing = await checkExistingCert(profileName);
+    if (existing.exists) {
+      const reuse = await confirm({
+        title: 'Certificate found',
+        message: `A certificate file for "${profileName}" already exists in Brmble. Would you like to use it instead of generating a new one?`,
+        confirmLabel: 'Use existing',
+        cancelLabel: 'Generate new',
+      });
+      if (reuse) {
+        setGenerating(true);
+        bridge.send('profiles.addFromExisting', { name: profileName });
+        return;
+      }
+    }
+    setMode('generate');
+    setStep('warning');
+  };
+
+  const handleChooseImport = async () => {
+    const existing = await checkExistingCert(profileName);
+    if (existing.exists) {
+      const reuse = await confirm({
+        title: 'Certificate found',
+        message: `A certificate file for "${profileName}" already exists in Brmble. Would you like to use it instead of importing a different one?`,
+        confirmLabel: 'Use existing',
+        cancelLabel: 'Import different',
+      });
+      if (reuse) {
+        setGenerating(true);
+        bridge.send('profiles.addFromExisting', { name: profileName });
+        return;
+      }
+    }
+    setMode('import');
+    setStep('warning');
+  };
 
   const handleGenerate = () => {
     setError('');
@@ -159,7 +210,7 @@ export function CertWizard({ onComplete }: CertWizardProps) {
               <button
                 className="cert-wizard-choice"
                 disabled={!profileName.trim()}
-                onClick={() => { setMode('generate'); setStep('warning'); }}
+                onClick={handleChooseGenerate}
               >
                 <span className="cert-wizard-choice-icon">✨</span>
                 <div>
@@ -170,7 +221,7 @@ export function CertWizard({ onComplete }: CertWizardProps) {
               <button
                 className="cert-wizard-choice"
                 disabled={!profileName.trim()}
-                onClick={() => { setMode('import'); setStep('warning'); }}
+                onClick={handleChooseImport}
               >
                 <span className="cert-wizard-choice-icon">📂</span>
                 <div>

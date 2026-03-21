@@ -137,6 +137,101 @@ internal sealed class CertificateService : IService
 
         // ── Profile handlers ──────────────────────────────────────────
 
+        // Check if an existing cert file matches a given profile name
+        bridge.RegisterHandler("profiles.checkCert", data =>
+        {
+            var name = data.TryGetProperty("name", out var n) ? n.GetString() : null;
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                bridge.Send("profiles.checkCertResult", new { exists = false });
+                return Task.CompletedTask;
+            }
+            var sanitized = SanitizeFileName(name!);
+            var certsDir = _config.GetCertsDir();
+            string? matchedFile = null;
+            string? matchedFingerprint = null;
+            if (Directory.Exists(certsDir))
+            {
+                // Look for any .pfx file starting with "{sanitizedName}_"
+                var prefix = sanitized + "_";
+                foreach (var file in Directory.EnumerateFiles(certsDir, "*.pfx"))
+                {
+                    var fileName = Path.GetFileName(file);
+                    if (fileName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Verify it's a valid cert before offering it
+                        try
+                        {
+                            using var cert = X509CertificateLoader.LoadPkcs12FromFile(file, password: null, keyStorageFlags: X509KeyStorageFlags.DefaultKeySet);
+                            matchedFile = file;
+                            matchedFingerprint = cert.Thumbprint;
+                        }
+                        catch { /* skip invalid files */ }
+                        break;
+                    }
+                }
+            }
+            bridge.Send("profiles.checkCertResult", new { exists = matchedFile != null, fingerprint = matchedFingerprint });
+            return Task.CompletedTask;
+        });
+
+        // Create a profile that reuses an existing cert file found by name prefix
+        bridge.RegisterHandler("profiles.addFromExisting", data =>
+        {
+            var name = data.TryGetProperty("name", out var n) ? n.GetString() ?? "Unnamed" : "Unnamed";
+            var sanitized = SanitizeFileName(name);
+            var certsDir = _config.GetCertsDir();
+            var prefix = sanitized + "_";
+            string? matchedFile = null;
+
+            if (Directory.Exists(certsDir))
+            {
+                foreach (var file in Directory.EnumerateFiles(certsDir, "*.pfx"))
+                {
+                    var fileName = Path.GetFileName(file);
+                    if (fileName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        matchedFile = file;
+                        break;
+                    }
+                }
+            }
+
+            if (matchedFile == null)
+            {
+                bridge.Send("profiles.error", new { message = "No matching certificate found." });
+                return Task.CompletedTask;
+            }
+
+            try
+            {
+                // Extract the profile ID from the existing filename: {sanitizedName}_{id}.pfx
+                var fileName = Path.GetFileNameWithoutExtension(matchedFile);
+                var idPart = fileName.Substring(prefix.Length);
+
+                // Verify the cert loads
+                using var cert = X509CertificateLoader.LoadPkcs12FromFile(matchedFile, password: null, keyStorageFlags: X509KeyStorageFlags.DefaultKeySet);
+                var fingerprint = cert.Thumbprint;
+
+                var profile = new ProfileEntry(idPart, name);
+                _config.AddProfile(profile);
+
+                if (_config.GetActiveProfileId() == null)
+                {
+                    _config.SetActiveProfileId(idPart);
+                    LoadActiveCertificate();
+                    bridge.Send("profiles.activeChanged", new { id = idPart, name, fingerprint = ActiveCertificate?.Thumbprint });
+                }
+
+                bridge.Send("profiles.added", new { id = idPart, name, fingerprint, certValid = true });
+            }
+            catch (Exception ex)
+            {
+                bridge.Send("profiles.error", new { message = $"Failed to reuse certificate: {ex.Message}" });
+            }
+            return Task.CompletedTask;
+        });
+
         bridge.RegisterHandler("profiles.list", _ =>
         {
             var profiles = _config.GetProfiles().Select(p =>
@@ -188,13 +283,16 @@ internal sealed class CertificateService : IService
                         _config.SetActiveProfileId(id);
                         LoadActiveCertificate();
                         bridge.Send("profiles.activeChanged", new { id, name, fingerprint = ActiveCertificate?.Thumbprint });
+                        bridge.NotifyUiThread();
                     }
 
                     bridge.Send("profiles.added", new { id, name, fingerprint = cert.Thumbprint, certValid = true });
+                    bridge.NotifyUiThread();
                 }
                 catch (Exception ex)
                 {
                     bridge.Send("profiles.error", new { message = $"Failed to create profile: {ex.Message}" });
+                    bridge.NotifyUiThread();
                 }
             });
             return Task.CompletedTask;
@@ -230,13 +328,16 @@ internal sealed class CertificateService : IService
                         _config.SetActiveProfileId(id);
                         LoadActiveCertificate();
                         bridge.Send("profiles.activeChanged", new { id, name, fingerprint });
+                        bridge.NotifyUiThread();
                     }
 
                     bridge.Send("profiles.added", new { id, name, fingerprint, certValid = true });
+                    bridge.NotifyUiThread();
                 }
                 catch (Exception ex)
                 {
                     bridge.Send("profiles.error", new { message = $"Failed to import profile: {ex.Message}" });
+                    bridge.NotifyUiThread();
                 }
             });
             return Task.CompletedTask;
@@ -300,6 +401,74 @@ internal sealed class CertificateService : IService
             if (_config.GetActiveProfileId() == id)
                 bridge.Send("profiles.activeChanged", new { id, name, fingerprint = ActiveCertificate?.Thumbprint });
 
+            return Task.CompletedTask;
+        });
+
+        // Rename profile AND swap its cert to an existing cert file matching the new name
+        bridge.RegisterHandler("profiles.renameSwapCert", data =>
+        {
+            var id = data.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+            var name = data.TryGetProperty("name", out var n) ? n.GetString() : null;
+            if (id == null || name == null) return Task.CompletedTask;
+
+            var sanitized = SanitizeFileName(name);
+            var certsDir = _config.GetCertsDir();
+            var prefix = sanitized + "_";
+            string? matchedFile = null;
+
+            // Find the existing cert file for this name
+            if (Directory.Exists(certsDir))
+            {
+                foreach (var file in Directory.EnumerateFiles(certsDir, "*.pfx"))
+                {
+                    var fileName = Path.GetFileName(file);
+                    if (fileName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        matchedFile = file;
+                        break;
+                    }
+                }
+            }
+
+            if (matchedFile == null)
+            {
+                bridge.Send("profiles.error", new { message = "No matching certificate found." });
+                return Task.CompletedTask;
+            }
+
+            try
+            {
+                // Validate the found cert
+                using var cert = X509CertificateLoader.LoadPkcs12FromFile(matchedFile, password: null, keyStorageFlags: X509KeyStorageFlags.DefaultKeySet);
+                var fingerprint = cert.Thumbprint;
+
+                // Find and keep the profile's old cert file path (we won't delete it)
+                var oldProfile = _config.GetProfiles().FirstOrDefault(p => p.Id == id);
+
+                // Rename the profile in config
+                _config.RenameProfile(id, name);
+
+                // Rename the matched cert file to use this profile's ID: {name}_{id}.pfx
+                var targetPath = GetCertPath(id, name);
+                if (!string.Equals(matchedFile, targetPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    try { File.Move(matchedFile, targetPath); }
+                    catch { /* best-effort; the file is still valid at its current path */ }
+                }
+
+                // Reload active cert if this is the active profile
+                if (_config.GetActiveProfileId() == id)
+                {
+                    LoadActiveCertificate();
+                    bridge.Send("profiles.activeChanged", new { id, name, fingerprint = ActiveCertificate?.Thumbprint });
+                }
+
+                bridge.Send("profiles.renamed", new { id, name, fingerprint, certValid = true });
+            }
+            catch (Exception ex)
+            {
+                bridge.Send("profiles.error", new { message = $"Failed to swap certificate: {ex.Message}" });
+            }
             return Task.CompletedTask;
         });
 
@@ -399,10 +568,12 @@ internal sealed class CertificateService : IService
                 fingerprint = ActiveCertificate.Thumbprint,
                 subject = ActiveCertificate.Subject
             });
+            _bridge.NotifyUiThread();
         }
         catch (Exception ex)
         {
             _bridge.Send("cert.error", new { message = $"Failed to generate certificate: {ex.Message}" });
+            _bridge.NotifyUiThread();
         }
     }
 
@@ -432,10 +603,12 @@ internal sealed class CertificateService : IService
                 fingerprint = ActiveCertificate.Thumbprint,
                 subject = ActiveCertificate.Subject
             });
+            _bridge.NotifyUiThread();
         }
         catch (Exception ex)
         {
             _bridge.Send("cert.error", new { message = $"Failed to import certificate: {ex.Message}" });
+            _bridge.NotifyUiThread();
         }
     }
 
@@ -455,10 +628,12 @@ internal sealed class CertificateService : IService
             var activeProfile = activeId != null ? _config.GetProfiles().FirstOrDefault(p => p.Id == activeId) : null;
             var exportName = activeProfile != null ? $"{SanitizeFileName(activeProfile.Name)}.pfx" : "brmble-identity.pfx";
             _bridge.Send("cert.exportData", new { data = base64, filename = exportName });
+            _bridge.NotifyUiThread();
         }
         catch (Exception ex)
         {
             _bridge.Send("cert.error", new { message = $"Failed to export certificate: {ex.Message}" });
+            _bridge.NotifyUiThread();
         }
     }
 }

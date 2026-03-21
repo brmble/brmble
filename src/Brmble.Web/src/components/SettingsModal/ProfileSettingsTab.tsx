@@ -42,7 +42,7 @@ function triggerBlobDownload(base64: string, filename: string) {
 
 export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar, connected, registeredName }: ProfileSettingsTabProps) {
   const [showUpload, setShowUpload] = useState(false);
-  const { profiles, activeProfileId, loading, addProfile, importProfile, removeProfile, renameProfile, setActive, exportCert } = useProfiles();
+  const { profiles, activeProfileId, loading, addProfile, importProfile, removeProfile, renameProfile, setActive, exportCert, checkExistingCert, addFromExisting, renameSwapCert } = useProfiles();
 
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -86,18 +86,59 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
     return fp;
   };
 
-  const handleAddGenerate = (e: React.FormEvent) => {
+  const isDuplicateName = (name: string, excludeId?: string) =>
+    profiles.some(p => p.name.toLowerCase() === name.toLowerCase() && p.id !== excludeId);
+
+  const handleAddGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
     const name = addName.trim();
     if (!name) return;
+    if (isDuplicateName(name)) {
+      await confirm({ title: 'Duplicate name', message: `A profile named "${name}" already exists.`, confirmLabel: 'OK' });
+      return;
+    }
+    const existing = await checkExistingCert(name);
+    if (existing.exists) {
+      const reuse = await confirm({
+        title: 'Certificate found',
+        message: `A certificate file for "${name}" already exists in Brmble. Would you like to use it instead of generating a new one?`,
+        confirmLabel: 'Use existing',
+        cancelLabel: 'Generate new',
+      });
+      if (reuse) {
+        addFromExisting(name);
+        setAddName('');
+        setIsAdding(false);
+        return;
+      }
+    }
     addProfile(name);
     setAddName('');
     setIsAdding(false);
   };
 
-  const handleAddImport = () => {
+  const handleAddImport = async () => {
     const name = addName.trim();
     if (!name) return;
+    if (isDuplicateName(name)) {
+      await confirm({ title: 'Duplicate name', message: `A profile named "${name}" already exists.`, confirmLabel: 'OK' });
+      return;
+    }
+    const existing = await checkExistingCert(name);
+    if (existing.exists) {
+      const reuse = await confirm({
+        title: 'Certificate found',
+        message: `A certificate file for "${name}" already exists in Brmble. Would you like to use it instead of importing a different one?`,
+        confirmLabel: 'Use existing',
+        cancelLabel: 'Import different',
+      });
+      if (reuse) {
+        addFromExisting(name);
+        setAddName('');
+        setIsAdding(false);
+        return;
+      }
+    }
     fileInputRef.current?.click();
   };
 
@@ -120,11 +161,34 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
     e.target.value = '';
   };
 
-  const handleEditSubmit = (e: React.FormEvent) => {
+  const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingId) return;
     const name = editName.trim();
     if (!name) return;
+    if (isDuplicateName(name, editingId)) {
+      await confirm({ title: 'Duplicate name', message: `A profile named "${name}" already exists.`, confirmLabel: 'OK' });
+      return;
+    }
+    const existing = await checkExistingCert(name);
+    if (existing.exists) {
+      const currentProfile = profiles.find(p => p.id === editingId);
+      // Only offer swap if the found cert is different from this profile's cert
+      if (!currentProfile || existing.fingerprint !== currentProfile.fingerprint) {
+        const swap = await confirm({
+          title: 'Certificate found',
+          message: `A certificate file for "${name}" already exists in Brmble. Would you like to use that certificate for this profile?`,
+          confirmLabel: 'Use existing',
+          cancelLabel: 'Keep current',
+        });
+        if (swap) {
+          renameSwapCert(editingId, name);
+          setEditingId(null);
+          setEditName('');
+          return;
+        }
+      }
+    }
     renameProfile(editingId, name);
     setEditingId(null);
     setEditName('');

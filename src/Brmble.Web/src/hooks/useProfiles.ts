@@ -32,8 +32,13 @@ export function useProfiles() {
     };
 
     const onRenamed = (data: unknown) => {
-      const d = data as { id: string; name: string };
-      setProfiles(prev => prev.map(p => p.id === d.id ? { ...p, name: d.name } : p));
+      const d = data as { id: string; name: string; fingerprint?: string | null; certValid?: boolean };
+      setProfiles(prev => prev.map(p => p.id === d.id ? {
+        ...p,
+        name: d.name,
+        ...(d.fingerprint !== undefined ? { fingerprint: d.fingerprint } : {}),
+        ...(d.certValid !== undefined ? { certValid: d.certValid } : {}),
+      } : p));
     };
 
     const onActiveChanged = (data: unknown) => {
@@ -81,5 +86,25 @@ export function useProfiles() {
     bridge.send('cert.export');
   }, []);
 
-  return { profiles, activeProfileId, loading, addProfile, importProfile, removeProfile, renameProfile, setActive, exportCert };
+  const checkExistingCert = useCallback((name: string): Promise<{ exists: boolean; fingerprint: string | null }> => {
+    return new Promise((resolve) => {
+      const handler = (data: unknown) => {
+        bridge.off('profiles.checkCertResult', handler);
+        const d = data as { exists: boolean; fingerprint?: string | null };
+        resolve({ exists: d.exists, fingerprint: d.fingerprint ?? null });
+      };
+      bridge.on('profiles.checkCertResult', handler);
+      bridge.send('profiles.checkCert', { name });
+    });
+  }, []);
+
+  const addFromExisting = useCallback((name: string) => {
+    bridge.send('profiles.addFromExisting', { name });
+  }, []);
+
+  const renameSwapCert = useCallback((id: string, name: string) => {
+    bridge.send('profiles.renameSwapCert', { id, name });
+  }, []);
+
+  return { profiles, activeProfileId, loading, addProfile, importProfile, removeProfile, renameProfile, setActive, exportCert, checkExistingCert, addFromExisting, renameSwapCert };
 }
