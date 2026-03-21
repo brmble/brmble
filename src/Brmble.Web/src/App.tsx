@@ -4,7 +4,7 @@ import type { ConnectionStatus } from './types';
 import { useMatrixClient } from './hooks/useMatrixClient';
 import type { MatrixCredentials } from './hooks/useMatrixClient';
 import { useScreenShare } from './hooks/useScreenShare';
-import { useUnreadTracker } from './hooks/useUnreadTracker';
+import { useUnreadTracker, resetMarkersCache } from './hooks/useUnreadTracker';
 import { useServiceStatus } from './hooks/useServiceStatus';
 import { useServerHealth } from './hooks/useServerHealth';
 
@@ -31,6 +31,8 @@ import { usePrompt, confirm } from './hooks/usePrompt';
 import { Toast } from './components/Toast/Toast';
 import { GameUI } from './components/Game/GameUI';
 import { Brmblegotchi } from './components/Brmblegotchi/Brmblegotchi';
+import { ProfileProvider } from './contexts/ProfileContext';
+import { migrateLocalStorage } from './utils/migrateLocalStorage';
 import './App.css';
 
 const SETTINGS_STORAGE_KEY = 'brmble-settings';
@@ -94,11 +96,14 @@ function speakText(text: string) {
 
 interface SavedServer {
   id?: string;
+  label?: string;
+  apiUrl?: string;
   host: string;
   port: number;
   username: string;
   password: string;
   registered?: boolean;
+  registeredName?: string;
 }
 
 interface Channel {
@@ -133,6 +138,8 @@ function App() {
   // null = status not yet received, false = no cert, true = cert exists
   const [certExists, setCertExists] = useState<boolean | null>(null);
   const [certFingerprint, setCertFingerprint] = useState('');
+  const [activeProfileName, setActiveProfileName] = useState('');
+
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
   const { statuses, updateStatus, resetStatuses } = useServiceStatus();
@@ -330,6 +337,7 @@ function App() {
     dmRoomIds,
     activeMatrixRoomId,
     username || null,
+    certFingerprint,
   );
 
   const channelKey = currentChannelId === 'server-root' ? 'server-root' : currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
@@ -542,6 +550,35 @@ function App() {
           setSelfSession(selfUser.session);
         }
       }
+
+      // Persist Mumble registration status to the saved server entry
+      const reg = data as { registered?: boolean; registeredName?: string } | undefined;
+      if (reg?.registered) {
+        try {
+          const stored = localStorage.getItem('brmble-server');
+          if (stored) {
+            const savedServer = JSON.parse(stored) as SavedServer;
+            if (savedServer.id) {
+              const updated = { ...savedServer, registered: true, username: reg.registeredName ?? savedServer.username, registeredName: reg.registeredName };
+              bridge.send('servers.update', updated);
+              localStorage.setItem('brmble-server', JSON.stringify(updated));
+            }
+          }
+        } catch { /* ignore parse errors */ }
+      } else {
+        // Clear stale registration when server reports not-registered
+        try {
+          const stored = localStorage.getItem('brmble-server');
+          if (stored) {
+            const savedServer = JSON.parse(stored) as SavedServer;
+            if (savedServer.id && savedServer.registered) {
+              const updated = { ...savedServer, registered: false, registeredName: undefined };
+              bridge.send('servers.update', updated);
+              localStorage.setItem('brmble-server', JSON.stringify(updated));
+            }
+          }
+        } catch { /* ignore parse errors */ }
+      }
     });
 
     const onVoiceDisconnected = (data: unknown) => {
@@ -590,33 +627,12 @@ function App() {
 
     const onServerCredentials = (data: unknown) => {
       setConnectionError(null);
-      const wrapped = data as { matrix?: MatrixCredentials; registered?: boolean; registeredName?: string } | undefined;
+      const wrapped = data as { matrix?: MatrixCredentials } | undefined;
       const d = wrapped?.matrix;
       if (d?.homeserverUrl && d.accessToken && d.userId && d.roomMap) {
         // Clear stale chat data from previous sessions
         clearChatStorage();
         setMatrixCredentials(d);
-      }
-
-      // Persist registration status to the saved server entry
-      if (wrapped?.registered) {
-        try {
-          const stored = localStorage.getItem('brmble-server');
-          if (stored) {
-            const savedServer = JSON.parse(stored) as SavedServer;
-            const updatedServer = {
-              ...savedServer,
-              registered: true,
-              username: wrapped.registeredName ?? savedServer.username,
-            };
-            localStorage.setItem('brmble-server', JSON.stringify(updatedServer));
-
-            // Update server list entry if we have an ID
-            if (savedServer.id) {
-              bridge.send('servers.update', updatedServer);
-            }
-          }
-        } catch { /* ignore parse errors */ }
       }
     };
 
@@ -902,7 +918,9 @@ function App() {
       const d = data as { exists: boolean; fingerprint?: string } | undefined;
       if (d?.exists) {
         setCertExists(true);
-        setCertFingerprint(d.fingerprint ?? '');
+        const fp = d.fingerprint ?? '';
+        if (fp) migrateLocalStorage(fp);
+        setCertFingerprint(fp);
       } else {
         setCertExists(false);
       }
@@ -910,12 +928,41 @@ function App() {
     const onCertGenerated = (data: unknown) => {
       const d = data as { fingerprint?: string } | undefined;
       setCertExists(true);
-      setCertFingerprint(d?.fingerprint ?? '');
+      const fp = d?.fingerprint ?? '';
+      if (fp) migrateLocalStorage(fp);
+      setCertFingerprint(fp);
     };
     const onCertImported = (data: unknown) => {
       const d = data as { fingerprint?: string } | undefined;
       setCertExists(true);
-      setCertFingerprint(d?.fingerprint ?? '');
+      const fp = d?.fingerprint ?? '';
+      if (fp) migrateLocalStorage(fp);
+      setCertFingerprint(fp);
+    };
+
+    const onProfilesActiveChanged = (data: unknown) => {
+      const d = data as { id: string | null; name: string | null; fingerprint: string | null };
+      resetMarkersCache();
+      if (d.id) {
+        setCertExists(true);
+        const fp = d.fingerprint ?? '';
+        if (fp) migrateLocalStorage(fp);
+        setCertFingerprint(fp);
+        setActiveProfileName(d.name ?? '');
+      } else {
+        setCertExists(false);
+        setCertFingerprint('');
+        setActiveProfileName('');
+        setShowSettings(false);
+      }
+    };
+
+    const onProfilesList = (data: unknown) => {
+      const d = data as { profiles: Array<{ id: string; name: string }>; activeProfileId: string | null };
+      if (d.activeProfileId) {
+        const active = d.profiles.find(p => p.id === d.activeProfileId);
+        if (active) setActiveProfileName(active.name);
+      }
     };
 
     const onAutoConnect = (data: unknown) => {
@@ -923,9 +970,12 @@ function App() {
       if (server) {
         setServerLabel(server.label || `${server.host}:${server.port}`);
         handleConnect({
+          id: server.id,
+          label: server.label,
+          apiUrl: server.apiUrl,
           host: server.host || '',
           port: server.port || 0,
-          username: server.username,
+          username: server.username || activeProfileName || 'Brmble User',
           password: '',
         });
       }
@@ -983,6 +1033,22 @@ function App() {
       }
     };
 
+    const onRegistrationStatus = (data: unknown) => {
+      const d = data as { serverId?: string; registered?: boolean; registeredName?: string } | undefined;
+      if (!d?.registered || !d.serverId) return;
+      try {
+        const stored = localStorage.getItem('brmble-server');
+        if (stored) {
+          const savedServer = JSON.parse(stored) as SavedServer;
+          if (savedServer.id === d.serverId) {
+            const updated = { ...savedServer, registered: true, registeredName: d.registeredName, username: d.registeredName ?? savedServer.username };
+            bridge.send('servers.update', updated);
+            localStorage.setItem('brmble-server', JSON.stringify(updated));
+          }
+        }
+      } catch { /* ignore parse errors */ }
+    };
+
     bridge.on('voice.connected', onVoiceConnected);
     bridge.on('voice.disconnected', onVoiceDisconnected);
     bridge.on('voice.error', onVoiceError);
@@ -1009,6 +1075,8 @@ function App() {
     bridge.on('cert.status', onCertStatus);
     bridge.on('cert.generated', onCertGenerated);
     bridge.on('cert.imported', onCertImported);
+    bridge.on('profiles.activeChanged', onProfilesActiveChanged);
+    bridge.on('profiles.list', onProfilesList);
     bridge.on('voice.autoConnect', onAutoConnect);
     bridge.on('voice.reconnecting', onVoiceReconnecting);
     bridge.on('voice.reconnectFailed', onVoiceReconnectFailed);
@@ -1016,6 +1084,7 @@ function App() {
     bridge.on('voice.authError', onVoiceAuthError);
     bridge.on('voice.userMappingUpdated', onUserMappingUpdated);
     bridge.on('voice.sessionMappingSnapshot', onSessionMappingSnapshot);
+    bridge.on('voice.registrationStatus', onRegistrationStatus);
 
     return () => {
       bridge.off('voice.connected', onVoiceConnected);
@@ -1044,6 +1113,8 @@ function App() {
       bridge.off('cert.status', onCertStatus);
       bridge.off('cert.generated', onCertGenerated);
       bridge.off('cert.imported', onCertImported);
+      bridge.off('profiles.activeChanged', onProfilesActiveChanged);
+      bridge.off('profiles.list', onProfilesList);
       bridge.off('voice.autoConnect', onAutoConnect);
       bridge.off('voice.reconnecting', onVoiceReconnecting);
       bridge.off('voice.reconnectFailed', onVoiceReconnectFailed);
@@ -1051,12 +1122,14 @@ function App() {
       bridge.off('voice.authError', onVoiceAuthError);
       bridge.off('voice.userMappingUpdated', onUserMappingUpdated);
       bridge.off('voice.sessionMappingSnapshot', onSessionMappingSnapshot);
+      bridge.off('voice.registrationStatus', onRegistrationStatus);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     bridge.send('cert.requestStatus');
+    bridge.send('profiles.list');
   }, []);
 
   useEffect(() => {
@@ -1122,10 +1195,14 @@ const handleConnect = (serverData: SavedServer) => {
     setServerLabel(server.label || `${server.host}:${server.port}`);
     handleConnect({
       id: server.id,
+      label: server.label,
+      apiUrl: server.apiUrl,
       host: server.host,
       port: server.port,
-      username: server.username,
-      password: server.password || ''
+      username: server.username || activeProfileName || 'Brmble User',
+      password: server.password || '',
+      registered: server.registered,
+      registeredName: server.registeredName,
     });
   };
 
@@ -1618,6 +1695,7 @@ const handleConnect = (serverData: SavedServer) => {
 
   return (
     <div className="app">
+      <ProfileProvider value={certFingerprint}>
       <ErrorBoundary label="Header">
       <Header
         username={username}
@@ -1676,7 +1754,7 @@ const handleConnect = (serverData: SavedServer) => {
         <main className="main-content">
           {connectionStatus === 'idle' ? (
             certExists === true ? (
-              <ServerList onConnect={handleServerConnect} connectionError={connectionError} onClearError={() => setConnectionError(null)} />
+              <ServerList onConnect={handleServerConnect} connectionError={connectionError} onClearError={() => setConnectionError(null)} activeProfileName={activeProfileName} />
             ) : (
               <div className="connection-state">
                 <div className="connection-state-content">
@@ -1764,7 +1842,6 @@ const handleConnect = (serverData: SavedServer) => {
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
         username={username}
-        certFingerprint={certFingerprint}
         connected={connected}
         currentUser={{
           name: username ?? 'Unknown',
@@ -1814,6 +1891,7 @@ const handleConnect = (serverData: SavedServer) => {
       <ZoomIndicator />
       <Version />
       <Brmblegotchi />
+      </ProfileProvider>
     </div>
   );
 }

@@ -81,7 +81,7 @@ internal sealed class ServerlistService : IServerlistService
         }
     }
 
-    public void UpdateServer(ServerEntry server)
+    public ServerEntry? UpdateServer(ServerEntry server)
     {
         lock (_lock)
         {
@@ -90,7 +90,9 @@ internal sealed class ServerlistService : IServerlistService
             {
                 _servers[index] = server;
                 Save();
+                return _servers[index];
             }
+            return null;
         }
     }
 

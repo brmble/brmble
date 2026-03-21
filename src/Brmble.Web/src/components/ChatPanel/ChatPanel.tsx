@@ -83,7 +83,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
         const members = room.getJoinedMembers();
         for (const member of members) {
           const userId = member.userId;
-          const displayName = member.name || member.rawDisplayName || userId;
+          const displayName = member.rawDisplayName || member.name || userId;
           if (seen.has(userId) || seen.has(displayName.toLowerCase())) continue;
           seen.add(userId);
           seen.add(displayName.toLowerCase());

@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import bridge from '../../bridge';
+import { confirm } from '../../hooks/usePrompt';
+import { validateProfileName } from '../../utils/profileValidation';
 import './CertWizard.css';
 
 type WizardStep = 'welcome' | 'choose' | 'warning' | 'action' | 'backup';
@@ -20,9 +22,22 @@ function triggerBlobDownload(base64: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+function checkExistingCert(name: string): Promise<{ exists: boolean; fingerprint: string | null }> {
+  return new Promise((resolve) => {
+    const handler = (data: unknown) => {
+      bridge.off('profiles.checkCertResult', handler);
+      const d = data as { exists: boolean; fingerprint?: string | null };
+      resolve({ exists: d.exists, fingerprint: d.fingerprint ?? null });
+    };
+    bridge.on('profiles.checkCertResult', handler);
+    bridge.send('profiles.checkCert', { name });
+  });
+}
+
 export function CertWizard({ onComplete }: CertWizardProps) {
   const [step, setStep] = useState<WizardStep>('welcome');
   const [mode, setMode] = useState<WizardMode>('generate');
+  const [profileName, setProfileName] = useState('');
   const [acknowledged, setAcknowledged] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [fingerprint, setFingerprint] = useState('');
@@ -33,17 +48,9 @@ export function CertWizard({ onComplete }: CertWizardProps) {
   const stepIndex = STEPS.indexOf(step);
 
   useEffect(() => {
-    const onGenerated = (data: unknown) => {
-      const d = data as { fingerprint: string } | undefined;
+    const onProfileAdded = (data: unknown) => {
+      const d = data as { fingerprint?: string } | undefined;
       setGenerating(false);
-      if (d?.fingerprint) {
-        setFingerprint(d.fingerprint);
-        setStep('backup');
-      }
-    };
-
-    const onImported = (data: unknown) => {
-      const d = data as { fingerprint: string } | undefined;
       if (d?.fingerprint) {
         setFingerprint(d.fingerprint);
         setStep('backup');
@@ -61,22 +68,58 @@ export function CertWizard({ onComplete }: CertWizardProps) {
       setError(d?.message ?? 'An error occurred.');
     };
 
-    bridge.on('cert.generated', onGenerated);
-    bridge.on('cert.imported', onImported);
+    bridge.on('profiles.added', onProfileAdded);
     bridge.on('cert.exportData', onExportData);
-    bridge.on('cert.error', onError);
+    bridge.on('profiles.error', onError);
     return () => {
-      bridge.off('cert.generated', onGenerated);
-      bridge.off('cert.imported', onImported);
+      bridge.off('profiles.added', onProfileAdded);
       bridge.off('cert.exportData', onExportData);
-      bridge.off('cert.error', onError);
+      bridge.off('profiles.error', onError);
     };
   }, []);
+
+  const handleChooseGenerate = async () => {
+    const existing = await checkExistingCert(profileName);
+    if (existing.exists) {
+      const reuse = await confirm({
+        title: 'Certificate found',
+        message: `A certificate file for "${profileName}" already exists in Brmble. Would you like to use it instead of generating a new one?`,
+        confirmLabel: 'Use existing',
+        cancelLabel: 'Generate new',
+      });
+      if (reuse) {
+        setGenerating(true);
+        bridge.send('profiles.addFromExisting', { name: profileName });
+        return;
+      }
+    }
+    setMode('generate');
+    setStep('warning');
+  };
+
+  const handleChooseImport = async () => {
+    const existing = await checkExistingCert(profileName);
+    if (existing.exists) {
+      const reuse = await confirm({
+        title: 'Certificate found',
+        message: `A certificate file for "${profileName}" already exists in Brmble. Would you like to use it instead of importing a different one?`,
+        confirmLabel: 'Use existing',
+        cancelLabel: 'Import different',
+      });
+      if (reuse) {
+        setGenerating(true);
+        bridge.send('profiles.addFromExisting', { name: profileName });
+        return;
+      }
+    }
+    setMode('import');
+    setStep('warning');
+  };
 
   const handleGenerate = () => {
     setError('');
     setGenerating(true);
-    bridge.send('cert.generate');
+    bridge.send('profiles.add', { name: profileName });
   };
 
   const handleImportClick = () => {
@@ -94,7 +137,7 @@ export function CertWizard({ onComplete }: CertWizardProps) {
       let binary = '';
       bytes.forEach(b => binary += String.fromCharCode(b));
       const base64 = btoa(binary);
-      bridge.send('cert.import', { data: base64 });
+      bridge.send('profiles.import', { name: profileName, data: base64 });
     };
     reader.readAsArrayBuffer(file);
     // Reset so the same file can be re-selected if needed
@@ -151,15 +194,41 @@ export function CertWizard({ onComplete }: CertWizardProps) {
           <>
             <div className="cert-wizard-icon">🪪</div>
             <h2 className="heading-title cert-wizard-title">Set Up Your Identity</h2>
+            <label style={{ display: 'block', marginBottom: 'var(--space-md)' }}>
+              <span style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 'var(--space-xs)' }}>
+                Profile Name
+              </span>
+              <input
+                className="brmble-input"
+                type="text"
+                value={profileName}
+                onChange={(e) => setProfileName(e.target.value)}
+                placeholder="e.g. YourName"
+                autoFocus
+              />
+              {profileName.trim() && validateProfileName(profileName.trim()) && (
+                <span style={{ display: 'block', fontSize: 'var(--text-xs)', color: 'var(--accent-danger-text)', marginTop: 'var(--space-xs)' }}>
+                  {validateProfileName(profileName.trim())}
+                </span>
+              )}
+            </label>
             <div className="cert-wizard-choices">
-              <button className="cert-wizard-choice" onClick={() => { setMode('generate'); setStep('warning'); }}>
+              <button
+                className="cert-wizard-choice"
+                disabled={!profileName.trim() || !!validateProfileName(profileName.trim())}
+                onClick={handleChooseGenerate}
+              >
                 <span className="cert-wizard-choice-icon">✨</span>
                 <div>
                   <div className="cert-wizard-choice-label">Generate a new certificate</div>
                   <div className="cert-wizard-choice-desc">First time on Brmble? Start here.</div>
                 </div>
               </button>
-              <button className="cert-wizard-choice" onClick={() => { setMode('import'); setStep('warning'); }}>
+              <button
+                className="cert-wizard-choice"
+                disabled={!profileName.trim() || !!validateProfileName(profileName.trim())}
+                onClick={handleChooseImport}
+              >
                 <span className="cert-wizard-choice-icon">📂</span>
                 <div>
                   <div className="cert-wizard-choice-label">Import an existing certificate</div>
@@ -246,10 +315,10 @@ export function CertWizard({ onComplete }: CertWizardProps) {
             </p>
             {error && <p style={{ color: 'var(--accent-danger-text)', fontSize: '0.85rem', marginBottom: '1rem' }}>{error}</p>}
             <div className="cert-wizard-actions">
-              <button className="cert-wizard-btn ghost" onClick={() => setStep('warning')}>
+              <button className="btn btn-ghost" onClick={() => setStep('warning')}>
                 Back
               </button>
-              <button className="cert-wizard-btn primary" onClick={handleImportClick}>
+              <button className="btn btn-primary" onClick={handleImportClick}>
                 Choose File…
               </button>
             </div>
