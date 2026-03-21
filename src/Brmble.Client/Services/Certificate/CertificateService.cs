@@ -1,4 +1,5 @@
 using System.Security.Cryptography.X509Certificates;
+using System.Text.RegularExpressions;
 using Brmble.Client.Bridge;
 using Brmble.Client.Services.AppConfig;
 
@@ -73,6 +74,30 @@ internal sealed class CertificateService : IService
         var result = sb.ToString().Trim('_');
         if (result.Length > 50) result = result[..50].TrimEnd('_');
         return result.Length == 0 ? "profile" : result;
+    }
+
+    /// <summary>
+    /// Regex for valid profile names: Mumble's default allowed charset minus Windows-invalid
+    /// filename chars (only '|' is removed). Allows: word chars (\w), -, =, [], {}, (), @, .
+    /// No spaces (Mumble disallows them). Trimmed at edges, max 128 chars.
+    /// </summary>
+    private static readonly Regex ValidProfileNameRegex = new(@"^[-=\w\[\]\{\}\(\)\@\.]+$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Validates a profile name. Returns null if valid, or an error message if invalid.
+    /// </summary>
+    private static string? ValidateProfileName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return "Profile name cannot be empty.";
+        var trimmed = name.Trim();
+        if (trimmed.Length == 0)
+            return "Profile name cannot be empty.";
+        if (trimmed.Length > 128)
+            return "Profile name must be 128 characters or fewer.";
+        if (!ValidProfileNameRegex.IsMatch(trimmed))
+            return "Profile name can only contain letters, numbers, and - = _ . [ ] { } ( ) @";
+        return null;
     }
 
     public CertificateService(NativeBridge bridge, IAppConfigService config)
@@ -178,7 +203,13 @@ internal sealed class CertificateService : IService
         // Create a profile that reuses an existing cert file found by name prefix
         bridge.RegisterHandler("profiles.addFromExisting", data =>
         {
-            var name = data.TryGetProperty("name", out var n) ? n.GetString() ?? "Unnamed" : "Unnamed";
+            var name = data.TryGetProperty("name", out var n) ? n.GetString()?.Trim() ?? "" : "";
+            var validationError = ValidateProfileName(name);
+            if (validationError != null)
+            {
+                bridge.Send("profiles.error", new { message = validationError });
+                return Task.CompletedTask;
+            }
             var sanitized = SanitizeFileName(name);
             var certsDir = _config.GetCertsDir();
             var prefix = sanitized + "_";
@@ -257,7 +288,13 @@ internal sealed class CertificateService : IService
 
         bridge.RegisterHandler("profiles.add", data =>
         {
-            var name = data.TryGetProperty("name", out var n) ? n.GetString() ?? "Unnamed" : "Unnamed";
+            var name = data.TryGetProperty("name", out var n) ? n.GetString()?.Trim() ?? "" : "";
+            var validationError = ValidateProfileName(name);
+            if (validationError != null)
+            {
+                bridge.Send("profiles.error", new { message = validationError });
+                return Task.CompletedTask;
+            }
             Task.Run(() =>
             {
                 try
@@ -300,7 +337,13 @@ internal sealed class CertificateService : IService
 
         bridge.RegisterHandler("profiles.import", data =>
         {
-            var name = data.TryGetProperty("name", out var n) ? n.GetString() ?? "Unnamed" : "Unnamed";
+            var name = data.TryGetProperty("name", out var n) ? n.GetString()?.Trim() ?? "" : "";
+            var validationError = ValidateProfileName(name);
+            if (validationError != null)
+            {
+                bridge.Send("profiles.error", new { message = validationError });
+                return Task.CompletedTask;
+            }
             var base64 = data.TryGetProperty("data", out var d) ? d.GetString() : null;
             if (base64 == null)
             {
@@ -376,8 +419,15 @@ internal sealed class CertificateService : IService
         bridge.RegisterHandler("profiles.rename", data =>
         {
             var id = data.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
-            var name = data.TryGetProperty("name", out var n) ? n.GetString() : null;
+            var name = data.TryGetProperty("name", out var n) ? n.GetString()?.Trim() : null;
             if (id == null || name == null) return Task.CompletedTask;
+
+            var validationError = ValidateProfileName(name);
+            if (validationError != null)
+            {
+                bridge.Send("profiles.error", new { message = validationError });
+                return Task.CompletedTask;
+            }
 
             // Find the current cert file before renaming the profile
             var oldProfile = _config.GetProfiles().FirstOrDefault(p => p.Id == id);
@@ -408,8 +458,15 @@ internal sealed class CertificateService : IService
         bridge.RegisterHandler("profiles.renameSwapCert", data =>
         {
             var id = data.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
-            var name = data.TryGetProperty("name", out var n) ? n.GetString() : null;
+            var name = data.TryGetProperty("name", out var n) ? n.GetString()?.Trim() : null;
             if (id == null || name == null) return Task.CompletedTask;
+
+            var validationError = ValidateProfileName(name);
+            if (validationError != null)
+            {
+                bridge.Send("profiles.error", new { message = validationError });
+                return Task.CompletedTask;
+            }
 
             var sanitized = SanitizeFileName(name);
             var certsDir = _config.GetCertsDir();

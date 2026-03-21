@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import bridge from '../../bridge';
 import { confirm } from '../../hooks/usePrompt';
+import { validateProfileName } from '../../utils/profileValidation';
 import './CertWizard.css';
 
 type WizardStep = 'welcome' | 'choose' | 'warning' | 'action' | 'backup';
@@ -202,14 +203,19 @@ export function CertWizard({ onComplete }: CertWizardProps) {
                 type="text"
                 value={profileName}
                 onChange={(e) => setProfileName(e.target.value)}
-                placeholder="e.g. Your Name"
+                placeholder="e.g. YourName"
                 autoFocus
               />
+              {profileName.trim() && validateProfileName(profileName.trim()) && (
+                <span style={{ display: 'block', fontSize: 'var(--text-xs)', color: 'var(--accent-danger-text)', marginTop: 'var(--space-xs)' }}>
+                  {validateProfileName(profileName.trim())}
+                </span>
+              )}
             </label>
             <div className="cert-wizard-choices">
               <button
                 className="cert-wizard-choice"
-                disabled={!profileName.trim()}
+                disabled={!profileName.trim() || !!validateProfileName(profileName.trim())}
                 onClick={handleChooseGenerate}
               >
                 <span className="cert-wizard-choice-icon">✨</span>
@@ -220,7 +226,7 @@ export function CertWizard({ onComplete }: CertWizardProps) {
               </button>
               <button
                 className="cert-wizard-choice"
-                disabled={!profileName.trim()}
+                disabled={!profileName.trim() || !!validateProfileName(profileName.trim())}
                 onClick={handleChooseImport}
               >
                 <span className="cert-wizard-choice-icon">📂</span>

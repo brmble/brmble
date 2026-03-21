@@ -194,3 +194,9 @@
 .profiles-input {
   width: 100%;
 }
+
+.profiles-form-error {
+  font-size: var(--text-xs);
+  color: var(--accent-danger-text);
+  margin-top: var(--space-xs);
+}

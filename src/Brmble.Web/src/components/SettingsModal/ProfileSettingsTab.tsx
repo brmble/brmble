@@ -4,6 +4,7 @@ import AvatarUpload from '../AvatarUpload/AvatarUpload';
 import bridge from '../../bridge';
 import { useProfiles } from '../../hooks/useProfiles';
 import { confirm } from '../../hooks/usePrompt';
+import { validateProfileName } from '../../utils/profileValidation';
 import { Select } from '../Select/Select';
 import { Tooltip } from '../Tooltip/Tooltip';
 import './ProfileSettingsTab.css';
@@ -50,6 +51,9 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
   const [editName, setEditName] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const addNameError = addName.trim() ? validateProfileName(addName.trim()) : null;
+  const editNameError = editName.trim() ? validateProfileName(editName.trim()) : null;
+
   const statusText = getAvatarStatusText(currentUser);
 
   // Certificate export handler
@@ -93,6 +97,11 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
     e.preventDefault();
     const name = addName.trim();
     if (!name) return;
+    const nameError = validateProfileName(name);
+    if (nameError) {
+      await confirm({ title: 'Invalid name', message: nameError, confirmLabel: 'OK' });
+      return;
+    }
     if (isDuplicateName(name)) {
       await confirm({ title: 'Duplicate name', message: `A profile named "${name}" already exists.`, confirmLabel: 'OK' });
       return;
@@ -120,6 +129,11 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
   const handleAddImport = async () => {
     const name = addName.trim();
     if (!name) return;
+    const nameError = validateProfileName(name);
+    if (nameError) {
+      await confirm({ title: 'Invalid name', message: nameError, confirmLabel: 'OK' });
+      return;
+    }
     if (isDuplicateName(name)) {
       await confirm({ title: 'Duplicate name', message: `A profile named "${name}" already exists.`, confirmLabel: 'OK' });
       return;
@@ -166,6 +180,11 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
     if (!editingId) return;
     const name = editName.trim();
     if (!name) return;
+    const nameError = validateProfileName(name);
+    if (nameError) {
+      await confirm({ title: 'Invalid name', message: nameError, confirmLabel: 'OK' });
+      return;
+    }
     if (isDuplicateName(name, editingId)) {
       await confirm({ title: 'Duplicate name', message: `A profile named "${name}" already exists.`, confirmLabel: 'OK' });
       return;
@@ -302,12 +321,13 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
                         onChange={e => setEditName(e.target.value)}
                         autoFocus
                       />
+                      {editNameError && <span className="profiles-form-error">{editNameError}</span>}
                     </div>
                     <div className="profiles-form-actions">
                       <button type="button" className="btn btn-secondary" onClick={handleCancel}>
                         Cancel
                       </button>
-                      <button type="submit" className="btn btn-primary" disabled={!editName.trim()}>
+                      <button type="submit" className="btn btn-primary" disabled={!editName.trim() || !!editNameError}>
                         Save
                       </button>
                     </div>
@@ -385,12 +405,13 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
                 onChange={e => setAddName(e.target.value)}
                 autoFocus
               />
+              {addNameError && <span className="profiles-form-error">{addNameError}</span>}
             </div>
             <div className="profiles-form-actions">
-              <button type="button" className="btn btn-secondary" onClick={handleAddImport} disabled={!addName.trim()}>
+              <button type="button" className="btn btn-secondary" onClick={handleAddImport} disabled={!addName.trim() || !!addNameError}>
                 Import Certificate
               </button>
-              <button type="submit" className="btn btn-primary" disabled={!addName.trim()}>
+              <button type="submit" className="btn btn-primary" disabled={!addName.trim() || !!addNameError}>
                 Generate New Certificate
               </button>
             </div>
