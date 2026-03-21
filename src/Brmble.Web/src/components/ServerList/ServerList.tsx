@@ -216,7 +216,7 @@ export function ServerList({ onConnect, connectionError, onClearError }: ServerL
                     <button
                       type="button"
                       className="server-list-password-toggle"
-                      onClick={() => setShowPassword(v => !v)}
+                      onMouseDown={e => { e.preventDefault(); setShowPassword(v => !v); }}
                       onFocus={() => setToggleFocused(true)}
                       onBlur={() => { setToggleFocused(false); setShowPassword(false); }}
                       aria-label={showPassword ? 'Hide password' : 'Show password'}
