@@ -411,6 +411,9 @@ function App() {
   }, []);
 
   const startPendingAction = useCallback((action: number | 'leave') => {
+    if (pendingChannelAction === action) {
+      return;
+    }
     if (pendingChannelActionTimeoutRef.current) {
       clearTimeout(pendingChannelActionTimeoutRef.current);
     }
@@ -418,7 +421,7 @@ function App() {
     pendingChannelActionTimeoutRef.current = setTimeout(() => {
       setPendingChannelAction(null);
     }, 5000);
-  }, []);
+  }, [pendingChannelAction]);
 
   // Handle Push-to-Talk key detection via JavaScript when app is focused
   // Keys naturally pass through to other apps when window loses focus
@@ -747,6 +750,7 @@ function App() {
     });
 
     const onVoiceChannelJoined = ((data: unknown) => {
+      clearPendingAction();
       const d = data as { id: number; name: string; parent?: number } | undefined;
       if (d?.id !== undefined) {
         setChannels(prev => {
@@ -1207,6 +1211,10 @@ const handleConnect = (serverData: SavedServer) => {
   };
 
   const handleJoinChannel = async (channelId: number) => {
+    const selfVoiceChannelId = users.find(u => u.self)?.channelId;
+    if (selfVoiceChannelId === channelId) {
+      return;
+    }
     if (isSharing && sharingChannelId && String(channelId) !== sharingChannelId) {
       const sharingChannel = channels.find(c => String(c.id) === sharingChannelId);
       const sharingChannelName = sharingChannel?.name || `channel ${sharingChannelId}`;
