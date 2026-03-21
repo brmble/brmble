@@ -6,6 +6,8 @@ import { UserTooltip } from '../UserTooltip/UserTooltip';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useServiceStatus } from '../../hooks/useServiceStatus';
+import { useResizable } from '../../hooks/useResizable';
+import { useProfileFingerprint } from '../../contexts/ProfileContext';
 import bridge from '../../bridge';
 import type { Channel, User, ConnectionStatus } from '../../types';
 import { SERVICE_DISPLAY_NAMES } from '../../types';
@@ -60,6 +62,15 @@ export function Sidebar({
   onWatchScreenShare,
   onEditAvatar
 }: SidebarProps) {
+  const fingerprint = useProfileFingerprint();
+  const { width, isDragging, handleProps } = useResizable({
+    minWidth: 340,
+    maxWidth: 600,
+    defaultWidth: 340,
+    storageKey: 'brmble-sidebar-width',
+    fingerprint,
+  });
+
   const connected = connectionStatus === 'connected';
   const isConnecting = connectionStatus === 'connecting';
   const isReconnecting = connectionStatus === 'reconnecting';
@@ -109,7 +120,7 @@ export function Sidebar({
   }, [connected, requestPermissions]);
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar${isDragging ? ' sidebar--resizing' : ''}`} style={{ width }}>
       <div className={`server-info-panel${isServerChatActive ? ' server-info-active' : ''}`}>
         {serverLabel ? (
           <div 
@@ -417,6 +428,15 @@ export function Sidebar({
           />
         );
       })()}
+      <div
+        className={`sidebar-resize-handle${isDragging ? ' sidebar-resize-handle--active' : ''}`}
+        ref={handleProps.ref}
+        onPointerDown={handleProps.onPointerDown}
+        onDoubleClick={handleProps.onDoubleClick}
+        aria-label="Resize sidebar"
+        role="separator"
+        aria-orientation="vertical"
+      />
     </aside>
   );
 }

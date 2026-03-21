@@ -14,7 +14,6 @@
 }
 
 .sidebar {
-  width: var(--sidebar-width);
   min-width: var(--sidebar-width);
   height: calc(100vh - var(--header-height));
   background: var(--bg-primary);
@@ -22,6 +21,12 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.sidebar--resizing {
+  user-select: none;
 }
 
 .sidebar--disconnected {

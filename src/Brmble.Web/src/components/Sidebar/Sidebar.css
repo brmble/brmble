@@ -275,3 +275,39 @@
   font-family: var(--font-mono);
   letter-spacing: 0.05em;
 }
+
+/* Sidebar resize handle */
+.sidebar-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 200;
+  touch-action: none;
+}
+
+.sidebar-resize-handle::before {
+  content: none;
+}
+
+.sidebar-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 2px;
+  background: transparent;
+  transition: background var(--transition-fast);
+}
+
+.sidebar-resize-handle:hover::after {
+  background: var(--border-subtle);
+}
+
+.sidebar-resize-handle--active::after {
+  background: var(--accent-primary);
+  transition: none;
+}
