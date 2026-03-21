@@ -218,6 +218,9 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
             </button>
             </Tooltip>
           )}
+          {channel.users.length > 0 && (
+            <span className="user-count">({channel.users.length})</span>
+          )}
           {(() => {
             const unread = channelUnreads?.get(String(channel.id));
             if (!unread) return null;
@@ -236,9 +239,6 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
               </>
             );
           })()}
-          {channel.users.length > 0 && (
-            <span className="user-count">({channel.users.length})</span>
-          )}
         </div>
         
         {isExpanded && (

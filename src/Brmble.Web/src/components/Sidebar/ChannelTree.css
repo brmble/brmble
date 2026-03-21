@@ -103,17 +103,26 @@
 .user-count {
   font-size: var(--text-xs);
   color: var(--text-muted);
-  padding: var(--space-2xs) var(--space-xs);
   background: var(--bg-hover);
   border-radius: var(--radius-md);
   flex-shrink: 0;
+  opacity: 0;
+  max-width: 0;
+  padding: 0;
+  overflow: hidden;
+  transition: opacity var(--transition-fast), max-width var(--transition-fast), padding var(--transition-fast);
+}
+
+.channel-row:hover .user-count {
+  opacity: 1;
+  max-width: 4em;
+  padding: var(--space-2xs) var(--space-xs);
 }
 
 .channel-sort-btn {
   background: transparent;
   border: 1px solid var(--border-subtle);
   color: var(--text-muted);
-  padding: var(--space-2xs) var(--space-xs);
   border-radius: var(--radius-xs);
   font-size: var(--text-2xs);
   cursor: pointer;
@@ -121,11 +130,16 @@
   flex-shrink: 0;
   opacity: 0;
   pointer-events: none;
+  max-width: 0;
+  padding: 0;
+  overflow: hidden;
 }
 
 .channel-row:hover .channel-sort-btn {
   opacity: 1;
   pointer-events: auto;
+  max-width: 3em;
+  padding: var(--space-2xs) var(--space-xs);
 }
 
 .channel-sort-btn:hover {
