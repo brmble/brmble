@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { useProfileFingerprint } from '../../contexts/ProfileContext';
 import './Brmblegotchi.css';
 
 const STATE_KEY = 'brmblegotchi-state';
@@ -86,12 +87,16 @@ function CleanlinessIcon() {
 }
 
 export function BrmblegotchiWidget() {
+  const fingerprint = useProfileFingerprint();
+  const stateKey = fingerprint ? `${STATE_KEY}_${fingerprint}` : STATE_KEY;
+  const positionKey = fingerprint ? `${POSITION_KEY}_${fingerprint}` : POSITION_KEY;
+
   const [isEnabled, setIsEnabled] = useState(true);
   const [isVisible, setIsVisible] = useState(true);
   const [showActions, setShowActions] = useState(false);
   const [position, setPosition] = useState(() => {
     try {
-      const stored = localStorage.getItem(POSITION_KEY);
+      const stored = localStorage.getItem(positionKey);
       if (stored) {
         return JSON.parse(stored);
       }
@@ -102,7 +107,7 @@ export function BrmblegotchiWidget() {
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
   const [petState, setPetState] = useState<PetState>(() => {
     try {
-      const stored = localStorage.getItem(STATE_KEY);
+      const stored = localStorage.getItem(stateKey);
       if (stored) {
         const saved = JSON.parse(stored) as PetState;
         const elapsed = (Date.now() - saved.lastUpdate) / 1000;
@@ -160,12 +165,12 @@ export function BrmblegotchiWidget() {
         const remaining = Math.max(0, 600 - elapsedSinceActionSeconds);
         setCooldownRemaining(remaining);
 
-        localStorage.setItem(STATE_KEY, JSON.stringify(newState));
+        localStorage.setItem(stateKey, JSON.stringify(newState));
         return newState;
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [stateKey]);
 
   const handleDismiss = useCallback(() => {
     setIsVisible(false);
@@ -200,12 +205,12 @@ export function BrmblegotchiWidget() {
           newState = { ...prev, cleanliness: Math.min(100, prev.cleanliness + 30), lastUpdate: Date.now(), lastActionTime: now };
           break;
       }
-      localStorage.setItem(STATE_KEY, JSON.stringify(newState));
+      localStorage.setItem(stateKey, JSON.stringify(newState));
       setCooldownRemaining(600);
       return newState;
     });
     setShowActions(false);
-  }, [petState.lastActionTime]);
+  }, [petState.lastActionTime, stateKey]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('.brmblegotchi-actions') || 
@@ -248,8 +253,46 @@ export function BrmblegotchiWidget() {
   }, [isDragging, handleMouseMove, handleMouseUp]);
 
   useEffect(() => {
-    localStorage.setItem(POSITION_KEY, JSON.stringify(position));
-  }, [position]);
+    localStorage.setItem(positionKey, JSON.stringify(position));
+  }, [position, positionKey]);
+
+  // Reload state when profile fingerprint changes
+  const fingerprintRef = useRef(fingerprint);
+  useEffect(() => {
+    if (fingerprint && fingerprint !== fingerprintRef.current) {
+      fingerprintRef.current = fingerprint;
+      // Reload pet state
+      try {
+        const stored = localStorage.getItem(`${STATE_KEY}_${fingerprint}`);
+        if (stored) {
+          const saved = JSON.parse(stored) as PetState;
+          const elapsed = (Date.now() - saved.lastUpdate) / 1000;
+          setPetState({
+            hunger: Math.max(0, saved.hunger - elapsed * 0.0069),
+            happiness: Math.max(0, saved.happiness - elapsed * 0.0139),
+            cleanliness: Math.max(0, saved.cleanliness - elapsed * 0.0278),
+            lastUpdate: Date.now(),
+            lastActionTime: saved.lastActionTime ?? 0,
+          });
+        } else {
+          setPetState({ hunger: 80, happiness: 75, cleanliness: 85, lastUpdate: Date.now(), lastActionTime: 0 });
+        }
+      } catch {
+        setPetState({ hunger: 80, happiness: 75, cleanliness: 85, lastUpdate: Date.now(), lastActionTime: 0 });
+      }
+      // Reload position
+      try {
+        const stored = localStorage.getItem(`${POSITION_KEY}_${fingerprint}`);
+        if (stored) {
+          setPosition(JSON.parse(stored));
+        } else {
+          setPosition({ bottom: 150, right: 24 });
+        }
+      } catch {
+        setPosition({ bottom: 150, right: 24 });
+      }
+    }
+  }, [fingerprint]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
