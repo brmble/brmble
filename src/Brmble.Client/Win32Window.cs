@@ -294,7 +294,11 @@ internal static class Win32Window
 
     public static void ExtendFrameIntoClientArea(IntPtr hwnd)
     {
-        var margins = new MARGINS { Left = -1, Right = -1, Top = -1, Bottom = -1 };
+        // Zero margins: no DWM glass extension. The entire client area is
+        // painted by the app (WebView2 + hbrBackground brush for the resize
+        // border strip). IsNonClientRegionSupportEnabled still enables
+        // app-region:drag because it is a WebView2 setting, not DWM-dependent.
+        var margins = new MARGINS { Left = 0, Right = 0, Top = 0, Bottom = 0 };
         DwmExtendFrameIntoClientArea(hwnd, ref margins);
     }
 
