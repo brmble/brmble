@@ -97,6 +97,7 @@ function speakText(text: string) {
 interface SavedServer {
   id?: string;
   label?: string;
+  apiUrl?: string;
   host: string;
   port: number;
   username: string;
@@ -969,6 +970,9 @@ function App() {
       if (server) {
         setServerLabel(server.label || `${server.host}:${server.port}`);
         handleConnect({
+          id: server.id,
+          label: server.label,
+          apiUrl: server.apiUrl,
           host: server.host || '',
           port: server.port || 0,
           username: server.username || activeProfileName || 'Brmble User',
@@ -1192,10 +1196,13 @@ const handleConnect = (serverData: SavedServer) => {
     handleConnect({
       id: server.id,
       label: server.label,
+      apiUrl: server.apiUrl,
       host: server.host,
       port: server.port,
       username: server.username || activeProfileName || 'Brmble User',
-      password: server.password || ''
+      password: server.password || '',
+      registered: server.registered,
+      registeredName: server.registeredName,
     });
   };
 
