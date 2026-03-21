@@ -138,12 +138,6 @@ function App() {
   const [certFingerprint, setCertFingerprint] = useState('');
   const [activeProfileName, setActiveProfileName] = useState('');
 
-  // Migrate global localStorage keys to per-profile scoped keys
-  useEffect(() => {
-    if (certFingerprint) {
-      migrateLocalStorage(certFingerprint);
-    }
-  }, [certFingerprint]);
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
   const { statuses, updateStatus, resetStatuses } = useServiceStatus();
@@ -922,7 +916,9 @@ function App() {
       const d = data as { exists: boolean; fingerprint?: string } | undefined;
       if (d?.exists) {
         setCertExists(true);
-        setCertFingerprint(d.fingerprint ?? '');
+        const fp = d.fingerprint ?? '';
+        if (fp) migrateLocalStorage(fp);
+        setCertFingerprint(fp);
       } else {
         setCertExists(false);
       }
@@ -930,12 +926,16 @@ function App() {
     const onCertGenerated = (data: unknown) => {
       const d = data as { fingerprint?: string } | undefined;
       setCertExists(true);
-      setCertFingerprint(d?.fingerprint ?? '');
+      const fp = d?.fingerprint ?? '';
+      if (fp) migrateLocalStorage(fp);
+      setCertFingerprint(fp);
     };
     const onCertImported = (data: unknown) => {
       const d = data as { fingerprint?: string } | undefined;
       setCertExists(true);
-      setCertFingerprint(d?.fingerprint ?? '');
+      const fp = d?.fingerprint ?? '';
+      if (fp) migrateLocalStorage(fp);
+      setCertFingerprint(fp);
     };
 
     const onProfilesActiveChanged = (data: unknown) => {
@@ -943,7 +943,9 @@ function App() {
       resetMarkersCache();
       if (d.id) {
         setCertExists(true);
-        setCertFingerprint(d.fingerprint ?? '');
+        const fp = d.fingerprint ?? '';
+        if (fp) migrateLocalStorage(fp);
+        setCertFingerprint(fp);
         setActiveProfileName(d.name ?? '');
       } else {
         setCertExists(false);
