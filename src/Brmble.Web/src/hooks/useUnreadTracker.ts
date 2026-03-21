@@ -213,6 +213,19 @@ export function useUnreadTracker(
   const activeRoomIdRef = useRef(activeRoomId);
   activeRoomIdRef.current = activeRoomId;
 
+  // Track the fingerprint so we can detect profile switches.
+  const prevFpRef = useRef(fp);
+
+  // When the fingerprint changes (profile switch), immediately clear stale
+  // unread state from the previous profile so the UI never flashes the old
+  // profile's badges. The next refreshAll (triggered by the useEffect below
+  // re-running due to the dependency on fp) will repopulate with correct data.
+  if (fp !== prevFpRef.current) {
+    prevFpRef.current = fp;
+    // Synchronously clear — React will commit this before painting.
+    setRoomUnreads(new Map());
+  }
+
   // Debounce timer for the server-side markRoomRead HTTP call.
   // We batch rapid-fire calls (e.g. multiple messages arriving at once).
   const markReadTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
