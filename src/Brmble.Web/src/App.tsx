@@ -949,6 +949,7 @@ function App() {
         setCertExists(false);
         setCertFingerprint('');
         setActiveProfileName('');
+        setShowSettings(false);
       }
     };
 
