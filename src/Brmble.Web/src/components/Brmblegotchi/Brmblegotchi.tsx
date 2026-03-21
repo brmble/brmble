@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
 import { useProfileFingerprint } from '../../contexts/ProfileContext';
 import './Brmblegotchi.css';
 
@@ -258,7 +258,7 @@ export function BrmblegotchiWidget() {
 
   // Reload state when profile fingerprint changes
   const fingerprintRef = useRef(fingerprint);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (fingerprint && fingerprint !== fingerprintRef.current) {
       fingerprintRef.current = fingerprint;
       // Reload pet state

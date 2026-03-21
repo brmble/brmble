@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
 import type { GameState, GameActions, Infrastructure, Service } from './types';
 import { INITIAL_STATE } from './types';
 import { applyTheme } from '../../themes/theme-loader';
@@ -108,7 +108,7 @@ export function useGameState() {
 
   // Reload state when profile fingerprint changes
   const fingerprintRef = useRef(fingerprint);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (fingerprint && fingerprint !== fingerprintRef.current) {
       fingerprintRef.current = fingerprint;
       const key = `${STORAGE_KEY}_${fingerprint}`;
