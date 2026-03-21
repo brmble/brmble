@@ -2,7 +2,8 @@
  * Migrate global localStorage keys to per-profile scoped keys.
  *
  * For each key, if the old global key exists AND the new scoped key
- * does NOT exist, copies the value and deletes the old key.
+ * does NOT exist, copies the value to the scoped key.
+ * The old key is kept so other profiles can also migrate from it.
  * Idempotent — safe to run multiple times.
  */
 
@@ -22,7 +23,6 @@ export function migrateLocalStorage(fingerprint: string): void {
     const oldValue = localStorage.getItem(key);
     if (oldValue !== null && localStorage.getItem(scopedKey) === null) {
       localStorage.setItem(scopedKey, oldValue);
-      localStorage.removeItem(key);
     }
   }
 }
