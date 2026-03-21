@@ -60,6 +60,9 @@ export function useResizable({
   const handleRef = useRef<HTMLDivElement>(null);
   const widthRef = useRef(width);
 
+  // Track active listeners so we can clean up on unmount
+  const cleanupRef = useRef<(() => void) | null>(null);
+
   // Keep ref in sync for use in pointer event handlers
   widthRef.current = width;
 
@@ -69,6 +72,13 @@ export function useResizable({
     const clamped = Math.min(Math.max(loaded, minWidth), maxWidth);
     setWidth(clamped);
   }, [fingerprint, storageKey, defaultWidth, minWidth, maxWidth]);
+
+  // Cleanup on unmount: remove listeners and restore body styles if mid-drag
+  useEffect(() => {
+    return () => {
+      cleanupRef.current?.();
+    };
+  }, []);
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
@@ -89,19 +99,29 @@ export function useResizable({
         setWidth(clamped);
       };
 
-      const onPointerUp = () => {
+      const teardown = () => {
         handle.removeEventListener('pointermove', onPointerMove);
         handle.removeEventListener('pointerup', onPointerUp);
         handle.removeEventListener('pointercancel', onPointerUp);
+        handle.removeEventListener('lostpointercapture', onPointerUp);
         setIsDragging(false);
         document.body.style.userSelect = '';
         document.body.style.cursor = '';
         saveWidth(storageKey, fingerprint, widthRef.current);
+        cleanupRef.current = null;
       };
+
+      const onPointerUp = () => {
+        teardown();
+      };
+
+      // Store teardown so useEffect cleanup can call it on unmount
+      cleanupRef.current = teardown;
 
       handle.addEventListener('pointermove', onPointerMove);
       handle.addEventListener('pointerup', onPointerUp);
       handle.addEventListener('pointercancel', onPointerUp);
+      handle.addEventListener('lostpointercapture', onPointerUp);
     },
     [minWidth, maxWidth, storageKey, fingerprint]
   );

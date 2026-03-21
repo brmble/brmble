@@ -132,6 +132,7 @@
   pointer-events: none;
   max-width: 0;
   padding: 0;
+  border-width: 0;
   overflow: hidden;
 }
 
@@ -140,6 +141,7 @@
   pointer-events: auto;
   max-width: 3em;
   padding: var(--space-2xs) var(--space-xs);
+  border-width: 1px;
 }
 
 .channel-sort-btn:hover {

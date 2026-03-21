@@ -282,19 +282,14 @@
   top: 0;
   right: 0;
   bottom: 0;
-  width: 4px;
+  width: 8px;
   cursor: col-resize;
-  z-index: 10;
+  z-index: 200;
   touch-action: none;
 }
 
 .sidebar-resize-handle::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  right: -4px;
-  bottom: 0;
-  width: 8px;
+  content: none;
 }
 
 .sidebar-resize-handle::after {
