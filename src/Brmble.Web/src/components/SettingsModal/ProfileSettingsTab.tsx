@@ -375,7 +375,7 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
                     <Tooltip content="Export certificate">
                       <button
                         className="btn btn-primary profiles-action-btn"
-                        onClick={() => exportCert()}
+                        onClick={() => exportCert(profile.id)}
                       >
                         Export
                       </button>

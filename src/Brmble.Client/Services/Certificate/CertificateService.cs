@@ -10,9 +10,12 @@ internal sealed class CertificateService : IService
     public string ServiceName => "cert";
 
     public X509Certificate2? ActiveCertificate { get; private set; }
+    private readonly object _certLock = new();
 
-    public string? GetCertHash() =>
-        ActiveCertificate?.Thumbprint?.ToLowerInvariant();
+    public string? GetCertHash()
+    {
+        lock (_certLock) return ActiveCertificate?.Thumbprint?.ToLowerInvariant();
+    }
 
     private readonly NativeBridge _bridge;
     private readonly IAppConfigService _config;
@@ -154,9 +157,10 @@ internal sealed class CertificateService : IService
             return Task.CompletedTask;
         });
 
-        bridge.RegisterHandler("cert.export", _ =>
+        bridge.RegisterHandler("cert.export", data =>
         {
-            Task.Run(ExportCertificate);
+            var profileId = data.TryGetProperty("profileId", out var pidEl) ? pidEl.GetString() : null;
+            Task.Run(() => ExportCertificate(profileId));
             return Task.CompletedTask;
         });
 
@@ -250,8 +254,8 @@ internal sealed class CertificateService : IService
                 if (_config.GetActiveProfileId() == null)
                 {
                     _config.SetActiveProfileId(idPart);
-                    LoadActiveCertificate();
-                    bridge.Send("profiles.activeChanged", new { id = idPart, name, fingerprint = ActiveCertificate?.Thumbprint });
+                    lock (_certLock) { LoadActiveCertificate(); }
+                    bridge.Send("profiles.activeChanged", new { id = idPart, name, fingerprint = GetCertHash() });
                 }
 
                 bridge.Send("profiles.added", new { id = idPart, name, fingerprint, certValid = true });
@@ -318,8 +322,8 @@ internal sealed class CertificateService : IService
                     if (_config.GetActiveProfileId() == null)
                     {
                         _config.SetActiveProfileId(id);
-                        LoadActiveCertificate();
-                        bridge.Send("profiles.activeChanged", new { id, name, fingerprint = ActiveCertificate?.Thumbprint });
+                        lock (_certLock) { LoadActiveCertificate(); }
+                        bridge.Send("profiles.activeChanged", new { id, name, fingerprint = GetCertHash() });
                         bridge.NotifyUiThread();
                     }
 
@@ -369,7 +373,7 @@ internal sealed class CertificateService : IService
                     if (_config.GetActiveProfileId() == null)
                     {
                         _config.SetActiveProfileId(id);
-                        LoadActiveCertificate();
+                        lock (_certLock) { LoadActiveCertificate(); }
                         bridge.Send("profiles.activeChanged", new { id, name, fingerprint });
                         bridge.NotifyUiThread();
                     }
@@ -388,69 +392,85 @@ internal sealed class CertificateService : IService
 
         bridge.RegisterHandler("profiles.remove", data =>
         {
-            var id = data.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
-            if (id == null) return Task.CompletedTask;
-
-            var wasActive = _config.GetActiveProfileId() == id;
-            _config.RemoveProfile(id);
-            bridge.Send("profiles.removed", new { id });
-
-            if (wasActive)
+            try
             {
-                var newActiveId = _config.GetActiveProfileId();
-                if (newActiveId != null)
+                var id = data.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+                if (id == null) return Task.CompletedTask;
+
+                var wasActive = _config.GetActiveProfileId() == id;
+                _config.RemoveProfile(id);
+                bridge.Send("profiles.removed", new { id });
+
+                if (wasActive)
                 {
-                    var newProfile = _config.GetProfiles().FirstOrDefault(p => p.Id == newActiveId);
-                    LoadActiveCertificate();
-                    bridge.Send("profiles.activeChanged", new { id = newActiveId, name = newProfile?.Name, fingerprint = ActiveCertificate?.Thumbprint });
+                    var newActiveId = _config.GetActiveProfileId();
+                    if (newActiveId != null)
+                    {
+                        var newProfile = _config.GetProfiles().FirstOrDefault(p => p.Id == newActiveId);
+                        lock (_certLock) { LoadActiveCertificate(); }
+                        bridge.Send("profiles.activeChanged", new { id = newActiveId, name = newProfile?.Name, fingerprint = GetCertHash() });
+                    }
+                    else
+                    {
+                        lock (_certLock)
+                        {
+                            var old = ActiveCertificate;
+                            ActiveCertificate = null;
+                            old?.Dispose();
+                        }
+                        bridge.Send("profiles.activeChanged", new { id = (string?)null, name = (string?)null, fingerprint = (string?)null });
+                        bridge.Send("cert.status", new { exists = false });
+                    }
                 }
-                else
-                {
-                    var old = ActiveCertificate;
-                    ActiveCertificate = null;
-                    old?.Dispose();
-                    bridge.Send("profiles.activeChanged", new { id = (string?)null, name = (string?)null, fingerprint = (string?)null });
-                    bridge.Send("cert.status", new { exists = false });
-                }
+            }
+            catch (Exception ex)
+            {
+                bridge.Send("profiles.error", new { message = $"Failed to remove profile: {ex.Message}" });
             }
             return Task.CompletedTask;
         });
 
         bridge.RegisterHandler("profiles.rename", data =>
         {
-            var id = data.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
-            var name = data.TryGetProperty("name", out var n) ? n.GetString()?.Trim() : null;
-            if (id == null || name == null) return Task.CompletedTask;
-
-            var validationError = ValidateProfileName(name);
-            if (validationError != null)
+            try
             {
-                bridge.Send("profiles.error", new { message = validationError });
-                return Task.CompletedTask;
-            }
+                var id = data.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+                var name = data.TryGetProperty("name", out var n) ? n.GetString()?.Trim() : null;
+                if (id == null || name == null) return Task.CompletedTask;
 
-            // Find the current cert file before renaming the profile
-            var oldProfile = _config.GetProfiles().FirstOrDefault(p => p.Id == id);
-            var oldCertPath = oldProfile != null ? FindCertPath(id, oldProfile.Name) : null;
-
-            _config.RenameProfile(id, name);
-
-            // Rename the cert file on disk to match the new profile name
-            if (oldCertPath != null && File.Exists(oldCertPath))
-            {
-                var newCertPath = GetCertPath(id, name);
-                if (!string.Equals(oldCertPath, newCertPath, StringComparison.OrdinalIgnoreCase))
+                var validationError = ValidateProfileName(name);
+                if (validationError != null)
                 {
-                    try { File.Move(oldCertPath, newCertPath); }
-                    catch { /* best-effort; FindCertPath fallback will still locate it */ }
+                    bridge.Send("profiles.error", new { message = validationError });
+                    return Task.CompletedTask;
                 }
+
+                // Find the current cert file before renaming the profile
+                var oldProfile = _config.GetProfiles().FirstOrDefault(p => p.Id == id);
+                var oldCertPath = oldProfile != null ? FindCertPath(id, oldProfile.Name) : null;
+
+                _config.RenameProfile(id, name);
+
+                // Rename the cert file on disk to match the new profile name
+                if (oldCertPath != null && File.Exists(oldCertPath))
+                {
+                    var newCertPath = GetCertPath(id, name);
+                    if (!string.Equals(oldCertPath, newCertPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        try { File.Move(oldCertPath, newCertPath); }
+                        catch { /* best-effort; FindCertPath fallback will still locate it */ }
+                    }
+                }
+
+                bridge.Send("profiles.renamed", new { id, name });
+
+                if (_config.GetActiveProfileId() == id)
+                    bridge.Send("profiles.activeChanged", new { id, name, fingerprint = GetCertHash() });
             }
-
-            bridge.Send("profiles.renamed", new { id, name });
-
-            if (_config.GetActiveProfileId() == id)
-                bridge.Send("profiles.activeChanged", new { id, name, fingerprint = ActiveCertificate?.Thumbprint });
-
+            catch (Exception ex)
+            {
+                bridge.Send("profiles.error", new { message = $"Failed to rename profile: {ex.Message}" });
+            }
             return Task.CompletedTask;
         });
 
@@ -516,8 +536,8 @@ internal sealed class CertificateService : IService
                 // Reload active cert if this is the active profile
                 if (_config.GetActiveProfileId() == id)
                 {
-                    LoadActiveCertificate();
-                    bridge.Send("profiles.activeChanged", new { id, name, fingerprint = ActiveCertificate?.Thumbprint });
+                    lock (_certLock) { LoadActiveCertificate(); }
+                    bridge.Send("profiles.activeChanged", new { id, name, fingerprint = GetCertHash() });
                 }
 
                 bridge.Send("profiles.renamed", new { id, name, fingerprint, certValid = true });
@@ -531,22 +551,40 @@ internal sealed class CertificateService : IService
 
         bridge.RegisterHandler("profiles.setActive", data =>
         {
-            var id = data.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
-            if (id == null) return Task.CompletedTask;
+            try
+            {
+                var id = data.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+                if (id == null) return Task.CompletedTask;
 
-            var oldProfileId = _config.GetActiveProfileId();
+                var oldProfileId = _config.GetActiveProfileId();
 
-            _config.SetActiveProfileId(id);
-            LoadActiveCertificate();
+                _config.SetActiveProfileId(id);
+                // Verify the switch actually happened (SetActiveProfileId is a no-op for non-existent IDs)
+                if (_config.GetActiveProfileId() != id) return Task.CompletedTask;
 
-            // Swap registration data — save old profile's, load new profile's cached registrations
-            _config.SwapProfileRegistrations(oldProfileId, id);
+                lock (_certLock) { LoadActiveCertificate(); }
 
-            var profile = _config.GetProfiles().FirstOrDefault(p => p.Id == id);
-            bridge.Send("profiles.activeChanged", new { id, name = profile?.Name, fingerprint = ActiveCertificate?.Thumbprint });
-            bridge.Send("cert.status", new { exists = ActiveCertificate != null, fingerprint = ActiveCertificate?.Thumbprint, subject = ActiveCertificate?.Subject });
-            // Re-send server list so frontend picks up swapped registration fields
-            bridge.Send("servers.list", new { servers = _config.GetServers() });
+                // Swap registration data — save old profile's, load new profile's cached registrations
+                _config.SwapProfileRegistrations(oldProfileId, id);
+
+                var profile = _config.GetProfiles().FirstOrDefault(p => p.Id == id);
+                var certHash = GetCertHash();
+                bool certExists;
+                string? certSubject;
+                lock (_certLock)
+                {
+                    certExists = ActiveCertificate != null;
+                    certSubject = ActiveCertificate?.Subject;
+                }
+                bridge.Send("profiles.activeChanged", new { id, name = profile?.Name, fingerprint = certHash });
+                bridge.Send("cert.status", new { exists = certExists, fingerprint = certHash, subject = certSubject });
+                // Re-send server list so frontend picks up swapped registration fields
+                bridge.Send("servers.list", new { servers = _config.GetServers() });
+            }
+            catch (Exception ex)
+            {
+                bridge.Send("profiles.error", new { message = $"Failed to switch profile: {ex.Message}" });
+            }
             return Task.CompletedTask;
         });
     }
@@ -557,10 +595,15 @@ internal sealed class CertificateService : IService
     /// Callers are responsible for disposing the returned instance.
     /// Returns null if no certificate exists.
     /// </summary>
-    internal X509Certificate2? GetExportableCertificate() =>
-        ActiveCertificate is not null && ActiveCertPath is string path && File.Exists(path)
-            ? X509CertificateLoader.LoadPkcs12FromFile(path, password: null, keyStorageFlags: X509KeyStorageFlags.Exportable)
-            : null;
+    internal X509Certificate2? GetExportableCertificate()
+    {
+        lock (_certLock)
+        {
+            return ActiveCertificate is not null && ActiveCertPath is string path && File.Exists(path)
+                ? X509CertificateLoader.LoadPkcs12FromFile(path, password: null, keyStorageFlags: X509KeyStorageFlags.Exportable)
+                : null;
+        }
+    }
 
     private void LoadActiveCertificate()
     {
@@ -579,14 +622,23 @@ internal sealed class CertificateService : IService
 
     private void SendStatus()
     {
-        LoadActiveCertificate();
-        if (ActiveCertificate != null)
+        lock (_certLock) { LoadActiveCertificate(); }
+        bool exists;
+        string? fingerprint;
+        string? subject;
+        lock (_certLock)
+        {
+            exists = ActiveCertificate != null;
+            fingerprint = ActiveCertificate?.Thumbprint;
+            subject = ActiveCertificate?.Subject;
+        }
+        if (exists)
         {
             _bridge.Send("cert.status", new
             {
                 exists = true,
-                fingerprint = ActiveCertificate.Thumbprint,
-                subject = ActiveCertificate.Subject
+                fingerprint,
+                subject
             });
         }
         else
@@ -623,14 +675,21 @@ internal sealed class CertificateService : IService
             File.WriteAllBytes(certPath, pfxBytes);
 
             // Reload from file to get a clean X509Certificate2 (DefaultKeySet — exportable not needed for status display)
-            var oldCert = ActiveCertificate;
-            ActiveCertificate = X509CertificateLoader.LoadPkcs12FromFile(certPath, password: null, keyStorageFlags: X509KeyStorageFlags.DefaultKeySet);
-            oldCert?.Dispose();
+            string certFingerprint;
+            string certSubject;
+            lock (_certLock)
+            {
+                var oldCert = ActiveCertificate;
+                ActiveCertificate = X509CertificateLoader.LoadPkcs12FromFile(certPath, password: null, keyStorageFlags: X509KeyStorageFlags.DefaultKeySet);
+                oldCert?.Dispose();
+                certFingerprint = ActiveCertificate.Thumbprint;
+                certSubject = ActiveCertificate.Subject;
+            }
 
             _bridge.Send("cert.generated", new
             {
-                fingerprint = ActiveCertificate.Thumbprint,
-                subject = ActiveCertificate.Subject
+                fingerprint = certFingerprint,
+                subject = certSubject
             });
             _bridge.NotifyUiThread();
         }
@@ -658,14 +717,21 @@ internal sealed class CertificateService : IService
 
             Directory.CreateDirectory(Path.GetDirectoryName(certPath)!);
             File.WriteAllBytes(certPath, bytes);
-            var oldCert = ActiveCertificate;
-            ActiveCertificate = testCert;
-            oldCert?.Dispose();
+            string certFingerprint;
+            string certSubject;
+            lock (_certLock)
+            {
+                var oldCert = ActiveCertificate;
+                ActiveCertificate = testCert;
+                oldCert?.Dispose();
+                certFingerprint = ActiveCertificate.Thumbprint;
+                certSubject = ActiveCertificate.Subject;
+            }
 
             _bridge.Send("cert.imported", new
             {
-                fingerprint = ActiveCertificate.Thumbprint,
-                subject = ActiveCertificate.Subject
+                fingerprint = certFingerprint,
+                subject = certSubject
             });
             _bridge.NotifyUiThread();
         }
@@ -676,21 +742,40 @@ internal sealed class CertificateService : IService
         }
     }
 
-    private void ExportCertificate()
+    private void ExportCertificate(string? profileId = null)
     {
         try
         {
-            if (ActiveCertPath is not string certPath || !File.Exists(certPath))
+            string? certPath;
+            string exportName;
+
+            if (profileId != null)
+            {
+                var profile = _config.GetProfiles().FirstOrDefault(p => p.Id == profileId);
+                if (profile == null)
+                {
+                    _bridge.Send("cert.error", new { message = "Profile not found." });
+                    return;
+                }
+                certPath = FindCertPath(profileId, profile.Name);
+                exportName = $"{SanitizeFileName(profile.Name)}.pfx";
+            }
+            else
+            {
+                certPath = ActiveCertPath;
+                var activeId = _config.GetActiveProfileId();
+                var activeProfile = activeId != null ? _config.GetProfiles().FirstOrDefault(p => p.Id == activeId) : null;
+                exportName = activeProfile != null ? $"{SanitizeFileName(activeProfile.Name)}.pfx" : "brmble-identity.pfx";
+            }
+
+            if (certPath is not string cp || !File.Exists(cp))
             {
                 _bridge.Send("cert.error", new { message = "No certificate to export." });
                 return;
             }
 
-            var bytes = File.ReadAllBytes(certPath);
+            var bytes = File.ReadAllBytes(cp);
             var base64 = Convert.ToBase64String(bytes);
-            var activeId = _config.GetActiveProfileId();
-            var activeProfile = activeId != null ? _config.GetProfiles().FirstOrDefault(p => p.Id == activeId) : null;
-            var exportName = activeProfile != null ? $"{SanitizeFileName(activeProfile.Name)}.pfx" : "brmble-identity.pfx";
             _bridge.Send("cert.exportData", new { data = base64, filename = exportName });
             _bridge.NotifyUiThread();
         }

@@ -82,8 +82,8 @@ export function useProfiles() {
     bridge.send('profiles.setActive', { id });
   }, []);
 
-  const exportCert = useCallback(() => {
-    bridge.send('cert.export');
+  const exportCert = useCallback((profileId?: string) => {
+    bridge.send('cert.export', profileId ? { profileId } : {});
   }, []);
 
   const checkExistingCert = useCallback((name: string): Promise<{ exists: boolean; fingerprint: string | null }> => {
