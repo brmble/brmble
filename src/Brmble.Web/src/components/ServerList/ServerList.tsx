@@ -10,9 +10,10 @@ interface ServerListProps {
   onConnect: (server: ServerEntry) => void;
   connectionError?: string | null;
   onClearError?: () => void;
+  activeProfileName?: string;
 }
 
-export function ServerList({ onConnect, connectionError, onClearError }: ServerListProps) {
+export function ServerList({ onConnect, connectionError, onClearError, activeProfileName }: ServerListProps) {
   const { servers, loading, addServer, updateServer, removeServer } = useServerlist();
   const [editing, setEditing] = useState<ServerEntry | null>(null);
   const [isAdding, setIsAdding] = useState(false);
@@ -86,6 +87,15 @@ export function ServerList({ onConnect, connectionError, onClearError }: ServerL
     return () => window.removeEventListener('keydown', handleKey);
   }, [isAdding, editing]);
 
+  // Sync editing state when servers update (e.g. profile switch swaps registration data)
+  useEffect(() => {
+    if (!editing) return;
+    const fresh = servers.find(s => s.id === editing.id);
+    if (fresh) {
+      setEditing(fresh);
+    }
+  }, [servers]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (loading) {
     return (
       <div className="server-list-overlay">
@@ -103,7 +113,7 @@ export function ServerList({ onConnect, connectionError, onClearError }: ServerL
           <BrmbleLogo size={192} heartbeat />
         </div>
         <div className="server-list-header">
-          <h2 className="heading-title server-list-title">Choose a Server</h2>
+          <h2 className="heading-title server-list-title">Choose a Server{activeProfileName ? `, ${activeProfileName}!` : ''}</h2>
           <p className="server-list-subtitle">Select a server to start talking and chatting</p>
         </div>
 
@@ -237,22 +247,22 @@ export function ServerList({ onConnect, connectionError, onClearError }: ServerL
                     </button>
                   )}
                 </div>
-                <Tooltip content={editing?.registered ? `Registered as "${editing.registeredName}" on this server` : ''}>
+                {editing?.registered && (
+                <Tooltip content={`Registered as "${editing.registeredName}" on this server`}>
                 <div className="server-list-username-wrapper">
                   <input
-                    className={`brmble-input server-list-input${editing?.registered ? ' server-list-input-registered' : ''}`}
+                    className="brmble-input server-list-input server-list-input-registered"
                     placeholder="Username"
-                    value={editing?.registered ? (editing.registeredName ?? form.username) : form.username}
+                    value={editing.registeredName ?? form.username}
                     onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
-                    disabled={editing?.registered === true}
+                    disabled
                   />
-                  {editing?.registered && (
-                    <svg className="server-list-registered-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-label="Registered">
-                      <polyline points="3.5 8 6.5 11 12.5 5" />
-                    </svg>
-                  )}
+                  <svg className="server-list-registered-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-label="Registered">
+                    <polyline points="3.5 8 6.5 11 12.5 5" />
+                  </svg>
                 </div>
                 </Tooltip>
+                )}
               </div>
               <div className="server-list-form-actions">
                 <button type="button" className="btn btn-secondary server-list-cancel-btn" onClick={handleCancel}>
