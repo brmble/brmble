@@ -237,6 +237,7 @@ export function ServerList({ onConnect, connectionError, onClearError }: ServerL
                     </button>
                   )}
                 </div>
+                <Tooltip content={editing?.registered ? `Registered as "${editing.registeredName}" on this server` : ''}>
                 <div className="server-list-username-wrapper">
                   <input
                     className={`brmble-input server-list-input${editing?.registered ? ' server-list-input-registered' : ''}`}
@@ -244,7 +245,6 @@ export function ServerList({ onConnect, connectionError, onClearError }: ServerL
                     value={editing?.registered ? (editing.registeredName ?? form.username) : form.username}
                     onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
                     disabled={editing?.registered === true}
-                    title={editing?.registered ? `Registered as "${editing.registeredName}" on this server` : undefined}
                   />
                   {editing?.registered && (
                     <svg className="server-list-registered-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-label="Registered">
@@ -252,6 +252,7 @@ export function ServerList({ onConnect, connectionError, onClearError }: ServerL
                     </svg>
                   )}
                 </div>
+                </Tooltip>
               </div>
               <div className="server-list-form-actions">
                 <button type="button" className="btn btn-secondary server-list-cancel-btn" onClick={handleCancel}>

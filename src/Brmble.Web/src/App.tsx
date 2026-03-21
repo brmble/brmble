@@ -608,33 +608,12 @@ function App() {
 
     const onServerCredentials = (data: unknown) => {
       setConnectionError(null);
-      const wrapped = data as { matrix?: MatrixCredentials; registered?: boolean; registeredName?: string } | undefined;
+      const wrapped = data as { matrix?: MatrixCredentials } | undefined;
       const d = wrapped?.matrix;
       if (d?.homeserverUrl && d.accessToken && d.userId && d.roomMap) {
         // Clear stale chat data from previous sessions
         clearChatStorage();
         setMatrixCredentials(d);
-      }
-
-      // Persist registration status to the saved server entry
-      if (wrapped?.registered) {
-        try {
-          const stored = localStorage.getItem('brmble-server');
-          if (stored) {
-            const savedServer = JSON.parse(stored) as SavedServer;
-            const updatedServer = {
-              ...savedServer,
-              registered: true,
-              username: wrapped.registeredName ?? savedServer.username,
-            };
-            localStorage.setItem('brmble-server', JSON.stringify(updatedServer));
-
-            // Update server list entry if we have an ID
-            if (savedServer.id) {
-              bridge.send('servers.update', updatedServer);
-            }
-          }
-        } catch { /* ignore parse errors */ }
       }
     };
 
@@ -1025,7 +1004,17 @@ function App() {
     const onRegistrationStatus = (data: unknown) => {
       const d = data as { serverId?: string; registered?: boolean; registeredName?: string } | undefined;
       if (!d?.registered || !d.serverId) return;
-      bridge.send('servers.update', { id: d.serverId, registered: true, registeredName: d.registeredName });
+      try {
+        const stored = localStorage.getItem('brmble-server');
+        if (stored) {
+          const savedServer = JSON.parse(stored) as SavedServer;
+          if (savedServer.id === d.serverId) {
+            const updated = { ...savedServer, registered: true, registeredName: d.registeredName, username: d.registeredName ?? savedServer.username };
+            bridge.send('servers.update', updated);
+            localStorage.setItem('brmble-server', JSON.stringify(updated));
+          }
+        }
+      } catch { /* ignore parse errors */ }
     };
 
     bridge.on('voice.connected', onVoiceConnected);

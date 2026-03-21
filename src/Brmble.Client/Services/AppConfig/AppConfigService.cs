@@ -81,8 +81,9 @@ internal sealed class AppConfigService : IAppConfigService
             var entry = ParseServerEntry(data);
             if (entry != null)
             {
-                UpdateServer(entry);
-                bridge.Send("servers.updated", new { server = entry });
+                var merged = UpdateServer(entry);
+                if (merged != null)
+                    bridge.Send("servers.updated", new { server = merged });
             }
             await Task.CompletedTask;
         });
@@ -133,12 +134,30 @@ internal sealed class AppConfigService : IAppConfigService
         lock (_lock) { _servers.Add(server); Save(); }
     }
 
-    public void UpdateServer(ServerEntry server)
+    public ServerEntry? UpdateServer(ServerEntry server)
     {
         lock (_lock)
         {
             var i = _servers.FindIndex(s => s.Id == server.Id);
-            if (i >= 0) { _servers[i] = server; Save(); }
+            if (i >= 0)
+            {
+                var existing = _servers[i];
+                // Merge: only overwrite fields that have non-default values in the incoming entry
+                _servers[i] = existing with
+                {
+                    Label = !string.IsNullOrEmpty(server.Label) ? server.Label : existing.Label,
+                    ApiUrl = server.ApiUrl ?? existing.ApiUrl,
+                    Host = server.Host ?? existing.Host,
+                    Port = server.Port ?? existing.Port,
+                    Username = !string.IsNullOrEmpty(server.Username) ? server.Username : existing.Username,
+                    Password = !string.IsNullOrEmpty(server.Password) ? server.Password : existing.Password,
+                    Registered = server.Registered || existing.Registered,
+                    RegisteredName = server.RegisteredName ?? existing.RegisteredName,
+                };
+                Save();
+                return _servers[i];
+            }
+            return null;
         }
     }
 
@@ -306,25 +325,30 @@ internal sealed class AppConfigService : IAppConfigService
 
     private static ServerEntry? ParseServerEntry(System.Text.Json.JsonElement data)
     {
-        if (!data.TryGetProperty("label", out var label) ||
-            !data.TryGetProperty("username", out var username))
+        if (!data.TryGetProperty("id", out var idEl))
             return null;
 
-        var id = data.TryGetProperty("id", out var idEl)
-            ? idEl.GetString()
-            : Guid.NewGuid().ToString();
+        var id = idEl.GetString();
+        if (string.IsNullOrEmpty(id))
+            return null;
 
+        var label = data.TryGetProperty("label", out var labelEl) ? labelEl.GetString() ?? "" : "";
+        var username = data.TryGetProperty("username", out var usernameEl) ? usernameEl.GetString() ?? "" : "";
         var apiUrl = data.TryGetProperty("apiUrl", out var apiEl) ? apiEl.GetString() : null;
         var password = data.TryGetProperty("password", out var pwEl) ? pwEl.GetString() ?? "" : "";
+        var registered = data.TryGetProperty("registered", out var regEl) && regEl.ValueKind == System.Text.Json.JsonValueKind.True;
+        var registeredName = data.TryGetProperty("registeredName", out var rnEl) ? rnEl.GetString() : null;
 
         return new ServerEntry(
             id!,
-            label.GetString() ?? "",
+            label,
             apiUrl,
             data.TryGetProperty("host", out var hostEl) ? hostEl.GetString() : null,
             data.TryGetProperty("port", out var portEl) && portEl.ValueKind == System.Text.Json.JsonValueKind.Number ? portEl.GetInt32() : null,
-            username.GetString() ?? "",
-            password);
+            username,
+            password,
+            registered,
+            registeredName);
     }
 
     private record ConfigData

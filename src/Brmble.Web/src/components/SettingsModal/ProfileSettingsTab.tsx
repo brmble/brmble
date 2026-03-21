@@ -254,10 +254,11 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
 
                   </div>
                   <div className="profiles-actions">
-                    <Tooltip content="Delete profile">
+                    <Tooltip content={connected && isActive ? 'Disconnect to delete this profile' : 'Delete profile'}>
                       <button
                         className="btn btn-ghost profiles-delete-btn"
                         onClick={() => handleDelete(profile)}
+                        disabled={connected && isActive}
                       >
                         ✕
                       </button>

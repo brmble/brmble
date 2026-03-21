@@ -7,7 +7,9 @@ public record ServerEntry(
     string? Host,
     int? Port,
     string Username,
-    string Password = ""
+    string Password = "",
+    bool Registered = false,
+    string? RegisteredName = null
 );
 
 public interface IServerlistService
@@ -17,6 +19,6 @@ public interface IServerlistService
     void RegisterHandlers(Bridge.NativeBridge bridge);
     IReadOnlyList<ServerEntry> GetServers();
     void AddServer(ServerEntry server);
-    void UpdateServer(ServerEntry server);
+    ServerEntry? UpdateServer(ServerEntry server);
     void RemoveServer(string id);
 }

@@ -8,7 +8,7 @@ public interface IAppConfigService
 {
     IReadOnlyList<ServerEntry> GetServers();
     void AddServer(ServerEntry server);
-    void UpdateServer(ServerEntry server);
+    ServerEntry? UpdateServer(ServerEntry server);
     void RemoveServer(string id);
     AppSettings GetSettings();
     void SetSettings(AppSettings settings);
