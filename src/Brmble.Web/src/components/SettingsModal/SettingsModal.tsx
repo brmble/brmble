@@ -75,6 +75,19 @@ export function SettingsModal(props: SettingsModalProps) {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const { servers } = useServerlist();
 
+  // Resolve registration name for the currently connected server
+  const connectedRegisteredName = (() => {
+    if (!props.connected) return undefined;
+    try {
+      const stored = localStorage.getItem('brmble-server');
+      if (!stored) return undefined;
+      const savedServer = JSON.parse(stored) as { id?: string };
+      if (!savedServer.id) return undefined;
+      const match = servers.find(s => s.id === savedServer.id);
+      return match?.registered ? match.registeredName : undefined;
+    } catch { return undefined; }
+  })();
+
   // Close on Escape key (skip if a key-binding button is recording)
   useEffect(() => {
     if (!isOpen) return;
@@ -343,6 +356,7 @@ export function SettingsModal(props: SettingsModalProps) {
               onUploadAvatar={props.onUploadAvatar ?? (() => {})}
               onRemoveAvatar={props.onRemoveAvatar ?? (() => {})}
               connected={props.connected ?? false}
+              registeredName={connectedRegisteredName}
             />
           )}
           {activeTab === 'audio' && <AudioSettingsTab settings={settings.audio} onChange={handleAudioChange} speechDenoise={settings.speechDenoise} onSpeechDenoiseChange={handleSpeechDenoiseChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}

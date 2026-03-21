@@ -16,11 +16,64 @@ internal sealed class CertificateService : IService
     private readonly NativeBridge _bridge;
     private readonly IAppConfigService _config;
 
-    private string GetCertPath(string profileId) =>
+    /// <summary>Builds the canonical cert filename: {sanitizedName}_{id}.pfx</summary>
+    private string GetCertPath(string profileId, string profileName) =>
+        Path.Combine(_config.GetCertsDir(), $"{SanitizeFileName(profileName)}_{profileId}.pfx");
+
+    /// <summary>Legacy cert path using only the profile ID.</summary>
+    private string GetLegacyCertPath(string profileId) =>
         Path.Combine(_config.GetCertsDir(), profileId + ".pfx");
 
-    private string? ActiveCertPath =>
-        _config.GetActiveProfileId() is string id ? GetCertPath(id) : null;
+    /// <summary>
+    /// Returns the cert path, preferring the new {name}_{id}.pfx format.
+    /// Falls back to the legacy {id}.pfx if the new file doesn't exist.
+    /// </summary>
+    private string FindCertPath(string profileId, string profileName)
+    {
+        var preferred = GetCertPath(profileId, profileName);
+        if (File.Exists(preferred)) return preferred;
+        var legacy = GetLegacyCertPath(profileId);
+        if (File.Exists(legacy)) return legacy;
+        return preferred; // default to new format even if neither exists
+    }
+
+    private string? ActiveCertPath
+    {
+        get
+        {
+            var id = _config.GetActiveProfileId();
+            if (id == null) return null;
+            var profile = _config.GetProfiles().FirstOrDefault(p => p.Id == id);
+            return profile != null ? FindCertPath(id, profile.Name) : FindCertPath(id, "");
+        }
+    }
+
+    /// <summary>
+    /// Sanitizes a profile name for use in a filename.
+    /// Replaces invalid chars with '_', collapses runs, trims, and caps length.
+    /// </summary>
+    private static string SanitizeFileName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "profile";
+        var invalid = new HashSet<char>(Path.GetInvalidFileNameChars());
+        var sb = new System.Text.StringBuilder(name.Length);
+        bool lastWasUnderscore = false;
+        foreach (var c in name)
+        {
+            if (invalid.Contains(c) || c == ' ')
+            {
+                if (!lastWasUnderscore) { sb.Append('_'); lastWasUnderscore = true; }
+            }
+            else
+            {
+                sb.Append(c);
+                lastWasUnderscore = false;
+            }
+        }
+        var result = sb.ToString().Trim('_');
+        if (result.Length > 50) result = result[..50].TrimEnd('_');
+        return result.Length == 0 ? "profile" : result;
+    }
 
     public CertificateService(NativeBridge bridge, IAppConfigService config)
     {
@@ -28,7 +81,31 @@ internal sealed class CertificateService : IService
         _config = config;
     }
 
-    public void Initialize(NativeBridge bridge) { }
+    public void Initialize(NativeBridge bridge)
+    {
+        // Migrate legacy {id}.pfx cert files to {name}_{id}.pfx
+        MigrateCertFileNames();
+    }
+
+    /// <summary>
+    /// Renames any legacy {id}.pfx cert files to {name}_{id}.pfx format.
+    /// Best-effort; failures are silently ignored since FindCertPath falls back to legacy names.
+    /// </summary>
+    private void MigrateCertFileNames()
+    {
+        foreach (var profile in _config.GetProfiles())
+        {
+            var legacyPath = GetLegacyCertPath(profile.Id);
+            if (!File.Exists(legacyPath)) continue;
+
+            var newPath = GetCertPath(profile.Id, profile.Name);
+            if (string.Equals(legacyPath, newPath, StringComparison.OrdinalIgnoreCase)) continue;
+            if (File.Exists(newPath)) continue; // new-style file already exists
+
+            try { File.Move(legacyPath, newPath); }
+            catch { /* best-effort */ }
+        }
+    }
 
     public void RegisterHandlers(NativeBridge bridge)
     {
@@ -64,7 +141,7 @@ internal sealed class CertificateService : IService
         {
             var profiles = _config.GetProfiles().Select(p =>
             {
-                var certPath = GetCertPath(p.Id);
+                var certPath = FindCertPath(p.Id, p.Name);
                 string? fingerprint = null;
                 bool certValid = false;
                 if (File.Exists(certPath))
@@ -91,7 +168,7 @@ internal sealed class CertificateService : IService
                 try
                 {
                     var id = Guid.NewGuid().ToString();
-                    var certPath = GetCertPath(id);
+                    var certPath = GetCertPath(id, name);
                     Directory.CreateDirectory(Path.GetDirectoryName(certPath)!);
 
                     using var ecdsa = System.Security.Cryptography.ECDsa.Create(
@@ -141,7 +218,7 @@ internal sealed class CertificateService : IService
                     var fingerprint = testCert.Thumbprint;
 
                     var id = Guid.NewGuid().ToString();
-                    var certPath = GetCertPath(id);
+                    var certPath = GetCertPath(id, name);
                     Directory.CreateDirectory(Path.GetDirectoryName(certPath)!);
                     File.WriteAllBytes(certPath, bytes);
 
@@ -201,7 +278,23 @@ internal sealed class CertificateService : IService
             var name = data.TryGetProperty("name", out var n) ? n.GetString() : null;
             if (id == null || name == null) return Task.CompletedTask;
 
+            // Find the current cert file before renaming the profile
+            var oldProfile = _config.GetProfiles().FirstOrDefault(p => p.Id == id);
+            var oldCertPath = oldProfile != null ? FindCertPath(id, oldProfile.Name) : null;
+
             _config.RenameProfile(id, name);
+
+            // Rename the cert file on disk to match the new profile name
+            if (oldCertPath != null && File.Exists(oldCertPath))
+            {
+                var newCertPath = GetCertPath(id, name);
+                if (!string.Equals(oldCertPath, newCertPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    try { File.Move(oldCertPath, newCertPath); }
+                    catch { /* best-effort; FindCertPath fallback will still locate it */ }
+                }
+            }
+
             bridge.Send("profiles.renamed", new { id, name });
 
             if (_config.GetActiveProfileId() == id)
@@ -358,7 +451,10 @@ internal sealed class CertificateService : IService
 
             var bytes = File.ReadAllBytes(certPath);
             var base64 = Convert.ToBase64String(bytes);
-            _bridge.Send("cert.exportData", new { data = base64, filename = "brmble-identity.pfx" });
+            var activeId = _config.GetActiveProfileId();
+            var activeProfile = activeId != null ? _config.GetProfiles().FirstOrDefault(p => p.Id == activeId) : null;
+            var exportName = activeProfile != null ? $"{SanitizeFileName(activeProfile.Name)}.pfx" : "brmble-identity.pfx";
+            _bridge.Send("cert.exportData", new { data = base64, filename = exportName });
         }
         catch (Exception ex)
         {

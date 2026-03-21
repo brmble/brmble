@@ -18,6 +18,7 @@ interface ProfileSettingsTabProps {
   onUploadAvatar: (blob: Blob, contentType: string) => void;
   onRemoveAvatar: () => void;
   connected: boolean;
+  registeredName?: string;
 }
 
 function getAvatarStatusText(user: ProfileSettingsTabProps['currentUser']): string {
@@ -39,7 +40,7 @@ function triggerBlobDownload(base64: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar, connected }: ProfileSettingsTabProps) {
+export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar, connected, registeredName }: ProfileSettingsTabProps) {
   const [showUpload, setShowUpload] = useState(false);
   const { profiles, activeProfileId, loading, addProfile, importProfile, removeProfile, renameProfile, setActive, exportCert } = useProfiles();
 
@@ -194,6 +195,17 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
             </div>
           </Tooltip>
         </div>
+        {connected && registeredName && (
+          <div className="settings-item">
+            <label>Registered name on server</label>
+            <span className="profile-registered-name">
+              {registeredName}
+              <svg className="profile-registered-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="3.5 8 6.5 11 12.5 5" />
+              </svg>
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Manage Profiles section */}
@@ -263,10 +275,11 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
                         ✕
                       </button>
                     </Tooltip>
-                    <Tooltip content="Rename profile">
+                    <Tooltip content={connected ? 'Disconnect to rename profiles' : 'Rename profile'}>
                       <button
                         className="btn btn-secondary profiles-action-btn"
                         onClick={() => handleEditStart(profile)}
+                        disabled={connected}
                       >
                         Edit
                       </button>

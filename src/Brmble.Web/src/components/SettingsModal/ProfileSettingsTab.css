@@ -48,3 +48,19 @@
 .profile-select-wrapper {
   min-width: 200px;
 }
+
+.profile-registered-name {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-xs);
+  min-width: 200px;
+  padding-left: var(--space-sm);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.profile-registered-icon {
+  color: var(--accent-primary);
+  flex-shrink: 0;
+}

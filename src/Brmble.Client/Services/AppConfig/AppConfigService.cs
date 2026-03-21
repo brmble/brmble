@@ -371,7 +371,8 @@ internal sealed class AppConfigService : IAppConfigService
         if (!File.Exists(oldCertPath)) return;
 
         var id = Guid.NewGuid().ToString();
-        var newCertPath = Path.Combine(_certsDir, id + ".pfx");
+        var profileName = "Default";
+        var newCertPath = Path.Combine(_certsDir, SanitizeForFileName(profileName) + "_" + id + ".pfx");
 
         try
         {
@@ -404,5 +405,28 @@ internal sealed class AppConfigService : IAppConfigService
     private record LegacyServerlistData
     {
         public List<ServerEntry> Servers { get; init; } = [];
+    }
+
+    private static string SanitizeForFileName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "profile";
+        var invalid = new HashSet<char>(Path.GetInvalidFileNameChars());
+        var sb = new System.Text.StringBuilder(name.Length);
+        bool lastWasUnderscore = false;
+        foreach (var c in name)
+        {
+            if (invalid.Contains(c) || c == ' ')
+            {
+                if (!lastWasUnderscore) { sb.Append('_'); lastWasUnderscore = true; }
+            }
+            else
+            {
+                sb.Append(c);
+                lastWasUnderscore = false;
+            }
+        }
+        var result = sb.ToString().Trim('_');
+        if (result.Length > 50) result = result[..50].TrimEnd('_');
+        return result.Length == 0 ? "profile" : result;
     }
 }
