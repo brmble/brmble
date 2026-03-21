@@ -10,8 +10,35 @@
   user-select: none;
 }
 
+.brmblegotchi-actions {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%) translateY(-100%);
+  display: flex;
+  gap: var(--space-xs);
+  background: var(--bg-surface);
+  padding: var(--space-xs);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-elevated);
+  border: 1px solid var(--glass-border);
+  animation: brmblegotchi-pop-up 200ms ease-out;
+}
+
+@keyframes brmblegotchi-pop-up {
+  0% { opacity: 0; transform: translateX(-50%) translateY(-100%) scale(0.8); }
+  100% { opacity: 1; transform: translateX(-50%) translateY(-100%) scale(1); }
+}
+
+.brmblegotchi-pet-wrapper {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
 .brmblegotchi-drag-handle {
-  width: 100%;
+  width: 80px;
   height: 20px;
   cursor: grab;
   display: flex;
@@ -19,6 +46,7 @@
   justify-content: center;
   gap: 4px;
   border-radius: var(--radius-md) var(--radius-md) 0 0;
+  margin-top: var(--space-sm);
 }
 
 .brmblegotchi-drag-handle:active {
@@ -90,7 +118,7 @@
   width: 36px;
   height: 36px;
   background: var(--accent-primary);
-  opacity: 0.9;
+  opacity: 1;
   animation: brmblegotchi-breathe 2s ease-in-out infinite;
 }
 
@@ -164,10 +192,10 @@
   gap: 4px;
   background: var(--bg-surface);
   padding: var(--space-xs);
-  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  border-radius: var(--radius-md);
   box-shadow: var(--shadow-elevated);
   border: var(--glass-border);
-  border-top: none;
+  margin-top: var(--space-sm);
   min-width: 90px;
 }
 
@@ -212,21 +240,6 @@
 
 .brmblegotchi-stat-fill.cleanliness {
   background: var(--accent-decorative);
-}
-
-.brmblegotchi-actions {
-  position: absolute;
-  bottom: calc(100% + var(--space-sm));
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  gap: var(--space-xs);
-  background: var(--bg-surface);
-  padding: var(--space-xs);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-elevated);
-  border: 1px solid var(--glass-border);
-  animation: brmblegotchi-pop-up 200ms ease-out;
 }
 
 .brmblegotchi-action-btn {
@@ -275,37 +288,6 @@
   color: var(--text-muted);
 }
 
-.brmblegotchi-dismiss {
-  position: absolute;
-  top: -8px;
-  right: -8px;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  border: none;
-  background: var(--accent-danger);
-  color: var(--text-primary);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  line-height: 1;
-  opacity: 0.8;
-  transition: all var(--transition-fast);
-  z-index: 10;
-}
-
-.brmblegotchi-dismiss:hover {
-  opacity: 1;
-  transform: scale(1.1);
-}
-
-.brmblegotchi-dismiss svg {
-  width: 10px;
-  height: 10px;
-}
-
 @keyframes brmblegotchi-pulse-outer {
   0%, 100% { transform: scale(1); opacity: 0.3; }
   50% { transform: scale(1.05); opacity: 0.5; }
@@ -324,11 +306,6 @@
 @keyframes brmblegotchi-breathe {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.08); }
-}
-
-@keyframes brmblegotchi-pop-up {
-  0% { opacity: 0; transform: translateX(-50%) scale(0.8) translateY(10px); }
-  100% { opacity: 1; transform: translateX(-50%) scale(1) translateY(0); }
 }
 
 .brmblegotchi-widget.sad .brmblegotchi-ring-outer {
@@ -351,6 +328,102 @@
   animation-duration: 4s;
 }
 
+.brmblegotchi-widget.stage-baby .brmblegotchi-pet-wrapper {
+  transform: scale(0.4);
+}
+
+.brmblegotchi-widget.stage-child .brmblegotchi-pet-wrapper {
+  transform: scale(0.6);
+}
+
+.brmblegotchi-widget.stage-teen .brmblegotchi-pet-wrapper {
+  transform: scale(0.85);
+}
+
+.brmblegotchi-widget.stage-adult .brmblegotchi-pet-wrapper {
+  transform: scale(1);
+}
+
+.brmblegotchi-widget.stage-egg .brmblegotchi-pet {
+  width: 60px;
+  height: 80px;
+  background: var(--accent-primary);
+  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+  cursor: pointer;
+  animation: egg-wobble 2s ease-in-out infinite;
+  box-shadow: none;
+  border: none;
+  transform: none;
+}
+
+.brmblegotchi-widget.stage-egg .brmblegotchi-pet-wrapper {
+  animation: egg-wobble 2s ease-in-out infinite;
+  transform-origin: center center;
+}
+
+.brmblegotchi-widget.stage-egg .brmblegotchi-ring,
+.brmblegotchi-widget.stage-egg .brmblegotchi-face {
+  display: none;
+}
+
+@keyframes egg-wobble {
+  0%, 100% { transform: rotate(-5deg) scale(1); }
+  50% { transform: rotate(5deg) scale(1); }
+}
+
+.brmblegotchi-widget.stage-child .brmblegotchi-ring {
+  animation-duration: 4s;
+}
+
+.brmblegotchi-widget.stage-ghost .brmblegotchi-pet {
+  filter: grayscale(100%) opacity(0.3);
+}
+
+.brmblegotchi-widget.stage-ghost .brmblegotchi-ring {
+  animation: none;
+}
+
+.brmblegotchi-widget.stage-ghost .brmblegotchi-eye {
+  background: transparent;
+}
+
+.brmblegotchi-widget.stage-ghost .brmblegotchi-eye::before,
+.brmblegotchi-widget.stage-ghost .brmblegotchi-eye::after {
+  content: '';
+  position: absolute;
+  width: 100%;
+  height: 2px;
+  background: var(--accent-primary);
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.brmblegotchi-widget.stage-ghost .brmblegotchi-eye::after {
+  transform: translateY(-50%) rotate(-45deg);
+}
+
+.brmblegotchi-widget.stage-ghost .brmblegotchi-mouth {
+  width: 20px;
+  height: 10px;
+  border: none;
+  border-top: 3px solid var(--accent-primary);
+  border-radius: 0;
+  transform: rotate(180deg);
+}
+
+.brmblegotchi-widget.stage-ghost .brmblegotchi-restart-hint {
+  position: absolute;
+  bottom: -30px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-body, sans-serif);
+  font-size: 12px;
+  color: var(--accent-primary);
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
 .brmblegotchi-widget.happy .brmblegotchi-ring-outer {
   animation-duration: 1s;
   opacity: 0.5;
@@ -364,6 +437,46 @@
 .brmblegotchi-widget.happy .brmblegotchi-ring-inner {
   animation-duration: 1s;
   opacity: 0.9;
+}
+
+.brmblegotchi-egg-hint {
+  position: absolute;
+  top: -25px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-body, sans-serif);
+  font-size: 10px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  animation: hint-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes hint-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+.brmblegotchi-widget.action-animating .brmblegotchi-pet {
+  animation: action-shake 0.5s ease-in-out;
+}
+
+@keyframes action-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-5px) rotate(-2deg); }
+  40% { transform: translateX(5px) rotate(2deg); }
+  60% { transform: translateX(-3px) rotate(-1deg); }
+  80% { transform: translateX(3px) rotate(1deg); }
+}
+
+.brmblegotchi-widget.egg-click-animating .brmblegotchi-pet {
+  animation: egg-click-shake 0.3s ease-in-out;
+}
+
+@keyframes egg-click-shake {
+  0%, 100% { transform: scale(1) rotate(0deg); }
+  25% { transform: scale(1.1) rotate(-5deg); }
+  50% { transform: scale(1.05) rotate(5deg); }
+  75% { transform: scale(1.08) rotate(-3deg); }
 }
 
 @media (prefers-reduced-motion: reduce) {

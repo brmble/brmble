@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Select } from '../Select';
+import { confirm } from '../../hooks/usePrompt';
 import './InterfaceSettingsTab.css';
 import type { OverlaySettings, AppearanceSettings, BrmblegotchiSettings } from './InterfaceSettingsTypes';
 import { themes } from '../../themes/theme-registry';
@@ -40,6 +41,18 @@ export function InterfaceSettingsTab({
 
   const handleBrmblegotchiToggle = () => {
     onBrmblegotchiChange({ enabled: !brmblegotchiSettings.enabled });
+  };
+
+  const handleResetPet = async () => {
+    const confirmed = await confirm({
+      title: 'Reset Brmblegotchi?',
+      message: 'Your pet will start over from an egg. All progress will be lost.',
+      confirmLabel: 'Reset',
+      cancelLabel: 'Cancel',
+    });
+    if (confirmed) {
+      window.dispatchEvent(new CustomEvent('brmblegotchi-reset'));
+    }
   };
 
   return (
@@ -91,6 +104,11 @@ export function InterfaceSettingsTab({
             />
             <span className="brmble-toggle-slider"></span>
           </label>
+        </div>
+        <div className="settings-item">
+          <button className="btn btn-danger" onClick={handleResetPet}>
+            Reset Pet
+          </button>
         </div>
         <p className="settings-hint">
           Show the Brmblegotchi virtual pet companion.
