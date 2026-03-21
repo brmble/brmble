@@ -534,12 +534,19 @@ internal sealed class CertificateService : IService
             var id = data.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
             if (id == null) return Task.CompletedTask;
 
+            var oldProfileId = _config.GetActiveProfileId();
+
             _config.SetActiveProfileId(id);
             LoadActiveCertificate();
+
+            // Swap registration data — save old profile's, load new profile's cached registrations
+            _config.SwapProfileRegistrations(oldProfileId, id);
 
             var profile = _config.GetProfiles().FirstOrDefault(p => p.Id == id);
             bridge.Send("profiles.activeChanged", new { id, name = profile?.Name, fingerprint = ActiveCertificate?.Thumbprint });
             bridge.Send("cert.status", new { exists = ActiveCertificate != null, fingerprint = ActiveCertificate?.Thumbprint, subject = ActiveCertificate?.Subject });
+            // Re-send server list so frontend picks up swapped registration fields
+            bridge.Send("servers.list", new { servers = _config.GetServers() });
             return Task.CompletedTask;
         });
     }

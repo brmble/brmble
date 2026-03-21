@@ -3,6 +3,7 @@ using Brmble.Client.Services.Serverlist;
 namespace Brmble.Client.Services.AppConfig;
 
 public record ProfileEntry(string Id, string Name);
+public record RegistrationInfo(bool Registered, string? RegisteredName);
 
 public interface IAppConfigService
 {
@@ -27,4 +28,5 @@ public interface IAppConfigService
     string? GetActiveProfileId();
     void SetActiveProfileId(string? id);
     string GetCertsDir();
+    void SwapProfileRegistrations(string? oldProfileId, string? newProfileId);
 }

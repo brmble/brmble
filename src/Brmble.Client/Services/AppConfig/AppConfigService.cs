@@ -25,6 +25,7 @@ internal sealed class AppConfigService : IAppConfigService
     private double? _zoomFactor;
     private List<ProfileEntry> _profiles = new();
     private string? _activeProfileId;
+    private Dictionary<string, Dictionary<string, RegistrationInfo>> _profileRegistrations = new();
     private readonly string _certsDir;
     private readonly object _lock = new();
 
@@ -151,8 +152,8 @@ internal sealed class AppConfigService : IAppConfigService
                     Port = server.Port ?? existing.Port,
                     Username = !string.IsNullOrEmpty(server.Username) ? server.Username : existing.Username,
                     Password = !string.IsNullOrEmpty(server.Password) ? server.Password : existing.Password,
-                    Registered = server.Registered || existing.Registered,
-                    RegisteredName = server.RegisteredName ?? existing.RegisteredName,
+                    Registered = server.Registered,
+                    RegisteredName = server.Registered ? (server.RegisteredName ?? existing.RegisteredName) : null,
                 };
                 Save();
                 return _servers[i];
@@ -164,6 +165,43 @@ internal sealed class AppConfigService : IAppConfigService
     public void RemoveServer(string id)
     {
         lock (_lock) { _servers.RemoveAll(s => s.Id == id); Save(); }
+    }
+
+    public void SwapProfileRegistrations(string? oldProfileId, string? newProfileId)
+    {
+        lock (_lock)
+        {
+            // Save current registrations under old profile
+            if (!string.IsNullOrEmpty(oldProfileId))
+            {
+                var regs = new Dictionary<string, RegistrationInfo>();
+                foreach (var s in _servers)
+                {
+                    if (s.Registered || s.RegisteredName != null)
+                        regs[s.Id] = new RegistrationInfo(s.Registered, s.RegisteredName);
+                }
+                _profileRegistrations[oldProfileId!] = regs;
+            }
+
+            // Load new profile's cached registrations (or clear if none cached)
+            Dictionary<string, RegistrationInfo>? newRegs = null;
+            if (!string.IsNullOrEmpty(newProfileId))
+                _profileRegistrations.TryGetValue(newProfileId!, out newRegs);
+
+            for (int i = 0; i < _servers.Count; i++)
+            {
+                RegistrationInfo? info = null;
+                if (newRegs != null && newRegs.TryGetValue(_servers[i].Id, out var found))
+                    info = found;
+                _servers[i] = _servers[i] with
+                {
+                    Registered = info?.Registered ?? false,
+                    RegisteredName = info?.RegisteredName
+                };
+            }
+
+            Save();
+        }
     }
 
     public AppSettings GetSettings()
@@ -283,6 +321,7 @@ internal sealed class AppConfigService : IAppConfigService
                 _zoomFactor = data?.ZoomFactor;
                 _profiles = data?.Profiles ?? new List<ProfileEntry>();
                 _activeProfileId = data?.ActiveProfileId;
+                _profileRegistrations = data?.ProfileRegistrations ?? new();
                 MigrateIdentityPfx();
                 return;
             }
@@ -308,6 +347,7 @@ internal sealed class AppConfigService : IAppConfigService
             _zoomFactor = null;
             _profiles = new List<ProfileEntry>();
             _activeProfileId = null;
+            _profileRegistrations = new();
         }
 
         MigrateIdentityPfx();
@@ -318,7 +358,8 @@ internal sealed class AppConfigService : IAppConfigService
         var data = new ConfigData {
             Servers = _servers, Settings = _settings, Window = _windowState,
             ClosePreference = _closePreference, LastConnectedServerId = _lastConnectedServerId,
-            ZoomFactor = _zoomFactor, Profiles = _profiles, ActiveProfileId = _activeProfileId
+            ZoomFactor = _zoomFactor, Profiles = _profiles, ActiveProfileId = _activeProfileId,
+            ProfileRegistrations = _profileRegistrations
         };
         File.WriteAllText(_configPath, JsonSerializer.Serialize(data, _jsonOptions));
     }
@@ -361,6 +402,7 @@ internal sealed class AppConfigService : IAppConfigService
         public double? ZoomFactor { get; init; } = null;
         public List<ProfileEntry> Profiles { get; init; } = [];
         public string? ActiveProfileId { get; init; } = null;
+        public Dictionary<string, Dictionary<string, RegistrationInfo>> ProfileRegistrations { get; init; } = new();
     }
 
     private void MigrateIdentityPfx()
