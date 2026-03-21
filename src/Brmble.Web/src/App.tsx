@@ -559,6 +559,19 @@ function App() {
             }
           }
         } catch { /* ignore parse errors */ }
+      } else {
+        // Clear stale registration when server reports not-registered
+        try {
+          const stored = localStorage.getItem('brmble-server');
+          if (stored) {
+            const savedServer = JSON.parse(stored) as SavedServer;
+            if (savedServer.id && savedServer.registered) {
+              const updated = { ...savedServer, registered: false, registeredName: undefined };
+              bridge.send('servers.update', updated);
+              localStorage.setItem('brmble-server', JSON.stringify(updated));
+            }
+          }
+        } catch { /* ignore parse errors */ }
       }
     });
 
