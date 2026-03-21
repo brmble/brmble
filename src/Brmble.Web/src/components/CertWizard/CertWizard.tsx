@@ -315,10 +315,10 @@ export function CertWizard({ onComplete }: CertWizardProps) {
             </p>
             {error && <p style={{ color: 'var(--accent-danger-text)', fontSize: '0.85rem', marginBottom: '1rem' }}>{error}</p>}
             <div className="cert-wizard-actions">
-              <button className="cert-wizard-btn ghost" onClick={() => setStep('warning')}>
+              <button className="btn btn-ghost" onClick={() => setStep('warning')}>
                 Back
               </button>
-              <button className="cert-wizard-btn primary" onClick={handleImportClick}>
+              <button className="btn btn-primary" onClick={handleImportClick}>
                 Choose File…
               </button>
             </div>
