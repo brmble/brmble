@@ -337,6 +337,24 @@
   outline: none;
 }
 
+.server-list-username-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.server-list-input-registered {
+  padding-right: var(--space-xl) !important;
+}
+
+.server-list-registered-icon {
+  position: absolute;
+  right: var(--space-sm);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--accent-success, #4ade80);
+  pointer-events: none;
+}
+
 .server-list-input-host {
   flex: 2;
 }

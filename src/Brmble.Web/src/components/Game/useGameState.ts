@@ -1,9 +1,11 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
 import type { GameState, GameActions, Infrastructure, Service } from './types';
 import { INITIAL_STATE } from './types';
 import { applyTheme } from '../../themes/theme-loader';
+import { useProfileFingerprint } from '../../contexts/ProfileContext';
 
 const STORAGE_KEY = 'idle-farm-save';
+const THEME_KEY = 'idle-farm-theme';
 
 function calculateBandwidth(infra: Infrastructure[]): number {
   return infra.reduce((total, item) => {
@@ -59,8 +61,12 @@ function hasServices(state: unknown): state is GameState {
 }
 
 export function useGameState() {
+  const fingerprint = useProfileFingerprint();
+  const storageKey = fingerprint ? `${STORAGE_KEY}_${fingerprint}` : STORAGE_KEY;
+  const themeKey = fingerprint ? `${THEME_KEY}_${fingerprint}` : THEME_KEY;
+
   const [state, setState] = useState<GameState>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = localStorage.getItem(storageKey);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -95,10 +101,30 @@ export function useGameState() {
 
   useEffect(() => {
     const interval = setInterval(() => {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...stateRef.current, lastSaved: Date.now() }));
+      localStorage.setItem(storageKey, JSON.stringify({ ...stateRef.current, lastSaved: Date.now() }));
     }, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [storageKey]);
+
+  // Reload state when profile fingerprint changes
+  const fingerprintRef = useRef(fingerprint);
+  useLayoutEffect(() => {
+    if (fingerprint && fingerprint !== fingerprintRef.current) {
+      fingerprintRef.current = fingerprint;
+      const key = `${STORAGE_KEY}_${fingerprint}`;
+      const saved = localStorage.getItem(key);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (hasInfrastructure(parsed) && hasServices(parsed)) {
+            setState(parsed);
+            return;
+          }
+        } catch { /* ignore */ }
+      }
+      setState(INITIAL_STATE);
+    }
+  }, [fingerprint]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -227,15 +253,15 @@ export function useGameState() {
 
   const setTheme = useCallback((theme: string) => {
     applyTheme(theme);
-    localStorage.setItem('idle-farm-theme', theme);
-  }, []);
+    localStorage.setItem(themeKey, theme);
+  }, [themeKey]);
 
   const saveGame = useCallback(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, lastSaved: Date.now() }));
-  }, [state]);
+    localStorage.setItem(storageKey, JSON.stringify({ ...state, lastSaved: Date.now() }));
+  }, [state, storageKey]);
 
   const loadGame = useCallback(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = localStorage.getItem(storageKey);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -248,12 +274,12 @@ export function useGameState() {
         // Invalid save data
       }
     }
-  }, []);
+  }, [storageKey]);
 
   const resetGame = useCallback(() => {
-    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(storageKey);
     setState(INITIAL_STATE);
-  }, []);
+  }, [storageKey]);
 
   const exportSave = useCallback((): string => {
     return JSON.stringify(state);

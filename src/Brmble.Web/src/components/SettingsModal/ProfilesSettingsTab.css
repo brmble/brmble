@@ -1,0 +1,202 @@
+.profiles-items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.profiles-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  transition: all var(--transition-normal);
+  animation: profileItemFadeIn var(--animation-normal) ease backwards;
+}
+
+@keyframes profileItemFadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.profiles-item:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-primary);
+  transform: translateX(4px);
+}
+
+.profiles-item-active {
+  border-color: var(--accent-primary);
+  box-shadow: inset 0 0 0 1px var(--accent-primary-ghost);
+}
+
+.profiles-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-primary-dark) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--text-primary);
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px var(--accent-primary-glow);
+}
+
+.profiles-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.profiles-name {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.profiles-fingerprint {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.profiles-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+}
+
+.profiles-action-btn {
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--text-xs);
+}
+
+.profiles-delete-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: var(--text-xl);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  border: 1px solid var(--accent-danger-border);
+  transition: color var(--transition-fast), background var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.profiles-delete-btn:hover {
+  color: var(--accent-danger);
+  background: var(--accent-danger-subtle);
+  border-color: var(--accent-danger);
+}
+
+.profiles-delete-btn:active {
+  color: var(--accent-danger-strong);
+  background: var(--accent-danger-bg);
+  border-color: var(--accent-danger-strong);
+  transform: scale(0.95);
+}
+
+.profiles-form {
+  margin-top: var(--space-lg);
+  padding: var(--space-lg);
+  background: var(--bg-deep-glass);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  animation: formSlideIn var(--animation-normal) ease backwards;
+}
+
+.profiles-form-title {
+  margin-bottom: var(--space-lg);
+  text-align: center;
+}
+
+.profiles-form-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.profiles-form-actions {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: var(--space-lg);
+}
+
+.profiles-form-actions .btn {
+  flex: 1;
+}
+
+.profiles-add-btn {
+  width: 100%;
+  margin-top: var(--space-lg);
+  padding: var(--space-md);
+  border: 2px dashed var(--border-subtle);
+  border-radius: var(--radius-lg);
+}
+
+.profiles-add-btn:hover {
+  border-color: var(--accent-primary);
+  border-style: solid;
+}
+
+.profiles-add-icon {
+  font-size: var(--text-xl);
+  font-weight: 300;
+  color: var(--accent-primary);
+}
+
+.profiles-empty {
+  text-align: center;
+  padding: var(--space-2xl) var(--space-md);
+}
+
+.profiles-empty-icon {
+  font-size: var(--text-4xl);
+  margin-bottom: var(--space-md);
+  opacity: 0.6;
+}
+
+.profiles-empty p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-base);
+}
+
+.profiles-empty-hint {
+  margin-top: var(--space-xs) !important;
+  color: var(--text-muted) !important;
+  font-size: var(--text-sm) !important;
+}
+
+.profiles-input {
+  width: 100%;
+}
+
+.profiles-form-error {
+  font-size: var(--text-xs);
+  color: var(--accent-danger-text);
+  margin-top: var(--space-xs);
+}

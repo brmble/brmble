@@ -412,6 +412,14 @@ namespace MumbleSharp
                     user.Comment = userState.Comment;
                     triggerUserStateCommentChanged = true;
                 }
+                if (userState.ShouldSerializeUserId())
+                {
+                    user.RegisteredUserId = userState.UserId;
+                }
+                if (userState.ShouldSerializeHash())
+                {
+                    user.CertificateHash = userState.Hash;
+                }
 
                 if (userState.ShouldSerializeChannelId())
                 {
