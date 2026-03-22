@@ -71,9 +71,17 @@ public class AuthService : IActiveBrmbleSessions
     {
         lock (_lock)
         {
-            _activeNames.Add(mumbleName);
             if (certHash is not null)
+            {
+                if (_certToName.TryGetValue(certHash, out var existingName) && existingName != mumbleName)
+                {
+                    _activeNames.Remove(existingName);
+                }
+
                 _certToName[certHash] = mumbleName;
+            }
+
+            _activeNames.Add(mumbleName);
         }
     }
     public void UntrackMumbleName(string mumbleName)
