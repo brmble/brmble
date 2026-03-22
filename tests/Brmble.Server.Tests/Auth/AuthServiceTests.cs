@@ -170,4 +170,33 @@ public class AuthServiceTests
         Assert.AreEqual("syt_refresh_token", result.MatrixAccessToken);
         _mockMatrix!.Verify(m => m.LoginUser(It.IsAny<string>()), Times.Once);
     }
+
+    [TestMethod]
+    public async Task TrackMumbleName_AfterAuthenticate_IsBrmbleClientByName()
+    {
+        await _svc!.Authenticate("tracktest");
+        _svc.TrackMumbleName("TrackedUser");
+        Assert.IsTrue(_svc.IsBrmbleClientByName("TrackedUser"));
+    }
+
+    [TestMethod]
+    public async Task TrackMumbleName_WrongName_IsNotBrmbleClientByCorrectName()
+    {
+        // Simulates the bug scenario: tracking "WrongName" means
+        // IsBrmbleClientByName("RealName") returns false
+        await _svc!.Authenticate("mismatchtest");
+        _svc.TrackMumbleName("WrongName");
+        Assert.IsTrue(_svc.IsBrmbleClientByName("WrongName"));
+        Assert.IsFalse(_svc.IsBrmbleClientByName("RealName"));
+    }
+
+    [TestMethod]
+    public async Task Deactivate_RemovesTrackedName()
+    {
+        await _svc!.Authenticate("deactivatetrack");
+        _svc.TrackMumbleName("TrackedDeactivate", "deactivatetrack");
+        Assert.IsTrue(_svc.IsBrmbleClientByName("TrackedDeactivate"));
+        _svc.Deactivate("deactivatetrack");
+        Assert.IsFalse(_svc.IsBrmbleClientByName("TrackedDeactivate"));
+    }
 }
