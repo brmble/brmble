@@ -1884,6 +1884,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     {
         base.ServerSync(serverSync);
 
+        // Update _reconnectUsername to the Mumble-confirmed name so that
+        // credential fetch and future reconnects use the registered name
+        // instead of whatever the user originally typed.
+        if (LocalUser?.Name != null)
+            _reconnectUsername = LocalUser.Name;
+
         if (_activeServerId is not null)
         {
             _appConfigService?.SaveLastConnectedServerId(_activeServerId);
