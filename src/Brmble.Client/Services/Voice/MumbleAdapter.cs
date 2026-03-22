@@ -42,7 +42,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private volatile CancellationTokenSource? _reconnectCts;
     private string? _reconnectHost;
     private int _reconnectPort;
-    private string? _reconnectUsername;
+    private volatile string? _reconnectUsername;
     private string? _reconnectPassword;
     private string? _currentPttKey;
     private readonly Stopwatch _notifyThrottle = Stopwatch.StartNew();
@@ -1883,6 +1883,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     public override void ServerSync(ServerSync serverSync)
     {
         base.ServerSync(serverSync);
+
+        // Update _reconnectUsername to the Mumble-confirmed name so that
+        // credential fetch and future reconnects use the registered name
+        // instead of whatever the user originally typed.
+        if (LocalUser?.Name != null)
+            _reconnectUsername = LocalUser.Name;
 
         if (_activeServerId is not null)
         {
