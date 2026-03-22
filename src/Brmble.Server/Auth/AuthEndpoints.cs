@@ -72,20 +72,25 @@ public static class AuthEndpoints
                 return Results.StatusCode(500);
             }
 
-            if (!string.IsNullOrEmpty(mumbleUsername))
-                authService.TrackMumbleName(mumbleUsername);
+            // Use the authoritative display name from auth (which resolves
+            // the Mumble-registered name via ICE) rather than the raw
+            // mumbleUsername from the request body, which may differ for
+            // registered users who connected with a different name.
+            var resolvedName = result.DisplayName;
+            if (!string.IsNullOrEmpty(resolvedName))
+                authService.TrackMumbleName(resolvedName);
 
-            if (!string.IsNullOrEmpty(mumbleUsername) &&
-                sessionMapping.TryGetSessionId(mumbleUsername, out var sid))
+            if (!string.IsNullOrEmpty(resolvedName) &&
+                sessionMapping.TryGetSessionId(resolvedName, out var sid))
             {
-                if (sessionMapping.TryAddMatrixUser(sid, result.MatrixUserId, mumbleUsername, result.UserId))
+                if (sessionMapping.TryAddMatrixUser(sid, result.MatrixUserId, resolvedName, result.UserId))
                 {
                     await eventBus.BroadcastAsync(new
                     {
                         type = "userMappingAdded",
                         sessionId = sid,
                         matrixUserId = result.MatrixUserId,
-                        mumbleName = mumbleUsername
+                        mumbleName = resolvedName
                     });
                 }
             }
@@ -94,7 +99,7 @@ public static class AuthEndpoints
                 "Auth succeeded: CertHash={CertHash}, MatrixUserId={MatrixUserId}, MumbleName={MumbleName}",
                 certHash,
                 result.MatrixUserId,
-                mumbleUsername ?? "(none)");
+                resolvedName ?? "(none)");
 
             var roomMap = (await channelRepository.GetAllAsync())
                 .ToDictionary(m => m.MumbleChannelId.ToString(), m => m.MatrixRoomId);
