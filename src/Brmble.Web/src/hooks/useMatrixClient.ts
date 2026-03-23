@@ -272,26 +272,105 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     };
 
     const onMyMembership = (room: Room, membership: string) => {
-      if (membership === KnownMembership.Invite && room.getDMInviter()) {
-        client.joinRoom(room.roomId).then(() => {
-          const inviter = room.getDMInviter();
-          if (inviter) {
-            // Update local DM maps so timeline handler can route messages immediately
-            setDmRoomMap(prev => new Map(prev).set(inviter, room.roomId));
-            dmRoomMapRef.current = new Map(dmRoomMapRef.current).set(inviter, room.roomId);
-            roomIdToDMUserIdRef.current = new Map(roomIdToDMUserIdRef.current).set(room.roomId, inviter);
+      const inviter = room.getDMInviter();
+      if (!inviter) return;
 
-            // Update m.direct account data
-            const directEvent = client.getAccountData(EventType.Direct);
-            const directContent = (directEvent?.getContent() ?? {}) as Record<string, string[]>;
-            if (!directContent[inviter]?.includes(room.roomId)) {
-              directContent[inviter] = [room.roomId, ...(directContent[inviter] ?? [])];
-              client.setAccountData(EventType.Direct, directContent).catch(console.warn);
-            }
-          }
+      if (membership === KnownMembership.Invite) {
+        // Auto-join DM invites
+        client.joinRoom(room.roomId).then(() => {
+          trackDMRoom(room.roomId, inviter);
         }).catch(err => {
           console.warn(`[Matrix] Failed to auto-join DM room ${room.roomId}:`, err);
         });
+      } else if (membership === KnownMembership.Join) {
+        // Already joined — ensure it's tracked (covers rooms created by the other user
+        // that we joined but never added to m.direct)
+        if (!roomIdToDMUserIdRef.current.has(room.roomId)) {
+          trackDMRoom(room.roomId, inviter);
+        }
+      }
+    };
+
+    /** Add a DM room to local maps, persist to m.direct, and backfill messages from SDK timeline */
+    const trackDMRoom = (roomId: string, otherUserId: string) => {
+      // Update local DM maps so timeline handler can route messages immediately
+      setDmRoomMap(prev => new Map(prev).set(otherUserId, roomId));
+      dmRoomMapRef.current = new Map(dmRoomMapRef.current).set(otherUserId, roomId);
+      roomIdToDMUserIdRef.current = new Map(roomIdToDMUserIdRef.current).set(roomId, otherUserId);
+
+      // Update m.direct account data
+      const directEvent = client.getAccountData(EventType.Direct);
+      const directContent = (directEvent?.getContent() ?? {}) as Record<string, string[]>;
+      if (!directContent[otherUserId]?.includes(roomId)) {
+        directContent[otherUserId] = [roomId, ...(directContent[otherUserId] ?? [])];
+        client.setAccountData(EventType.Direct, directContent).catch(console.warn);
+      }
+
+      // Backfill: the SDK already has timeline events for this room that we missed
+      // because the room wasn't in our maps when onTimeline fired
+      const sdkRoom = client.getRoom(roomId);
+      if (sdkRoom) {
+        const timelineEvents = sdkRoom.getLiveTimeline().getEvents();
+        const backfillMsgs: ChatMessage[] = [];
+        for (const ev of timelineEvents) {
+          if (ev.getType() !== EventType.RoomMessage) continue;
+          const senderId = ev.getSender() ?? 'Unknown';
+          const senderMember = sdkRoom.getMember(senderId);
+          const displayName = senderMember?.rawDisplayName || senderMember?.name || senderId;
+
+          const content = ev.getContent() as {
+            body?: string;
+            msgtype?: string;
+            url?: string;
+            info?: { thumbnail_url?: string; w?: number; h?: number; mimetype?: string; size?: number };
+          };
+
+          let media: MediaAttachment[] | undefined;
+          if (content.msgtype === 'm.image' && content.url) {
+            const cl = clientRef.current;
+            const fullUrl = cl?.mxcUrlToHttp(content.url) ?? content.url;
+            const thumbUrl = content.info?.thumbnail_url
+              ? (cl?.mxcUrlToHttp(content.info.thumbnail_url, 400, 400, 'scale') ?? undefined)
+              : (cl?.mxcUrlToHttp(content.url, 400, 400, 'scale') ?? undefined);
+            media = [{
+              type: content.info?.mimetype?.toLowerCase() === 'image/gif' ? 'gif' : 'image',
+              url: fullUrl,
+              thumbnailUrl: thumbUrl,
+              width: content.info?.w,
+              height: content.info?.h,
+              mimetype: content.info?.mimetype,
+              size: content.info?.size,
+            }];
+          }
+
+          const rawBody = content.body ?? '';
+          const isBridgeBotSender = /^@brmble[_-]?/.test(senderId);
+          const bridgeMatch = isBridgeBotSender ? rawBody.match(/^\[(.+?)\]:\s*/) : null;
+          const messageSender = bridgeMatch ? bridgeMatch[1] : displayName;
+          const messageContent = bridgeMatch ? rawBody.slice(bridgeMatch[0].length) : rawBody;
+
+          backfillMsgs.push({
+            id: ev.getId() ?? crypto.randomUUID(),
+            channelId: otherUserId,
+            sender: messageSender,
+            senderMatrixUserId: senderId,
+            content: messageContent,
+            timestamp: new Date(ev.getTs()),
+            ...(media && { media }),
+          });
+        }
+
+        if (backfillMsgs.length > 0) {
+          setDmMessages(prev => {
+            const existing = prev.get(otherUserId) ?? [];
+            let merged = existing;
+            for (const msg of backfillMsgs) {
+              merged = insertMessage(merged, msg);
+            }
+            if (merged === existing) return prev;
+            return new Map(prev).set(otherUserId, merged);
+          });
+        }
       }
     };
 
