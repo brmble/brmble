@@ -278,7 +278,28 @@ function App() {
     return set;
   }, [matrixClient?.dmRoomMap]);
 
-  // Determine active Matrix room ID
+  // Per-panel Matrix room IDs for scoping mention suggestions
+  const channelMatrixRoomId = useMemo(() => {
+    if (currentChannelId && currentChannelId !== 'server-root' && matrixCredentials?.roomMap?.[currentChannelId]) {
+      return matrixCredentials.roomMap[currentChannelId];
+    }
+    return null;
+  }, [currentChannelId, matrixCredentials?.roomMap]);
+
+  const channelKey = currentChannelId === 'server-root' ? 'server-root' : currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
+  const { messages, addMessage } = useChatStore(channelKey);
+
+  const dmStore = useDMStore({
+    matrixDmMessages: matrixClient.dmMessages,
+    matrixDmRoomMap: matrixClient.dmRoomMap,
+    sendMatrixDM: matrixClient.sendDMMessage,
+    fetchDMHistory: matrixClient.fetchDMHistory,
+    users,
+    username,
+    bridgeSend: bridge.send,
+  });
+
+  // Determine active Matrix room ID (depends on dmStore.selectedContact)
   const activeMatrixRoomId = useMemo(() => {
     if (dmStore.selectedContact && matrixClient?.dmRoomMap) {
       const roomId = matrixClient.dmRoomMap.get(dmStore.selectedContact.id);
@@ -289,14 +310,6 @@ function App() {
     }
     return null;
   }, [dmStore.selectedContact, currentChannelId, matrixClient?.dmRoomMap, matrixCredentials?.roomMap]);
-
-  // Per-panel Matrix room IDs for scoping mention suggestions
-  const channelMatrixRoomId = useMemo(() => {
-    if (currentChannelId && currentChannelId !== 'server-root' && matrixCredentials?.roomMap?.[currentChannelId]) {
-      return matrixCredentials.roomMap[currentChannelId];
-    }
-    return null;
-  }, [currentChannelId, matrixCredentials?.roomMap]);
 
   const dmMatrixRoomId = useMemo(() => {
     if (dmStore.selectedContact && !dmStore.selectedContact.isEphemeral && matrixClient?.dmRoomMap) {
@@ -313,19 +326,10 @@ function App() {
     certFingerprint,
   );
 
-  const channelKey = currentChannelId === 'server-root' ? 'server-root' : currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
-  const { messages, addMessage } = useChatStore(channelKey);
-
-  const dmStore = useDMStore({
-    matrixDmMessages: matrixClient.dmMessages,
-    matrixDmRoomMap: matrixClient.dmRoomMap,
-    sendMatrixDM: matrixClient.sendDMMessage,
-    fetchDMHistory: matrixClient.fetchDMHistory,
-    users,
-    username,
-    bridgeSend: (event: string, data: unknown) => bridge.send(event, data),
-    matrixDmUnreadCount: unreadTracker.totalDmUnreadCount,
-  });
+  // Combine Matrix + Mumble DM unread counts (computed outside dmStore to avoid circular deps)
+  const totalDmUnreadCount = useMemo(() => {
+    return unreadTracker.totalDmUnreadCount + dmStore.mumbleUnreadCount;
+  }, [unreadTracker.totalDmUnreadCount, dmStore.mumbleUnreadCount]);
 
   const updateBadge = useCallback((unread: number, invite: boolean) => {
     const effectiveUnreadDMs = unread > 0;
@@ -1299,8 +1303,8 @@ const handleConnect = (serverData: SavedServer) => {
 
   // Push DM badge state to native side whenever unread count changes
   useEffect(() => {
-    updateBadge(dmStore.totalUnreadCount, hasPendingInvite);
-  }, [dmStore.totalUnreadCount, hasPendingInvite, updateBadge]);
+    updateBadge(totalDmUnreadCount, hasPendingInvite);
+  }, [totalDmUnreadCount, hasPendingInvite, updateBadge]);
 
   const handleStartDMFromContextMenu = useCallback((sessionIdStr: string, userName: string) => {
     const user = users.find(u => String(u.session) === sessionIdStr);
@@ -1543,7 +1547,7 @@ const handleConnect = (serverData: SavedServer) => {
         username={username}
         onToggleDM={connected ? toggleDMMode : undefined}
         dmActive={dmStore.appMode === 'dm'}
-        unreadDMCount={dmStore.totalUnreadCount}
+        unreadDMCount={totalDmUnreadCount}
         onOpenSettings={() => setShowSettings(true)}
         onAvatarClick={connected ? () => setShowAvatarEditor(true) : undefined}
         avatarUrl={currentUserAvatarUrl}

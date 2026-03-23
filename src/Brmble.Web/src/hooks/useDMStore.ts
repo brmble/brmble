@@ -27,7 +27,6 @@ export interface DMStoreOptions {
   users: User[];
   username: string;
   bridgeSend: (event: string, data: unknown) => void;
-  matrixDmUnreadCount: number;
 }
 
 export interface DMStore {
@@ -42,7 +41,7 @@ export interface DMStore {
   toggleMode: () => void;
   closeDM: (id: string) => void;
   receiveMumbleDM: (senderSession: number, senderName: string, text: string, media?: ChatMessage['media']) => void;
-  totalUnreadCount: number;
+  mumbleUnreadCount: number;
   appModeRef: React.RefObject<'channels' | 'dm'>;
   selectedContactIdRef: React.RefObject<string | null>;
 }
@@ -68,7 +67,6 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     users,
     username,
     bridgeSend,
-    matrixDmUnreadCount,
   } = options;
 
   // ---- Core state ----------------------------------------------------------
@@ -119,7 +117,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
 
       contacts.push({
         id: matrixUserId,
-        displayName: user?.name ?? matrixUserId,
+        displayName: user?.name ?? matrixUserId.split(':')[0].replace('@', ''),
         avatarUrl: user?.avatarUrl,
         lastMessage: lastMsg?.content,
         lastMessageTime: lastMsg?.timestamp.getTime(),
@@ -233,7 +231,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
       const contact = contacts.find(c => c.id === selectedContactId);
       if (contact?.sessionId != null) {
         bridgeSend('voice.sendPrivateMessage', {
-          sessionId: contact.sessionId,
+          targetSession: contact.sessionId,
           message: content,
         });
       }
@@ -310,7 +308,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
                 ...c,
                 lastMessage: text,
                 lastMessageTime: now.getTime(),
-                unreadCount: selectedContactIdRef.current === contactId ? c.unreadCount : c.unreadCount + 1,
+                unreadCount: (appModeRef.current === 'dm' && selectedContactIdRef.current === contactId) ? c.unreadCount : c.unreadCount + 1,
               }
             : c
         );
@@ -323,7 +321,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
           displayName: senderName,
           lastMessage: text,
           lastMessageTime: now.getTime(),
-          unreadCount: selectedContactIdRef.current === contactId ? 0 : 1,
+          unreadCount: (appModeRef.current === 'dm' && selectedContactIdRef.current === contactId) ? 0 : 1,
           isEphemeral: true,
           sessionId: senderSession,
         },
@@ -352,12 +350,11 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     }
   }, [selectedContactId]);
 
-  // ---- Total unread count --------------------------------------------------
+  // ---- Mumble unread count -------------------------------------------------
 
-  const totalUnreadCount = useMemo(() => {
-    const mumbleUnread = mumbleContacts.reduce((sum, c) => sum + c.unreadCount, 0);
-    return matrixDmUnreadCount + mumbleUnread;
-  }, [matrixDmUnreadCount, mumbleContacts]);
+  const mumbleUnreadCount = useMemo(() => {
+    return mumbleContacts.reduce((sum, c) => sum + c.unreadCount, 0);
+  }, [mumbleContacts]);
 
   // ---- Return --------------------------------------------------------------
 
@@ -373,7 +370,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     toggleMode,
     closeDM,
     receiveMumbleDM,
-    totalUnreadCount,
+    mumbleUnreadCount,
     appModeRef,
     selectedContactIdRef,
   };

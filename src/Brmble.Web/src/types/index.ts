@@ -50,14 +50,6 @@ export interface ChatMessage {
   pending?: boolean;
 }
 
-export interface DMConversation {
-  id: string;
-  recipientId: string;
-  recipientName: string;
-  messages: ChatMessage[];
-  unreadCount: number;
-}
-
 export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed' | 'disconnected';
 
 export type ServiceName = 'voice' | 'chat' | 'server' | 'livekit';
