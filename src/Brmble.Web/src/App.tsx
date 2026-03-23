@@ -297,7 +297,6 @@ function App() {
     fetchDMHistory: matrixClient.fetchDMHistory,
     users,
     username,
-    bridgeSend: bridge.send,
   });
 
   // Determine active Matrix room ID (depends on dmStore.selectedContact)
@@ -313,7 +312,7 @@ function App() {
   }, [dmStore.selectedContact, currentChannelId, matrixClient?.dmRoomMap, matrixCredentials?.roomMap]);
 
   const dmMatrixRoomId = useMemo(() => {
-    if (dmStore.selectedContact && !dmStore.selectedContact.isEphemeral && matrixClient?.dmRoomMap) {
+    if (dmStore.selectedContact && matrixClient?.dmRoomMap) {
       return matrixClient.dmRoomMap.get(dmStore.selectedContact.id) ?? null;
     }
     return null;
@@ -327,10 +326,10 @@ function App() {
     certFingerprint,
   );
 
-  // Combine Matrix + Mumble DM unread counts (computed outside dmStore to avoid circular deps)
+  // DM unread count from Matrix (computed outside dmStore to avoid circular deps)
   const totalDmUnreadCount = useMemo(() => {
-    return unreadTracker.totalDmUnreadCount + dmStore.mumbleUnreadCount;
-  }, [unreadTracker.totalDmUnreadCount, dmStore.mumbleUnreadCount]);
+    return unreadTracker.totalDmUnreadCount;
+  }, [unreadTracker.totalDmUnreadCount]);
 
   const updateBadge = useCallback((unread: number, invite: boolean) => {
     const effectiveUnreadDMs = unread > 0;
@@ -659,13 +658,7 @@ function App() {
         return;
       }
 
-      const { text: dmText, media: dmMedia } = parseMessageMedia(d.message);
-      dmStoreRef.current.receiveMumbleDM(
-        d.senderSession as number,
-        senderName,
-        dmText,
-        dmMedia.length > 0 ? dmMedia : undefined
-      );
+      // Private Mumble messages are ignored — DMs are Matrix-only
     });
 
     const onVoiceSystem = ((data: unknown) => {
@@ -1311,9 +1304,8 @@ const handleConnect = (serverData: SavedServer) => {
     const user = users.find(u => String(u.session) === sessionIdStr);
     if (user?.matrixUserId) {
       dmStore.startDM(user.matrixUserId, userName);
-    } else {
-      dmStore.selectContact(`mumble:session:${sessionIdStr}`);
     }
+    // Non-Brmble (Mumble-only) users can't receive DMs — do nothing
   }, [users, dmStore]);
 
   const activeChannelId = currentChannelId && currentChannelId !== 'server-root'
@@ -1499,7 +1491,7 @@ const handleConnect = (serverData: SavedServer) => {
       return;
     }
     // Only Matrix contacts have room IDs for unread tracking
-    if (dmStore.selectedContact.isEphemeral || !matrixClient?.dmRoomMap || !matrixClient?.client) {
+    if (!matrixClient?.dmRoomMap || !matrixClient?.client) {
       if (dmChanged) setDmDividerTs(null);
       return;
     }
@@ -1670,7 +1662,7 @@ const handleConnect = (serverData: SavedServer) => {
           selectedUserId={dmStore.selectedContact?.id ?? null}
           onSelectContact={(id: string, _name: string) => dmStore.selectContact(id)}
           onCloseConversation={dmStore.closeDM}
-          onlineUserIds={users.filter(u => !u.self).map(u => u.matrixUserId ?? `mumble:session:${u.session}`)}
+           onlineUserIds={users.filter(u => !u.self && u.matrixUserId).map(u => u.matrixUserId!)}
           visible={dmStore.appMode === 'dm'}
         />
       </div>

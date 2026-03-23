@@ -73,15 +73,12 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
               setContextMenu({ x: e.clientX, y: e.clientY, id: contact.id, displayName: contact.displayName });
             }}
           >
-            <Avatar user={{ name: contact.displayName, matrixUserId: contact.isEphemeral ? undefined : contact.id, avatarUrl: contact.avatarUrl }} size={28} isMumbleOnly={contact.isEphemeral} />
+            <Avatar user={{ name: contact.displayName, matrixUserId: contact.id, avatarUrl: contact.avatarUrl }} size={28} />
             <div className="dm-contact-info">
               <div className="dm-contact-name-row">
                 <Tooltip content="">
                 <span className="dm-contact-name">
                   {contact.displayName}
-                  {contact.isEphemeral && (
-                    <span className="dm-ephemeral-badge" title="Messages with this user won't be saved">!</span>
-                  )}
                 </span>
                 </Tooltip>
                 {contact.lastMessageTime && (
@@ -142,19 +139,15 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
 
       {infoDialogUser && (() => {
         const contact = contacts.find(c => c.id === infoDialogUser.id);
-        const isMumbleContact = infoDialogUser.id.startsWith('mumble:session:');
-        const sessionId = isMumbleContact
-          ? parseInt(infoDialogUser.id.replace('mumble:session:', ''))
-          : 0;
         return (
         <UserInfoDialog
           isOpen={true}
           onClose={() => setInfoDialogUser(null)}
           userName={infoDialogUser.displayName}
-          session={sessionId}
+          session={0}
           isSelf={false}
           comment={undefined}
-          matrixUserId={!isMumbleContact ? contact?.id : undefined}
+          matrixUserId={contact?.id}
           avatarUrl={contact?.avatarUrl}
           onStartDM={(userId, userName) => onSelectContact(userId, userName)}
         />
