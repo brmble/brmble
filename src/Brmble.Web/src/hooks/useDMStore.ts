@@ -77,6 +77,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
   const [mumbleDmMessages, setMumbleDmMessages] = useState<Map<string, ChatMessage[]>>(new Map());
   const [mumbleContacts, setMumbleContacts] = useState<DMContact[]>([]);
+  const [pendingMessages, setPendingMessages] = useState<Map<string, ChatMessage[]>>(new Map());
 
   // ---- Refs for bridge callbacks -------------------------------------------
 
@@ -99,6 +100,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
       setSelectedContactId(null);
       setMumbleDmMessages(new Map());
       setMumbleContacts([]);
+      setPendingMessages(new Map());
       appModeRef.current = 'channels';
       selectedContactIdRef.current = null;
     }
@@ -147,14 +149,16 @@ export function useDMStore(options: DMStoreOptions): DMStore {
   // ---- Messages for selected contact ---------------------------------------
 
   const messages: ChatMessage[] = useMemo(() => {
-    if (!selectedContact) return [];
+    if (!selectedContactId) return [];
 
-    if (selectedContact.isEphemeral) {
-      return mumbleDmMessages.get(selectedContact.id) ?? [];
+    if (!selectedContactId.startsWith('mumble:session:')) {
+      const matrixMsgs = matrixDmMessages?.get(selectedContactId) ?? [];
+      const pending = pendingMessages.get(selectedContactId) ?? [];
+      return [...matrixMsgs, ...pending];
     }
 
-    return matrixDmMessages?.get(selectedContact.id) ?? [];
-  }, [selectedContact, matrixDmMessages, mumbleDmMessages]);
+    return mumbleDmMessages.get(selectedContactId) ?? [];
+  }, [selectedContactId, matrixDmMessages, mumbleDmMessages, pendingMessages]);
 
   // ---- Actions -------------------------------------------------------------
 
@@ -197,46 +201,74 @@ export function useDMStore(options: DMStoreOptions): DMStore {
   }, []);
 
   const sendMessage = useCallback((content: string) => {
-    if (!selectedContact) return;
+    if (!selectedContactId) return;
 
-    if (selectedContact.isEphemeral) {
+    if (selectedContactId.startsWith('mumble:session:')) {
       // Mumble fallback path
       const now = new Date();
       const msg: ChatMessage = {
         id: crypto.randomUUID(),
-        channelId: selectedContact.id,
+        channelId: selectedContactId,
         sender: username,
         content,
         timestamp: now,
       };
 
       setMumbleDmMessages(prev => {
-        const existing = prev.get(selectedContact.id) ?? [];
+        const existing = prev.get(selectedContactId!) ?? [];
         const updated = new Map(prev);
-        updated.set(selectedContact.id, [...existing, msg]);
+        updated.set(selectedContactId!, [...existing, msg]);
         return updated;
       });
 
       // Update last message on contact
       setMumbleContacts(prev =>
         prev.map(c =>
-          c.id === selectedContact.id
+          c.id === selectedContactId
             ? { ...c, lastMessage: content, lastMessageTime: now.getTime() }
             : c
         )
       );
 
-      bridgeSend('voice.sendPrivateMessage', {
-        sessionId: selectedContact.sessionId,
-        message: content,
-      });
+      const contact = contacts.find(c => c.id === selectedContactId);
+      if (contact?.sessionId != null) {
+        bridgeSend('voice.sendPrivateMessage', {
+          sessionId: contact.sessionId,
+          message: content,
+        });
+      }
     } else {
-      // Matrix path
+      // Matrix path — insert optimistic local echo
+      const optimisticMsg: ChatMessage = {
+        id: `pending-${Date.now()}-${Math.random()}`,
+        channelId: selectedContactId,
+        sender: username,
+        content,
+        timestamp: new Date(),
+        pending: true,
+      };
+      setPendingMessages(prev => {
+        const next = new Map(prev);
+        const existing = next.get(selectedContactId!) ?? [];
+        next.set(selectedContactId!, [...existing, optimisticMsg]);
+        return next;
+      });
+
       if (sendMatrixDM) {
-        sendMatrixDM(selectedContact.id, content).catch(console.warn);
+        sendMatrixDM(selectedContactId, content)
+          .then(() => {
+            // Remove optimistic message -- the real one arrives via sync
+            setPendingMessages(prev => {
+              const next = new Map(prev);
+              const existing = next.get(selectedContactId!) ?? [];
+              next.set(selectedContactId!, existing.filter(m => m.id !== optimisticMsg.id));
+              return next;
+            });
+          })
+          .catch(console.error);
       }
     }
-  }, [selectedContact, username, bridgeSend, sendMatrixDM]);
+  }, [selectedContactId, contacts, username, bridgeSend, sendMatrixDM]);
 
   const receiveMumbleDM = useCallback((
     senderSession: number,

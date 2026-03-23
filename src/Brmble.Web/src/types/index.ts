@@ -47,6 +47,7 @@ export interface ChatMessage {
   type?: 'system';
   html?: boolean;
   media?: MediaAttachment[];
+  pending?: boolean;
 }
 
 export interface DMConversation {
