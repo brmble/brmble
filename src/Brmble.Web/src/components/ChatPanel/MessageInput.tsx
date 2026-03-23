@@ -8,9 +8,10 @@ interface MessageInputProps {
   onSend: (content: string) => void;
   placeholder?: string;
   mentionableUsers?: MentionableUser[];
+  disabled?: boolean;
 }
 
-export function MessageInput({ onSend, placeholder = 'Type a message...', mentionableUsers = [] }: MessageInputProps) {
+export function MessageInput({ onSend, placeholder = 'Type a message...', mentionableUsers = [], disabled }: MessageInputProps) {
   const [message, setMessage] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -207,7 +208,8 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           onSelect={handleSelect}
-          placeholder={placeholder}
+          placeholder={disabled ? 'User is offline' : placeholder}
+          disabled={disabled}
           rows={1}
           role="combobox"
           aria-expanded={mentionActive && filteredUsers.length > 0}
@@ -220,7 +222,7 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
         <button
           className="btn btn-primary btn-icon send-button"
           onClick={handleSend}
-          disabled={!message.trim()}
+          disabled={disabled || !message.trim()}
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <line x1="22" y1="2" x2="11" y2="13"></line>

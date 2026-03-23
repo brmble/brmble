@@ -1683,6 +1683,7 @@ const handleConnect = (serverData: SavedServer) => {
                     matrixRoomId={dmMatrixRoomId}
                     readMarkerTs={dmDividerTs}
                     users={users}
+                    disabled={dmStore.selectedContact?.isEphemeral === true && dmStore.selectedContact?.mumbleSessionId == null}
                   />
                   </ErrorBoundary>
                 </div>

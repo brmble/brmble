@@ -66,14 +66,14 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
         {filtered.map(contact => (
           <button
             key={contact.id}
-            className={`dm-contact-entry ${selectedUserId === contact.id ? 'active' : ''}`}
+            className={`dm-contact-entry ${selectedUserId === contact.id ? 'active' : ''} ${contact.isEphemeral && contact.mumbleSessionId == null ? 'offline' : ''}`}
             onClick={() => onSelectContact(contact.id, contact.displayName)}
             onContextMenu={(e) => {
               e.preventDefault();
               setContextMenu({ x: e.clientX, y: e.clientY, id: contact.id, displayName: contact.displayName });
             }}
           >
-            <Avatar user={{ name: contact.displayName, matrixUserId: contact.id, avatarUrl: contact.avatarUrl }} size={28} />
+            <Avatar user={{ name: contact.displayName, matrixUserId: contact.isEphemeral ? undefined : contact.id, avatarUrl: contact.avatarUrl }} size={28} />
             <div className="dm-contact-info">
               <div className="dm-contact-name-row">
                 <Tooltip content="">
@@ -81,6 +81,9 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
                   {contact.displayName}
                 </span>
                 </Tooltip>
+                {contact.isEphemeral && (
+                  <span className="dm-contact-ephemeral-tag">mumble</span>
+                )}
                 {contact.lastMessageTime && (
                   <span className="dm-contact-time">{formatTime(contact.lastMessageTime)}</span>
                 )}

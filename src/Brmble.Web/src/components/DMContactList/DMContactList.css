@@ -138,3 +138,22 @@
   justify-content: center;
   flex-shrink: 0;
 }
+
+.dm-contact-ephemeral-tag {
+  font-size: var(--text-2xs);
+  color: var(--text-muted);
+  background: var(--bg-deep);
+  padding: 0 var(--space-2xs);
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.dm-contact-entry.offline {
+  opacity: 0.5;
+}
+
+.dm-contact-entry.offline .dm-contact-name {
+  color: var(--text-muted);
+}
