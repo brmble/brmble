@@ -3,43 +3,31 @@ import { ContextMenu } from '../ContextMenu/ContextMenu';
 import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
 import { Tooltip } from '../Tooltip/Tooltip';
 import Avatar from '../Avatar/Avatar';
+import type { DMContact } from '../../hooks/useDMStore';
 import './DMContactList.css';
-
-interface DMContact {
-  userId: string;
-  userName: string;
-  lastMessage?: string;
-  lastMessageTime?: Date;
-  unread: number;
-  comment?: string;
-  matrixUserId?: string;
-  avatarUrl?: string;
-}
 
 interface DMContactListProps {
   contacts: DMContact[];
   selectedUserId: string | null;
-  onSelectContact: (userId: string, userName: string) => void;
-  onCloseConversation: (userId: string) => void;
+  onSelectContact: (id: string, displayName: string) => void;
+  onCloseConversation: (id: string) => void;
   onlineUserIds: string[];
   visible: boolean;
 }
 
-export type { DMContact };
-
 export function DMContactList({ contacts, selectedUserId, onSelectContact, onCloseConversation, onlineUserIds, visible }: DMContactListProps) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string } | null>(null);
-  const [infoDialogUser, setInfoDialogUser] = useState<{ userId: string; userName: string } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; id: string; displayName: string } | null>(null);
+  const [infoDialogUser, setInfoDialogUser] = useState<{ id: string; displayName: string } | null>(null);
 
   const filtered = contacts.filter(c =>
-    c.userName.toLowerCase().includes(searchQuery.toLowerCase())
+    c.displayName.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const formatTime = (date?: Date) => {
-    if (!date) return '';
-    const now = new Date();
-    const diff = now.getTime() - new Date(date).getTime();
+  const formatTime = (ts?: number) => {
+    if (!ts) return '';
+    const now = Date.now();
+    const diff = now - ts;
     const minutes = Math.floor(diff / 60000);
     if (minutes < 1) return 'now';
     if (minutes < 60) return `${minutes}m`;
@@ -77,19 +65,24 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
         )}
         {filtered.map(contact => (
           <button
-            key={contact.userId}
-            className={`dm-contact-entry ${selectedUserId === contact.userId ? 'active' : ''}`}
-            onClick={() => onSelectContact(contact.userId, contact.userName)}
+            key={contact.id}
+            className={`dm-contact-entry ${selectedUserId === contact.id ? 'active' : ''}`}
+            onClick={() => onSelectContact(contact.id, contact.displayName)}
             onContextMenu={(e) => {
               e.preventDefault();
-              setContextMenu({ x: e.clientX, y: e.clientY, userId: contact.userId, userName: contact.userName });
+              setContextMenu({ x: e.clientX, y: e.clientY, id: contact.id, displayName: contact.displayName });
             }}
           >
-            <Avatar user={{ name: contact.userName, matrixUserId: contact.matrixUserId, avatarUrl: contact.avatarUrl }} size={28} isMumbleOnly={!contact.matrixUserId} />
+            <Avatar user={{ name: contact.displayName, matrixUserId: contact.isEphemeral ? undefined : contact.id, avatarUrl: contact.avatarUrl }} size={28} isMumbleOnly={contact.isEphemeral} />
             <div className="dm-contact-info">
               <div className="dm-contact-name-row">
-                <Tooltip content={contact.comment || ''}>
-                <span className="dm-contact-name">{contact.userName}</span>
+                <Tooltip content="">
+                <span className="dm-contact-name">
+                  {contact.displayName}
+                  {contact.isEphemeral && (
+                    <span className="dm-ephemeral-badge" title="Messages with this user won't be saved">!</span>
+                  )}
+                </span>
                 </Tooltip>
                 {contact.lastMessageTime && (
                   <span className="dm-contact-time">{formatTime(contact.lastMessageTime)}</span>
@@ -99,8 +92,8 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
                 <span className="dm-contact-preview">{contact.lastMessage}</span>
               )}
             </div>
-            {contact.unread > 0 && (
-              <span className="dm-contact-unread">{contact.unread}</span>
+            {contact.unreadCount > 0 && (
+              <span className="dm-contact-unread">{contact.unreadCount}</span>
             )}
           </button>
         ))}
@@ -118,7 +111,7 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
                   <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                 </svg>
               ),
-              onClick: () => { onSelectContact(contextMenu.userId, contextMenu.userName); setContextMenu(null); },
+              onClick: () => { onSelectContact(contextMenu.id, contextMenu.displayName); setContextMenu(null); },
             },
             {
               label: 'User Information',
@@ -129,8 +122,8 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
                   <line x1="12" y1="12" x2="12" y2="16" />
                 </svg>
               ),
-              disabled: !onlineUserIds.includes(contextMenu.userId),
-              onClick: () => { setInfoDialogUser({ userId: contextMenu.userId, userName: contextMenu.userName }); setContextMenu(null); },
+              disabled: !onlineUserIds.includes(contextMenu.id),
+              onClick: () => { setInfoDialogUser({ id: contextMenu.id, displayName: contextMenu.displayName }); setContextMenu(null); },
             },
             {
               label: 'Close Conversation',
@@ -140,7 +133,7 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
                   <line x1="6" y1="6" x2="18" y2="18" />
                 </svg>
               ),
-              onClick: () => { onCloseConversation(contextMenu.userId); setContextMenu(null); },
+              onClick: () => { onCloseConversation(contextMenu.id); setContextMenu(null); },
             },
           ]}
           onClose={() => setContextMenu(null)}
@@ -148,16 +141,20 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
       )}
 
       {infoDialogUser && (() => {
-        const contact = contacts.find(c => c.userId === infoDialogUser.userId);
+        const contact = contacts.find(c => c.id === infoDialogUser.id);
+        const isMumbleContact = infoDialogUser.id.startsWith('mumble:session:');
+        const sessionId = isMumbleContact
+          ? parseInt(infoDialogUser.id.replace('mumble:session:', ''))
+          : 0;
         return (
         <UserInfoDialog
           isOpen={true}
           onClose={() => setInfoDialogUser(null)}
-          userName={infoDialogUser.userName}
-          session={parseInt(infoDialogUser.userId)}
+          userName={infoDialogUser.displayName}
+          session={sessionId}
           isSelf={false}
-          comment={contact?.comment}
-          matrixUserId={contact?.matrixUserId}
+          comment={undefined}
+          matrixUserId={!isMumbleContact ? contact?.id : undefined}
           avatarUrl={contact?.avatarUrl}
           onStartDM={(userId, userName) => onSelectContact(userId, userName)}
         />
