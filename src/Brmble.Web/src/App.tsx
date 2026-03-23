@@ -331,6 +331,18 @@ function App() {
     return unreadTracker.totalDmUnreadCount;
   }, [unreadTracker.totalDmUnreadCount]);
 
+  // Enrich DM contacts with per-contact unread counts from the unread tracker
+  const dmContactsWithUnreads = useMemo(() => {
+    if (!matrixClient?.dmRoomMap) return dmStore.contacts;
+    return dmStore.contacts.map(contact => {
+      const roomId = matrixClient.dmRoomMap?.get(contact.id);
+      if (!roomId) return contact;
+      const unread = unreadTracker.getRoomUnread(roomId);
+      if (unread.notificationCount === contact.unreadCount) return contact;
+      return { ...contact, unreadCount: unread.notificationCount };
+    });
+  }, [dmStore.contacts, matrixClient?.dmRoomMap, unreadTracker]);
+
   const updateBadge = useCallback((unread: number, invite: boolean) => {
     const effectiveUnreadDMs = unread > 0;
     bridge.send('notification.badge', { unreadDMs: effectiveUnreadDMs, pendingInvite: invite });
@@ -1658,7 +1670,7 @@ const handleConnect = (serverData: SavedServer) => {
         </main>
 
         <DMContactList
-          contacts={dmStore.contacts}
+          contacts={dmContactsWithUnreads}
           selectedUserId={dmStore.selectedContact?.id ?? null}
           onSelectContact={(id: string, _name: string) => dmStore.selectContact(id)}
           onCloseConversation={dmStore.closeDM}
