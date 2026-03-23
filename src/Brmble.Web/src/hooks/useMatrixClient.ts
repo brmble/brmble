@@ -400,5 +400,32 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     return null;
   }, []);
 
-  return { messages, sendMessage, fetchHistory, dmMessages, dmRoomMap, sendDMMessage, fetchDMHistory, fetchAvatarUrl, client };
+  // Resolve display names for DM partners from Matrix room membership.
+  // This works even when the other user isn't connected to Mumble.
+  const dmUserDisplayNames = useMemo(() => {
+    const names = new Map<string, string>();
+    if (!client || !dmRoomMap) return names;
+    const myUserId = credentials?.userId;
+    for (const [matrixUserId, roomId] of dmRoomMap) {
+      const room = client.getRoom(roomId);
+      if (!room) continue;
+      // Try to find the other member's display name from room state
+      const member = room.getMember(matrixUserId);
+      if (member?.name && member.name !== matrixUserId) {
+        names.set(matrixUserId, member.name);
+      } else {
+        // Fallback: scan all joined/invited members for anyone who isn't us
+        const members = room.getMembers();
+        for (const m of members) {
+          if (m.userId !== myUserId && m.name && m.name !== m.userId) {
+            names.set(matrixUserId, m.name);
+            break;
+          }
+        }
+      }
+    }
+    return names;
+  }, [client, dmRoomMap, credentials?.userId]);
+
+  return { messages, sendMessage, fetchHistory, dmMessages, dmRoomMap, dmUserDisplayNames, sendDMMessage, fetchDMHistory, fetchAvatarUrl, client };
 }

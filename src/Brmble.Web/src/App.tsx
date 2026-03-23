@@ -292,6 +292,7 @@ function App() {
   const dmStore = useDMStore({
     matrixDmMessages: matrixClient.dmMessages,
     matrixDmRoomMap: matrixClient.dmRoomMap,
+    matrixDmUserDisplayNames: matrixClient.dmUserDisplayNames,
     sendMatrixDM: matrixClient.sendDMMessage,
     fetchDMHistory: matrixClient.fetchDMHistory,
     users,

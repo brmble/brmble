@@ -22,6 +22,7 @@ export interface DMContact {
 export interface DMStoreOptions {
   matrixDmMessages: Map<string, ChatMessage[]> | undefined;
   matrixDmRoomMap: Map<string, string> | undefined;
+  matrixDmUserDisplayNames: Map<string, string> | undefined;
   sendMatrixDM: ((targetMatrixUserId: string, text: string) => Promise<void>) | undefined;
   fetchDMHistory: ((targetMatrixUserId: string) => Promise<void>) | undefined;
   users: User[];
@@ -62,6 +63,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
   const {
     matrixDmMessages,
     matrixDmRoomMap,
+    matrixDmUserDisplayNames,
     sendMatrixDM,
     fetchDMHistory,
     users,
@@ -115,9 +117,14 @@ export function useDMStore(options: DMStoreOptions): DMStore {
       const msgs = matrixDmMessages?.get(matrixUserId);
       const lastMsg = msgs && msgs.length > 0 ? msgs[msgs.length - 1] : undefined;
 
+      // Resolve display name: Matrix room membership > Mumble user list > parse Matrix ID
+      const displayName = matrixDmUserDisplayNames?.get(matrixUserId)
+        ?? user?.name
+        ?? matrixUserId.split(':')[0].replace('@', '');
+
       contacts.push({
         id: matrixUserId,
-        displayName: user?.name ?? matrixUserId.split(':')[0].replace('@', ''),
+        displayName,
         avatarUrl: user?.avatarUrl,
         lastMessage: lastMsg?.content,
         lastMessageTime: lastMsg?.timestamp.getTime(),
@@ -127,7 +134,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     }
 
     return contacts;
-  }, [matrixDmRoomMap, matrixDmMessages, users]);
+  }, [matrixDmRoomMap, matrixDmMessages, matrixDmUserDisplayNames, users]);
 
   // ---- Combined contacts ---------------------------------------------------
 
