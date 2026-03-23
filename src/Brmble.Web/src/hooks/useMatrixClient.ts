@@ -46,6 +46,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
   useEffect(() => { dmRoomMapRef.current = dmRoomMap; }, [dmRoomMap]);
 
   const roomIdToDMUserIdRef = useRef<Map<string, string>>(new Map());
+  const pendingRoomCreations = useRef(new Map<string, Promise<string>>());
   const lastSyncStateRef = useRef<string | null>(null);
 
   // Reverse lookup: matrixRoomId → mumbleChannelId
@@ -317,25 +318,42 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
 
     let roomId = dmRoomMapRef.current.get(targetMatrixUserId);
 
-    // Create DM room if it doesn't exist
     if (!roomId) {
-      const createResult = await client.createRoom({
-        is_direct: true,
-        invite: [targetMatrixUserId],
-        preset: Preset.TrustedPrivateChat,
-      });
-      roomId = createResult.room_id;
+      // Check if a room creation is already in flight for this user
+      const pending = pendingRoomCreations.current.get(targetMatrixUserId);
+      if (pending) {
+        roomId = await pending;
+      } else {
+        // Create room with mutex
+        const createPromise = (async () => {
+          const createResult = await client.createRoom({
+            is_direct: true,
+            invite: [targetMatrixUserId],
+            preset: Preset.TrustedPrivateChat,
+          });
+          const newRoomId = createResult.room_id;
 
-      // Update m.direct account data
-      const directEvent = client.getAccountData(EventType.Direct);
-      const directContent = (directEvent?.getContent() ?? {}) as Record<string, string[]>;
-      directContent[targetMatrixUserId] = [roomId, ...(directContent[targetMatrixUserId] ?? [])];
-      await client.setAccountData(EventType.Direct, directContent);
+          // Update m.direct account data
+          const directEvent = client.getAccountData(EventType.Direct);
+          const directContent = (directEvent?.getContent() ?? {}) as Record<string, string[]>;
+          directContent[targetMatrixUserId] = [newRoomId, ...(directContent[targetMatrixUserId] ?? [])];
+          await client.setAccountData(EventType.Direct, directContent);
 
-      // Update local state
-      setDmRoomMap(prev => new Map(prev).set(targetMatrixUserId, roomId!));
-      dmRoomMapRef.current = new Map(dmRoomMapRef.current).set(targetMatrixUserId, roomId);
-      roomIdToDMUserIdRef.current = new Map(roomIdToDMUserIdRef.current).set(roomId, targetMatrixUserId);
+          // Update local maps
+          setDmRoomMap(prev => new Map(prev).set(targetMatrixUserId, newRoomId));
+          dmRoomMapRef.current = new Map(dmRoomMapRef.current).set(targetMatrixUserId, newRoomId);
+          roomIdToDMUserIdRef.current = new Map(roomIdToDMUserIdRef.current).set(newRoomId, targetMatrixUserId);
+
+          return newRoomId;
+        })();
+
+        pendingRoomCreations.current.set(targetMatrixUserId, createPromise);
+        try {
+          roomId = await createPromise;
+        } finally {
+          pendingRoomCreations.current.delete(targetMatrixUserId);
+        }
+      }
     }
 
     await client.sendMessage(roomId, { msgtype: MsgType.Text, body: text });
