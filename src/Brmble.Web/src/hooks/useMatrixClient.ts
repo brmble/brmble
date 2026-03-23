@@ -78,6 +78,9 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       userId: credentials.userId,
     });
 
+    let isPrepared = false;
+    const bufferedDmEvents: Array<{ room: Room | undefined; event: MatrixEvent }> = [];
+
     const onTimeline = (event: MatrixEvent, room: Room | undefined) => {
       if (event.getType() !== EventType.RoomMessage) return;
       const channelId = roomIdToChannelId.get(room?.roomId ?? '');
@@ -140,7 +143,12 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
 
       // DM message handling
       const dmUserId = roomIdToDMUserIdRef.current.get(room?.roomId ?? '');
-      if (!dmUserId) return;
+      if (!dmUserId) {
+        if (!isPrepared && room?.roomId) {
+          bufferedDmEvents.push({ room, event });
+        }
+        return;
+      }
 
       const dmSenderId = event.getSender() ?? 'Unknown';
       const dmSenderMember = room?.getMember(dmSenderId);
@@ -222,10 +230,17 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       if (state === 'PREPARED' || state === 'SYNCING') {
         derivedState = 'connected';
         if (state === 'PREPARED') {
+          isPrepared = true;
           const directEvent = client.getAccountData(EventType.Direct);
           if (directEvent) {
             refreshDMRoomMaps(directEvent.getContent() as Record<string, string[]>);
           }
+
+          // Replay any DM timeline events that arrived before room maps were ready
+          for (const { room, event } of bufferedDmEvents) {
+            onTimeline(event, room);
+          }
+          bufferedDmEvents.length = 0;
         }
       } else if (state === 'ERROR') {
         derivedState = 'disconnected';
