@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { createClient, RoomEvent, ClientEvent, EventType, MsgType, Preset } from 'matrix-js-sdk';
+import { createClient, RoomEvent, ClientEvent, EventType, MsgType, Preset, KnownMembership } from 'matrix-js-sdk';
 import type { MatrixClient, MatrixEvent, Room } from 'matrix-js-sdk';
 import type { ChatMessage, MediaAttachment } from '../types';
 import { useServiceStatus } from './useServiceStatus';
@@ -255,13 +255,39 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       refreshDMRoomMaps(event.getContent() as Record<string, string[]>);
     };
 
+    const onMyMembership = (room: Room, membership: string) => {
+      if (membership === KnownMembership.Invite && room.getDMInviter()) {
+        client.joinRoom(room.roomId).then(() => {
+          const inviter = room.getDMInviter();
+          if (inviter) {
+            // Update local DM maps so timeline handler can route messages immediately
+            setDmRoomMap(prev => new Map(prev).set(inviter, room.roomId));
+            dmRoomMapRef.current = new Map(dmRoomMapRef.current).set(inviter, room.roomId);
+            roomIdToDMUserIdRef.current = new Map(roomIdToDMUserIdRef.current).set(room.roomId, inviter);
+
+            // Update m.direct account data
+            const directEvent = client.getAccountData(EventType.Direct);
+            const directContent = (directEvent?.getContent() ?? {}) as Record<string, string[]>;
+            if (!directContent[inviter]?.includes(room.roomId)) {
+              directContent[inviter] = [room.roomId, ...(directContent[inviter] ?? [])];
+              client.setAccountData(EventType.Direct, directContent).catch(console.warn);
+            }
+          }
+        }).catch(err => {
+          console.warn(`[Matrix] Failed to auto-join DM room ${room.roomId}:`, err);
+        });
+      }
+    };
+
     client.on(ClientEvent.Sync, onSync);
     client.on(ClientEvent.AccountData, onAccountData);
+    client.on(RoomEvent.MyMembership, onMyMembership);
 
     return () => {
       client.off(RoomEvent.Timeline, onTimeline);
       client.off(ClientEvent.Sync, onSync);
       client.off(ClientEvent.AccountData, onAccountData);
+      client.off(RoomEvent.MyMembership, onMyMembership);
       client.stopClient();
       clientRef.current = null;
       setClient(null);
