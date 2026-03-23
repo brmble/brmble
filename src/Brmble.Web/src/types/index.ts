@@ -25,6 +25,7 @@ export interface User {
   comment?: string;
   prioritySpeaker?: boolean;
   avatarUrl?: string;
+  certHash?: string;
 }
 
 export interface MediaAttachment {

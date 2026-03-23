@@ -686,7 +686,7 @@ function App() {
     });
 
     const onVoiceUserJoined = ((data: unknown) => {
-      const d = data as { session: number; name: string; channelId?: number; muted?: boolean; deafened?: boolean; self?: boolean; comment?: string; matrixUserId?: string } | undefined;
+      const d = data as { session: number; name: string; channelId?: number; muted?: boolean; deafened?: boolean; self?: boolean; comment?: string; matrixUserId?: string; certHash?: string } | undefined;
       if (d?.session && d.channelId !== undefined) {
         const previousChannelId = previousChannelIdRef.current.get(d.session);
         
@@ -751,7 +751,7 @@ function App() {
     });
 
     const onVoiceUserLeft = ((data: unknown) => {
-      const d = data as { session: number; name?: string; channelId?: number } | undefined;
+      const d = data as { session: number; name?: string; channelId?: number; certHash?: string } | undefined;
       if (d?.session) {
         const selfUser = usersRef.current.find(u => u.self);
         const userName = d.name;
