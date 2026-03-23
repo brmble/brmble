@@ -122,6 +122,7 @@ interface User {
   comment?: string;
   matrixUserId?: string;
   avatarUrl?: string;
+  certHash?: string;
 }
 
 
@@ -297,6 +298,9 @@ function App() {
     fetchDMHistory: matrixClient.fetchDMHistory,
     users,
     username,
+    sendMumbleDM: (targetSession: number, text: string) => {
+      bridge.send('voice.sendPrivateMessage', { message: text, targetSession });
+    },
   });
 
   // Determine active Matrix room ID (depends on dmStore.selectedContact)
@@ -326,15 +330,23 @@ function App() {
     certFingerprint,
   );
 
-  // DM unread count from Matrix (computed outside dmStore to avoid circular deps)
+  // DM unread count from Matrix + Mumble ephemeral contacts
   const totalDmUnreadCount = useMemo(() => {
-    return unreadTracker.totalDmUnreadCount;
-  }, [unreadTracker.totalDmUnreadCount]);
+    let total = unreadTracker.totalDmUnreadCount;
+    // Add Mumble DM unreads
+    for (const contact of dmStore.contacts) {
+      if (contact.isEphemeral) {
+        total += contact.unreadCount;
+      }
+    }
+    return total;
+  }, [unreadTracker.totalDmUnreadCount, dmStore.contacts]);
 
   // Enrich DM contacts with per-contact unread counts from the unread tracker
   const dmContactsWithUnreads = useMemo(() => {
     if (!matrixClient?.dmRoomMap) return dmStore.contacts;
     return dmStore.contacts.map(contact => {
+      if (contact.isEphemeral) return contact; // Mumble contacts track their own unreads
       const roomId = matrixClient.dmRoomMap?.get(contact.id);
       if (!roomId) return contact;
       const unread = unreadTracker.getRoomUnread(roomId);
@@ -638,6 +650,7 @@ function App() {
         senderSession?: number;
         channelIds?: number[];
         sessions?: number[];
+        certHash?: string;
       } | undefined;
       if (!d?.message) return;
 
@@ -670,7 +683,10 @@ function App() {
         return;
       }
 
-      // Private Mumble messages are ignored — DMs are Matrix-only
+      // Private Mumble message → route to DM store
+      if (d.certHash) {
+        dmStoreRef.current.receiveMumbleDM(d.certHash, d.senderSession!, senderName, d.message);
+      }
     });
 
     const onVoiceSystem = ((data: unknown) => {
@@ -708,6 +724,11 @@ function App() {
         }
         
         previousChannelIdRef.current.set(d.session, d.channelId);
+
+        // Update Mumble DM contact session on reconnect
+        if (d.certHash && !d.self) {
+          dmStoreRef.current.updateMumbleSession(d.certHash, d.session, d.name);
+        }
       }
     });
 
@@ -764,6 +785,14 @@ function App() {
         ) {
           speakText(`${userName} left`);
         }
+
+        // Update Mumble DM contact session to null (offline)
+        const leavingUser = usersRef.current.find(u => u.session === d.session);
+        const certHash = d.certHash || leavingUser?.certHash;
+        if (certHash) {
+          dmStoreRef.current.updateMumbleSession(certHash, null);
+        }
+
         setUsers(prev => prev.filter(u => u.session !== d.session));
       }
     });
@@ -1316,8 +1345,10 @@ const handleConnect = (serverData: SavedServer) => {
     const user = users.find(u => String(u.session) === sessionIdStr);
     if (user?.matrixUserId) {
       dmStore.startDM(user.matrixUserId, userName);
+    } else if (user?.certHash) {
+      dmStore.startMumbleDM(user.certHash, user.session, userName);
     }
-    // Non-Brmble (Mumble-only) users can't receive DMs — do nothing
+    // Users with neither matrixUserId nor certHash can't receive DMs
   }, [users, dmStore]);
 
   const activeChannelId = currentChannelId && currentChannelId !== 'server-root'
