@@ -2110,6 +2110,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 channelId = previousUserChannel,
                 previousChannelId = previousUserChannel,
                 currentChannelId = currentChannelId,
+                certHash = user?.CertificateHash,
                 moved = true
             });
             Debug.WriteLine($"[Mumble] User left our channel: {leftUserName} (session: {userState.Session})");
@@ -2125,6 +2126,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             deafened = user != null ? (user.Deaf || user.SelfDeaf) : (userState.Deaf || userState.SelfDeaf),
             self = isSelf,
             comment = user?.Comment,
+            certHash = user?.CertificateHash,
             matrixUserId = _sessionMappings.TryGetValue(userState.Session, out var sm)
                 ? sm.MatrixUserId
                 : _userMappings.GetValueOrDefault(joinedUserName)
@@ -2203,7 +2205,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         _audioManager?.RemoveUser(userRemove.Session);
         var channelId = user?.Channel?.Id;
-        _bridge?.Send("voice.userLeft", new { session = userRemove.Session, name = userName, channelId, moved = false });
+        var certHash = user?.CertificateHash;
+        _bridge?.Send("voice.userLeft", new { session = userRemove.Session, name = userName, channelId, certHash, moved = false });
 
         // Emit system message
         if (isSelf)
@@ -2256,12 +2259,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     public override void TextMessage(TextMessage textMessage)
     {
         base.TextMessage(textMessage);
+        UserDictionary.TryGetValue(textMessage.Actor, out var senderUser);
         _bridge?.Send("voice.message", new
         {
             message = textMessage.Message,
             senderSession = textMessage.Actor,
             channelIds = textMessage.ChannelIds ?? Array.Empty<uint>(),
             sessions = textMessage.Sessions ?? Array.Empty<uint>(),
+            certHash = senderUser?.CertificateHash,
         });
     }
 
