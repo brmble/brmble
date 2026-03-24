@@ -280,6 +280,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         {
             _apiUrl = null;
             _activeServerId = null;
+            _reconnectPassword = null;
         }
         _leftVoice = false;
         _leaveVoiceInProgress = false;
@@ -1447,8 +1448,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _reconnectPassword = password;
 
             await Task.Run(() => Connect(host, port, username, password, apiUrl));
-
-            _reconnectPassword = null;
         }
         catch (Exception ex)
         {
