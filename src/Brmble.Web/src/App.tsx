@@ -559,9 +559,9 @@ function App() {
           if (stored) {
             const savedServer = JSON.parse(stored) as SavedServer;
             if (savedServer.id) {
-              const { password, ...safeServerData } = savedServer;
-              const updated = { ...safeServerData, registered: true, username: reg.registeredName ?? savedServer.username, registeredName: reg.registeredName };
-              bridge.send('servers.update', updated);
+              const { password } = savedServer;
+              const updated = { ...savedServer, registered: true, username: reg.registeredName ?? savedServer.username, registeredName: reg.registeredName };
+              bridge.send('servers.update', { ...updated, password });
               localStorage.setItem('brmble-server', JSON.stringify(updated));
             }
           }
@@ -573,9 +573,9 @@ function App() {
           if (stored) {
             const savedServer = JSON.parse(stored) as SavedServer;
             if (savedServer.id && savedServer.registered) {
-              const { password, ...safeServerData } = savedServer;
-              const updated = { ...safeServerData, registered: false, registeredName: undefined };
-              bridge.send('servers.update', updated);
+              const { password } = savedServer;
+              const updated = { ...savedServer, registered: false, registeredName: undefined };
+              bridge.send('servers.update', { ...updated, password });
               localStorage.setItem('brmble-server', JSON.stringify(updated));
             }
           }

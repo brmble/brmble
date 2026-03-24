@@ -312,7 +312,9 @@ internal sealed class AppConfigService : IAppConfigService
             {
                 var json = File.ReadAllText(_configPath);
                 var data = JsonSerializer.Deserialize<ConfigData>(json, _jsonOptions);
-                _servers = data?.Servers ?? new List<ServerEntry>();
+                _servers = (data?.Servers ?? new List<ServerEntry>())
+                    .Select(s => s with { Password = TryDecryptPassword(s.Password, _passwordStorage) })
+                    .ToList();
                 _settings = data?.Settings ?? AppSettings.Default;
                 _windowState = data?.Window;
                 _closePreference = data?.ClosePreference;
@@ -330,7 +332,9 @@ internal sealed class AppConfigService : IAppConfigService
             {
                 var json = File.ReadAllText(_legacyServersPath);
                 var legacy = JsonSerializer.Deserialize<LegacyServerlistData>(json);
-                _servers = legacy?.Servers ?? new List<ServerEntry>();
+                _servers = (legacy?.Servers ?? new List<ServerEntry>())
+                    .Select(s => s with { Password = TryDecryptPassword(s.Password, _passwordStorage) })
+                    .ToList();
                 Save(); // write config.json immediately
                 MigrateIdentityPfx();
                 return;
@@ -376,8 +380,9 @@ internal sealed class AppConfigService : IAppConfigService
         {
             return _passwordStorage.Encrypt(password);
         }
-        catch
+        catch (Exception ex)
         {
+            System.Diagnostics.Debug.WriteLine($"[AppConfigService] WARNING: Failed to encrypt password (storing plaintext): {ex.Message}");
             return password;
         }
     }

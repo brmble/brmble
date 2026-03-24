@@ -106,9 +106,10 @@ public class AppConfigServiceTests
 
         var configPath = Path.Combine(_tempDir, "config.json");
         var json = File.ReadAllText(configPath);
-        Assert.IsTrue(json.Contains("DPAPI:"), "Password should be encrypted in config");
+        Assert.IsTrue(json.Contains("DPAPI:v1:"), "Password should be encrypted in config");
 
-        var loadedServers = svc.GetServers();
+        var svc2 = new AppConfigService(_tempDir, null);
+        var loadedServers = svc2.GetServers();
         Assert.AreEqual(1, loadedServers.Count);
         Assert.AreEqual("plainTextPassword123", loadedServers[0].Password);
     }

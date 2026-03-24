@@ -5,7 +5,7 @@ namespace Brmble.Client.Services.Security;
 
 public class SecurePasswordStorage : ISecurePasswordStorage
 {
-    private const string Prefix = "DPAPI:";
+    private const string Prefix = "DPAPI:v1:";
     private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("Brmble.SecureStorage.v1");
 
     public string Encrypt(string plainText)
@@ -76,7 +76,7 @@ public class SecurePasswordStorage : ISecurePasswordStorage
 
     public bool IsEncrypted(string value)
     {
-        if (string.IsNullOrEmpty(value) || !value.StartsWith(Prefix))
+        if (string.IsNullOrEmpty(value) || !value.StartsWith(Prefix, StringComparison.Ordinal))
         {
             return false;
         }
