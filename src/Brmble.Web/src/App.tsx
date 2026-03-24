@@ -723,7 +723,6 @@ function App() {
     });
 
     const onVoiceChannelJoined = ((data: unknown) => {
-      clearPendingAction();
       const d = data as { id: number; name: string; parent?: number } | undefined;
       if (d?.id !== undefined) {
         setChannels(prev => {
