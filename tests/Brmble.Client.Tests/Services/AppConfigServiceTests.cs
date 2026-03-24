@@ -97,6 +97,23 @@ public class AppConfigServiceTests
     }
 
     [TestMethod]
+    public void MigratesPlainTextPasswords_ToEncrypted()
+    {
+        var svc = new AppConfigService(_tempDir, null);
+        var server = new ServerEntry("id1", "Test", null, "localhost", 64738, "alice", "plainTextPassword123");
+
+        svc.AddServer(server);
+
+        var configPath = Path.Combine(_tempDir, "config.json");
+        var json = File.ReadAllText(configPath);
+        Assert.IsTrue(json.Contains("DPAPI:"), "Password should be encrypted in config");
+
+        var loadedServers = svc.GetServers();
+        Assert.AreEqual(1, loadedServers.Count);
+        Assert.AreEqual("plainTextPassword123", loadedServers[0].Password);
+    }
+
+    [TestMethod]
     public void SavesAndReloads_WindowState()
     {
         var svc = new AppConfigService(_tempDir, null);
