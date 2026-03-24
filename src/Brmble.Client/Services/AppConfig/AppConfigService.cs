@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Brmble.Client.Bridge;
+using Brmble.Client.Services.Security;
 using Brmble.Client.Services.Serverlist;
 
 namespace Brmble.Client.Services.AppConfig;
@@ -28,20 +29,22 @@ internal sealed class AppConfigService : IAppConfigService
     private Dictionary<string, Dictionary<string, RegistrationInfo>> _profileRegistrations = new();
     private readonly string _certsDir;
     private readonly object _lock = new();
+    private readonly ISecurePasswordStorage _passwordStorage;
 
     public string ServiceName => "appConfig";
 
     /// <summary>Optional callback invoked after settings are updated via SetSettings.</summary>
     public Action<AppSettings>? OnSettingsChanged { get; set; }
 
-    public AppConfigService() : this(GetDefaultDir()) { }
+    public AppConfigService() : this(GetDefaultDir(), null) { }
 
-    internal AppConfigService(string dir)
+    internal AppConfigService(string dir, ISecurePasswordStorage? passwordStorage)
     {
         _dir = dir;
         _configPath = Path.Combine(dir, "config.json");
         _legacyServersPath = Path.Combine(dir, "servers.json");
         _certsDir = Path.Combine(dir, "certs");
+        _passwordStorage = passwordStorage ?? new SecurePasswordStorage();
         Directory.CreateDirectory(_certsDir);
         Load();
     }
@@ -68,7 +71,7 @@ internal sealed class AppConfigService : IAppConfigService
 
         bridge.RegisterHandler("servers.add", async data =>
         {
-            var entry = ParseServerEntry(data);
+            var entry = ParseServerEntry(data, _passwordStorage);
             if (entry != null)
             {
                 AddServer(entry);
@@ -79,7 +82,7 @@ internal sealed class AppConfigService : IAppConfigService
 
         bridge.RegisterHandler("servers.update", async data =>
         {
-            var entry = ParseServerEntry(data);
+            var entry = ParseServerEntry(data, _passwordStorage);
             if (entry != null)
             {
                 var merged = UpdateServer(entry);
@@ -350,8 +353,15 @@ internal sealed class AppConfigService : IAppConfigService
 
     private void Save()
     {
+        var encryptedServers = _servers.Select(s => s with
+        {
+            Password = string.IsNullOrEmpty(s.Password) || _passwordStorage.IsEncrypted(s.Password)
+                ? s.Password
+                : _passwordStorage.Encrypt(s.Password)
+        }).ToList();
+
         var data = new ConfigData {
-            Servers = _servers, Settings = _settings, Window = _windowState,
+            Servers = encryptedServers, Settings = _settings, Window = _windowState,
             ClosePreference = _closePreference, LastConnectedServerId = _lastConnectedServerId,
             ZoomFactor = _zoomFactor, Profiles = _profiles, ActiveProfileId = _activeProfileId,
             ProfileRegistrations = _profileRegistrations
@@ -359,7 +369,7 @@ internal sealed class AppConfigService : IAppConfigService
         File.WriteAllText(_configPath, JsonSerializer.Serialize(data, _jsonOptions));
     }
 
-    private static ServerEntry? ParseServerEntry(System.Text.Json.JsonElement data)
+    private static ServerEntry? ParseServerEntry(System.Text.Json.JsonElement data, ISecurePasswordStorage passwordStorage)
     {
         if (!data.TryGetProperty("id", out var idEl))
             return null;
@@ -371,7 +381,8 @@ internal sealed class AppConfigService : IAppConfigService
         var label = data.TryGetProperty("label", out var labelEl) ? labelEl.GetString() ?? "" : "";
         var username = data.TryGetProperty("username", out var usernameEl) ? usernameEl.GetString() ?? "" : "";
         var apiUrl = data.TryGetProperty("apiUrl", out var apiEl) ? apiEl.GetString() : null;
-        var password = data.TryGetProperty("password", out var pwEl) ? pwEl.GetString() ?? "" : "";
+        var passwordRaw = data.TryGetProperty("password", out var pwEl) ? pwEl.GetString() ?? "" : "";
+        var password = passwordStorage.IsEncrypted(passwordRaw) ? passwordStorage.Decrypt(passwordRaw) : passwordRaw;
         var registered = data.TryGetProperty("registered", out var regEl) && regEl.ValueKind == System.Text.Json.JsonValueKind.True;
         var registeredName = data.TryGetProperty("registeredName", out var rnEl) ? rnEl.GetString() : null;
 
