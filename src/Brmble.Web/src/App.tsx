@@ -1370,22 +1370,22 @@ const handleConnect = (serverData: SavedServer) => {
 
   const handleStartDMFromContextMenu = useCallback((sessionIdStr: string, userName: string) => {
     const user = users.find(u => String(u.session) === sessionIdStr);
-    // If the user has a certHash and an existing Mumble DM contact, prefer that
-    // (handles Brmble-registered users connected via plain Mumble client who already sent a DM)
-    if (user?.certHash) {
+
+    // Route based on whether the user is on a Brmble client
+    if (user?.isBrmbleClient && user.matrixUserId) {
+      // Brmble client → Matrix DM (persistent)
+      dmStore.startDM(user.matrixUserId, userName);
+    } else if (user?.certHash) {
+      // Mumble client (even if Brmble-registered) → Mumble DM (ephemeral)
+      // Check for existing ephemeral contact first
       const existingMumbleContact = dmStore.contacts.find(c => c.isEphemeral && c.mumbleCertHash === user.certHash);
       if (existingMumbleContact) {
         dmStore.selectContact(existingMumbleContact.id);
-        return;
+      } else {
+        dmStore.startMumbleDM(user.certHash, user.session, userName);
       }
-    }
-
-    if (user?.matrixUserId) {
-      dmStore.startDM(user.matrixUserId, userName);
-    } else if (user?.certHash) {
-      dmStore.startMumbleDM(user.certHash, user.session, userName);
     } else {
-      console.warn('[DM] Cannot start DM: user has no matrixUserId or certHash');
+      console.warn('[DM] Cannot start DM: user has no certHash');
     }
   }, [users, dmStore]);
 

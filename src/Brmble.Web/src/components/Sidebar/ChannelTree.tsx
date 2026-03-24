@@ -19,6 +19,7 @@ interface User {
   comment?: string;
   matrixUserId?: string;
   avatarUrl?: string;
+  isBrmbleClient?: boolean;
 }
 
 interface Channel {
@@ -282,10 +283,10 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                     </>
                   )}
                 </span>
-                <Avatar user={{ name: user.name, matrixUserId: user.matrixUserId, avatarUrl: user.avatarUrl }} size={20} isMumbleOnly={!user.self && !user.matrixUserId} />
+                <Avatar user={{ name: user.name, matrixUserId: user.matrixUserId, avatarUrl: user.avatarUrl }} size={20} isMumbleOnly={!user.self && !user.isBrmbleClient} />
                 <span className="user-name">{user.name}</span>
                 {user.self && <span className="self-badge">(you)</span>}
-                {user.matrixUserId && <Tooltip content="Brmble user"><span className="brmble-badge" /></Tooltip>}
+                {user.isBrmbleClient && <Tooltip content="Brmble user"><span className="brmble-badge" /></Tooltip>}
                 {user.session === sharingUserSession && (
                   <span className="sharing-badge">Sharing</span>
                 )}

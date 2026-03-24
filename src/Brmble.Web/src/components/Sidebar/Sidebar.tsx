@@ -280,7 +280,7 @@ export function Sidebar({
                     </>
                   )}
                 </span>
-                <Avatar user={{ name: user.name, matrixUserId: user.matrixUserId, avatarUrl: user.avatarUrl }} size={20} isMumbleOnly={!user.self && !user.matrixUserId} />
+                <Avatar user={{ name: user.name, matrixUserId: user.matrixUserId, avatarUrl: user.avatarUrl }} size={20} isMumbleOnly={!user.self && !user.isBrmbleClient} />
                 <span className="root-user-name">{user.name}</span>
                 {user.self && <span className="root-self-badge">you</span>}
                 {user.session === sharingUserSession && (
