@@ -198,6 +198,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             var connection = new MumbleConnection(host, port, this, voiceSupport: true);
             connection.Connect(username, password, Array.Empty<string>(), "Brmble");
 
+            Task.Run(() => {
+                Thread.Sleep(5000);
+                _reconnectPassword = null;
+            });
+
             _cts = new CancellationTokenSource();
             _processThread = new Thread(() => ProcessLoop(_cts.Token))
             {
@@ -1442,6 +1447,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _reconnectPassword = password;
 
             await Task.Run(() => Connect(host, port, username, password, apiUrl));
+
+            _reconnectPassword = null;
         }
         catch (Exception ex)
         {
