@@ -8,17 +8,20 @@ public class SessionMappingHandler : IMumbleEventHandler
     private readonly ISessionMappingService _sessionMapping;
     private readonly IBrmbleEventBus _eventBus;
     private readonly UserRepository _userRepository;
+    private readonly IActiveBrmbleSessions _activeSessions;
     private readonly ILogger<SessionMappingHandler> _logger;
 
     public SessionMappingHandler(
         ISessionMappingService sessionMapping,
         IBrmbleEventBus eventBus,
         UserRepository userRepository,
+        IActiveBrmbleSessions activeSessions,
         ILogger<SessionMappingHandler> logger)
     {
         _sessionMapping = sessionMapping;
         _eventBus = eventBus;
         _userRepository = userRepository;
+        _activeSessions = activeSessions;
         _logger = logger;
     }
 
@@ -29,17 +32,20 @@ public class SessionMappingHandler : IMumbleEventHandler
         var dbUser = await _userRepository.GetByCertHash(user.CertHash);
         if (dbUser is null) return;
 
+        var isBrmbleClient = _activeSessions.IsBrmbleClient(user.CertHash);
+
         if (_sessionMapping.TryAddMatrixUser(user.SessionId, dbUser.MatrixUserId, user.Name, dbUser.Id))
         {
             _logger.LogInformation(
-                "Mapped session {Session} ({Name}) to {MatrixUserId} via cert",
-                user.SessionId, user.Name, dbUser.MatrixUserId);
+                "Mapped session {Session} ({Name}) to {MatrixUserId} via cert (brmbleClient={IsBrmble})",
+                user.SessionId, user.Name, dbUser.MatrixUserId, isBrmbleClient);
             await _eventBus.BroadcastAsync(new
             {
                 type = "userMappingAdded",
                 sessionId = user.SessionId,
                 matrixUserId = dbUser.MatrixUserId,
-                mumbleName = user.Name
+                mumbleName = user.Name,
+                isBrmbleClient
             });
         }
     }

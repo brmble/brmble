@@ -1,6 +1,6 @@
 namespace Brmble.Server.Events;
 
-public record SessionMapping(string MatrixUserId, string MumbleName, long UserId);
+public record SessionMapping(string MatrixUserId, string MumbleName, long UserId, bool IsBrmbleClient = false);
 
 public interface ISessionMappingService
 {

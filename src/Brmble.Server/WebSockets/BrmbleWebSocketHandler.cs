@@ -46,7 +46,7 @@ public static class BrmbleWebSocketHandler
             var snapshot = sessionMapping.GetSnapshot()
                 .ToDictionary(
                     kvp => kvp.Key.ToString(),
-                    kvp => new { matrixUserId = kvp.Value.MatrixUserId, mumbleName = kvp.Value.MumbleName });
+                    kvp => new { matrixUserId = kvp.Value.MatrixUserId, mumbleName = kvp.Value.MumbleName, isBrmbleClient = kvp.Value.IsBrmbleClient });
             var snapshotJson = JsonSerializer.Serialize(new { type = "sessionMappingSnapshot", mappings = snapshot }, JsonOptions);
             var snapshotBytes = Encoding.UTF8.GetBytes(snapshotJson);
             await ws.SendAsync(snapshotBytes, WebSocketMessageType.Text, true, context.RequestAborted);
