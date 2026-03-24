@@ -687,7 +687,10 @@ function App() {
 
       // Private Mumble message → route to DM store
       if (d.certHash) {
-        dmStoreRef.current.receiveMumbleDM(d.certHash, d.senderSession!, senderName, d.message);
+        // Mumble clients send HTML — strip tags and decode entities for plain-text display
+        const { text, media } = parseMessageMedia(d.message);
+        const plainText = text.replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
+        dmStoreRef.current.receiveMumbleDM(d.certHash, d.senderSession!, senderName, plainText || d.message);
       }
     });
 
