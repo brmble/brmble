@@ -506,5 +506,24 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     return names;
   }, [client, dmRoomMap, credentials?.userId]);
 
-  return { messages, sendMessage, fetchHistory, dmMessages, dmRoomMap, dmUserDisplayNames, sendDMMessage, fetchDMHistory, fetchAvatarUrl, client };
+  // Resolve avatar URLs for DM partners from Matrix room membership.
+  // This works even when the other user isn't connected to Mumble.
+  const dmUserAvatarUrls = useMemo(() => {
+    const urls = new Map<string, string>();
+    if (!client || !dmRoomMap) return urls;
+    for (const [matrixUserId, roomId] of dmRoomMap) {
+      const room = client.getRoom(roomId);
+      if (!room) continue;
+      const member = room.getMember(matrixUserId);
+      if (member) {
+        const avatarUrl = member.getAvatarUrl(client.baseUrl, 128, 128, 'crop', false, false);
+        if (avatarUrl) {
+          urls.set(matrixUserId, avatarUrl);
+        }
+      }
+    }
+    return urls;
+  }, [client, dmRoomMap]);
+
+  return { messages, sendMessage, fetchHistory, dmMessages, dmRoomMap, dmUserDisplayNames, dmUserAvatarUrls, sendDMMessage, fetchDMHistory, fetchAvatarUrl, client };
 }

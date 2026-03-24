@@ -23,6 +23,7 @@ export interface DMStoreOptions {
   matrixDmMessages: Map<string, ChatMessage[]> | undefined;
   matrixDmRoomMap: Map<string, string> | undefined;
   matrixDmUserDisplayNames: Map<string, string> | undefined;
+  matrixDmUserAvatarUrls: Map<string, string> | undefined;
   sendMatrixDM: ((targetMatrixUserId: string, text: string) => Promise<void>) | undefined;
   fetchDMHistory: ((targetMatrixUserId: string) => Promise<void>) | undefined;
   sendMumbleDM?: (targetSession: number, text: string) => void;
@@ -58,6 +59,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     matrixDmMessages,
     matrixDmRoomMap,
     matrixDmUserDisplayNames,
+    matrixDmUserAvatarUrls,
     sendMatrixDM,
     fetchDMHistory,
     sendMumbleDM,
@@ -70,6 +72,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
   const [appMode, setAppMode] = useState<'channels' | 'dm'>('channels');
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
   const [pendingMessages, setPendingMessages] = useState<Map<string, ChatMessage[]>>(new Map());
+  const [pendingMatrixContacts, setPendingMatrixContacts] = useState<Map<string, DMContact>>(new Map());
   const [mumbleContacts, setMumbleContacts] = useState<Map<string, DMContact>>(new Map());
   const [mumbleMessages, setMumbleMessages] = useState<Map<string, ChatMessage[]>>(new Map());
 
@@ -93,6 +96,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
       setAppMode('channels');
       setSelectedContactId(null);
       setPendingMessages(new Map());
+      setPendingMatrixContacts(new Map());
       setMumbleContacts(new Map());
       setMumbleMessages(new Map());
       appModeRef.current = 'channels';
@@ -104,9 +108,11 @@ export function useDMStore(options: DMStoreOptions): DMStore {
 
   const contacts: DMContact[] = useMemo(() => {
     const result: DMContact[] = [];
+    const seen = new Set<string>();
 
     if (matrixDmRoomMap) {
       for (const [matrixUserId] of matrixDmRoomMap) {
+        seen.add(matrixUserId);
         const user = users.find(u => u.matrixUserId === matrixUserId);
         const msgs = matrixDmMessages?.get(matrixUserId);
         const lastMsg = msgs && msgs.length > 0 ? msgs[msgs.length - 1] : undefined;
@@ -119,11 +125,18 @@ export function useDMStore(options: DMStoreOptions): DMStore {
         result.push({
           id: matrixUserId,
           displayName,
-          avatarUrl: user?.avatarUrl,
+          avatarUrl: user?.avatarUrl ?? matrixDmUserAvatarUrls?.get(matrixUserId),
           lastMessage: lastMsg?.content,
           lastMessageTime: lastMsg?.timestamp.getTime(),
           unreadCount: 0, // Matrix unread is tracked globally via matrixDmUnreadCount
         });
+      }
+    }
+
+    // Merge pending Matrix contacts (first-time DMs before room is created)
+    for (const [id, pc] of pendingMatrixContacts) {
+      if (!seen.has(id)) {
+        result.push(pc);
       }
     }
 
@@ -140,7 +153,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
 
     result.sort((a, b) => (b.lastMessageTime ?? 0) - (a.lastMessageTime ?? 0));
     return result;
-  }, [matrixDmRoomMap, matrixDmMessages, matrixDmUserDisplayNames, users, mumbleContacts, mumbleMessages]);
+  }, [matrixDmRoomMap, matrixDmMessages, matrixDmUserDisplayNames, matrixDmUserAvatarUrls, users, pendingMatrixContacts, mumbleContacts, mumbleMessages]);
 
   // ---- Selected contact ----------------------------------------------------
 
@@ -184,14 +197,28 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     }
   }, [fetchDMHistory]);
 
-  const startDM = useCallback((matrixUserId: string, _displayName: string) => {
+  const startDM = useCallback((matrixUserId: string, displayName: string) => {
+    // Add a pending contact if no DM room exists yet (first-time DM)
+    if (!matrixDmRoomMap?.has(matrixUserId)) {
+      setPendingMatrixContacts(prev => {
+        if (prev.has(matrixUserId)) return prev;
+        const next = new Map(prev);
+        next.set(matrixUserId, {
+          id: matrixUserId,
+          displayName,
+          unreadCount: 0,
+        });
+        return next;
+      });
+    }
+
     setSelectedContactId(matrixUserId);
     setAppMode('dm');
 
     if (fetchDMHistory) {
       fetchDMHistory(matrixUserId).catch(console.warn);
     }
-  }, [fetchDMHistory]);
+  }, [fetchDMHistory, matrixDmRoomMap]);
 
   const clearSelection = useCallback(() => {
     setSelectedContactId(null);

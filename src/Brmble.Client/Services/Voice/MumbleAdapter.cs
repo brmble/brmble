@@ -2019,6 +2019,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             deafened = u.Deaf || u.SelfDeaf,
             self = u == LocalUser,
             comment = u.Comment,
+            certHash = u.CertificateHash,
             matrixUserId = _sessionMappings.TryGetValue(u.Id, out var sm)
                 ? sm.MatrixUserId
                 : _userMappings.GetValueOrDefault(u.Name)
@@ -2081,8 +2082,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         {
             SendRequestBlob(new RequestBlob { SessionComments = new[] { userState.Session } });
         }
-
-        Debug.WriteLine($"[Mumble] UserState: {user?.Name ?? userState.Name} (session: {userState.Session}), isNew: {isNewUser}, prevChannel: {previousUserChannel}");
 
         var isSelf = LocalUser != null && userState.Session == LocalUser.Id;
         var currentChannelId = user?.Channel?.Id ?? userState.ChannelId;

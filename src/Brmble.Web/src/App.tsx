@@ -294,6 +294,7 @@ function App() {
     matrixDmMessages: matrixClient.dmMessages,
     matrixDmRoomMap: matrixClient.dmRoomMap,
     matrixDmUserDisplayNames: matrixClient.dmUserDisplayNames,
+    matrixDmUserAvatarUrls: matrixClient.dmUserAvatarUrls,
     sendMatrixDM: matrixClient.sendDMMessage,
     fetchDMHistory: matrixClient.fetchDMHistory,
     users,
@@ -710,7 +711,10 @@ function App() {
           const existing = prev.find(u => u.session === d.session);
           if (existing) {
             const updatedChannelId = d.channelId !== undefined ? d.channelId : existing.channelId;
-            return prev.map(u => u.session === d.session ? { ...u, ...d, channelId: updatedChannelId } : u);
+            // Preserve certHash and matrixUserId — don't let falsy updates overwrite valid values
+            const certHash = d.certHash || existing.certHash;
+            const matrixUserId = d.matrixUserId || existing.matrixUserId;
+            return prev.map(u => u.session === d.session ? { ...u, ...d, channelId: updatedChannelId, certHash, matrixUserId } : u);
           }
           return [...prev, d];
         });
@@ -1343,12 +1347,23 @@ const handleConnect = (serverData: SavedServer) => {
 
   const handleStartDMFromContextMenu = useCallback((sessionIdStr: string, userName: string) => {
     const user = users.find(u => String(u.session) === sessionIdStr);
+    // If the user has a certHash and an existing Mumble DM contact, prefer that
+    // (handles Brmble-registered users connected via plain Mumble client who already sent a DM)
+    if (user?.certHash) {
+      const existingMumbleContact = dmStore.contacts.find(c => c.isEphemeral && c.mumbleCertHash === user.certHash);
+      if (existingMumbleContact) {
+        dmStore.selectContact(existingMumbleContact.id);
+        return;
+      }
+    }
+
     if (user?.matrixUserId) {
       dmStore.startDM(user.matrixUserId, userName);
     } else if (user?.certHash) {
       dmStore.startMumbleDM(user.certHash, user.session, userName);
+    } else {
+      console.warn('[DM] Cannot start DM: user has no matrixUserId or certHash');
     }
-    // Users with neither matrixUserId nor certHash can't receive DMs
   }, [users, dmStore]);
 
   const activeChannelId = currentChannelId && currentChannelId !== 'server-root'
@@ -1684,6 +1699,7 @@ const handleConnect = (serverData: SavedServer) => {
                     readMarkerTs={dmDividerTs}
                     users={users}
                     disabled={dmStore.selectedContact?.isEphemeral === true && dmStore.selectedContact?.mumbleSessionId == null}
+                    topNotice={dmStore.selectedContact?.isEphemeral ? 'This is a Mumble direct message. Chat history will be lost when you disconnect.' : undefined}
                   />
                   </ErrorBoundary>
                 </div>

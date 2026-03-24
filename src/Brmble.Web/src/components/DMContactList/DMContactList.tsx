@@ -73,7 +73,7 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
               setContextMenu({ x: e.clientX, y: e.clientY, id: contact.id, displayName: contact.displayName });
             }}
           >
-            <Avatar user={{ name: contact.displayName, matrixUserId: contact.isEphemeral ? undefined : contact.id, avatarUrl: contact.avatarUrl }} size={28} />
+            <Avatar user={{ name: contact.displayName, matrixUserId: contact.isEphemeral ? undefined : contact.id, avatarUrl: contact.avatarUrl }} size={28} isMumbleOnly={contact.isEphemeral} />
             <div className="dm-contact-info">
               <div className="dm-contact-name-row">
                 <Tooltip content="">
