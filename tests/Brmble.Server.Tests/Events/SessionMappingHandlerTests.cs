@@ -18,6 +18,7 @@ public class SessionMappingHandlerTests
     private UserRepository _repo = null!;
     private Mock<ISessionMappingService> _mapping = null!;
     private Mock<IBrmbleEventBus> _bus = null!;
+    private Mock<IActiveBrmbleSessions> _activeSessions = null!;
     private SessionMappingHandler _handler = null!;
 
     [TestInitialize]
@@ -33,7 +34,8 @@ public class SessionMappingHandlerTests
         _mapping = new Mock<ISessionMappingService>();
         _bus = new Mock<IBrmbleEventBus>();
         _bus.Setup(b => b.BroadcastAsync(It.IsAny<object>())).Returns(Task.CompletedTask);
-        _handler = new SessionMappingHandler(_mapping.Object, _bus.Object, _repo, NullLogger<SessionMappingHandler>.Instance);
+        _activeSessions = new Mock<IActiveBrmbleSessions>();
+        _handler = new SessionMappingHandler(_mapping.Object, _bus.Object, _repo, _activeSessions.Object, NullLogger<SessionMappingHandler>.Instance);
     }
 
     [TestCleanup]

@@ -37,6 +37,7 @@ public class AuthService : IActiveBrmbleSessions
     private readonly ILogger<AuthService> _logger;
     private readonly IMumbleRegistrationService _mumbleRegistration;
     private readonly ISessionMappingService _sessionMapping;
+    private readonly IBrmbleEventBus _eventBus;
     private readonly HashSet<string> _activeSessions = [];
     private readonly HashSet<string> _activeNames = [];
     private readonly Dictionary<string, string> _certToName = [];
@@ -50,13 +51,15 @@ public class AuthService : IActiveBrmbleSessions
         IMatrixAppService matrixAppService,
         ILogger<AuthService> logger,
         IMumbleRegistrationService mumbleRegistration,
-        ISessionMappingService sessionMapping)
+        ISessionMappingService sessionMapping,
+        IBrmbleEventBus eventBus)
     {
         _userRepository = userRepository;
         _matrixAppService = matrixAppService;
         _logger = logger;
         _mumbleRegistration = mumbleRegistration;
         _sessionMapping = sessionMapping;
+        _eventBus = eventBus;
     }
 
     public bool IsBrmbleClient(string certHash)
@@ -247,7 +250,18 @@ public class AuthService : IActiveBrmbleSessions
             _activeSessions.Add(certHash);
         }
 
-        return new AuthResult(user!.Id, user.MatrixUserId, user.MatrixAccessToken!, user.DisplayName, isRegistered);
+        // Broadcast Brmble client activation
+        if (_sessionMapping.TryGetSessionByUserId(user!.Id, out var activatedSessionId))
+        {
+            _sessionMapping.TryUpdateBrmbleStatus(activatedSessionId, true);
+            _ = _eventBus.BroadcastAsync(new
+            {
+                type = "brmbleClientActivated",
+                sessionId = activatedSessionId
+            });
+        }
+
+        return new AuthResult(user.Id, user.MatrixUserId, user.MatrixAccessToken!, user.DisplayName, isRegistered);
     }
 
     public void Deactivate(string certHash)
@@ -256,7 +270,19 @@ public class AuthService : IActiveBrmbleSessions
         {
             _activeSessions.Remove(certHash);
             if (_certToName.Remove(certHash, out var name))
+            {
                 _activeNames.Remove(name);
+                // Broadcast Brmble client deactivation
+                if (_sessionMapping.TryGetSessionId(name, out var deactivatedSessionId))
+                {
+                    _sessionMapping.TryUpdateBrmbleStatus(deactivatedSessionId, false);
+                    _ = _eventBus.BroadcastAsync(new
+                    {
+                        type = "brmbleClientDeactivated",
+                        sessionId = deactivatedSessionId
+                    });
+                }
+            }
         }
     }
 

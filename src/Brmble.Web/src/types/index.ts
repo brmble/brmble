@@ -25,6 +25,8 @@ export interface User {
   comment?: string;
   prioritySpeaker?: boolean;
   avatarUrl?: string;
+  certHash?: string;
+  isBrmbleClient?: boolean;
 }
 
 export interface MediaAttachment {
@@ -47,14 +49,7 @@ export interface ChatMessage {
   type?: 'system';
   html?: boolean;
   media?: MediaAttachment[];
-}
-
-export interface DMConversation {
-  id: string;
-  recipientId: string;
-  recipientName: string;
-  messages: ChatMessage[];
-  unreadCount: number;
+  pending?: boolean;
 }
 
 export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed' | 'disconnected';

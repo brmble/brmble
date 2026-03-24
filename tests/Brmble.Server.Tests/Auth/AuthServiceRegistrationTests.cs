@@ -35,8 +35,10 @@ public class AuthServiceRegistrationTests
         _mockReg = new Mock<IMumbleRegistrationService>();
         _mockSession = new Mock<ISessionMappingService>();
         var mockMatrix = new Mock<IMatrixAppService>();
+        var mockEventBus = new Mock<IBrmbleEventBus>();
+        mockEventBus.Setup(b => b.BroadcastAsync(It.IsAny<object>())).Returns(Task.CompletedTask);
         _authService = new AuthService(repo, mockMatrix.Object, NullLogger<AuthService>.Instance,
-            _mockReg.Object, _mockSession.Object);
+            _mockReg.Object, _mockSession.Object, mockEventBus.Object);
     }
 
     [TestCleanup]

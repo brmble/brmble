@@ -62,7 +62,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     })
     { Timeout = TimeSpan.FromSeconds(5) };
 
-    private record SessionMappingEntry(string MatrixUserId, string MumbleName);
+    private record SessionMappingEntry(string MatrixUserId, string MumbleName, bool IsBrmbleClient = false);
 
     public string ServiceName => "mumble";
 
@@ -1363,12 +1363,15 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                                 var matrixId = prop.Value.TryGetProperty("matrixUserId", out var m) ? m.GetString() : null;
                                 var name = prop.Value.TryGetProperty("mumbleName", out var n) ? n.GetString() : null;
                                 if (matrixId is not null && name is not null)
-                                    _sessionMappings[sid] = new SessionMappingEntry(matrixId, name);
+                                {
+                                    var isBrmble = prop.Value.TryGetProperty("isBrmbleClient", out var b) && b.GetBoolean();
+                                    _sessionMappings[sid] = new SessionMappingEntry(matrixId, name, isBrmble);
+                                }
                             }
                         }
                     }
                     _bridge?.Send("voice.sessionMappingSnapshot",
-                        new { mappings = _sessionMappings.ToDictionary(k => k.Key, k => new { k.Value.MatrixUserId, k.Value.MumbleName }) });
+                        new { mappings = _sessionMappings.ToDictionary(k => k.Key, k => new { k.Value.MatrixUserId, k.Value.MumbleName, k.Value.IsBrmbleClient }) });
                     _bridge?.NotifyUiThread();
                     break;
 
@@ -1376,10 +1379,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     var addSid = root.TryGetProperty("sessionId", out var sidProp) ? sidProp.GetUInt32() : 0u;
                     var addMatrixId = root.TryGetProperty("matrixUserId", out var matrixProp) ? matrixProp.GetString() : null;
                     var addName = root.TryGetProperty("mumbleName", out var nameProp) ? nameProp.GetString() : null;
+                    var addIsBrmble = root.TryGetProperty("isBrmbleClient", out var brmbleProp) && brmbleProp.GetBoolean();
                     if (addSid > 0 && addMatrixId is not null && addName is not null)
                     {
-                        _sessionMappings[addSid] = new SessionMappingEntry(addMatrixId, addName);
-                        _bridge?.Send("voice.userMappingUpdated", new { sessionId = addSid, matrixUserId = addMatrixId, mumbleName = addName, action = "added" });
+                        _sessionMappings[addSid] = new SessionMappingEntry(addMatrixId, addName, addIsBrmble);
+                        _bridge?.Send("voice.userMappingUpdated", new { sessionId = addSid, matrixUserId = addMatrixId, mumbleName = addName, isBrmbleClient = addIsBrmble, action = "added" });
                         _bridge?.NotifyUiThread();
                     }
                     break;
@@ -1392,6 +1396,26 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                         _bridge?.Send("voice.userMappingUpdated", new { sessionId = rmSid, action = "removed" });
                         _bridge?.NotifyUiThread();
                     }
+                    break;
+
+                case "brmbleClientActivated":
+                    var actSid = root.TryGetProperty("sessionId", out var actSidProp) ? actSidProp.GetUInt32() : 0u;
+                    if (actSid > 0 && _sessionMappings.TryGetValue(actSid, out var actEntry))
+                    {
+                        _sessionMappings[actSid] = actEntry with { IsBrmbleClient = true };
+                    }
+                    _bridge?.Send("voice.brmbleClientActivated", new { sessionId = actSid });
+                    _bridge?.NotifyUiThread();
+                    break;
+
+                case "brmbleClientDeactivated":
+                    var deactSid = root.TryGetProperty("sessionId", out var deactSidProp) ? deactSidProp.GetUInt32() : 0u;
+                    if (deactSid > 0 && _sessionMappings.TryGetValue(deactSid, out var deactEntry))
+                    {
+                        _sessionMappings[deactSid] = deactEntry with { IsBrmbleClient = false };
+                    }
+                    _bridge?.Send("voice.brmbleClientDeactivated", new { sessionId = deactSid });
+                    _bridge?.NotifyUiThread();
                     break;
 
                 case "screenShare.started":
@@ -2011,18 +2035,22 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     {
         var channelId = overrideChannelId ?? (uint)(LocalUser?.Channel?.Id ?? 0);
         var channels = Channels.Select(c => new { id = c.Id, name = c.Name, parent = c.Parent }).ToList();
-        var users = Users.Select(u => new
+        var users = Users.Select(u =>
         {
-            session = u.Id,
-            name = u.Name,
-            channelId = u.Channel?.Id ?? 0,
-            muted = u.Muted || u.SelfMuted || u.Deaf || u.SelfDeaf,
-            deafened = u.Deaf || u.SelfDeaf,
-            self = u == LocalUser,
-            comment = u.Comment,
-            matrixUserId = _sessionMappings.TryGetValue(u.Id, out var sm)
-                ? sm.MatrixUserId
-                : _userMappings.GetValueOrDefault(u.Name)
+            var hasMap = _sessionMappings.TryGetValue(u.Id, out var sm);
+            return new
+            {
+                session = u.Id,
+                name = u.Name,
+                channelId = u.Channel?.Id ?? 0,
+                muted = u.Muted || u.SelfMuted || u.Deaf || u.SelfDeaf,
+                deafened = u.Deaf || u.SelfDeaf,
+                self = u == LocalUser,
+                comment = u.Comment,
+                certHash = u.CertificateHash,
+                matrixUserId = hasMap ? sm.MatrixUserId : _userMappings.GetValueOrDefault(u.Name),
+                isBrmbleClient = hasMap && sm.IsBrmbleClient
+            };
         }).ToList();
 
         _bridge?.Send("voice.connected", new
@@ -2083,8 +2111,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             SendRequestBlob(new RequestBlob { SessionComments = new[] { userState.Session } });
         }
 
-        Debug.WriteLine($"[Mumble] UserState: {user?.Name ?? userState.Name} (session: {userState.Session}), isNew: {isNewUser}, prevChannel: {previousUserChannel}");
-
         var isSelf = LocalUser != null && userState.Session == LocalUser.Id;
         var currentChannelId = user?.Channel?.Id ?? userState.ChannelId;
 
@@ -2111,12 +2137,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 channelId = previousUserChannel,
                 previousChannelId = previousUserChannel,
                 currentChannelId = currentChannelId,
+                certHash = user?.CertificateHash,
                 moved = true
             });
             Debug.WriteLine($"[Mumble] User left our channel: {leftUserName} (session: {userState.Session})");
         }
 
         var joinedUserName = user?.Name ?? userState.Name;
+        var hasJoinMapping = _sessionMappings.TryGetValue(userState.Session, out var joinMapping);
         _bridge?.Send("voice.userJoined", new
         {
             session = userState.Session,
@@ -2126,9 +2154,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             deafened = user != null ? (user.Deaf || user.SelfDeaf) : (userState.Deaf || userState.SelfDeaf),
             self = isSelf,
             comment = user?.Comment,
-            matrixUserId = _sessionMappings.TryGetValue(userState.Session, out var sm)
-                ? sm.MatrixUserId
-                : _userMappings.GetValueOrDefault(joinedUserName)
+            certHash = user?.CertificateHash,
+            matrixUserId = hasJoinMapping ? joinMapping.MatrixUserId : _userMappings.GetValueOrDefault(joinedUserName),
+            isBrmbleClient = hasJoinMapping && joinMapping.IsBrmbleClient
         });
 
         // Emit system message for genuinely new users (not initial sync, not self)
@@ -2204,7 +2232,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         _audioManager?.RemoveUser(userRemove.Session);
         var channelId = user?.Channel?.Id;
-        _bridge?.Send("voice.userLeft", new { session = userRemove.Session, name = userName, channelId, moved = false });
+        var certHash = user?.CertificateHash;
+        _bridge?.Send("voice.userLeft", new { session = userRemove.Session, name = userName, channelId, certHash, moved = false });
 
         // Emit system message
         if (isSelf)
@@ -2257,12 +2286,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     public override void TextMessage(TextMessage textMessage)
     {
         base.TextMessage(textMessage);
+        UserDictionary.TryGetValue(textMessage.Actor, out var senderUser);
         _bridge?.Send("voice.message", new
         {
             message = textMessage.Message,
             senderSession = textMessage.Actor,
             channelIds = textMessage.ChannelIds ?? Array.Empty<uint>(),
             sessions = textMessage.Sessions ?? Array.Empty<uint>(),
+            certHash = senderUser?.CertificateHash,
         });
     }
 

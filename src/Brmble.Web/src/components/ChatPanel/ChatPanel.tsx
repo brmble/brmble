@@ -26,20 +26,42 @@ interface ChatPanelProps {
   onCloseScreenShare?: () => void;
   /** Connected users for avatar lookup by sender name */
   users?: { name: string; matrixUserId?: string; avatarUrl?: string }[];
+  disabled?: boolean;
+  /** Optional notice shown at the top of the message area (e.g. ephemeral chat warning). */
+  topNotice?: string;
 }
 
 const SCROLL_THRESHOLD = 150;
 const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
 const DEFAULT_SPLIT = 50;
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, screenShareVideoEl, screenSharerName, onCloseScreenShare, users }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, screenShareVideoEl, screenSharerName, onCloseScreenShare, users, disabled, topNotice }: ChatPanelProps) {
   // Build lookup maps from sender name and matrixUserId → avatar data for MessageBubble.
   // Name-based lookup works when Mumble name matches message sender.
   // MatrixUserId-based lookup handles cases where the user connected with a different
   // Mumble name than the Matrix display name used in messages.
+  // Falls back to Matrix room membership for offline users.
   const senderAvatarMap = useMemo(() => {
     const byName = new Map<string, { avatarUrl?: string; matrixUserId?: string }>();
     const byMatrixId = new Map<string, { avatarUrl?: string; matrixUserId?: string }>();
+
+    // First, populate from Matrix room members (lower priority — offline fallback)
+    if (matrixClient && matrixRoomId) {
+      const room = matrixClient.getRoom(matrixRoomId);
+      if (room) {
+        for (const member of room.getJoinedMembers()) {
+          const avatarUrl = member.getAvatarUrl(matrixClient.baseUrl, 128, 128, 'crop', false, false) ?? undefined;
+          const displayName = member.rawDisplayName || member.name;
+          const entry = { avatarUrl, matrixUserId: member.userId };
+          if (displayName && displayName !== member.userId) {
+            byName.set(displayName, entry);
+          }
+          byMatrixId.set(member.userId, entry);
+        }
+      }
+    }
+
+    // Then, overwrite with live Mumble users (higher priority — online with fresh data)
     if (users) {
       for (const u of users) {
         const entry = { avatarUrl: u.avatarUrl, matrixUserId: u.matrixUserId };
@@ -50,7 +72,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
       }
     }
     return { byName, byMatrixId };
-  }, [users]);
+  }, [users, matrixClient, matrixRoomId]);
 
   /** Look up avatar data by sender name first, then fall back to matrixUserId. */
   const lookupAvatar = useCallback((senderName: string, senderMatrixId?: string) => {
@@ -624,6 +646,16 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
       )}
 
       <div className="chat-messages" ref={messagesContainerRef} onScroll={handleScroll}>
+        {topNotice && (
+          <div className="chat-top-notice">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="16" x2="12" y2="12" />
+              <line x1="12" y1="8" x2="12.01" y2="8" />
+            </svg>
+            <span>{topNotice}</span>
+          </div>
+        )}
         {grouped.length === 0 ? (
           <div className="chat-no-messages">
             <p>No messages yet. Start the conversation!</p>
@@ -710,7 +742,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
           </button>
           </Tooltip>
         )}
-        <MessageInput onSend={onSendMessage} placeholder={isDM ? `Message @${channelName}` : `Message #${channelName}`} mentionableUsers={mentionableUsers} />
+        <MessageInput onSend={onSendMessage} placeholder={isDM ? `Message @${channelName}` : `Message #${channelName}`} mentionableUsers={mentionableUsers} disabled={disabled} />
       </div>
     </div>
   );

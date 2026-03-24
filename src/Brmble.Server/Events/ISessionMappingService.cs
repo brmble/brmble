@@ -1,6 +1,6 @@
 namespace Brmble.Server.Events;
 
-public record SessionMapping(string MatrixUserId, string MumbleName, long UserId);
+public record SessionMapping(string MatrixUserId, string MumbleName, long UserId, bool IsBrmbleClient = false);
 
 public interface ISessionMappingService
 {
@@ -10,5 +10,6 @@ public interface ISessionMappingService
     bool TryGetMatrixUserId(int sessionId, out string? matrixUserId);
     bool TryGetSessionId(string mumbleName, out int sessionId);
     bool TryGetSessionByUserId(long userId, out int sessionId);
+    bool TryUpdateBrmbleStatus(int sessionId, bool isBrmbleClient);
     IReadOnlyDictionary<int, SessionMapping> GetSnapshot();
 }

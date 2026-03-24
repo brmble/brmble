@@ -43,8 +43,10 @@ public class AuthServiceTests
                    .ReturnsAsync("syt_refresh_token");
         _mockMumbleReg = new Mock<IMumbleRegistrationService>();
         _mockSessionMapping = new Mock<ISessionMappingService>();
+        var mockEventBus = new Mock<IBrmbleEventBus>();
+        mockEventBus.Setup(b => b.BroadcastAsync(It.IsAny<object>())).Returns(Task.CompletedTask);
         _svc = new AuthService(repo, _mockMatrix.Object, NullLogger<AuthService>.Instance,
-            _mockMumbleReg.Object, _mockSessionMapping.Object);
+            _mockMumbleReg.Object, _mockSessionMapping.Object, mockEventBus.Object);
     }
 
     [TestCleanup]
