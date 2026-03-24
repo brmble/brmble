@@ -45,8 +45,6 @@ export interface DMStore {
   appModeRef: React.RefObject<'channels' | 'dm'>;
   selectedContactIdRef: React.RefObject<string | null>;
   receiveMumbleDM: (certHash: string, sessionId: number, displayName: string, text: string) => void;
-  /** Inject a received message into a Matrix DM contact's message list (e.g. Mumble PM from a hybrid user). */
-  addIncomingDMMessage: (matrixUserId: string, senderName: string, text: string) => void;
   updateMumbleSession: (certHash: string, sessionId: number | null, displayName?: string) => void;
   clearMumbleContacts: () => void;
   startMumbleDM: (certHash: string, sessionId: number, displayName: string) => void;
@@ -222,48 +220,6 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     }
   }, [fetchDMHistory, matrixDmRoomMap]);
 
-  const addIncomingDMMessage = useCallback((matrixUserId: string, senderName: string, text: string) => {
-    // Ensure contact exists (first-time DM from hybrid user via Mumble PM)
-    if (!matrixDmRoomMap?.has(matrixUserId)) {
-      setPendingMatrixContacts(prev => {
-        if (prev.has(matrixUserId)) return prev;
-        const next = new Map(prev);
-        next.set(matrixUserId, {
-          id: matrixUserId,
-          displayName: senderName,
-          unreadCount: 0,
-        });
-        return next;
-      });
-    }
-
-    const msg: ChatMessage = {
-      id: `mumble-routed-${Date.now()}-${Math.random()}`,
-      channelId: matrixUserId,
-      sender: senderName,
-      content: text,
-      timestamp: new Date(),
-    };
-    setPendingMessages(prev => {
-      const next = new Map(prev);
-      const existing = next.get(matrixUserId) ?? [];
-      next.set(matrixUserId, [...existing, msg]);
-      return next;
-    });
-
-    // Increment unread if not currently viewing this contact
-    if (selectedContactIdRef.current !== matrixUserId || appModeRef.current !== 'dm') {
-      setPendingMatrixContacts(prev => {
-        const next = new Map(prev);
-        const contact = next.get(matrixUserId);
-        if (contact) {
-          next.set(matrixUserId, { ...contact, unreadCount: contact.unreadCount + 1 });
-        }
-        return next;
-      });
-    }
-  }, [matrixDmRoomMap]);
-
   const clearSelection = useCallback(() => {
     setSelectedContactId(null);
   }, []);
@@ -433,7 +389,6 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     appModeRef,
     selectedContactIdRef,
     receiveMumbleDM,
-    addIncomingDMMessage,
     updateMumbleSession,
     clearMumbleContacts,
     startMumbleDM,
