@@ -51,7 +51,7 @@ public class SecurePasswordStorage : ISecurePasswordStorage
             var storedChecksum = new byte[32];
             var actualChecksum = new byte[32];
             Buffer.BlockCopy(payload, 0, storedChecksum, 0, 32);
-            Buffer.BlockCopy(payload, 0, actualChecksum, 0, 32);
+            Buffer.BlockCopy(payload, 32, actualChecksum, 0, 32);
 
             var plainBytes = new byte[payload.Length - 32];
             Buffer.BlockCopy(payload, 32, plainBytes, 0, plainBytes.Length);
