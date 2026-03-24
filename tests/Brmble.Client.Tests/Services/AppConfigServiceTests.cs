@@ -1,5 +1,6 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Brmble.Client.Services.AppConfig;
+using Brmble.Client.Services.Security;
 using Brmble.Client.Services.Serverlist;
 using System.Text.Json;
 
@@ -26,7 +27,7 @@ public class AppConfigServiceTests
     [TestMethod]
     public void LoadsDefaultSettings_WhenNoFileExists()
     {
-        var svc = new AppConfigService(_tempDir);
+        var svc = new AppConfigService(_tempDir, null);
 
         var settings = svc.GetSettings();
 
@@ -40,7 +41,7 @@ public class AppConfigServiceTests
     [TestMethod]
     public void LoadsDefaultServers_WhenNoFileExists()
     {
-        var svc = new AppConfigService(_tempDir);
+        var svc = new AppConfigService(_tempDir, null);
 
         Assert.AreEqual(0, svc.GetServers().Count);
     }
@@ -48,14 +49,14 @@ public class AppConfigServiceTests
     [TestMethod]
     public void SavesAndReloads_Settings()
     {
-        var svc = new AppConfigService(_tempDir);
+        var svc = new AppConfigService(_tempDir, null);
         var updated = AppSettings.Default with
         {
             Audio = new AudioSettings(TransmissionMode: "pushToTalk", PushToTalkKey: "KeyF")
         };
 
         svc.SetSettings(updated);
-        var svc2 = new AppConfigService(_tempDir);
+        var svc2 = new AppConfigService(_tempDir, null);
 
         Assert.AreEqual("pushToTalk", svc2.GetSettings().Audio.TransmissionMode);
         Assert.AreEqual("KeyF", svc2.GetSettings().Audio.PushToTalkKey);
@@ -64,11 +65,11 @@ public class AppConfigServiceTests
     [TestMethod]
     public void SavesAndReloads_Servers()
     {
-        var svc = new AppConfigService(_tempDir);
+        var svc = new AppConfigService(_tempDir, null);
         var server = new ServerEntry("id1", "My Server", null, "localhost", 64738, "alice");
 
         svc.AddServer(server);
-        var svc2 = new AppConfigService(_tempDir);
+        var svc2 = new AppConfigService(_tempDir, null);
 
         Assert.AreEqual(1, svc2.GetServers().Count);
         Assert.AreEqual("My Server", svc2.GetServers()[0].Label);
@@ -88,7 +89,7 @@ public class AppConfigServiceTests
         };
         File.WriteAllText(legacyPath, JsonSerializer.Serialize(legacyData));
 
-        var svc = new AppConfigService(_tempDir);
+        var svc = new AppConfigService(_tempDir, null);
 
         Assert.AreEqual(1, svc.GetServers().Count);
         Assert.AreEqual("Legacy", svc.GetServers()[0].Label);
@@ -96,13 +97,31 @@ public class AppConfigServiceTests
     }
 
     [TestMethod]
+    public void MigratesPlainTextPasswords_ToEncrypted()
+    {
+        var svc = new AppConfigService(_tempDir, null);
+        var server = new ServerEntry("id1", "Test", null, "localhost", 64738, "alice", "plainTextPassword123");
+
+        svc.AddServer(server);
+
+        var configPath = Path.Combine(_tempDir, "config.json");
+        var json = File.ReadAllText(configPath);
+        Assert.IsTrue(json.Contains("DPAPI:v1:"), "Password should be encrypted in config");
+
+        var svc2 = new AppConfigService(_tempDir, null);
+        var loadedServers = svc2.GetServers();
+        Assert.AreEqual(1, loadedServers.Count);
+        Assert.AreEqual("plainTextPassword123", loadedServers[0].Password);
+    }
+
+    [TestMethod]
     public void SavesAndReloads_WindowState()
     {
-        var svc = new AppConfigService(_tempDir);
+        var svc = new AppConfigService(_tempDir, null);
         Assert.IsNull(svc.GetWindowState(), "No state saved yet — should be null");
 
         svc.SaveWindowState(new WindowState(100, 200, 1024, 768, IsMaximized: false));
-        var svc2 = new AppConfigService(_tempDir);
+        var svc2 = new AppConfigService(_tempDir, null);
 
         var ws = svc2.GetWindowState();
         Assert.IsNotNull(ws);
@@ -116,11 +135,11 @@ public class AppConfigServiceTests
     [TestMethod]
     public void SavesAndReloads_ClosePreference()
     {
-        var svc = new AppConfigService(_tempDir);
+        var svc = new AppConfigService(_tempDir, null);
         Assert.IsNull(svc.GetClosePreference(), "No preference saved yet — should be null");
 
         svc.SaveClosePreference("minimize");
-        var svc2 = new AppConfigService(_tempDir);
+        var svc2 = new AppConfigService(_tempDir, null);
 
         Assert.AreEqual("minimize", svc2.GetClosePreference());
     }
@@ -128,7 +147,7 @@ public class AppConfigServiceTests
     [TestMethod]
     public void DefaultSettings_HaveAutoConnectDisabled()
     {
-        var svc = new AppConfigService(_tempDir);
+        var svc = new AppConfigService(_tempDir, null);
 
         var settings = svc.GetSettings();
 
@@ -139,11 +158,11 @@ public class AppConfigServiceTests
     [TestMethod]
     public void SavesAndReloads_LastConnectedServerId()
     {
-        var svc = new AppConfigService(_tempDir);
+        var svc = new AppConfigService(_tempDir, null);
         Assert.IsNull(svc.GetLastConnectedServerId(), "No server connected yet — should be null");
 
         svc.SaveLastConnectedServerId("server-abc");
-        var svc2 = new AppConfigService(_tempDir);
+        var svc2 = new AppConfigService(_tempDir, null);
 
         Assert.AreEqual("server-abc", svc2.GetLastConnectedServerId());
     }
@@ -151,7 +170,7 @@ public class AppConfigServiceTests
     [TestMethod]
     public void SavesAndReloads_AutoConnectSettings()
     {
-        var svc = new AppConfigService(_tempDir);
+        var svc = new AppConfigService(_tempDir, null);
         var updated = svc.GetSettings() with
         {
             AutoConnectEnabled = true,
@@ -159,7 +178,7 @@ public class AppConfigServiceTests
         };
 
         svc.SetSettings(updated);
-        var svc2 = new AppConfigService(_tempDir);
+        var svc2 = new AppConfigService(_tempDir, null);
 
         Assert.IsTrue(svc2.GetSettings().AutoConnectEnabled);
         Assert.AreEqual("server-xyz", svc2.GetSettings().AutoConnectServerId);
@@ -168,7 +187,7 @@ public class AppConfigServiceTests
     [TestMethod]
     public void AutoConnect_ClearsServerId_WhenServerRemoved()
     {
-        var svc = new AppConfigService(_tempDir);
+        var svc = new AppConfigService(_tempDir, null);
         svc.AddServer(new ServerEntry("srv1", "Test Server", null, "localhost", 64738, "alice"));
         svc.SetSettings(svc.GetSettings() with { AutoConnectEnabled = true, AutoConnectServerId = "srv1" });
 
@@ -177,7 +196,7 @@ public class AppConfigServiceTests
         // Settings still reference the old server ID — the startup logic in Program.cs
         // handles the fallback (server not found -> show server list).
         // This test verifies the data layer doesn't crash.
-        var svc2 = new AppConfigService(_tempDir);
+        var svc2 = new AppConfigService(_tempDir, null);
         Assert.AreEqual("srv1", svc2.GetSettings().AutoConnectServerId);
         Assert.AreEqual(0, svc2.GetServers().Count);
     }
@@ -185,7 +204,7 @@ public class AppConfigServiceTests
     [TestMethod]
     public void DefaultSettings_HaveReconnectEnabled()
     {
-        var svc = new AppConfigService(_tempDir);
+        var svc = new AppConfigService(_tempDir, null);
 
         var settings = svc.GetSettings();
 
@@ -195,10 +214,10 @@ public class AppConfigServiceTests
     [TestMethod]
     public void SavesAndReloads_ReconnectEnabled()
     {
-        var svc = new AppConfigService(_tempDir);
+        var svc = new AppConfigService(_tempDir, null);
         svc.SetSettings(svc.GetSettings() with { ReconnectEnabled = false });
 
-        var svc2 = new AppConfigService(_tempDir);
+        var svc2 = new AppConfigService(_tempDir, null);
 
         Assert.IsFalse(svc2.GetSettings().ReconnectEnabled);
     }
@@ -206,14 +225,14 @@ public class AppConfigServiceTests
     [TestMethod]
     public void SavesAndReloads_AppearanceSettings()
     {
-        var svc = new AppConfigService(_tempDir);
+        var svc = new AppConfigService(_tempDir, null);
         var updated = AppSettings.Default with
         {
             Appearance = new AppearanceSettings(Theme: "blue-lagoon")
         };
 
         svc.SetSettings(updated);
-        var svc2 = new AppConfigService(_tempDir);
+        var svc2 = new AppConfigService(_tempDir, null);
 
         Assert.AreEqual("blue-lagoon", svc2.GetSettings().Appearance.Theme);
     }
@@ -221,7 +240,7 @@ public class AppConfigServiceTests
     [TestMethod]
     public void LoadsEmptyProfiles_WhenNoFileExists()
     {
-        var svc = new AppConfigService(_tempDir);
+        var svc = new AppConfigService(_tempDir, null);
         Assert.AreEqual(0, svc.GetProfiles().Count);
         Assert.IsNull(svc.GetActiveProfileId());
     }
@@ -229,12 +248,12 @@ public class AppConfigServiceTests
     [TestMethod]
     public void SavesAndReloads_Profiles()
     {
-        var svc = new AppConfigService(_tempDir);
+        var svc = new AppConfigService(_tempDir, null);
         var profile = new ProfileEntry("p1", "Roan");
         svc.AddProfile(profile);
         svc.SetActiveProfileId("p1");
 
-        var svc2 = new AppConfigService(_tempDir);
+        var svc2 = new AppConfigService(_tempDir, null);
         Assert.AreEqual(1, svc2.GetProfiles().Count);
         Assert.AreEqual("Roan", svc2.GetProfiles()[0].Name);
         Assert.AreEqual("p1", svc2.GetActiveProfileId());
@@ -243,7 +262,7 @@ public class AppConfigServiceTests
     [TestMethod]
     public void RemoveProfile_RemovesFromConfig_ButNotCertFile()
     {
-        var svc = new AppConfigService(_tempDir);
+        var svc = new AppConfigService(_tempDir, null);
         var certsDir = Path.Combine(_tempDir, "certs");
         Directory.CreateDirectory(certsDir);
         File.WriteAllBytes(Path.Combine(certsDir, "p1.pfx"), new byte[] { 1, 2, 3 });
@@ -258,7 +277,7 @@ public class AppConfigServiceTests
     [TestMethod]
     public void RemoveActiveProfile_ClearsActiveId_WhenLastProfile()
     {
-        var svc = new AppConfigService(_tempDir);
+        var svc = new AppConfigService(_tempDir, null);
         svc.AddProfile(new ProfileEntry("p1", "Only"));
         svc.SetActiveProfileId("p1");
 
@@ -270,7 +289,7 @@ public class AppConfigServiceTests
     [TestMethod]
     public void RemoveActiveProfile_SwitchesToAnother_WhenOthersExist()
     {
-        var svc = new AppConfigService(_tempDir);
+        var svc = new AppConfigService(_tempDir, null);
         svc.AddProfile(new ProfileEntry("p1", "First"));
         svc.AddProfile(new ProfileEntry("p2", "Second"));
         svc.SetActiveProfileId("p1");
@@ -283,11 +302,11 @@ public class AppConfigServiceTests
     [TestMethod]
     public void RenameProfile_UpdatesName()
     {
-        var svc = new AppConfigService(_tempDir);
+        var svc = new AppConfigService(_tempDir, null);
         svc.AddProfile(new ProfileEntry("p1", "Old Name"));
 
         svc.RenameProfile("p1", "New Name");
-        var svc2 = new AppConfigService(_tempDir);
+        var svc2 = new AppConfigService(_tempDir, null);
 
         Assert.AreEqual("New Name", svc2.GetProfiles()[0].Name);
     }
@@ -298,7 +317,7 @@ public class AppConfigServiceTests
         // Create a legacy identity.pfx
         File.WriteAllBytes(Path.Combine(_tempDir, "identity.pfx"), new byte[] { 1, 2, 3 });
 
-        var svc = new AppConfigService(_tempDir);
+        var svc = new AppConfigService(_tempDir, null);
 
         Assert.AreEqual(1, svc.GetProfiles().Count);
         Assert.IsNotNull(svc.GetActiveProfileId());
@@ -338,5 +357,5 @@ public class AppConfigServiceTests
         Assert.IsTrue(result);
     }
 
-    private AppConfigService CreateService() => new AppConfigService(_tempDir);
+    private AppConfigService CreateService() => new AppConfigService(_tempDir, null);
 }

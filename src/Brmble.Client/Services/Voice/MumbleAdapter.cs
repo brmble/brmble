@@ -275,6 +275,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         {
             _apiUrl = null;
             _activeServerId = null;
+            _reconnectPassword = null;
         }
         _leftVoice = false;
         _leaveVoiceInProgress = false;
