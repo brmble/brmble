@@ -378,7 +378,7 @@ internal sealed class AppConfigService : IAppConfigService
         }
         catch
         {
-            return string.Empty;
+            return password;
         }
     }
 
@@ -390,7 +390,7 @@ internal sealed class AppConfigService : IAppConfigService
         }
         catch
         {
-            return string.Empty;
+            return password;
         }
     }
 
