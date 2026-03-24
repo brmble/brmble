@@ -29,6 +29,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\lib\MumbleSharp\MumbleSharp\MumbleSharp.csproj" />
     <ProjectReference Include="..\..\lib\MumbleVoiceEngine\MumbleVoiceEngine.csproj" />
+    <ProjectReference Include="..\Brmble.Audio\Brmble.Audio.csproj" />
   </ItemGroup>
 
   <ItemGroup>
