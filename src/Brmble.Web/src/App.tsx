@@ -101,7 +101,7 @@ interface SavedServer {
   host: string;
   port: number;
   username: string;
-  password: string;
+  password?: string;
   registered?: boolean;
   registeredName?: string;
 }
@@ -1041,7 +1041,8 @@ function App() {
         if (stored) {
           const savedServer = JSON.parse(stored) as SavedServer;
           if (savedServer.id === d.serverId) {
-            const updated = { ...savedServer, registered: true, registeredName: d.registeredName, username: d.registeredName ?? savedServer.username };
+            const { password, ...safeServerData } = savedServer;
+            const updated = { ...safeServerData, registered: true, registeredName: d.registeredName, username: d.registeredName ?? savedServer.username };
             bridge.send('servers.update', updated);
             localStorage.setItem('brmble-server', JSON.stringify(updated));
           }
@@ -1167,7 +1168,9 @@ function App() {
   }, []);
 
 const handleConnect = (serverData: SavedServer) => {
-    localStorage.setItem('brmble-server', JSON.stringify(serverData));
+    // Don't store password in localStorage - use secure storage instead
+    const { password, ...safeServerData } = serverData;
+    localStorage.setItem('brmble-server', JSON.stringify(safeServerData));
     setServerAddress(`${serverData.host}:${serverData.port}`);
     setConnectionStatus('connecting');
     userSawConnectedRef.current = false;
