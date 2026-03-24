@@ -63,6 +63,16 @@ public class SessionMappingService : ISessionMappingService
         return _userIdToSession.TryGetValue(userId, out sessionId);
     }
 
+    public bool TryUpdateBrmbleStatus(int sessionId, bool isBrmbleClient)
+    {
+        if (_sessionToMapping.TryGetValue(sessionId, out var existing))
+        {
+            _sessionToMapping[sessionId] = existing with { IsBrmbleClient = isBrmbleClient };
+            return true;
+        }
+        return false;
+    }
+
     public IReadOnlyDictionary<int, SessionMapping> GetSnapshot()
     {
         return new Dictionary<int, SessionMapping>(_sessionToMapping);

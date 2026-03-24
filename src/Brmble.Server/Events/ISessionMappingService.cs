@@ -10,5 +10,6 @@ public interface ISessionMappingService
     bool TryGetMatrixUserId(int sessionId, out string? matrixUserId);
     bool TryGetSessionId(string mumbleName, out int sessionId);
     bool TryGetSessionByUserId(long userId, out int sessionId);
+    bool TryUpdateBrmbleStatus(int sessionId, bool isBrmbleClient);
     IReadOnlyDictionary<int, SessionMapping> GetSnapshot();
 }
