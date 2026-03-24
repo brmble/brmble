@@ -204,8 +204,9 @@ internal sealed class AppConfigService : IAppConfigService
 
     public void SetSettings(AppSettings settings)
     {
-        lock (_lock) { _settings = settings; Save(); }
-        OnSettingsChanged?.Invoke(settings);
+        AppSettings capturedSettings;
+        lock (_lock) { _settings = settings; Save(); capturedSettings = settings; }
+        OnSettingsChanged?.Invoke(capturedSettings);
     }
 
     public WindowState? GetWindowState()
@@ -357,7 +358,7 @@ internal sealed class AppConfigService : IAppConfigService
         {
             Password = string.IsNullOrEmpty(s.Password) || _passwordStorage.IsEncrypted(s.Password)
                 ? s.Password
-                : _passwordStorage.Encrypt(s.Password)
+                : TryEncryptPassword(s.Password)
         }).ToList();
 
         var data = new ConfigData {
@@ -367,6 +368,30 @@ internal sealed class AppConfigService : IAppConfigService
             ProfileRegistrations = _profileRegistrations
         };
         File.WriteAllText(_configPath, JsonSerializer.Serialize(data, _jsonOptions));
+    }
+
+    private string TryEncryptPassword(string password)
+    {
+        try
+        {
+            return _passwordStorage.Encrypt(password);
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string TryDecryptPassword(string password, ISecurePasswordStorage passwordStorage)
+    {
+        try
+        {
+            return passwordStorage.IsEncrypted(password) ? passwordStorage.Decrypt(password) : password;
+        }
+        catch
+        {
+            return string.Empty;
+        }
     }
 
     private static ServerEntry? ParseServerEntry(System.Text.Json.JsonElement data, ISecurePasswordStorage passwordStorage)
@@ -382,7 +407,7 @@ internal sealed class AppConfigService : IAppConfigService
         var username = data.TryGetProperty("username", out var usernameEl) ? usernameEl.GetString() ?? "" : "";
         var apiUrl = data.TryGetProperty("apiUrl", out var apiEl) ? apiEl.GetString() : null;
         var passwordRaw = data.TryGetProperty("password", out var pwEl) ? pwEl.GetString() ?? "" : "";
-        var password = passwordStorage.IsEncrypted(passwordRaw) ? passwordStorage.Decrypt(passwordRaw) : passwordRaw;
+        var password = TryDecryptPassword(passwordRaw, passwordStorage);
         var registered = data.TryGetProperty("registered", out var regEl) && regEl.ValueKind == System.Text.Json.JsonValueKind.True;
         var registeredName = data.TryGetProperty("registeredName", out var rnEl) ? rnEl.GetString() : null;
 
