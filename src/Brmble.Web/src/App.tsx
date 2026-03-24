@@ -4,7 +4,9 @@ import type { ConnectionStatus } from './types';
 import { useMatrixClient } from './hooks/useMatrixClient';
 import type { MatrixCredentials } from './hooks/useMatrixClient';
 import { useScreenShare } from './hooks/useScreenShare';
-import { useUnreadTracker } from './hooks/useUnreadTracker';
+import { useUnreadTracker, resetMarkersCache } from './hooks/useUnreadTracker';
+import { useServiceStatus } from './hooks/useServiceStatus';
+import { useServerHealth } from './hooks/useServerHealth';
 
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Header } from './components/Header/Header';
@@ -28,6 +30,9 @@ import { DMContactList } from './components/DMContactList/DMContactList';
 import { usePrompt, confirm } from './hooks/usePrompt';
 import { Toast } from './components/Toast/Toast';
 import { GameUI } from './components/Game/GameUI';
+import { Brmblegotchi } from './components/Brmblegotchi/Brmblegotchi';
+import { ProfileProvider } from './contexts/ProfileContext';
+import { migrateLocalStorage } from './utils/migrateLocalStorage';
 import './App.css';
 
 const SETTINGS_STORAGE_KEY = 'brmble-settings';
@@ -91,11 +96,14 @@ function speakText(text: string) {
 
 interface SavedServer {
   id?: string;
+  label?: string;
+  apiUrl?: string;
   host: string;
   port: number;
   username: string;
   password: string;
   registered?: boolean;
+  registeredName?: string;
 }
 
 interface Channel {
@@ -130,8 +138,11 @@ function App() {
   // null = status not yet received, false = no cert, true = cert exists
   const [certExists, setCertExists] = useState<boolean | null>(null);
   const [certFingerprint, setCertFingerprint] = useState('');
+  const [activeProfileName, setActiveProfileName] = useState('');
+
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
+  const { statuses, updateStatus, resetStatuses } = useServiceStatus();
   const connected = connectionStatus === 'connected';
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [username, setUsername] = useState('');
@@ -194,6 +205,7 @@ function App() {
   const [matrixCredentials, setMatrixCredentials] = useState<MatrixCredentials | null>(null);
   const matrixClient = useMatrixClient(matrixCredentials);
   const { dmMessages: matrixDmMessages, sendDMMessage: sendMatrixDM, fetchDMHistory } = matrixClient;
+  useServerHealth();
 
   // Avatar state and management
   const [currentUserAvatarUrl, setCurrentUserAvatarUrl] = useState<string | undefined>();
@@ -325,6 +337,7 @@ function App() {
     dmRoomIds,
     activeMatrixRoomId,
     username || null,
+    certFingerprint,
   );
 
   const channelKey = currentChannelId === 'server-root' ? 'server-root' : currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
@@ -334,12 +347,9 @@ function App() {
   const { messages: dmMessages, addMessage: addDMMessage } = useChatStore(dmKey);
 
   const updateBadge = useCallback((unread: number, invite: boolean) => {
-    // When Matrix is connected, prefer its DM unread count over localStorage
-    const effectiveUnreadDMs = matrixClient?.client
-      ? unreadTracker.totalDmUnreadCount > 0
-      : unread > 0;
+    const effectiveUnreadDMs = unread > 0;
     bridge.send('notification.badge', { unreadDMs: effectiveUnreadDMs, pendingInvite: invite });
-  }, [matrixClient?.client, unreadTracker.totalDmUnreadCount]);
+  }, [bridge]);
 
   // Refs to avoid re-registering bridge handlers on every state change
   const usersRef = useRef(users);
@@ -371,6 +381,17 @@ function App() {
   connectionStatusRef.current = connectionStatus;
   const handleToggleScreenShareRef = useRef<(() => void) | null>(null);
   const disconnectViewerRef = useRef<(() => void) | null>(null);
+
+  // Tracks whether the user ever saw the 'connected' UI (ChatPanel rendered).
+  // Set to true via useEffect (fires after render commit), so transient
+  // connecting→connected→disconnected batches won't set it.
+  // Reset to false when starting a new connection attempt.
+  const userSawConnectedRef = useRef(false);
+  useEffect(() => {
+    if (connectionStatus === 'connected') {
+      userSawConnectedRef.current = true;
+    }
+  }, [connectionStatus]);
 
   // Load DM contacts scoped to the current server
   useEffect(() => {
@@ -467,6 +488,7 @@ function App() {
       if (pttKey) {
         const pressedKey = e.code;
         if (pressedKey === pttKey && !pttPressed) {
+          e.preventDefault();
           pttPressed = true;
           bridge.send('voice.pttKey', { pressed: true });
         }
@@ -482,14 +504,14 @@ function App() {
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('keydown', handleKeyDown, true);
+    window.addEventListener('keyup', handleKeyUp, true);
 
     return () => {
       bridge.off('settings.current', handleSettingsCurrent);
       bridge.off('settings.updated', handleSettingsCurrent);
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('keydown', handleKeyDown, true);
+      window.removeEventListener('keyup', handleKeyUp, true);
       window.removeEventListener('storage', handleStorage);
     };
   }, []);
@@ -498,9 +520,20 @@ function App() {
   useEffect(() => {
     const onVoiceConnected = ((data: unknown) => {
       setConnectionStatus('connected');
-      setCurrentChannelId('server-root');
-      setCurrentChannelName('');
-      const d = data as { username?: string; channels?: Channel[]; users?: User[] } | undefined;
+      updateStatus('voice', { state: 'connected', error: undefined });
+      const d = data as { username?: string; channelId?: number; channels?: Channel[]; users?: User[] } | undefined;
+
+      // Use actual channel from server instead of assuming root.
+      // Registered Mumble users may be placed in their last channel.
+      const initialChannelId = d?.channelId ?? 0;
+      if (initialChannelId === 0) {
+        setCurrentChannelId('server-root');
+        setCurrentChannelName('');
+      } else {
+        setCurrentChannelId(String(initialChannelId));
+        const channelName = d?.channels?.find(ch => ch.id === initialChannelId)?.name;
+        setCurrentChannelName(channelName || '');
+      }
       
       if (d?.username) {
         setUsername(d.username);
@@ -517,17 +550,57 @@ function App() {
           setSelfSession(selfUser.session);
         }
       }
+
+      // Persist Mumble registration status to the saved server entry
+      const reg = data as { registered?: boolean; registeredName?: string } | undefined;
+      if (reg?.registered) {
+        try {
+          const stored = localStorage.getItem('brmble-server');
+          if (stored) {
+            const savedServer = JSON.parse(stored) as SavedServer;
+            if (savedServer.id) {
+              const updated = { ...savedServer, registered: true, username: reg.registeredName ?? savedServer.username, registeredName: reg.registeredName };
+              bridge.send('servers.update', updated);
+              localStorage.setItem('brmble-server', JSON.stringify(updated));
+            }
+          }
+        } catch { /* ignore parse errors */ }
+      } else {
+        // Clear stale registration when server reports not-registered
+        try {
+          const stored = localStorage.getItem('brmble-server');
+          if (stored) {
+            const savedServer = JSON.parse(stored) as SavedServer;
+            if (savedServer.id && savedServer.registered) {
+              const updated = { ...savedServer, registered: false, registeredName: undefined };
+              bridge.send('servers.update', updated);
+              localStorage.setItem('brmble-server', JSON.stringify(updated));
+            }
+          }
+        } catch { /* ignore parse errors */ }
+      }
     });
 
     const onVoiceDisconnected = (data: unknown) => {
       clearPendingAction();
       const d = data as { reconnectAvailable?: boolean } | null;
-      if (d?.reconnectAvailable) {
+
+      if (d?.reconnectAvailable && userSawConnectedRef.current) {
+        // User was connected and saw the UI, then lost connection
         setConnectionStatus('disconnected');
+        updateStatus('voice', { state: 'disconnected' });
+      } else if (!userSawConnectedRef.current && connectionStatusRef.current !== 'idle') {
+        // User never saw the connected UI — initial connect failed
+        setConnectionStatus('failed');
+        setServerAddress('');
+        setServerLabel('');
+        updateStatus('voice', { state: 'disconnected', label: undefined });
       } else {
+        // Normal intentional disconnect — go back to server list
         setConnectionStatus('idle');
         setServerAddress('');
         setServerLabel('');
+        updateStatus('voice', { state: 'disconnected', label: undefined });
       }
       setChannels([]);
       setUsers([]);
@@ -548,37 +621,18 @@ function App() {
       setAppModeRef.current('channels');
       setSelectedDMUserIdRaw(null);
       setSelectedDMUserName('');
+      updateStatus('livekit', { state: 'idle', error: undefined });
+      updateStatus('server', { state: 'idle', error: undefined });
     };
 
     const onServerCredentials = (data: unknown) => {
       setConnectionError(null);
-      const wrapped = data as { matrix?: MatrixCredentials; registered?: boolean; registeredName?: string } | undefined;
+      const wrapped = data as { matrix?: MatrixCredentials } | undefined;
       const d = wrapped?.matrix;
       if (d?.homeserverUrl && d.accessToken && d.userId && d.roomMap) {
         // Clear stale chat data from previous sessions
         clearChatStorage();
         setMatrixCredentials(d);
-      }
-
-      // Persist registration status to the saved server entry
-      if (wrapped?.registered) {
-        try {
-          const stored = localStorage.getItem('brmble-server');
-          if (stored) {
-            const savedServer = JSON.parse(stored) as SavedServer;
-            const updatedServer = {
-              ...savedServer,
-              registered: true,
-              username: wrapped.registeredName ?? savedServer.username,
-            };
-            localStorage.setItem('brmble-server', JSON.stringify(updatedServer));
-
-            // Update server list entry if we have an ID
-            if (savedServer.id) {
-              bridge.send('servers.update', updatedServer);
-            }
-          }
-        } catch { /* ignore parse errors */ }
       }
     };
 
@@ -593,8 +647,10 @@ function App() {
 
     const onVoiceError = ((data: unknown) => {
       clearPendingAction();
-      const d = data as { message: string } | undefined;
-      console.error('Voice error:', d?.message);
+      const d = data as { message?: string } | undefined;
+      const errorMsg = d?.message || 'Unknown error';
+      console.error('Voice error:', errorMsg);
+      updateStatus('voice', { error: errorMsg });
     });
 
     const onVoiceMessage = ((data: unknown) => {
@@ -850,6 +906,10 @@ function App() {
       handleToggleScreenShareRef.current?.();
     };
 
+    const onToggleGame = () => {
+      setShowGame(prev => !prev);
+    };
+
     const onShowCloseDialog = () => {
       setShowCloseDialog(true);
     };
@@ -858,7 +918,9 @@ function App() {
       const d = data as { exists: boolean; fingerprint?: string } | undefined;
       if (d?.exists) {
         setCertExists(true);
-        setCertFingerprint(d.fingerprint ?? '');
+        const fp = d.fingerprint ?? '';
+        if (fp) migrateLocalStorage(fp);
+        setCertFingerprint(fp);
       } else {
         setCertExists(false);
       }
@@ -866,12 +928,41 @@ function App() {
     const onCertGenerated = (data: unknown) => {
       const d = data as { fingerprint?: string } | undefined;
       setCertExists(true);
-      setCertFingerprint(d?.fingerprint ?? '');
+      const fp = d?.fingerprint ?? '';
+      if (fp) migrateLocalStorage(fp);
+      setCertFingerprint(fp);
     };
     const onCertImported = (data: unknown) => {
       const d = data as { fingerprint?: string } | undefined;
       setCertExists(true);
-      setCertFingerprint(d?.fingerprint ?? '');
+      const fp = d?.fingerprint ?? '';
+      if (fp) migrateLocalStorage(fp);
+      setCertFingerprint(fp);
+    };
+
+    const onProfilesActiveChanged = (data: unknown) => {
+      const d = data as { id: string | null; name: string | null; fingerprint: string | null };
+      resetMarkersCache();
+      if (d.id) {
+        setCertExists(true);
+        const fp = d.fingerprint ?? '';
+        if (fp) migrateLocalStorage(fp);
+        setCertFingerprint(fp);
+        setActiveProfileName(d.name ?? '');
+      } else {
+        setCertExists(false);
+        setCertFingerprint('');
+        setActiveProfileName('');
+        setShowSettings(false);
+      }
+    };
+
+    const onProfilesList = (data: unknown) => {
+      const d = data as { profiles: Array<{ id: string; name: string }>; activeProfileId: string | null };
+      if (d.activeProfileId) {
+        const active = d.profiles.find(p => p.id === d.activeProfileId);
+        if (active) setActiveProfileName(active.name);
+      }
     };
 
     const onAutoConnect = (data: unknown) => {
@@ -879,9 +970,12 @@ function App() {
       if (server) {
         setServerLabel(server.label || `${server.host}:${server.port}`);
         handleConnect({
+          id: server.id,
+          label: server.label,
+          apiUrl: server.apiUrl,
           host: server.host || '',
           port: server.port || 0,
-          username: server.username,
+          username: server.username || activeProfileName || 'Brmble User',
           password: '',
         });
       }
@@ -889,10 +983,13 @@ function App() {
 
     const onVoiceReconnecting = () => {
       setConnectionStatus('reconnecting');
+      updateStatus('voice', { state: 'connecting' });
     };
-    const onVoiceReconnectFailed = () => {
+    const onVoiceReconnectFailed = (data?: unknown) => {
       clearPendingAction();
       setConnectionStatus('failed');
+      const d = data as { reason?: string } | undefined;
+      updateStatus('voice', { state: 'disconnected', error: d?.reason || 'Reconnect failed' });
       setServerAddress('');
       setServerLabel('');
       setChannels([]);
@@ -936,6 +1033,22 @@ function App() {
       }
     };
 
+    const onRegistrationStatus = (data: unknown) => {
+      const d = data as { serverId?: string; registered?: boolean; registeredName?: string } | undefined;
+      if (!d?.registered || !d.serverId) return;
+      try {
+        const stored = localStorage.getItem('brmble-server');
+        if (stored) {
+          const savedServer = JSON.parse(stored) as SavedServer;
+          if (savedServer.id === d.serverId) {
+            const updated = { ...savedServer, registered: true, registeredName: d.registeredName, username: d.registeredName ?? savedServer.username };
+            bridge.send('servers.update', updated);
+            localStorage.setItem('brmble-server', JSON.stringify(updated));
+          }
+        }
+      } catch { /* ignore parse errors */ }
+    };
+
     bridge.on('voice.connected', onVoiceConnected);
     bridge.on('voice.disconnected', onVoiceDisconnected);
     bridge.on('voice.error', onVoiceError);
@@ -957,10 +1070,13 @@ function App() {
     bridge.on('voice.shortcutReleased', onShortcutReleased);
     bridge.on('voice.toggleDmScreen', onToggleDmScreen);
     bridge.on('voice.toggleScreenShare', onToggleScreenShare);
+    bridge.on('game.toggle', onToggleGame);
     bridge.on('window.showCloseDialog', onShowCloseDialog);
     bridge.on('cert.status', onCertStatus);
     bridge.on('cert.generated', onCertGenerated);
     bridge.on('cert.imported', onCertImported);
+    bridge.on('profiles.activeChanged', onProfilesActiveChanged);
+    bridge.on('profiles.list', onProfilesList);
     bridge.on('voice.autoConnect', onAutoConnect);
     bridge.on('voice.reconnecting', onVoiceReconnecting);
     bridge.on('voice.reconnectFailed', onVoiceReconnectFailed);
@@ -968,6 +1084,7 @@ function App() {
     bridge.on('voice.authError', onVoiceAuthError);
     bridge.on('voice.userMappingUpdated', onUserMappingUpdated);
     bridge.on('voice.sessionMappingSnapshot', onSessionMappingSnapshot);
+    bridge.on('voice.registrationStatus', onRegistrationStatus);
 
     return () => {
       bridge.off('voice.connected', onVoiceConnected);
@@ -991,10 +1108,13 @@ function App() {
       bridge.off('voice.shortcutReleased', onShortcutReleased);
       bridge.off('voice.toggleDmScreen', onToggleDmScreen);
       bridge.off('voice.toggleScreenShare', onToggleScreenShare);
+      bridge.off('game.toggle', onToggleGame);
       bridge.off('window.showCloseDialog', onShowCloseDialog);
       bridge.off('cert.status', onCertStatus);
       bridge.off('cert.generated', onCertGenerated);
       bridge.off('cert.imported', onCertImported);
+      bridge.off('profiles.activeChanged', onProfilesActiveChanged);
+      bridge.off('profiles.list', onProfilesList);
       bridge.off('voice.autoConnect', onAutoConnect);
       bridge.off('voice.reconnecting', onVoiceReconnecting);
       bridge.off('voice.reconnectFailed', onVoiceReconnectFailed);
@@ -1002,12 +1122,14 @@ function App() {
       bridge.off('voice.authError', onVoiceAuthError);
       bridge.off('voice.userMappingUpdated', onUserMappingUpdated);
       bridge.off('voice.sessionMappingSnapshot', onSessionMappingSnapshot);
+      bridge.off('voice.registrationStatus', onRegistrationStatus);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     bridge.send('cert.requestStatus');
+    bridge.send('profiles.list');
   }, []);
 
   useEffect(() => {
@@ -1048,7 +1170,9 @@ const handleConnect = (serverData: SavedServer) => {
     localStorage.setItem('brmble-server', JSON.stringify(serverData));
     setServerAddress(`${serverData.host}:${serverData.port}`);
     setConnectionStatus('connecting');
+    userSawConnectedRef.current = false;
     bridge.send('voice.connect', serverData);
+    updateStatus('voice', { state: 'connecting', error: undefined, label: `${serverData.host}:${serverData.port}` });
     
     // Send transmission mode from settings
     try {
@@ -1071,10 +1195,14 @@ const handleConnect = (serverData: SavedServer) => {
     setServerLabel(server.label || `${server.host}:${server.port}`);
     handleConnect({
       id: server.id,
+      label: server.label,
+      apiUrl: server.apiUrl,
       host: server.host,
       port: server.port,
-      username: server.username,
-      password: server.password || ''
+      username: server.username || activeProfileName || 'Brmble User',
+      password: server.password || '',
+      registered: server.registered,
+      registeredName: server.registeredName,
     });
   };
 
@@ -1104,6 +1232,7 @@ const handleConnect = (serverData: SavedServer) => {
       setCurrentChannelName(channel.name);
       setUnreadCount(0);
       updateBadge(0, hasPendingInvite);
+      setShowGame(false);
 
       if (appMode === 'dm') {
         setAppMode('channels');
@@ -1191,7 +1320,9 @@ const handleConnect = (serverData: SavedServer) => {
   const handleBackToServerList = () => {
     bridge.send('voice.disconnect');
     clearPendingAction();
+    userSawConnectedRef.current = false;
     setConnectionStatus('idle');
+    resetStatuses();
     setServerLabel('');
     setServerAddress('');
     setUsername('');
@@ -1254,6 +1385,7 @@ const handleConnect = (serverData: SavedServer) => {
   }, []);
 
   const toggleDMMode = () => {
+    setShowGame(false);
     setAppMode(prev => prev === 'channels' ? 'dm' : 'channels');
   };
 
@@ -1263,10 +1395,8 @@ const handleConnect = (serverData: SavedServer) => {
     0,
   );
 
-  // Use Matrix-backed DM unread count when Matrix is connected, fall back to local aggregate
-  const totalDmUnreadCount = matrixClient?.client
-    ? unreadTracker.totalDmUnreadCount
-    : localTotalDmUnreadCount;
+  // Combine Matrix DM unread count with local Mumble DM unread count
+  const totalDmUnreadCount = (matrixClient?.client ? unreadTracker.totalDmUnreadCount : 0) + localTotalDmUnreadCount;
 
   // Push DM badge state to native side whenever unread count changes
   useEffect(() => {
@@ -1378,8 +1508,21 @@ const handleConnect = (serverData: SavedServer) => {
   }, [matrixCredentials?.roomMap, unreadTracker.roomUnreads]);
 
   useEffect(() => {
-    if (screenShareError) console.error('Screen share error:', screenShareError);
-  }, [screenShareError]);
+    if (screenShareError) {
+      console.error('Screen share error:', screenShareError);
+      updateStatus('livekit', { state: 'disconnected', error: screenShareError });
+    }
+  }, [screenShareError, updateStatus]);
+
+  // Track screenshare connection state for service status indicator
+  useEffect(() => {
+    if (isSharing) {
+      updateStatus('livekit', { state: 'connected', error: undefined });
+    } else if (!screenShareError) {
+      // Only reset to idle if there's no active error (error case handled above)
+      updateStatus('livekit', { state: 'idle', error: undefined });
+    }
+  }, [isSharing, screenShareError, updateStatus]);
 
   // Show toast notification when someone starts sharing in the user's voice channel
   useEffect(() => {
@@ -1421,15 +1564,16 @@ const handleConnect = (serverData: SavedServer) => {
       const selfUser = usersRef.current.find(u => u.self);
       const voiceChannelId = selfUser?.channelId;
       if (voiceChannelId != null && voiceChannelId !== 0) {
+        updateStatus('livekit', { state: 'connecting', error: undefined });
         try {
           await startSharing(`channel-${voiceChannelId}`);
           setSharingChannelId(String(voiceChannelId));
         } catch {
-          // startSharing sets error state internally
+          // startSharing sets error state internally; useEffect above handles status
         }
       }
     }
-  }, [isSharing, startSharing, stopSharing, selfLeftVoice]);
+  }, [isSharing, startSharing, stopSharing, selfLeftVoice, updateStatus]);
   handleToggleScreenShareRef.current = handleToggleScreenShare;
 
   const handleWatchScreenShare = useCallback((roomName: string) => {
@@ -1551,6 +1695,7 @@ const handleConnect = (serverData: SavedServer) => {
 
   return (
     <div className="app">
+      <ProfileProvider value={certFingerprint}>
       <ErrorBoundary label="Header">
       <Header
         username={username}
@@ -1593,7 +1738,6 @@ const handleConnect = (serverData: SavedServer) => {
           serverAddress={serverAddress}
           username={username}
           onDisconnect={handleDisconnect}
-          onReconnect={handleReconnect}
           onStartDM={handleSelectDMUser}
           speakingUsers={speakingUsers}
           connectionStatus={connectionStatus}
@@ -1610,7 +1754,7 @@ const handleConnect = (serverData: SavedServer) => {
         <main className="main-content">
           {connectionStatus === 'idle' ? (
             certExists === true ? (
-              <ServerList onConnect={handleServerConnect} connectionError={connectionError} onClearError={() => setConnectionError(null)} />
+              <ServerList onConnect={handleServerConnect} connectionError={connectionError} onClearError={() => setConnectionError(null)} activeProfileName={activeProfileName} />
             ) : (
               <div className="connection-state">
                 <div className="connection-state-content">
@@ -1666,6 +1810,7 @@ const handleConnect = (serverData: SavedServer) => {
             <ConnectionState
               connectionStatus={connectionStatus}
               serverLabel={serverLabel}
+              errorMessage={statuses.voice.error}
               onCancel={connectionStatus === 'connecting' || connectionStatus === 'reconnecting' ? handleCancelReconnect : undefined}
               onReconnect={connectionStatus === 'disconnected' ? handleReconnect : undefined}
               onBackToServerList={handleBackToServerList}
@@ -1697,7 +1842,6 @@ const handleConnect = (serverData: SavedServer) => {
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
         username={username}
-        certFingerprint={certFingerprint}
         connected={connected}
         currentUser={{
           name: username ?? 'Unknown',
@@ -1746,6 +1890,8 @@ const handleConnect = (serverData: SavedServer) => {
 
       <ZoomIndicator />
       <Version />
+      <Brmblegotchi />
+      </ProfileProvider>
     </div>
   );
 }

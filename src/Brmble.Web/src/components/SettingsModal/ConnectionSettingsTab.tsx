@@ -10,12 +10,14 @@ interface ConnectionSettingsTabProps {
 
 export interface ConnectionSettings {
   reconnectEnabled: boolean;
+  rememberLastChannel: boolean;
   autoConnectEnabled: boolean;
   autoConnectServerId: string | null;
 }
 
 export const DEFAULT_CONNECTION: ConnectionSettings = {
   reconnectEnabled: true,
+  rememberLastChannel: true,
   autoConnectEnabled: false,
   autoConnectServerId: null,
 };
@@ -23,6 +25,10 @@ export const DEFAULT_CONNECTION: ConnectionSettings = {
 export function ConnectionSettingsTab({ settings, onChange, servers }: ConnectionSettingsTabProps) {
   const handleReconnectToggle = () => {
     onChange({ ...settings, reconnectEnabled: !settings.reconnectEnabled });
+  };
+
+  const handleRememberLastChannelToggle = () => {
+    onChange({ ...settings, rememberLastChannel: !settings.rememberLastChannel });
   };
 
   const handleAutoConnectToggle = () => {
@@ -48,6 +54,17 @@ export function ConnectionSettingsTab({ settings, onChange, servers }: Connectio
               type="checkbox"
               checked={settings.reconnectEnabled}
               onChange={handleReconnectToggle}
+            />
+            <span className="brmble-toggle-slider"></span>
+          </label>
+        </div>
+        <div className="settings-item settings-toggle">
+          <label>Rejoin last voice channel on connect</label>
+          <label className="brmble-toggle">
+            <input
+              type="checkbox"
+              checked={settings.rememberLastChannel}
+              onChange={handleRememberLastChannelToggle}
             />
             <span className="brmble-toggle-slider"></span>
           </label>

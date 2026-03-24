@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Security.Cryptography.X509Certificates;
+using System.Threading;
 using Org.BouncyCastle.Tls;
 using MumbleSharp;
 using MumbleSharp.Audio;
@@ -36,10 +37,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private bool _canRejoin;
     private TransmissionMode _previousMode = TransmissionMode.Continuous;
     private volatile bool _intentionalDisconnect = false;
+    private volatile bool _rejected = false;
+    private volatile bool _isReconnect = false;
     private volatile CancellationTokenSource? _reconnectCts;
     private string? _reconnectHost;
     private int _reconnectPort;
-    private string? _reconnectUsername;
+    private volatile string? _reconnectUsername;
     private string? _reconnectPassword;
     private string? _currentPttKey;
     private readonly Stopwatch _notifyThrottle = Stopwatch.StartNew();
@@ -49,6 +52,15 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private readonly ConcurrentDictionary<uint, SessionMappingEntry> _sessionMappings = new();
     private CancellationTokenSource? _wsCts;
     private readonly IAppConfigService? _appConfigService;
+    private System.Threading.Timer? _healthTimer;
+    private long _healthGeneration;
+    // Accept self-signed certs: Brmble servers use self-signed TLS certificates
+    // (same pattern as WebSocket at line ~1290 and Mumble's BouncyCastle TLS).
+    private static readonly HttpClient _healthHttpClient = new(new HttpClientHandler
+    {
+        ServerCertificateCustomValidationCallback = (_, _, _, _) => true,
+    })
+    { Timeout = TimeSpan.FromSeconds(5) };
 
     private record SessionMappingEntry(string MatrixUserId, string MumbleName);
 
@@ -81,6 +93,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager.ShortcutPressed += action => {
             _bridge?.Send("voice.shortcutPressed", new { action });
             _bridge?.NotifyUiThread();
+            if (action == "toggleGame")
+            {
+                _bridge?.Send("game.toggle", null);
+                _bridge?.NotifyUiThread();
+            }
         };
         _audioManager.ShortcutReleased += action => {
             _bridge?.Send("voice.shortcutReleased", new { action });
@@ -101,6 +118,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     public void Connect(string host, int port, string username, string password = "", string? apiUrl = null)
     {
+        // Clear reconnect flag on every fresh Connect() call.  ReconnectLoop
+        // sets it to true *after* calling Connect(); clearing here prevents
+        // stale state if a previous connection dropped before ServerSync.
+        _isReconnect = false;
+
         if (apiUrl is not null)
             _apiUrl = apiUrl;
 
@@ -110,6 +132,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (string.IsNullOrWhiteSpace(host))
         {
             _bridge?.Send("voice.error", new { message = "Server address is required" });
+            _bridge?.Send("voice.disconnected", new { reason = "Server address is required" });
             _bridge?.NotifyUiThread();
             return;
         }
@@ -117,6 +140,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (string.IsNullOrWhiteSpace(username))
         {
             _bridge?.Send("voice.error", new { message = "Username is required" });
+            _bridge?.Send("voice.disconnected", new { reason = "Username is required" });
             _bridge?.NotifyUiThread();
             return;
         }
@@ -124,11 +148,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (port is <= 0 or > 65535)
         {
             _bridge?.Send("voice.error", new { message = "Port must be between 1 and 65535" });
+            _bridge?.Send("voice.disconnected", new { reason = "Port must be between 1 and 65535" });
             _bridge?.NotifyUiThread();
             return;
         }
 
         _intentionalDisconnect = false;
+        _rejected = false;
 
         // Recreate audio manager if disposed by a previous Disconnect()
         if (_audioManager == null)
@@ -205,6 +231,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     public void Disconnect()
     {
+        _isReconnect = false;
         _cts?.Cancel();
         _processThread?.Join(2000);
         _processThread = null;
@@ -216,6 +243,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         // is created on reconnect, ConfigureSpeechEnhancement is always called.
         _lastSpeechEnhancementEnabled = false;
         _lastSpeechEnhancementModel = "";
+        _lastSpeechDenoiseMode = SpeechDenoiseMode.Disabled;
 
         try
         {
@@ -236,6 +264,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _wsCts?.Cancel();
         _wsCts?.Dispose();
         _wsCts = null;
+        StopHealthCheck();
         _sessionMappings.Clear();
 
         UserDictionary.Clear();
@@ -297,8 +326,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     or global::ProtoBuf.ProtoException;
 
                 // Suppress spurious error notifications during intentional shutdown
-                // (e.g. ObjectDisposedException from teardown racing the process thread).
-                if (!_intentionalDisconnect && !ct.IsCancellationRequested)
+                // (e.g. ObjectDisposedException from teardown racing the process thread)
+                // or after a server reject (the real error was already sent by Reject callback).
+                if (!_intentionalDisconnect && !ct.IsCancellationRequested && !_rejected)
                 {
                     _bridge?.Send("voice.error", new { message = $"Process error: {ex.Message}" });
                     _bridge?.NotifyUiThread();
@@ -310,21 +340,39 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         }
 
         // Loop exited — either intentional (CTS cancelled) or unexpected connection drop.
+        Debug.WriteLine($"[Mumble] ProcessLoop exited: _intentionalDisconnect={_intentionalDisconnect}, ct.IsCancellationRequested={ct.IsCancellationRequested}, _reconnectHost={_reconnectHost}, _reconnectCts={_reconnectCts}, _rejected={_rejected}");
         if (!_intentionalDisconnect && !ct.IsCancellationRequested && _reconnectHost != null && _reconnectCts == null)
         {
-            var reconnectEnabled = _appConfigService?.GetSettings().ReconnectEnabled ?? true;
-            if (reconnectEnabled)
+            if (_rejected)
             {
-                // Unexpected drop — clean up and start reconnect loop.
-                Disconnect();
-                Task.Run(() => ReconnectLoop());
-            }
-            else
-            {
-                // Reconnect disabled — clean up and emit disconnected with manual reconnect option.
+                // Server rejected the connection (ban, auth failure, etc.) — the specific
+                // error was already sent by the Reject callback. Don't overwrite it with a
+                // generic message, and don't auto-reconnect (it will just fail again).
+                Debug.WriteLine("[Mumble] Reject path: calling Disconnect() then sending voice.disconnected");
                 Disconnect();
                 _bridge?.Send("voice.disconnected", new { reconnectAvailable = true });
                 _bridge?.NotifyUiThread();
+            }
+            else
+            {
+                // Notify UI of the connection loss so the error is visible during reconnect.
+                _bridge?.Send("voice.error", new { message = "Connection to server lost" });
+                _bridge?.NotifyUiThread();
+
+                var reconnectEnabled = _appConfigService?.GetSettings().ReconnectEnabled ?? true;
+                if (reconnectEnabled)
+                {
+                    // Unexpected drop — clean up and start reconnect loop.
+                    Disconnect();
+                    Task.Run(() => ReconnectLoop());
+                }
+                else
+                {
+                    // Reconnect disabled — clean up and emit disconnected with manual reconnect option.
+                    Disconnect();
+                    _bridge?.Send("voice.disconnected", new { reconnectAvailable = true });
+                    _bridge?.NotifyUiThread();
+                }
             }
         }
         // If intentional or CTS was cancelled, Disconnect() was already called by the handler.
@@ -361,6 +409,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 try
                 {
                     Connect(_reconnectHost!, _reconnectPort, _reconnectUsername!, _reconnectPassword ?? "");
+                    _isReconnect = true;
                     return; // ServerSync will emit voice.connected
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
@@ -592,6 +641,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     private bool _lastSpeechEnhancementEnabled = false;
     private string _lastSpeechEnhancementModel = "";
+    private SpeechDenoiseMode _lastSpeechDenoiseMode = SpeechDenoiseMode.Disabled;
 
     public void ApplySettings(AppSettings settings)
     {
@@ -601,6 +651,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.SetShortcut("toggleLeaveVoice", settings.Shortcuts.ToggleLeaveVoiceKey);
         _audioManager?.SetShortcut("toggleDmScreen", settings.Shortcuts.ToggleDMScreenKey);
         _audioManager?.SetShortcut("toggleScreenShare", settings.Shortcuts.ToggleScreenShareKey);
+        _audioManager?.SetShortcut("toggleGame", settings.Shortcuts.ToggleGameKey);
         _audioManager?.SetInputVolume(settings.Audio.InputVolume);
         _audioManager?.SetOutputVolume(settings.Audio.OutputVolume);
         _audioManager?.SetMaxAmplification(settings.Audio.MaxAmplification);
@@ -625,6 +676,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             };
             var modelsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "models");
             _audioManager?.ConfigureSpeechEnhancement(modelsPath, seEnabled, modelVariant);
+        }
+
+        // Configure RNNoise denoising
+        var denoiseMode = settings.SpeechDenoise.Mode;
+        if (denoiseMode != _lastSpeechDenoiseMode)
+        {
+            _lastSpeechDenoiseMode = denoiseMode;
+            _audioManager?.ConfigureRnnoise(denoiseMode);
         }
     }
 
@@ -1154,11 +1213,54 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
             // Start WebSocket connection for real-time session mapping updates
             StartWebSocketConnection(apiUrl);
+
+            // Start periodic health checks (runs from C# to avoid CORS issues)
+            StartHealthCheck(apiUrl);
         }
         catch (Exception ex)
         {
             Debug.WriteLine($"[Matrix] Failed to fetch credentials: {ex.Message}");
+            _bridge?.Send("voice.error", new { message = $"Failed to fetch chat credentials: {ex.Message}" });
+            _bridge?.NotifyUiThread();
         }
+    }
+
+    private void StartHealthCheck(string apiUrl)
+    {
+        StopHealthCheck();
+        var url = apiUrl.TrimEnd('/') + "/health";
+        var gen = Interlocked.Increment(ref _healthGeneration);
+
+        // Immediately report connecting, then run first check
+        _bridge?.Send("server.healthStatus", new { state = "connecting", label = apiUrl });
+        _bridge?.NotifyUiThread();
+
+        _healthTimer = new System.Threading.Timer(async _ =>
+        {
+            if (Interlocked.Read(ref _healthGeneration) != gen) return;
+            try
+            {
+                var res = await _healthHttpClient.GetAsync(url);
+                if (Interlocked.Read(ref _healthGeneration) != gen) return;
+                if (res.IsSuccessStatusCode)
+                    _bridge?.Send("server.healthStatus", new { state = "connected", label = apiUrl });
+                else
+                    _bridge?.Send("server.healthStatus", new { state = "disconnected", error = $"Health check returned {(int)res.StatusCode}" });
+            }
+            catch (Exception ex)
+            {
+                if (Interlocked.Read(ref _healthGeneration) != gen) return;
+                _bridge?.Send("server.healthStatus", new { state = "disconnected", error = ex.Message });
+            }
+            _bridge?.NotifyUiThread();
+        }, null, TimeSpan.Zero, TimeSpan.FromSeconds(30));
+    }
+
+    private void StopHealthCheck()
+    {
+        Interlocked.Increment(ref _healthGeneration);
+        _healthTimer?.Dispose();
+        _healthTimer = null;
     }
 
     private void StartWebSocketConnection(string apiUrl)
@@ -1360,6 +1462,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _activeServerId = data.TryGetProperty("id",  out var sid)  ? sid.GetString()         : null;
 
             _intentionalDisconnect = false;
+            _rejected = false;
 
             if (!string.IsNullOrEmpty(apiUrl) && string.IsNullOrEmpty(h))
             {
@@ -1781,6 +1884,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     {
         base.ServerSync(serverSync);
 
+        // Update _reconnectUsername to the Mumble-confirmed name so that
+        // credential fetch and future reconnects use the registered name
+        // instead of whatever the user originally typed.
+        if (LocalUser?.Name != null)
+            _reconnectUsername = LocalUser.Name;
+
         if (_activeServerId is not null)
         {
             _appConfigService?.SaveLastConnectedServerId(_activeServerId);
@@ -1804,10 +1913,44 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _audioManager?.SetLocalUserId(LocalUser.Id);
         _audioManager?.StartMic();
 
-        // User starts in root channel on connect — auto-activate leave voice.
-        // _previousChannelId stays null so the rejoin action is disabled until
-        // the user manually joins a channel.
-        ActivateLeaveVoice();
+        // Check which channel the server placed us in.  Unregistered users
+        // land in root (channel 0).  Registered users may be placed in their
+        // last channel automatically by the Mumble server.
+        var initialChannelId = LocalUser?.Channel?.Id ?? 0;
+        var rememberLastChannel = _appConfigService?.GetSettings().RememberLastChannel ?? true;
+
+        // Track explicit channel override for voice.connected payload.
+        // When we call JoinChannel(0) below, LocalUser.Channel won't update
+        // until the server echoes the UserState — so we pass the target
+        // channelId explicitly to avoid a race.
+        uint? voiceConnectedChannelId = null;
+
+        if (initialChannelId == 0)
+        {
+            // Root channel — auto-activate leave voice as before.
+            // _previousChannelId stays null so the rejoin action is disabled
+            // until the user manually joins a channel.
+            ActivateLeaveVoice();
+        }
+        else if (_isReconnect || rememberLastChannel)
+        {
+            // Reconnect (always keep channel) or setting is on — stay in the
+            // non-root channel the server placed us in.
+            _leftVoice = false;
+            _previousChannelId = null;
+            _bridge?.Send("voice.leftVoiceChanged", new { leftVoice = false });
+            EmitCanRejoin(false);
+        }
+        else
+        {
+            // Fresh connect with "remember last channel" off — move to root
+            // and activate leave-voice so the user starts in the lobby.
+            JoinChannel(0);
+            voiceConnectedChannelId = 0;
+            ActivateLeaveVoice(channelMoveInProgress: true);
+        }
+
+        _isReconnect = false;
 
         // Determine the API URL for credential fetch.
         // We fetch credentials BEFORE sending voice.connected so that session
@@ -1844,13 +1987,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             Task.Run(async () =>
             {
                 await FetchAndSendCredentials(url);
-                SendVoiceConnected();
+                SendVoiceConnected(voiceConnectedChannelId);
             });
         }
         else
         {
             // No API URL — credentials fetch not possible; send voice.connected immediately
-            SendVoiceConnected();
+            SendVoiceConnected(voiceConnectedChannelId);
         }
     }
 
@@ -1858,8 +2001,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// Build the channel/user snapshot and send voice.connected to the frontend.
     /// Called after credential fetch (if available) so session mappings are populated.
     /// </summary>
-    private void SendVoiceConnected()
+    /// <param name="overrideChannelId">
+    /// When non-null, use this channel ID in the payload instead of reading
+    /// <c>LocalUser.Channel.Id</c>.  This avoids a race when the server hasn't
+    /// echoed a channel move yet (e.g. fresh connect moving to root).
+    /// </param>
+    private void SendVoiceConnected(uint? overrideChannelId = null)
     {
+        var channelId = overrideChannelId ?? (uint)(LocalUser?.Channel?.Id ?? 0);
         var channels = Channels.Select(c => new { id = c.Id, name = c.Name, parent = c.Parent }).ToList();
         var users = Users.Select(u => new
         {
@@ -1878,8 +2027,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _bridge?.Send("voice.connected", new
         {
             username = LocalUser?.Name,
+            channelId,
             channels,
-            users
+            users,
+            registered = LocalUser?.IsRegistered ?? false,
+            registeredName = LocalUser?.IsRegistered == true ? LocalUser.Name : (string?)null
         });
 
         Debug.WriteLine($"[Mumble] Sent {channels.Count} channels and {users.Count} users");
@@ -1913,9 +2065,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         // Track previous channel for all users to detect when they leave our channel
         uint? previousUserChannel = null;
+        bool wasRegistered = false;
         if (UserDictionary.TryGetValue(userState.Session, out var existingUser))
         {
             previousUserChannel = existingUser.Channel?.Id;
+            wasRegistered = existingUser.IsRegistered;
         }
 
         base.UserState(userState);
@@ -1932,6 +2086,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         var isSelf = LocalUser != null && userState.Session == LocalUser.Id;
         var currentChannelId = user?.Channel?.Id ?? userState.ChannelId;
+
+        // Detect registration change for local user (e.g. after auto-registration)
+        if (isSelf && !wasRegistered && user != null && user.IsRegistered && _activeServerId != null)
+        {
+            Debug.WriteLine($"[Mumble] Local user became registered: {user.Name} (userId: {user.RegisteredUserId})");
+            _bridge?.Send("voice.registrationStatus", new
+            {
+                serverId = _activeServerId,
+                registered = true,
+                registeredName = user.Name
+            });
+        }
 
         // Check if a user left our channel (moved from our channel to a different one)
         if (!isSelf && previousUserChannel.HasValue && previousChannel.HasValue && 
@@ -2102,7 +2268,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     public override void Reject(Reject reject)
     {
         base.Reject(reject);
+        _rejected = true;
+        Debug.WriteLine($"[Mumble] Reject callback fired: reason={reject.Reason}, type={reject.Type}, _rejected={_rejected}");
         _bridge?.Send("voice.error", new { message = reject.Reason, type = reject.Type });
+        _bridge?.NotifyUiThread();
     }
 
     public override void PermissionDenied(PermissionDenied permissionDenied)
@@ -2114,6 +2283,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             : $"Permission denied: {permissionDenied.Type}";
 
         _bridge?.Send("voice.error", new { message = reason, type = "permissionDenied" });
+        _bridge?.NotifyUiThread();
     }
 
     public override void PermissionQuery(PermissionQuery permissionQuery)

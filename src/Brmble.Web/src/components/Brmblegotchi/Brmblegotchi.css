@@ -1,0 +1,376 @@
+.brmblegotchi-widget {
+  position: fixed;
+  bottom: var(--space-lg);
+  right: var(--space-lg);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  user-select: none;
+}
+
+.brmblegotchi-drag-handle {
+  width: 100%;
+  height: 20px;
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+
+.brmblegotchi-drag-handle:active {
+  cursor: grabbing;
+}
+
+.brmblegotchi-drag-handle span {
+  width: 4px;
+  height: 4px;
+  background: var(--text-muted);
+  border-radius: 50%;
+  opacity: 0.6;
+}
+
+.brmblegotchi-pet {
+  width: 80px;
+  height: 80px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-elevated);
+  border: var(--glass-border);
+  transition: transform var(--transition-fast);
+  cursor: pointer;
+}
+
+.brmblegotchi-pet:hover {
+  transform: scale(1.05);
+}
+
+.brmblegotchi-pet:active {
+  transform: scale(0.98);
+}
+
+.brmblegotchi-ring {
+  position: absolute;
+  border-radius: 50%;
+  transition: all var(--transition-normal);
+}
+
+.brmblegotchi-ring-outer {
+  width: 72px;
+  height: 72px;
+  border: 3px solid var(--accent-primary);
+  opacity: 0.3;
+  animation: brmblegotchi-pulse-outer 2s ease-in-out infinite;
+}
+
+.brmblegotchi-ring-middle {
+  width: 60px;
+  height: 60px;
+  border: 2px solid var(--accent-primary);
+  opacity: 0.5;
+  animation: brmblegotchi-pulse-middle 2s ease-in-out infinite 0.2s;
+}
+
+.brmblegotchi-ring-inner {
+  width: 48px;
+  height: 48px;
+  border: 2px solid var(--accent-primary);
+  opacity: 0.7;
+  animation: brmblegotchi-pulse-inner 2s ease-in-out infinite 0.4s;
+}
+
+.brmblegotchi-ring-center {
+  width: 36px;
+  height: 36px;
+  background: var(--accent-primary);
+  opacity: 0.9;
+  animation: brmblegotchi-breathe 2s ease-in-out infinite;
+}
+
+.brmblegotchi-face {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  z-index: 2;
+}
+
+.brmblegotchi-eyes {
+  display: flex;
+  gap: 10px;
+}
+
+.brmblegotchi-eye {
+  width: 8px;
+  height: 8px;
+  background: var(--bg-deep);
+  border-radius: 50%;
+  transition: all var(--transition-fast);
+}
+
+.brmblegotchi-eye.happy {
+  height: 4px;
+  border-radius: 4px 4px 0 0;
+  transform: translateY(2px);
+}
+
+.brmblegotchi-eye.sad {
+  transform: translateY(-2px);
+}
+
+.brmblegotchi-mouth {
+  width: 12px;
+  height: 6px;
+  border: 2px solid var(--bg-deep);
+  border-top: none;
+  border-radius: 0 0 12px 12px;
+  transition: all var(--transition-fast);
+}
+
+.brmblegotchi-mouth.happy {
+  width: 14px;
+  height: 7px;
+}
+
+.brmblegotchi-mouth.sad {
+  border-radius: 12px 12px 0 0;
+  border: 2px solid var(--bg-deep);
+  border-bottom: none;
+  height: 4px;
+}
+
+.brmblegotchi-mouth.neutral {
+  width: 8px;
+  height: 2px;
+  background: var(--bg-deep);
+  border: none;
+  border-radius: 2px;
+}
+
+.brmblegotchi-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--bg-surface);
+  padding: var(--space-xs);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  box-shadow: var(--shadow-elevated);
+  border: var(--glass-border);
+  border-top: none;
+  min-width: 90px;
+}
+
+.brmblegotchi-stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.brmblegotchi-stat-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.brmblegotchi-stat-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.brmblegotchi-stat-bar {
+  flex: 1;
+  height: 4px;
+  background: var(--bg-deep);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.brmblegotchi-stat-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width var(--transition-normal);
+}
+
+.brmblegotchi-stat-fill.hunger {
+  background: var(--accent-primary);
+}
+
+.brmblegotchi-stat-fill.happiness {
+  background: var(--accent-secondary);
+}
+
+.brmblegotchi-stat-fill.cleanliness {
+  background: var(--accent-decorative);
+}
+
+.brmblegotchi-actions {
+  position: absolute;
+  bottom: calc(100% + var(--space-sm));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: var(--space-xs);
+  background: var(--bg-surface);
+  padding: var(--space-xs);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-elevated);
+  border: 1px solid var(--glass-border);
+  animation: brmblegotchi-pop-up 200ms ease-out;
+}
+
+.brmblegotchi-action-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.brmblegotchi-action-btn:hover {
+  background: var(--accent-primary);
+  color: var(--bg-deep);
+  transform: scale(1.1);
+}
+
+.brmblegotchi-action-btn:active {
+  transform: scale(0.95);
+}
+
+.brmblegotchi-action-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.brmblegotchi-action-btn.disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.brmblegotchi-action-btn.disabled:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  transform: none;
+}
+
+.brmblegotchi-cooldown {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.brmblegotchi-dismiss {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent-danger);
+  color: var(--text-primary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0.8;
+  transition: all var(--transition-fast);
+  z-index: 10;
+}
+
+.brmblegotchi-dismiss:hover {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+.brmblegotchi-dismiss svg {
+  width: 10px;
+  height: 10px;
+}
+
+@keyframes brmblegotchi-pulse-outer {
+  0%, 100% { transform: scale(1); opacity: 0.3; }
+  50% { transform: scale(1.05); opacity: 0.5; }
+}
+
+@keyframes brmblegotchi-pulse-middle {
+  0%, 100% { transform: scale(1); opacity: 0.5; }
+  50% { transform: scale(1.08); opacity: 0.7; }
+}
+
+@keyframes brmblegotchi-pulse-inner {
+  0%, 100% { transform: scale(1); opacity: 0.7; }
+  50% { transform: scale(1.1); opacity: 0.9; }
+}
+
+@keyframes brmblegotchi-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
+@keyframes brmblegotchi-pop-up {
+  0% { opacity: 0; transform: translateX(-50%) scale(0.8) translateY(10px); }
+  100% { opacity: 1; transform: translateX(-50%) scale(1) translateY(0); }
+}
+
+.brmblegotchi-widget.sad .brmblegotchi-ring-outer {
+  animation-duration: 4s;
+  opacity: 0.15;
+}
+
+.brmblegotchi-widget.sad .brmblegotchi-ring-middle {
+  animation-duration: 4s;
+  opacity: 0.25;
+}
+
+.brmblegotchi-widget.sad .brmblegotchi-ring-inner {
+  animation-duration: 4s;
+  opacity: 0.4;
+}
+
+.brmblegotchi-widget.sad .brmblegotchi-ring-center {
+  background: var(--text-muted);
+  animation-duration: 4s;
+}
+
+.brmblegotchi-widget.happy .brmblegotchi-ring-outer {
+  animation-duration: 1s;
+  opacity: 0.5;
+}
+
+.brmblegotchi-widget.happy .brmblegotchi-ring-middle {
+  animation-duration: 1s;
+  opacity: 0.7;
+}
+
+.brmblegotchi-widget.happy .brmblegotchi-ring-inner {
+  animation-duration: 1s;
+  opacity: 0.9;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brmblegotchi-ring-outer,
+  .brmblegotchi-ring-middle,
+  .brmblegotchi-ring-inner,
+  .brmblegotchi-ring-center {
+    animation: none;
+  }
+}

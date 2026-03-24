@@ -4,11 +4,13 @@ import bridge from '../bridge';
 export interface ServerEntry {
   id: string;
   label: string;
+  apiUrl?: string;
   host: string;
   port: number;
   username: string;
   password: string;
   registered?: boolean;
+  registeredName?: string;
 }
 
 export function useServerlist() {

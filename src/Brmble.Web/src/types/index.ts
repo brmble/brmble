@@ -59,6 +59,25 @@ export interface DMConversation {
 
 export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed' | 'disconnected';
 
+export type ServiceName = 'voice' | 'chat' | 'server' | 'livekit';
+
+export type ServiceState = 'connected' | 'connecting' | 'disconnected' | 'unavailable' | 'idle';
+
+export interface ServiceStatus {
+  state: ServiceState;
+  error?: string;
+  label?: string;
+}
+
+export type ServiceStatusMap = Record<ServiceName, ServiceStatus>;
+
+export const SERVICE_DISPLAY_NAMES: Record<ServiceName, string> = {
+  voice: 'Voice',
+  chat: 'Chat',
+  server: 'Brmble',
+  livekit: 'Screenshare',
+};
+
 export interface MentionableUser {
   displayName: string;
   matrixUserId?: string;

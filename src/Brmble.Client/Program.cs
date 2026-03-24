@@ -26,6 +26,25 @@ static class Program
     private static volatile bool _deafened;
     private static volatile string? _closeAction; // null = ask, "minimize", "quit"
     private static System.Threading.Timer? _zoomSaveTimer;
+    private const int ResizeBorderWidth = 6;
+
+    /// <summary>
+    /// Calculates the WebView2 bounds, inset from the client rect by the
+    /// resize border width when the window is not maximized. When maximized
+    /// there is no resize border, so WebView2 fills the full client area.
+    /// </summary>
+    private static Rectangle GetWebViewBounds(IntPtr hwnd)
+    {
+        Win32Window.GetClientRect(hwnd, out var rect);
+        int w = rect.Right - rect.Left;
+        int h = rect.Bottom - rect.Top;
+
+        if (Win32Window.IsZoomed(hwnd))
+            return new Rectangle(0, 0, w, h);
+
+        int b = ResizeBorderWidth;
+        return new Rectangle(b, b, Math.Max(0, w - 2 * b), Math.Max(0, h - 2 * b));
+    }
 
     private static readonly string LogPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -88,6 +107,7 @@ static class Program
             Win32Window.ExtendFrameIntoClientArea(_hwnd);
             Win32Window.ForceFrameChange(_hwnd);
             TrayIcon.Create(_hwnd);
+            TaskbarBadge.Initialize(_hwnd);
             _ = InitWebView2Async(_hwnd, useDevServer);
             Win32Window.RunMessageLoop();
         }
@@ -105,7 +125,7 @@ static class Program
             _controller = await env.CreateCoreWebView2ControllerAsync(hwnd);
 
             Win32Window.GetClientRect(hwnd, out var rect);
-            _controller.Bounds = new Rectangle(0, 0, rect.Right - rect.Left, rect.Bottom - rect.Top);
+            _controller.Bounds = GetWebViewBounds(hwnd);
             _controller.IsVisible = true;
 
             // Enable CSS app-region: drag/no-drag for window dragging
@@ -232,7 +252,8 @@ static class Program
             _appConfigService!.OnSettingsChanged = settings => _mumbleClient?.ApplySettings(settings);
             _appConfigService!.RegisterHandlers(_bridge);
 
-            _certService = new CertificateService(_bridge);
+            _certService = new CertificateService(_bridge, _appConfigService);
+            _certService.Initialize(_bridge);
             _certService.RegisterHandlers(_bridge);
 
             _mumbleClient = new MumbleAdapter(_bridge, _hwnd, _certService, _appConfigService);
@@ -345,6 +366,7 @@ static class Program
             var hasUnreadDMs = data.TryGetProperty("unreadDMs", out var u) && u.GetBoolean();
             var hasPendingInvite = data.TryGetProperty("pendingInvite", out var p) && p.GetBoolean();
             TrayIcon.UpdateBadge(hasUnreadDMs, hasPendingInvite);
+            TaskbarBadge.SetHasBadge(hasUnreadDMs || hasPendingInvite);
             return Task.CompletedTask;
         });
     }
@@ -390,14 +412,26 @@ static class Program
 
     private static IntPtr WndProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam)
     {
-        // Remove title bar but keep the resize frame on left/right/bottom as non-client area.
-        // DWM renders those frames transparently via DwmExtendFrameIntoClientArea({-1,-1,-1,-1}).
-        // Top is set to window top (no NC area there — top resize handled via JS bridge).
+        // Remove title bar AND resize frame: collapse the entire non-client area
+        // so the client rect equals the window rect. This eliminates the NC frame
+        // that flashes white on Win10 during resize/focus. Resize is handled via
+        // custom WM_NCHITTEST with HitTestHelper instead of native NC borders.
         if (msg == Win32Window.WM_NCCALCSIZE && wParam != IntPtr.Zero)
         {
-            int windowTop = Marshal.ReadInt32(lParam, 4);
+            // Save the proposed window rect (all 4 edges)
+            int left   = Marshal.ReadInt32(lParam, 0);
+            int top    = Marshal.ReadInt32(lParam, 4);
+            int right  = Marshal.ReadInt32(lParam, 8);
+            int bottom = Marshal.ReadInt32(lParam, 12);
+
+            // Let DefWindowProc do its bookkeeping (maximized tracking, etc.)
             Win32Window.DefWindowProc(hwnd, msg, wParam, lParam);
-            Marshal.WriteInt32(lParam, 4, windowTop);
+
+            // Restore all 4 edges — client area == window rect, no NC area
+            Marshal.WriteInt32(lParam, 0, left);
+            Marshal.WriteInt32(lParam, 4, top);
+            Marshal.WriteInt32(lParam, 8, right);
+            Marshal.WriteInt32(lParam, 12, bottom);
             return IntPtr.Zero;
         }
 
@@ -410,8 +444,7 @@ static class Program
             case Win32Window.WM_SIZE:
                 if (_controller != null)
                 {
-                    Win32Window.GetClientRect(hwnd, out var rect);
-                    _controller.Bounds = new Rectangle(0, 0, rect.Right - rect.Left, rect.Bottom - rect.Top);
+                    _controller.Bounds = GetWebViewBounds(hwnd);
                 }
                 return IntPtr.Zero;
 
@@ -485,9 +518,22 @@ static class Program
 
             case Win32Window.WM_NCHITTEST:
             {
-                if (Win32Window.DwmDefWindowProc(hwnd, msg, wParam, lParam, out var dwmResult) != 0)
-                    return dwmResult;
-                return Win32Window.DefWindowProc(hwnd, msg, wParam, lParam);
+                // When maximized, no resize borders needed
+                if (Win32Window.IsZoomed(hwnd))
+                    return (IntPtr)HitTestHelper.HtClient;
+
+                // With no NC area, we handle all hit-testing ourselves.
+                Win32Window.GetCursorPos(out var cursor);
+                Win32Window.ScreenToClient(hwnd, ref cursor);
+                Win32Window.GetClientRect(hwnd, out var clientRect);
+
+                var hitCode = HitTestHelper.Calculate(
+                    cursor.X, cursor.Y,
+                    clientRect.Right - clientRect.Left,
+                    clientRect.Bottom - clientRect.Top,
+                    ResizeBorderWidth);
+
+                return (IntPtr)hitCode;
             }
 
             case Win32Window.WM_GETMINMAXINFO:
@@ -518,6 +564,7 @@ static class Program
                 }
                 _mumbleClient?.Disconnect();
                 TrayIcon.Destroy();
+                TaskbarBadge.Destroy();
                 Win32Window.PostQuitMessage(0);
                 return IntPtr.Zero;
 

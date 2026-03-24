@@ -3,17 +3,22 @@ import type { Infrastructure, Service } from './types';
 import { useGameState } from './useGameState';
 import { confirm } from '../../hooks/usePrompt';
 import { Select } from '../Select/Select';
+import { Tooltip } from '../Tooltip/Tooltip';
 import './GameUI.css';
 
 interface GameUIProps {
   onClose: () => void;
 }
 
-type TabId = 'infrastructure' | 'upgrades' | 'hosting' | 'options';
+type TabId = 'infrastructure' | 'upgrades' | 'hosting';
 
 export function GameUI({ onClose }: GameUIProps) {
   const { state, actions } = useGameState();
   const [activeTab, setActiveTab] = useState<TabId>('infrastructure');
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importData, setImportData] = useState('');
+  const [importStatus, setImportStatus] = useState<string | null>(null);
+  const [showSaveConfirm, setShowSaveConfirm] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -26,6 +31,17 @@ export function GameUI({ onClose }: GameUIProps) {
     onClose();
   }, [actions, onClose]);
   
+  const handleReset = useCallback(async () => {
+    const confirmed = await confirm({
+      title: 'Reset Game',
+      message: 'Are you sure you want to reset all progress? This cannot be undone.',
+      confirmLabel: 'Reset',
+    });
+    if (confirmed) {
+      actions.resetGame();
+    }
+  }, [actions]);
+  
   const visibleInfrastructure = state.infrastructure.filter((infra, index) => {
     if (infra.unlocked) return true;
     const prevInfra = state.infrastructure[index - 1];
@@ -35,7 +51,18 @@ export function GameUI({ onClose }: GameUIProps) {
   return (
     <div className="game-container">
       <div className="game-header-row">
-        <Header money={state.money} income={state.incomePerSecond} uploadSpeed={state.uploadSpeed} bandwidthSold={state.bandwidthSold} bandwidthDemanded={state.bandwidthDemanded} onClose={handleClose} />
+        <Header 
+          money={state.money} 
+          income={state.incomePerSecond} 
+          uploadSpeed={state.uploadSpeed} 
+          bandwidthSold={state.bandwidthSold} 
+          bandwidthDemanded={state.bandwidthDemanded} 
+          onClose={handleClose}
+          onExport={actions.exportSave}
+          onReset={handleReset}
+          onOpenImport={() => setShowImportModal(true)}
+          onShowSaveConfirm={() => setShowSaveConfirm(true)}
+        />
       </div>
       <div className="game-body">
         <TabNav activeTab={activeTab} onTabChange={setActiveTab} />
@@ -64,22 +91,82 @@ export function GameUI({ onClose }: GameUIProps) {
             services={state.services}
             uploadSpeed={state.uploadSpeed}
             bandwidthSold={state.bandwidthSold}
+            bandwidthDemanded={state.bandwidthDemanded}
             onBuyService={actions.buyService}
             money={state.money}
           />
         )}
-        {activeTab === 'options' && (
-          <OptionsTab 
-            onSetTheme={actions.setTheme}
-            onSave={actions.saveGame}
-            onLoad={actions.loadGame}
-            onReset={actions.resetGame}
-            onExport={actions.exportSave}
-            onImport={actions.importSave}
-          />
-        )}
+        </div>
       </div>
-      </div>
+      
+      {showImportModal && (
+        <div className="modal-overlay" onClick={() => setShowImportModal(false)}>
+          <div className="prompt glass-panel animate-slide-up" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 className="heading-title modal-title">Load Save</h2>
+              <p className="modal-subtitle">Paste your save data below:</p>
+            </div>
+            <div className="modal-body">
+              <textarea
+                className="import-textarea"
+                value={importData}
+                onChange={e => setImportData(e.target.value)}
+                placeholder="Paste save data here..."
+                rows={6}
+              />
+              {importStatus && (
+                <p className={`import-status ${importStatus.includes('Invalid') ? 'error' : 'success'}`}>
+                  {importStatus}
+                </p>
+              )}
+            </div>
+            <div className="prompt-footer">
+              <button className="btn btn-secondary" onClick={() => {
+                setShowImportModal(false);
+                setImportData('');
+                setImportStatus(null);
+              }}>
+                Cancel
+              </button>
+              <button className="btn btn-primary" onClick={() => {
+                if (!importData.trim()) {
+                  setImportStatus('Please paste save data first');
+                  return;
+                }
+                const success = actions.importSave(importData);
+                if (success) {
+                  setImportStatus('Game loaded!');
+                  setTimeout(() => {
+                    setShowImportModal(false);
+                    setImportData('');
+                    setImportStatus(null);
+                  }, 1000);
+                } else {
+                  setImportStatus('Invalid save data');
+                }
+              }}>
+                Load
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {showSaveConfirm && (
+        <div className="modal-overlay" onClick={() => setShowSaveConfirm(false)}>
+          <div className="prompt glass-panel animate-slide-up" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 className="heading-title modal-title">Save Copied!</h2>
+              <p className="modal-subtitle">Your save data has been copied to clipboard.</p>
+            </div>
+            <div className="prompt-footer">
+              <button className="btn btn-primary" onClick={() => setShowSaveConfirm(false)}>
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -100,38 +187,87 @@ function formatBandwidth(bytes: number): string {
   return bytes + ' B/s';
 }
 
-function Header({ money, income, uploadSpeed, bandwidthSold, bandwidthDemanded, onClose }: { money: number; income: number; uploadSpeed: number; bandwidthSold: number; bandwidthDemanded: number; onClose?: () => void }) {
+function Header({ money, income, uploadSpeed, bandwidthSold, bandwidthDemanded, onClose, onExport, onReset, onOpenImport, onShowSaveConfirm }: { money: number; income: number; uploadSpeed: number; bandwidthSold: number; bandwidthDemanded: number; onClose?: () => void; onExport?: () => string; onReset?: () => void; onOpenImport?: () => void; onShowSaveConfirm?: () => void }) {
   const isOverage = bandwidthDemanded > uploadSpeed;
   const freeAmount = isOverage ? 0 : uploadSpeed - bandwidthDemanded;
   const overageAmount = isOverage ? bandwidthDemanded - uploadSpeed : 0;
   
+  const handleExport = async () => {
+    if (!onExport) return;
+    const data = onExport();
+    try {
+      await navigator.clipboard.writeText(data);
+      onShowSaveConfirm?.();
+    } catch {
+      // silent fail
+    }
+  };
+  
   return (
     <header className="game-header" id="game-title">
-      <div className="header-stat">
-        <span className="header-label">MONEY:</span>
-        <span className="header-value currency">${formatNumber(money)}</span>
-      </div>
-      <div className="header-stat">
-        <span className="header-label">UPLOAD:</span>
-        <span className="header-value upload">{formatBandwidth(uploadSpeed)}</span>
-      </div>
-      <div className="header-stat">
-        <span className="header-label">USED:</span>
-        <span className="header-value bandwidth">{formatBandwidth(bandwidthSold)}</span>
-      </div>
-      <div className="header-stat">
-        <span className="header-label">{isOverage ? 'OVER:' : 'FREE:'}</span>
-        <span className={`header-value ${isOverage ? 'overage' : 'free'}`}>{isOverage ? '+' : ''}{formatBandwidth(isOverage ? overageAmount : freeAmount)}</span>
-      </div>
-      <div className="header-stat">
-        <span className="header-label">INCOME:</span>
-        <span className="header-value income">+${formatNumber(income)}/s</span>
-      </div>
-      {onClose && (
-        <button className="btn btn-secondary" onClick={onClose} style={{ marginLeft: 'auto' }}>
-          Close
-        </button>
+      <Tooltip content="Your hosting empire" position="bottom">
+        <div className="header-title">Hosting Empire</div>
+      </Tooltip>
+      <Tooltip content="Total upload capacity from your infrastructure" position="bottom">
+        <div className="header-stat">
+          <span className="header-label">UPLOAD:</span>
+          <span className="header-value upload">{formatBandwidth(uploadSpeed)}</span>
+        </div>
+      </Tooltip>
+      <Tooltip content="Bandwidth currently being used by customers" position="bottom">
+        <div className="header-stat">
+          <span className="header-label">USED:</span>
+          <span className="header-value bandwidth">{formatBandwidth(bandwidthSold)}</span>
+        </div>
+      </Tooltip>
+      <Tooltip content={isOverage ? 'You are over capacity! Penalty applies.' : 'Available bandwidth for new services'} position="bottom">
+        <div className="header-stat">
+          <span className="header-label">{isOverage ? 'OVER:' : 'FREE:'}</span>
+          <span className={`header-value ${isOverage ? 'overage' : 'free'}`}>{isOverage ? '+' : ''}{formatBandwidth(isOverage ? overageAmount : freeAmount)}</span>
+        </div>
+      </Tooltip>
+      {isOverage && (
+        <Tooltip content={`Using ${formatBandwidth(overageAmount)} more than your ${formatBandwidth(uploadSpeed)} upload capacity`} position="bottom">
+          <div className="header-stat">
+            <span className="header-label">PENALTY:</span>
+            <span className="header-value penalty">-15%</span>
+          </div>
+        </Tooltip>
       )}
+      <Tooltip content="Money earned per second from services" position="bottom">
+        <div className="header-stat">
+          <span className="header-label">INCOME:</span>
+          <span className="header-value income">+${formatNumber(income)}/s</span>
+        </div>
+      </Tooltip>
+      <Tooltip content="Your current balance" position="bottom">
+        <div className="header-stat">
+          <span className="header-label">MONEY:</span>
+          <span className="header-value currency">${formatNumber(money)}</span>
+        </div>
+      </Tooltip>
+      <div className="header-actions">
+        {onExport && (
+          <button className="btn btn-secondary btn-sm" onClick={handleExport}>
+            Save
+          </button>
+        )}
+        {onOpenImport && (
+          <button className="btn btn-secondary btn-sm" onClick={onOpenImport}>
+            Load
+          </button>
+        )}
+        {onReset && (
+          <button className="btn btn-danger btn-sm" onClick={onReset}>
+            Reset
+          </button>
+        )}
+        {onClose && (
+          <button className="btn btn-secondary btn-sm" onClick={onClose}>
+            Close
+          </button>
+        )}
+      </div>
     </header>
   );
 }
@@ -146,7 +282,6 @@ function TabNav({ activeTab, onTabChange }: TabNavProps) {
     { id: 'infrastructure', label: 'Infrastructure' },
     { id: 'hosting', label: 'Hosting' },
     { id: 'upgrades', label: 'Tech Upgrades' },
-    { id: 'options', label: 'Options' },
   ];
 
   return (
@@ -200,6 +335,10 @@ function InfrastructureTab({ infrastructure, onBuy, onUpgrade1, onUpgrade2, onUp
   ];
   
   const getNextUpgrade = (infra: Infrastructure) => {
+    if (infra.upgrade1Level >= 10 && infra.upgrade2Level >= 10 && infra.upgrade3Level >= 5) {
+      return { name: 'MAXED', cost: 0, action: () => {}, canBuy: false };
+    }
+    
     const totalLevel = infra.upgrade1Level + infra.upgrade2Level + infra.upgrade3Level;
     const upgradeName = upgradeNames[totalLevel % upgradeNames.length];
     
@@ -226,7 +365,7 @@ function InfrastructureTab({ infrastructure, onBuy, onUpgrade1, onUpgrade2, onUp
 
           if (!infra.unlocked) {
             return (
-              <div key={infra.id} className="service-row locked">
+              <div key={infra.id} className="infra-row locked">
                 <span className="service-name">{infra.name}</span>
                 <span className="service-requirement">Unlock: ${infra.unlockCost?.toLocaleString()}</span>
               </div>
@@ -234,7 +373,7 @@ function InfrastructureTab({ infrastructure, onBuy, onUpgrade1, onUpgrade2, onUp
           }
 
           return (
-            <div key={infra.id} className="service-row">
+            <div key={infra.id} className="infra-row">
               <div className="infra-info">
                 <span className="service-name">{infra.name}</span>
                 <span className="infra-stats">
@@ -402,27 +541,41 @@ interface HostingTabProps {
   services: Service[];
   uploadSpeed: number;
   bandwidthSold: number;
+  bandwidthDemanded: number;
   onBuyService: (serviceId: string) => void;
   money: number;
 }
 
-function HostingTab({ services, uploadSpeed, bandwidthSold, onBuyService, money }: HostingTabProps) {
-  const availableBandwidth = uploadSpeed - bandwidthSold;
+function HostingTab({ services, uploadSpeed, bandwidthDemanded, onBuyService, money }: HostingTabProps) {
+  const isOverage = bandwidthDemanded > uploadSpeed;
+  const penaltyPercent = isOverage ? 15 : 0;
+  const overageAmount = isOverage ? bandwidthDemanded - uploadSpeed : 0;
   
   const unlockedServices = services.filter(s => s.unlocked);
   const nextLockedService = services.find(s => !s.unlocked);
   
   return (
     <div className="hosting-tab">
-      <div className="hosting-stats">
-        <div className="stat">
-          <span className="stat-label">Available:</span>
-          <span className="stat-value">{formatBandwidth(availableBandwidth)}</span>
+      {isOverage && (
+        <div className="hosting-penalty">
+          <div className="penalty-info">
+            <span className="penalty-label">Bandwidth Overage</span>
+            <span className="penalty-detail">Using {formatBandwidth(overageAmount)} more than available</span>
+          </div>
+          <span className="penalty-value">-{penaltyPercent}% income</span>
         </div>
-      </div>
+      )}
       
       <div className="services-section">
         <h3 className="heading-label">Services</h3>
+        <div className="services-header">
+          <span>Name</span>
+          <span>Owned</span>
+          <span>Bandwidth</span>
+          <span>Income</span>
+          <span>Price</span>
+          <span></span>
+        </div>
         {unlockedServices.map(service => {
           const cost = Math.floor(service.baseCost * Math.pow(1.15, service.owned));
           const canBuy = money >= cost;
@@ -454,7 +607,7 @@ function HostingTab({ services, uploadSpeed, bandwidthSold, onBuyService, money 
 function ServiceRow({ service, cost, onBuy, canBuy }: { service: Service; cost: number; onBuy: (id: string) => void; canBuy: boolean }) {
   if (!service.unlocked) {
     return (
-      <div className="service-row locked">
+      <div className="hosting-row locked">
         <span className="service-name">{service.name}</span>
         <span className="service-owned">0</span>
         <span className="service-bandwidth">{formatBandwidth(service.baseBandwidthRequired)}</span>
@@ -468,7 +621,7 @@ function ServiceRow({ service, cost, onBuy, canBuy }: { service: Service; cost: 
   }
   
   return (
-    <div className={`service-row ${service.owned > 0 ? 'active' : 'inactive'}`}>
+    <div className={`hosting-row ${service.owned > 0 ? 'active' : 'inactive'}`}>
       <span className="service-name">{service.name}</span>
       <span className="service-owned">{service.owned}</span>
       <span className="service-bandwidth">{formatBandwidth(service.baseBandwidthRequired)}</span>
@@ -497,7 +650,7 @@ function OptionsTab({
   onImport: (data: string) => boolean;
 }) {
   const [importData, setImportData] = useState('');
-  const [importStatus, setImportStatus] = useState<string | null>(null);
+  const [importStatus, setImportStatus] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
   const [volume, setVolume] = useState(50);
   const [theme, setTheme] = useState('classic');
 
@@ -505,20 +658,22 @@ function OptionsTab({
     const data = onExport();
     try {
       await navigator.clipboard.writeText(data);
-      setImportStatus('Save data copied to clipboard!');
+      setImportStatus({ kind: 'success', message: 'Save data copied to clipboard!' });
     } catch {
-      setImportStatus('Failed to copy to clipboard');
+      setImportStatus({ kind: 'error', message: 'Failed to copy to clipboard' });
     }
     setTimeout(() => setImportStatus(null), 3000);
   };
 
   const handleImport = () => {
     if (!importData.trim()) {
-      setImportStatus('Please paste save data first');
+      setImportStatus({ kind: 'error', message: 'Please paste save data first' });
       return;
     }
     const success = onImport(importData);
-    setImportStatus(success ? 'Save imported successfully!' : 'Invalid save data');
+    setImportStatus(success 
+      ? { kind: 'success', message: 'Save imported successfully!' } 
+      : { kind: 'error', message: 'Invalid save data' });
     if (success) setImportData('');
     setTimeout(() => setImportStatus(null), 3000);
   };
@@ -531,7 +686,7 @@ function OptionsTab({
     });
     if (confirmed) {
       onReset();
-      setImportStatus('Game reset!');
+      setImportStatus({ kind: 'success', message: 'Game reset!' });
       setTimeout(() => setImportStatus(null), 3000);
     }
   };
@@ -604,7 +759,7 @@ function OptionsTab({
       </div>
 
       {importStatus && (
-        <div className="import-status">{importStatus}</div>
+        <div className={`import-status ${importStatus.kind}`}>{importStatus.message}</div>
       )}
     </div>
   );

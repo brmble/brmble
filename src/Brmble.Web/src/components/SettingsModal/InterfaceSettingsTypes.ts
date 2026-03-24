@@ -13,3 +13,11 @@ export interface OverlaySettings {
 export const DEFAULT_OVERLAY: OverlaySettings = {
   overlayEnabled: false,
 };
+
+export interface BrmblegotchiSettings {
+  enabled: boolean;
+}
+
+export const DEFAULT_BRMBLEGOTCHI: BrmblegotchiSettings = {
+  enabled: true,
+};

@@ -2,11 +2,11 @@ import { useState, useEffect, useMemo } from 'react';
 import './SettingsModal.css';
 import bridge from '../../bridge';
 import { applyTheme } from '../../themes/theme-loader';
-import { AudioSettingsTab, type AudioSettings, type SpeechEnhancementSettings, DEFAULT_SETTINGS as DEFAULT_AUDIO, DEFAULT_SPEECH_ENHANCEMENT } from './AudioSettingsTab';
+import { AudioSettingsTab, type AudioSettings, type SpeechDenoiseSettings, DEFAULT_SETTINGS as DEFAULT_AUDIO, DEFAULT_SPEECH_DENOISE } from './AudioSettingsTab';
 import { ShortcutsSettingsTab, type ShortcutsSettings, DEFAULT_SHORTCUTS } from './ShortcutsSettingsTab';
 import { MessagesSettingsTab, type MessagesSettings, DEFAULT_MESSAGES } from './MessagesSettingsTab';
 import { InterfaceSettingsTab } from './InterfaceSettingsTab';
-import { type AppearanceSettings, type OverlaySettings, DEFAULT_APPEARANCE, DEFAULT_OVERLAY } from './InterfaceSettingsTypes';
+import { type AppearanceSettings, type OverlaySettings, type BrmblegotchiSettings, DEFAULT_APPEARANCE, DEFAULT_OVERLAY, DEFAULT_BRMBLEGOTCHI } from './InterfaceSettingsTypes';
 import { ConnectionSettingsTab, type ConnectionSettings } from './ConnectionSettingsTab';
 import { ProfileSettingsTab } from './ProfileSettingsTab';
 import { useServerlist } from '../../hooks/useServerlist';
@@ -22,6 +22,7 @@ export const BINDING_LABELS: Record<string, string> = {
   toggleMuteKey: 'Toggle Mute',
   toggleDMScreenKey: 'Toggle Direct Messages Screen',
   toggleScreenShareKey: 'Toggle Screen Share',
+  toggleGameKey: 'Toggle Game Panel',
 };
 
 const SETTINGS_STORAGE_KEY = 'brmble-settings';
@@ -30,7 +31,6 @@ interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   username?: string;
-  certFingerprint?: string;
   connected?: boolean;
   currentUser?: {
     name: string;
@@ -47,8 +47,10 @@ interface AppSettings {
   messages: MessagesSettings;
   appearance: AppearanceSettings;
   overlay: OverlaySettings;
-  speechEnhancement: SpeechEnhancementSettings;
+  brmblegotchi: BrmblegotchiSettings;
+  speechDenoise: SpeechDenoiseSettings;
   reconnectEnabled: boolean;
+  rememberLastChannel: boolean;
   autoConnectEnabled: boolean;
   autoConnectServerId: string | null;
 }
@@ -59,8 +61,10 @@ const DEFAULT_SETTINGS: AppSettings = {
   messages: DEFAULT_MESSAGES,
   appearance: DEFAULT_APPEARANCE,
   overlay: DEFAULT_OVERLAY,
-  speechEnhancement: DEFAULT_SPEECH_ENHANCEMENT,
+  brmblegotchi: DEFAULT_BRMBLEGOTCHI,
+  speechDenoise: DEFAULT_SPEECH_DENOISE,
   reconnectEnabled: true,
+  rememberLastChannel: true,
   autoConnectEnabled: false,
   autoConnectServerId: null,
 };
@@ -70,6 +74,19 @@ export function SettingsModal(props: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection'>('profile');
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const { servers } = useServerlist();
+
+  // Resolve registration name for the currently connected server
+  const connectedRegisteredName = (() => {
+    if (!props.connected) return undefined;
+    try {
+      const stored = localStorage.getItem('brmble-server');
+      if (!stored) return undefined;
+      const savedServer = JSON.parse(stored) as { id?: string };
+      if (!savedServer.id) return undefined;
+      const match = servers.find(s => s.id === savedServer.id);
+      return match?.registered ? match.registeredName : undefined;
+    } catch { return undefined; }
+  })();
 
   // Close on Escape key (skip if a key-binding button is recording)
   useEffect(() => {
@@ -91,13 +108,20 @@ export function SettingsModal(props: SettingsModalProps) {
     toggleMuteKey: settings.shortcuts.toggleMuteKey,
     toggleDMScreenKey: settings.shortcuts.toggleDMScreenKey,
     toggleScreenShareKey: settings.shortcuts.toggleScreenShareKey,
+    toggleGameKey: settings.shortcuts.toggleGameKey,
   }), [settings.audio.pushToTalkKey, settings.shortcuts]);
 
   useEffect(() => {
     const handleCurrent = (data: unknown) => {
       const d = data as { settings?: AppSettings } | undefined;
       if (d?.settings) {
-        setSettings({ ...DEFAULT_SETTINGS, ...d.settings });
+        // Normalize speechDenoise mode to valid values
+        const normalizedDenoise = { ...DEFAULT_SPEECH_DENOISE, ...d.settings.speechDenoise };
+        const validModes = ['disabled', 'rnnoise', 'gtcrn'];
+        if (!validModes.includes(normalizedDenoise.mode)) {
+          normalizedDenoise.mode = 'rnnoise';
+        }
+        setSettings({ ...DEFAULT_SETTINGS, ...d.settings, speechDenoise: normalizedDenoise });
         if (d.settings.appearance?.theme) {
           applyTheme(d.settings.appearance.theme);
         }
@@ -128,6 +152,29 @@ export function SettingsModal(props: SettingsModalProps) {
       return newSettings;
     });
   }, [servers]);
+
+  // Keep brmblegotchi setting in sync with localStorage
+  useEffect(() => {
+    if (!isOpen) return;
+    const checkBrmblegotchi = () => {
+      try {
+        const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          const newBrmblegotchi = parsed.brmblegotchi ?? DEFAULT_BRMBLEGOTCHI;
+          setSettings(prev => {
+            if (prev.brmblegotchi.enabled !== newBrmblegotchi.enabled) {
+              return { ...prev, brmblegotchi: newBrmblegotchi };
+            }
+            return prev;
+          });
+        }
+      } catch {}
+    };
+    checkBrmblegotchi();
+    const interval = setInterval(checkBrmblegotchi, 500);
+    return () => clearInterval(interval);
+  }, [isOpen]);
 
   const handleAudioChange = (audio: AudioSettings) => {
     setSettings(prev => {
@@ -225,8 +272,15 @@ export function SettingsModal(props: SettingsModalProps) {
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
   };
 
-  const handleSpeechEnhancementChange = (speechEnhancement: SpeechEnhancementSettings) => {
-    const newSettings = { ...settings, speechEnhancement };
+  const handleBrmblegotchiChange = (brmblegotchi: BrmblegotchiSettings) => {
+    const newSettings = { ...settings, brmblegotchi };
+    setSettings(newSettings);
+    bridge.send('settings.set', { settings: newSettings });
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
+  };
+
+  const handleSpeechDenoiseChange = (speechDenoise: SpeechDenoiseSettings) => {
+    const newSettings = { ...settings, speechDenoise };
     setSettings(newSettings);
     bridge.send('settings.set', { settings: newSettings });
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
@@ -236,6 +290,7 @@ export function SettingsModal(props: SettingsModalProps) {
     const newSettings = {
       ...settings,
       reconnectEnabled: connection.reconnectEnabled,
+      rememberLastChannel: connection.rememberLastChannel,
       autoConnectEnabled: connection.autoConnectEnabled,
       autoConnectServerId: connection.autoConnectServerId,
     };
@@ -300,26 +355,28 @@ export function SettingsModal(props: SettingsModalProps) {
               currentUser={props.currentUser ?? { name: props.username ?? 'Unknown' }}
               onUploadAvatar={props.onUploadAvatar ?? (() => {})}
               onRemoveAvatar={props.onRemoveAvatar ?? (() => {})}
-              fingerprint={props.certFingerprint ?? ''}
-              connectedUsername={props.username ?? ''}
               connected={props.connected ?? false}
+              registeredName={connectedRegisteredName}
             />
           )}
-          {activeTab === 'audio' && <AudioSettingsTab settings={settings.audio} onChange={handleAudioChange} speechEnhancement={settings.speechEnhancement} onSpeechEnhancementChange={handleSpeechEnhancementChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}
+          {activeTab === 'audio' && <AudioSettingsTab settings={settings.audio} onChange={handleAudioChange} speechDenoise={settings.speechDenoise} onSpeechDenoiseChange={handleSpeechDenoiseChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}
           {activeTab === 'shortcuts' && <ShortcutsSettingsTab settings={settings.shortcuts} onChange={handleShortcutsChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}
           {activeTab === 'messages' && <MessagesSettingsTab settings={settings.messages} onChange={handleMessagesChange} />}
           {activeTab === 'appearance' && (
             <InterfaceSettingsTab 
               appearanceSettings={settings.appearance || DEFAULT_APPEARANCE} 
               overlaySettings={settings.overlay || DEFAULT_OVERLAY}
+              brmblegotchiSettings={settings.brmblegotchi || DEFAULT_BRMBLEGOTCHI}
               onAppearanceChange={handleAppearanceChange} 
               onOverlayChange={handleOverlayChange}
+              onBrmblegotchiChange={handleBrmblegotchiChange}
             />
           )}
           {activeTab === 'connection' && (
             <ConnectionSettingsTab
               settings={{
                 reconnectEnabled: settings.reconnectEnabled,
+                rememberLastChannel: settings.rememberLastChannel,
                 autoConnectEnabled: settings.autoConnectEnabled,
                 autoConnectServerId: settings.autoConnectServerId,
               }}

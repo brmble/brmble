@@ -3,9 +3,15 @@ import { ChannelTree } from './ChannelTree';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
 import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
 import { UserTooltip } from '../UserTooltip/UserTooltip';
+import { Tooltip } from '../Tooltip/Tooltip';
 import { usePermissions } from '../../hooks/usePermissions';
+import { useServiceStatus } from '../../hooks/useServiceStatus';
+import { useResizable } from '../../hooks/useResizable';
+import { useProfileFingerprint } from '../../contexts/ProfileContext';
 import bridge from '../../bridge';
 import type { Channel, User, ConnectionStatus } from '../../types';
+import { SERVICE_DISPLAY_NAMES } from '../../types';
+import type { ServiceName, ServiceState } from '../../types';
 import Avatar from '../Avatar/Avatar';
 import './Sidebar.css';
 
@@ -23,7 +29,6 @@ interface SidebarProps {
   serverAddress?: string;
   username?: string;
   onDisconnect?: () => void;
-  onReconnect?: () => void;
   onStartDM?: (userId: string, userName: string) => void;
   speakingUsers?: Map<number, boolean>;
   pendingChannelAction?: number | 'leave' | null;
@@ -48,7 +53,6 @@ export function Sidebar({
   serverAddress,
   username,
   onDisconnect,
-  onReconnect,
   onStartDM,
   speakingUsers,
   pendingChannelAction,
@@ -58,15 +62,44 @@ export function Sidebar({
   onWatchScreenShare,
   onEditAvatar
 }: SidebarProps) {
+  const fingerprint = useProfileFingerprint();
+  const { width, isDragging, handleProps } = useResizable({
+    minWidth: 340,
+    maxWidth: 600,
+    defaultWidth: 340,
+    storageKey: 'brmble-sidebar-width',
+    fingerprint,
+  });
+
   const connected = connectionStatus === 'connected';
   const isConnecting = connectionStatus === 'connecting';
   const isReconnecting = connectionStatus === 'reconnecting';
-  const isDisconnected = connectionStatus === 'disconnected';
 
   const rootChannel = channels.find(ch => ch.id === 0 || ch.parent === ch.id);
   const rootUsers = rootChannel ? users.filter(u => u.channelId === rootChannel.id) : [];
   const nonRootChannels = rootChannel ? channels.filter(ch => ch !== rootChannel) : channels;
   const nonRootUsers = rootChannel ? users.filter(u => u.channelId !== rootChannel.id) : users;
+
+  const { statuses } = useServiceStatus();
+
+  const serviceOrder: ServiceName[] = ['voice', 'chat', 'server', 'livekit'];
+
+  const stateLabel = (state: ServiceState): string => {
+    switch (state) {
+      case 'connected': return 'Connected';
+      case 'connecting': return 'Connecting';
+      case 'disconnected': return 'Disconnected';
+      case 'unavailable': return 'Unavailable';
+      case 'idle': return 'Idle';
+    }
+  };
+
+  const dotTooltip = (svc: ServiceName): string => {
+    const name = SERVICE_DISPLAY_NAMES[svc];
+    const state = stateLabel(statuses[svc].state);
+    const error = statuses[svc].error;
+    return error ? `${name}: ${state} — ${error}` : `${name}: ${state}`;
+  };
 
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -87,7 +120,7 @@ export function Sidebar({
   }, [connected, requestPermissions]);
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar${isDragging ? ' sidebar--resizing' : ''}`} style={{ width }}>
       <div className={`server-info-panel${isServerChatActive ? ' server-info-active' : ''}`}>
         {serverLabel ? (
           <div 
@@ -121,7 +154,17 @@ export function Sidebar({
             )}
 
             <div className="server-status-line" aria-live="polite" aria-atomic="true">
-              <span className={`status-dot status-dot--${connectionStatus}`} aria-hidden="true" />
+              <div className="service-status-dots" aria-label="Service status">
+                {serviceOrder.map(svc => (
+                  <Tooltip key={svc} content={dotTooltip(svc)} position="top">
+                    <span
+                      className={`service-dot service-dot--${statuses[svc].state}`}
+                      aria-label={dotTooltip(svc)}
+                      tabIndex={0}
+                    />
+                  </Tooltip>
+                ))}
+              </div>
               <span className="status-text">
                 {connectionStatus === 'idle' && 'Not connected'}
                 {connectionStatus === 'connected' && 'Connected'}
@@ -130,20 +173,20 @@ export function Sidebar({
                 {connectionStatus === 'failed' && 'Connection failed'}
                 {connectionStatus === 'disconnected' && 'Disconnected'}
               </span>
-              {isDisconnected && onReconnect && (
-                <button
-                  className="btn btn-sm reconnect-btn"
-                  onClick={(e) => { e.stopPropagation(); onReconnect(); }}
-                >
-                  Reconnect
-                </button>
-              )}
-              {(onDisconnect || onCancelReconnect) && (connected || isConnecting || isReconnecting || isDisconnected) && (
+              {(isConnecting || isReconnecting) && onCancelReconnect && (
                 <button
                   className="btn btn-sm disconnect-btn"
-                  onClick={(e) => { e.stopPropagation(); (isReconnecting ? onCancelReconnect : onDisconnect)?.(); }}
+                  onClick={(e) => { e.stopPropagation(); onCancelReconnect(); }}
                 >
-                  {(isConnecting || isReconnecting) ? 'Cancel' : isDisconnected ? 'Back' : 'Disconnect'}
+                  Cancel
+                </button>
+              )}
+              {connected && onDisconnect && (
+                <button
+                  className="btn btn-sm disconnect-btn"
+                  onClick={(e) => { e.stopPropagation(); onDisconnect(); }}
+                >
+                  Disconnect
                 </button>
               )}
             </div>
@@ -151,7 +194,17 @@ export function Sidebar({
         ) : (
           <div className="server-info-header">
             <div className="server-status-line" aria-live="polite" aria-atomic="true">
-              <span className={`status-dot status-dot--${connectionStatus}`} aria-hidden="true" />
+              <div className="service-status-dots" aria-label="Service status">
+                {serviceOrder.map(svc => (
+                  <Tooltip key={svc} content={dotTooltip(svc)} position="top">
+                    <span
+                      className={`service-dot service-dot--${statuses[svc].state}`}
+                      aria-label={dotTooltip(svc)}
+                      tabIndex={0}
+                    />
+                  </Tooltip>
+                ))}
+              </div>
               <span className="status-text">
                 {connectionStatus === 'idle' && 'Not connected'}
                 {connectionStatus === 'connected' && 'Connected'}
@@ -160,20 +213,20 @@ export function Sidebar({
                 {connectionStatus === 'failed' && 'Connection failed'}
                 {connectionStatus === 'disconnected' && 'Disconnected'}
               </span>
-              {isDisconnected && onReconnect && (
-                <button
-                  className="btn btn-sm reconnect-btn"
-                  onClick={(e) => { e.stopPropagation(); onReconnect(); }}
-                >
-                  Reconnect
-                </button>
-              )}
-              {(onDisconnect || onCancelReconnect) && (connected || isConnecting || isReconnecting || isDisconnected) && (
+              {(isConnecting || isReconnecting) && onCancelReconnect && (
                 <button
                   className="btn btn-sm disconnect-btn"
-                  onClick={(e) => { e.stopPropagation(); (isReconnecting ? onCancelReconnect : onDisconnect)?.(); }}
+                  onClick={(e) => { e.stopPropagation(); onCancelReconnect(); }}
                 >
-                  {(isConnecting || isReconnecting) ? 'Cancel' : isDisconnected ? 'Back' : 'Disconnect'}
+                  Cancel
+                </button>
+              )}
+              {connected && onDisconnect && (
+                <button
+                  className="btn btn-sm disconnect-btn"
+                  onClick={(e) => { e.stopPropagation(); onDisconnect(); }}
+                >
+                  Disconnect
                 </button>
               )}
             </div>
@@ -375,6 +428,15 @@ export function Sidebar({
           />
         );
       })()}
+      <div
+        className={`sidebar-resize-handle${isDragging ? ' sidebar-resize-handle--active' : ''}`}
+        ref={handleProps.ref}
+        onPointerDown={handleProps.onPointerDown}
+        onDoubleClick={handleProps.onDoubleClick}
+        aria-label="Resize sidebar"
+        role="separator"
+        aria-orientation="vertical"
+      />
     </aside>
   );
 }
