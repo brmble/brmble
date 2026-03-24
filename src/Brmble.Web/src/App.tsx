@@ -123,6 +123,7 @@ interface User {
   matrixUserId?: string;
   avatarUrl?: string;
   certHash?: string;
+  isBrmbleClient?: boolean;
 }
 
 
@@ -703,7 +704,7 @@ function App() {
     });
 
     const onVoiceUserJoined = ((data: unknown) => {
-      const d = data as { session: number; name: string; channelId?: number; muted?: boolean; deafened?: boolean; self?: boolean; comment?: string; matrixUserId?: string; certHash?: string } | undefined;
+      const d = data as { session: number; name: string; channelId?: number; muted?: boolean; deafened?: boolean; self?: boolean; comment?: string; matrixUserId?: string; certHash?: string; isBrmbleClient?: boolean } | undefined;
       if (d?.session && d.channelId !== undefined) {
         const previousChannelId = previousChannelIdRef.current.get(d.session);
         
@@ -714,7 +715,8 @@ function App() {
             // Preserve certHash and matrixUserId — don't let falsy updates overwrite valid values
             const certHash = d.certHash || existing.certHash;
             const matrixUserId = d.matrixUserId || existing.matrixUserId;
-            return prev.map(u => u.session === d.session ? { ...u, ...d, channelId: updatedChannelId, certHash, matrixUserId } : u);
+            const isBrmbleClient = d.isBrmbleClient !== undefined ? d.isBrmbleClient : existing.isBrmbleClient;
+            return prev.map(u => u.session === d.session ? { ...u, ...d, channelId: updatedChannelId, certHash, matrixUserId, isBrmbleClient } : u);
           }
           return [...prev, d];
         });
@@ -1004,30 +1006,47 @@ function App() {
     };
 
     const onUserMappingUpdated = (data: unknown) => {
-      const d = data as { sessionId: number; matrixUserId?: string; action: string } | undefined;
+      const d = data as { sessionId: number; matrixUserId?: string; isBrmbleClient?: boolean; action: string } | undefined;
       if (d?.sessionId !== undefined) {
         setUsers(prev => prev.map(u =>
           u.session === d.sessionId
-            ? { ...u, matrixUserId: d.action === 'added' ? d.matrixUserId : undefined }
+            ? { ...u, matrixUserId: d.action === 'added' ? d.matrixUserId : undefined, isBrmbleClient: d.action === 'added' ? d.isBrmbleClient : undefined }
             : u
         ));
       }
     };
 
     const onSessionMappingSnapshot = (data: unknown) => {
-      const d = data as { mappings: Record<string, { matrixUserId: string; mumbleName: string }> } | undefined;
+      const d = data as { mappings: Record<string, { matrixUserId: string; mumbleName: string; isBrmbleClient?: boolean }> } | undefined;
       if (d?.mappings && typeof d.mappings === 'object') {
         setUsers(prev => {
-          const mappingMap = new Map<number, string>();
+          const mappingMap = new Map<number, { matrixUserId: string; isBrmbleClient?: boolean }>();
           for (const [sid, entry] of Object.entries(d.mappings)) {
-            mappingMap.set(Number(sid), entry.matrixUserId);
+            mappingMap.set(Number(sid), { matrixUserId: entry.matrixUserId, isBrmbleClient: entry.isBrmbleClient });
           }
-          return prev.map(u =>
-            mappingMap.has(u.session)
-              ? { ...u, matrixUserId: mappingMap.get(u.session) }
-              : u
-          );
+          return prev.map(u => {
+            const m = mappingMap.get(u.session);
+            return m ? { ...u, matrixUserId: m.matrixUserId, isBrmbleClient: m.isBrmbleClient } : u;
+          });
         });
+      }
+    };
+
+    const onBrmbleClientActivated = (data: unknown) => {
+      const d = data as { sessionId: number } | undefined;
+      if (d?.sessionId !== undefined) {
+        setUsers(prev => prev.map(u =>
+          u.session === d.sessionId ? { ...u, isBrmbleClient: true } : u
+        ));
+      }
+    };
+
+    const onBrmbleClientDeactivated = (data: unknown) => {
+      const d = data as { sessionId: number } | undefined;
+      if (d?.sessionId !== undefined) {
+        setUsers(prev => prev.map(u =>
+          u.session === d.sessionId ? { ...u, isBrmbleClient: false } : u
+        ));
       }
     };
 
@@ -1082,6 +1101,8 @@ function App() {
     bridge.on('voice.authError', onVoiceAuthError);
     bridge.on('voice.userMappingUpdated', onUserMappingUpdated);
     bridge.on('voice.sessionMappingSnapshot', onSessionMappingSnapshot);
+    bridge.on('voice.brmbleClientActivated', onBrmbleClientActivated);
+    bridge.on('voice.brmbleClientDeactivated', onBrmbleClientDeactivated);
     bridge.on('voice.registrationStatus', onRegistrationStatus);
 
     return () => {
@@ -1120,6 +1141,8 @@ function App() {
       bridge.off('voice.authError', onVoiceAuthError);
       bridge.off('voice.userMappingUpdated', onUserMappingUpdated);
       bridge.off('voice.sessionMappingSnapshot', onSessionMappingSnapshot);
+      bridge.off('voice.brmbleClientActivated', onBrmbleClientActivated);
+      bridge.off('voice.brmbleClientDeactivated', onBrmbleClientDeactivated);
       bridge.off('voice.registrationStatus', onRegistrationStatus);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps

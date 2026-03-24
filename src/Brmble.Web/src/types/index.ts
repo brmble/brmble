@@ -26,6 +26,7 @@ export interface User {
   prioritySpeaker?: boolean;
   avatarUrl?: string;
   certHash?: string;
+  isBrmbleClient?: boolean;
 }
 
 export interface MediaAttachment {
