@@ -686,7 +686,12 @@ function App() {
 
       // Private Mumble message → route to DM store
       if (d.certHash) {
-        dmStoreRef.current.receiveMumbleDM(d.certHash, d.senderSession!, senderName, d.message);
+        // If sender has a Matrix identity (hybrid user), route to Matrix DM contact
+        if (senderUser?.matrixUserId) {
+          dmStoreRef.current.addIncomingDMMessage(senderUser.matrixUserId, senderName, d.message);
+        } else {
+          dmStoreRef.current.receiveMumbleDM(d.certHash, d.senderSession!, senderName, d.message);
+        }
       }
     });
 
@@ -729,8 +734,9 @@ function App() {
         
         previousChannelIdRef.current.set(d.session, d.channelId);
 
-        // Update Mumble DM contact session on reconnect
-        if (d.certHash && !d.self) {
+        // Update Mumble DM contact session on reconnect (skip hybrid users — they use Matrix)
+        const hasMatrixId = d.matrixUserId || usersRef.current.find(u => u.session === d.session)?.matrixUserId;
+        if (d.certHash && !d.self && !hasMatrixId) {
           dmStoreRef.current.updateMumbleSession(d.certHash, d.session, d.name);
         }
       }
@@ -790,10 +796,10 @@ function App() {
           speakText(`${userName} left`);
         }
 
-        // Update Mumble DM contact session to null (offline)
+        // Update Mumble DM contact session to null (offline) — skip hybrid users (they use Matrix)
         const leavingUser = usersRef.current.find(u => u.session === d.session);
         const certHash = d.certHash || leavingUser?.certHash;
-        if (certHash) {
+        if (certHash && !leavingUser?.matrixUserId) {
           dmStoreRef.current.updateMumbleSession(certHash, null);
         }
 
@@ -1347,16 +1353,7 @@ const handleConnect = (serverData: SavedServer) => {
 
   const handleStartDMFromContextMenu = useCallback((sessionIdStr: string, userName: string) => {
     const user = users.find(u => String(u.session) === sessionIdStr);
-    // If the user has a certHash and an existing Mumble DM contact, prefer that
-    // (handles Brmble-registered users connected via plain Mumble client who already sent a DM)
-    if (user?.certHash) {
-      const existingMumbleContact = dmStore.contacts.find(c => c.isEphemeral && c.mumbleCertHash === user.certHash);
-      if (existingMumbleContact) {
-        dmStore.selectContact(existingMumbleContact.id);
-        return;
-      }
-    }
-
+    // Always prefer Matrix if the user has a Matrix identity (even if they're on a Mumble client)
     if (user?.matrixUserId) {
       dmStore.startDM(user.matrixUserId, userName);
     } else if (user?.certHash) {
