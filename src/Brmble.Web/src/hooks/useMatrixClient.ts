@@ -100,14 +100,10 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
         if (content.msgtype === 'm.image' && content.url) {
           const cl = clientRef.current;
           const fullUrl = cl?.mxcUrlToHttp(content.url) ?? content.url;
-          const thumbUrl = content.info?.thumbnail_url
-            ? (cl?.mxcUrlToHttp(content.info.thumbnail_url, 400, 400, 'scale') ?? undefined)
-            : (cl?.mxcUrlToHttp(content.url, 400, 400, 'scale') ?? undefined);
 
           media = [{
             type: content.info?.mimetype?.toLowerCase() === 'image/gif' ? 'gif' : 'image',
             url: fullUrl,
-            thumbnailUrl: thumbUrl,
             width: content.info?.w,
             height: content.info?.h,
             mimetype: content.info?.mimetype,
@@ -168,14 +164,10 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       if (dmContent.msgtype === 'm.image' && dmContent.url) {
         const cl = clientRef.current;
         const fullUrl = cl?.mxcUrlToHttp(dmContent.url) ?? dmContent.url;
-        const thumbUrl = dmContent.info?.thumbnail_url
-          ? (cl?.mxcUrlToHttp(dmContent.info.thumbnail_url, 400, 400, 'scale') ?? undefined)
-          : (cl?.mxcUrlToHttp(dmContent.url, 400, 400, 'scale') ?? undefined);
 
         dmMedia = [{
           type: dmContent.info?.mimetype?.toLowerCase() === 'image/gif' ? 'gif' : 'image',
           url: fullUrl,
-          thumbnailUrl: thumbUrl,
           width: dmContent.info?.w,
           height: dmContent.info?.h,
           mimetype: dmContent.info?.mimetype,
@@ -335,13 +327,9 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
           if (content.msgtype === 'm.image' && content.url) {
             const cl = clientRef.current;
             const fullUrl = cl?.mxcUrlToHttp(content.url) ?? content.url;
-            const thumbUrl = content.info?.thumbnail_url
-              ? (cl?.mxcUrlToHttp(content.info.thumbnail_url, 400, 400, 'scale') ?? undefined)
-              : (cl?.mxcUrlToHttp(content.url, 400, 400, 'scale') ?? undefined);
             media = [{
               type: content.info?.mimetype?.toLowerCase() === 'image/gif' ? 'gif' : 'image',
               url: fullUrl,
-              thumbnailUrl: thumbUrl,
               width: content.info?.w,
               height: content.info?.h,
               mimetype: content.info?.mimetype,

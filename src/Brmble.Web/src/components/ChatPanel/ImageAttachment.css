@@ -1,5 +1,5 @@
 .image-attachment {
-  max-width: 400px;
+  max-width: 300px;
   margin-top: var(--space-xs);
   cursor: pointer;
   border-radius: var(--radius-md);
@@ -23,6 +23,7 @@
   max-width: 100%;
   height: auto;
   border-radius: var(--radius-md);
+  image-orientation: from-image;
 }
 
 .image-attachment__img--loading {
