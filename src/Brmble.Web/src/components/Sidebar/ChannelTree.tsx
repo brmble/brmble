@@ -4,6 +4,7 @@ import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { UserTooltip } from '../UserTooltip/UserTooltip';
 import { usePermissions } from '../../hooks/usePermissions';
+import { prompt } from '../../hooks/usePrompt';
 import bridge from '../../bridge';
 import Avatar from '../Avatar/Avatar';
 import './ChannelTree.css';
@@ -372,7 +373,15 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                       <path d="M18 6L6 18M6 6l12 12"/>
                     </svg>
                   ),
-                  onClick: () => bridge.send('voice.kick', { session: parseInt(contextMenu.userId) }),
+                  onClick: async () => {
+                    const reason = await prompt({
+                      title: 'Kick User',
+                      message: `Enter a reason for kicking ${targetUser?.name || 'user'}:`,
+                      placeholder: 'Reason (optional)',
+                      confirmLabel: 'Kick',
+                    });
+                    bridge.send('voice.kick', { session: parseInt(contextMenu.userId), reason: reason || '' });
+                  },
                 });
               }
 
@@ -385,7 +394,15 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                       <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
                     </svg>
                   ),
-                  onClick: () => bridge.send('voice.ban', { session: parseInt(contextMenu.userId) }),
+                  onClick: async () => {
+                    const reason = await prompt({
+                      title: 'Ban User',
+                      message: `Enter a reason for banning ${targetUser?.name || 'user'}:`,
+                      placeholder: 'Reason (optional)',
+                      confirmLabel: 'Ban',
+                    });
+                    bridge.send('voice.ban', { session: parseInt(contextMenu.userId), reason: reason || '' });
+                  },
                 });
               }
 

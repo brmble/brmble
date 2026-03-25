@@ -8,6 +8,7 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { useServiceStatus } from '../../hooks/useServiceStatus';
 import { useResizable } from '../../hooks/useResizable';
 import { useProfileFingerprint } from '../../contexts/ProfileContext';
+import { prompt } from '../../hooks/usePrompt';
 import bridge from '../../bridge';
 import type { Channel, User, ConnectionStatus } from '../../types';
 import { SERVICE_DISPLAY_NAMES } from '../../types';
@@ -385,7 +386,15 @@ export function Sidebar({
                       <path d="M18 6L6 18M6 6l12 12"/>
                     </svg>
                   ),
-                  onClick: () => bridge.send('voice.kick', { session: parseInt(contextMenu.userId) }),
+                  onClick: async () => {
+                    const reason = await prompt({
+                      title: 'Kick User',
+                      message: `Enter a reason for kicking ${targetUser?.name || 'user'}:`,
+                      placeholder: 'Reason (optional)',
+                      confirmLabel: 'Kick',
+                    });
+                    bridge.send('voice.kick', { session: parseInt(contextMenu.userId), reason: reason || '' });
+                  },
                 });
               }
 
@@ -398,7 +407,15 @@ export function Sidebar({
                       <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
                     </svg>
                   ),
-                  onClick: () => bridge.send('voice.ban', { session: parseInt(contextMenu.userId) }),
+                  onClick: async () => {
+                    const reason = await prompt({
+                      title: 'Ban User',
+                      message: `Enter a reason for banning ${targetUser?.name || 'user'}:`,
+                      placeholder: 'Reason (optional)',
+                      confirmLabel: 'Ban',
+                    });
+                    bridge.send('voice.ban', { session: parseInt(contextMenu.userId), reason: reason || '' });
+                  },
                 });
               }
 
