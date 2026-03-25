@@ -355,16 +355,16 @@ export function Sidebar({
             }] : []),
             ...(() => {
               const targetUser = rootUsers.find(u => u.session === parseInt(contextMenu.userId));
-              const canMute = !contextMenu.isSelf && hasPermission(0, Permission.MuteDeafen);
-              return canMute ? [{
-                label: targetUser?.muted ? 'Unmute' : 'Mute',
+              const canServerMute = !contextMenu.isSelf && hasPermission(0, Permission.MuteDeafen);
+              return canServerMute ? [{
+                label: targetUser?.muted ? 'Server Unmute' : 'Server Mute',
                 icon: (
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <line x1="1" y1="1" x2="23" y2="23"/>
                     <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/>
                   </svg>
                 ),
-                onClick: () => bridge.send('voice.mute', { session: parseInt(contextMenu.userId) }),
+                onClick: () => bridge.send(targetUser?.muted ? 'voice.unmute' : 'voice.mute', { session: parseInt(contextMenu.userId) }),
               }] : [];
             })(),
             ...(() => {
@@ -372,7 +372,8 @@ export function Sidebar({
               const hasBanPermission = !contextMenu.isSelf && hasPermission(0, Permission.Ban);
               const hasPrioritySpeakerPermission = !contextMenu.isSelf && hasPermission(0, Permission.MuteDeafen);
               const hasMovePermission = !contextMenu.isSelf && hasPermission(0, Permission.Move);
-              const hasAdminPermission = hasKickPermission || hasBanPermission || hasPrioritySpeakerPermission || hasMovePermission;
+              const hasServerMutePermission = !contextMenu.isSelf && hasPermission(0, Permission.MuteDeafen);
+              const hasAdminPermission = hasKickPermission || hasBanPermission || hasPrioritySpeakerPermission || hasMovePermission || hasServerMutePermission;
 
               if (!hasAdminPermission) return [];
 
@@ -445,6 +446,19 @@ export function Sidebar({
                   onClick: () => {
                     bridge.send('voice.setPrioritySpeaker', { session: parseInt(contextMenu.userId), enabled: !targetUser?.prioritySpeaker });
                   },
+                });
+              }
+
+              if (hasServerMutePermission) {
+                adminItems.push({
+                  label: targetUser?.muted ? 'Server Unmute' : 'Server Mute',
+                  icon: (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <line x1="1" y1="1" x2="23" y2="23"/>
+                      <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/>
+                    </svg>
+                  ),
+                  onClick: () => bridge.send(targetUser?.muted ? 'voice.unmute' : 'voice.mute', { session: parseInt(contextMenu.userId) }),
                 });
               }
 
