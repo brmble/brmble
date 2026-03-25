@@ -374,11 +374,11 @@ export function Sidebar({
             }] : []),
 
             ...(() => {
-              const hasKickPermission = !contextMenu.isSelf && hasPermission(0, Permission.Kick);
-              const hasBanPermission = !contextMenu.isSelf && hasPermission(0, Permission.Ban);
-              const hasPrioritySpeakerPermission = !contextMenu.isSelf && hasPermission(0, Permission.MuteDeafen);
-              const hasMovePermission = !contextMenu.isSelf && hasPermission(0, Permission.Move);
-              const hasServerMutePermission = !contextMenu.isSelf && hasPermission(0, Permission.MuteDeafen);
+              const hasKickPermission = !contextMenu.isSelf && currentChannelId && hasPermission(currentChannelId, Permission.Kick);
+              const hasBanPermission = !contextMenu.isSelf && currentChannelId && hasPermission(currentChannelId, Permission.Ban);
+              const hasPrioritySpeakerPermission = !contextMenu.isSelf && currentChannelId && hasPermission(currentChannelId, Permission.MuteDeafen);
+              const hasMovePermission = !contextMenu.isSelf && currentChannelId && hasPermission(currentChannelId, Permission.Move);
+              const hasServerMutePermission = !contextMenu.isSelf && currentChannelId && hasPermission(currentChannelId, Permission.MuteDeafen);
               const hasAdminPermission = hasKickPermission || hasBanPermission || hasPrioritySpeakerPermission || hasMovePermission || hasServerMutePermission;
 
               if (!hasAdminPermission) return [];

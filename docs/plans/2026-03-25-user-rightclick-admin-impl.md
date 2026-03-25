@@ -1,6 +1,6 @@
 # User Right-Click Admin Features Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> Note for contributors: Implement the following tasks incrementally; each task can be a separate pull request.
 
 **Goal:** Add admin submenu and Mute/Unmute toggle to user right-click context menus in the channel panel.
 

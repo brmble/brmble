@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import './ContextMenu.css';
 
 const MOUSE_LEAVE_CLOSE_DELAY = 400;
@@ -51,6 +51,7 @@ function Submenu({ item, depth, onItemClick }: { item: ContextMenuItem; depth: n
 function MenuItem({ item, depth, onItemClick }: MenuItemProps) {
   const hasChildren = item.children && item.children.length > 0;
   const isDisabled = item.disabled;
+  const [isFocused, setIsFocused] = useState(false);
 
   return (
     <div className="context-menu-item-wrapper">
@@ -64,8 +65,11 @@ function MenuItem({ item, depth, onItemClick }: MenuItemProps) {
           }
           onItemClick(item);
         }}
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => setIsFocused(false)}
         disabled={isDisabled}
-        aria-haspopup={hasChildren ? 'true' : undefined}
+        aria-haspopup={hasChildren ? 'menu' : undefined}
+        aria-expanded={hasChildren ? isFocused : undefined}
       >
         {item.icon && <span className="context-menu-icon">{item.icon}</span>}
         <span className="context-menu-label">{item.label}</span>

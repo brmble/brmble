@@ -97,7 +97,8 @@
   margin-left: var(--space-2xs);
 }
 
-.context-menu-item-wrapper:hover > .context-submenu {
+.context-menu-item-wrapper:hover > .context-submenu,
+.context-menu-item-wrapper:focus-within > .context-submenu {
   opacity: 1;
   visibility: visible;
 }

@@ -164,7 +164,7 @@ export function usePrompt(): UsePromptReturn {
 
       const handleSubmit = useCallback(() => {
         if (globalResolveInput) {
-          globalResolveInput(inputValue || null);
+          globalResolveInput(inputValue);
           globalResolveInput = null;
           setInputValue('');
           globalForceUpdate?.();
