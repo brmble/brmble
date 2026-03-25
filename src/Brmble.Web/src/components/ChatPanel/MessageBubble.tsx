@@ -27,6 +27,10 @@ interface MessageBubbleProps {
   senderMatrixUserId?: string;
   currentUsername?: string;
   knownUsernames?: Set<string>;
+  messageId?: string;
+  pending?: boolean;
+  error?: boolean;
+  onDismiss?: (messageId: string) => void;
 }
 
 /** Highlight search matches within a plain-text string, returning React nodes. */
@@ -130,7 +134,7 @@ function processMessageContent(
   return mentionified;
 }
 
-export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & React.HTMLAttributes<HTMLDivElement>>(function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId, currentUsername, knownUsernames, className, ...rest }, ref) {
+export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & React.HTMLAttributes<HTMLDivElement>>(function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId, currentUsername, knownUsernames, messageId, pending, error, onDismiss, className, ...rest }, ref) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const formatTime = (date: Date) => {
@@ -142,6 +146,8 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
   if (isSystem) classes.push('message-bubble--system');
   if (collapsed) classes.push('message-bubble--collapsed');
   if (isActiveMatch) classes.push('search-active-match');
+  if (pending) classes.push('message-bubble--pending');
+  if (error) classes.push('message-bubble--error');
   if (className) classes.push(className);
 
   const firstUrl = (!isSystem && content) ? extractFirstUrl(content) : null;
@@ -186,6 +192,22 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
         )}
         {firstUrl && matrixClient && (
           <LinkPreview url={firstUrl} client={matrixClient} />
+        )}
+        {error && messageId && (
+          <div className="message-error-overlay">
+            <span className="message-error-text">Failed to send</span>
+            <div className="message-error-actions">
+              {onDismiss && (
+                <button
+                  className="message-error-btn message-error-dismiss"
+                  onClick={() => onDismiss(messageId)}
+                  aria-label="Dismiss failed message"
+                >
+                  Dismiss
+                </button>
+              )}
+            </div>
+          </div>
         )}
       </div>
       {lightboxUrl && (

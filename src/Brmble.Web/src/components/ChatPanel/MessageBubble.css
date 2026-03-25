@@ -130,3 +130,50 @@
   color: var(--accent-secondary);
   background: var(--accent-secondary-wash, color-mix(in srgb, var(--accent-secondary) 15%, transparent));
 }
+
+.message-bubble--pending {
+  opacity: 0.6;
+}
+
+.message-error-overlay {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  margin-top: var(--space-xs);
+  background: var(--status-error-subtle, rgba(239, 68, 68, 0.1));
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--status-error);
+}
+
+.message-error-text {
+  font-size: var(--text-sm);
+  color: var(--status-error);
+  flex: 1;
+}
+
+.message-error-actions {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.message-error-btn {
+  background: none;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  padding: 2px var(--space-sm);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.message-error-dismiss {
+  color: var(--text-muted);
+}
+
+.message-error-dismiss:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
