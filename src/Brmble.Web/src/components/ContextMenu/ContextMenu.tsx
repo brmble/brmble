@@ -29,29 +29,21 @@ interface MenuItemProps {
 
 function Submenu({ item, depth, onItemClick }: { item: ContextMenuItem; depth: number; onItemClick: (item: ContextMenuItem) => void }) {
   const submenuRef = useRef<HTMLDivElement>(null);
-  const wrapperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (submenuRef.current && wrapperRef.current) {
-      const submenuRect = submenuRef.current.getBoundingClientRect();
-      
-      if (submenuRect.right > window.innerWidth - 8) {
+    if (submenuRef.current) {
+      const rect = submenuRef.current.getBoundingClientRect();
+      if (rect.right > window.innerWidth - 8) {
         submenuRef.current.classList.add('context-submenu--off-right');
-      }
-      
-      if (submenuRect.bottom > window.innerHeight - 8) {
-        submenuRef.current.classList.add('context-submenu--off-bottom');
       }
     }
   }, []);
 
   return (
-    <div ref={wrapperRef} className="context-menu-item-wrapper">
-      <div ref={submenuRef} className={`context-submenu context-submenu--depth-${depth}`}>
-        {item.children!.map((child, index) => (
-          <MenuItem key={index} item={child} depth={depth} onItemClick={onItemClick} />
-        ))}
-      </div>
+    <div ref={submenuRef} className={`context-submenu context-submenu--depth-${depth}`}>
+      {item.children!.map((child, index) => (
+        <MenuItem key={index} item={child} depth={depth} onItemClick={onItemClick} />
+      ))}
     </div>
   );
 }
