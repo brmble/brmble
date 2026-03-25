@@ -59,7 +59,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
   const [dropTargetChannel, setDropTargetChannel] = useState<number | null>(null);
   const { hasPermission, Permission, requestPermissions } = usePermissions();
 
-  const canDragUsers = hasPermission(0, Permission.Move);
+  const canDragUsers = currentChannelId != null && hasPermission(currentChannelId, Permission.Move);
 
   useEffect(() => {
     if (currentChannelId) {
@@ -67,6 +67,12 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     }
     requestPermissions(0);
   }, [currentChannelId, requestPermissions]);
+
+  useEffect(() => {
+    if (contextMenu?.channelId != null) {
+      requestPermissions(contextMenu.channelId);
+    }
+  }, [contextMenu?.channelId, requestPermissions]);
   const initialExpanded = useMemo(() => {
     const expanded = new Set<number>();
     channels.forEach(ch => {
@@ -393,11 +399,12 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
             }] : []),
 
             ...(() => {
+              const targetChannelId = contextMenu.channelId ?? currentChannelId;
               const hasKickPermission = !contextMenu.isSelf && hasPermission(0, Permission.Kick);
               const hasBanPermission = !contextMenu.isSelf && hasPermission(0, Permission.Ban);
-              const hasPrioritySpeakerPermission = !contextMenu.isSelf && currentChannelId && hasPermission(currentChannelId, Permission.MuteDeafen);
-              const hasMovePermission = !contextMenu.isSelf && currentChannelId && hasPermission(currentChannelId, Permission.Move);
-              const hasServerMutePermission = !contextMenu.isSelf && currentChannelId && hasPermission(currentChannelId, Permission.MuteDeafen);
+              const hasPrioritySpeakerPermission = !contextMenu.isSelf && targetChannelId != null && hasPermission(targetChannelId, Permission.MuteDeafen);
+              const hasMovePermission = !contextMenu.isSelf && targetChannelId != null && hasPermission(targetChannelId, Permission.Move);
+              const hasServerMutePermission = !contextMenu.isSelf && targetChannelId != null && hasPermission(targetChannelId, Permission.MuteDeafen);
               const hasAdminPermission = hasKickPermission || hasBanPermission || hasPrioritySpeakerPermission || hasMovePermission || hasServerMutePermission;
 
               if (!hasAdminPermission) return [];
