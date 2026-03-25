@@ -1,7 +1,7 @@
 import type { MediaAttachment } from '../types';
 
-const MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
-const ALLOWED_MIMETYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+export const MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
+export const ALLOWED_MIMETYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 const IMG_REGEX = /<img\s+[^>]*src=["']data:(image\/[^;]+);base64,([^"']+)["'][^>]*\/?>/gi;
 
 export interface ParsedMessage {
