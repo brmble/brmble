@@ -22,13 +22,8 @@ let globalResolve: ((value: boolean) => void) | null = null;
 let globalResolveInput: ((value: string | null) => void) | null = null;
 let globalOptions: PromptOptions = { title: '', message: '' };
 let globalInputOptions: PromptWithInputOptions = { title: '', message: '', placeholder: '', defaultValue: '' };
-// Set by the one component that owns <Prompt /> (App.tsx).
 let globalForceUpdate: (() => void) | null = null;
 
-/**
- * Show a confirmation dialog. Safe to call from any component.
- * Requires that <Prompt /> (from usePrompt()) is mounted in the tree.
- */
 export function confirm(options: PromptOptions): Promise<boolean> {
   if (globalResolve) {
     globalResolve(false);
@@ -45,10 +40,6 @@ export function confirm(options: PromptOptions): Promise<boolean> {
   });
 }
 
-/**
- * Show a dialog with text input. Safe to call from any component.
- * Returns the entered text or null if cancelled.
- */
 export function prompt(options: PromptWithInputOptions): Promise<string | null> {
   if (globalResolve) {
     globalResolve(false);
@@ -65,13 +56,8 @@ export function prompt(options: PromptWithInputOptions): Promise<string | null> 
   });
 }
 
-/**
- * Use in the single root component (App.tsx) that renders <Prompt />.
- * Only call this once in the tree.
- */
 export function usePrompt(): UsePromptReturn {
   const [, setTick] = useState(0);
-  const [inputValue, setInputValue] = useState('');
 
   useEffect(() => {
     globalForceUpdate = () => setTick(t => t + 1);
@@ -88,15 +74,6 @@ export function usePrompt(): UsePromptReturn {
     }
   }, []);
 
-  const handleInputSubmit = useCallback(() => {
-    if (globalResolveInput) {
-      globalResolveInput(inputValue || null);
-      globalResolveInput = null;
-      setInputValue('');
-      globalForceUpdate?.();
-    }
-  }, [inputValue]);
-
   const handleCancel = useCallback(() => {
     if (globalResolve) {
       globalResolve(false);
@@ -106,7 +83,6 @@ export function usePrompt(): UsePromptReturn {
     if (globalResolveInput) {
       globalResolveInput(null);
       globalResolveInput = null;
-      setInputValue('');
       globalForceUpdate?.();
     }
   }, []);
@@ -166,6 +142,7 @@ export function usePrompt(): UsePromptReturn {
   const PromptWithInput = useMemo(() => {
     return function PromptWithInputComponent() {
       const isOpen = globalResolveInput !== null;
+      const [inputValue, setInputValue] = useState('');
 
       useEffect(() => {
         if (isOpen) {
@@ -179,14 +156,20 @@ export function usePrompt(): UsePromptReturn {
           if (e.key === 'Escape') {
             e.preventDefault();
             handleCancel();
-          } else if (e.key === 'Enter') {
-            e.preventDefault();
-            handleInputSubmit();
           }
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-      }, [isOpen, handleInputSubmit, handleCancel]);
+      }, [isOpen, handleCancel]);
+
+      const handleSubmit = useCallback(() => {
+        if (globalResolveInput) {
+          globalResolveInput(inputValue || null);
+          globalResolveInput = null;
+          setInputValue('');
+          globalForceUpdate?.();
+        }
+      }, [inputValue]);
 
       if (!isOpen) return null;
 
@@ -222,7 +205,7 @@ export function usePrompt(): UsePromptReturn {
               </button>
               <button
                 className="btn btn-primary"
-                onClick={handleInputSubmit}
+                onClick={handleSubmit}
               >
                 {globalInputOptions.confirmLabel || 'Confirm'}
               </button>
@@ -231,7 +214,7 @@ export function usePrompt(): UsePromptReturn {
         </div>
       );
     };
-  }, [handleInputSubmit, handleCancel, inputValue]);
+  }, [handleCancel]);
 
   return { Prompt, PromptWithInput };
 }
