@@ -62,7 +62,31 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     })
     { Timeout = TimeSpan.FromSeconds(5) };
 
-    private record SessionMappingEntry(string MatrixUserId, string MumbleName, bool IsBrmbleClient = false);
+    internal record SessionMappingEntry(string MatrixUserId, string MumbleName, bool IsBrmbleClient = false);
+
+    /// <summary>
+    /// Parses a JSON object whose keys are session IDs and values contain
+    /// matrixUserId, mumbleName, and optionally isBrmbleClient into a dictionary.
+    /// Shared by the auth-response and WebSocket snapshot parsers.
+    /// </summary>
+    internal static Dictionary<uint, SessionMappingEntry> ParseSessionMappings(System.Text.Json.JsonElement mappingsElement)
+    {
+        var result = new Dictionary<uint, SessionMappingEntry>();
+        foreach (var prop in mappingsElement.EnumerateObject())
+        {
+            if (uint.TryParse(prop.Name, out var sid))
+            {
+                var matrixId = prop.Value.TryGetProperty("matrixUserId", out var m) ? m.GetString() : null;
+                var name = prop.Value.TryGetProperty("mumbleName", out var n) ? n.GetString() : null;
+                if (matrixId is not null && name is not null)
+                {
+                    var isBrmble = prop.Value.TryGetProperty("isBrmbleClient", out var b) && b.GetBoolean();
+                    result[sid] = new SessionMappingEntry(matrixId, name, isBrmble);
+                }
+            }
+        }
+        return result;
+    }
 
     public string ServiceName => "mumble";
 
@@ -1192,16 +1216,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             if (credentials.Value.TryGetProperty("sessionMappings", out var sessionMappingsElement))
             {
                 _sessionMappings.Clear();
-                foreach (var prop in sessionMappingsElement.EnumerateObject())
-                {
-                    if (uint.TryParse(prop.Name, out var sid))
-                    {
-                        var matrixId = prop.Value.TryGetProperty("matrixUserId", out var m) ? m.GetString() : null;
-                        var name = prop.Value.TryGetProperty("mumbleName", out var n) ? n.GetString() : null;
-                        if (matrixId is not null && name is not null)
-                            _sessionMappings[sid] = new SessionMappingEntry(matrixId, name);
-                    }
-                }
+                foreach (var (sid, entry) in ParseSessionMappings(sessionMappingsElement))
+                    _sessionMappings[sid] = entry;
             }
 
             // The server returns its internal homeserverUrl (e.g. http://localhost:6167).
@@ -1356,19 +1372,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     _sessionMappings.Clear();
                     if (root.TryGetProperty("mappings", out var mappings))
                     {
-                        foreach (var prop in mappings.EnumerateObject())
-                        {
-                            if (uint.TryParse(prop.Name, out var sid))
-                            {
-                                var matrixId = prop.Value.TryGetProperty("matrixUserId", out var m) ? m.GetString() : null;
-                                var name = prop.Value.TryGetProperty("mumbleName", out var n) ? n.GetString() : null;
-                                if (matrixId is not null && name is not null)
-                                {
-                                    var isBrmble = prop.Value.TryGetProperty("isBrmbleClient", out var b) && b.GetBoolean();
-                                    _sessionMappings[sid] = new SessionMappingEntry(matrixId, name, isBrmble);
-                                }
-                            }
-                        }
+                        foreach (var (sid, entry) in ParseSessionMappings(mappings))
+                            _sessionMappings[sid] = entry;
                     }
                     _bridge?.Send("voice.sessionMappingSnapshot",
                         new { mappings = _sessionMappings.ToDictionary(k => k.Key, k => new { k.Value.MatrixUserId, k.Value.MumbleName, k.Value.IsBrmbleClient }) });
