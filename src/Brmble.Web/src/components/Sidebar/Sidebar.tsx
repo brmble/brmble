@@ -410,7 +410,7 @@ export function Sidebar({
                       <path d="M5 12h14M12 5l7 7-7 7"/>
                     </svg>
                   ),
-                  onClick: () => bridge.send('voice.moveToChannel', { session: parseInt(contextMenu.userId), channelId: 0 }),
+                  onClick: () => bridge.send('voice.move', { session: parseInt(contextMenu.userId), channelId: 0 }),
                 });
               }
 
