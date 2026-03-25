@@ -693,7 +693,7 @@ function App() {
       // Private Mumble message → route to DM store
       if (d.certHash) {
         // Mumble clients send HTML — strip tags and decode entities for plain-text display
-        const { text, media } = parseMessageMedia(d.message);
+        const { text, media: _dmMedia } = parseMessageMedia(d.message);
         const plainText = text.replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
         dmStoreRef.current.receiveMumbleDM(d.certHash, d.senderSession!, senderName, plainText || d.message);
       }
@@ -1412,7 +1412,7 @@ const handleConnect = (serverData: SavedServer) => {
     ? matrixClient.messages.get(activeChannelId)
     : undefined;
 
-  const { Prompt } = usePrompt();
+  const { Prompt, PromptWithInput } = usePrompt();
 
   const { isSharing, startSharing, stopSharing, error: screenShareError, activeShare, remoteVideoEl, disconnectViewer, connectAsViewer } = useScreenShare(() => {
     setSharingChannelId(undefined);
@@ -1810,6 +1810,7 @@ const handleConnect = (serverData: SavedServer) => {
       />
 
       <Prompt />
+      <PromptWithInput />
 
       {screenShareToast && (
         <Toast
