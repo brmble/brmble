@@ -50,7 +50,34 @@ export function useChatStore(channelId: string) {
     localStorage.removeItem(`${STORAGE_KEY_PREFIX}${channelId}`);
   }, [channelId]);
 
-  return { messages, addMessage, clearMessages };
+  /** Add a pre-built ChatMessage (e.g. optimistic image message). */
+  const addRawMessage = useCallback((msg: ChatMessage) => {
+    setMessages(prev => {
+      const updated = [...prev, msg];
+      saveMessages(updated);
+      return updated;
+    });
+  }, [saveMessages]);
+
+  /** Remove a message by id (e.g. dismiss a failed optimistic message). */
+  const removeMessage = useCallback((messageId: string) => {
+    setMessages(prev => {
+      const updated = prev.filter(m => m.id !== messageId);
+      saveMessages(updated);
+      return updated;
+    });
+  }, [saveMessages]);
+
+  /** Update fields on a message by id (e.g. clear pending, set error). */
+  const updateMessage = useCallback((messageId: string, patch: Partial<ChatMessage>) => {
+    setMessages(prev => {
+      const updated = prev.map(m => m.id === messageId ? { ...m, ...patch } : m);
+      saveMessages(updated);
+      return updated;
+    });
+  }, [saveMessages]);
+
+  return { messages, addMessage, addRawMessage, removeMessage, updateMessage, clearMessages };
 }
 
 /**
