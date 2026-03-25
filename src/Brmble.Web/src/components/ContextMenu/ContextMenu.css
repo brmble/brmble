@@ -109,6 +109,11 @@
   margin-right: var(--space-2xs);
 }
 
+.context-submenu--off-bottom {
+  top: auto;
+  bottom: 0;
+}
+
 .context-submenu .context-menu-item {
   white-space: nowrap;
 }
