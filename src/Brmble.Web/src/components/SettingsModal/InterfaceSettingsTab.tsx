@@ -45,7 +45,9 @@ export function InterfaceSettingsTab({
   };
 
   const handleBrmblegotchiToggle = () => {
-    onBrmblegotchiChange({ enabled: !brmblegotchiSettings.enabled, theme: brmblegotchiSettings.theme });
+    const newSettings = { ...localBrmblegotchi, enabled: !localBrmblegotchi.enabled };
+    setLocalBrmblegotchi(newSettings);
+    onBrmblegotchiChange(newSettings);
   };
 
   const handleResetPet = async () => {

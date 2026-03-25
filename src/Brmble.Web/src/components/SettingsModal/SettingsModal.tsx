@@ -77,10 +77,9 @@ export function SettingsModal(props: SettingsModalProps) {
   const { servers } = useServerlist();
 
   useEffect(() => {
-    if (initialTab) {
-      setActiveTab(initialTab);
-    }
-  }, [initialTab]);
+    if (!isOpen) return;
+    setActiveTab(initialTab ?? 'profile');
+  }, [isOpen, initialTab]);
 
   // Resolve registration name for the currently connected server
   const connectedRegisteredName = (() => {

@@ -352,7 +352,10 @@ export function BrmblegotchiWidget({ onOpenSettings }: BrmblegotchiWidgetProps) 
     if (petTheme === 'cat' && growthState.stage === 'egg') {
       setGrowthState(prev => ({ ...prev, stage: 'adult', stageStartTime: Date.now() }));
     }
-  }, [petTheme]);
+    if (petTheme === 'dino' && growthState.stage === 'baby') {
+      setGrowthState(prev => ({ ...prev, stage: 'child', stageStartTime: Date.now() }));
+    }
+  }, [petTheme, growthState.stage]);
 
   const dragStart = useRef({ mouseX: 0, mouseY: 0, right: 0, bottom: 0 });
   const widgetRef = useRef<HTMLDivElement>(null);
@@ -722,16 +725,11 @@ export function BrmblegotchiWidget({ onOpenSettings }: BrmblegotchiWidgetProps) 
   const showStats = petTheme !== 'cat';
   const ringCount = getRingCount(growthState.stage);
 
-  const nextStageDurations: Record<string, number> = {
-    egg: STAGE_DURATIONS.egg,
-    baby: STAGE_DURATIONS.baby,
-    child: STAGE_DURATIONS.child,
-    teen: STAGE_DURATIONS.teen,
-  };
-  const currentStageDuration = nextStageDurations[growthState.stage] ?? 0;
-  const stageProgress = currentStageDuration > 0 
-    ? Math.min(100, ((Date.now() - growthState.stageStartTime) / currentStageDuration) * 100) 
-    : 0;
+  const effectiveStage = petTheme === 'dino' && growthState.stage === 'baby' ? 'child' : growthState.stage;
+  const nextStageDurations = petTheme === 'dino' 
+    ? { egg: DINO_STAGE_DURATIONS.egg, child: DINO_STAGE_DURATIONS.child, teen: DINO_STAGE_DURATIONS.teen }
+    : { egg: STAGE_DURATIONS.egg, baby: STAGE_DURATIONS.baby, child: STAGE_DURATIONS.child, teen: STAGE_DURATIONS.teen };
+  const currentStageDuration = nextStageDurations[effectiveStage as keyof typeof nextStageDurations] ?? 0;
 
   const handlePetClickWithStage = (e: React.MouseEvent) => {
     if (growthState.stage === 'egg' && petTheme === 'original') {
@@ -769,9 +767,9 @@ export function BrmblegotchiWidget({ onOpenSettings }: BrmblegotchiWidgetProps) 
       }}
       onContextMenu={handleContextMenu}
     >
-      {showActions && growthState.stage !== 'egg' && growthState.stage !== 'ghost' && (petTheme === 'cat' || petTheme === 'dino') && (
+      {showActions && growthState.stage !== 'egg' && growthState.stage !== 'ghost' && (
         <div className="brmblegotchi-actions">
-          {petTheme === 'cat' ? (
+          {petTheme === 'cat' || petTheme === 'original' ? (
             <>
               <button
                 className={`brmblegotchi-action-btn ${cooldownRemaining > 0 ? 'disabled' : ''}`}
@@ -953,7 +951,7 @@ export function BrmblegotchiWidget({ onOpenSettings }: BrmblegotchiWidgetProps) 
           {growthState.stage !== 'egg' && growthState.stage !== 'adult' && growthState.stage !== 'ghost' && !(petTheme === 'dino' && growthState.stage === 'teen') && (
             <div className="brmblegotchi-context-item">
               <span>Next stage</span>
-              <span>{Math.ceil((100 - stageProgress) / 100 * 60)}s</span>
+              <span>{Math.max(0, Math.ceil((currentStageDuration - (Date.now() - growthState.stageStartTime)) / 1000))}s</span>
             </div>
           )}
           <button className="brmblegotchi-context-settings" onClick={handleSettingsClick}>

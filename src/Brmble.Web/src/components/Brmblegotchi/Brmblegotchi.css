@@ -362,7 +362,7 @@
   font-weight: 500;
   color: var(--text-primary);
   background: var(--bg-elevated);
-  border: 1px solid var(--glass-border);
+  border: var(--glass-border);
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all var(--transition-fast);
