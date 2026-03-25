@@ -16,8 +16,10 @@ export const DEFAULT_OVERLAY: OverlaySettings = {
 
 export interface BrmblegotchiSettings {
   enabled: boolean;
+  theme: 'original' | 'dino' | 'cat';
 }
 
 export const DEFAULT_BRMBLEGOTCHI: BrmblegotchiSettings = {
   enabled: true,
+  theme: 'original',
 };

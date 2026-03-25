@@ -45,7 +45,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 6px;
   border-radius: var(--radius-md) var(--radius-md) 0 0;
   margin-top: var(--space-sm);
 }
@@ -55,11 +55,16 @@
 }
 
 .brmblegotchi-drag-handle span {
-  width: 4px;
-  height: 4px;
+  width: 6px;
+  height: 6px;
   background: var(--text-muted);
   border-radius: 50%;
-  opacity: 0.6;
+  opacity: 0.8;
+  transition: opacity var(--transition-fast);
+}
+
+.brmblegotchi-drag-handle:hover span {
+  opacity: 1;
 }
 
 .brmblegotchi-pet {
@@ -77,12 +82,54 @@
   cursor: pointer;
 }
 
+.theme-dino .brmblegotchi-pet,
+.theme-cat .brmblegotchi-pet {
+  width: 100px;
+  height: 100px;
+}
+
 .brmblegotchi-pet:hover {
   transform: scale(1.05);
 }
 
 .brmblegotchi-pet:active {
   transform: scale(0.98);
+}
+
+.pet-sprite {
+  width: 64px;
+  height: 64px;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.theme-dino .brmblegotchi-pet .pet-sprite,
+.theme-cat .brmblegotchi-pet .pet-sprite {
+  width: 100px;
+  height: 100px;
+  animation: idle-breathing 2s ease-in-out infinite;
+}
+
+.theme-cat .brmblegotchi-pet .pet-sprite {
+  width: 140px;
+  height: 140px;
+}
+
+@keyframes idle-breathing {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-2px) scale(1.02); }
+}
+
+.theme-dino .brmblegotchi-pet,
+.theme-cat .brmblegotchi-pet {
+  background: transparent;
+  box-shadow: none;
+  border: none;
+}
+
+.theme-dino .brmblegotchi-drag-handle,
+.theme-cat .brmblegotchi-drag-handle {
+  opacity: 0.3;
 }
 
 .brmblegotchi-ring {
@@ -200,6 +247,10 @@
   min-width: 90px;
 }
 
+.theme-cat .brmblegotchi-stats {
+  display: none;
+}
+
 .brmblegotchi-stat {
   display: flex;
   align-items: center;
@@ -305,6 +356,30 @@
 .brmblegotchi-context-item span:last-child {
   color: var(--text-primary);
   font-weight: 500;
+}
+
+.brmblegotchi-context-settings {
+  width: 100%;
+  margin-top: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border: var(--glass-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.brmblegotchi-context-settings:hover {
+  background: var(--bg-surface);
+  border-color: var(--accent-primary);
+}
+
+.brmblegotchi-context-settings:active {
+  transform: scale(0.98);
 }
 
 .brmblegotchi-context-close {

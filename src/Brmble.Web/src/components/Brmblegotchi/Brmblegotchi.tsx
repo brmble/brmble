@@ -2,10 +2,34 @@ import { useState, useRef, useCallback, useEffect, useLayoutEffect } from 'react
 import { useProfileFingerprint } from '../../contexts/ProfileContext';
 import './Brmblegotchi.css';
 
+import dinoEggSprite from '../../assets/Sprites/Egg/Dino_egg.png';
+import dinoChildIdle1 from '../../assets/Sprites/Dino Child/dino_idle -1.png';
+import dinoChildIdle2 from '../../assets/Sprites/Dino Child/dino_idle -2.png';
+import dinoChildIdle3 from '../../assets/Sprites/Dino Child/dino_idle -3.png';
+import dinoChildFood1 from '../../assets/Sprites/Dino Child/Dino_food -1 .png';
+import dinoChildFood2 from '../../assets/Sprites/Dino Child/Dino_food -2 .png';
+import dinoChildPlay from '../../assets/Sprites/Dino Child/Dino_play.png';
+import dinoChildSleep from '../../assets/Sprites/Dino Child/Dino_Sleep.png';
+import dinoChildClean from '../../assets/Sprites/Dino Child/Dino_clean.png';
+import dinoTeenIdle from '../../assets/Sprites/Dino Teen/Dino_teen_Idle-1.png';
+import dinoTeenFood from '../../assets/Sprites/Dino Teen/Dino_teen_food-1.png';
+import dinoTeenPlay from '../../assets/Sprites/Dino Teen/Dino_teen_play-1.png';
+import dinoTeenSleep from '../../assets/Sprites/Dino Teen/Dino_teen_sleep-1.png';
+import dinoTeenClean from '../../assets/Sprites/Dino Teen/Dino_teen_clean-1.png';
+
+import catIdleSprite from '../../assets/Sprites/Cat/cat_idle.png';
+import catHappySprite from '../../assets/Sprites/Cat/cat_happey.png';
+import catPlaySprite from '../../assets/Sprites/Cat/cat_play.png';
+import catFoodSprite from '../../assets/Sprites/Cat/cat_food.png';
+import catCleanSprite from '../../assets/Sprites/Cat/cat_clean.png';
+import catSleepSprite from '../../assets/Sprites/Cat/cat_sleep.png';
+import catSmileSprite from '../../assets/Sprites/Cat/cat_smile.png';
+
 const STATE_KEY = 'brmblegotchi-state';
 const SETTINGS_KEY = 'brmble-settings';
 const POSITION_KEY = 'brmblegotchi-position';
 
+type PetTheme = 'original' | 'dino' | 'cat';
 type GrowthStage = 'egg' | 'baby' | 'child' | 'teen' | 'adult' | 'ghost';
 
 interface GrowthState {
@@ -30,6 +54,12 @@ const STAGE_DURATIONS: Record<StageWithDuration, number> = {
   egg: 1 * 60 * 1000,
   baby: 1 * 60 * 1000,
   child: 1 * 60 * 1000,
+  teen: 1 * 60 * 1000,
+};
+
+const DINO_STAGE_DURATIONS: Record<'egg' | 'child' | 'teen', number> = {
+  egg: 10 * 1000,
+  child: 15 * 60 * 1000,
   teen: 1 * 60 * 1000,
 };
 
@@ -82,6 +112,102 @@ function getRingCount(stage: GrowthStage): number {
     case 'adult': return 4;
     case 'ghost': return 4;
     default: return 4;
+  }
+}
+
+function DinoSprite({ stage, action }: { stage: GrowthStage; action: 'idle' | 'feed' | 'play' | 'clean' | 'sleep'; }) {
+  const [frame, setFrame] = useState(0);
+  const [feedFrame, setFeedFrame] = useState(0);
+
+  useEffect(() => {
+    if (stage === 'egg') return;
+    if (action !== 'idle') {
+      setFrame(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setFrame(f => (f + 1) % 3);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [stage, action]);
+
+  useEffect(() => {
+    if (action !== 'feed') {
+      setFeedFrame(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setFeedFrame(f => (f + 1) % 2);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [action]);
+
+  if (stage === 'egg') {
+    return <img src={dinoEggSprite} alt="Dino Egg" className="pet-sprite" />;
+  }
+
+  if (stage === 'child') {
+    switch (action) {
+      case 'feed':
+        return <img src={feedFrame === 0 ? dinoChildFood1 : dinoChildFood2} alt="Dino eating" className="pet-sprite" />;
+      case 'play':
+        return <img src={dinoChildPlay} alt="Dino playing" className="pet-sprite" />;
+      case 'sleep':
+        return <img src={dinoChildSleep} alt="Dino sleeping" className="pet-sprite" />;
+      case 'clean':
+        return <img src={dinoChildClean} alt="Dino cleaning" className="pet-sprite" />;
+      default:
+        const idleSprites = [dinoChildIdle1, dinoChildIdle2, dinoChildIdle3];
+        return <img src={idleSprites[frame]} alt="Dino" className="pet-sprite" />;
+    }
+  }
+
+  if (stage === 'teen') {
+    switch (action) {
+      case 'feed':
+        return <img src={dinoTeenFood} alt="Dino eating" className="pet-sprite" />;
+      case 'play':
+        return <img src={dinoTeenPlay} alt="Dino playing" className="pet-sprite" />;
+      case 'sleep':
+        return <img src={dinoTeenSleep} alt="Dino sleeping" className="pet-sprite" />;
+      case 'clean':
+        return <img src={dinoTeenClean} alt="Dino cleaning" className="pet-sprite" />;
+      default:
+        return <img src={dinoTeenIdle} alt="Dino" className="pet-sprite" />;
+    }
+  }
+
+  return <img src={dinoTeenIdle} alt="Dino" className="pet-sprite" />;
+}
+
+function CatSprite({ action }: { action: 'idle' | 'feed' | 'play' | 'clean' | 'sleep' | 'happy' }) {
+  const [frame, setFrame] = useState(0);
+
+  useEffect(() => {
+    if (action !== 'idle') {
+      setFrame(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setFrame(f => (f + 1) % 3);
+    }, 800);
+    return () => clearInterval(interval);
+  }, [action]);
+
+  switch (action) {
+    case 'feed':
+      return <img src={catFoodSprite} alt="Cat eating" className="pet-sprite" />;
+    case 'play':
+      return <img src={catPlaySprite} alt="Cat playing" className="pet-sprite" />;
+    case 'clean':
+      return <img src={catCleanSprite} alt="Cat cleaning" className="pet-sprite" />;
+    case 'sleep':
+      return <img src={catSleepSprite} alt="Cat sleeping" className="pet-sprite" />;
+    case 'happy':
+      return <img src={catHappySprite} alt="Cat happy" className="pet-sprite" />;
+    default:
+      const idleSprites = [catIdleSprite, catSmileSprite, catHappySprite];
+      return <img src={idleSprites[frame]} alt="Cat" className="pet-sprite" />;
   }
 }
 
@@ -139,13 +265,18 @@ function CleanlinessIcon() {
   );
 }
 
-export function BrmblegotchiWidget() {
+interface BrmblegotchiWidgetProps {
+  onOpenSettings?: () => void;
+}
+
+export function BrmblegotchiWidget({ onOpenSettings }: BrmblegotchiWidgetProps) {
   const fingerprint = useProfileFingerprint();
   const stateKey = fingerprint ? `${STATE_KEY}_${fingerprint}` : STATE_KEY;
   const positionKey = fingerprint ? `${POSITION_KEY}_${fingerprint}` : POSITION_KEY;
 
   const [isEnabled, setIsEnabled] = useState(true);
   const [isVisible, setIsVisible] = useState(true);
+  const [petTheme, setPetTheme] = useState<PetTheme>('original');
   const [showActions, setShowActions] = useState(false);
   const [position, setPosition] = useState(() => {
     try {
@@ -162,6 +293,8 @@ export function BrmblegotchiWidget() {
   const [eggClickAnim, setEggClickAnim] = useState(false);
   const [totalAge, setTotalAge] = useState(0);
   const [showContextMenu, setShowContextMenu] = useState(false);
+  const [currentAction, setCurrentAction] = useState<'idle' | 'feed' | 'play' | 'clean' | 'sleep'>('idle');
+  const [dinoEggTimeLeft, setDinoEggTimeLeft] = useState(10);
 
   const formatAge = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
@@ -215,6 +348,15 @@ export function BrmblegotchiWidget() {
     return { ...DEFAULT_GROWTH_STATE };
   });
 
+  useEffect(() => {
+    if (petTheme === 'cat' && growthState.stage === 'egg') {
+      setGrowthState(prev => ({ ...prev, stage: 'adult', stageStartTime: Date.now() }));
+    }
+    if (petTheme === 'dino' && growthState.stage === 'baby') {
+      setGrowthState(prev => ({ ...prev, stage: 'child', stageStartTime: Date.now() }));
+    }
+  }, [petTheme, growthState.stage]);
+
   const dragStart = useRef({ mouseX: 0, mouseY: 0, right: 0, bottom: 0 });
   const widgetRef = useRef<HTMLDivElement>(null);
 
@@ -225,8 +367,10 @@ export function BrmblegotchiWidget() {
         if (stored) {
           const settings = JSON.parse(stored);
           const enabled = settings.brmblegotchi?.enabled ?? true;
+          const theme = settings.brmblegotchi?.theme ?? 'original';
           setIsEnabled(prev => prev !== enabled ? enabled : prev);
           setIsVisible(prev => prev !== enabled ? enabled : prev);
+          setPetTheme(prev => prev !== theme ? theme : prev);
         }
       } catch { /* empty */ }
     };
@@ -251,7 +395,9 @@ export function BrmblegotchiWidget() {
     if (growthState.stage === 'egg' || growthState.stage === 'ghost' || growthState.stage === 'adult') return;
 
     const stageInterval = setInterval(() => {
-      const duration = STAGE_DURATIONS[growthState.stage as keyof typeof STAGE_DURATIONS];
+      const duration = petTheme === 'dino' 
+        ? DINO_STAGE_DURATIONS[growthState.stage as keyof typeof DINO_STAGE_DURATIONS]
+        : STAGE_DURATIONS[growthState.stage as keyof typeof STAGE_DURATIONS];
       if (!duration) return;
 
       const elapsed = Date.now() - growthState.stageStartTime;
@@ -262,19 +408,23 @@ export function BrmblegotchiWidget() {
           child: 'teen',
           teen: 'adult',
         };
+        const next = nextStage[growthState.stage];
+        if (!next) return;
+        if (petTheme === 'dino' && next === 'adult') return;
         setGrowthState(prev => ({
           ...prev,
-          stage: nextStage[prev.stage] ?? 'adult',
+          stage: next,
           stageStartTime: Date.now(),
         }));
       }
     }, 1000);
 
     return () => clearInterval(stageInterval);
-  }, [growthState.stage, growthState.stageStartTime]);
+  }, [growthState.stage, growthState.stageStartTime, petTheme]);
 
   useEffect(() => {
     if (growthState.stage !== 'egg') return;
+    if (petTheme !== 'original') return;
 
     const eggInterval = setInterval(() => {
       const duration = STAGE_DURATIONS.egg;
@@ -286,7 +436,26 @@ export function BrmblegotchiWidget() {
     }, 1000);
 
     return () => clearInterval(eggInterval);
-  }, [growthState.stage, growthState.stageStartTime, growthState.eggClicks]);
+  }, [growthState.stage, growthState.stageStartTime, growthState.eggClicks, petTheme]);
+
+  useEffect(() => {
+    if (growthState.stage !== 'egg') return;
+    if (petTheme !== 'dino') return;
+
+    const hatchInterval = setInterval(() => {
+      const elapsed = Date.now() - growthState.stageStartTime;
+      if (elapsed >= DINO_STAGE_DURATIONS.egg) {
+        setGrowthState(prev => ({
+          ...prev,
+          stage: 'child',
+          stageStartTime: Date.now(),
+          birthTime: prev.birthTime || Date.now(),
+        }));
+      }
+    }, 1000);
+
+    return () => clearInterval(hatchInterval);
+  }, [growthState.stage, growthState.stageStartTime, petTheme]);
 
   const hatchToBaby = useCallback(() => {
     setGrowthState(prev => ({
@@ -390,7 +559,12 @@ export function BrmblegotchiWidget() {
     if (elapsed < 5) return;
 
     setIsAnimating(true);
-    setTimeout(() => setIsAnimating(false), 500);
+    setCurrentAction(action);
+    const actionDuration = 4000;
+    setTimeout(() => {
+      setIsAnimating(false);
+      setCurrentAction('idle');
+    }, actionDuration);
 
     setPetState(prev => {
       let newState: PetState;
@@ -533,27 +707,32 @@ export function BrmblegotchiWidget() {
     return () => clearInterval(ageInterval);
   }, [growthState.birthTime]);
 
+  useEffect(() => {
+    if (growthState.stage !== 'egg' || petTheme !== 'dino') return;
+    setDinoEggTimeLeft(Math.max(0, Math.ceil((DINO_STAGE_DURATIONS.egg - (Date.now() - growthState.stageStartTime)) / 1000)));
+    const timerInterval = setInterval(() => {
+      setDinoEggTimeLeft(Math.max(0, Math.ceil((DINO_STAGE_DURATIONS.egg - (Date.now() - growthState.stageStartTime)) / 1000)));
+    }, 1000);
+    return () => clearInterval(timerInterval);
+  }, [growthState.stage, growthState.stageStartTime, petTheme]);
+
   if (!isEnabled || !isVisible) return null;
 
   const mood = getMood(petState.hunger, petState.happiness, petState.cleanliness);
-  const showCleanliness = growthState.stage !== 'egg';
-  const showHunger = growthState.stage !== 'egg' && growthState.stage !== 'baby';
-  const showHappiness = growthState.stage !== 'egg' && growthState.stage !== 'baby' && growthState.stage !== 'child';
+  const showCleanliness = growthState.stage !== 'egg' && petTheme !== 'cat';
+  const showHunger = growthState.stage !== 'egg' && growthState.stage !== 'baby' && petTheme !== 'cat';
+  const showHappiness = growthState.stage !== 'egg' && growthState.stage !== 'baby' && growthState.stage !== 'child' && petTheme !== 'cat';
+  const showStats = petTheme !== 'cat';
   const ringCount = getRingCount(growthState.stage);
 
-  const nextStageDurations: Record<string, number> = {
-    egg: STAGE_DURATIONS.egg,
-    baby: STAGE_DURATIONS.baby,
-    child: STAGE_DURATIONS.child,
-    teen: STAGE_DURATIONS.teen,
-  };
-  const currentStageDuration = nextStageDurations[growthState.stage] ?? 0;
-  const stageProgress = currentStageDuration > 0 
-    ? Math.min(100, ((Date.now() - growthState.stageStartTime) / currentStageDuration) * 100) 
-    : 0;
+  const effectiveStage = petTheme === 'dino' && growthState.stage === 'baby' ? 'child' : growthState.stage;
+  const nextStageDurations = petTheme === 'dino' 
+    ? { egg: DINO_STAGE_DURATIONS.egg, child: DINO_STAGE_DURATIONS.child, teen: DINO_STAGE_DURATIONS.teen }
+    : { egg: STAGE_DURATIONS.egg, baby: STAGE_DURATIONS.baby, child: STAGE_DURATIONS.child, teen: STAGE_DURATIONS.teen };
+  const currentStageDuration = nextStageDurations[effectiveStage as keyof typeof nextStageDurations] ?? 0;
 
   const handlePetClickWithStage = (e: React.MouseEvent) => {
-    if (growthState.stage === 'egg') {
+    if (growthState.stage === 'egg' && petTheme === 'original') {
       handleEggClick();
       return;
     }
@@ -571,16 +750,17 @@ export function BrmblegotchiWidget() {
     setShowContextMenu(prev => !prev);
   }, []);
 
-  const handleContextClose = useCallback(() => {
+  const handleSettingsClick = useCallback(() => {
     setShowContextMenu(false);
-    setIsVisible(false);
-    window.dispatchEvent(new CustomEvent('brmblegotchi-hide'));
-  }, []);
+    onOpenSettings?.();
+  }, [onOpenSettings]);
+
+
 
   return (
     <div
       ref={widgetRef}
-      className={`brmblegotchi-widget stage-${growthState.stage} ${mood} ${isAnimating ? 'action-animating' : ''} ${eggClickAnim ? 'egg-click-animating' : ''}`}
+      className={`brmblegotchi-widget stage-${growthState.stage} theme-${petTheme} ${mood} ${isAnimating ? 'action-animating' : ''} ${eggClickAnim ? 'egg-click-animating' : ''}`}
       style={{
         bottom: `${position.bottom}px`,
         right: `${position.right}px`,
@@ -589,120 +769,172 @@ export function BrmblegotchiWidget() {
     >
       {showActions && growthState.stage !== 'egg' && growthState.stage !== 'ghost' && (
         <div className="brmblegotchi-actions">
-          <button
-            className={`brmblegotchi-action-btn ${cooldownRemaining > 0 ? 'disabled' : ''}`}
-            onClick={(e) => { e.stopPropagation(); handleAction('clean'); }}
-            aria-label="Clean"
-            disabled={cooldownRemaining > 0}
-          >
-            {cooldownRemaining > 0 ? (
-              <span className="brmblegotchi-cooldown">{Math.ceil(cooldownRemaining)}s</span>
-            ) : (
-              <CleanIcon />
-            )}
-          </button>
-          {(growthState.stage === 'child' || growthState.stage === 'teen' || growthState.stage === 'adult') && (
-            <button
-              className={`brmblegotchi-action-btn ${cooldownRemaining > 0 ? 'disabled' : ''}`}
-              onClick={(e) => { e.stopPropagation(); handleAction('feed'); }}
-              aria-label="Feed"
-              disabled={cooldownRemaining > 0}
-            >
-              {cooldownRemaining > 0 ? (
-                <span className="brmblegotchi-cooldown">{Math.ceil(cooldownRemaining)}s</span>
-              ) : (
-                <FoodIcon />
+          {petTheme === 'cat' || petTheme === 'original' ? (
+            <>
+              <button
+                className={`brmblegotchi-action-btn ${cooldownRemaining > 0 ? 'disabled' : ''}`}
+                onClick={(e) => { e.stopPropagation(); handleAction('clean'); }}
+                aria-label="Clean"
+                disabled={cooldownRemaining > 0}
+              >
+                {cooldownRemaining > 0 ? (
+                  <span className="brmblegotchi-cooldown">{Math.ceil(cooldownRemaining)}s</span>
+                ) : (
+                  <CleanIcon />
+                )}
+              </button>
+              <button
+                className={`brmblegotchi-action-btn ${cooldownRemaining > 0 ? 'disabled' : ''}`}
+                onClick={(e) => { e.stopPropagation(); handleAction('feed'); }}
+                aria-label="Feed"
+                disabled={cooldownRemaining > 0}
+              >
+                {cooldownRemaining > 0 ? (
+                  <span className="brmblegotchi-cooldown">{Math.ceil(cooldownRemaining)}s</span>
+                ) : (
+                  <FoodIcon />
+                )}
+              </button>
+              <button
+                className={`brmblegotchi-action-btn ${cooldownRemaining > 0 ? 'disabled' : ''}`}
+                onClick={(e) => { e.stopPropagation(); handleAction('play'); }}
+                aria-label="Play"
+                disabled={cooldownRemaining > 0}
+              >
+                {cooldownRemaining > 0 ? (
+                  <span className="brmblegotchi-cooldown">{Math.ceil(cooldownRemaining)}s</span>
+                ) : (
+                  <PlayIcon />
+                )}
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                className={`brmblegotchi-action-btn ${cooldownRemaining > 0 ? 'disabled' : ''}`}
+                onClick={(e) => { e.stopPropagation(); handleAction('clean'); }}
+                aria-label="Clean"
+                disabled={cooldownRemaining > 0}
+              >
+                {cooldownRemaining > 0 ? (
+                  <span className="brmblegotchi-cooldown">{Math.ceil(cooldownRemaining)}s</span>
+                ) : (
+                  <CleanIcon />
+                )}
+              </button>
+              {(growthState.stage === 'child' || growthState.stage === 'teen' || growthState.stage === 'adult' || petTheme === 'dino') && (
+                <button
+                  className={`brmblegotchi-action-btn ${cooldownRemaining > 0 ? 'disabled' : ''}`}
+                  onClick={(e) => { e.stopPropagation(); handleAction('feed'); }}
+                  aria-label="Feed"
+                  disabled={cooldownRemaining > 0}
+                >
+                  {cooldownRemaining > 0 ? (
+                    <span className="brmblegotchi-cooldown">{Math.ceil(cooldownRemaining)}s</span>
+                  ) : (
+                    <FoodIcon />
+                  )}
+                </button>
               )}
-            </button>
-          )}
-          {(growthState.stage === 'teen' || growthState.stage === 'adult') && (
-            <button
-              className={`brmblegotchi-action-btn ${cooldownRemaining > 0 ? 'disabled' : ''}`}
-              onClick={(e) => { e.stopPropagation(); handleAction('play'); }}
-              aria-label="Play"
-              disabled={cooldownRemaining > 0}
-            >
-              {cooldownRemaining > 0 ? (
-                <span className="brmblegotchi-cooldown">{Math.ceil(cooldownRemaining)}s</span>
-              ) : (
-                <PlayIcon />
+              {(growthState.stage === 'teen' || growthState.stage === 'adult' || petTheme === 'dino') && (
+                <button
+                  className={`brmblegotchi-action-btn ${cooldownRemaining > 0 ? 'disabled' : ''}`}
+                  onClick={(e) => { e.stopPropagation(); handleAction('play'); }}
+                  aria-label="Play"
+                  disabled={cooldownRemaining > 0}
+                >
+                  {cooldownRemaining > 0 ? (
+                    <span className="brmblegotchi-cooldown">{Math.ceil(cooldownRemaining)}s</span>
+                  ) : (
+                    <PlayIcon />
+                  )}
+                </button>
               )}
-            </button>
+            </>
           )}
         </div>
       )}
 
       <div className="brmblegotchi-pet-wrapper">
         <div className="brmblegotchi-pet" onClick={handlePetClickWithStage}>
-          {[...Array(ringCount)].map((_, i) => {
-            const ringClass = growthState.stage === 'baby' 
-              ? ['outer', 'center'][i]
-              : growthState.stage === 'child'
-              ? ['outer', 'middle', 'center'][i]
-              : ['outer', 'middle', 'inner', 'center'][i];
-            return <div key={i} className={`brmblegotchi-ring brmblegotchi-ring-${ringClass}`} />;
-          })}
-          <div className="brmblegotchi-face">
-            <div className="brmblegotchi-eyes">
-              <div className={`brmblegotchi-eye ${mood === 'happy' ? 'happy' : mood === 'sad' ? 'sad' : ''}`} />
-              <div className={`brmblegotchi-eye ${mood === 'happy' ? 'happy' : mood === 'sad' ? 'sad' : ''}`} />
-            </div>
-            <div className={`brmblegotchi-mouth ${mood === 'content' ? 'neutral' : mood}`} />
-          </div>
+          {(petTheme === 'dino' || petTheme === 'cat') ? (
+            petTheme === 'dino' ? (
+              <DinoSprite stage={growthState.stage} action={currentAction} />
+            ) : (
+              <CatSprite action={currentAction as 'idle' | 'feed' | 'play' | 'clean' | 'sleep' | 'happy'} />
+            )
+          ) : (
+            <>
+              {[...Array(ringCount)].map((_, i) => {
+                const ringClass = growthState.stage === 'baby' 
+                  ? ['outer', 'center'][i]
+                  : growthState.stage === 'child'
+                  ? ['outer', 'middle', 'center'][i]
+                  : ['outer', 'middle', 'inner', 'center'][i];
+                return <div key={i} className={`brmblegotchi-ring brmblegotchi-ring-${ringClass}`} />;
+              })}
+              <div className="brmblegotchi-face">
+                <div className="brmblegotchi-eyes">
+                  <div className={`brmblegotchi-eye ${mood === 'happy' ? 'happy' : mood === 'sad' ? 'sad' : ''}`} />
+                  <div className={`brmblegotchi-eye ${mood === 'happy' ? 'happy' : mood === 'sad' ? 'sad' : ''}`} />
+                </div>
+                <div className={`brmblegotchi-mouth ${mood === 'content' ? 'neutral' : mood}`} />
+              </div>
+            </>
+          )}
 
           {growthState.stage === 'ghost' && (
             <div className="brmblegotchi-restart-hint">Click to Restart</div>
           )}
 
-          {growthState.stage === 'egg' && (
+          {growthState.stage === 'egg' && petTheme === 'original' && (
             <div className="brmblegotchi-egg-hint">
               {EGG_CLICKS_TO_HATCH - growthState.eggClicks} clicks left
+            </div>
+          )}
+          {growthState.stage === 'egg' && petTheme === 'dino' && (
+            <div className="brmblegotchi-egg-hint">
+              Hatching in {dinoEggTimeLeft}s
             </div>
           )}
         </div>
       </div>
 
       <div className="brmblegotchi-stats">
-        {showCleanliness && (
-          <div className="brmblegotchi-stat">
-            <div className="brmblegotchi-stat-icon" style={{ color: 'var(--accent-primary)' }}>
-              <CleanlinessIcon />
-            </div>
-            <div className="brmblegotchi-stat-bar">
-              <div className="brmblegotchi-stat-fill cleanliness" style={{ width: `${petState.cleanliness}%` }} />
-            </div>
-          </div>
+        {showStats && (
+          <>
+            {showCleanliness && (
+              <div className="brmblegotchi-stat">
+                <div className="brmblegotchi-stat-icon" style={{ color: 'var(--accent-primary)' }}>
+                  <CleanlinessIcon />
+                </div>
+                <div className="brmblegotchi-stat-bar">
+                  <div className="brmblegotchi-stat-fill cleanliness" style={{ width: `${petState.cleanliness}%` }} />
+                </div>
+              </div>
+            )}
+            {showHunger && (
+              <div className="brmblegotchi-stat">
+                <div className="brmblegotchi-stat-icon" style={{ color: 'var(--accent-secondary)' }}>
+                  <HungerIcon />
+                </div>
+                <div className="brmblegotchi-stat-bar">
+                  <div className="brmblegotchi-stat-fill hunger" style={{ width: `${petState.hunger}%` }} />
+                </div>
+              </div>
+            )}
+            {showHappiness && (
+              <div className="brmblegotchi-stat">
+                <div className="brmblegotchi-stat-icon" style={{ color: 'var(--accent-decorative)' }}>
+                  <HappinessIcon />
+                </div>
+                <div className="brmblegotchi-stat-bar">
+                  <div className="brmblegotchi-stat-fill happiness" style={{ width: `${petState.happiness}%` }} />
+                </div>
+              </div>
+            )}
+          </>
         )}
-        {showHunger && (
-          <div className="brmblegotchi-stat">
-            <div className="brmblegotchi-stat-icon" style={{ color: 'var(--accent-secondary)' }}>
-              <HungerIcon />
-            </div>
-            <div className="brmblegotchi-stat-bar">
-              <div className="brmblegotchi-stat-fill hunger" style={{ width: `${petState.hunger}%` }} />
-            </div>
-          </div>
-        )}
-        {showHappiness && (
-          <div className="brmblegotchi-stat">
-            <div className="brmblegotchi-stat-icon" style={{ color: 'var(--accent-decorative)' }}>
-              <HappinessIcon />
-            </div>
-            <div className="brmblegotchi-stat-bar">
-              <div className="brmblegotchi-stat-fill happiness" style={{ width: `${petState.happiness}%` }} />
-            </div>
-          </div>
-        )}
-        {growthState.stage !== 'egg' && growthState.stage !== 'adult' && growthState.stage !== 'ghost' && (
-          <div className="brmblegotchi-progress">
-            <div className="brmblegotchi-progress-bar">
-              <div className="brmblegotchi-progress-fill" style={{ width: `${stageProgress}%` }} />
-            </div>
-          </div>
-        )}
-        <div className="brmblegotchi-age">
-          {growthState.stage === 'egg' ? 'Egg' : `${growthState.stage.charAt(0).toUpperCase() + growthState.stage.slice(1)} • ${formatAge(totalAge)}`}
-        </div>
       </div>
 
       {showContextMenu && (
@@ -716,14 +948,14 @@ export function BrmblegotchiWidget() {
             <span>Age</span>
             <span>{formatAge(totalAge)}</span>
           </div>
-          {growthState.stage !== 'egg' && growthState.stage !== 'adult' && growthState.stage !== 'ghost' && (
+          {growthState.stage !== 'egg' && growthState.stage !== 'adult' && growthState.stage !== 'ghost' && !(petTheme === 'dino' && growthState.stage === 'teen') && (
             <div className="brmblegotchi-context-item">
               <span>Next stage</span>
-              <span>{Math.ceil((100 - stageProgress) / 100 * 60)}s</span>
+              <span>{Math.max(0, Math.ceil((currentStageDuration - (Date.now() - growthState.stageStartTime)) / 1000))}s</span>
             </div>
           )}
-          <button className="brmblegotchi-context-close" onClick={handleContextClose}>
-            Close
+          <button className="brmblegotchi-context-settings" onClick={handleSettingsClick}>
+            Settings
           </button>
         </div>
       )}
