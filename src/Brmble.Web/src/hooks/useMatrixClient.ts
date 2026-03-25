@@ -122,12 +122,15 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
         const messageSender = bridgeMatch ? bridgeMatch[1] : displayName;
         const messageContent = bridgeMatch ? rawBody.slice(bridgeMatch[0].length) : rawBody;
 
+        // For image-only messages, body is just the filename — don't show it as text
+        const displayContent = media ? '' : messageContent;
+
         const message: ChatMessage = {
           id: event.getId() ?? crypto.randomUUID(),
           channelId,
           sender: messageSender,
           senderMatrixUserId: senderId,
-          content: messageContent,
+          content: displayContent,
           timestamp: new Date(event.getTs()),
           ...(media && { media }),
         };
@@ -187,12 +190,15 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       const dmSender = dmBridgeMatch ? dmBridgeMatch[1] : dmDisplayName;
       const dmMessageContent = dmBridgeMatch ? dmRawBody.slice(dmBridgeMatch[0].length) : dmRawBody;
 
+      // For image-only messages, body is just the filename — don't show it as text
+      const dmDisplayContent = dmMedia ? '' : dmMessageContent;
+
       const dmMessage: ChatMessage = {
         id: event.getId() ?? crypto.randomUUID(),
         channelId: dmUserId,
         sender: dmSender,
         senderMatrixUserId: dmSenderId,
-        content: dmMessageContent,
+        content: dmDisplayContent,
         timestamp: new Date(event.getTs()),
         ...(dmMedia && { media: dmMedia }),
       };
@@ -354,7 +360,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
             channelId: otherUserId,
             sender: messageSender,
             senderMatrixUserId: senderId,
-            content: messageContent,
+            content: media ? '' : messageContent,
             timestamp: new Date(ev.getTs()),
             ...(media && { media }),
           });

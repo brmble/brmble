@@ -71,26 +71,10 @@
 }
 
 .image-preview-thumbnail {
-  height: 64px;
-  max-width: 120px;
+  height: 128px;
+  max-width: 240px;
   object-fit: cover;
   border-radius: var(--radius-sm);
-}
-
-.image-preview-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex: 1;
-  min-width: 0;
-}
-
-.image-preview-name {
-  font-size: var(--text-sm);
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .image-preview-size {

@@ -288,12 +288,9 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
             alt={pendingImage.name}
             className="image-preview-thumbnail"
           />
-          <div className="image-preview-info">
-            <span className="image-preview-name">{pendingImage.name}</span>
-            <span className="image-preview-size">
-              {(pendingImage.size / 1024).toFixed(0)} KB
-            </span>
-          </div>
+          <span className="image-preview-size">
+            {(pendingImage.size / 1024).toFixed(0)} KB
+          </span>
           <button
             className="image-preview-remove"
             onClick={clearImage}
