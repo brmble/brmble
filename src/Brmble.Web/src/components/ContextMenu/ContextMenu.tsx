@@ -21,6 +21,62 @@ interface ContextMenuProps {
 
 export type { ContextMenuItem };
 
+interface MenuItemProps {
+  item: ContextMenuItem;
+  depth: number;
+  onItemClick: (item: ContextMenuItem) => void;
+}
+
+function Submenu({ item, depth, onItemClick }: { item: ContextMenuItem; depth: number; onItemClick: (item: ContextMenuItem) => void }) {
+  const submenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (submenuRef.current) {
+      const rect = submenuRef.current.getBoundingClientRect();
+      if (rect.right > window.innerWidth - 8) {
+        submenuRef.current.classList.add('context-submenu--off-right');
+      }
+    }
+  }, []);
+
+  return (
+    <div ref={submenuRef} className={`context-submenu context-submenu--depth-${depth}`}>
+      {item.children!.map((child, index) => (
+        <MenuItem key={index} item={child} depth={depth} onItemClick={onItemClick} />
+      ))}
+    </div>
+  );
+}
+
+function MenuItem({ item, depth, onItemClick }: MenuItemProps) {
+  const hasChildren = item.children && item.children.length > 0;
+  const isDisabled = item.disabled;
+
+  return (
+    <div className="context-menu-item-wrapper">
+      <button
+        className={`context-menu-item${hasChildren ? ' context-menu-item--has-children' : ''}${isDisabled ? ' context-menu-item--disabled' : ''}`}
+        onClick={(e) => {
+          if (isDisabled) return;
+          if (hasChildren) {
+            e.stopPropagation();
+            return;
+          }
+          onItemClick(item);
+        }}
+        disabled={isDisabled}
+        aria-haspopup={hasChildren ? 'true' : undefined}
+      >
+        {item.icon && <span className="context-menu-icon">{item.icon}</span>}
+        <span className="context-menu-label">{item.label}</span>
+      </button>
+      {hasChildren && !isDisabled && (
+        <Submenu item={item} depth={depth + 1} onItemClick={onItemClick} />
+      )}
+    </div>
+  );
+}
+
 export function ContextMenu({ x, y, items, onClose, mouseLeaveDelay = MOUSE_LEAVE_CLOSE_DELAY }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -43,14 +99,12 @@ export function ContextMenu({ x, y, items, onClose, mouseLeaveDelay = MOUSE_LEAV
     };
   }, [onClose]);
 
-  // Clean up leave timer on unmount
   useEffect(() => {
     return () => {
       if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
     };
   }, []);
 
-  // Adjust position to keep menu within viewport
   useEffect(() => {
     if (menuRef.current) {
       const rect = menuRef.current.getBoundingClientRect();
@@ -61,49 +115,27 @@ export function ContextMenu({ x, y, items, onClose, mouseLeaveDelay = MOUSE_LEAV
     }
   }, [x, y]);
 
-  const handleMouseEnter = () => {
-    if (leaveTimerRef.current) {
+  const handleMouseEnter = (e: React.MouseEvent) => {
+    const isTopLevel = (e.target as HTMLElement).closest('.context-menu') === menuRef.current;
+    if (isTopLevel && leaveTimerRef.current) {
       clearTimeout(leaveTimerRef.current);
       leaveTimerRef.current = null;
     }
   };
 
-  const handleMouseLeave = () => {
-    leaveTimerRef.current = setTimeout(() => {
-      onClose();
-    }, mouseLeaveDelay);
+  const handleMouseLeave = (e: React.MouseEvent) => {
+    const relatedTarget = e.relatedTarget as HTMLElement | null;
+    const isLeavingMenu = !menuRef.current?.contains(relatedTarget);
+    if (isLeavingMenu) {
+      leaveTimerRef.current = setTimeout(() => {
+        onClose();
+      }, mouseLeaveDelay);
+    }
   };
 
-  const renderMenuItem = (item: ContextMenuItem, index: number, depth: number = 0): React.ReactNode => {
-    const hasChildren = item.children && item.children.length > 0;
-    const isDisabled = item.disabled;
-
-    return (
-      <div key={index} className="context-menu-item-wrapper">
-        <button
-          className={`context-menu-item${hasChildren ? ' context-menu-item--has-children' : ''}${isDisabled ? ' context-menu-item--disabled' : ''}`}
-          onClick={(e) => {
-            if (isDisabled) return;
-            if (hasChildren) {
-              e.stopPropagation();
-              return;
-            }
-            if (item.onClick) item.onClick();
-            onClose();
-          }}
-          disabled={isDisabled}
-        >
-          {item.icon && <span className="context-menu-icon">{item.icon}</span>}
-          <span className="context-menu-label">{item.label}</span>
-          {hasChildren && <span className="context-menu-arrow">&#9656;</span>}
-        </button>
-        {hasChildren && !isDisabled && (
-          <div className={`context-submenu context-submenu--depth-${depth + 1}`}>
-            {item.children!.map((child, childIndex) => renderMenuItem(child, childIndex, depth + 1))}
-          </div>
-        )}
-      </div>
-    );
+  const handleItemClick = (item: ContextMenuItem) => {
+    if (item.onClick) item.onClick();
+    onClose();
   };
 
   return (
@@ -114,7 +146,9 @@ export function ContextMenu({ x, y, items, onClose, mouseLeaveDelay = MOUSE_LEAV
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
-      {items.map((item, i) => renderMenuItem(item, i))}
+      {items.map((item, i) => (
+        <MenuItem key={i} item={item} depth={1} onItemClick={handleItemClick} />
+      ))}
     </div>
   );
 }

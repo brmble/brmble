@@ -58,14 +58,25 @@
   position: relative;
 }
 
-.context-menu-item--has-children .context-menu-arrow {
-  margin-left: auto;
-  font-size: 10px;
-  color: var(--text-muted);
+.context-menu-item--has-children::after {
+  content: '';
+  position: absolute;
+  right: var(--space-xs);
+  width: 10px;
+  height: 10px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath fill='%23808080' d='M3 2l4 3-4 3z'/%3E%3C/svg%3E");
+  background-size: contain;
+  background-repeat: no-repeat;
+  opacity: 0.4;
 }
 
-.context-menu-item--has-children:hover .context-menu-arrow {
-  color: var(--text-secondary);
+.context-menu-item--has-children {
+  position: relative;
+}
+
+.context-menu-item--has-children:hover::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath fill='%23c0c0c0' d='M3 2l4 3-4 3z'/%3E%3C/svg%3E");
+  opacity: 0.7;
 }
 
 .context-submenu {
@@ -79,11 +90,23 @@
   border-radius: var(--radius-md);
   padding: var(--space-2xs);
   box-shadow: var(--shadow-elevated);
-  display: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--transition-fast), visibility var(--transition-fast);
+  transition-delay: var(--submenu-hover-delay, 150ms);
+  margin-left: var(--space-2xs);
 }
 
 .context-menu-item-wrapper:hover > .context-submenu {
-  display: block;
+  opacity: 1;
+  visibility: visible;
+}
+
+.context-submenu--off-right {
+  left: auto;
+  right: 100%;
+  margin-left: 0;
+  margin-right: var(--space-2xs);
 }
 
 .context-submenu .context-menu-item {
@@ -94,8 +117,14 @@
   position: relative;
 }
 
-.context-submenu .context-menu-item--has-children .context-menu-arrow {
-  margin-left: auto;
-  font-size: 10px;
-  color: var(--text-muted);
+.context-submenu .context-menu-item--has-children::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath fill='%23808080' d='M3 2l4 3-4 3z'/%3E%3C/svg%3E");
+}
+
+.context-submenu .context-menu-item--has-children:hover::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath fill='%23c0c0c0' d='M3 2l4 3-4 3z'/%3E%3C/svg%3E");
+}
+
+:root {
+  --submenu-hover-delay: 150ms;
 }
