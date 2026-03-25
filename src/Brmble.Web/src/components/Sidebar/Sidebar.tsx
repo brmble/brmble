@@ -8,6 +8,7 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { useServiceStatus } from '../../hooks/useServiceStatus';
 import { useResizable } from '../../hooks/useResizable';
 import { useProfileFingerprint } from '../../contexts/ProfileContext';
+import { prompt } from '../../hooks/usePrompt';
 import bridge from '../../bridge';
 import type { Channel, User, ConnectionStatus } from '../../types';
 import { SERVICE_DISPLAY_NAMES } from '../../types';
@@ -314,6 +315,7 @@ export function Sidebar({
           sharingUserSession={sharingUserSession}
           onWatchScreenShare={onWatchScreenShare}
           onEditAvatar={onEditAvatar}
+          onMoveUser={(session, channelId) => bridge.send('voice.move', { session, channelId })}
         />
       </div>
       {contextMenu && (
@@ -322,7 +324,7 @@ export function Sidebar({
           y={contextMenu.y}
           items={[
             ...(!contextMenu.isSelf && onStartDM ? [{
-              label: 'Send Direct Message',
+              label: 'Direct Message',
               icon: (
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
@@ -331,7 +333,7 @@ export function Sidebar({
               onClick: () => onStartDM(contextMenu.userId, contextMenu.userName),
             }] : []),
             {
-              label: 'User Information',
+              label: 'User Info',
               icon: (
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <circle cx="12" cy="12" r="10" />
@@ -351,63 +353,131 @@ export function Sidebar({
               ),
               onClick: () => onEditAvatar(),
             }] : []),
-            ...(!contextMenu.isSelf && hasPermission(0, Permission.MuteDeafen) ? [
-              {
-                label: 'Mute',
+            ...(!contextMenu.isSelf ? [{
+              label: (() => {
+                const isLocallyMuted = localStorage.getItem(`localMute_${contextMenu.userId}`) === 'true';
+                return isLocallyMuted ? 'Local Unmute' : 'Local Mute';
+              })(),
+              icon: (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="1" y1="1" x2="23" y2="23"/>
+                  <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/>
+                </svg>
+              ),
+              onClick: () => {
+                const session = parseInt(contextMenu.userId);
+                const isLocallyMuted = localStorage.getItem(`localMute_${contextMenu.userId}`) === 'true';
+                const newMuted = !isLocallyMuted;
+                localStorage.setItem(`localMute_${session}`, String(newMuted));
+                bridge.send('voice.setLocalMute', { session, muted: newMuted });
+              },
+            }] : []),
+
+            ...(() => {
+              const hasKickPermission = !contextMenu.isSelf && currentChannelId && hasPermission(currentChannelId, Permission.Kick);
+              const hasBanPermission = !contextMenu.isSelf && currentChannelId && hasPermission(currentChannelId, Permission.Ban);
+              const hasPrioritySpeakerPermission = !contextMenu.isSelf && currentChannelId && hasPermission(currentChannelId, Permission.MuteDeafen);
+              const hasMovePermission = !contextMenu.isSelf && currentChannelId && hasPermission(currentChannelId, Permission.Move);
+              const hasServerMutePermission = !contextMenu.isSelf && currentChannelId && hasPermission(currentChannelId, Permission.MuteDeafen);
+              const hasAdminPermission = hasKickPermission || hasBanPermission || hasPrioritySpeakerPermission || hasMovePermission || hasServerMutePermission;
+
+              if (!hasAdminPermission) return [];
+
+              const targetUser = rootUsers.find(u => u.session === parseInt(contextMenu.userId));
+              const adminItems = [];
+
+              if (hasServerMutePermission) {
+                adminItems.push({
+                  label: targetUser?.muted ? 'Server Unmute' : 'Server Mute',
+                  icon: (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <line x1="1" y1="1" x2="23" y2="23"/>
+                      <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/>
+                    </svg>
+                  ),
+                  onClick: () => bridge.send(targetUser?.muted ? 'voice.unmute' : 'voice.mute', { session: parseInt(contextMenu.userId) }),
+                });
+              }
+
+              if (hasMovePermission) {
+                adminItems.push({
+                  label: 'Move to Root',
+                  icon: (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M5 12h14M12 5l7 7-7 7"/>
+                    </svg>
+                  ),
+                  onClick: () => bridge.send('voice.move', { session: parseInt(contextMenu.userId), channelId: 0 }),
+                });
+              }
+
+              if (hasPrioritySpeakerPermission) {
+                adminItems.push({
+                  label: targetUser?.prioritySpeaker ? 'Remove Priority Speaker' : 'Priority Speaker',
+                  icon: (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M12 2L15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2z"/>
+                    </svg>
+                  ),
+                  onClick: () => {
+                    bridge.send('voice.setPrioritySpeaker', { session: parseInt(contextMenu.userId), enabled: !targetUser?.prioritySpeaker });
+                  },
+                });
+              }
+
+              if (hasKickPermission) {
+                adminItems.push({
+                  label: 'Kick User',
+                  icon: (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M18 6L6 18M6 6l12 12"/>
+                    </svg>
+                  ),
+                  onClick: async () => {
+                    const reason = await prompt({
+                      title: 'Kick User',
+                      message: `Enter a reason for kicking ${targetUser?.name || 'user'}:`,
+                      placeholder: 'Reason (optional)',
+                      confirmLabel: 'Kick',
+                    });
+                    if (reason === null) return;
+                    bridge.send('voice.kick', { session: parseInt(contextMenu.userId), reason });
+                  },
+                });
+              }
+
+              if (hasBanPermission) {
+                adminItems.push({
+                  label: 'Ban User',
+                  icon: (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="12" cy="12" r="10"/>
+                      <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+                    </svg>
+                  ),
+                  onClick: async () => {
+                    const reason = await prompt({
+                      title: 'Ban User',
+                      message: `Enter a reason for banning ${targetUser?.name || 'user'}:`,
+                      placeholder: 'Reason (optional)',
+                      confirmLabel: 'Ban',
+                    });
+                    if (reason === null) return;
+                    bridge.send('voice.ban', { session: parseInt(contextMenu.userId), reason });
+                  },
+                });
+              }
+
+              return [{
+                label: 'Admin',
                 icon: (
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <line x1="1" y1="1" x2="23" y2="23"/>
-                    <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/>
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
                   </svg>
                 ),
-                onClick: () => bridge.send('voice.mute', { session: parseInt(contextMenu.userId) }),
-              },
-              {
-                label: 'Deafen',
-                icon: (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <line x1="1" y1="1" x2="23" y2="23"/>
-                    <path d="M3 18v-6a9 9 0 0 1 18 0v6"/>
-                  </svg>
-                ),
-                onClick: () => bridge.send('voice.deafen', { session: parseInt(contextMenu.userId) }),
-              },
-              {
-                label: 'Priority Speaker',
-                icon: (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M12 2L15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2z"/>
-                  </svg>
-                ),
-                onClick: () => {
-                  const user = rootUsers.find(u => u.session === parseInt(contextMenu.userId));
-                  bridge.send('voice.setPrioritySpeaker', { session: parseInt(contextMenu.userId), enabled: !user?.prioritySpeaker });
-                },
-              },
-            ] : []),
-            ...(!contextMenu.isSelf && hasPermission(0, Permission.Move) ? [
-              {
-                label: 'Kick',
-                icon: (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M18 6L6 18M6 6l12 12"/>
-                  </svg>
-                ),
-                onClick: () => bridge.send('voice.kick', { session: parseInt(contextMenu.userId) }),
-              },
-            ] : []),
-            ...(!contextMenu.isSelf && hasPermission(0, Permission.Ban) ? [
-              {
-                label: 'Ban',
-                icon: (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <circle cx="12" cy="12" r="10"/>
-                    <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
-                  </svg>
-                ),
-                onClick: () => bridge.send('voice.ban', { session: parseInt(contextMenu.userId) }),
-              },
-            ] : []),
+                children: adminItems,
+              }];
+            })(),
           ]}
           onClose={() => setContextMenu(null)}
         />
