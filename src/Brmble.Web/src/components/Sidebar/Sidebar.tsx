@@ -353,6 +353,25 @@ export function Sidebar({
               ),
               onClick: () => onEditAvatar(),
             }] : []),
+            ...(!contextMenu.isSelf ? [{
+              label: (() => {
+                const isLocallyMuted = localStorage.getItem(`localMute_${contextMenu.userId}`) === 'true';
+                return isLocallyMuted ? 'Local Unmute' : 'Local Mute';
+              })(),
+              icon: (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="1" y1="1" x2="23" y2="23"/>
+                  <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/>
+                </svg>
+              ),
+              onClick: () => {
+                const session = parseInt(contextMenu.userId);
+                const isLocallyMuted = localStorage.getItem(`localMute_${contextMenu.userId}`) === 'true';
+                const newMuted = !isLocallyMuted;
+                localStorage.setItem(`localMute_${session}`, String(newMuted));
+                bridge.send('voice.setLocalMute', { session, muted: newMuted });
+              },
+            }] : []),
 
             ...(() => {
               const hasKickPermission = !contextMenu.isSelf && hasPermission(0, Permission.Kick);
