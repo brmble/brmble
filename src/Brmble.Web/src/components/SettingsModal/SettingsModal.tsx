@@ -39,6 +39,7 @@ interface SettingsModalProps {
   };
   onUploadAvatar?: (blob: Blob, contentType: string) => void;
   onRemoveAvatar?: () => void;
+  initialTab?: 'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection';
 }
 
 interface AppSettings {
@@ -70,10 +71,16 @@ const DEFAULT_SETTINGS: AppSettings = {
 };
 
 export function SettingsModal(props: SettingsModalProps) {
-  const { isOpen, onClose } = props;
-  const [activeTab, setActiveTab] = useState<'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection'>('profile');
+  const { isOpen, onClose, initialTab } = props;
+  const [activeTab, setActiveTab] = useState<'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection'>(initialTab ?? 'profile');
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const { servers } = useServerlist();
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
 
   // Resolve registration name for the currently connected server
   const connectedRegisteredName = (() => {

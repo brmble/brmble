@@ -173,6 +173,7 @@ function App() {
 
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection'>('profile');
   const [showGame, setShowGame] = useState(false);
   const [showAvatarEditor, setShowAvatarEditor] = useState(false);
 
@@ -679,11 +680,11 @@ function App() {
           const matrixActive = creds?.roomMap[channelId] !== undefined;
           if (!matrixActive) {
             const storeKey = `channel-${channelId}`;
-            const { text, media } = parseMessageMedia(d.message);
+        const messageMedia = parseMessageMedia(d.message);
             if (currentChannelIdRef.current === channelId) {
-              addMessageRef.current(senderName, text, undefined, undefined, media.length > 0 ? media : undefined);
+              addMessageRef.current(senderName, messageMedia.text, undefined, undefined, messageMedia.media.length > 0 ? messageMedia.media : undefined);
             } else {
-              addMessageToStore(storeKey, senderName, text, undefined, undefined, media.length > 0 ? media : undefined);
+              addMessageToStore(storeKey, senderName, messageMedia.text, undefined, undefined, messageMedia.media.length > 0 ? messageMedia.media : undefined);
             }
           }
         }
@@ -1778,6 +1779,7 @@ const handleConnect = (serverData: SavedServer) => {
       <SettingsModal
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
+        initialTab={settingsTab}
         username={username}
         connected={connected}
         currentUser={{
@@ -1827,7 +1829,7 @@ const handleConnect = (serverData: SavedServer) => {
 
       <ZoomIndicator />
       <Version />
-      <Brmblegotchi />
+      <Brmblegotchi onOpenSettings={() => { setSettingsTab('appearance'); setShowSettings(true); }} />
       </ProfileProvider>
     </div>
   );

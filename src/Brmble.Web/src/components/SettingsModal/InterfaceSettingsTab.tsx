@@ -24,10 +24,15 @@ export function InterfaceSettingsTab({
 }: InterfaceSettingsTabProps) {
   
   const [localAppearance, setLocalAppearance] = useState<AppearanceSettings>(appearanceSettings);
+  const [localBrmblegotchi, setLocalBrmblegotchi] = useState<BrmblegotchiSettings>(brmblegotchiSettings);
 
   useEffect(() => {
     setLocalAppearance(appearanceSettings);
   }, [appearanceSettings]);
+
+  useEffect(() => {
+    setLocalBrmblegotchi(brmblegotchiSettings);
+  }, [brmblegotchiSettings]);
 
   const handleThemeChange = (theme: string) => {
     const newSettings = { ...localAppearance, theme };
@@ -40,7 +45,7 @@ export function InterfaceSettingsTab({
   };
 
   const handleBrmblegotchiToggle = () => {
-    onBrmblegotchiChange({ enabled: !brmblegotchiSettings.enabled });
+    onBrmblegotchiChange({ enabled: !brmblegotchiSettings.enabled, theme: brmblegotchiSettings.theme });
   };
 
   const handleResetPet = async () => {
@@ -105,6 +110,24 @@ export function InterfaceSettingsTab({
             <span className="brmble-toggle-slider"></span>
           </label>
         </div>
+        {brmblegotchiSettings.enabled && (
+          <div className="settings-item">
+            <label>Pet Theme</label>
+            <Select
+              value={localBrmblegotchi.theme}
+              onChange={(theme) => {
+                const newSettings = { ...localBrmblegotchi, theme: theme as 'original' | 'dino' | 'cat' };
+                setLocalBrmblegotchi(newSettings);
+                onBrmblegotchiChange(newSettings);
+              }}
+              options={[
+                { value: 'original', label: 'Original' },
+                { value: 'dino', label: 'Dino' },
+                { value: 'cat', label: 'Cat (Passive)' },
+              ]}
+            />
+          </div>
+        )}
         <div className="settings-item">
           <button className="btn btn-danger" onClick={handleResetPet}>
             Reset Pet
