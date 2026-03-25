@@ -1199,7 +1199,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                         var matrixId = prop.Value.TryGetProperty("matrixUserId", out var m) ? m.GetString() : null;
                         var name = prop.Value.TryGetProperty("mumbleName", out var n) ? n.GetString() : null;
                         if (matrixId is not null && name is not null)
-                            _sessionMappings[sid] = new SessionMappingEntry(matrixId, name);
+                        {
+                            var isBrmble = prop.Value.TryGetProperty("isBrmbleClient", out var b) && b.GetBoolean();
+                            _sessionMappings[sid] = new SessionMappingEntry(matrixId, name, isBrmble);
+                        }
                     }
                 }
             }
