@@ -353,8 +353,8 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
               }] : [];
             })(),
             ...(() => {
-              const hasKickPermission = !contextMenu.isSelf && currentChannelId && hasPermission(currentChannelId, Permission.Kick);
-              const hasBanPermission = !contextMenu.isSelf && currentChannelId === 0 && hasPermission(currentChannelId, Permission.Ban);
+              const hasKickPermission = !contextMenu.isSelf && hasPermission(0, Permission.Kick);
+              const hasBanPermission = !contextMenu.isSelf && hasPermission(0, Permission.Ban);
               const hasPrioritySpeakerPermission = !contextMenu.isSelf && currentChannelId && hasPermission(currentChannelId, Permission.MuteDeafen);
               const hasMovePermission = !contextMenu.isSelf && currentChannelId && hasPermission(currentChannelId, Permission.Move);
               const hasAdminPermission = hasKickPermission || hasBanPermission || hasPrioritySpeakerPermission || hasMovePermission;
