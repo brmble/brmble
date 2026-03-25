@@ -367,6 +367,19 @@ export function Sidebar({
               const targetUser = rootUsers.find(u => u.session === parseInt(contextMenu.userId));
               const adminItems = [];
 
+              if (hasServerMutePermission) {
+                adminItems.push({
+                  label: targetUser?.muted ? 'Server Unmute' : 'Server Mute',
+                  icon: (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <line x1="1" y1="1" x2="23" y2="23"/>
+                      <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/>
+                    </svg>
+                  ),
+                  onClick: () => bridge.send(targetUser?.muted ? 'voice.unmute' : 'voice.mute', { session: parseInt(contextMenu.userId) }),
+                });
+              }
+
               if (hasMovePermission) {
                 adminItems.push({
                   label: 'Move to Root',
@@ -433,19 +446,6 @@ export function Sidebar({
                     if (reason === null) return;
                     bridge.send('voice.ban', { session: parseInt(contextMenu.userId), reason });
                   },
-                });
-              }
-
-              if (hasServerMutePermission) {
-                adminItems.push({
-                  label: targetUser?.muted ? 'Server Unmute' : 'Server Mute',
-                  icon: (
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <line x1="1" y1="1" x2="23" y2="23"/>
-                      <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/>
-                    </svg>
-                  ),
-                  onClick: () => bridge.send(targetUser?.muted ? 'voice.unmute' : 'voice.mute', { session: parseInt(contextMenu.userId) }),
                 });
               }
 
