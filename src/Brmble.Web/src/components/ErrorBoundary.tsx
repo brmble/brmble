@@ -7,6 +7,7 @@ interface Props {
 
 interface State {
   error: Error | null;
+  info: ErrorInfo | null;
 }
 
 const isDev = import.meta.env.DEV;
@@ -18,7 +19,7 @@ const isDev = import.meta.env.DEV;
  * Resets automatically when the `label` prop changes (e.g. route/tab switch).
  */
 export class ErrorBoundary extends Component<Props, State> {
-  state: State = { error: null };
+  state: State = { error: null, info: null };
 
   static getDerivedStateFromError(error: Error) {
     return { error };
@@ -26,20 +27,24 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidUpdate(prevProps: Props) {
     if (prevProps.label !== this.props.label && this.state.error) {
-      this.setState({ error: null });
+      this.setState({ error: null, info: null });
     }
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error(`[ErrorBoundary:${this.props.label}]`, error, info.componentStack);
+    this.setState({ info });
   }
 
   handleReset = () => {
-    this.setState({ error: null });
+    this.setState({ error: null, info: null });
   };
 
   render() {
     if (this.state.error) {
+      const errorMessage = this.state.error.message;
+      const errorStack = this.state.error.stack;
+      const componentStack = this.state.info?.componentStack;
       return (
         <div className="error-boundary-fallback" style={{
           padding: 'var(--space-lg)',
@@ -60,28 +65,37 @@ export class ErrorBoundary extends Component<Props, State> {
           <p style={{ color: 'var(--text-muted)', margin: '0 0 var(--space-md) 0' }}>
             This section encountered an error and could not be displayed.
           </p>
+          <div style={{ 
+            textAlign: 'left',
+            fontFamily: 'var(--font-mono)', 
+            fontSize: 'var(--text-xs, 0.75rem)',
+            marginBottom: 'var(--space-md)',
+          }}>
+            <p style={{ color: 'var(--accent-danger)', marginBottom: 'var(--space-xs)' }}>
+              Error: {errorMessage}
+            </p>
+            {componentStack && (
+              <pre style={{ whiteSpace: 'pre-wrap', opacity: 0.8, color: 'var(--text-muted)' }}>
+                {componentStack}
+              </pre>
+            )}
+            {isDev && errorStack && (
+              <details style={{ marginTop: 'var(--space-sm)' }}>
+                <summary style={{ cursor: 'pointer', color: 'var(--accent-decorative)' }}>
+                  Stack trace
+                </summary>
+                <pre style={{ whiteSpace: 'pre-wrap', marginTop: 'var(--space-xs)', opacity: 0.7 }}>
+                  {errorStack}
+                </pre>
+              </details>
+            )}
+          </div>
           <button
             className="btn btn-secondary btn-sm"
             onClick={this.handleReset}
           >
             Try again
           </button>
-          {isDev && (
-            <details style={{
-              marginTop: 'var(--space-md)',
-              textAlign: 'left',
-              fontFamily: 'var(--font-mono)',
-              fontSize: 'var(--text-xs, 0.75rem)',
-              color: 'var(--text-muted)',
-            }}>
-              <summary style={{ cursor: 'pointer', color: 'var(--accent-danger)' }}>
-                [{this.props.label}] {this.state.error.message}
-              </summary>
-              <pre style={{ whiteSpace: 'pre-wrap', marginTop: 'var(--space-xs)', opacity: 0.7 }}>
-                {this.state.error.stack}
-              </pre>
-            </details>
-          )}
         </div>
       );
     }
