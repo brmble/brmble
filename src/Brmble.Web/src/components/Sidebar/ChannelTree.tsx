@@ -48,18 +48,24 @@ interface ChannelTreeProps {
   sharingUserSession?: number;
   onWatchScreenShare?: (roomName: string) => void;
   onEditAvatar?: () => void;
+  onMoveUser?: (session: number, channelId: number) => void;
 }
 
-export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, speakingUsers, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, onEditAvatar }: ChannelTreeProps) {
+export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, speakingUsers, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, onEditAvatar, onMoveUser }: ChannelTreeProps) {
   const [sortByNamePerChannel, setSortByNamePerChannel] = useState<Record<number, boolean>>({});
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string; isSelf: boolean; channelId?: number } | null>(null);
   const [infoDialogUser, setInfoDialogUser] = useState<{ userId: string; userName: string; isSelf: boolean } | null>(null);
+  const [draggedUser, setDraggedUser] = useState<number | null>(null);
+  const [dropTargetChannel, setDropTargetChannel] = useState<number | null>(null);
   const { hasPermission, Permission, requestPermissions } = usePermissions();
+
+  const canDragUsers = hasPermission(0, Permission.Move);
 
   useEffect(() => {
     if (currentChannelId) {
       requestPermissions(currentChannelId);
     }
+    requestPermissions(0);
   }, [currentChannelId, requestPermissions]);
   const initialExpanded = useMemo(() => {
     const expanded = new Set<number>();
@@ -170,7 +176,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     return (
       <div key={channel.id} className={`channel-item${pendingChannelAction !== null ? ' channel-item--pending' : ''}`} data-level={level}>
         <div 
-          className={`channel-row ${isCurrentChannel ? 'current' : ''}${hasUnread ? ' channel-row--unread' : ''}${channel.users.length === 0 && !hasUnread ? ' channel-row--empty' : ''}${isFolder ? ' is-folder' : ''}`}
+          className={`channel-row ${isCurrentChannel ? 'current' : ''}${hasUnread ? ' channel-row--unread' : ''}${channel.users.length === 0 && !hasUnread ? ' channel-row--empty' : ''}${isFolder ? ' is-folder' : ''}${dropTargetChannel === channel.id ? ' channel-row--drop-target' : ''}`}
           style={{ paddingLeft: `calc(16px + ${level * 20}px)` }}
           role="button"
           tabIndex={0}
@@ -186,6 +192,22 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                 onJoinChannel(channel.id);
               }
             }
+          }}
+          onDragOver={(e) => {
+            if (!canDragUsers || draggedUser === null) return;
+            e.preventDefault();
+            setDropTargetChannel(channel.id);
+          }}
+          onDragLeave={() => setDropTargetChannel(null)}
+          onDrop={(e) => {
+            if (!canDragUsers || draggedUser === null) return;
+            e.preventDefault();
+            const session = parseInt(e.dataTransfer.getData('text/plain'));
+            if (!isNaN(session) && onMoveUser) {
+              onMoveUser(session, channel.id);
+            }
+            setDraggedUser(null);
+            setDropTargetChannel(null);
           }}
         >
           <span 
@@ -248,8 +270,19 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
             {channel.users.map(user => (
               <UserTooltip key={user.session} user={user}>
               <div
-                className={`user-row ${user.self ? 'self' : ''} ${speakingUsers?.has(user.session) ? 'speaking' : ''}`}
+                className={`user-row ${user.self ? 'self' : ''} ${speakingUsers?.has(user.session) ? 'speaking' : ''}${canDragUsers && !user.self ? ' user-row--draggable' : ''}`}
                 style={{ paddingLeft: `calc(4px + ${level * 20}px)` }}
+                draggable={canDragUsers && !user.self}
+                onDragStart={(e) => {
+                  if (!canDragUsers || user.self) return;
+                  e.dataTransfer.setData('text/plain', String(user.session));
+                  e.dataTransfer.effectAllowed = 'move';
+                  setDraggedUser(user.session);
+                }}
+                onDragEnd={() => {
+                  setDraggedUser(null);
+                  setDropTargetChannel(null);
+                }}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   setContextMenu({ x: e.clientX, y: e.clientY, userId: String(user.session), userName: user.name, isSelf: !!user.self, channelId: channel.id });

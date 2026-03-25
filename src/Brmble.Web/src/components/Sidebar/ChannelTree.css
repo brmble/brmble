@@ -237,6 +237,25 @@
   opacity: 0.6;
 }
 
+/* Drag and drop styles */
+.user-row--draggable {
+  cursor: grab;
+}
+
+.user-row--draggable:active {
+  cursor: grabbing;
+}
+
+.user-row--draggable[draggable="true"] {
+  opacity: 0.8;
+}
+
+.channel-row--drop-target {
+  background: var(--accent-primary-wash) !important;
+  outline: 2px dashed var(--accent-primary);
+  outline-offset: -2px;
+}
+
 /* Unread channel name emphasis */
 .channel-row--unread .channel-name {
   color: var(--text-primary);

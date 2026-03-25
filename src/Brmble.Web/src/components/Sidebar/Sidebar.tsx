@@ -315,6 +315,7 @@ export function Sidebar({
           sharingUserSession={sharingUserSession}
           onWatchScreenShare={onWatchScreenShare}
           onEditAvatar={onEditAvatar}
+          onMoveUser={(session, channelId) => bridge.send('voice.move', { session, channelId })}
         />
       </div>
       {contextMenu && (
