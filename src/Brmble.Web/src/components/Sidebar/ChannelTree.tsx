@@ -380,7 +380,8 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                       placeholder: 'Reason (optional)',
                       confirmLabel: 'Kick',
                     });
-                    bridge.send('voice.kick', { session: parseInt(contextMenu.userId), reason: reason || '' });
+                    if (reason === null) return;
+                    bridge.send('voice.kick', { session: parseInt(contextMenu.userId), reason });
                   },
                 });
               }
@@ -401,7 +402,8 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                       placeholder: 'Reason (optional)',
                       confirmLabel: 'Ban',
                     });
-                    bridge.send('voice.ban', { session: parseInt(contextMenu.userId), reason: reason || '' });
+                    if (reason === null) return;
+                    bridge.send('voice.ban', { session: parseInt(contextMenu.userId), reason });
                   },
                 });
               }
