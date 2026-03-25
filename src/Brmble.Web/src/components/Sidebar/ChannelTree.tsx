@@ -357,7 +357,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
               const hasBanPermission = !contextMenu.isSelf && currentChannelId === 0 && hasPermission(currentChannelId, Permission.Ban);
               const hasPrioritySpeakerPermission = !contextMenu.isSelf && currentChannelId && hasPermission(currentChannelId, Permission.MuteDeafen);
               const hasMovePermission = !contextMenu.isSelf && currentChannelId && hasPermission(currentChannelId, Permission.Move);
-              const hasAdminPermission = hasKickPermission || hasBanPermission || hasPrioritySpeakerPermission;
+              const hasAdminPermission = hasKickPermission || hasBanPermission || hasPrioritySpeakerPermission || hasMovePermission;
 
               if (!hasAdminPermission) return [];
 
@@ -366,7 +366,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
 
               if (hasKickPermission) {
                 adminItems.push({
-                  label: 'Kick user',
+                  label: 'Kick User',
                   icon: (
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M18 6L6 18M6 6l12 12"/>
@@ -378,7 +378,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
 
               if (hasBanPermission) {
                 adminItems.push({
-                  label: 'Ban user',
+                  label: 'Ban User',
                   icon: (
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <circle cx="12" cy="12" r="10"/>
