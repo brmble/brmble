@@ -397,6 +397,30 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     await clientRef.current.sendMessage(roomId, { msgtype: MsgType.Text, body: text });
   }, [credentials]);
 
+  const sendImageMessage = useCallback(async (channelId: string, file: File, mxcUrl: string) => {
+    if (!credentials || !clientRef.current) return;
+    const roomId = credentials.roomMap[channelId];
+    if (!roomId) return;
+    await clientRef.current.sendMessage(roomId, {
+      msgtype: MsgType.Image,
+      url: mxcUrl,
+      body: file.name,
+      info: {
+        mimetype: file.type,
+        size: file.size,
+      },
+    });
+  }, [credentials]);
+
+  const uploadContent = useCallback(async (file: File): Promise<string> => {
+    if (!clientRef.current) throw new Error('Matrix client not initialized');
+    const response = await clientRef.current.uploadContent(file, {
+      type: file.type,
+      name: file.name,
+    });
+    return response.content_uri;
+  }, []);
+
   const fetchHistory = useCallback(async (channelId: string) => {
     if (!credentials || !clientRef.current) return;
     const roomId = credentials.roomMap[channelId];
@@ -525,5 +549,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     return urls;
   }, [client, dmRoomMap]);
 
-  return { messages, sendMessage, fetchHistory, dmMessages, dmRoomMap, dmUserDisplayNames, dmUserAvatarUrls, sendDMMessage, fetchDMHistory, fetchAvatarUrl, client };
+  return { messages, sendMessage, sendImageMessage, uploadContent, fetchHistory, dmMessages, dmRoomMap,
+           dmUserDisplayNames, dmUserAvatarUrls, sendDMMessage, fetchDMHistory,
+           fetchAvatarUrl, client };
 }
