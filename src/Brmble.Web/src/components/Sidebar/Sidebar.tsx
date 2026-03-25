@@ -353,20 +353,7 @@ export function Sidebar({
               ),
               onClick: () => onEditAvatar(),
             }] : []),
-            ...(() => {
-              const targetUser = rootUsers.find(u => u.session === parseInt(contextMenu.userId));
-              const canServerMute = !contextMenu.isSelf && hasPermission(0, Permission.MuteDeafen);
-              return canServerMute ? [{
-                label: targetUser?.muted ? 'Server Unmute' : 'Server Mute',
-                icon: (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <line x1="1" y1="1" x2="23" y2="23"/>
-                    <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/>
-                  </svg>
-                ),
-                onClick: () => bridge.send(targetUser?.muted ? 'voice.unmute' : 'voice.mute', { session: parseInt(contextMenu.userId) }),
-              }] : [];
-            })(),
+
             ...(() => {
               const hasKickPermission = !contextMenu.isSelf && hasPermission(0, Permission.Kick);
               const hasBanPermission = !contextMenu.isSelf && hasPermission(0, Permission.Ban);
@@ -379,6 +366,32 @@ export function Sidebar({
 
               const targetUser = rootUsers.find(u => u.session === parseInt(contextMenu.userId));
               const adminItems = [];
+
+              if (hasMovePermission) {
+                adminItems.push({
+                  label: 'Move to Root',
+                  icon: (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M5 12h14M12 5l7 7-7 7"/>
+                    </svg>
+                  ),
+                  onClick: () => bridge.send('voice.move', { session: parseInt(contextMenu.userId), channelId: 0 }),
+                });
+              }
+
+              if (hasPrioritySpeakerPermission) {
+                adminItems.push({
+                  label: targetUser?.prioritySpeaker ? 'Remove Priority Speaker' : 'Priority Speaker',
+                  icon: (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M12 2L15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2z"/>
+                    </svg>
+                  ),
+                  onClick: () => {
+                    bridge.send('voice.setPrioritySpeaker', { session: parseInt(contextMenu.userId), enabled: !targetUser?.prioritySpeaker });
+                  },
+                });
+              }
 
               if (hasKickPermission) {
                 adminItems.push({
@@ -419,32 +432,6 @@ export function Sidebar({
                     });
                     if (reason === null) return;
                     bridge.send('voice.ban', { session: parseInt(contextMenu.userId), reason });
-                  },
-                });
-              }
-
-              if (hasMovePermission) {
-                adminItems.push({
-                  label: 'Move to Root',
-                  icon: (
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M5 12h14M12 5l7 7-7 7"/>
-                    </svg>
-                  ),
-                  onClick: () => bridge.send('voice.move', { session: parseInt(contextMenu.userId), channelId: 0 }),
-                });
-              }
-
-              if (hasPrioritySpeakerPermission) {
-                adminItems.push({
-                  label: targetUser?.prioritySpeaker ? 'Remove Priority Speaker' : 'Priority Speaker',
-                  icon: (
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M12 2L15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2z"/>
-                    </svg>
-                  ),
-                  onClick: () => {
-                    bridge.send('voice.setPrioritySpeaker', { session: parseInt(contextMenu.userId), enabled: !targetUser?.prioritySpeaker });
                   },
                 });
               }
