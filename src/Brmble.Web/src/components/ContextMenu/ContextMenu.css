@@ -53,3 +53,49 @@
   background: none;
   color: var(--text-secondary);
 }
+
+.context-menu-item-wrapper {
+  position: relative;
+}
+
+.context-menu-item--has-children .context-menu-arrow {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.context-menu-item--has-children:hover .context-menu-arrow {
+  color: var(--text-secondary);
+}
+
+.context-submenu {
+  position: absolute;
+  top: 0;
+  left: 100%;
+  z-index: 1001;
+  min-width: 180px;
+  background: var(--bg-primary);
+  border: var(--glass-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2xs);
+  box-shadow: var(--shadow-elevated);
+  display: none;
+}
+
+.context-menu-item-wrapper:hover > .context-submenu {
+  display: block;
+}
+
+.context-submenu .context-menu-item {
+  white-space: nowrap;
+}
+
+.context-submenu .context-menu-item-wrapper {
+  position: relative;
+}
+
+.context-submenu .context-menu-item--has-children .context-menu-arrow {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-muted);
+}

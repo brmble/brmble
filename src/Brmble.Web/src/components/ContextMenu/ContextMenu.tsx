@@ -5,9 +5,10 @@ const MOUSE_LEAVE_CLOSE_DELAY = 400;
 
 interface ContextMenuItem {
   label: string;
-  onClick: () => void;
+  onClick?: () => void;
   icon?: React.ReactNode;
   disabled?: boolean;
+  children?: ContextMenuItem[];
 }
 
 interface ContextMenuProps {
@@ -73,6 +74,38 @@ export function ContextMenu({ x, y, items, onClose, mouseLeaveDelay = MOUSE_LEAV
     }, mouseLeaveDelay);
   };
 
+  const renderMenuItem = (item: ContextMenuItem, index: number, depth: number = 0): React.ReactNode => {
+    const hasChildren = item.children && item.children.length > 0;
+    const isDisabled = item.disabled;
+
+    return (
+      <div key={index} className="context-menu-item-wrapper">
+        <button
+          className={`context-menu-item${hasChildren ? ' context-menu-item--has-children' : ''}${isDisabled ? ' context-menu-item--disabled' : ''}`}
+          onClick={(e) => {
+            if (isDisabled) return;
+            if (hasChildren) {
+              e.stopPropagation();
+              return;
+            }
+            if (item.onClick) item.onClick();
+            onClose();
+          }}
+          disabled={isDisabled}
+        >
+          {item.icon && <span className="context-menu-icon">{item.icon}</span>}
+          <span className="context-menu-label">{item.label}</span>
+          {hasChildren && <span className="context-menu-arrow">&#9656;</span>}
+        </button>
+        {hasChildren && !isDisabled && (
+          <div className={`context-submenu context-submenu--depth-${depth + 1}`}>
+            {item.children!.map((child, childIndex) => renderMenuItem(child, childIndex, depth + 1))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div
       ref={menuRef}
@@ -81,21 +114,7 @@ export function ContextMenu({ x, y, items, onClose, mouseLeaveDelay = MOUSE_LEAV
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
-      {items.map((item, i) => (
-        <button
-          key={i}
-          className={`context-menu-item${item.disabled ? ' context-menu-item--disabled' : ''}`}
-          onClick={() => {
-            if (item.disabled) return;
-            item.onClick();
-            onClose();
-          }}
-          disabled={item.disabled}
-        >
-          {item.icon && <span className="context-menu-icon">{item.icon}</span>}
-          <span>{item.label}</span>
-        </button>
-      ))}
+      {items.map((item, i) => renderMenuItem(item, i))}
     </div>
   );
 }
