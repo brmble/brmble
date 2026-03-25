@@ -291,7 +291,8 @@ function App() {
   }, [currentChannelId, matrixCredentials?.roomMap]);
 
   const channelKey = currentChannelId === 'server-root' ? 'server-root' : currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
-  const { messages, addMessage, addRawMessage, removeMessage, updateMessage } = useChatStore(channelKey);
+  const { messages, addMessage } = useChatStore(channelKey);
+  const [optimisticImages, setOptimisticImages] = useState<ChatMessage[]>([]);
 
   const dmStore = useDMStore({
     matrixDmMessages: matrixClient.dmMessages,
@@ -1309,7 +1310,7 @@ const handleConnect = (serverData: SavedServer) => {
         }],
       };
 
-      addRawMessage(optimisticMsg);
+      setOptimisticImages(prev => [...prev, optimisticMsg]);
 
       // Mumble path (fire and forget)
       encodeForMumble(image).then(imgTag => {
@@ -1325,15 +1326,19 @@ const handleConnect = (serverData: SavedServer) => {
         matrixClient.uploadContent(image)
           .then(mxcUrl => matrixClient.sendImageMessage(channelId, image, mxcUrl))
           .then(() => {
-            removeMessage(tempId);
+            setOptimisticImages(prev => prev.filter(m => m.id !== tempId));
             URL.revokeObjectURL(objectUrl);
           })
           .catch(err => {
             console.error('Matrix image upload failed:', err);
-            updateMessage(tempId, { pending: false, error: true });
+            setOptimisticImages(prev => prev.map(m =>
+              m.id === tempId ? { ...m, pending: false, error: true } : m
+            ));
           });
       } else {
-        updateMessage(tempId, { pending: false });
+        setOptimisticImages(prev => prev.map(m =>
+          m.id === tempId ? { ...m, pending: false } : m
+        ));
       }
     }
 
@@ -1342,7 +1347,15 @@ const handleConnect = (serverData: SavedServer) => {
   };
 
   const handleDismissMessage = (messageId: string) => {
-    removeMessage(messageId);
+    setOptimisticImages(prev => {
+      const msg = prev.find(m => m.id === messageId);
+      if (msg?.media) {
+        for (const item of msg.media) {
+          if (item.url.startsWith('blob:')) URL.revokeObjectURL(item.url);
+        }
+      }
+      return prev.filter(m => m.id !== messageId);
+    });
   };
 
   const handleDisconnect = () => {
@@ -1768,7 +1781,7 @@ const handleConnect = (serverData: SavedServer) => {
                    <ChatPanel
                     channelId={currentChannelId || undefined}
                     channelName={currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName}
-                    messages={isMatrixActive ? (matrixMessages ?? []) : messages}
+                    messages={[...(isMatrixActive ? (matrixMessages ?? []) : messages), ...optimisticImages.filter(m => m.channelId === currentChannelId)]}
                     currentUsername={username}
                     onSendMessage={handleSendMessage}
                     onDismissMessage={handleDismissMessage}
