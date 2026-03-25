@@ -110,6 +110,11 @@
   animation: idle-breathing 2s ease-in-out infinite;
 }
 
+.theme-cat .brmblegotchi-pet .pet-sprite {
+  width: 140px;
+  height: 140px;
+}
+
 @keyframes idle-breathing {
   0%, 100% { transform: translateY(0) scale(1); }
   50% { transform: translateY(-2px) scale(1.02); }
