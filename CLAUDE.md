@@ -134,6 +134,42 @@ wsl docker compose -f docker-local/docker-compose.yml logs -f brmble
 - Specific test: dotnet test tests/MumbleVoiceEngine.Tests/MumbleVoiceEngine.Tests.csproj
 - Server tests: dotnet test tests/Brmble.Server.Tests/Brmble.Server.Tests.csproj
 
+## Releasing
+
+Versioning is coupled: client and server always share the same version (SemVer). A git tag triggers the full release.
+
+### Creating a Release
+1. Tag the commit: `git tag v0.1.0 && git push origin v0.1.0`
+2. GitHub Actions (`.github/workflows/release.yml`) automatically:
+   - Builds the frontend (`npm run build`)
+   - Publishes the client (`dotnet publish` self-contained win-x64)
+   - Packs with Velopack (`vpk pack`) — creates installer + delta packages
+   - Creates a portable zip
+   - Uploads everything to a GitHub Release with auto-generated release notes
+   - Builds and pushes `ghcr.io/brmble/brmble-server:{version}` + `:latest`
+
+### Release Artifacts (per GitHub Release)
+- `Brmble-win-Setup.exe` — NSIS installer (per-user, `%LocalAppData%/Brmble`)
+- `Brmble-win-Portable.zip` — standalone zip
+- `Brmble-{version}-full.nupkg` — Velopack update package
+- `RELEASES` + metadata — Velopack delta update feed
+
+### Auto-Update
+- The client checks for updates at startup and every 4 hours
+- Updates are downloaded in the background from GitHub Releases
+- A notification appears in the UI: "Update available: vX.Y.Z" with Update/Later buttons
+- Update logic lives in `src/Brmble.Client/Services/Update/UpdateService.cs`
+- Portable builds skip update checks automatically (`IsInstalled` check)
+
+### Local Build Test
+```bash
+cd src/Brmble.Web && npm run build
+dotnet publish src/Brmble.Client/Brmble.Client.csproj -c Release -r win-x64 --self-contained -o publish
+mkdir -p publish/web && cp -r src/Brmble.Web/dist/* publish/web/
+vpk pack --packId Brmble --packVersion 0.1.0 --packDir publish --mainExe Brmble.Client.exe --packTitle "Brmble"
+```
+Requires: `dotnet tool install -g vpk`
+
 ## Commit conventions
 - feat: new feature
 - fix: bug fix
