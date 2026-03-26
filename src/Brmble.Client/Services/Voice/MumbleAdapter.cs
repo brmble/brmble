@@ -54,6 +54,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private readonly IAppConfigService? _appConfigService;
     private System.Threading.Timer? _healthTimer;
     private long _healthGeneration;
+    private BanList? _cachedBanList;
     // Accept self-signed certs: Brmble servers use self-signed TLS certificates
     // (same pattern as WebSocket at line ~1290 and Mumble's BouncyCastle TLS).
     private static readonly HttpClient _healthHttpClient = new(new HttpClientHandler
@@ -1697,6 +1698,61 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             return Task.CompletedTask;
         });
 
+        bridge.RegisterHandler("voice.getBans", data =>
+        {
+            if (Connection is not { State: ConnectionStates.Connected })
+            {
+                _bridge?.Send("voice.error", new { message = "Not connected", type = "notConnected" });
+                return Task.CompletedTask;
+            }
+
+            try
+            {
+                SendBanList(new BanList { Query = true });
+            }
+            catch (Exception ex)
+            {
+                _bridge?.Send("voice.error", new { message = $"Failed to get bans: {ex.Message}", type = "getBansFailed" });
+            }
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.unban", data =>
+        {
+            if (Connection is not { State: ConnectionStates.Connected })
+            {
+                _bridge?.Send("voice.error", new { message = "Not connected", type = "notConnected" });
+                return Task.CompletedTask;
+            }
+
+            if (!data.TryGetProperty("index", out var indexElement))
+            {
+                _bridge?.Send("voice.error", new { message = "Missing ban index", type = "invalidRequest" });
+                return Task.CompletedTask;
+            }
+
+            var index = indexElement.GetInt32();
+
+            if (_cachedBanList is null || index < 0 || index >= _cachedBanList.Bans.Count)
+            {
+                _bridge?.Send("voice.error", new { message = "Invalid ban index", type = "invalidIndex" });
+                return Task.CompletedTask;
+            }
+
+            try
+            {
+                _cachedBanList.Bans.RemoveAt(index);
+                _cachedBanList.Query = false;
+                SendBanList(_cachedBanList);
+                _bridge?.Send("voice.unbanned", new { success = true, index });
+            }
+            catch (Exception ex)
+            {
+                _bridge?.Send("voice.error", new { message = $"Failed to unban: {ex.Message}", type = "unbanFailed" });
+            }
+            return Task.CompletedTask;
+        });
+
         bridge.RegisterHandler("avatar.setSource", async data =>
         {
             if (_apiUrl is null) return;
@@ -2335,6 +2391,24 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 permissions = permissionQuery.Permissions
             });
         }
+    }
+
+    public override void BanList(BanList banList)
+    {
+        base.BanList(banList);
+        _cachedBanList = banList;
+
+        var banListPayload = banList.Bans.Select(b => new
+        {
+            address = BitConverter.ToString(b.Address).Replace("-", ":"),
+            bits = b.Mask,
+            name = b.Name,
+            hash = b.Hash,
+            reason = b.Reason,
+            start = b.Start,
+            duration = b.Duration
+        }).ToArray();
+        _bridge?.Send("voice.bans", banListPayload);
     }
 
     public override void EncodedVoice(byte[] data, uint userId, long sequence,
