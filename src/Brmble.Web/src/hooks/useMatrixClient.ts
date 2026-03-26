@@ -100,14 +100,10 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
         if (content.msgtype === 'm.image' && content.url) {
           const cl = clientRef.current;
           const fullUrl = cl?.mxcUrlToHttp(content.url) ?? content.url;
-          const thumbUrl = content.info?.thumbnail_url
-            ? (cl?.mxcUrlToHttp(content.info.thumbnail_url, 400, 400, 'scale') ?? undefined)
-            : (cl?.mxcUrlToHttp(content.url, 400, 400, 'scale') ?? undefined);
 
           media = [{
             type: content.info?.mimetype?.toLowerCase() === 'image/gif' ? 'gif' : 'image',
             url: fullUrl,
-            thumbnailUrl: thumbUrl,
             width: content.info?.w,
             height: content.info?.h,
             mimetype: content.info?.mimetype,
@@ -122,12 +118,15 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
         const messageSender = bridgeMatch ? bridgeMatch[1] : displayName;
         const messageContent = bridgeMatch ? rawBody.slice(bridgeMatch[0].length) : rawBody;
 
+        // For image-only messages, body is just the filename — don't show it as text
+        const displayContent = media ? '' : messageContent;
+
         const message: ChatMessage = {
           id: event.getId() ?? crypto.randomUUID(),
           channelId,
           sender: messageSender,
           senderMatrixUserId: senderId,
-          content: messageContent,
+          content: displayContent,
           timestamp: new Date(event.getTs()),
           ...(media && { media }),
         };
@@ -165,14 +164,10 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       if (dmContent.msgtype === 'm.image' && dmContent.url) {
         const cl = clientRef.current;
         const fullUrl = cl?.mxcUrlToHttp(dmContent.url) ?? dmContent.url;
-        const thumbUrl = dmContent.info?.thumbnail_url
-          ? (cl?.mxcUrlToHttp(dmContent.info.thumbnail_url, 400, 400, 'scale') ?? undefined)
-          : (cl?.mxcUrlToHttp(dmContent.url, 400, 400, 'scale') ?? undefined);
 
         dmMedia = [{
           type: dmContent.info?.mimetype?.toLowerCase() === 'image/gif' ? 'gif' : 'image',
           url: fullUrl,
-          thumbnailUrl: thumbUrl,
           width: dmContent.info?.w,
           height: dmContent.info?.h,
           mimetype: dmContent.info?.mimetype,
@@ -187,12 +182,15 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       const dmSender = dmBridgeMatch ? dmBridgeMatch[1] : dmDisplayName;
       const dmMessageContent = dmBridgeMatch ? dmRawBody.slice(dmBridgeMatch[0].length) : dmRawBody;
 
+      // For image-only messages, body is just the filename — don't show it as text
+      const dmDisplayContent = dmMedia ? '' : dmMessageContent;
+
       const dmMessage: ChatMessage = {
         id: event.getId() ?? crypto.randomUUID(),
         channelId: dmUserId,
         sender: dmSender,
         senderMatrixUserId: dmSenderId,
-        content: dmMessageContent,
+        content: dmDisplayContent,
         timestamp: new Date(event.getTs()),
         ...(dmMedia && { media: dmMedia }),
       };
@@ -329,13 +327,9 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
           if (content.msgtype === 'm.image' && content.url) {
             const cl = clientRef.current;
             const fullUrl = cl?.mxcUrlToHttp(content.url) ?? content.url;
-            const thumbUrl = content.info?.thumbnail_url
-              ? (cl?.mxcUrlToHttp(content.info.thumbnail_url, 400, 400, 'scale') ?? undefined)
-              : (cl?.mxcUrlToHttp(content.url, 400, 400, 'scale') ?? undefined);
             media = [{
               type: content.info?.mimetype?.toLowerCase() === 'image/gif' ? 'gif' : 'image',
               url: fullUrl,
-              thumbnailUrl: thumbUrl,
               width: content.info?.w,
               height: content.info?.h,
               mimetype: content.info?.mimetype,
@@ -354,7 +348,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
             channelId: otherUserId,
             sender: messageSender,
             senderMatrixUserId: senderId,
-            content: messageContent,
+            content: media ? '' : messageContent,
             timestamp: new Date(ev.getTs()),
             ...(media && { media }),
           });
@@ -396,6 +390,30 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     if (!roomId) return;
     await clientRef.current.sendMessage(roomId, { msgtype: MsgType.Text, body: text });
   }, [credentials]);
+
+  const sendImageMessage = useCallback(async (channelId: string, file: File, mxcUrl: string) => {
+    if (!credentials || !clientRef.current) return;
+    const roomId = credentials.roomMap[channelId];
+    if (!roomId) return;
+    await clientRef.current.sendMessage(roomId, {
+      msgtype: MsgType.Image,
+      url: mxcUrl,
+      body: file.name,
+      info: {
+        mimetype: file.type,
+        size: file.size,
+      },
+    });
+  }, [credentials]);
+
+  const uploadContent = useCallback(async (file: File): Promise<string> => {
+    if (!clientRef.current) throw new Error('Matrix client not initialized');
+    const response = await clientRef.current.uploadContent(file, {
+      type: file.type,
+      name: file.name,
+    });
+    return response.content_uri;
+  }, []);
 
   const fetchHistory = useCallback(async (channelId: string) => {
     if (!credentials || !clientRef.current) return;
@@ -525,5 +543,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     return urls;
   }, [client, dmRoomMap]);
 
-  return { messages, sendMessage, fetchHistory, dmMessages, dmRoomMap, dmUserDisplayNames, dmUserAvatarUrls, sendDMMessage, fetchDMHistory, fetchAvatarUrl, client };
+  return { messages, sendMessage, sendImageMessage, uploadContent, fetchHistory, dmMessages, dmRoomMap,
+           dmUserDisplayNames, dmUserAvatarUrls, sendDMMessage, fetchDMHistory,
+           fetchAvatarUrl, client };
 }

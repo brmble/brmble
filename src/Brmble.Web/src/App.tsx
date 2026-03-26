@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import bridge from './bridge';
-import type { ConnectionStatus } from './types';
+import type { ConnectionStatus, ChatMessage } from './types';
+import { encodeForMumble } from './utils/imageUpload';
 import { useMatrixClient } from './hooks/useMatrixClient';
 import type { MatrixCredentials } from './hooks/useMatrixClient';
 import { useScreenShare } from './hooks/useScreenShare';
@@ -315,6 +316,7 @@ function App() {
 
   const channelKey = currentChannelId === 'server-root' ? 'server-root' : currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
   const { messages, addMessage } = useChatStore(channelKey);
+  const [optimisticImages, setOptimisticImages] = useState<ChatMessage[]>([]);
 
   const dmStore = useDMStore({
     matrixDmMessages: matrixClient.dmMessages,
@@ -1287,29 +1289,97 @@ const handleConnect = (serverData: SavedServer) => {
     setCurrentChannelName(serverLabel || 'Server');
   };
 
-  const handleSendMessage = (content: string) => {
-    if (!username || !content) return;
+  const handleSendMessage = (content: string, image?: File) => {
+    if (!username || (!content && !image)) return;
 
-    const isMatrixChannel = currentChannelId &&
-      currentChannelId !== 'server-root' &&
-      matrixCredentials?.roomMap[currentChannelId] !== undefined;
+    const channelId = currentChannelId;
+    if (!channelId) return;
 
-    // Only add local echo when Matrix is not available for this channel
-    if (!isMatrixChannel) {
-      addMessage(username, content);
+    const isMatrixChannel = channelId !== 'server-root' &&
+      matrixCredentials?.roomMap[channelId] !== undefined;
+
+    // Send text content (existing behavior)
+    if (content) {
+      if (!isMatrixChannel) {
+        addMessage(username, content);
+      }
+
+      if (channelId === 'server-root') {
+        bridge.send('voice.sendMessage', { message: content, channelId: 0 });
+      } else {
+        bridge.send('voice.sendMessage', { message: content, channelId: Number(channelId) });
+        if (isMatrixChannel) {
+          matrixClient.sendMessage(channelId, content).catch(console.error);
+        }
+      }
     }
 
-    if (currentChannelId === 'server-root') {
-      bridge.send('voice.sendMessage', { message: content, channelId: 0 });
-    } else if (currentChannelId) {
-      bridge.send('voice.sendMessage', { message: content, channelId: Number(currentChannelId) });
+    // Send image
+    if (image) {
+      const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const objectUrl = URL.createObjectURL(image);
+
+      const optimisticMsg: ChatMessage = {
+        id: tempId,
+        channelId,
+        sender: username,
+        content: '',
+        timestamp: new Date(),
+        pending: true,
+        media: [{
+          type: image.type === 'image/gif' ? 'gif' : 'image',
+          url: objectUrl,
+          mimetype: image.type,
+          size: image.size,
+        }],
+      };
+
+      setOptimisticImages(prev => [...prev, optimisticMsg]);
+
+      // Mumble path (fire and forget)
+      encodeForMumble(image).then(imgTag => {
+        if (channelId === 'server-root') {
+          bridge.send('voice.sendMessage', { message: imgTag, channelId: 0 });
+        } else {
+          bridge.send('voice.sendMessage', { message: imgTag, channelId: Number(channelId) });
+        }
+      }).catch(err => console.error('Mumble image send failed:', err));
+
+      // Matrix path
       if (isMatrixChannel) {
-        matrixClient.sendMessage(currentChannelId, content).catch(console.error);
+        matrixClient.uploadContent(image)
+          .then(mxcUrl => matrixClient.sendImageMessage(channelId, image, mxcUrl))
+          .then(() => {
+            setOptimisticImages(prev => prev.filter(m => m.id !== tempId));
+            URL.revokeObjectURL(objectUrl);
+          })
+          .catch(err => {
+            console.error('Matrix image upload failed:', err);
+            setOptimisticImages(prev => prev.map(m =>
+              m.id === tempId ? { ...m, pending: false, error: true } : m
+            ));
+          });
+      } else {
+        setOptimisticImages(prev => prev.map(m =>
+          m.id === tempId ? { ...m, pending: false } : m
+        ));
       }
     }
 
     setUnreadCount(0);
     updateBadge(0, hasPendingInvite);
+  };
+
+  const handleDismissMessage = (messageId: string) => {
+    setOptimisticImages(prev => {
+      const msg = prev.find(m => m.id === messageId);
+      if (msg?.media) {
+        for (const item of msg.media) {
+          if (item.url.startsWith('blob:')) URL.revokeObjectURL(item.url);
+        }
+      }
+      return prev.filter(m => m.id !== messageId);
+    });
   };
 
   const handleDisconnect = () => {
@@ -1750,9 +1820,10 @@ const handleConnect = (serverData: SavedServer) => {
                    <ChatPanel
                     channelId={currentChannelId || undefined}
                     channelName={currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName}
-                    messages={isMatrixActive ? (matrixMessages ?? []) : messages}
+                    messages={[...(isMatrixActive ? (matrixMessages ?? []) : messages), ...optimisticImages.filter(m => m.channelId === currentChannelId)]}
                     currentUsername={username}
                     onSendMessage={handleSendMessage}
+                    onDismissMessage={handleDismissMessage}
                     matrixClient={matrixClient.client}
                     matrixRoomId={channelMatrixRoomId}
                     readMarkerTs={channelDividerTs}
