@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Net;
 using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Security.Cryptography.X509Certificates;
@@ -54,6 +55,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private readonly IAppConfigService? _appConfigService;
     private System.Threading.Timer? _healthTimer;
     private long _healthGeneration;
+    private BanList? _cachedBanList;
+    private readonly object _banListLock = new();
+    private int _pendingBanQuery = 0;
     // Accept self-signed certs: Brmble servers use self-signed TLS certificates
     // (same pattern as WebSocket at line ~1290 and Mumble's BouncyCastle TLS).
     private static readonly HttpClient _healthHttpClient = new(new HttpClientHandler
@@ -62,7 +66,31 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     })
     { Timeout = TimeSpan.FromSeconds(5) };
 
-    private record SessionMappingEntry(string MatrixUserId, string MumbleName, bool IsBrmbleClient = false);
+    internal record SessionMappingEntry(string MatrixUserId, string MumbleName, bool IsBrmbleClient = false);
+
+    /// <summary>
+    /// Parses a JSON object whose keys are session IDs and values contain
+    /// matrixUserId, mumbleName, and optionally isBrmbleClient into a dictionary.
+    /// Shared by the auth-response and WebSocket snapshot parsers.
+    /// </summary>
+    internal static Dictionary<uint, SessionMappingEntry> ParseSessionMappings(System.Text.Json.JsonElement mappingsElement)
+    {
+        var result = new Dictionary<uint, SessionMappingEntry>();
+        foreach (var prop in mappingsElement.EnumerateObject())
+        {
+            if (uint.TryParse(prop.Name, out var sid))
+            {
+                var matrixId = prop.Value.TryGetProperty("matrixUserId", out var m) ? m.GetString() : null;
+                var name = prop.Value.TryGetProperty("mumbleName", out var n) ? n.GetString() : null;
+                if (matrixId is not null && name is not null)
+                {
+                    var isBrmble = prop.Value.TryGetProperty("isBrmbleClient", out var b) && b.GetBoolean();
+                    result[sid] = new SessionMappingEntry(matrixId, name, isBrmble);
+                }
+            }
+        }
+        return result;
+    }
 
     public string ServiceName => "mumble";
 
@@ -1192,16 +1220,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             if (credentials.Value.TryGetProperty("sessionMappings", out var sessionMappingsElement))
             {
                 _sessionMappings.Clear();
-                foreach (var prop in sessionMappingsElement.EnumerateObject())
-                {
-                    if (uint.TryParse(prop.Name, out var sid))
-                    {
-                        var matrixId = prop.Value.TryGetProperty("matrixUserId", out var m) ? m.GetString() : null;
-                        var name = prop.Value.TryGetProperty("mumbleName", out var n) ? n.GetString() : null;
-                        if (matrixId is not null && name is not null)
-                            _sessionMappings[sid] = new SessionMappingEntry(matrixId, name);
-                    }
-                }
+                foreach (var (sid, entry) in ParseSessionMappings(sessionMappingsElement))
+                    _sessionMappings[sid] = entry;
             }
 
             // The server returns its internal homeserverUrl (e.g. http://localhost:6167).
@@ -1222,6 +1242,38 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         {
             Debug.WriteLine($"[Matrix] Failed to fetch credentials: {ex.Message}");
             _bridge?.Send("voice.error", new { message = $"Failed to fetch chat credentials: {ex.Message}" });
+            _bridge?.NotifyUiThread();
+        }
+    }
+
+    private async Task GetRegisteredUsersAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_apiUrl))
+        {
+            _bridge?.Send("voice.registeredUsers", Array.Empty<object>());
+            _bridge?.NotifyUiThread();
+            return;
+        }
+
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            var response = await _healthHttpClient.GetAsync($"{_apiUrl.TrimEnd('/')}/admin/registered-users", cts.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                _bridge?.Send("voice.registeredUsers", Array.Empty<object>());
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            var json = await response.Content.ReadAsStringAsync();
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            _bridge?.Send("voice.registeredUsers", doc.RootElement);
+            _bridge?.NotifyUiThread();
+        }
+        catch
+        {
+            _bridge?.Send("voice.registeredUsers", Array.Empty<object>());
             _bridge?.NotifyUiThread();
         }
     }
@@ -1356,19 +1408,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     _sessionMappings.Clear();
                     if (root.TryGetProperty("mappings", out var mappings))
                     {
-                        foreach (var prop in mappings.EnumerateObject())
-                        {
-                            if (uint.TryParse(prop.Name, out var sid))
-                            {
-                                var matrixId = prop.Value.TryGetProperty("matrixUserId", out var m) ? m.GetString() : null;
-                                var name = prop.Value.TryGetProperty("mumbleName", out var n) ? n.GetString() : null;
-                                if (matrixId is not null && name is not null)
-                                {
-                                    var isBrmble = prop.Value.TryGetProperty("isBrmbleClient", out var b) && b.GetBoolean();
-                                    _sessionMappings[sid] = new SessionMappingEntry(matrixId, name, isBrmble);
-                                }
-                            }
-                        }
+                        foreach (var (sid, entry) in ParseSessionMappings(mappings))
+                            _sessionMappings[sid] = entry;
                     }
                     _bridge?.Send("voice.sessionMappingSnapshot",
                         new { mappings = _sessionMappings.ToDictionary(k => k.Key, k => new { k.Value.MatrixUserId, k.Value.MumbleName, k.Value.IsBrmbleClient }) });
@@ -1689,6 +1730,78 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 Session = LocalUser.Id,
                 Comment = comment
             });
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.getBans", data =>
+        {
+            if (Connection is not { State: ConnectionStates.Connected })
+            {
+                _bridge?.Send("voice.error", new { message = "Not connected", type = "notConnected" });
+                return Task.CompletedTask;
+            }
+
+            try
+            {
+                Volatile.Write(ref _pendingBanQuery, 1);
+                SendBanList(new BanList { Query = true });
+            }
+            catch (Exception ex)
+            {
+                _bridge?.Send("voice.error", new { message = $"Failed to get bans: {ex.Message}", type = "getBansFailed" });
+            }
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.unban", data =>
+        {
+            if (Connection is not { State: ConnectionStates.Connected })
+            {
+                _bridge?.Send("voice.error", new { message = "Not connected", type = "notConnected" });
+                return Task.CompletedTask;
+            }
+
+            if (!data.TryGetProperty("index", out var indexElement))
+            {
+                _bridge?.Send("voice.error", new { message = "Missing ban index", type = "invalidRequest" });
+                return Task.CompletedTask;
+            }
+
+            var index = indexElement.GetInt32();
+
+            BanList? cachedCopy;
+            lock (_banListLock)
+            {
+                if (_cachedBanList is null || index < 0 || index >= _cachedBanList.Bans.Count)
+                {
+                    _bridge?.Send("voice.error", new { message = "Invalid ban index", type = "invalidIndex" });
+                    return Task.CompletedTask;
+                }
+
+                cachedCopy = new BanList
+                {
+                    Query = false
+                };
+                cachedCopy.Bans.AddRange(_cachedBanList.Bans);
+                cachedCopy.Bans.RemoveAt(index);
+                _cachedBanList = cachedCopy;
+            }
+
+            try
+            {
+                SendBanList(cachedCopy);
+                _bridge?.Send("voice.unbanned", new { success = true, index });
+            }
+            catch (Exception ex)
+            {
+                _bridge?.Send("voice.error", new { message = $"Failed to unban: {ex.Message}", type = "unbanFailed" });
+            }
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.getRegisteredUsers", data =>
+        {
+            _ = GetRegisteredUsersAsync();
             return Task.CompletedTask;
         });
 
@@ -2330,6 +2443,41 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 permissions = permissionQuery.Permissions
             });
         }
+    }
+
+    public override void BanList(BanList banList)
+    {
+        base.BanList(banList);
+
+        bool shouldSendBans;
+        lock (_banListLock)
+        {
+            _cachedBanList = banList;
+            if (Volatile.Read(ref _pendingBanQuery) == 0)
+            {
+                shouldSendBans = false;
+            }
+            else
+            {
+                Volatile.Write(ref _pendingBanQuery, 0);
+                shouldSendBans = true;
+            }
+        }
+
+        if (!shouldSendBans)
+            return;
+
+        var banListPayload = banList.Bans.Select(b => new
+        {
+            address = new IPAddress(b.Address).ToString(),
+            bits = b.Mask,
+            name = b.Name,
+            hash = b.Hash,
+            reason = b.Reason,
+            start = b.Start,
+            duration = b.Duration
+        }).ToArray();
+        _bridge?.Send("voice.bans", banListPayload);
     }
 
     public override void EncodedVoice(byte[] data, uint userId, long sequence,

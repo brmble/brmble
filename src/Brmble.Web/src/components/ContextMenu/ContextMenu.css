@@ -132,6 +132,6 @@
 
 .context-menu-divider {
   height: 1px;
-  background: var(--border-subtle);
-  margin: 4px 8px;
+  background: var(--border-default);
+  margin: var(--space-2xs) var(--space-xs);
 }
