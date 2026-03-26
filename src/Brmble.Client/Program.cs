@@ -292,6 +292,7 @@ static class Program
                 {
                     _controller.CoreWebView2.NavigationCompleted -= onNavCompleted;
                     TryAutoConnect();
+                    _updateService?.SendVersion();
                     _updateService?.StartPeriodicChecks();
                 }
             };

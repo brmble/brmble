@@ -54,6 +54,17 @@ public class UpdateService : IService
     }
 
     /// <summary>
+    /// Sends the current app version to the frontend.
+    /// </summary>
+    public void SendVersion()
+    {
+        if (_bridge == null) return;
+
+        var version = _updateManager?.CurrentVersion?.ToString();
+        _bridge.Send("app.version", new { version = version ?? "dev" });
+    }
+
+    /// <summary>
     /// Starts periodic update checks. Call after bridge is ready.
     /// </summary>
     public void StartPeriodicChecks()
