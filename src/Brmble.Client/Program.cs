@@ -4,6 +4,7 @@ using System.IO;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using Microsoft.Web.WebView2.Core;
+using Velopack;
 using Brmble.Client.Bridge;
 using Brmble.Client.Services.Certificate;
 using Brmble.Client.Services.AppConfig;
@@ -68,6 +69,7 @@ static class Program
     {
         try
         {
+            VelopackApp.Build().Run();
             DevLog.Init();
 
             var useDevServer = IsDevServerRunning();
