@@ -267,16 +267,43 @@ function CleanlinessIcon() {
 
 interface BrmblegotchiWidgetProps {
   onOpenSettings?: () => void;
+  enabled?: boolean;
 }
 
-export function BrmblegotchiWidget({ onOpenSettings }: BrmblegotchiWidgetProps) {
+export function BrmblegotchiWidget({ onOpenSettings, enabled = true }: BrmblegotchiWidgetProps) {
+  if (!enabled) return null;
   const fingerprint = useProfileFingerprint();
   const stateKey = fingerprint ? `${STATE_KEY}_${fingerprint}` : STATE_KEY;
   const positionKey = fingerprint ? `${POSITION_KEY}_${fingerprint}` : POSITION_KEY;
 
-  const [isEnabled, setIsEnabled] = useState(true);
-  const [isVisible, setIsVisible] = useState(true);
-  const [petTheme, setPetTheme] = useState<PetTheme>('original');
+
+  const [petTheme, setPetTheme] = useState<PetTheme>(() => {
+    try {
+      const stored = localStorage.getItem(SETTINGS_KEY);
+      if (stored) {
+        const settings = JSON.parse(stored);
+        return settings.brmblegotchi?.theme ?? 'original';
+      }
+    } catch { /* empty */ }
+    return 'original';
+  });
+
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key !== SETTINGS_KEY) return;
+      try {
+        if (e.newValue) {
+          const settings = JSON.parse(e.newValue);
+          const theme = settings.brmblegotchi?.theme;
+          if (theme && theme !== petTheme) {
+            setPetTheme(theme as PetTheme);
+          }
+        }
+      } catch { /* empty */ }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, [petTheme]);
   const [showActions, setShowActions] = useState(false);
   const [position, setPosition] = useState(() => {
     try {
@@ -360,36 +387,7 @@ export function BrmblegotchiWidget({ onOpenSettings }: BrmblegotchiWidgetProps) 
   const dragStart = useRef({ mouseX: 0, mouseY: 0, right: 0, bottom: 0 });
   const widgetRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const checkSettings = () => {
-      try {
-        const stored = localStorage.getItem(SETTINGS_KEY);
-        if (stored) {
-          const settings = JSON.parse(stored);
-          const enabled = settings.brmblegotchi?.enabled ?? true;
-          const theme = settings.brmblegotchi?.theme ?? 'original';
-          setIsEnabled(prev => prev !== enabled ? enabled : prev);
-          setIsVisible(prev => prev !== enabled ? enabled : prev);
-          setPetTheme(prev => prev !== theme ? theme : prev);
-        }
-      } catch { /* empty */ }
-    };
-    const handleHide = () => {
-      try {
-        const stored = localStorage.getItem(SETTINGS_KEY);
-        const settings = stored ? JSON.parse(stored) : {};
-        settings.brmblegotchi = { ...settings.brmblegotchi, enabled: false };
-        localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-      } catch { /* empty */ }
-    };
-    checkSettings();
-    const interval = setInterval(checkSettings, 500);
-    window.addEventListener('brmblegotchi-hide', handleHide);
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('brmblegotchi-hide', handleHide);
-    };
-  }, []);
+
 
   useEffect(() => {
     if (growthState.stage === 'egg' || growthState.stage === 'ghost' || growthState.stage === 'adult') return;
@@ -716,7 +714,7 @@ export function BrmblegotchiWidget({ onOpenSettings }: BrmblegotchiWidgetProps) 
     return () => clearInterval(timerInterval);
   }, [growthState.stage, growthState.stageStartTime, petTheme]);
 
-  if (!isEnabled || !isVisible) return null;
+  
 
   const mood = getMood(petState.hunger, petState.happiness, petState.cleanliness);
   const showCleanliness = growthState.stage !== 'egg' && petTheme !== 'cat';

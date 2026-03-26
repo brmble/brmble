@@ -9,7 +9,9 @@ import { InterfaceSettingsTab } from './InterfaceSettingsTab';
 import { type AppearanceSettings, type OverlaySettings, type BrmblegotchiSettings, DEFAULT_APPEARANCE, DEFAULT_OVERLAY, DEFAULT_BRMBLEGOTCHI } from './InterfaceSettingsTypes';
 import { ConnectionSettingsTab, type ConnectionSettings } from './ConnectionSettingsTab';
 import { ProfileSettingsTab } from './ProfileSettingsTab';
+import { AdminSettingsTab } from './AdminSettingsTab';
 import { useServerlist } from '../../hooks/useServerlist';
+import { usePermissions, Permission } from '../../hooks/usePermissions';
 
 /** A flat map of every key binding in the app: bindingId → bound key code (or null). */
 export type AllBindings = Record<string, string | null>;
@@ -39,7 +41,9 @@ interface SettingsModalProps {
   };
   onUploadAvatar?: (blob: Blob, contentType: string) => void;
   onRemoveAvatar?: () => void;
-  initialTab?: 'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection';
+  initialTab?: 'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'admin';
+  brmblegotchiEnabled?: boolean;
+  setBrmblegotchiEnabled?: (enabled: boolean) => void;
 }
 
 interface AppSettings {
@@ -72,14 +76,17 @@ const DEFAULT_SETTINGS: AppSettings = {
 
 export function SettingsModal(props: SettingsModalProps) {
   const { isOpen, onClose, initialTab } = props;
-  const [activeTab, setActiveTab] = useState<'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection'>(initialTab ?? 'profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'admin'>(initialTab ?? 'profile');
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const { servers } = useServerlist();
+  const { hasPermission } = usePermissions();
+  const hasAdminPermission = hasPermission(0, Permission.Ban) || hasPermission(0, Permission.Kick);
 
   useEffect(() => {
     if (!isOpen) return;
-    setActiveTab(initialTab ?? 'profile');
-  }, [isOpen, initialTab]);
+    const effectiveTab = (initialTab === 'admin' && !hasAdminPermission) ? 'profile' : (initialTab ?? 'profile');
+    setActiveTab(effectiveTab);
+  }, [isOpen, initialTab, hasAdminPermission]);
 
   // Resolve registration name for the currently connected server
   const connectedRegisteredName = (() => {
@@ -127,7 +134,14 @@ export function SettingsModal(props: SettingsModalProps) {
         if (!validModes.includes(normalizedDenoise.mode)) {
           normalizedDenoise.mode = 'rnnoise';
         }
-        setSettings({ ...DEFAULT_SETTINGS, ...d.settings, speechDenoise: normalizedDenoise });
+        // Backend doesn't have brmblegotchi, so preserve existing/local value if missing
+        const mergedSettings = {
+          ...DEFAULT_SETTINGS,
+          ...d.settings,
+          brmblegotchi: d.settings.brmblegotchi ?? settings.brmblegotchi ?? DEFAULT_BRMBLEGOTCHI,
+          speechDenoise: normalizedDenoise,
+        };
+        setSettings(mergedSettings);
         if (d.settings.appearance?.theme) {
           applyTheme(d.settings.appearance.theme);
         }
@@ -281,8 +295,9 @@ export function SettingsModal(props: SettingsModalProps) {
   const handleBrmblegotchiChange = (brmblegotchi: BrmblegotchiSettings) => {
     const newSettings = { ...settings, brmblegotchi };
     setSettings(newSettings);
-    bridge.send('settings.set', { settings: newSettings });
-    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
+    if (props.setBrmblegotchiEnabled) {
+      props.setBrmblegotchiEnabled(!!brmblegotchi.enabled);
+    }
   };
 
   const handleSpeechDenoiseChange = (speechDenoise: SpeechDenoiseSettings) => {
@@ -352,6 +367,14 @@ export function SettingsModal(props: SettingsModalProps) {
           >
             Connection
           </button>
+          {hasAdminPermission && (
+            <button
+              className={`settings-tab ${activeTab === 'admin' ? 'active' : ''}`}
+              onClick={() => setActiveTab('admin')}
+            >
+              Admin
+            </button>
+          )}
 
         </div>
 
@@ -369,14 +392,16 @@ export function SettingsModal(props: SettingsModalProps) {
           {activeTab === 'shortcuts' && <ShortcutsSettingsTab settings={settings.shortcuts} onChange={handleShortcutsChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}
           {activeTab === 'messages' && <MessagesSettingsTab settings={settings.messages} onChange={handleMessagesChange} />}
           {activeTab === 'appearance' && (
-            <InterfaceSettingsTab 
-              appearanceSettings={settings.appearance || DEFAULT_APPEARANCE} 
-              overlaySettings={settings.overlay || DEFAULT_OVERLAY}
-              brmblegotchiSettings={settings.brmblegotchi || DEFAULT_BRMBLEGOTCHI}
-              onAppearanceChange={handleAppearanceChange} 
-              onOverlayChange={handleOverlayChange}
-              onBrmblegotchiChange={handleBrmblegotchiChange}
-            />
+      <InterfaceSettingsTab
+        appearanceSettings={settings.appearance}
+        overlaySettings={settings.overlay}
+        brmblegotchiSettings={settings.brmblegotchi}
+        brmblegotchiEnabled={props.brmblegotchiEnabled}
+        setBrmblegotchiEnabled={props.setBrmblegotchiEnabled}
+        onAppearanceChange={handleAppearanceChange}
+        onOverlayChange={handleOverlayChange}
+        onBrmblegotchiChange={handleBrmblegotchiChange}
+      />
           )}
           {activeTab === 'connection' && (
             <ConnectionSettingsTab
@@ -390,6 +415,7 @@ export function SettingsModal(props: SettingsModalProps) {
               servers={servers.map(s => ({ id: s.id, label: s.label }))}
             />
           )}
+          {activeTab === 'admin' && hasAdminPermission && <AdminSettingsTab />}
 
         </div>
 

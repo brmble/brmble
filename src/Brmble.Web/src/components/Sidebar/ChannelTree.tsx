@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
+import type { ContextMenuItem } from '../ContextMenu/ContextMenu';
 import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { UserTooltip } from '../UserTooltip/UserTooltip';
@@ -54,9 +55,14 @@ interface ChannelTreeProps {
 export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, speakingUsers, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, onEditAvatar, onMoveUser }: ChannelTreeProps) {
   const [sortByNamePerChannel, setSortByNamePerChannel] = useState<Record<number, boolean>>({});
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string; isSelf: boolean; channelId?: number } | null>(null);
+  const [channelContextMenu, setChannelContextMenu] = useState<{ x: number; y: number; channelId: number; channelName: string } | null>(null);
   const [infoDialogUser, setInfoDialogUser] = useState<{ userId: string; userName: string; isSelf: boolean } | null>(null);
   const [draggedUser, setDraggedUser] = useState<number | null>(null);
   const [dropTargetChannel, setDropTargetChannel] = useState<number | null>(null);
+  const [editChannelDialog, setEditChannelDialog] = useState<{ id: number; name: string } | null>(null);
+  const [addSubchannelDialog, setAddSubchannelDialog] = useState<{ parentId: number } | null>(null);
+  const [removeChannelDialog, setRemoveChannelDialog] = useState<{ id: number; name: string } | null>(null);
+  const [removeConfirmText, setRemoveConfirmText] = useState('');
   const { hasPermission, Permission, requestPermissions } = usePermissions();
 
   const canDragUsers = currentChannelId != null && hasPermission(currentChannelId, Permission.Move);
@@ -73,6 +79,13 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
       requestPermissions(contextMenu.channelId);
     }
   }, [contextMenu?.channelId, requestPermissions]);
+
+  useEffect(() => {
+    if (channelContextMenu?.channelId != null) {
+      requestPermissions(channelContextMenu.channelId);
+    }
+  }, [channelContextMenu?.channelId, requestPermissions]);
+
   const initialExpanded = useMemo(() => {
     const expanded = new Set<number>();
     channels.forEach(ch => {
@@ -179,10 +192,12 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     const unreadInfo = channelUnreads?.get(String(channel.id));
     const hasUnread = ((unreadInfo?.notificationCount ?? 0) + (unreadInfo?.highlightCount ?? 0)) > 0;
 
+    const isChannelActive = (channelId: number) => channelContextMenu?.channelId === channelId;
+
     return (
       <div key={channel.id} className={`channel-item${pendingChannelAction !== null ? ' channel-item--pending' : ''}`} data-level={level}>
         <div 
-          className={`channel-row ${isCurrentChannel ? 'current' : ''}${hasUnread ? ' channel-row--unread' : ''}${channel.users.length === 0 && !hasUnread ? ' channel-row--empty' : ''}${isFolder ? ' is-folder' : ''}${dropTargetChannel === channel.id ? ' channel-row--drop-target' : ''}`}
+          className={`channel-row ${isCurrentChannel ? 'current' : ''}${hasUnread ? ' channel-row--unread' : ''}${channel.users.length === 0 && !hasUnread ? ' channel-row--empty' : ''}${isFolder ? ' is-folder' : ''}${dropTargetChannel === channel.id ? ' channel-row--drop-target' : ''}${isChannelActive(channel.id) ? ' channel-row--context-active' : ''}`}
           style={{ paddingLeft: `calc(16px + ${level * 20}px)` }}
           role="button"
           tabIndex={0}
@@ -214,6 +229,13 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
             }
             setDraggedUser(null);
             setDropTargetChannel(null);
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (channel.id !== 0) {
+              setChannelContextMenu({ x: e.clientX, y: e.clientY, channelId: channel.id, channelName: channel.name });
+            }
           }}
         >
           <span 
@@ -340,6 +362,65 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     );
   };
 
+  const channelMenuItems = useMemo(() => {
+    if (!channelContextMenu) return [];
+
+    const items = [
+      {
+        type: 'item' as const,
+        label: 'Join',
+        onClick: () => {
+          onJoinChannel(channelContextMenu.channelId);
+          setChannelContextMenu(null);
+        },
+      },
+    ];
+
+    const hasEditPermission = hasPermission(channelContextMenu.channelId, Permission.MakeChannel);
+    const hasAddSubchannelPermission = hasPermission(channelContextMenu.channelId, Permission.MakeChannel);
+    const hasRemovePermission = hasPermission(channelContextMenu.channelId, Permission.Write);
+    const hasAdmin = hasEditPermission || hasAddSubchannelPermission || hasRemovePermission;
+
+    if (!hasAdmin) return items;
+
+    const adminItems = [];
+
+    if (hasEditPermission) {
+      adminItems.push({
+        type: 'item' as const,
+        label: 'Edit',
+        onClick: () => {
+          setEditChannelDialog({ id: channelContextMenu.channelId, name: channelContextMenu.channelName });
+          setChannelContextMenu(null);
+        },
+      });
+    }
+
+    if (hasAddSubchannelPermission) {
+      adminItems.push({
+        type: 'item' as const,
+        label: 'Add Subchannel',
+        onClick: () => {
+          setAddSubchannelDialog({ parentId: channelContextMenu.channelId });
+          setChannelContextMenu(null);
+        },
+      });
+    }
+
+    if (hasRemovePermission) {
+      adminItems.push({
+        type: 'item' as const,
+        label: 'Remove',
+        onClick: () => {
+          setRemoveChannelDialog({ id: channelContextMenu.channelId, name: channelContextMenu.channelName });
+          setChannelContextMenu(null);
+        },
+      });
+    }
+
+    return [...items, { type: 'divider' as const }, ...adminItems];
+  }, [channelContextMenu, hasPermission, onJoinChannel]);
+
   return (
     <div className="channel-tree">
       {tree.map(channel => renderChannel(channel))}
@@ -349,6 +430,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
           y={contextMenu.y}
           items={[
             ...(!contextMenu.isSelf && onStartDM ? [{
+              type: 'item' as const,
               label: 'Direct Message',
               icon: (
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -358,6 +440,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
               onClick: () => onStartDM(contextMenu.userId, contextMenu.userName),
             }] : []),
             {
+              type: 'item' as const,
               label: 'User Info',
               icon: (
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -369,6 +452,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
               onClick: () => setInfoDialogUser({ userId: contextMenu.userId, userName: contextMenu.userName, isSelf: contextMenu.isSelf }),
             },
             ...(contextMenu.isSelf && onEditAvatar ? [{
+              type: 'item' as const,
               label: 'Edit Profile',
               icon: (
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -379,6 +463,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
               onClick: () => onEditAvatar(),
             }] : []),
             ...(!contextMenu.isSelf ? [{
+              type: 'item' as const,
               label: (() => {
                 const isLocallyMuted = localStorage.getItem(`localMute_${contextMenu.userId}`) === 'true';
                 return isLocallyMuted ? 'Local Unmute' : 'Local Mute';
@@ -410,10 +495,11 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
               if (!hasAdminPermission) return [];
 
               const targetUser = users.find(u => u.session === parseInt(contextMenu.userId));
-              const adminItems = [];
+              const adminItems: ContextMenuItem[] = [];
 
               if (hasServerMutePermission) {
                 adminItems.push({
+                  type: 'item' as const,
                   label: targetUser?.muted ? 'Server Unmute' : 'Server Mute',
                   icon: (
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -427,6 +513,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
 
               if (hasMovePermission) {
                 adminItems.push({
+                  type: 'item' as const,
                   label: 'Move to Root',
                   icon: (
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -439,6 +526,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
 
               if (hasPrioritySpeakerPermission) {
                 adminItems.push({
+                  type: 'item' as const,
                   label: targetUser?.prioritySpeaker ? 'Remove Priority Speaker' : 'Priority Speaker',
                   icon: (
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -453,6 +541,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
 
               if (hasKickPermission) {
                 adminItems.push({
+                  type: 'item' as const,
                   label: 'Kick User',
                   icon: (
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -474,6 +563,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
 
               if (hasBanPermission) {
                 adminItems.push({
+                  type: 'item' as const,
                   label: 'Ban User',
                   icon: (
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -495,6 +585,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
               }
 
               return [{
+                type: 'item' as const,
                 label: 'Admin',
                 icon: (
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -524,6 +615,97 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
           />
         );
       })()}
+      {channelContextMenu && (
+        <ContextMenu
+          x={channelContextMenu.x}
+          y={channelContextMenu.y}
+          items={channelMenuItems}
+          onClose={() => setChannelContextMenu(null)}
+        />
+      )}
+      {editChannelDialog && (
+        <div className="modal-overlay" onClick={() => setEditChannelDialog(null)}>
+          <div
+            className="prompt glass-panel animate-slide-up"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <h2 className="heading-title modal-title">Edit Channel</h2>
+              <p className="modal-subtitle">Channel editing coming soon</p>
+            </div>
+            <div className="prompt-footer">
+              <button className="btn btn-primary" onClick={() => setEditChannelDialog(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {addSubchannelDialog && (
+        <div className="modal-overlay" onClick={() => setAddSubchannelDialog(null)}>
+          <div
+            className="prompt glass-panel animate-slide-up"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <h2 className="heading-title modal-title">Add Subchannel</h2>
+              <p className="modal-subtitle">Subchannel creation coming soon</p>
+            </div>
+            <div className="prompt-footer">
+              <button className="btn btn-primary" onClick={() => setAddSubchannelDialog(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {removeChannelDialog && (
+        <div className="modal-overlay" onClick={() => setRemoveChannelDialog(null)}>
+          <div
+            className="prompt glass-panel animate-slide-up"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <h2 className="heading-title modal-title">Remove Channel</h2>
+              <p className="modal-subtitle">
+                Are you sure you want to remove "{removeChannelDialog.name}"?
+              </p>
+            </div>
+            <div className="prompt-input-container">
+              <input
+                type="text"
+                className="brmble-input"
+                placeholder='Type "Remove" to confirm'
+                onChange={(e) => setRemoveConfirmText(e.target.value)}
+              />
+            </div>
+            <div className="prompt-footer">
+              <button className="btn btn-secondary" onClick={() => setRemoveChannelDialog(null)}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                disabled={removeConfirmText !== 'Remove'}
+                onClick={() => {
+                  bridge.send('voice.removeChannel', { channelId: removeChannelDialog.id });
+                  setRemoveChannelDialog(null);
+                  setRemoveConfirmText('');
+                }}
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

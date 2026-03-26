@@ -3,12 +3,12 @@ import './ContextMenu.css';
 
 const MOUSE_LEAVE_CLOSE_DELAY = 400;
 
-interface ContextMenuItem {
-  label: string;
-  onClick?: () => void;
-  icon?: React.ReactNode;
-  disabled?: boolean;
-  children?: ContextMenuItem[];
+type ContextMenuItem =
+  | { type: 'divider' }
+  | { type: 'item'; label: string; onClick?: () => void; icon?: React.ReactNode; disabled?: boolean; children?: ContextMenuItem[] };
+
+function isDivider(item: ContextMenuItem): item is { type: 'divider' } {
+  return item.type === 'divider';
 }
 
 interface ContextMenuProps {
@@ -27,7 +27,7 @@ interface MenuItemProps {
   onItemClick: (item: ContextMenuItem) => void;
 }
 
-function Submenu({ item, depth, onItemClick }: { item: ContextMenuItem; depth: number; onItemClick: (item: ContextMenuItem) => void }) {
+function Submenu({ item, depth, onItemClick }: { item: { type: 'item'; children?: ContextMenuItem[] }; depth: number; onItemClick: (item: ContextMenuItem) => void }) {
   const submenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -41,17 +41,35 @@ function Submenu({ item, depth, onItemClick }: { item: ContextMenuItem; depth: n
 
   return (
     <div ref={submenuRef} className={`context-submenu context-submenu--depth-${depth}`}>
-      {item.children!.map((child, index) => (
+      {item.children?.map((child: ContextMenuItem, index: number) => (
         <MenuItem key={index} item={child} depth={depth} onItemClick={onItemClick} />
       ))}
     </div>
   );
 }
 
+function isMenuItem(item: ContextMenuItem): item is { type: 'item'; label: string; onClick?: () => void; icon?: React.ReactNode; disabled?: boolean; children?: ContextMenuItem[] } {
+  return item.type === 'item';
+}
+
 function MenuItem({ item, depth, onItemClick }: MenuItemProps) {
+  if (isDivider(item)) {
+    return (
+      <div className="context-menu-divider" role="separator" aria-orientation="horizontal" />
+    );
+  }
+
+  if (!isMenuItem(item)) {
+    return null;
+  }
+
   const hasChildren = item.children && item.children.length > 0;
   const isDisabled = item.disabled;
   const [isFocused, setIsFocused] = useState(false);
+
+  if (item.isDivider) {
+    return <div key={depth} className="context-menu-divider" />;
+  }
 
   return (
     <div className="context-menu-item-wrapper">
@@ -138,7 +156,9 @@ export function ContextMenu({ x, y, items, onClose, mouseLeaveDelay = MOUSE_LEAV
   };
 
   const handleItemClick = (item: ContextMenuItem) => {
-    if (item.onClick) item.onClick();
+    if (isMenuItem(item) && item.onClick) {
+      item.onClick();
+    }
     onClose();
   };
 

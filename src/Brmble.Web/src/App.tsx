@@ -4,6 +4,7 @@ import type { ConnectionStatus } from './types';
 import { useMatrixClient } from './hooks/useMatrixClient';
 import type { MatrixCredentials } from './hooks/useMatrixClient';
 import { useScreenShare } from './hooks/useScreenShare';
+import { useLeaveVoiceCooldown } from './hooks/useLeaveVoiceCooldown';
 import { useUnreadTracker, resetMarkersCache } from './hooks/useUnreadTracker';
 import { useServiceStatus } from './hooks/useServiceStatus';
 import { useServerHealth } from './hooks/useServerHealth';
@@ -128,6 +129,29 @@ interface User {
 
 
 function App() {
+  // --- Brmblegotchi settings state ---
+  const [brmblegotchiEnabled, setBrmblegotchiEnabledState] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem('brmble-settings');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return parsed.brmblegotchi?.enabled ?? true;
+      }
+    } catch { /* ignore */ }
+    return true;
+  });
+  const setBrmblegotchiEnabled = useCallback((enabled: boolean) => {
+    setBrmblegotchiEnabledState(enabled);
+    try {
+      const stored = localStorage.getItem('brmble-settings');
+      const parsed = stored ? JSON.parse(stored) : {};
+      parsed.brmblegotchi = parsed.brmblegotchi || {};
+      parsed.brmblegotchi.enabled = enabled;
+      localStorage.setItem('brmble-settings', JSON.stringify(parsed));
+    } catch { /* ignore */ }
+  }, []);
+  // --- end Brmblegotchi settings state ---
+
   // null = status not yet received, false = no cert, true = cert exists
   const [certExists, setCertExists] = useState<boolean | null>(null);
   const [certFingerprint, setCertFingerprint] = useState('');
@@ -1334,14 +1358,22 @@ const handleConnect = (serverData: SavedServer) => {
   };
 
   const handleToggleMute = () => {
+    if (muteOnCooldown) return;
+    triggerMuteCooldown();
     bridge.send('voice.toggleMute', {});
   };
 
   const handleToggleDeaf = () => {
+    if (deafOnCooldown) return;
+    triggerDeafCooldown();
     bridge.send('voice.toggleDeaf', {});
   };
 
   const handleLeaveVoice = async () => {
+    if (leaveVoiceOnCooldown) return;
+
+    triggerLeaveVoiceCooldown();
+
     if (isSharing) {
       const shouldStop = await confirm({
         title: 'Screen share active',
@@ -1424,6 +1456,10 @@ const handleConnect = (serverData: SavedServer) => {
     userName: string;
     roomName: string;
   } | null>(null);
+
+  const { isOnCooldown: leaveVoiceOnCooldown, trigger: triggerLeaveVoiceCooldown } = useLeaveVoiceCooldown(1000);
+  const { isOnCooldown: muteOnCooldown, trigger: triggerMuteCooldown } = useLeaveVoiceCooldown(1000);
+  const { isOnCooldown: deafOnCooldown, trigger: triggerDeafCooldown } = useLeaveVoiceCooldown(1000);
 
   const handleDismissToast = useCallback(() => setScreenShareToast(null), []);
 
@@ -1656,6 +1692,9 @@ const handleConnect = (serverData: SavedServer) => {
         speaking={speakingUsers.has(selfSession) || false}
         pendingChannelAction={pendingChannelAction}
         hotkeyPressedBtn={hotkeyPressedBtn}
+        leaveVoiceOnCooldown={leaveVoiceOnCooldown}
+        muteOnCooldown={muteOnCooldown}
+        deafOnCooldown={deafOnCooldown}
         onToggleGame={() => setShowGame(prev => !prev)}
       />
       </ErrorBoundary>
@@ -1782,13 +1821,11 @@ const handleConnect = (serverData: SavedServer) => {
         initialTab={settingsTab}
         username={username}
         connected={connected}
-        currentUser={{
-          name: username ?? 'Unknown',
-          matrixUserId: matrixCredentials?.userId,
-          avatarUrl: currentUserAvatarUrl,
-        }}
+<        currentUser={{ name: username || 'Unknown', matrixUserId: matrixCredentials?.userId, avatarUrl: currentUserAvatarUrl }}
         onUploadAvatar={onUploadAvatar}
         onRemoveAvatar={onRemoveAvatar}
+        brmblegotchiEnabled={brmblegotchiEnabled}
+        setBrmblegotchiEnabled={setBrmblegotchiEnabled}
       />
 
       <AvatarEditorModal
@@ -1830,7 +1867,7 @@ const handleConnect = (serverData: SavedServer) => {
 
       <ZoomIndicator />
       <Version />
-      <Brmblegotchi onOpenSettings={() => { setSettingsTab('appearance'); setShowSettings(true); }} />
+      <Brmblegotchi enabled={brmblegotchiEnabled} onOpenSettings={() => { setSettingsTab('appearance'); setShowSettings(true); }} />
       </ProfileProvider>
     </div>
   );
