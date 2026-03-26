@@ -1805,7 +1805,7 @@ const handleConnect = (serverData: SavedServer) => {
         initialTab={settingsTab}
         username={username}
         connected={connected}
-        currentUser={{ name: username, matrixUserId: matrixCredentials?.userId, avatarUrl: currentUserAvatarUrl }}
+        currentUser={{ name: username || 'Unknown', matrixUserId: matrixCredentials?.userId, avatarUrl: currentUserAvatarUrl }}
         onUploadAvatar={onUploadAvatar}
         onRemoveAvatar={onRemoveAvatar}
         brmblegotchiEnabled={brmblegotchiEnabled}
