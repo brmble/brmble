@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ChannelTree } from './ChannelTree';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
+import type { ContextMenuItem } from '../ContextMenu/ContextMenu';
 import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
 import { UserTooltip } from '../UserTooltip/UserTooltip';
 import { Tooltip } from '../Tooltip/Tooltip';
@@ -324,6 +325,7 @@ export function Sidebar({
           y={contextMenu.y}
           items={[
             ...(!contextMenu.isSelf && onStartDM ? [{
+              type: 'item' as const,
               label: 'Direct Message',
               icon: (
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -333,6 +335,7 @@ export function Sidebar({
               onClick: () => onStartDM(contextMenu.userId, contextMenu.userName),
             }] : []),
             {
+              type: 'item' as const,
               label: 'User Info',
               icon: (
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -344,6 +347,7 @@ export function Sidebar({
               onClick: () => setInfoDialogUser({ userId: contextMenu.userId, userName: contextMenu.userName, isSelf: contextMenu.isSelf }),
             },
             ...(contextMenu.isSelf && onEditAvatar ? [{
+              type: 'item' as const,
               label: 'Edit Profile',
               icon: (
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -354,6 +358,7 @@ export function Sidebar({
               onClick: () => onEditAvatar(),
             }] : []),
             ...(!contextMenu.isSelf ? [{
+              type: 'item' as const,
               label: (() => {
                 const isLocallyMuted = localStorage.getItem(`localMute_${contextMenu.userId}`) === 'true';
                 return isLocallyMuted ? 'Local Unmute' : 'Local Mute';
@@ -384,10 +389,11 @@ export function Sidebar({
               if (!hasAdminPermission) return [];
 
               const targetUser = rootUsers.find(u => u.session === parseInt(contextMenu.userId));
-              const adminItems = [];
+              const adminItems: ContextMenuItem[] = [];
 
               if (hasServerMutePermission) {
                 adminItems.push({
+                  type: 'item' as const,
                   label: targetUser?.muted ? 'Server Unmute' : 'Server Mute',
                   icon: (
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -401,6 +407,7 @@ export function Sidebar({
 
               if (hasMovePermission) {
                 adminItems.push({
+                  type: 'item' as const,
                   label: 'Move to Root',
                   icon: (
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -413,6 +420,7 @@ export function Sidebar({
 
               if (hasPrioritySpeakerPermission) {
                 adminItems.push({
+                  type: 'item' as const,
                   label: targetUser?.prioritySpeaker ? 'Remove Priority Speaker' : 'Priority Speaker',
                   icon: (
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -427,6 +435,7 @@ export function Sidebar({
 
               if (hasKickPermission) {
                 adminItems.push({
+                  type: 'item' as const,
                   label: 'Kick User',
                   icon: (
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -448,6 +457,7 @@ export function Sidebar({
 
               if (hasBanPermission) {
                 adminItems.push({
+                  type: 'item' as const,
                   label: 'Ban User',
                   icon: (
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -469,6 +479,7 @@ export function Sidebar({
               }
 
               return [{
+                type: 'item' as const,
                 label: 'Admin',
                 icon: (
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

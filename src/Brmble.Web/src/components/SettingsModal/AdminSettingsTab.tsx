@@ -46,6 +46,27 @@ export function AdminSettingsTab() {
     bridge.send('voice.getBans');
   };
 
+  const handleUnban = async (index: number) => {
+    const ban = bans[index];
+    const confirmed = await confirm({
+      title: 'Unban User',
+      message: `Are you sure you want to unban ${ban.name || ban.address}?`,
+      confirmLabel: 'Unban',
+    });
+    if (!confirmed) return;
+    bridge.send('voice.unban', { index });
+  };
+
+  useEffect(() => {
+    const unbannedHandler = () => {
+      loadBans();
+    };
+    bridge.on('voice.unbanned', unbannedHandler);
+    return () => {
+      bridge.off('voice.unbanned', unbannedHandler);
+    };
+  }, []);
+
   const formatExpiry = (start: number, duration: number): string => {
     if (duration === 0) return 'Permanent';
     const expiry = start + duration;

@@ -4,6 +4,7 @@ import type { ConnectionStatus } from './types';
 import { useMatrixClient } from './hooks/useMatrixClient';
 import type { MatrixCredentials } from './hooks/useMatrixClient';
 import { useScreenShare } from './hooks/useScreenShare';
+import { useLeaveVoiceCooldown } from './hooks/useLeaveVoiceCooldown';
 import { useUnreadTracker, resetMarkersCache } from './hooks/useUnreadTracker';
 import { useServiceStatus } from './hooks/useServiceStatus';
 import { useServerHealth } from './hooks/useServerHealth';
@@ -1357,14 +1358,22 @@ const handleConnect = (serverData: SavedServer) => {
   };
 
   const handleToggleMute = () => {
+    if (muteOnCooldown) return;
+    triggerMuteCooldown();
     bridge.send('voice.toggleMute', {});
   };
 
   const handleToggleDeaf = () => {
+    if (deafOnCooldown) return;
+    triggerDeafCooldown();
     bridge.send('voice.toggleDeaf', {});
   };
 
   const handleLeaveVoice = async () => {
+    if (leaveVoiceOnCooldown) return;
+
+    triggerLeaveVoiceCooldown();
+
     if (isSharing) {
       const shouldStop = await confirm({
         title: 'Screen share active',
@@ -1447,6 +1456,10 @@ const handleConnect = (serverData: SavedServer) => {
     userName: string;
     roomName: string;
   } | null>(null);
+
+  const { isOnCooldown: leaveVoiceOnCooldown, trigger: triggerLeaveVoiceCooldown } = useLeaveVoiceCooldown(1000);
+  const { isOnCooldown: muteOnCooldown, trigger: triggerMuteCooldown } = useLeaveVoiceCooldown(1000);
+  const { isOnCooldown: deafOnCooldown, trigger: triggerDeafCooldown } = useLeaveVoiceCooldown(1000);
 
   const handleDismissToast = useCallback(() => setScreenShareToast(null), []);
 
@@ -1679,6 +1692,9 @@ const handleConnect = (serverData: SavedServer) => {
         speaking={speakingUsers.has(selfSession) || false}
         pendingChannelAction={pendingChannelAction}
         hotkeyPressedBtn={hotkeyPressedBtn}
+        leaveVoiceOnCooldown={leaveVoiceOnCooldown}
+        muteOnCooldown={muteOnCooldown}
+        deafOnCooldown={deafOnCooldown}
         onToggleGame={() => setShowGame(prev => !prev)}
       />
       </ErrorBoundary>
