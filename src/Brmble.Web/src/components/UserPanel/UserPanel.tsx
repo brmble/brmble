@@ -27,9 +27,11 @@ interface UserPanelProps {
   pendingChannelAction?: number | 'leave' | null;
   hotkeyPressedBtn?: string | null;
   leaveVoiceOnCooldown?: boolean;
+  muteOnCooldown?: boolean;
+  deafOnCooldown?: boolean;
 }
 
-export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, onAvatarClick, avatarUrl, matrixUserId, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, screenSharing, screenShareError, onToggleScreenShare, canScreenShare, speaking, pendingChannelAction, hotkeyPressedBtn, leaveVoiceOnCooldown }: UserPanelProps) {
+export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, onAvatarClick, avatarUrl, matrixUserId, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, screenSharing, screenShareError, onToggleScreenShare, canScreenShare, speaking, pendingChannelAction, hotkeyPressedBtn, leaveVoiceOnCooldown, muteOnCooldown, deafOnCooldown }: UserPanelProps) {
   const [pressedBtn, setPressedBtn] = useState<string | null>(null);
   const activeBtn = hotkeyPressedBtn || pressedBtn;
 
@@ -73,15 +75,13 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
         <Tooltip content={leftVoice ? 'Rejoin Voice' : 'Leave Voice'} position="bottom" align="start">
         <span className="tooltip-wrapper">
         <button 
-          className={`btn btn-ghost btn-icon user-panel-btn leave-voice-btn ${leftVoice ? 'active' : ''} ${activeBtn === 'leave' ? 'pressed' : ''} ${(!!leftVoice && !canRejoin) || pendingChannelAction !== null || leaveVoiceOnCooldown ? 'disabled' : ''} ${leaveVoiceOnCooldown ? 'on-cooldown' : ''}`}
+          className={`btn btn-ghost btn-icon user-panel-btn leave-voice-btn ${leftVoice ? 'active' : ''} ${activeBtn === 'leave' ? 'pressed' : ''} ${(!!leftVoice && !canRejoin) || pendingChannelAction !== null || leaveVoiceOnCooldown ? 'disabled' : ''}`}
           onMouseDown={handleMouseDown('leave')}
           onMouseUp={handleMouseUp('leave', onLeaveVoice)}
           onMouseLeave={handleMouseLeave}
           onKeyDown={handleKeyDown('leave')}
           onKeyUp={handleKeyUp('leave', onLeaveVoice)}
           disabled={(!!leftVoice && !canRejoin) || pendingChannelAction !== null || leaveVoiceOnCooldown}
-          aria-disabled={leaveVoiceOnCooldown}
-          aria-label={leaveVoiceOnCooldown ? 'Leave Voice (cooldown)' : (leftVoice ? 'Rejoin Voice' : 'Leave Voice')}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"></path>
@@ -96,13 +96,13 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
         <Tooltip content={deafened ? 'Undeafen' : 'Deafen'} position="bottom" align="start">
         <span className="tooltip-wrapper">
         <button 
-          className={`btn btn-ghost btn-icon user-panel-btn deaf-btn ${(deafened || leftVoice) ? 'active' : ''} ${activeBtn === 'deaf' ? 'pressed' : ''} ${leftVoice ? 'disabled' : ''}`}
+          className={`btn btn-ghost btn-icon user-panel-btn deaf-btn ${(deafened || leftVoice) ? 'active' : ''} ${activeBtn === 'deaf' ? 'pressed' : ''} ${leftVoice || deafOnCooldown ? 'disabled' : ''}`}
           onMouseDown={handleMouseDown('deaf')}
           onMouseUp={handleMouseUp('deaf', onToggleDeaf)}
           onMouseLeave={handleMouseLeave}
           onKeyDown={handleKeyDown('deaf')}
           onKeyUp={handleKeyUp('deaf', onToggleDeaf)}
-          disabled={leftVoice}
+          disabled={leftVoice || deafOnCooldown}
         >
           {(deafened || leftVoice) ? (
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -127,13 +127,13 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
         <Tooltip content={muted ? 'Unmute' : deafened ? 'Muted (deafened)' : 'Mute'} position="bottom" align="start">
         <span className="tooltip-wrapper">
         <button 
-          className={`btn btn-ghost btn-icon user-panel-btn mute-btn ${(muted || leftVoice || deafened) ? 'active' : ''} ${activeBtn === 'mute' ? 'pressed' : ''} ${(leftVoice || deafened) ? 'disabled' : ''}`}
+          className={`btn btn-ghost btn-icon user-panel-btn mute-btn ${(muted || leftVoice || deafened) ? 'active' : ''} ${activeBtn === 'mute' ? 'pressed' : ''} ${(leftVoice || deafened || muteOnCooldown) ? 'disabled' : ''}`}
           onMouseDown={handleMouseDown('mute')}
           onMouseUp={handleMouseUp('mute', onToggleMute)}
           onMouseLeave={handleMouseLeave}
           onKeyDown={handleKeyDown('mute')}
           onKeyUp={handleKeyUp('mute', onToggleMute)}
-          disabled={leftVoice || deafened}
+          disabled={leftVoice || deafened || muteOnCooldown}
         >
           {(muted || leftVoice || deafened) ? (
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

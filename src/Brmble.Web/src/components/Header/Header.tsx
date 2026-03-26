@@ -28,9 +28,11 @@ interface HeaderProps {
   hotkeyPressedBtn?: string | null;
   onToggleGame?: () => void;
   leaveVoiceOnCooldown?: boolean;
+  muteOnCooldown?: boolean;
+  deafOnCooldown?: boolean;
 }
 
-export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, onAvatarClick, avatarUrl, matrixUserId, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, screenSharing, screenShareError, onToggleScreenShare, canScreenShare, speaking, pendingChannelAction, hotkeyPressedBtn, onToggleGame, leaveVoiceOnCooldown }: HeaderProps) {
+export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, onAvatarClick, avatarUrl, matrixUserId, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, screenSharing, screenShareError, onToggleScreenShare, canScreenShare, speaking, pendingChannelAction, hotkeyPressedBtn, onToggleGame, leaveVoiceOnCooldown, muteOnCooldown, deafOnCooldown }: HeaderProps) {
   return (
     <header className="header">
       <div className="header-left">
@@ -63,6 +65,8 @@ export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSe
           pendingChannelAction={pendingChannelAction}
           hotkeyPressedBtn={hotkeyPressedBtn}
           leaveVoiceOnCooldown={leaveVoiceOnCooldown}
+          muteOnCooldown={muteOnCooldown}
+          deafOnCooldown={deafOnCooldown}
         />
       </div>
 

@@ -121,35 +121,6 @@
   background: var(--accent-primary-wash);
 }
 
-.leave-voice-btn.on-cooldown {
-  position: relative;
-}
-
-.leave-voice-btn.on-cooldown::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: conic-gradient(
-    var(--accent-danger) 0deg,
-    var(--accent-danger) var(--cooldown-progress, 0deg),
-    transparent var(--cooldown-progress, 0deg),
-    transparent 360deg
-  );
-  opacity: 0.3;
-  pointer-events: none;
-  animation: cooldown-pie 1s linear forwards;
-}
-
-@keyframes cooldown-pie {
-  from {
-    --cooldown-progress: 0deg;
-  }
-  to {
-    --cooldown-progress: 360deg;
-  }
-}
-
 .user-panel-btn.leave-voice-btn.pressed {
   color: var(--accent-secondary);
   background: var(--accent-secondary-subtle);
