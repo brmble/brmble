@@ -49,7 +49,6 @@ app.MapAuthEndpoints();
 app.Map("/ws", BrmbleWebSocketHandler.HandleAsync);
 app.MapServerInfoEndpoints();
 app.MapLiveKitEndpoints();
-app.MapMumbleAdminEndpoints();
 app.MapReverseProxy();
 
 app.Run();
