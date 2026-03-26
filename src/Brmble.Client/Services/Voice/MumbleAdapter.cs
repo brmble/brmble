@@ -1251,6 +1251,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (string.IsNullOrWhiteSpace(_apiUrl))
         {
             _bridge?.Send("voice.registeredUsers", Array.Empty<object>());
+            _bridge?.NotifyUiThread();
             return;
         }
 
@@ -1261,16 +1262,19 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             if (!response.IsSuccessStatusCode)
             {
                 _bridge?.Send("voice.registeredUsers", Array.Empty<object>());
+                _bridge?.NotifyUiThread();
                 return;
             }
 
             var json = await response.Content.ReadAsStringAsync();
             using var doc = System.Text.Json.JsonDocument.Parse(json);
             _bridge?.Send("voice.registeredUsers", doc.RootElement);
+            _bridge?.NotifyUiThread();
         }
         catch
         {
             _bridge?.Send("voice.registeredUsers", Array.Empty<object>());
+            _bridge?.NotifyUiThread();
         }
     }
 
@@ -2444,15 +2448,25 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     public override void BanList(BanList banList)
     {
         base.BanList(banList);
+
+        bool shouldSendBans;
         lock (_banListLock)
         {
             _cachedBanList = banList;
+            if (Volatile.Read(ref _pendingBanQuery) == 0)
+            {
+                shouldSendBans = false;
+            }
+            else
+            {
+                Volatile.Write(ref _pendingBanQuery, 0);
+                shouldSendBans = true;
+            }
         }
 
-        if (Volatile.Read(ref _pendingBanQuery) == 0)
+        if (!shouldSendBans)
             return;
 
-        Volatile.Write(ref _pendingBanQuery, 0);
         var banListPayload = banList.Bans.Select(b => new
         {
             address = new IPAddress(b.Address).ToString(),
