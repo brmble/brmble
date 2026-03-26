@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { createClient, RoomEvent, ClientEvent, EventType, MsgType, Preset, KnownMembership } from 'matrix-js-sdk';
+import { createClient, RoomEvent, ClientEvent, EventType, MsgType, KnownMembership } from 'matrix-js-sdk';
 import type { MatrixClient, MatrixEvent, Room } from 'matrix-js-sdk';
 import type { ChatMessage, MediaAttachment } from '../types';
 import { useServiceStatus } from './useServiceStatus';
+import bridge from '../bridge';
 
 /** Insert a message into a chronologically sorted array, deduplicating by id. Returns the same array if already present. */
 function insertMessage(existing: ChatMessage[], msg: ChatMessage): ChatMessage[] {
@@ -28,6 +29,7 @@ export interface MatrixCredentials {
   accessToken: string;
   userId: string;
   roomMap: Record<string, string>; // mumbleChannelId → matrixRoomId
+  dmRoomMap?: Record<string, string>; // matrixUserId → matrixRoomId (from server)
 }
 
 export function useMatrixClient(credentials: MatrixCredentials | null) {
@@ -236,6 +238,15 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
             refreshDMRoomMaps(directEvent.getContent() as Record<string, string[]>);
           }
 
+          // Merge server-provided DM room mappings (authoritative, takes priority)
+          if (credentials.dmRoomMap) {
+            for (const [userId, roomId] of Object.entries(credentials.dmRoomMap)) {
+              dmRoomMapRef.current = new Map(dmRoomMapRef.current).set(userId, roomId);
+              roomIdToDMUserIdRef.current = new Map(roomIdToDMUserIdRef.current).set(roomId, userId);
+            }
+            setDmRoomMap(new Map(dmRoomMapRef.current));
+          }
+
           // Replay any DM timeline events that arrived before room maps were ready
           for (const { room, event } of bufferedDmEvents) {
             onTimeline(event, room);
@@ -413,37 +424,42 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     let roomId = dmRoomMapRef.current.get(targetMatrixUserId);
 
     if (!roomId) {
-      // Check if a room creation is already in flight for this user
+      // Check if a room resolution is already in flight for this user
       const pending = pendingRoomCreations.current.get(targetMatrixUserId);
       if (pending) {
         roomId = await pending;
       } else {
-        // Create room with mutex
-        const createPromise = (async () => {
-          const createResult = await client.createRoom({
-            is_direct: true,
-            invite: [targetMatrixUserId],
-            preset: Preset.TrustedPrivateChat,
-          });
-          const newRoomId = createResult.room_id;
+        // Request room from server via bridge (server creates if needed)
+        const resolvePromise = new Promise<string>((resolve, reject) => {
+          const onResolved = (data: unknown) => {
+            const d = data as { targetMatrixUserId?: string; roomId?: string };
+            if (d?.targetMatrixUserId === targetMatrixUserId && d?.roomId) {
+              bridge.off('dm.roomResolved', onResolved);
+              bridge.off('dm.roomError', onError);
+              resolve(d.roomId);
+            }
+          };
+          const onError = (data: unknown) => {
+            const d = data as { targetMatrixUserId?: string; error?: string };
+            if (d?.targetMatrixUserId === targetMatrixUserId) {
+              bridge.off('dm.roomResolved', onResolved);
+              bridge.off('dm.roomError', onError);
+              reject(new Error(d?.error || 'Failed to get DM room'));
+            }
+          };
+          bridge.on('dm.roomResolved', onResolved);
+          bridge.on('dm.roomError', onError);
+          bridge.send('dm.getOrCreateRoom', { targetMatrixUserId });
+        });
 
-          // Update m.direct account data
-          const directEvent = client.getAccountData(EventType.Direct);
-          const directContent = (directEvent?.getContent() ?? {}) as Record<string, string[]>;
-          directContent[targetMatrixUserId] = [newRoomId, ...(directContent[targetMatrixUserId] ?? [])];
-          await client.setAccountData(EventType.Direct, directContent);
+        pendingRoomCreations.current.set(targetMatrixUserId, resolvePromise);
+        try {
+          roomId = await resolvePromise;
 
           // Update local maps
-          setDmRoomMap(prev => new Map(prev).set(targetMatrixUserId, newRoomId));
-          dmRoomMapRef.current = new Map(dmRoomMapRef.current).set(targetMatrixUserId, newRoomId);
-          roomIdToDMUserIdRef.current = new Map(roomIdToDMUserIdRef.current).set(newRoomId, targetMatrixUserId);
-
-          return newRoomId;
-        })();
-
-        pendingRoomCreations.current.set(targetMatrixUserId, createPromise);
-        try {
-          roomId = await createPromise;
+          setDmRoomMap(prev => new Map(prev).set(targetMatrixUserId, roomId!));
+          dmRoomMapRef.current = new Map(dmRoomMapRef.current).set(targetMatrixUserId, roomId);
+          roomIdToDMUserIdRef.current = new Map(roomIdToDMUserIdRef.current).set(roomId, targetMatrixUserId);
         } finally {
           pendingRoomCreations.current.delete(targetMatrixUserId);
         }

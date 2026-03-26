@@ -1883,6 +1883,54 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 _bridge?.NotifyUiThread();
             }
         });
+
+        bridge.RegisterHandler("dm.getOrCreateRoom", async data =>
+        {
+            var targetMatrixUserId = data.TryGetProperty("targetMatrixUserId", out var t) ? t.GetString() : null;
+            if (string.IsNullOrWhiteSpace(targetMatrixUserId) || _apiUrl is null)
+            {
+                _bridge?.Send("dm.roomError", new { targetMatrixUserId = targetMatrixUserId ?? "", error = "Not connected or missing targetMatrixUserId" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            using var cert = _certService?.GetExportableCertificate();
+            if (cert is null)
+            {
+                _bridge?.Send("dm.roomError", new { targetMatrixUserId, error = "No client certificate" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            try
+            {
+                var baseUri = new Uri(_apiUrl, UriKind.Absolute);
+                var uri = new Uri(baseUri, "dm/room");
+                var jsonBody = System.Text.Json.JsonSerializer.Serialize(new { targetMatrixUserId });
+                var result = await PostViaBcTls(cert, uri, jsonBody);
+
+                if (result.Success && result.Body is not null)
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(result.Body);
+                    var roomId = doc.RootElement.TryGetProperty("roomId", out var r) ? r.GetString() : null;
+                    if (roomId is not null)
+                    {
+                        _bridge?.Send("dm.roomResolved", new { targetMatrixUserId, roomId });
+                        _bridge?.NotifyUiThread();
+                        return;
+                    }
+                }
+
+                _bridge?.Send("dm.roomError", new { targetMatrixUserId, error = result.Error ?? "Failed to get DM room" });
+                _bridge?.NotifyUiThread();
+            }
+            catch (Exception ex)
+            {
+                LogToFile($"[DM] Failed to get/create DM room for {targetMatrixUserId}: {ex.Message}");
+                _bridge?.Send("dm.roomError", new { targetMatrixUserId, error = ex.Message });
+                _bridge?.NotifyUiThread();
+            }
+        });
     }
 
     public void SetUserVolume(uint session, int volume)
