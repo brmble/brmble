@@ -367,6 +367,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
 
     const items = [
       {
+        type: 'item' as const,
         label: 'Join',
         onClick: () => {
           onJoinChannel(channelContextMenu.channelId);
@@ -386,6 +387,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
 
     if (hasEditPermission) {
       adminItems.push({
+        type: 'item' as const,
         label: 'Edit',
         onClick: () => {
           setEditChannelDialog({ id: channelContextMenu.channelId, name: channelContextMenu.channelName });
@@ -396,6 +398,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
 
     if (hasAddSubchannelPermission) {
       adminItems.push({
+        type: 'item' as const,
         label: 'Add Subchannel',
         onClick: () => {
           setAddSubchannelDialog({ parentId: channelContextMenu.channelId });
@@ -406,6 +409,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
 
     if (hasRemovePermission) {
       adminItems.push({
+        type: 'item' as const,
         label: 'Remove',
         onClick: () => {
           setRemoveChannelDialog({ id: channelContextMenu.channelId, name: channelContextMenu.channelName });
@@ -414,7 +418,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
       });
     }
 
-    return [...items, { label: '', isDivider: true } as any, ...adminItems];
+    return [...items, { type: 'divider' as const }, ...adminItems];
   }, [channelContextMenu, hasPermission, onJoinChannel]);
 
   return (
