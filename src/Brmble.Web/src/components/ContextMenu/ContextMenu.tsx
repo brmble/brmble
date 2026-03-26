@@ -67,6 +67,10 @@ function MenuItem({ item, depth, onItemClick }: MenuItemProps) {
   const isDisabled = item.disabled;
   const [isFocused, setIsFocused] = useState(false);
 
+  if (item.isDivider) {
+    return <div key={depth} className="context-menu-divider" />;
+  }
+
   return (
     <div className="context-menu-item-wrapper">
       <button

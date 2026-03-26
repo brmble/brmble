@@ -55,9 +55,14 @@ interface ChannelTreeProps {
 export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, speakingUsers, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, onEditAvatar, onMoveUser }: ChannelTreeProps) {
   const [sortByNamePerChannel, setSortByNamePerChannel] = useState<Record<number, boolean>>({});
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string; isSelf: boolean; channelId?: number } | null>(null);
+  const [channelContextMenu, setChannelContextMenu] = useState<{ x: number; y: number; channelId: number; channelName: string } | null>(null);
   const [infoDialogUser, setInfoDialogUser] = useState<{ userId: string; userName: string; isSelf: boolean } | null>(null);
   const [draggedUser, setDraggedUser] = useState<number | null>(null);
   const [dropTargetChannel, setDropTargetChannel] = useState<number | null>(null);
+  const [editChannelDialog, setEditChannelDialog] = useState<{ id: number; name: string } | null>(null);
+  const [addSubchannelDialog, setAddSubchannelDialog] = useState<{ parentId: number } | null>(null);
+  const [removeChannelDialog, setRemoveChannelDialog] = useState<{ id: number; name: string } | null>(null);
+  const [removeConfirmText, setRemoveConfirmText] = useState('');
   const { hasPermission, Permission, requestPermissions } = usePermissions();
 
   const canDragUsers = currentChannelId != null && hasPermission(currentChannelId, Permission.Move);
@@ -74,6 +79,13 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
       requestPermissions(contextMenu.channelId);
     }
   }, [contextMenu?.channelId, requestPermissions]);
+
+  useEffect(() => {
+    if (channelContextMenu?.channelId != null) {
+      requestPermissions(channelContextMenu.channelId);
+    }
+  }, [channelContextMenu?.channelId, requestPermissions]);
+
   const initialExpanded = useMemo(() => {
     const expanded = new Set<number>();
     channels.forEach(ch => {
@@ -180,10 +192,12 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     const unreadInfo = channelUnreads?.get(String(channel.id));
     const hasUnread = ((unreadInfo?.notificationCount ?? 0) + (unreadInfo?.highlightCount ?? 0)) > 0;
 
+    const isChannelActive = (channelId: number) => channelContextMenu?.channelId === channelId;
+
     return (
       <div key={channel.id} className={`channel-item${pendingChannelAction !== null ? ' channel-item--pending' : ''}`} data-level={level}>
         <div 
-          className={`channel-row ${isCurrentChannel ? 'current' : ''}${hasUnread ? ' channel-row--unread' : ''}${channel.users.length === 0 && !hasUnread ? ' channel-row--empty' : ''}${isFolder ? ' is-folder' : ''}${dropTargetChannel === channel.id ? ' channel-row--drop-target' : ''}`}
+          className={`channel-row ${isCurrentChannel ? 'current' : ''}${hasUnread ? ' channel-row--unread' : ''}${channel.users.length === 0 && !hasUnread ? ' channel-row--empty' : ''}${isFolder ? ' is-folder' : ''}${dropTargetChannel === channel.id ? ' channel-row--drop-target' : ''}${isChannelActive(channel.id) ? ' channel-row--context-active' : ''}`}
           style={{ paddingLeft: `calc(16px + ${level * 20}px)` }}
           role="button"
           tabIndex={0}
@@ -215,6 +229,13 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
             }
             setDraggedUser(null);
             setDropTargetChannel(null);
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (channel.id !== 0) {
+              setChannelContextMenu({ x: e.clientX, y: e.clientY, channelId: channel.id, channelName: channel.name });
+            }
           }}
         >
           <span 
@@ -340,6 +361,61 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
       </div>
     );
   };
+
+  const channelMenuItems = useMemo(() => {
+    if (!channelContextMenu) return [];
+
+    const items = [
+      {
+        label: 'Join',
+        onClick: () => {
+          onJoinChannel(channelContextMenu.channelId);
+          setChannelContextMenu(null);
+        },
+      },
+    ];
+
+    const hasEditPermission = hasPermission(channelContextMenu.channelId, Permission.MakeChannel);
+    const hasAddSubchannelPermission = hasPermission(channelContextMenu.channelId, Permission.MakeChannel);
+    const hasRemovePermission = hasPermission(channelContextMenu.channelId, Permission.Write);
+    const hasAdmin = hasEditPermission || hasAddSubchannelPermission || hasRemovePermission;
+
+    if (!hasAdmin) return items;
+
+    const adminItems = [];
+
+    if (hasEditPermission) {
+      adminItems.push({
+        label: 'Edit',
+        onClick: () => {
+          setEditChannelDialog({ id: channelContextMenu.channelId, name: channelContextMenu.channelName });
+          setChannelContextMenu(null);
+        },
+      });
+    }
+
+    if (hasAddSubchannelPermission) {
+      adminItems.push({
+        label: 'Add Subchannel',
+        onClick: () => {
+          setAddSubchannelDialog({ parentId: channelContextMenu.channelId });
+          setChannelContextMenu(null);
+        },
+      });
+    }
+
+    if (hasRemovePermission) {
+      adminItems.push({
+        label: 'Remove',
+        onClick: () => {
+          setRemoveChannelDialog({ id: channelContextMenu.channelId, name: channelContextMenu.channelName });
+          setChannelContextMenu(null);
+        },
+      });
+    }
+
+    return [...items, { label: '', isDivider: true } as any, ...adminItems];
+  }, [channelContextMenu, hasPermission, onJoinChannel]);
 
   return (
     <div className="channel-tree">
@@ -535,6 +611,97 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
           />
         );
       })()}
+      {channelContextMenu && (
+        <ContextMenu
+          x={channelContextMenu.x}
+          y={channelContextMenu.y}
+          items={channelMenuItems}
+          onClose={() => setChannelContextMenu(null)}
+        />
+      )}
+      {editChannelDialog && (
+        <div className="modal-overlay" onClick={() => setEditChannelDialog(null)}>
+          <div
+            className="prompt glass-panel animate-slide-up"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <h2 className="heading-title modal-title">Edit Channel</h2>
+              <p className="modal-subtitle">Channel editing coming soon</p>
+            </div>
+            <div className="prompt-footer">
+              <button className="btn btn-primary" onClick={() => setEditChannelDialog(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {addSubchannelDialog && (
+        <div className="modal-overlay" onClick={() => setAddSubchannelDialog(null)}>
+          <div
+            className="prompt glass-panel animate-slide-up"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <h2 className="heading-title modal-title">Add Subchannel</h2>
+              <p className="modal-subtitle">Subchannel creation coming soon</p>
+            </div>
+            <div className="prompt-footer">
+              <button className="btn btn-primary" onClick={() => setAddSubchannelDialog(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {removeChannelDialog && (
+        <div className="modal-overlay" onClick={() => setRemoveChannelDialog(null)}>
+          <div
+            className="prompt glass-panel animate-slide-up"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <h2 className="heading-title modal-title">Remove Channel</h2>
+              <p className="modal-subtitle">
+                Are you sure you want to remove "{removeChannelDialog.name}"?
+              </p>
+            </div>
+            <div className="prompt-input-container">
+              <input
+                type="text"
+                className="brmble-input"
+                placeholder='Type "Remove" to confirm'
+                onChange={(e) => setRemoveConfirmText(e.target.value)}
+              />
+            </div>
+            <div className="prompt-footer">
+              <button className="btn btn-secondary" onClick={() => setRemoveChannelDialog(null)}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                disabled={removeConfirmText !== 'Remove'}
+                onClick={() => {
+                  bridge.send('voice.removeChannel', { channelId: removeChannelDialog.id });
+                  setRemoveChannelDialog(null);
+                  setRemoveConfirmText('');
+                }}
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
