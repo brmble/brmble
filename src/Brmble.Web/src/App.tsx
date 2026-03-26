@@ -4,6 +4,7 @@ import type { ConnectionStatus } from './types';
 import { useMatrixClient } from './hooks/useMatrixClient';
 import type { MatrixCredentials } from './hooks/useMatrixClient';
 import { useScreenShare } from './hooks/useScreenShare';
+import { useLeaveVoiceCooldown } from './hooks/useLeaveVoiceCooldown';
 import { useUnreadTracker, resetMarkersCache } from './hooks/useUnreadTracker';
 import { useServiceStatus } from './hooks/useServiceStatus';
 import { useServerHealth } from './hooks/useServerHealth';
@@ -1365,6 +1366,10 @@ const handleConnect = (serverData: SavedServer) => {
   };
 
   const handleLeaveVoice = async () => {
+    if (leaveVoiceOnCooldown) return;
+
+    triggerLeaveVoiceCooldown();
+
     if (isSharing) {
       const shouldStop = await confirm({
         title: 'Screen share active',
@@ -1447,6 +1452,8 @@ const handleConnect = (serverData: SavedServer) => {
     userName: string;
     roomName: string;
   } | null>(null);
+
+  const { isOnCooldown: leaveVoiceOnCooldown, trigger: triggerLeaveVoiceCooldown } = useLeaveVoiceCooldown(1000);
 
   const handleDismissToast = useCallback(() => setScreenShareToast(null), []);
 
