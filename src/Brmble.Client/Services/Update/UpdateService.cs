@@ -25,11 +25,8 @@ public class UpdateService : IService
     {
         _bridge = bridge;
 
-        try
-        {
-            _updateManager = new UpdateManager(new GithubSource(RepoUrl, null, false));
-        }
-        catch
+        _updateManager = new UpdateManager(new GithubSource(RepoUrl, null, false));
+        if (!_updateManager.IsInstalled)
         {
             // Not installed via Velopack (e.g. portable/dev mode) — skip updates
             _updateManager = null;

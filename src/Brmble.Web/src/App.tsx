@@ -1550,6 +1550,7 @@ const handleConnect = (serverData: SavedServer) => {
   const handleDismissUpdate = useCallback(() => {
     setUpdateInfo(null);
     setUpdateProgress(null);
+    bridge.send('app.dismissUpdate');
   }, []);
 
   const channelUnreads = useMemo(() => {
