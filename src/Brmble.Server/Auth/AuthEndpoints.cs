@@ -85,13 +85,26 @@ public static class AuthEndpoints
             {
                 if (sessionMapping.TryAddMatrixUser(sid, result.MatrixUserId, resolvedName, result.UserId))
                 {
+                    // This user just authenticated via Brmble, so mark them as a Brmble client
+                    // immediately. Authenticate() may have failed to update the mapping if
+                    // TryAddMatrixUser hadn't been called yet (race with SessionMappingHandler).
+                    sessionMapping.TryUpdateBrmbleStatus(sid, true);
                     await eventBus.BroadcastAsync(new
                     {
                         type = "userMappingAdded",
                         sessionId = sid,
                         matrixUserId = result.MatrixUserId,
-                        mumbleName = resolvedName
+                        mumbleName = resolvedName,
+                        isBrmbleClient = true
                     });
+                }
+                else
+                {
+                    // Mapping already existed (created by SessionMappingHandler.OnUserConnected).
+                    // Ensure Brmble status is up to date — Authenticate() sets _activeSessions
+                    // but TryUpdateBrmbleStatus may not have been called if the mapping
+                    // was created before auth completed.
+                    sessionMapping.TryUpdateBrmbleStatus(sid, true);
                 }
             }
 
@@ -143,7 +156,7 @@ public static class AuthEndpoints
                 sessionMappings = sessionMapping.GetSnapshot()
                     .ToDictionary(
                         kvp => kvp.Key.ToString(),
-                        kvp => new { matrixUserId = kvp.Value.MatrixUserId, mumbleName = kvp.Value.MumbleName }),
+                        kvp => new { matrixUserId = kvp.Value.MatrixUserId, mumbleName = kvp.Value.MumbleName, isBrmbleClient = kvp.Value.IsBrmbleClient }),
                 registered = result.IsRegistered,
                 registeredName = result.DisplayName,
                 livekit = (object?)null

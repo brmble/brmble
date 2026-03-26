@@ -107,7 +107,7 @@ export function InterfaceSettingsTab({
             <span className="brmble-toggle-slider"></span>
           </label>
         </div>
-        {localBrmblegotchi.enabled && (
+        {effectiveEnabled && (
           <div className="settings-item">
             <label>Pet Theme</label>
             <Select

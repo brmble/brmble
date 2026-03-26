@@ -54,6 +54,14 @@ const bridge = {
         handlers?.splice(index, 1);
       }
     }
+  },
+
+  once(type: string, handler: MessageHandler) {
+    const wrappedHandler = (data: unknown) => {
+      this.off(type, wrappedHandler);
+      handler(data);
+    };
+    this.on(type, wrappedHandler);
   }
 };
 

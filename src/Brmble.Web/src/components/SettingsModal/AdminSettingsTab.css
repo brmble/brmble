@@ -125,7 +125,7 @@
   color: var(--text-secondary);
 }
 
-.btn-sm {
+.admin-settings-tab .btn-sm {
   padding: var(--space-2xs) var(--space-sm);
   font-size: var(--text-sm);
 }

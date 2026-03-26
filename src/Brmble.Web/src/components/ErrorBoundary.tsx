@@ -15,7 +15,7 @@ const isDev = import.meta.env.DEV;
 /**
  * ErrorBoundary — catches render crashes and displays a user-friendly
  * fallback inline instead of letting the entire app unmount.
- * In development, the raw error message and stack are shown for debugging.
+ * In development, detailed error info is shown; in production only a generic message.
  * Resets automatically when the `label` prop changes (e.g. route/tab switch).
  */
 export class ErrorBoundary extends Component<Props, State> {
@@ -71,23 +71,27 @@ export class ErrorBoundary extends Component<Props, State> {
             fontSize: 'var(--text-xs, 0.75rem)',
             marginBottom: 'var(--space-md)',
           }}>
-            <p style={{ color: 'var(--accent-danger)', marginBottom: 'var(--space-xs)' }}>
-              Error: {errorMessage}
-            </p>
-            {componentStack && (
-              <pre style={{ whiteSpace: 'pre-wrap', opacity: 0.8, color: 'var(--text-muted)' }}>
-                {componentStack}
-              </pre>
-            )}
-            {isDev && errorStack && (
-              <details style={{ marginTop: 'var(--space-sm)' }}>
-                <summary style={{ cursor: 'pointer', color: 'var(--accent-decorative)' }}>
-                  Stack trace
-                </summary>
-                <pre style={{ whiteSpace: 'pre-wrap', marginTop: 'var(--space-xs)', opacity: 0.7 }}>
-                  {errorStack}
-                </pre>
-              </details>
+            {isDev && (
+              <>
+                <p style={{ color: 'var(--accent-danger)', marginBottom: 'var(--space-xs)' }}>
+                  Error: {errorMessage}
+                </p>
+                {componentStack && (
+                  <pre style={{ whiteSpace: 'pre-wrap', opacity: 0.8, color: 'var(--text-muted)' }}>
+                    {componentStack}
+                  </pre>
+                )}
+                {errorStack && (
+                  <details style={{ marginTop: 'var(--space-sm)' }}>
+                    <summary style={{ cursor: 'pointer', color: 'var(--accent-decorative)' }}>
+                      Stack trace
+                    </summary>
+                    <pre style={{ whiteSpace: 'pre-wrap', marginTop: 'var(--space-xs)', opacity: 0.7 }}>
+                      {errorStack}
+                    </pre>
+                  </details>
+                )}
+              </>
             )}
           </div>
           <button
