@@ -55,6 +55,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private System.Threading.Timer? _healthTimer;
     private long _healthGeneration;
     private BanList? _cachedBanList;
+    private readonly object _banListLock = new();
+    private bool _pendingBanQuery = false;
     // Accept self-signed certs: Brmble servers use self-signed TLS certificates
     // (same pattern as WebSocket at line ~1290 and Mumble's BouncyCastle TLS).
     private static readonly HttpClient _healthHttpClient = new(new HttpClientHandler
@@ -1703,6 +1705,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
             try
             {
+                _pendingBanQuery = true;
                 SendBanList(new BanList { Query = true });
             }
             catch (Exception ex)
@@ -1728,17 +1731,27 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
             var index = indexElement.GetInt32();
 
-            if (_cachedBanList is null || index < 0 || index >= _cachedBanList.Bans.Count)
+            BanList? cachedCopy;
+            lock (_banListLock)
             {
-                _bridge?.Send("voice.error", new { message = "Invalid ban index", type = "invalidIndex" });
-                return Task.CompletedTask;
+                if (_cachedBanList is null || index < 0 || index >= _cachedBanList.Bans.Count)
+                {
+                    _bridge?.Send("voice.error", new { message = "Invalid ban index", type = "invalidIndex" });
+                    return Task.CompletedTask;
+                }
+
+                cachedCopy = new BanList
+                {
+                    Query = false
+                };
+                cachedCopy.Bans.AddRange(_cachedBanList.Bans);
+                cachedCopy.Bans.RemoveAt(index);
+                _cachedBanList = cachedCopy;
             }
 
             try
             {
-                _cachedBanList.Bans.RemoveAt(index);
-                _cachedBanList.Query = false;
-                SendBanList(_cachedBanList);
+                SendBanList(cachedCopy);
                 _bridge?.Send("voice.unbanned", new { success = true, index });
             }
             catch (Exception ex)
@@ -2391,8 +2404,15 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     public override void BanList(BanList banList)
     {
         base.BanList(banList);
-        _cachedBanList = banList;
+        lock (_banListLock)
+        {
+            _cachedBanList = banList;
+        }
 
+        if (!_pendingBanQuery)
+            return;
+
+        _pendingBanQuery = false;
         var banListPayload = banList.Bans.Select(b => new
         {
             address = BitConverter.ToString(b.Address).Replace("-", ":"),
