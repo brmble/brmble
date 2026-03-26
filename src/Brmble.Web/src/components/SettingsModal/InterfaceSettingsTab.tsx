@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { Select } from '../Select';
-import { confirm } from '../../hooks/usePrompt';
 import './InterfaceSettingsTab.css';
 import type { OverlaySettings, AppearanceSettings, BrmblegotchiSettings } from './InterfaceSettingsTypes';
 import { themes } from '../../themes/theme-registry';
@@ -12,6 +11,8 @@ interface InterfaceSettingsTabProps {
   onAppearanceChange: (settings: AppearanceSettings) => void;
   onOverlayChange: (settings: OverlaySettings) => void;
   onBrmblegotchiChange: (settings: BrmblegotchiSettings) => void;
+  brmblegotchiEnabled?: boolean;
+  setBrmblegotchiEnabled?: (enabled: boolean) => void;
 }
 
 export function InterfaceSettingsTab({ 
@@ -20,18 +21,22 @@ export function InterfaceSettingsTab({
   brmblegotchiSettings,
   onAppearanceChange, 
   onOverlayChange,
-  onBrmblegotchiChange
+  onBrmblegotchiChange,
+  brmblegotchiEnabled,
+  setBrmblegotchiEnabled
 }: InterfaceSettingsTabProps) {
   
   const [localAppearance, setLocalAppearance] = useState<AppearanceSettings>(appearanceSettings);
-  const [localBrmblegotchi, setLocalBrmblegotchi] = useState<BrmblegotchiSettings>(brmblegotchiSettings);
+  const [localBrmblegotchi, setLocalBrmblegotchi] = useState<BrmblegotchiSettings>(brmblegotchiSettings ?? { enabled: true, theme: 'original' });
+  const effectiveEnabled = typeof brmblegotchiEnabled === 'boolean' ? brmblegotchiEnabled : localBrmblegotchi.enabled;
+
 
   useEffect(() => {
     setLocalAppearance(appearanceSettings);
   }, [appearanceSettings]);
 
   useEffect(() => {
-    setLocalBrmblegotchi(brmblegotchiSettings);
+    setLocalBrmblegotchi(brmblegotchiSettings ?? { enabled: true, theme: 'original' });
   }, [brmblegotchiSettings]);
 
   const handleThemeChange = (theme: string) => {
@@ -45,21 +50,11 @@ export function InterfaceSettingsTab({
   };
 
   const handleBrmblegotchiToggle = () => {
-    const newSettings = { ...localBrmblegotchi, enabled: !localBrmblegotchi.enabled };
+    const newEnabled = !effectiveEnabled;
+    const newSettings = { ...localBrmblegotchi, enabled: newEnabled };
     setLocalBrmblegotchi(newSettings);
     onBrmblegotchiChange(newSettings);
-  };
-
-  const handleResetPet = async () => {
-    const confirmed = await confirm({
-      title: 'Reset Brmblegotchi?',
-      message: 'Your pet will start over from an egg. All progress will be lost.',
-      confirmLabel: 'Reset',
-      cancelLabel: 'Cancel',
-    });
-    if (confirmed) {
-      window.dispatchEvent(new CustomEvent('brmblegotchi-reset'));
-    }
+    if (setBrmblegotchiEnabled) setBrmblegotchiEnabled(newEnabled);
   };
 
   return (
@@ -106,19 +101,19 @@ export function InterfaceSettingsTab({
             <input
               id="brmblegotchi-enabled"
               type="checkbox"
-              checked={brmblegotchiSettings.enabled}
+              checked={effectiveEnabled}
               onChange={handleBrmblegotchiToggle}
             />
             <span className="brmble-toggle-slider"></span>
           </label>
         </div>
-        {brmblegotchiSettings.enabled && (
+        {localBrmblegotchi.enabled && (
           <div className="settings-item">
             <label>Pet Theme</label>
             <Select
-              value={localBrmblegotchi.theme}
+              value={localBrmblegotchi.theme || 'original'}
               onChange={(theme) => {
-                const newSettings = { ...localBrmblegotchi, theme: theme as 'original' | 'dino' | 'cat' };
+                const newSettings = { ...localBrmblegotchi, theme: (theme || 'original') as 'original' | 'dino' | 'cat' };
                 setLocalBrmblegotchi(newSettings);
                 onBrmblegotchiChange(newSettings);
               }}
@@ -130,11 +125,6 @@ export function InterfaceSettingsTab({
             />
           </div>
         )}
-        <div className="settings-item">
-          <button className="btn btn-danger" onClick={handleResetPet}>
-            Reset Pet
-          </button>
-        </div>
         <p className="settings-hint">
           Show the Brmblegotchi virtual pet companion.
         </p>

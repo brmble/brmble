@@ -128,6 +128,29 @@ interface User {
 
 
 function App() {
+  // --- Brmblegotchi settings state ---
+  const [brmblegotchiEnabled, setBrmblegotchiEnabledState] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem('brmble-settings');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return parsed.brmblegotchi?.enabled ?? true;
+      }
+    } catch { /* ignore */ }
+    return true;
+  });
+  const setBrmblegotchiEnabled = useCallback((enabled: boolean) => {
+    setBrmblegotchiEnabledState(enabled);
+    try {
+      const stored = localStorage.getItem('brmble-settings');
+      const parsed = stored ? JSON.parse(stored) : {};
+      parsed.brmblegotchi = parsed.brmblegotchi || {};
+      parsed.brmblegotchi.enabled = enabled;
+      localStorage.setItem('brmble-settings', JSON.stringify(parsed));
+    } catch { /* ignore */ }
+  }, []);
+  // --- end Brmblegotchi settings state ---
+
   // null = status not yet received, false = no cert, true = cert exists
   const [certExists, setCertExists] = useState<boolean | null>(null);
   const [certFingerprint, setCertFingerprint] = useState('');
@@ -1782,13 +1805,11 @@ const handleConnect = (serverData: SavedServer) => {
         initialTab={settingsTab}
         username={username}
         connected={connected}
-        currentUser={{
-          name: username ?? 'Unknown',
-          matrixUserId: matrixCredentials?.userId,
-          avatarUrl: currentUserAvatarUrl,
-        }}
+        currentUser={{ name: username || 'Unknown', matrixUserId: matrixCredentials?.userId, avatarUrl: currentUserAvatarUrl }}
         onUploadAvatar={onUploadAvatar}
         onRemoveAvatar={onRemoveAvatar}
+        brmblegotchiEnabled={brmblegotchiEnabled}
+        setBrmblegotchiEnabled={setBrmblegotchiEnabled}
       />
 
       <AvatarEditorModal
@@ -1830,7 +1851,7 @@ const handleConnect = (serverData: SavedServer) => {
 
       <ZoomIndicator />
       <Version />
-      <Brmblegotchi onOpenSettings={() => { setSettingsTab('appearance'); setShowSettings(true); }} />
+      <Brmblegotchi enabled={brmblegotchiEnabled} onOpenSettings={() => { setSettingsTab('appearance'); setShowSettings(true); }} />
       </ProfileProvider>
     </div>
   );
