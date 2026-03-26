@@ -62,6 +62,7 @@ jobs:
           --packDir publish
           --mainExe Brmble.Client.exe
           --packTitle "Brmble"
+          --icon src/Brmble.Client/Resources/brmble.ico
 
       - name: Create portable zip
         shell: bash
