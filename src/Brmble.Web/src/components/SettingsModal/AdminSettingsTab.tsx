@@ -43,19 +43,22 @@ export function AdminSettingsTab() {
   };
 
   useEffect(() => {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
     const handler = (data: unknown) => {
+      if (timeoutId) clearTimeout(timeoutId);
       setBans(data as BanEntry[]);
       setLoading(false);
     };
-    const errorHandler = (data: unknown) => {
-      setError((data as { message: string }).message);
-      setLoading(false);
-    };
+
     bridge.on('voice.bans', handler);
-    bridge.on('voice.error', errorHandler);
+    timeoutId = setTimeout(() => {
+      setLoading(false);
+    }, 5000);
+
     return () => {
       bridge.off('voice.bans', handler);
-      bridge.off('voice.error', errorHandler);
+      if (timeoutId) clearTimeout(timeoutId);
     };
   }, []);
 
