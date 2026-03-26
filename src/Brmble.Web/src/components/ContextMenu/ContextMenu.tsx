@@ -9,6 +9,7 @@ interface ContextMenuItem {
   icon?: React.ReactNode;
   disabled?: boolean;
   children?: ContextMenuItem[];
+  isDivider?: boolean;
 }
 
 interface ContextMenuProps {
@@ -52,6 +53,10 @@ function MenuItem({ item, depth, onItemClick }: MenuItemProps) {
   const hasChildren = item.children && item.children.length > 0;
   const isDisabled = item.disabled;
   const [isFocused, setIsFocused] = useState(false);
+
+  if (item.isDivider) {
+    return <div key={depth} className="context-menu-divider" />;
+  }
 
   return (
     <div className="context-menu-item-wrapper">
