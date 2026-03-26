@@ -65,33 +65,35 @@ export class ErrorBoundary extends Component<Props, State> {
           <p style={{ color: 'var(--text-muted)', margin: '0 0 var(--space-md) 0' }}>
             This section encountered an error and could not be displayed.
           </p>
-          {isDev && (
-            <div style={{ 
-              textAlign: 'left',
-              fontFamily: 'var(--font-mono)', 
-              fontSize: 'var(--text-xs, 0.75rem)',
-              marginBottom: 'var(--space-md)',
-            }}>
-              <p style={{ color: 'var(--accent-danger)', marginBottom: 'var(--space-xs)' }}>
-                Error: {errorMessage}
-              </p>
-              {componentStack && (
-                <pre style={{ whiteSpace: 'pre-wrap', opacity: 0.8, color: 'var(--text-muted)' }}>
-                  {componentStack}
-                </pre>
-              )}
-              {errorStack && (
-                <details style={{ marginTop: 'var(--space-sm)' }}>
-                  <summary style={{ cursor: 'pointer', color: 'var(--accent-decorative)' }}>
-                    Stack trace
-                  </summary>
-                  <pre style={{ whiteSpace: 'pre-wrap', marginTop: 'var(--space-xs)', opacity: 0.7 }}>
-                    {errorStack}
+          <div style={{ 
+            textAlign: 'left',
+            fontFamily: 'var(--font-mono)', 
+            fontSize: 'var(--text-xs, 0.75rem)',
+            marginBottom: 'var(--space-md)',
+          }}>
+            {isDev && (
+              <>
+                <p style={{ color: 'var(--accent-danger)', marginBottom: 'var(--space-xs)' }}>
+                  Error: {errorMessage}
+                </p>
+                {componentStack && (
+                  <pre style={{ whiteSpace: 'pre-wrap', opacity: 0.8, color: 'var(--text-muted)' }}>
+                    {componentStack}
                   </pre>
-                </details>
-              )}
-            </div>
-          )}
+                )}
+                {errorStack && (
+                  <details style={{ marginTop: 'var(--space-sm)' }}>
+                    <summary style={{ cursor: 'pointer', color: 'var(--accent-decorative)' }}>
+                      Stack trace
+                    </summary>
+                    <pre style={{ whiteSpace: 'pre-wrap', marginTop: 'var(--space-xs)', opacity: 0.7 }}>
+                      {errorStack}
+                    </pre>
+                  </details>
+                )}
+              </>
+            )}
+          </div>
           <button
             className="btn btn-secondary btn-sm"
             onClick={this.handleReset}

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Net;
 using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Security.Cryptography.X509Certificates;
@@ -54,6 +55,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private readonly IAppConfigService? _appConfigService;
     private System.Threading.Timer? _healthTimer;
     private long _healthGeneration;
+    private BanList? _cachedBanList;
+    private readonly object _banListLock = new();
+    private int _pendingBanQuery = 0;
     // Accept self-signed certs: Brmble servers use self-signed TLS certificates
     // (same pattern as WebSocket at line ~1290 and Mumble's BouncyCastle TLS).
     private static readonly HttpClient _healthHttpClient = new(new HttpClientHandler
@@ -1242,6 +1246,38 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         }
     }
 
+    private async Task GetRegisteredUsersAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_apiUrl))
+        {
+            _bridge?.Send("voice.registeredUsers", Array.Empty<object>());
+            _bridge?.NotifyUiThread();
+            return;
+        }
+
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            var response = await _healthHttpClient.GetAsync($"{_apiUrl.TrimEnd('/')}/admin/registered-users", cts.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                _bridge?.Send("voice.registeredUsers", Array.Empty<object>());
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            var json = await response.Content.ReadAsStringAsync();
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            _bridge?.Send("voice.registeredUsers", doc.RootElement);
+            _bridge?.NotifyUiThread();
+        }
+        catch
+        {
+            _bridge?.Send("voice.registeredUsers", Array.Empty<object>());
+            _bridge?.NotifyUiThread();
+        }
+    }
+
     private void StartHealthCheck(string apiUrl)
     {
         StopHealthCheck();
@@ -1694,6 +1730,78 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 Session = LocalUser.Id,
                 Comment = comment
             });
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.getBans", data =>
+        {
+            if (Connection is not { State: ConnectionStates.Connected })
+            {
+                _bridge?.Send("voice.error", new { message = "Not connected", type = "notConnected" });
+                return Task.CompletedTask;
+            }
+
+            try
+            {
+                Volatile.Write(ref _pendingBanQuery, 1);
+                SendBanList(new BanList { Query = true });
+            }
+            catch (Exception ex)
+            {
+                _bridge?.Send("voice.error", new { message = $"Failed to get bans: {ex.Message}", type = "getBansFailed" });
+            }
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.unban", data =>
+        {
+            if (Connection is not { State: ConnectionStates.Connected })
+            {
+                _bridge?.Send("voice.error", new { message = "Not connected", type = "notConnected" });
+                return Task.CompletedTask;
+            }
+
+            if (!data.TryGetProperty("index", out var indexElement))
+            {
+                _bridge?.Send("voice.error", new { message = "Missing ban index", type = "invalidRequest" });
+                return Task.CompletedTask;
+            }
+
+            var index = indexElement.GetInt32();
+
+            BanList? cachedCopy;
+            lock (_banListLock)
+            {
+                if (_cachedBanList is null || index < 0 || index >= _cachedBanList.Bans.Count)
+                {
+                    _bridge?.Send("voice.error", new { message = "Invalid ban index", type = "invalidIndex" });
+                    return Task.CompletedTask;
+                }
+
+                cachedCopy = new BanList
+                {
+                    Query = false
+                };
+                cachedCopy.Bans.AddRange(_cachedBanList.Bans);
+                cachedCopy.Bans.RemoveAt(index);
+                _cachedBanList = cachedCopy;
+            }
+
+            try
+            {
+                SendBanList(cachedCopy);
+                _bridge?.Send("voice.unbanned", new { success = true, index });
+            }
+            catch (Exception ex)
+            {
+                _bridge?.Send("voice.error", new { message = $"Failed to unban: {ex.Message}", type = "unbanFailed" });
+            }
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.getRegisteredUsers", data =>
+        {
+            _ = GetRegisteredUsersAsync();
             return Task.CompletedTask;
         });
 
@@ -2335,6 +2443,41 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 permissions = permissionQuery.Permissions
             });
         }
+    }
+
+    public override void BanList(BanList banList)
+    {
+        base.BanList(banList);
+
+        bool shouldSendBans;
+        lock (_banListLock)
+        {
+            _cachedBanList = banList;
+            if (Volatile.Read(ref _pendingBanQuery) == 0)
+            {
+                shouldSendBans = false;
+            }
+            else
+            {
+                Volatile.Write(ref _pendingBanQuery, 0);
+                shouldSendBans = true;
+            }
+        }
+
+        if (!shouldSendBans)
+            return;
+
+        var banListPayload = banList.Bans.Select(b => new
+        {
+            address = new IPAddress(b.Address).ToString(),
+            bits = b.Mask,
+            name = b.Name,
+            hash = b.Hash,
+            reason = b.Reason,
+            start = b.Start,
+            duration = b.Duration
+        }).ToArray();
+        _bridge?.Send("voice.bans", banListPayload);
     }
 
     public override void EncodedVoice(byte[] data, uint userId, long sequence,
