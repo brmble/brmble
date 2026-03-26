@@ -26,6 +26,12 @@ public interface IMumbleRegistrationService
     /// Throws MumbleRegistrationException for other ICE failures.
     /// </summary>
     Task<int> RegisterUserAsync(string name, string certHash);
+
+    /// <summary>
+    /// Get all registered users matching the optional filter.
+    /// Returns a dictionary mapping user IDs to usernames.
+    /// </summary>
+    Task<Dictionary<int, string>> GetRegisteredUsersAsync(string filter = "");
 }
 
 /// <summary>Thrown when a requested username is already registered in Mumble.</summary>
