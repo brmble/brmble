@@ -1,0 +1,131 @@
+.admin-settings-tab {
+  padding: var(--space-lg);
+}
+
+.settings-subtabs {
+  display: flex;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-lg);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settings-subtab {
+  padding: var(--space-xs) var(--space-md);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.settings-subtab:hover {
+  color: var(--text-primary);
+}
+
+.settings-subtab.active {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent-primary);
+}
+
+.admin-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-md);
+}
+
+.admin-panel-header .heading-section {
+  margin: 0;
+}
+
+.admin-loading,
+.admin-error,
+.admin-empty {
+  padding: var(--space-lg);
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.admin-error {
+  color: var(--accent-danger);
+}
+
+.admin-ban-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.admin-ban-row {
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.admin-ban-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-sm) var(--space-md);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.admin-ban-summary:hover {
+  background: var(--bg-hover);
+}
+
+.admin-ban-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+}
+
+.admin-ban-name {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.admin-ban-reason {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-ban-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.admin-ban-expiry {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.admin-ban-details {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-overlay);
+  border-top: 1px solid var(--border-subtle);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.admin-ban-detail {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.admin-ban-detail span {
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.btn-sm {
+  padding: var(--space-2xs) var(--space-sm);
+  font-size: var(--text-sm);
+}

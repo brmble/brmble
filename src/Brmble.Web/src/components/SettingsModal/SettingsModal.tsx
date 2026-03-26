@@ -9,7 +9,9 @@ import { InterfaceSettingsTab } from './InterfaceSettingsTab';
 import { type AppearanceSettings, type OverlaySettings, type BrmblegotchiSettings, DEFAULT_APPEARANCE, DEFAULT_OVERLAY, DEFAULT_BRMBLEGOTCHI } from './InterfaceSettingsTypes';
 import { ConnectionSettingsTab, type ConnectionSettings } from './ConnectionSettingsTab';
 import { ProfileSettingsTab } from './ProfileSettingsTab';
+import { AdminSettingsTab } from './AdminSettingsTab';
 import { useServerlist } from '../../hooks/useServerlist';
+import { usePermissions, Permission } from '../../hooks/usePermissions';
 
 /** A flat map of every key binding in the app: bindingId → bound key code (or null). */
 export type AllBindings = Record<string, string | null>;
@@ -39,7 +41,7 @@ interface SettingsModalProps {
   };
   onUploadAvatar?: (blob: Blob, contentType: string) => void;
   onRemoveAvatar?: () => void;
-  initialTab?: 'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection';
+  initialTab?: 'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'admin';
   brmblegotchiEnabled?: boolean;
   setBrmblegotchiEnabled?: (enabled: boolean) => void;
 }
@@ -74,9 +76,11 @@ const DEFAULT_SETTINGS: AppSettings = {
 
 export function SettingsModal(props: SettingsModalProps) {
   const { isOpen, onClose, initialTab } = props;
-  const [activeTab, setActiveTab] = useState<'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection'>(initialTab ?? 'profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'admin'>(initialTab ?? 'profile');
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const { servers } = useServerlist();
+  const { hasPermission } = usePermissions();
+  const hasAdminPermission = hasPermission(0, Permission.Ban) || hasPermission(0, Permission.Kick);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -363,6 +367,14 @@ export function SettingsModal(props: SettingsModalProps) {
           >
             Connection
           </button>
+          {hasAdminPermission && (
+            <button
+              className={`settings-tab ${activeTab === 'admin' ? 'active' : ''}`}
+              onClick={() => setActiveTab('admin')}
+            >
+              Admin
+            </button>
+          )}
 
         </div>
 
@@ -403,6 +415,7 @@ export function SettingsModal(props: SettingsModalProps) {
               servers={servers.map(s => ({ id: s.id, label: s.label }))}
             />
           )}
+          {activeTab === 'admin' && hasAdminPermission && <AdminSettingsTab />}
 
         </div>
 
