@@ -9,6 +9,7 @@ using Brmble.Client.Bridge;
 using Brmble.Client.Services.Certificate;
 using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.Voice;
+using Brmble.Client.Services.Update;
 
 namespace Brmble.Client;
 
@@ -22,6 +23,7 @@ static class Program
     private static AppConfigService? _appConfigService;
     private static CertificateService? _certService;
     private static MumbleAdapter? _mumbleClient;
+    private static UpdateService? _updateService;
     private static IntPtr _hwnd;
     private static volatile bool _muted;
     private static volatile bool _deafened;
@@ -258,6 +260,10 @@ static class Program
             _certService.Initialize(_bridge);
             _certService.RegisterHandlers(_bridge);
 
+            _updateService = new UpdateService();
+            _updateService.Initialize(_bridge);
+            _updateService.RegisterHandlers(_bridge);
+
             _mumbleClient = new MumbleAdapter(_bridge, _hwnd, _certService, _appConfigService);
             _mumbleClient.ApplySettings(_appConfigService!.GetSettings());
             _mumbleClient.OnApiUrlDiscovered = discoveredUrl =>
@@ -286,6 +292,7 @@ static class Program
                 {
                     _controller.CoreWebView2.NavigationCompleted -= onNavCompleted;
                     TryAutoConnect();
+                    _updateService?.StartPeriodicChecks();
                 }
             };
             _controller.CoreWebView2.NavigationCompleted += onNavCompleted;
@@ -564,6 +571,7 @@ static class Program
                         IsMaximized: placement.showCmd == Win32Window.SW_SHOWMAXIMIZED
                     ));
                 }
+                _updateService?.Dispose();
                 _mumbleClient?.Disconnect();
                 TrayIcon.Destroy();
                 TaskbarBadge.Destroy();
