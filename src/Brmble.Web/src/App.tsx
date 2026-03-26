@@ -1783,7 +1783,7 @@ const handleConnect = (serverData: SavedServer) => {
         username={username}
         connected={connected}
         currentUser={{
-          name: username ?? 'Unknown',
+          name: username || 'Unknown',
           matrixUserId: matrixCredentials?.userId,
           avatarUrl: currentUserAvatarUrl,
         }}

@@ -14,7 +14,7 @@ const isDev = import.meta.env.DEV;
 /**
  * ErrorBoundary — catches render crashes and displays a user-friendly
  * fallback inline instead of letting the entire app unmount.
- * In development, the raw error message and stack are shown for debugging.
+ * In development, detailed error info is shown; in production only a generic message.
  * Resets automatically when the `label` prop changes (e.g. route/tab switch).
  */
 export class ErrorBoundary extends Component<Props, State> {
