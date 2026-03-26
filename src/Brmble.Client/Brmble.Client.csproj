@@ -9,6 +9,7 @@
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3800.47" />
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.19.2" />
     <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="Velopack" Version="0.*" />
   </ItemGroup>
 
   <ItemGroup>
@@ -44,35 +45,11 @@
     </None>
   </ItemGroup>
 
-  <Target Name="FetchVersion" BeforeTargets="CopyWebDist">
-    <PropertyGroup>
-      <_PrJson>$(MSBuildProjectDirectory)/../../.github/pr-version.json</_PrJson>
-      <_VersionDateTime Condition="'$(_VersionDateTime)' == ''">9999-12-31T00:00:00Z</_VersionDateTime>
-    </PropertyGroup>
-    <Exec Command="gh pr list --state merged --base main --limit 1 --json mergedAt"
-          WorkingDirectory="$(MSBuildProjectDirectory)/../"
-          ConsoleToMSBuild="True"
-          IgnoreExitCode="True">
-      <Output TaskParameter="ConsoleOutput" PropertyName="_PrListOutput" />
-    </Exec>
-    <PropertyGroup>
-      <_ParsedDateTime>$([System.Text.RegularExpressions.Regex]::Match($(_PrListOutput), "\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z?").Value)</_ParsedDateTime>
-      <_FinalDateTime Condition="'$(_ParsedDateTime)' != ''">$(_ParsedDateTime)</_FinalDateTime>
-      <_FinalDateTime Condition="'$(_ParsedDateTime)' == ''">$(_VersionDateTime)</_FinalDateTime>
-    </PropertyGroup>
-    <WriteLinesToFile File="$(_PrJson)"
-                      Lines='{"version": "$(_FinalDateTime)"}'
-                      Overwrite="True" />
-  </Target>
-
   <Target Name="CopyWebDist" AfterTargets="Build" Condition="Exists('..\..\src\Brmble.Web\dist\index.html')">
     <ItemGroup>
       <WebDistFiles Include="..\..\src\Brmble.Web\dist\**\*" />
     </ItemGroup>
     <Copy SourceFiles="@(WebDistFiles)" DestinationFolder="$(OutputPath)web\%(RecursiveDir)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="../../.github/pr-version.json" 
-          DestinationFiles="$(OutputPath)web\version.json" 
-          Condition="Exists('../../.github/pr-version.json')" />
   </Target>
 
   <Target Name="WarnWebDistMissing" AfterTargets="Build" Condition="!Exists('..\..\src\Brmble.Web\dist\index.html')">
