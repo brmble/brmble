@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Net;
 using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Security.Cryptography.X509Certificates;
@@ -56,7 +57,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private long _healthGeneration;
     private BanList? _cachedBanList;
     private readonly object _banListLock = new();
-    private bool _pendingBanQuery = false;
+    private int _pendingBanQuery = 0;
     // Accept self-signed certs: Brmble servers use self-signed TLS certificates
     // (same pattern as WebSocket at line ~1290 and Mumble's BouncyCastle TLS).
     private static readonly HttpClient _healthHttpClient = new(new HttpClientHandler
@@ -1255,8 +1256,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         try
         {
-            using var http = new HttpClient();
-            var response = await http.GetAsync($"{_apiUrl.TrimEnd('/')}/admin/registered-users");
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            var response = await _healthHttpClient.GetAsync($"{_apiUrl.TrimEnd('/')}/admin/registered-users", cts.Token);
             if (!response.IsSuccessStatusCode)
             {
                 _bridge?.Send("voice.registeredUsers", Array.Empty<object>());
@@ -1738,7 +1739,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
             try
             {
-                _pendingBanQuery = true;
+                Volatile.Write(ref _pendingBanQuery, 1);
                 SendBanList(new BanList { Query = true });
             }
             catch (Exception ex)
@@ -2448,13 +2449,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _cachedBanList = banList;
         }
 
-        if (!_pendingBanQuery)
+        if (Volatile.Read(ref _pendingBanQuery) == 0)
             return;
 
-        _pendingBanQuery = false;
+        Volatile.Write(ref _pendingBanQuery, 0);
         var banListPayload = banList.Bans.Select(b => new
         {
-            address = BitConverter.ToString(b.Address).Replace("-", ":"),
+            address = new IPAddress(b.Address).ToString(),
             bits = b.Mask,
             name = b.Name,
             hash = b.Hash,

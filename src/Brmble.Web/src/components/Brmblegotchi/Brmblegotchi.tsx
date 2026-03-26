@@ -277,7 +277,7 @@ export function BrmblegotchiWidget({ onOpenSettings, enabled = true }: Brmblegot
   const positionKey = fingerprint ? `${POSITION_KEY}_${fingerprint}` : POSITION_KEY;
 
 
-  const [petTheme] = useState<PetTheme>(() => {
+  const [petTheme, setPetTheme] = useState<PetTheme>(() => {
     try {
       const stored = localStorage.getItem(SETTINGS_KEY);
       if (stored) {
@@ -287,6 +287,23 @@ export function BrmblegotchiWidget({ onOpenSettings, enabled = true }: Brmblegot
     } catch { /* empty */ }
     return 'original';
   });
+
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key !== SETTINGS_KEY) return;
+      try {
+        if (e.newValue) {
+          const settings = JSON.parse(e.newValue);
+          const theme = settings.brmblegotchi?.theme;
+          if (theme && theme !== petTheme) {
+            setPetTheme(theme as PetTheme);
+          }
+        }
+      } catch { /* empty */ }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, [petTheme]);
   const [showActions, setShowActions] = useState(false);
   const [position, setPosition] = useState(() => {
     try {

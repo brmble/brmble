@@ -27,30 +27,24 @@ export function AdminSettingsTab() {
   }, [activeSubTab]);
 
   const loadBans = () => {
+    if (loading) return;
     setLoading(true);
     setError(null);
-    bridge.send('voice.getBans');
-  };
 
-  useEffect(() => {
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const timeoutId = setTimeout(() => {
+      setLoading(false);
+      setError('Failed to load bans: request timed out');
+    }, 5000);
 
-    const bansHandler = (data: unknown) => {
-      if (timeoutId) clearTimeout(timeoutId);
+    const handleBans = (data: unknown) => {
+      clearTimeout(timeoutId);
       setBans(data as BanEntry[]);
       setLoading(false);
     };
 
-    bridge.on('voice.bans', bansHandler);
-    timeoutId = setTimeout(() => {
-      setLoading(false);
-    }, 5000);
-
-    return () => {
-      bridge.off('voice.bans', bansHandler);
-      if (timeoutId) clearTimeout(timeoutId);
-    };
-  }, []);
+    bridge.once('voice.bans', handleBans);
+    bridge.send('voice.getBans');
+  };
 
   const handleUnban = async (index: number) => {
     const ban = bans[index];
@@ -121,8 +115,12 @@ export function AdminSettingsTab() {
           {!loading && bans.length > 0 && (
             <div className="admin-ban-list">
               {bans.map((ban, index) => (
-                <div key={index} className="admin-ban-row">
-                  <div className="admin-ban-summary" onClick={() => setExpandedBan(expandedBan === index ? null : index)}>
+                <div key={`${ban.hash}-${ban.address}-${ban.start}`} className="admin-ban-row">
+                  <button
+                    type="button"
+                    className="admin-ban-summary"
+                    onClick={() => setExpandedBan(expandedBan === index ? null : index)}
+                  >
                     <div className="admin-ban-info">
                       <span className="admin-ban-name">{ban.name || ban.address}</span>
                       <span className="admin-ban-reason">{ban.reason || 'No reason'}</span>
@@ -141,7 +139,7 @@ export function AdminSettingsTab() {
                         Unban
                       </button>
                     </div>
-                  </div>
+                  </button>
                   {expandedBan === index && (
                     <div className="admin-ban-details">
                       <div className="admin-ban-detail"><span>IP:</span> {ban.address}/{ban.bits}</div>
