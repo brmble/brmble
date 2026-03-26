@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import './UpdateNotification.css';
 
 interface UpdateNotificationProps {
@@ -10,14 +10,18 @@ interface UpdateNotificationProps {
 
 export function UpdateNotification({ version, onUpdate, onDismiss, progress }: UpdateNotificationProps) {
   const [visible, setVisible] = useState(false);
+  const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     requestAnimationFrame(() => setVisible(true));
+    return () => {
+      if (dismissTimer.current) clearTimeout(dismissTimer.current);
+    };
   }, []);
 
   const handleDismiss = useCallback(() => {
     setVisible(false);
-    setTimeout(onDismiss, 200);
+    dismissTimer.current = setTimeout(onDismiss, 200);
   }, [onDismiss]);
 
   const isApplying = progress !== null;

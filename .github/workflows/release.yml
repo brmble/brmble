@@ -64,12 +64,6 @@ jobs:
           --packTitle "Brmble"
           --icon src/Brmble.Client/Resources/brmble.ico
 
-      - name: Create portable zip
-        shell: bash
-        run: |
-          cd publish
-          7z a -tzip ../Brmble-portable.zip .
-
       - name: Upload to GitHub Release
         run: >
           vpk upload github
@@ -80,10 +74,9 @@ jobs:
           --publish
           --merge
 
-      - name: Upload portable zip to release
+      - name: Update release notes
         uses: softprops/action-gh-release@v2
         with:
-          files: Brmble-portable.zip
           tag_name: ${{ github.ref_name }}
           generate_release_notes: true
 

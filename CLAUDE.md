@@ -143,8 +143,7 @@ Versioning is coupled: client and server always share the same version (SemVer).
 2. GitHub Actions (`.github/workflows/release.yml`) automatically:
    - Builds the frontend (`npm run build`)
    - Publishes the client (`dotnet publish` self-contained win-x64)
-   - Packs with Velopack (`vpk pack`) — creates installer + delta packages
-   - Creates a portable zip
+   - Packs with Velopack (`vpk pack`) — creates installer, portable zip + delta packages
    - Uploads everything to a GitHub Release with auto-generated release notes
    - Builds and pushes `ghcr.io/brmble/brmble-server:{version}` + `:latest`
 

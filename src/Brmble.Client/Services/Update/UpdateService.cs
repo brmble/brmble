@@ -18,6 +18,7 @@ public class UpdateService : IService
     private UpdateManager? _updateManager;
     private UpdateInfo? _pendingUpdate;
     private System.Threading.Timer? _checkTimer;
+    private int _checking;
 
     public string ServiceName => "app";
 
@@ -62,6 +63,7 @@ public class UpdateService : IService
 
         var version = _updateManager?.CurrentVersion?.ToString();
         _bridge.Send("app.version", new { version = version ?? "dev" });
+        _bridge.NotifyUiThread();
     }
 
     /// <summary>
@@ -91,6 +93,7 @@ public class UpdateService : IService
     private async Task CheckForUpdatesAsync()
     {
         if (_updateManager == null || _bridge == null) return;
+        if (Interlocked.CompareExchange(ref _checking, 1, 0) != 0) return;
 
         try
         {
@@ -115,6 +118,10 @@ public class UpdateService : IService
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[UpdateService] Check failed: {ex.Message}");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _checking, 0);
         }
     }
 }

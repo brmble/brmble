@@ -1142,7 +1142,10 @@ function App() {
     bridge.on('voice.brmbleClientDeactivated', onBrmbleClientDeactivated);
     bridge.on('voice.registrationStatus', onRegistrationStatus);
 
-    const onUpdateAvailable = (data: unknown) => setUpdateInfo(data as { version: string });
+    const onUpdateAvailable = (data: unknown) => {
+      setUpdateInfo(data as { version: string });
+      setUpdateProgress(null);
+    };
     const onUpdateProgress = (data: unknown) => setUpdateProgress((data as { progress: number }).progress);
     bridge.on('app.updateAvailable', onUpdateAvailable);
     bridge.on('app.updateProgress', onUpdateProgress);

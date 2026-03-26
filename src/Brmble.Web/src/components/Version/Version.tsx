@@ -3,7 +3,9 @@ import bridge from '../../bridge';
 import './Version.css';
 
 export function Version() {
-  const [version, setVersion] = useState('dev');
+  const [version, setVersion] = useState<string | null>(() =>
+    window.chrome?.webview ? null : 'dev'
+  );
 
   useEffect(() => {
     const onVersion = (data: unknown) => {
@@ -14,6 +16,8 @@ export function Version() {
     bridge.on('app.version', onVersion);
     return () => bridge.off('app.version', onVersion);
   }, []);
+
+  if (!version) return null;
 
   return <div className="version-display">{version}</div>;
 }
