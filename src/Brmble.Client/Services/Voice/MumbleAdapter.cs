@@ -1229,6 +1229,34 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         }
     }
 
+    private async Task GetRegisteredUsersAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_apiUrl))
+        {
+            _bridge?.Send("voice.registeredUsers", Array.Empty<object>());
+            return;
+        }
+
+        try
+        {
+            using var http = new HttpClient();
+            var response = await http.GetAsync($"{_apiUrl.TrimEnd('/')}/admin/registered-users");
+            if (!response.IsSuccessStatusCode)
+            {
+                _bridge?.Send("voice.registeredUsers", Array.Empty<object>());
+                return;
+            }
+
+            var json = await response.Content.ReadAsStringAsync();
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            _bridge?.Send("voice.registeredUsers", doc.RootElement);
+        }
+        catch
+        {
+            _bridge?.Send("voice.registeredUsers", Array.Empty<object>());
+        }
+    }
+
     private void StartHealthCheck(string apiUrl)
     {
         StopHealthCheck();
@@ -1758,6 +1786,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             {
                 _bridge?.Send("voice.error", new { message = $"Failed to unban: {ex.Message}", type = "unbanFailed" });
             }
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.getRegisteredUsers", data =>
+        {
+            _ = GetRegisteredUsersAsync();
             return Task.CompletedTask;
         });
 

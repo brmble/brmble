@@ -13,19 +13,17 @@ interface BanEntry {
   duration: number;
 }
 
-interface ChannelRequest {
-  id: string;
-  userId: string;
-  userName: string;
-  channelName: string;
-  reason: string;
-  submittedAt: number;
+interface RegisteredUser {
+  userId: number;
+  name: string;
+  email?: string;
+  lastActive?: number;
 }
 
 export function AdminSettingsTab() {
-  const [activeSubTab, setActiveSubTab] = useState<'bans' | 'requests'>('bans');
+  const [activeSubTab, setActiveSubTab] = useState<'bans' | 'requests' | 'users'>('bans');
   const [bans, setBans] = useState<BanEntry[]>([]);
-  const [requests, setRequests] = useState<ChannelRequest[]>([]);
+  const [users, setUsers] = useState<RegisteredUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedBan, setExpandedBan] = useState<number | null>(null);
@@ -33,6 +31,8 @@ export function AdminSettingsTab() {
   useEffect(() => {
     if (activeSubTab === 'bans') {
       loadBans();
+    } else if (activeSubTab === 'users') {
+      loadRegisteredUsers();
     }
   }, [activeSubTab]);
 
@@ -42,22 +42,43 @@ export function AdminSettingsTab() {
     bridge.send('voice.getBans');
   };
 
+  const loadRegisteredUsers = () => {
+    setLoading(true);
+    setError(null);
+    bridge.send('voice.getRegisteredUsers');
+  };
+
   useEffect(() => {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-    const handler = (data: unknown) => {
+    const bansHandler = (data: unknown) => {
       if (timeoutId) clearTimeout(timeoutId);
       setBans(data as BanEntry[]);
       setLoading(false);
     };
 
-    bridge.on('voice.bans', handler);
+    const usersHandler = (data: unknown) => {
+      if (timeoutId) clearTimeout(timeoutId);
+      const userMap = data as Record<string, { user_id: number; name: string; email?: string; last_active?: number }>;
+      const userList: RegisteredUser[] = Object.entries(userMap).map(([name, info]) => ({
+        userId: info.user_id,
+        name,
+        email: info.email,
+        lastActive: info.last_active,
+      })).sort((a, b) => a.name.localeCompare(b.name));
+      setUsers(userList);
+      setLoading(false);
+    };
+
+    bridge.on('voice.bans', bansHandler);
+    bridge.on('voice.registeredUsers', usersHandler);
     timeoutId = setTimeout(() => {
       setLoading(false);
     }, 5000);
 
     return () => {
-      bridge.off('voice.bans', handler);
+      bridge.off('voice.bans', bansHandler);
+      bridge.off('voice.registeredUsers', usersHandler);
       if (timeoutId) clearTimeout(timeoutId);
     };
   }, []);
@@ -103,6 +124,12 @@ export function AdminSettingsTab() {
           onClick={() => setActiveSubTab('requests')}
         >
           Channel Requests
+        </button>
+        <button
+          className={`settings-subtab ${activeSubTab === 'users' ? 'active' : ''}`}
+          onClick={() => setActiveSubTab('users')}
+        >
+          Registered Users
         </button>
       </div>
 
@@ -167,6 +194,41 @@ export function AdminSettingsTab() {
             <h3 className="heading-section">Channel Requests</h3>
           </div>
           <div className="admin-empty">No pending requests.</div>
+        </div>
+      )}
+
+      {activeSubTab === 'users' && (
+        <div className="admin-subpanel">
+          <div className="admin-panel-header">
+            <h3 className="heading-section">Registered Users</h3>
+            <button className="btn btn-secondary btn-sm" onClick={loadRegisteredUsers} disabled={loading}>
+              Refresh
+            </button>
+          </div>
+
+          {loading && <div className="admin-loading">Loading...</div>}
+          {!loading && users.length === 0 && (
+            <div className="admin-empty">No registered users.</div>
+          )}
+
+          {!loading && users.length > 0 && (
+            <div className="admin-user-list">
+              <div className="admin-user-header">
+                <span className="admin-user-name-col">Name</span>
+                <span className="admin-user-email-col">Email</span>
+                <span className="admin-user-last-col">Last Active</span>
+              </div>
+              {users.map((user) => (
+                <div key={user.userId} className="admin-user-row">
+                  <span className="admin-user-name-col">{user.name}</span>
+                  <span className="admin-user-email-col">{user.email || '—'}</span>
+                  <span className="admin-user-last-col">
+                    {user.lastActive ? new Date(user.lastActive * 1000).toLocaleDateString() : '—'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

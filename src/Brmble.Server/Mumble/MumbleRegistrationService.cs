@@ -87,4 +87,19 @@ public class MumbleRegistrationService : IMumbleRegistrationService
             throw new MumbleRegistrationException($"ICE error registering user '{name}'.", ex);
         }
     }
+
+    public async Task<Dictionary<int, string>> GetRegisteredUsersAsync(string filter = "")
+    {
+        var proxy = GetProxy();
+        try
+        {
+            var users = await proxy.getRegisteredUsersAsync(filter);
+            _logger.LogDebug("Retrieved {Count} registered users from Mumble", users.Count);
+            return users;
+        }
+        catch (Exception ex)
+        {
+            throw new MumbleRegistrationException($"ICE error getting registered users.", ex);
+        }
+    }
 }
