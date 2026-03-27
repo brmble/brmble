@@ -80,10 +80,9 @@ export function GameUI({ onClose }: GameUIProps) {
         {activeTab === 'upgrades' && (
           <TechUpgradesTab 
             infrastructure={state.infrastructure} 
-            services={state.services}
+            licenses={state.licenses}
             money={state.money}
-            onUnlockInfrastructure={actions.unlockInfrastructure}
-            onUnlockService={actions.unlockService}
+            onUnlockLicense={actions.unlockLicense}
           />
         )}
         {activeTab === 'hosting' && (
@@ -408,14 +407,14 @@ function InfrastructureTab({ infrastructure, onBuy, onUpgrade1, onUpgrade2, onUp
   );
 }
 
-function TechUpgradesTab({ infrastructure, services, money, onUnlockInfrastructure, onUnlockService }: { infrastructure: Infrastructure[]; services: Service[]; money: number; onUnlockInfrastructure: (infrastructureId: string) => void; onUnlockService: (serviceId: string) => void }) {
+function TechUpgradesTab({ infrastructure, licenses, money, onUnlockLicense }: { infrastructure: Infrastructure[]; licenses: License[]; money: number; onUnlockLicense: (licenseId: string) => void }) {
   const nextInfraUnlock = infrastructure.find(i => !i.unlocked && i.unlockCost);
   const unlockedInfrastructure = infrastructure.filter(i => i.unlocked);
-  const nextServiceUnlock = services.find(s => !s.unlocked);
-  const unlockedServices = services.filter(s => s.unlocked);
+  const nextLicenseUnlock = licenses.find(l => !l.unlocked);
+  const unlockedLicenses = licenses.filter(l => l.unlocked);
 
   const infraProgress = nextInfraUnlock ? Math.min((money / nextInfraUnlock.unlockCost!) * 100, 100) : 100;
-  const serviceProgress = nextServiceUnlock ? Math.min((money / nextServiceUnlock.unlockRequirement) * 100, 100) : 100;
+  const licenseProgress = nextLicenseUnlock ? Math.min((money / nextLicenseUnlock.unlockCost) * 100, 100) : 100;
 
   return (
     <div className="upgrades-tab">
@@ -435,14 +434,14 @@ function TechUpgradesTab({ infrastructure, services, money, onUnlockInfrastructu
         </div>
       )}
 
-      {unlockedServices.length > 0 && (
+      {unlockedLicenses.length > 0 && (
         <div className="unlocked-section">
-          <h3 className="unlocked-title">Unlocked Services</h3>
+          <h3 className="unlocked-title">Unlocked Licenses</h3>
           <div className="unlocked-list">
-            {unlockedServices.map(service => (
-              <div key={service.id} className="unlocked-item">
+            {unlockedLicenses.map(license => (
+              <div key={license.id} className="unlocked-item">
                 <span className="unlocked-check">✓</span>
-                <span className="unlocked-name">{service.name}</span>
+                <span className="unlocked-name">{license.name}</span>
               </div>
             ))}
           </div>
@@ -470,12 +469,9 @@ function TechUpgradesTab({ infrastructure, services, money, onUnlockInfrastructu
           </div>
 
           {infraProgress >= 100 ? (
-            <button
-              className="btn btn-primary unlock-btn"
-              onClick={() => onUnlockInfrastructure(nextInfraUnlock.id)}
-            >
-              UNLOCK {nextInfraUnlock.name.toUpperCase()}
-            </button>
+            <div className="unlock-rewards">
+              <span className="rewards-label">Available - Purchase infrastructure to unlock</span>
+            </div>
           ) : (
             <div className="unlock-rewards">
               <span className="rewards-label">Reward:</span>
@@ -485,51 +481,51 @@ function TechUpgradesTab({ infrastructure, services, money, onUnlockInfrastructu
             </div>
           )}
         </div>
-      ) : nextServiceUnlock ? null : (
+      ) : nextLicenseUnlock ? null : (
         <div className="all-unlocked">
           <p>All infrastructure unlocked!</p>
         </div>
       )}
 
-      {nextServiceUnlock && (
+      {nextLicenseUnlock && (
         <div className="unlock-card">
           <div className="unlock-info">
-            <span className="unlock-label">Next Service:</span>
-            <span className="unlock-value">{nextServiceUnlock.name}</span>
+            <span className="unlock-label">Next License:</span>
+            <span className="unlock-value">{nextLicenseUnlock.name}</span>
           </div>
           <div className="unlock-info">
             <span className="unlock-label">Unlock Requirement:</span>
-            <span className="unlock-value cost">${nextServiceUnlock.unlockRequirement.toLocaleString()}</span>
+            <span className="unlock-value cost">${nextLicenseUnlock.unlockCost.toLocaleString()}</span>
           </div>
           
           <div className="unlock-progress">
             <div className="progress-container">
               <div className="progress-bar">
-                <div className="progress-fill" style={{ width: `${serviceProgress}%` }} />
+                <div className="progress-fill" style={{ width: `${licenseProgress}%` }} />
               </div>
-              <span className="progress-percent">{Math.round(serviceProgress)}%</span>
+              <span className="progress-percent">{Math.round(licenseProgress)}%</span>
             </div>
           </div>
 
-          {serviceProgress >= 100 ? (
+          {licenseProgress >= 100 ? (
             <button
               className="btn btn-primary unlock-btn"
-              onClick={() => onUnlockService(nextServiceUnlock.id)}
+              onClick={() => onUnlockLicense(nextLicenseUnlock.id)}
             >
-              UNLOCK {nextServiceUnlock.name.toUpperCase()}
+              UNLOCK {nextLicenseUnlock.name.toUpperCase()}
             </button>
           ) : (
             <div className="unlock-rewards">
               <span className="rewards-label">Reward:</span>
               <ul className="rewards-list">
-                <li>Unlock {nextServiceUnlock.name}</li>
+                <li>Unlock {nextLicenseUnlock.name}</li>
               </ul>
             </div>
           )}
         </div>
       )}
 
-      {!nextInfraUnlock && !nextServiceUnlock && (
+      {!nextInfraUnlock && !nextLicenseUnlock && (
         <div className="all-unlocked">
           <p>All upgrades unlocked!</p>
         </div>
