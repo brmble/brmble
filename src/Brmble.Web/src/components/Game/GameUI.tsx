@@ -562,6 +562,10 @@ interface LicenseRowProps {
 function LicenseRow({ license, cap, maxSlider, upgradeCost, canUpgrade, money, onUpgrade, onAllocate }: LicenseRowProps) {
   const [localAllocated, setLocalAllocated] = useState(license.allocated);
   
+  useEffect(() => {
+    setLocalAllocated(license.allocated);
+  }, [license.allocated]);
+  
   const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = parseInt(e.target.value, 10);
     setLocalAllocated(value);
@@ -620,6 +624,15 @@ function LicenseRow({ license, cap, maxSlider, upgradeCost, canUpgrade, money, o
   );
 }
 
+const MAX_SAFE_INTEGER = 9007199254740991;
+
+const calculateCap = (baseCap: number, capPerLevel: number, level: number): number => {
+  const raw = baseCap + (level * capPerLevel);
+  return Math.min(raw, MAX_SAFE_INTEGER);
+};
+
+const noop = () => {};
+
 function HostingTab({ licenses, uploadSpeed, bandwidthAllocated, onUnlockLicense, onUpgradeLicense, onAllocate, money }: HostingTabProps) {
   const freeBandwidth = uploadSpeed - bandwidthAllocated;
   
@@ -646,7 +659,7 @@ function HostingTab({ licenses, uploadSpeed, bandwidthAllocated, onUnlockLicense
       <div className="licenses-section">
         <h3 className="heading-label">Active Licenses</h3>
         {unlockedLicenses.map(license => {
-          const cap = Math.min(license.baseCap + (license.level * license.capPerLevel), 9007199254740991);
+          const cap = calculateCap(license.baseCap, license.capPerLevel, license.level);
           const upgradeCost = Math.floor(license.baseUpgradeCost * Math.pow(1.15, license.level));
           const canUpgrade = license.level < 10 && money >= upgradeCost;
           const maxSlider = Math.min(cap, uploadSpeed);
@@ -679,7 +692,7 @@ function HostingTab({ licenses, uploadSpeed, bandwidthAllocated, onUnlockLicense
                 canUpgrade={false}
                 money={money}
                 onUpgrade={() => onUnlockLicense(license.id)}
-                onAllocate={() => {}}
+                onAllocate={noop}
               />
             ))}
           </>
