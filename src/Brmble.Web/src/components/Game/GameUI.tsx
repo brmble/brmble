@@ -55,8 +55,7 @@ export function GameUI({ onClose }: GameUIProps) {
           money={state.money} 
           income={state.incomePerSecond} 
           uploadSpeed={state.uploadSpeed} 
-          bandwidthSold={state.bandwidthSold} 
-          bandwidthDemanded={state.bandwidthDemanded} 
+          bandwidthAllocated={state.bandwidthAllocated} 
           onClose={handleClose}
           onExport={actions.exportSave}
           onReset={handleReset}
@@ -71,9 +70,7 @@ export function GameUI({ onClose }: GameUIProps) {
           <InfrastructureTab 
             infrastructure={visibleInfrastructure} 
             onBuy={actions.buyInfrastructure} 
-            onUpgrade1={actions.upgrade1}
-            onUpgrade2={actions.upgrade2}
-            onUpgrade3={actions.upgrade3}
+            onUpgrade={actions.upgradeInfrastructure}
             money={state.money} 
           />
         )}
@@ -187,10 +184,8 @@ function formatBandwidth(bytes: number): string {
   return bytes + ' B/s';
 }
 
-function Header({ money, income, uploadSpeed, bandwidthSold, bandwidthDemanded, onClose, onExport, onReset, onOpenImport, onShowSaveConfirm }: { money: number; income: number; uploadSpeed: number; bandwidthSold: number; bandwidthDemanded: number; onClose?: () => void; onExport?: () => string; onReset?: () => void; onOpenImport?: () => void; onShowSaveConfirm?: () => void }) {
-  const isOverage = bandwidthDemanded > uploadSpeed;
-  const freeAmount = isOverage ? 0 : uploadSpeed - bandwidthDemanded;
-  const overageAmount = isOverage ? bandwidthDemanded - uploadSpeed : 0;
+function Header({ money, income, uploadSpeed, bandwidthAllocated, onClose, onExport, onReset, onOpenImport, onShowSaveConfirm }: { money: number; income: number; uploadSpeed: number; bandwidthAllocated: number; onClose?: () => void; onExport?: () => string; onReset?: () => void; onOpenImport?: () => void; onShowSaveConfirm?: () => void }) {
+  const freeAmount = Math.max(0, uploadSpeed - bandwidthAllocated);
   
   const handleExport = async () => {
     if (!onExport) return;
@@ -214,26 +209,18 @@ function Header({ money, income, uploadSpeed, bandwidthSold, bandwidthDemanded, 
           <span className="header-value upload">{formatBandwidth(uploadSpeed)}</span>
         </div>
       </Tooltip>
-      <Tooltip content="Bandwidth currently being used by customers" position="bottom">
+      <Tooltip content="Bandwidth allocated to licenses" position="bottom">
         <div className="header-stat">
           <span className="header-label">USED:</span>
-          <span className="header-value bandwidth">{formatBandwidth(bandwidthSold)}</span>
+          <span className="header-value bandwidth">{formatBandwidth(bandwidthAllocated)}</span>
         </div>
       </Tooltip>
-      <Tooltip content={isOverage ? 'You are over capacity! Penalty applies.' : 'Available bandwidth for new services'} position="bottom">
+      <Tooltip content="Available bandwidth for new licenses" position="bottom">
         <div className="header-stat">
-          <span className="header-label">{isOverage ? 'OVER:' : 'FREE:'}</span>
-          <span className={`header-value ${isOverage ? 'overage' : 'free'}`}>{isOverage ? '+' : ''}{formatBandwidth(isOverage ? overageAmount : freeAmount)}</span>
+          <span className="header-label">FREE:</span>
+          <span className="header-value free">{formatBandwidth(freeAmount)}</span>
         </div>
       </Tooltip>
-      {isOverage && (
-        <Tooltip content={`Using ${formatBandwidth(overageAmount)} more than your ${formatBandwidth(uploadSpeed)} upload capacity`} position="bottom">
-          <div className="header-stat">
-            <span className="header-label">PENALTY:</span>
-            <span className="header-value penalty">-15%</span>
-          </div>
-        </Tooltip>
-      )}
       <Tooltip content="Money earned per second from services" position="bottom">
         <div className="header-stat">
           <span className="header-label">INCOME:</span>
@@ -302,9 +289,7 @@ function TabNav({ activeTab, onTabChange }: TabNavProps) {
 interface InfrastructureTabProps {
   infrastructure: Infrastructure[];
   onBuy: (infrastructureId: string) => void;
-  onUpgrade1: (infrastructureId: string) => void;
-  onUpgrade2: (infrastructureId: string) => void;
-  onUpgrade3: (infrastructureId: string) => void;
+  onUpgrade: (infrastructureId: string) => void;
   money: number;
 }
 
@@ -313,45 +298,18 @@ function calculateCost(infra: Infrastructure): number {
 }
 
 function calculateBandwidth(infra: Infrastructure): number {
-  const upgrade1Multiplier = 1 + (infra.upgrade1Level * 0.25);
-  const upgrade2Multiplier = 1 + (infra.upgrade2Level * 0.25);
-  const upgrade3Multiplier = 1 + (infra.upgrade3Level * 0.25);
-  const totalMultiplier = upgrade1Multiplier * upgrade2Multiplier * upgrade3Multiplier;
-  return Math.floor(infra.bandwidthBytesPerSecond * totalMultiplier);
+  const multiplier = 1 + (infra.upgrade1Level * 0.25);
+  return Math.floor(infra.bandwidthBytesPerSecond * infra.owned * multiplier);
 }
 
-function InfrastructureTab({ infrastructure, onBuy, onUpgrade1, onUpgrade2, onUpgrade3, money }: InfrastructureTabProps) {
-  const upgradeNames = [
-    'Better Cooling',
-    'Heat Sink Array',
-    'High-Speed Modem',
-    'Water Cooling',
-    'Fiber Backbone',
-    'Signal Booster',
-    'Multi-Threaded Uplink',
-    'Packet Optimizer',
-    'AI Packet Routing',
-    'Turbo Upload Core'
-  ];
-  
+function InfrastructureTab({ infrastructure, onBuy, onUpgrade, money }: InfrastructureTabProps) {
   const getNextUpgrade = (infra: Infrastructure) => {
-    if (infra.upgrade1Level >= 10 && infra.upgrade2Level >= 10 && infra.upgrade3Level >= 5) {
-      return { name: 'MAXED', cost: 0, action: () => {}, canBuy: false };
+    if (infra.upgrade1Level >= 10) {
+      return { name: 'MAXED', level: 10, cost: 0, action: () => {}, canBuy: false };
     }
     
-    const totalLevel = infra.upgrade1Level + infra.upgrade2Level + infra.upgrade3Level;
-    const upgradeName = upgradeNames[totalLevel % upgradeNames.length];
-    
-    if (infra.upgrade1Level < 10) {
-      return { name: upgradeName, cost: infra.upgrade1Cost, action: () => onUpgrade1(infra.id), canBuy: money >= infra.upgrade1Cost };
-    }
-    if (infra.upgrade2Level < 10) {
-      return { name: upgradeName, cost: infra.upgrade2Cost, action: () => onUpgrade2(infra.id), canBuy: money >= infra.upgrade2Cost };
-    }
-    if (infra.upgrade3Level < 5) {
-      return { name: upgradeName, cost: infra.upgrade3Cost, action: () => onUpgrade3(infra.id), canBuy: money >= infra.upgrade3Cost };
-    }
-    return { name: 'MAXED', cost: 0, action: () => {}, canBuy: false };
+    const upgradeName = 'Upgrade';
+    return { name: upgradeName, level: infra.upgrade1Level, cost: infra.upgrade1Cost, action: () => onUpgrade(infra.id), canBuy: money >= infra.upgrade1Cost };
   };
 
   return (
@@ -386,7 +344,7 @@ function InfrastructureTab({ infrastructure, onBuy, onUpgrade1, onUpgrade2, onUp
                   disabled={!nextUpgrade.canBuy}
                   onClick={nextUpgrade.action}
                 >
-                  {nextUpgrade.name === 'MAXED' ? 'MAXED' : `${nextUpgrade.name} $${nextUpgrade.cost.toLocaleString()}`}
+                  {nextUpgrade.name === 'MAXED' ? 'MAXED' : `Lv.${nextUpgrade.level + 1} $${nextUpgrade.cost.toLocaleString()}`}
                 </button>
               </div>
               <div className="service-cost-col">

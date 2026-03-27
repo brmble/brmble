@@ -55,6 +55,7 @@ export interface GameActions {
   unlockLicense: (licenseId: string) => void;
   upgradeLicense: (licenseId: string) => void;
   allocateBandwidth: (licenseId: string, amount: number) => void;
+  setTheme: (theme: string) => void;
   saveGame: () => void;
   loadGame: () => void;
   resetGame: () => void;
