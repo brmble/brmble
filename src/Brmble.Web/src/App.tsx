@@ -34,6 +34,7 @@ import { Toast } from './components/Toast/Toast';
 import { GameUI } from './components/Game/GameUI';
 import { Brmblegotchi } from './components/Brmblegotchi/Brmblegotchi';
 import { ProfileProvider } from './contexts/ProfileContext';
+import { UpdateNotification } from './components/UpdateNotification/UpdateNotification';
 import { migrateLocalStorage } from './utils/migrateLocalStorage';
 import './App.css';
 
@@ -1141,7 +1142,17 @@ function App() {
     bridge.on('voice.brmbleClientDeactivated', onBrmbleClientDeactivated);
     bridge.on('voice.registrationStatus', onRegistrationStatus);
 
+    const onUpdateAvailable = (data: unknown) => {
+      setUpdateInfo(data as { version: string });
+      setUpdateProgress(null);
+    };
+    const onUpdateProgress = (data: unknown) => setUpdateProgress((data as { progress: number }).progress);
+    bridge.on('app.updateAvailable', onUpdateAvailable);
+    bridge.on('app.updateProgress', onUpdateProgress);
+
     return () => {
+      bridge.off('app.updateAvailable', onUpdateAvailable);
+      bridge.off('app.updateProgress', onUpdateProgress);
       bridge.off('voice.connected', onVoiceConnected);
       bridge.off('voice.disconnected', onVoiceDisconnected);
       bridge.off('voice.error', onVoiceError);
@@ -1526,12 +1537,24 @@ const handleConnect = (serverData: SavedServer) => {
     userName: string;
     roomName: string;
   } | null>(null);
+  const [updateInfo, setUpdateInfo] = useState<{ version: string } | null>(null);
+  const [updateProgress, setUpdateProgress] = useState<number | null>(null);
 
   const { isOnCooldown: leaveVoiceOnCooldown, trigger: triggerLeaveVoiceCooldown } = useLeaveVoiceCooldown(1000);
   const { isOnCooldown: muteOnCooldown, trigger: triggerMuteCooldown } = useLeaveVoiceCooldown(1000);
   const { isOnCooldown: deafOnCooldown, trigger: triggerDeafCooldown } = useLeaveVoiceCooldown(1000);
 
   const handleDismissToast = useCallback(() => setScreenShareToast(null), []);
+
+  const handleApplyUpdate = useCallback(() => {
+    bridge.send('app.applyUpdate', {});
+  }, []);
+
+  const handleDismissUpdate = useCallback(() => {
+    setUpdateInfo(null);
+    setUpdateProgress(null);
+    bridge.send('app.dismissUpdate');
+  }, []);
 
   const channelUnreads = useMemo(() => {
     if (!matrixCredentials?.roomMap) return new Map<string, { notificationCount: number; highlightCount: number }>();
@@ -1921,6 +1944,15 @@ const handleConnect = (serverData: SavedServer) => {
 
       <Prompt />
       <PromptWithInput />
+
+      {updateInfo && (
+        <UpdateNotification
+          version={updateInfo.version}
+          onUpdate={handleApplyUpdate}
+          onDismiss={handleDismissUpdate}
+          progress={updateProgress}
+        />
+      )}
 
       {screenShareToast && (
         <Toast
