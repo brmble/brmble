@@ -74,7 +74,7 @@ export function useGameState() {
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
-          if (hasInfrastructure(parsed) && hasServices(parsed)) {
+          if (hasInfrastructure(parsed) && hasLicenses(parsed)) {
             setState(parsed);
             return;
           }
