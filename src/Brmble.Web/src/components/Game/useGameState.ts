@@ -196,15 +196,15 @@ export function useGameState() {
         return prev;
       }
       
-      const cap = license.baseCap + (license.level * license.capPerLevel);
-      const clampedAmount = Math.max(0, Math.min(amount, cap, prev.uploadSpeed));
+      const cap = calculateCap(license, license.level);
       
       const currentAllocated = prev.licenses
         .filter(l => l.id !== licenseId)
         .reduce((sum, l) => sum + l.allocated, 0);
       
-      const maxAllowed = prev.uploadSpeed - currentAllocated;
-      const finalAmount = Math.min(clampedAmount, maxAllowed);
+      const maxAllowed = Math.max(0, prev.uploadSpeed - currentAllocated);
+      const clampedByCap = Math.max(0, Math.min(amount, cap));
+      const finalAmount = Math.min(clampedByCap, maxAllowed);
       
       const newAllocatedTotal = currentAllocated + finalAmount;
       
