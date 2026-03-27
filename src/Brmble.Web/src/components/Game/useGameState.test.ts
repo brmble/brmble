@@ -257,7 +257,7 @@ describe('useGameState', () => {
       const personalWebsite = result.current.state.licenses.find(l => l.id === 'personal-website');
       const blogHosting = result.current.state.licenses.find(l => l.id === 'blog-hosting');
       
-      expect(personalWebsite?.allocated + blogHosting?.allocated).toBeLessThanOrEqual(1024);
+      expect((personalWebsite?.allocated ?? 0) + (blogHosting?.allocated ?? 0)).toBeLessThanOrEqual(1024);
     });
 
     it('allows allocation up to upload speed', () => {
