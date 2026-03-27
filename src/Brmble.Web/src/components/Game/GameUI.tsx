@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import type { Infrastructure, Service } from './types';
+import type { Infrastructure, License } from './types';
 import { useGameState } from './useGameState';
 import { confirm } from '../../hooks/usePrompt';
 import { Select } from '../Select/Select';
@@ -88,11 +88,12 @@ export function GameUI({ onClose }: GameUIProps) {
         )}
         {activeTab === 'hosting' && (
           <HostingTab 
-            services={state.services}
+            licenses={state.licenses}
             uploadSpeed={state.uploadSpeed}
-            bandwidthSold={state.bandwidthSold}
-            bandwidthDemanded={state.bandwidthDemanded}
-            onBuyService={actions.buyService}
+            bandwidthAllocated={state.bandwidthAllocated}
+            onUnlockLicense={actions.unlockLicense}
+            onUpgradeLicense={actions.upgradeLicense}
+            onAllocate={actions.allocateBandwidth}
             money={state.money}
           />
         )}
@@ -538,98 +539,152 @@ function TechUpgradesTab({ infrastructure, services, money, onUnlockInfrastructu
 }
 
 interface HostingTabProps {
-  services: Service[];
+  licenses: License[];
   uploadSpeed: number;
-  bandwidthSold: number;
-  bandwidthDemanded: number;
-  onBuyService: (serviceId: string) => void;
+  bandwidthAllocated: number;
+  onUnlockLicense: (licenseId: string) => void;
+  onUpgradeLicense: (licenseId: string) => void;
+  onAllocate: (licenseId: string, amount: number) => void;
   money: number;
 }
 
-function HostingTab({ services, uploadSpeed, bandwidthDemanded, onBuyService, money }: HostingTabProps) {
-  const isOverage = bandwidthDemanded > uploadSpeed;
-  const penaltyPercent = isOverage ? 15 : 0;
-  const overageAmount = isOverage ? bandwidthDemanded - uploadSpeed : 0;
-  
-  const unlockedServices = services.filter(s => s.unlocked);
-  const nextLockedService = services.find(s => !s.unlocked);
-  
-  return (
-    <div className="hosting-tab">
-      {isOverage && (
-        <div className="hosting-penalty">
-          <div className="penalty-info">
-            <span className="penalty-label">Bandwidth Overage</span>
-            <span className="penalty-detail">Using {formatBandwidth(overageAmount)} more than available</span>
-          </div>
-          <span className="penalty-value">-{penaltyPercent}% income</span>
-        </div>
-      )}
-      
-      <div className="services-section">
-        <h3 className="heading-label">Services</h3>
-        <div className="services-header">
-          <span>Name</span>
-          <span>Owned</span>
-          <span>Bandwidth</span>
-          <span>Income</span>
-          <span>Price</span>
-          <span></span>
-        </div>
-        {unlockedServices.map(service => {
-          const cost = Math.floor(service.baseCost * Math.pow(1.15, service.owned));
-          const canBuy = money >= cost;
-          return (
-            <ServiceRow 
-              key={service.id} 
-              service={service} 
-              cost={cost}
-              onBuy={onBuyService} 
-              canBuy={canBuy}
-            />
-          );
-        })}
-        
-        {nextLockedService && (
-          <ServiceRow 
-            key={nextLockedService.id} 
-            service={nextLockedService} 
-            cost={0}
-            onBuy={onBuyService} 
-            canBuy={false}
-          />
-        )}
-      </div>
-    </div>
-  );
+interface LicenseRowProps {
+  license: License;
+  cap: number;
+  maxSlider: number;
+  upgradeCost: number;
+  canUpgrade: boolean;
+  money: number;
+  onUpgrade: () => void;
+  onAllocate: (amount: number) => void;
 }
 
-function ServiceRow({ service, cost, onBuy, canBuy }: { service: Service; cost: number; onBuy: (id: string) => void; canBuy: boolean }) {
-  if (!service.unlocked) {
+function LicenseRow({ license, cap, maxSlider, upgradeCost, canUpgrade, money, onUpgrade, onAllocate }: LicenseRowProps) {
+  const [localAllocated, setLocalAllocated] = useState(license.allocated);
+  
+  const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = parseInt(e.target.value, 10);
+    setLocalAllocated(value);
+  };
+  
+  const handleSliderCommit = () => {
+    onAllocate(localAllocated);
+  };
+  
+  const income = license.allocated * license.incomePerKB;
+  const isLocked = !license.unlocked;
+  
+  if (isLocked) {
     return (
-      <div className="hosting-row locked">
-        <span className="service-name">{service.name}</span>
-        <span className="service-owned">0</span>
-        <span className="service-bandwidth">{formatBandwidth(service.baseBandwidthRequired)}</span>
-        <span className="service-income">${service.baseIncomePerSecond.toLocaleString()}/s</span>
-        <span className="service-cost">${service.unlockRequirement.toLocaleString()}</span>
-        <button className="btn btn-secondary" disabled>
-          Locked
+      <div className="license-row locked">
+        <div className="license-info">
+          <span className="license-name">{license.name}</span>
+          <span className="license-cap">Cap: {formatBandwidth(license.baseCap)}</span>
+        </div>
+        <span className="license-unlock-cost">${license.unlockCost.toLocaleString()}</span>
+        <button className="btn btn-secondary" disabled={money < license.unlockCost} onClick={() => onUpgrade()}>
+          Unlock
         </button>
       </div>
     );
   }
   
   return (
-    <div className={`hosting-row ${service.owned > 0 ? 'active' : 'inactive'}`}>
-      <span className="service-name">{service.name}</span>
-      <span className="service-owned">{service.owned}</span>
-      <span className="service-bandwidth">{formatBandwidth(service.baseBandwidthRequired)}</span>
-      <span className="service-income">${service.baseIncomePerSecond.toLocaleString()}/s</span>
-      <span className="service-cost">${cost.toLocaleString()}</span>
-      <button className="btn btn-primary" disabled={!canBuy} onClick={() => onBuy(service.id)}>
-        Buy
+    <div className="license-row">
+      <div className="license-info">
+        <span className="license-name">{license.name}</span>
+        <span className="license-level">Level {license.level}/10 | Cap: {formatBandwidth(cap)}</span>
+      </div>
+      <div className="license-slider-container">
+        <input
+          type="range"
+          className="license-slider"
+          min={0}
+          max={maxSlider}
+          value={localAllocated}
+          onChange={handleSliderChange}
+          onMouseUp={handleSliderCommit}
+          onTouchEnd={handleSliderCommit}
+        />
+        <span className="license-allocated">{formatBandwidth(localAllocated)}</span>
+      </div>
+      <span className="license-income">+${income.toFixed(2)}/s</span>
+      <button
+        className="btn btn-secondary upgrade-btn"
+        disabled={!canUpgrade}
+        onClick={onUpgrade}
+      >
+        {license.level >= 10 ? 'MAX' : `Upgrade $${upgradeCost.toLocaleString()}`}
       </button>
+    </div>
+  );
+}
+
+function HostingTab({ licenses, uploadSpeed, bandwidthAllocated, onUnlockLicense, onUpgradeLicense, onAllocate, money }: HostingTabProps) {
+  const freeBandwidth = uploadSpeed - bandwidthAllocated;
+  
+  const unlockedLicenses = licenses.filter(l => l.unlocked);
+  const lockedLicenses = licenses.filter(l => !l.unlocked);
+  
+  return (
+    <div className="hosting-tab">
+      <div className="bandwidth-summary">
+        <div className="summary-stat">
+          <span className="summary-label">Total Upload:</span>
+          <span className="summary-value">{formatBandwidth(uploadSpeed)}</span>
+        </div>
+        <div className="summary-stat">
+          <span className="summary-label">Allocated:</span>
+          <span className="summary-value allocated">{formatBandwidth(bandwidthAllocated)}</span>
+        </div>
+        <div className="summary-stat">
+          <span className="summary-label">Free:</span>
+          <span className="summary-value free">{formatBandwidth(freeBandwidth)}</span>
+        </div>
+      </div>
+      
+      <div className="licenses-section">
+        <h3 className="heading-label">Active Licenses</h3>
+        {unlockedLicenses.map(license => {
+          const cap = Math.min(license.baseCap + (license.level * license.capPerLevel), 9007199254740991);
+          const upgradeCost = Math.floor(license.baseUpgradeCost * Math.pow(1.15, license.level));
+          const canUpgrade = license.level < 10 && money >= upgradeCost;
+          const maxSlider = Math.min(cap, uploadSpeed);
+          
+          return (
+            <LicenseRow
+              key={license.id}
+              license={license}
+              cap={cap}
+              maxSlider={maxSlider}
+              upgradeCost={upgradeCost}
+              canUpgrade={canUpgrade}
+              money={money}
+              onUpgrade={() => onUpgradeLicense(license.id)}
+              onAllocate={(amount) => onAllocate(license.id, amount)}
+            />
+          );
+        })}
+        
+        {lockedLicenses.length > 0 && (
+          <>
+            <h3 className="heading-label locked-title">Locked Licenses</h3>
+            {lockedLicenses.map(license => (
+              <LicenseRow
+                key={license.id}
+                license={license}
+                cap={license.baseCap}
+                maxSlider={0}
+                upgradeCost={0}
+                canUpgrade={false}
+                money={money}
+                onUpgrade={() => onUnlockLicense(license.id)}
+                onAllocate={() => {}}
+              />
+            ))}
+          </>
+        )}
+      </div>
     </div>
   );
 }
