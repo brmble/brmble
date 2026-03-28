@@ -427,6 +427,7 @@ export function useGameState() {
       const type = AD_TYPES[Math.floor(Math.random() * AD_TYPES.length)];
       const volume = Math.floor(Math.random() * 5) + 1;
       const margin = Math.floor(Math.random() * 5) + 1;
+      const duration = getDuration();
       options.push({
         id: crypto.randomUUID(),
         name: generateAdName(type),
@@ -434,6 +435,7 @@ export function useGameState() {
         volume,
         margin,
         licenseId: '',
+        duration,
       });
     }
     return options;

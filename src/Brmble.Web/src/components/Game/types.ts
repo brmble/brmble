@@ -7,6 +7,7 @@ export interface Advertisement {
   volume: number;
   margin: number;
   licenseId: string;
+  duration?: AdDuration;
 }
 
 export type AdDuration = 'short' | 'medium' | 'long';
