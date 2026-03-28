@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import type { Infrastructure, License } from './types';
+import type { Infrastructure, License, Advertisement } from './types';
 import { useGameState } from './useGameState';
 import { confirm } from '../../hooks/usePrompt';
 import { Select } from '../Select/Select';
@@ -91,6 +91,12 @@ export function GameUI({ onClose }: GameUIProps) {
             onUpgradeLicense={actions.upgradeLicense}
             onAllocate={actions.allocateBandwidth}
             money={state.money}
+            advertisements={state.advertisements}
+            adSlots={state.adSlots}
+            lastAdRefresh={state.lastAdRefresh}
+            onRefreshAd={actions.refreshAdvertisement}
+            onAssignAd={actions.assignAdToLicense}
+            generateAdOptions={actions.generateAdOptions}
           />
         )}
         </div>
@@ -304,10 +310,6 @@ function calculateBandwidth(infra: Infrastructure): number {
 
 function InfrastructureTab({ infrastructure, onBuy, onUpgrade, money }: InfrastructureTabProps) {
   const getNextUpgrade = (infra: Infrastructure) => {
-    if (infra.upgrade1Level >= 10) {
-      return { name: 'MAXED', level: 10, cost: 0, action: () => {}, canBuy: false };
-    }
-    
     const upgradeName = 'Upgrade';
     return { name: upgradeName, level: infra.upgrade1Level, cost: infra.upgrade1Cost, action: () => onUpgrade(infra.id), canBuy: money >= infra.upgrade1Cost };
   };
@@ -344,7 +346,7 @@ function InfrastructureTab({ infrastructure, onBuy, onUpgrade, money }: Infrastr
                   disabled={!nextUpgrade.canBuy}
                   onClick={nextUpgrade.action}
                 >
-                  {nextUpgrade.name === 'MAXED' ? 'MAXED' : `Lv.${nextUpgrade.level + 1} $${nextUpgrade.cost.toLocaleString()}`}
+                  {`Lv.${nextUpgrade.level + 1} $${nextUpgrade.cost.toLocaleString()}`}
                 </button>
               </div>
               <div className="service-cost-col">
@@ -500,6 +502,136 @@ interface HostingTabProps {
   onUpgradeLicense: (licenseId: string) => void;
   onAllocate: (licenseId: string, amount: number) => void;
   money: number;
+  advertisements: Advertisement[];
+  adSlots: number;
+  lastAdRefresh: number;
+  onRefreshAd: (ad: Advertisement) => void;
+  onAssignAd: (adId: string, licenseId: string) => void;
+  generateAdOptions: () => Advertisement[];
+}
+
+interface AdSelectionModalProps {
+  isOpen: boolean;
+  options: Advertisement[];
+  onSelect: (ad: Advertisement) => void;
+  onClose: () => void;
+}
+
+function AdSelectionModal({ isOpen, options, onSelect, onClose }: AdSelectionModalProps) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="ad-modal glass-panel animate-slide-up" onClick={e => e.stopPropagation()}>
+        <div className="ad-modal-header">
+          <h2 className="heading-title">Choose Your Ad Contract</h2>
+        </div>
+        <div className="ad-modal-cards">
+          {options.map(ad => (
+            <div key={ad.id} className="ad-card">
+              <span className="ad-card-type">{ad.type}</span>
+              <span className="ad-card-name">{ad.name}</span>
+              <div className="ad-card-stats">
+                <span>Vol: {'★'.repeat(ad.volume)}{'☆'.repeat(5-ad.volume)}</span>
+                <span>Mar: {'★'.repeat(ad.margin)}{'☆'.repeat(5-ad.margin)}</span>
+              </div>
+              <button className="btn btn-primary" onClick={() => onSelect(ad)}>
+                Select
+              </button>
+            </div>
+          ))}
+        </div>
+        <div className="ad-modal-footer">
+          <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface AdSlotsSectionProps {
+  advertisements: Advertisement[];
+  adSlots: number;
+  lastAdRefresh: number;
+  onRefreshAd: (ad: Advertisement) => void;
+  onAssignAd: (adId: string, licenseId: string) => void;
+  onFindNewAd: () => void;
+  licenses: License[];
+}
+
+function AdSlotsSection({ advertisements, adSlots, lastAdRefresh, onRefreshAd, onAssignAd, onFindNewAd, licenses }: AdSlotsSectionProps) {
+  const [timeLeft, setTimeLeft] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now();
+      const cooldown = 5 * 60 * 1000;
+      setTimeLeft(Math.max(0, cooldown - (now - lastAdRefresh)));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [lastAdRefresh]);
+
+  const canRefresh = timeLeft === 0;
+  const minutes = Math.floor(timeLeft / 60000);
+  const seconds = Math.floor((timeLeft % 60000) / 1000);
+
+  const getAdVolumeKB = (ad: Advertisement, license: License): number => {
+    const cap = calculateCap(license.baseCap, license.capPerLevel, license.level);
+    const effectiveCap = 0.6 + license.bonus.capacityBonus;
+    const maxAdKB = cap * effectiveCap;
+    return maxAdKB * (ad.volume / 5);
+  };
+
+  return (
+    <div className="ad-slots-section">
+      <div className="ad-header">
+        <h3 className="heading-label">Advertisement Slots ({advertisements.length}/{adSlots})</h3>
+        <button
+          className="btn btn-secondary"
+          disabled={!canRefresh}
+          onClick={onFindNewAd}
+        >
+          {canRefresh ? 'Find New Ad' : `Wait ${minutes}:${seconds.toString().padStart(2, '0')}`}
+        </button>
+      </div>
+
+      {advertisements.map((ad) => {
+        const adsOnSameLicense = advertisements.filter(a => a.licenseId === ad.licenseId && a.id !== ad.id).length + 1;
+        const efficiency = adsOnSameLicense === 1 ? 1.0 : adsOnSameLicense === 2 ? 0.8 : adsOnSameLicense === 3 ? 0.6 : 0.4;
+
+        return (
+          <div key={ad.id} className="ad-slot">
+            <span className="ad-type">{ad.type}</span>
+            <span className="ad-name">{ad.name}</span>
+            <span className="ad-stars">Vol: {'★'.repeat(ad.volume)}{'☆'.repeat(5-ad.volume)}</span>
+            <span className="ad-stars">Mar: {'★'.repeat(ad.margin)}{'☆'.repeat(5-ad.margin)}</span>
+            <span className="ad-efficiency">{Math.round(efficiency * 100)}%</span>
+            <select
+              value={ad.licenseId}
+              onChange={(e) => onAssignAd(ad.id, e.target.value)}
+            >
+              <option value="">Unassigned</option>
+              {licenses.filter(l => l.unlocked).map(l => {
+                const cap = calculateCap(l.baseCap, l.capPerLevel, l.level);
+                const effectiveCap = 0.6 + l.bonus.capacityBonus;
+                const maxAdKB = cap * effectiveCap;
+                const otherAds = advertisements
+                  .filter(a => a.id !== ad.id && a.licenseId === l.id)
+                  .reduce((sum, a) => sum + getAdVolumeKB(a, l), 0);
+                const available = maxAdKB - otherAds;
+                const adKB = getAdVolumeKB(ad, l);
+                return (
+                  <option key={l.id} value={l.id} disabled={available < adKB}>
+                    {l.name} ({formatBandwidth(Math.max(0, available))} ad space)
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 interface LicenseRowProps {
@@ -530,6 +662,7 @@ function LicenseRow({ license, cap, maxSlider, upgradeCost, canUpgrade, money, o
   };
   
   const income = license.allocated * license.incomePerKB;
+  const incomeRate = license.incomePerKB * 1000;
   const isLocked = !license.unlocked;
   
   if (isLocked) {
@@ -537,7 +670,7 @@ function LicenseRow({ license, cap, maxSlider, upgradeCost, canUpgrade, money, o
       <div className="license-row locked">
         <div className="license-info">
           <span className="license-name">{license.name}</span>
-          <span className="license-cap">Cap: {formatBandwidth(license.baseCap)}</span>
+          <span className="license-cap">Cap: {formatBandwidth(license.baseCap)} | ${incomeRate.toFixed(2)}/KB</span>
         </div>
         <span className="license-unlock-cost">${license.unlockCost.toLocaleString()}</span>
         <button className="btn btn-secondary" disabled={money < license.unlockCost} onClick={() => onUpgrade()}>
@@ -551,7 +684,7 @@ function LicenseRow({ license, cap, maxSlider, upgradeCost, canUpgrade, money, o
     <div className="license-row">
       <div className="license-info">
         <span className="license-name">{license.name}</span>
-        <span className="license-level">Level {license.level}/10 | Cap: {formatBandwidth(cap)}</span>
+        <span className="license-level">Lv.{license.level} | Cap: {formatBandwidth(cap)} | ${incomeRate.toFixed(2)}/KB</span>
       </div>
       <div className="license-slider-container">
         <input
@@ -572,7 +705,7 @@ function LicenseRow({ license, cap, maxSlider, upgradeCost, canUpgrade, money, o
         disabled={!canUpgrade}
         onClick={onUpgrade}
       >
-        {license.level >= 10 ? 'MAX' : `Upgrade $${upgradeCost.toLocaleString()}`}
+        {`Upgrade Lv.${license.level + 1} $${upgradeCost.toLocaleString()}`}
       </button>
     </div>
   );
@@ -587,7 +720,20 @@ const calculateCap = (baseCap: number, capPerLevel: number, level: number): numb
 
 const noop = () => {};
 
-function HostingTab({ licenses, uploadSpeed, bandwidthAllocated, onUnlockLicense, onUpgradeLicense, onAllocate, money }: HostingTabProps) {
+function HostingTab({ licenses, uploadSpeed, bandwidthAllocated, onUnlockLicense, onUpgradeLicense, onAllocate, money, advertisements, adSlots, lastAdRefresh, onRefreshAd, onAssignAd, generateAdOptions }: HostingTabProps) {
+  const [showAdModal, setShowAdModal] = useState(false);
+  const [adOptions, setAdOptions] = useState<Advertisement[]>([]);
+
+  const handleFindNewAd = () => {
+    setAdOptions(generateAdOptions());
+    setShowAdModal(true);
+  };
+
+  const handleSelectAd = (ad: Advertisement) => {
+    onRefreshAd(ad);
+    setShowAdModal(false);
+  };
+
   const freeBandwidth = uploadSpeed - bandwidthAllocated;
   
   const unlockedLicenses = licenses.filter(l => l.unlocked);
@@ -595,6 +741,23 @@ function HostingTab({ licenses, uploadSpeed, bandwidthAllocated, onUnlockLicense
   
   return (
     <div className="hosting-tab">
+      <AdSlotsSection
+        advertisements={advertisements}
+        adSlots={adSlots}
+        lastAdRefresh={lastAdRefresh}
+        onRefreshAd={onRefreshAd}
+        onAssignAd={onAssignAd}
+        onFindNewAd={handleFindNewAd}
+        licenses={licenses}
+      />
+
+      <AdSelectionModal
+        isOpen={showAdModal}
+        options={adOptions}
+        onSelect={handleSelectAd}
+        onClose={() => setShowAdModal(false)}
+      />
+
       <div className="bandwidth-summary">
         <div className="summary-stat">
           <span className="summary-label">Total Upload:</span>
@@ -615,8 +778,11 @@ function HostingTab({ licenses, uploadSpeed, bandwidthAllocated, onUnlockLicense
         {unlockedLicenses.map(license => {
           const cap = calculateCap(license.baseCap, license.capPerLevel, license.level);
           const upgradeCost = Math.floor(license.baseUpgradeCost * Math.pow(1.15, license.level));
-          const canUpgrade = license.level < 10 && money >= upgradeCost;
-          const maxSlider = Math.min(cap, uploadSpeed);
+          const canUpgrade = money >= upgradeCost;
+          const otherAllocated = licenses
+            .filter(l => l.id !== license.id)
+            .reduce((sum, l) => sum + l.allocated, 0);
+          const maxSlider = Math.min(cap, Math.max(0, uploadSpeed - otherAllocated));
           
           return (
             <LicenseRow
