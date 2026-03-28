@@ -1,8 +1,48 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
-import type { GameState, GameActions, License } from './types';
+import type { GameState, GameActions, License, Advertisement, AdType } from './types';
 import { INITIAL_STATE } from './types';
 import { applyTheme } from '../../themes/theme-loader';
 import { useProfileFingerprint } from '../../contexts/ProfileContext';
+
+const AD_TYPES = ['video', 'banner', 'popup', 'sponsored'] as const;
+
+const AD_TYPE_NAMES = {
+  video: ['StreamHub', 'VidMax', 'TubePro', 'ClipStream', 'MovieBox'],
+  banner: ['AdPlace', 'BannerHub', 'WebAd', 'DisplayNet', 'AdSpot'],
+  popup: ['PopGen', 'AdPop', 'SpotPop', 'QuickAd', 'AlertBox'],
+  sponsored: ['BrandSync', 'SponsorHub', 'PartnerPro', 'ContentPlus', 'BrandDeal'],
+};
+
+const AD_ADJECTIVES = {
+  video: ['Pro', 'Plus', 'Max', 'Ultra', 'Elite'],
+  banner: ['Basic', 'Standard', 'Prime', 'Premium', 'Plus'],
+  popup: ['Quick', 'Fast', 'Swift', 'Rapid', 'Instant'],
+  sponsored: ['Premium', 'Exclusive', 'Partner', 'Brand', 'VIP'],
+};
+
+const generateAdName = (type: AdType): string => {
+  const names = AD_TYPE_NAMES[type];
+  const adj = AD_ADJECTIVES[type];
+  const name = names[Math.floor(Math.random() * names.length)];
+  const a = adj[Math.floor(Math.random() * adj.length)];
+  return `${a} ${name}`;
+};
+
+const getAdSlotCost = (currentSlots: number): number => {
+  return Math.floor(10000 * Math.pow(2, currentSlots - 1));
+};
+
+const getEfficiency = (adCountOnLicense: number, efficiencyBonus: number = 0): number => {
+  const baseEfficiency = adCountOnLicense === 1 ? 1.0 : adCountOnLicense === 2 ? 0.8 : adCountOnLicense === 3 ? 0.6 : 0.4;
+  return Math.min(1.0, baseEfficiency + efficiencyBonus);
+};
+
+const getEffectiveCap = (license: License): number => {
+  const baseAdCap = 0.6;
+  return baseAdCap + license.bonus.capacityBonus;
+};
+
+const isLowVolume = (volume: number): boolean => volume <= 2;
 
 const STORAGE_KEY = 'idle-farm-save';
 const THEME_KEY = 'idle-farm-theme';
@@ -87,10 +127,45 @@ export function useGameState() {
   useEffect(() => {
     const interval = setInterval(() => {
       setState(prev => {
-        const totalIncome = prev.licenses
-          .filter(l => l.unlocked)
-          .reduce((sum, l) => sum + (l.allocated * l.incomePerKB), 0);
-        
+        const getAdVolumeKB = (ad: Advertisement, license: License): number => {
+          const cap = calculateCap(license, license.level);
+          const effectiveCap = getEffectiveCap(license);
+          const maxAdKB = cap * effectiveCap;
+          const volumePercent = ad.volume / 5;
+          return maxAdKB * volumePercent;
+        };
+
+        let totalAdIncome = 0;
+        let totalRegularIncome = 0;
+
+        for (const license of prev.licenses) {
+          if (!license.unlocked) continue;
+
+          const cap = calculateCap(license, license.level);
+          const adsOnLicense = prev.advertisements.filter(a => a.licenseId === license.id);
+
+          for (let i = 0; i < adsOnLicense.length; i++) {
+            const ad = adsOnLicense[i];
+            const efficiency = getEfficiency(i + 1, license.bonus.efficiencyBonus);
+            const volumeKB = getAdVolumeKB(ad, license);
+
+            let marginRate = ad.margin * 0.001;
+            if (isLowVolume(ad.volume) && license.bonus.marginBonus > 0) {
+              marginRate *= (1 + license.bonus.marginBonus);
+            }
+
+            const effectiveMargin = marginRate * efficiency;
+            totalAdIncome += volumeKB * effectiveMargin;
+          }
+
+          const minContent = cap * 0.4;
+          const adUsage = adsOnLicense.reduce((sum, ad) => sum + getAdVolumeKB(ad, license), 0);
+          const regularKB = Math.max(0, cap - adUsage - minContent);
+          totalRegularIncome += regularKB * license.incomePerKB;
+        }
+
+        const totalIncome = totalAdIncome + totalRegularIncome;
+
         return {
           ...prev,
           money: prev.money + totalIncome,
@@ -163,7 +238,7 @@ export function useGameState() {
   const upgradeLicense = useCallback((licenseId: string) => {
     setState(prev => {
       const license = prev.licenses.find(l => l.id === licenseId);
-      if (!license || !license.unlocked || license.level >= 10) {
+      if (!license || !license.unlocked) {
         return prev;
       }
       
@@ -197,13 +272,13 @@ export function useGameState() {
       }
       
       const cap = calculateCap(license, license.level);
+      const clampedByCap = Math.max(0, Math.min(amount, cap));
       
       const currentAllocated = prev.licenses
         .filter(l => l.id !== licenseId)
         .reduce((sum, l) => sum + l.allocated, 0);
       
       const maxAllowed = Math.max(0, prev.uploadSpeed - currentAllocated);
-      const clampedByCap = Math.max(0, Math.min(amount, cap));
       const finalAmount = Math.min(clampedByCap, maxAllowed);
       
       const newAllocatedTotal = currentAllocated + finalAmount;
@@ -265,6 +340,100 @@ export function useGameState() {
     }
   }, []);
 
+  const getAdVolumeKB = (ad: Advertisement, license: License): number => {
+    const cap = calculateCap(license, license.level);
+    const effectiveCap = getEffectiveCap(license);
+    const maxAdKB = cap * effectiveCap;
+    const volumePercent = ad.volume / 5;
+    return maxAdKB * volumePercent;
+  };
+
+  const generateAdOptions = useCallback((): Advertisement[] => {
+    const options: Advertisement[] = [];
+    for (let i = 0; i < 3; i++) {
+      const type = AD_TYPES[Math.floor(Math.random() * AD_TYPES.length)];
+      const volume = Math.floor(Math.random() * 5) + 1;
+      const margin = Math.floor(Math.random() * 5) + 1;
+      options.push({
+        id: crypto.randomUUID(),
+        name: generateAdName(type),
+        type,
+        volume,
+        margin,
+        licenseId: '',
+      });
+    }
+    return options;
+  }, []);
+
+  const assignAdToLicense = useCallback((adId: string, licenseId: string) => {
+    setState(prev => {
+      const ad = prev.advertisements.find(a => a.id === adId);
+      if (!ad) return prev;
+
+      if (!licenseId) {
+        return {
+          ...prev,
+          advertisements: prev.advertisements.map(a =>
+            a.id === adId ? { ...a, licenseId: '' } : a
+          ),
+        };
+      }
+
+      const license = prev.licenses.find(l => l.id === licenseId);
+      if (!license || !license.unlocked) return prev;
+
+      const otherAdsOnLicense = prev.advertisements
+        .filter(a => a.id !== adId && a.licenseId === licenseId)
+        .reduce((sum, a) => sum + getAdVolumeKB(a, license), 0);
+
+      const cap = calculateCap(license, license.level);
+      const effectiveCap = getEffectiveCap(license);
+      const maxAdKB = cap * effectiveCap;
+      const available = maxAdKB - otherAdsOnLicense;
+      const adKB = getAdVolumeKB(ad, license);
+
+      if (adKB > available) return prev;
+
+      return {
+        ...prev,
+        advertisements: prev.advertisements.map(a =>
+          a.id === adId ? { ...a, licenseId } : a
+        ),
+      };
+    });
+  }, []);
+
+  const buyAdSlot = useCallback(() => {
+    setState(prev => {
+      const cost = getAdSlotCost(prev.adSlots);
+      if (prev.money < cost) return prev;
+      if (prev.advertisements.length >= prev.adSlots) return prev;
+
+      return {
+        ...prev,
+        money: prev.money - cost,
+        adSlots: prev.adSlots + 1,
+      };
+    });
+  }, []);
+
+  const selectAd = useCallback((ad: Advertisement) => {
+    setState(prev => {
+      let newAds: Advertisement[];
+      if (prev.advertisements.length < prev.adSlots) {
+        newAds = [...prev.advertisements, ad];
+      } else {
+        newAds = [ad, ...prev.advertisements.slice(1)];
+      }
+      return {
+        ...prev,
+        advertisements: newAds,
+        lastAdRefresh: Date.now(),
+      };
+    });
+  }, []);
+
   const actions: GameActions = {
     buyInfrastructure,
     upgradeInfrastructure,
@@ -277,6 +446,10 @@ export function useGameState() {
     resetGame,
     exportSave,
     importSave,
+    generateAdOptions,
+    selectAd,
+    assignAdToLicense,
+    buyAdSlot,
   };
 
   return {
