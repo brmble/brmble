@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add advertisement system to game - ads placed on licenses take bandwidth and sell at higher rates
+**Goal:** Add advertisement system with ad types, license bonuses, and stacking efficiency
 
-**Architecture:** Add Advertisement types, state logic, and UI to existing Game component. License capacity is split between regular hosting and ads.
+**Architecture:** Add Advertisement types with type/margin/volume, state logic with 60% rule, and UI to existing Game component
 
 **Tech Stack:** React, TypeScript
 
@@ -13,9 +13,9 @@
 ## File Structure
 
 **Modify:**
-- `src/Brmble.Web/src/components/Game/types.ts` - Advertisement interface, update License/GameState
-- `src/Brmble.Web/src/components/Game/useGameState.ts` - Ad state logic, refresh timer, adSlotCost
-- `src/Brmble.Web/src/components/Game/GameUI.tsx` - Hosting tab with ad slots
+- `src/Brmble.Web/src/components/Game/types.ts` - Advertisement interface with type, update License/GameState
+- `src/Brmble.Web/src/components/Game/useGameState.ts` - Ad state logic with stacking efficiency, license bonuses
+- `src/Brmble.Web/src/components/Game/GameUI.tsx` - Hosting tab with ad slots, license bonuses display
 - `src/Brmble.Web/src/components/Game/GameUI.css` - Ad slot styles
 
 ---
@@ -25,30 +25,40 @@
 **Files:**
 - Modify: `src/Brmble.Web/src/components/Game/types.ts`
 
-- [ ] **Step 1: Add Advertisement interface**
+- [ ] **Step 1: Add AdType enum**
+
+```typescript
+export type AdType = 'video' | 'banner' | 'popup' | 'sponsored';
+```
+
+- [ ] **Step 2: Add Advertisement interface**
 
 ```typescript
 export interface Advertisement {
   id: string;
   name: string;
-  volume: number;      // 1-5 stars
-  margin: number;     // 1-5 stars multiplier
-  cost: number;       // KB/s consumed
-  incomePerKB: number; // $/KB sold
+  type: AdType;
+  volume: number;      // 1-5 stars (percentage of ad-space)
+  margin: number;     // 1-5 stars ($ per KB)
   licenseId: string;  // which license it's assigned to (empty = unassigned)
 }
 ```
 
-- [ ] **Step 2: Update License interface to track ad usage**
+- [ ] **Step 3: Update License interface**
 
 ```typescript
 export interface License {
   // ... existing fields ...
   adAllocated: number; // KB/s used by ads
+  bonus: {            // License-specific ad bonuses
+    capacityBonus: number;   // e.g., 0.3 for Game Servers = +30%
+    marginBonus: number;     // e.g., 0.2 for Blogs = +20%
+    efficiencyBonus: number; // e.g., 0.1 = 10% less efficiency penalty
+  };
 }
 ```
 
-- [ ] **Step 3: Add ad-related fields to GameState**
+- [ ] **Step 4: Add ad-related fields to GameState**
 
 ```typescript
 export interface GameState {
@@ -59,7 +69,22 @@ export interface GameState {
 }
 ```
 
-- [ ] **Step 4: Update INITIAL_STATE**
+- [ ] **Step 5: Update INITIAL_LICENSES with bonuses**
+
+```typescript
+// Add to each license:
+bonus: {
+  capacityBonus: 0,    // default
+  marginBonus: 0,
+  efficiencyBonus: 0,
+}
+// Blog Hosting:
+bonus: { capacityBonus: 0, marginBonus: 0.2, efficiencyBonus: 0 } // +20% margin for low volume
+// Game Servers:
+bonus: { capacityBonus: 0.3, marginBonus: 0, efficiencyBonus: 0 } // +30% capacity for high volume
+```
+
+- [ ] **Step 6: Update INITIAL_STATE**
 
 ```typescript
 export const INITIAL_STATE: GameState = {
@@ -70,7 +95,7 @@ export const INITIAL_STATE: GameState = {
 };
 ```
 
-- [ ] **Step 5: Update GameActions interface**
+- [ ] **Step 7: Update GameActions interface**
 
 ```typescript
 export interface GameActions {
@@ -81,7 +106,7 @@ export interface GameActions {
 }
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 8: Commit**
 
 ---
 
@@ -90,20 +115,61 @@ export interface GameActions {
 **Files:**
 - Modify: `src/Brmble.Web/src/components/Game/useGameState.ts`
 
-- [ ] **Step 1: Add ad name generator**
+- [ ] **Step 1: Add ad type definitions**
 
 ```typescript
-const adNames = ['Premium Hosting', 'FastNet', 'CloudPro', 'WebSpeed', 'MegaHost', 'TurboSite', 'QuickLoad', 'SuperWeb', 'EliteHost', 'UltraNet'];
-const adAdjectives = ['Plus', 'Max', 'Ultra', 'Super', 'Mega', 'Pro', 'Premium', 'Elite', 'Prime', 'Elite'];
+const AD_TYPES = ['video', 'banner', 'popup', 'sponsored'] as const;
 
-const generateAdName = (): string => {
-  const name = adNames[Math.floor(Math.random() * adNames.length)];
-  const adj = adAdjectives[Math.floor(Math.random() * adAdjectives.length)];
-  return `${adj} ${name}`;
+const AD_TYPE_NAMES = {
+  video: ['StreamHub', 'VidMax', 'TubePro', 'ClipStream', 'MovieBox'],
+  banner: ['AdPlace', 'BannerHub', 'WebAd', 'DisplayNet', 'AdSpot'],
+  popup: ['PopGen', 'AdPop', 'SpotPop', 'QuickAd', 'AlertBox'],
+  sponsored: ['BrandSync', 'SponsorHub', 'PartnerPro', 'ContentPlus', 'BrandDeal'],
+};
+
+const AD_ADJECTIVES = {
+  video: ['Pro', 'Plus', 'Max', 'Ultra', 'Elite'],
+  banner: ['Basic', 'Standard', 'Prime', 'Premium', 'Plus'],
+  popup: ['Quick', 'Fast', 'Swift', 'Rapid', 'Instant'],
+  sponsored: ['Premium', 'Exclusive', 'Partner', 'Brand', 'VIP'],
 };
 ```
 
-- [ ] **Step 2: Add adSlotCost constant**
+- [ ] **Step 2: Add helper functions**
+
+```typescript
+// Calculate efficiency based on number of ads on same license
+const getEfficiency = (adCountOnLicense: number, efficiencyBonus: number = 0): number => {
+  const baseEfficiency = adCountOnLicense === 1 ? 1.0 : adCountOnLicense === 2 ? 0.8 : adCountOnLicense === 3 ? 0.6 : 0.4;
+  return Math.min(1.0, baseEfficiency + efficiencyBonus);
+};
+
+// Calculate effective cap (60% + license bonus)
+const getEffectiveCap = (license: License): number => {
+  const baseAdCap = 0.6;
+  return baseAdCap + license.bonus.capacityBonus;
+};
+
+// Check if low volume (1-2 stars)
+const isLowVolume = (volume: number): boolean => volume <= 2;
+
+// Check if high volume (4-5 stars)
+const isHighVolume = (volume: number): boolean => volume >= 4;
+```
+
+- [ ] **Step 3: Add ad name generator**
+
+```typescript
+const generateAdName = (type: AdType): string => {
+  const names = AD_TYPE_NAMES[type];
+  const adj = AD_ADJECTIVES[type];
+  const name = names[Math.floor(Math.random() * names.length)];
+  const a = adj[Math.floor(Math.random() * adj.length)];
+  return `${a} ${name}`;
+};
+```
+
+- [ ] **Step 4: Add adSlotCost constant**
 
 ```typescript
 const getAdSlotCost = (currentSlots: number): number => {
@@ -111,7 +177,7 @@ const getAdSlotCost = (currentSlots: number): number => {
 };
 ```
 
-- [ ] **Step 3: Add refreshAdvertisement action**
+- [ ] **Step 5: Add refreshAdvertisement action**
 
 ```typescript
 const refreshAdvertisement = useCallback(() => {
@@ -123,24 +189,17 @@ const refreshAdvertisement = useCallback(() => {
       return prev; // Still cooling down
     }
     
-    // Check if we can add more ads
-    if (prev.advertisements.length >= prev.adSlots) {
-      // Replace existing ad (first one)
-    }
-    
+    // Random ad type
+    const type = AD_TYPES[Math.floor(Math.random() * AD_TYPES.length)];
     const volume = Math.floor(Math.random() * 5) + 1; // 1-5
     const margin = Math.floor(Math.random() * 5) + 1; // 1-5
     
-    const baseCost = volume * 1024; // volume in KB/s
-    const baseIncome = margin * 0.001; // $/KB
-    
     const newAd: Advertisement = {
       id: crypto.randomUUID(),
-      name: generateAdName(),
+      name: generateAdName(type),
+      type,
       volume,
       margin,
-      cost: baseCost,
-      incomePerKB: baseIncome,
       licenseId: '',
     };
     
@@ -161,7 +220,7 @@ const refreshAdvertisement = useCallback(() => {
 }, []);
 ```
 
-- [ ] **Step 4: Add assignAdToLicense action**
+- [ ] **Step 6: Add assignAdToLicense action**
 
 ```typescript
 const assignAdToLicense = useCallback((adId: string, licenseId: string) => {
@@ -182,15 +241,18 @@ const assignAdToLicense = useCallback((adId: string, licenseId: string) => {
     const license = prev.licenses.find(l => l.id === licenseId);
     if (!license || !license.unlocked) return prev;
     
-    // Calculate capacity used by OTHER ads on this license (excluding this ad)
+    // Calculate capacity used by OTHER ads on this license
     const otherAdsOnLicense = prev.advertisements
       .filter(a => a.id !== adId && a.licenseId === licenseId)
-      .reduce((sum, a) => sum + a.cost, 0);
+      .reduce((sum, a) => sum + getAdVolumeKB(a, license), 0);
     
     const cap = calculateCap(license, license.level);
-    const available = cap - otherAdsOnLicense;
+    const effectiveCap = getEffectiveCap(license);
+    const maxAdKB = cap * effectiveCap;
+    const available = maxAdKB - otherAdsOnLicense;
+    const adKB = getAdVolumeKB(ad, license);
     
-    if (ad.cost > available) return prev; // Not enough capacity
+    if (adKB > available) return prev; // Not enough capacity
     
     return {
       ...prev,
@@ -200,16 +262,25 @@ const assignAdToLicense = useCallback((adId: string, licenseId: string) => {
     };
   });
 }, []);
+
+// Helper to get ad volume in KB
+const getAdVolumeKB = (ad: Advertisement, license: License): number => {
+  const cap = calculateCap(license, license.level);
+  const effectiveCap = getEffectiveCap(license);
+  const maxAdKB = cap * effectiveCap;
+  const volumePercent = ad.volume / 5; // 0.2 to 1.0
+  return maxAdKB * volumePercent;
+};
 ```
 
-- [ ] **Step 5: Add buyAdSlot action**
+- [ ] **Step 7: Add buyAdSlot action**
 
 ```typescript
 const buyAdSlot = useCallback(() => {
   setState(prev => {
     const cost = getAdSlotCost(prev.adSlots);
     if (prev.money < cost) return prev;
-    if (prev.advertisements.length >= prev.adSlots) return prev; // Already at max
+    if (prev.advertisements.length >= prev.adSlots) return prev;
     
     return {
       ...prev,
@@ -220,46 +291,63 @@ const buyAdSlot = useCallback(() => {
 }, []);
 ```
 
-- [ ] **Step 6: Add computeDerivedState helper**
+- [ ] **Step 8: Add computeDerivedState helper**
 
 ```typescript
 const computeDerivedValues = (state: GameState) => {
-  // Calculate adAllocated per license
+  // Calculate ad usage per license
   const licensesWithAds = state.licenses.map(license => {
-    const adUsage = state.advertisements
-      .filter(a => a.licenseId === license.id)
-      .reduce((sum, a) => sum + a.cost, 0);
+    const adsOnLicense = state.advertisements.filter(a => a.licenseId === license.id);
+    const adUsage = adsOnLicense.reduce((sum, ad) => sum + getAdVolumeKB(ad, license), 0);
     return { ...license, adAllocated: adUsage };
   });
   
-  // Calculate regular bandwidth (total - ad usage)
-  const regularBandwidth = licensesWithAds.map(l => {
-    const cap = calculateCap(l, l.level);
-    const regularKB = Math.max(0, cap - l.adAllocated);
-    return { ...l, regularKB };
-  });
+  // Calculate income
+  let totalAdIncome = 0;
+  let totalRegularIncome = 0;
   
-  // Calculate ad income
-  const adIncome = state.advertisements
-    .filter(a => a.licenseId)
-    .reduce((sum, a) => sum + (a.cost * a.incomePerKB), 0);
-  
-  // Calculate regular income
-  const regularIncome = regularBandwidth
-    .filter(l => l.unlocked)
-    .reduce((sum, l) => sum + (l.regularKB * l.incomePerKB), 0);
+  for (const license of licensesWithAds) {
+    if (!license.unlocked) continue;
+    
+    const cap = calculateCap(license, license.level);
+    const effectiveCap = getEffectiveCap(license);
+    const maxAdKB = cap * effectiveCap;
+    const adsOnLicense = state.advertisements.filter(a => a.licenseId === license.id);
+    
+    // Calculate ad income with stacking efficiency
+    for (let i = 0; i < adsOnLicense.length; i++) {
+      const ad = adsOnLicense[i];
+      const efficiency = getEfficiency(i + 1, license.bonus.efficiencyBonus);
+      const volumeKB = getAdVolumeKB(ad, license);
+      
+      // Calculate margin with license bonus
+      let marginRate = ad.margin * 0.001; // Base rate
+      if (isLowVolume(ad.volume) && license.bonus.marginBonus > 0) {
+        marginRate *= (1 + license.bonus.marginBonus);
+      }
+      
+      // Efficiency only affects margin, not volume
+      const effectiveMargin = marginRate * efficiency;
+      
+      totalAdIncome += volumeKB * effectiveMargin;
+    }
+    
+    // Regular hosting income (cap - ad usage, but minimum 40% remains)
+    const minContent = cap * 0.4;
+    const regularKB = Math.max(0, cap - license.adAllocated - minContent);
+    totalRegularIncome += regularKB * license.incomePerKB;
+  }
   
   return {
     licensesWithAds,
-    regularBandwidth,
-    adIncome,
-    regularIncome,
-    totalIncome: adIncome + regularIncome,
+    adIncome: totalAdIncome,
+    regularIncome: totalRegularIncome,
+    totalIncome: totalAdIncome + totalRegularIncome,
   };
 };
 ```
 
-- [ ] **Step 7: Update income calculation to include ads**
+- [ ] **Step 9: Update income calculation useEffect**
 
 ```typescript
 useEffect(() => {
@@ -271,7 +359,6 @@ useEffect(() => {
         ...prev,
         money: prev.money + derived.totalIncome,
         incomePerSecond: derived.totalIncome,
-        // Update licenses with ad usage tracked
         licenses: derived.licensesWithAds,
       };
     });
@@ -281,7 +368,7 @@ useEffect(() => {
 }, []);
 ```
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 10: Commit**
 
 ---
 
@@ -318,6 +405,13 @@ function AdSlotsSection({ advertisements, adSlots, lastAdRefresh, onRefreshAd, o
   const minutes = Math.floor(timeLeft / 60000);
   const seconds = Math.floor((timeLeft % 60000) / 1000);
   
+  const getAdVolumeKB = (ad: Advertisement, license: License): number => {
+    const cap = calculateCap(license.baseCap, license.capPerLevel, license.level);
+    const effectiveCap = 0.6 + license.bonus.capacityBonus;
+    const maxAdKB = cap * effectiveCap;
+    return maxAdKB * (ad.volume / 5);
+  };
+  
   return (
     <div className="ad-slots-section">
       <div className="ad-header">
@@ -331,17 +425,18 @@ function AdSlotsSection({ advertisements, adSlots, lastAdRefresh, onRefreshAd, o
         </button>
       </div>
       
-      {advertisements.map(ad => {
+      {advertisements.map((ad, index) => {
         const assignedLicense = licenses.find(l => l.id === ad.licenseId);
-        const adIncome = ad.licenseId ? (ad.cost * ad.incomePerKB) : 0;
+        const adsOnSameLicense = advertisements.filter(a => a.licenseId === ad.licenseId && a.id !== ad.id).length + 1;
+        const efficiency = adsOnSameLicense === 1 ? 1.0 : adsOnSameLicense === 2 ? 0.8 : adsOnSameLicense === 3 ? 0.6 : 0.4;
         
         return (
           <div key={ad.id} className="ad-slot">
+            <span className="ad-type">{ad.type}</span>
             <span className="ad-name">{ad.name}</span>
             <span className="ad-stars">Vol: {'★'.repeat(ad.volume)}{'☆'.repeat(5-ad.volume)}</span>
             <span className="ad-stars">Mar: {'★'.repeat(ad.margin)}{'☆'.repeat(5-ad.margin)}</span>
-            <span className="ad-cost">-{formatBandwidth(ad.cost)}</span>
-            <span className="ad-income">+${adIncome.toFixed(2)}/s</span>
+            <span className="ad-efficiency">{Math.round(efficiency * 100)}%</span>
             <select 
               value={ad.licenseId} 
               onChange={(e) => onAssignAd(ad.id, e.target.value)}
@@ -349,13 +444,16 @@ function AdSlotsSection({ advertisements, adSlots, lastAdRefresh, onRefreshAd, o
               <option value="">Unassigned</option>
               {licenses.filter(l => l.unlocked).map(l => {
                 const cap = calculateCap(l.baseCap, l.capPerLevel, l.level);
+                const effectiveCap = 0.6 + l.bonus.capacityBonus;
+                const maxAdKB = cap * effectiveCap;
                 const otherAds = advertisements
                   .filter(a => a.id !== ad.id && a.licenseId === l.id)
-                  .reduce((sum, a) => sum + a.cost, 0);
-                const available = cap - otherAds;
+                  .reduce((sum, a) => sum + getAdVolumeKB(a, l), 0);
+                const available = maxAdKB - otherAds;
+                const adKB = getAdVolumeKB(ad, l);
                 return (
-                  <option key={l.id} value={l.id} disabled={available < ad.cost}>
-                    {l.name} ({formatBandwidth(available)} free)
+                  <option key={l.id} value={l.id} disabled={available < adKB}>
+                    {l.name} ({formatBandwidth(Math.max(0, available))} ad space)
                   </option>
                 );
               })}
@@ -385,9 +483,9 @@ interface HostingTabProps {
 
 Add at the top of HostingTab, before the bandwidth summary.
 
-- [ ] **Step 4: Update license display to show remaining bandwidth**
+- [ ] **Step 4: Update license display**
 
-In the license row, show: regular allocated + "/" + (cap - adAllocated) for available
+Show: regular allocated + "/" + maxAdSpace + " (" + adsOnLicense + " ads)"
 
 - [ ] **Step 5: Commit**
 
@@ -417,13 +515,19 @@ In the license row, show: regular allocated + "/" + (cap - adAllocated) for avai
 
 .ad-slot {
   display: grid;
-  grid-template-columns: 1fr 80px 80px 80px 80px 180px;
+  grid-template-columns: 80px 1fr 80px 80px 80px 180px;
   gap: 12px;
   align-items: center;
   padding: 12px;
   background: var(--bg-tertiary, #16162a);
   border-radius: 8px;
   margin-top: 8px;
+}
+
+.ad-type {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--color-primary, #4a9eff);
 }
 
 .ad-name {
@@ -433,17 +537,12 @@ In the license row, show: regular allocated + "/" + (cap - adAllocated) for avai
 
 .ad-stars {
   font-size: 11px;
-  color: var(--color-primary, #4a9eff);
+  color: var(--text-muted, #888);
 }
 
-.ad-cost {
+.ad-efficiency {
   font-size: 12px;
   color: var(--color-warning, #ffaa00);
-}
-
-.ad-income {
-  font-size: 12px;
-  color: var(--color-success, #4aff4a);
 }
 ```
 
@@ -467,13 +566,13 @@ Run: `dotnet run --project src/Brmble.Client`
 Expected: Game loads with ad slots in Hosting tab
 
 - [ ] **Step 3: Verify functionality**
-- Click "Find New Ad" generates random ad
+- Click "Find New Ad" generates random ad with type
+- Ad shows type, volume stars, margin stars
 - Assign ad to license works
-- Unassign ad works (select "Unassigned")
-- Cannot assign if not enough capacity
-- Income increases with ads
-- Slider max decreases when ad assigned
-- Cooldown timer counts down in real-time
-- Show ad income contribution
+- Show stacking efficiency percentage
+- Unassign ad works
+- Cannot assign if not enough ad-space (60% limit)
+- Income calculation correct with efficiency penalty
+- License bonuses apply correctly
 
 - [ ] **Step 4: Commit**
