@@ -1,12 +1,17 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using Brmble.Server.Auth;
 using Brmble.Server.Matrix;
-using Microsoft.Extensions.Options;
 
 namespace Brmble.Server.DM;
 
 public static class DmEndpoints
 {
+    /// <summary>
+    /// Per-pair mutex to prevent concurrent DM room creation for the same user pair.
+    /// </summary>
+    private static readonly ConcurrentDictionary<(long, long), SemaphoreSlim> _pairLocks = new();
+
     public static IEndpointRouteBuilder MapDmEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapPost("/dm/room", async (
@@ -15,7 +20,6 @@ public static class DmEndpoints
             UserRepository userRepository,
             DmRoomRepository dmRoomRepository,
             IMatrixAppService matrixAppService,
-            IOptions<MatrixSettings> matrixSettings,
             ILogger<DmRoomRepository> logger) =>
         {
             var certHash = certHashExtractor.GetCertHash(httpContext);
@@ -53,43 +57,53 @@ public static class DmEndpoints
             var idLow = Math.Min(callingUser.Id, targetUser.Id);
             var idHigh = Math.Max(callingUser.Id, targetUser.Id);
 
-            // Check for existing room
-            var existingRoomId = await dmRoomRepository.GetRoomIdAsync(idLow, idHigh);
-            if (existingRoomId is not null)
-            {
-                logger.LogDebug("DM room already exists for ({Low},{High}): {RoomId}", idLow, idHigh, existingRoomId);
-                return Results.Ok(new { roomId = existingRoomId });
-            }
-
-            // Extract localparts from matrix user IDs (e.g. "@42:brmble.zone" -> "42")
-            var serverDomain = matrixSettings.Value.ServerDomain;
-            var callingLocalpart = callingUser.MatrixUserId.TrimStart('@').Split(':')[0];
-            var targetLocalpart = targetUser.MatrixUserId.TrimStart('@').Split(':')[0];
-
-            // Create the DM room via appservice
-            string roomId;
+            // Serialize room creation per user pair to prevent orphaned Matrix rooms
+            var pairKey = (idLow, idHigh);
+            var pairLock = _pairLocks.GetOrAdd(pairKey, _ => new SemaphoreSlim(1, 1));
+            await pairLock.WaitAsync();
             try
             {
-                roomId = await matrixAppService.CreateDMRoom(callingLocalpart, targetLocalpart);
+                // Check for existing room
+                var existingRoomId = await dmRoomRepository.GetRoomIdAsync(idLow, idHigh);
+                if (existingRoomId is not null)
+                {
+                    logger.LogDebug("DM room already exists for ({Low},{High}): {RoomId}", idLow, idHigh, existingRoomId);
+                    return Results.Ok(new { roomId = existingRoomId });
+                }
+
+                // Extract localparts from matrix user IDs (e.g. "@42:brmble.zone" -> "42")
+                var callingLocalpart = callingUser.MatrixUserId.TrimStart('@').Split(':')[0];
+                var targetLocalpart = targetUser.MatrixUserId.TrimStart('@').Split(':')[0];
+
+                // Create the DM room via appservice
+                string roomId;
+                try
+                {
+                    roomId = await matrixAppService.CreateDMRoom(callingLocalpart, targetLocalpart);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Failed to create DM room for ({Low},{High})", idLow, idHigh);
+                    return Results.StatusCode(502);
+                }
+
+                // Set m.direct account data for both users
+                await SetMDirectForUser(matrixAppService, callingLocalpart, targetUser.MatrixUserId, roomId, logger);
+                await SetMDirectForUser(matrixAppService, targetLocalpart, callingUser.MatrixUserId, roomId, logger);
+
+                // Persist the mapping
+                await dmRoomRepository.InsertAsync(idLow, idHigh, roomId);
+
+                logger.LogInformation(
+                    "Created DM room {RoomId} for ({CallingUser},{TargetUser})",
+                    roomId, callingUser.MatrixUserId, targetUser.MatrixUserId);
+
+                return Results.Ok(new { roomId });
             }
-            catch (Exception ex)
+            finally
             {
-                logger.LogError(ex, "Failed to create DM room for ({Low},{High})", idLow, idHigh);
-                return Results.StatusCode(502);
+                pairLock.Release();
             }
-
-            // Set m.direct account data for both users
-            await SetMDirectForUser(matrixAppService, callingLocalpart, targetUser.MatrixUserId, roomId, logger);
-            await SetMDirectForUser(matrixAppService, targetLocalpart, callingUser.MatrixUserId, roomId, logger);
-
-            // Persist the mapping
-            await dmRoomRepository.InsertAsync(idLow, idHigh, roomId);
-
-            logger.LogInformation(
-                "Created DM room {RoomId} for ({CallingUser},{TargetUser})",
-                roomId, callingUser.MatrixUserId, targetUser.MatrixUserId);
-
-            return Results.Ok(new { roomId });
         });
 
         return app;

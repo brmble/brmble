@@ -475,22 +475,35 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       } else {
         // Request room from server via bridge (server creates if needed)
         const resolvePromise = new Promise<string>((resolve, reject) => {
+          let settled = false;
+          const cleanup = () => {
+            bridge.off('dm.roomResolved', onResolved);
+            bridge.off('dm.roomError', onError);
+            clearTimeout(timeout);
+          };
           const onResolved = (data: unknown) => {
             const d = data as { targetMatrixUserId?: string; roomId?: string };
             if (d?.targetMatrixUserId === targetMatrixUserId && d?.roomId) {
-              bridge.off('dm.roomResolved', onResolved);
-              bridge.off('dm.roomError', onError);
+              settled = true;
+              cleanup();
               resolve(d.roomId);
             }
           };
           const onError = (data: unknown) => {
             const d = data as { targetMatrixUserId?: string; error?: string };
             if (d?.targetMatrixUserId === targetMatrixUserId) {
-              bridge.off('dm.roomResolved', onResolved);
-              bridge.off('dm.roomError', onError);
+              settled = true;
+              cleanup();
               reject(new Error(d?.error || 'Failed to get DM room'));
             }
           };
+          const timeout = setTimeout(() => {
+            if (!settled) {
+              settled = true;
+              cleanup();
+              reject(new Error('DM room creation timed out'));
+            }
+          }, 15_000);
           bridge.on('dm.roomResolved', onResolved);
           bridge.on('dm.roomError', onError);
           bridge.send('dm.getOrCreateRoom', { targetMatrixUserId });
