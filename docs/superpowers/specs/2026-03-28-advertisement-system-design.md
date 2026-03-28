@@ -44,14 +44,45 @@ The game has 3 layers:
 
 **Components:** 1 to 3 Ad-slots
 
-**RNG Roll:** When you get an Ad contract, it has two variables:
+### Ad Types
 
-- **Volume** (1-5 Stars): What % of the available 60% ad-space does this ad take?
+Each ad has a **Type** that determines its base behavior:
+
+| Type | Volume | Margin | Special Effect |
+|------|--------|--------|----------------|
+| **Video Ads** | High (60-100% of slot) | High ($0.004-0.008/KB) | None |
+| **Banner Ads** | Low (20-40% of slot) | Stable ($0.002-0.004/KB) | None |
+| **Popup Ads** | Medium (40-60% of slot) | High ($0.005-0.007/KB) | Reduces site efficiency by 10% per ad |
+| **Sponsored Content** | Varies | Varies | Can use up to 20% of the 40% "Content" space |
+
+### RNG Roll
+
+When you get an Ad contract, it has:
+
+- **Type** (random from table above)
+- **Volume** (1-5 Stars): What % of the ad-space does this ad take?
   - 1 star = 20% of ad-space
   - 5 stars = 100% of ad-space (full 60% of capacity)
 - **Margin** (1-5 Stars): What is the price per sold KB?
 
-**Design Rule:** Income = Linked Hosting Cap × 60% × Ad Volume % × Ad Margin
+---
+
+## Stacking Efficiency
+
+Multiple ads can be placed on the same hosting license, but each subsequent ad gets an efficiency penalty:
+
+- **1st ad:** 100% efficiency
+- **2nd ad:** 80% efficiency
+- **3rd ad:** 60% efficiency
+- **4th+ ad:** 40% efficiency
+
+**Formula:**
+```
+effectiveVolume = adVolume * efficiency
+effectiveMargin = adMargin * efficiency
+```
+
+This naturally limits stacking - spreading ads across multiple licenses is more efficient than stacking on one.
 
 ---
 
@@ -60,13 +91,14 @@ The game has 3 layers:
 ```
 Regular Hosting Income = allocatedKB * license.incomePerKB
 
-Ad Income = (license.cap * 0.6 * adVolumePercent) * adMarginRate
+Ad Income = license.cap * 0.6 * effectiveVolume% * effectiveMarginRate * efficiency
 
 Where:
 - license.cap = total capacity of license
 - 0.6 = 60% ad-density limit
-- adVolumePercent = 0.2 to 1.0 (based on Volume stars 1-5)
-- adMarginRate = $ per KB (based on Margin stars)
+- effectiveVolume% = volume% * efficiency (0.2 to 1.0 based on stars)
+- effectiveMarginRate = marginRate * efficiency
+- efficiency = based on number of ads on same license (1.0, 0.8, 0.6, 0.4)
 ```
 
 ---
@@ -83,6 +115,11 @@ Where:
    - But your Hosting can only provide 60 KB/s (due to 60% rule)
    - You waste the Ad's potential
 
+3. **Overstacked:**
+   - You put 4+ ads on one license
+   - Efficiency drops to 40%
+   - Better to spread across multiple licenses
+
 ---
 
 ## UI Design
@@ -91,9 +128,16 @@ Where:
 
 - **Left (Input):** List of hardware (USB sticks) filling a meter: "Total Network Power"
 
-- **Center (Hosting):** Website cards. Each card has a bar showing how full the site is with ads (max 60%)
+- **Center (Hosting):** Website cards. Each card has:
+  - Bar showing how full the site is with ads (max 60%)
+  - Number of ads currently on this license
+  - Efficiency indicator
 
-- **Right (Ads):** Active contracts with dropdown: "On which site do you want to place this Ad?"
+- **Right (Ads):** Active contracts with:
+  - Ad type icon/name
+  - Volume/Margin stars
+  - Dropdown: "On which site do you want to place this Ad?"
+  - Efficiency warning if stacked
 
 ---
 
@@ -103,7 +147,8 @@ Where:
 - License tracks how much is sold to ads vs regular hosting
 - Slider in Hosting tab shows: allocated / maxAdCapacity (not total cap)
 - If allocated > maxAdCapacity, show warning (oversaturated)
-- Income calculation: regularKB * regularRate + adKB * adRate
+- Efficiency calculated per license based on ad count
+- Sponsored Content can use the 40% content space (special case)
 
 ## Slots
 
@@ -115,7 +160,7 @@ Where:
 
 - Manual "Find New Ad" button
 - Cooldown: 5 minutes between refreshes
-- New ad: random Volume + Margin (1-5 stars each)
+- New ad: random Type + Volume + Margin (1-5 stars each)
 - If slot is empty, add new ad
 - If slot has ad, replace current ad with new one
 
@@ -123,13 +168,15 @@ Where:
 
 - Can assign ads only to unlocked licenses
 - Can unassign/remove ad from license (set licenseId to empty)
-- Must validate available capacity: ad.cost <= license.maxAdCapacity
+- Must validate available capacity: ad.effectiveCost <= license.maxAdCapacity (accounting for efficiency)
 
 ## Example
 
 - Personal Website: 100 KB/s capacity
 - Max Ad space: 60 KB/s (60% of 100)
-- Ad with Volume 5 stars, Margin 5 stars
-- Ad uses: 60 KB/s × 1.0 × $0.005/KB = $0.30/s
+- 2 Ads stacked: Video Ad (Volume 5, Margin 5) + Banner Ad (Volume 3, Margin 3)
+- First ad efficiency: 100%, Second ad efficiency: 80%
+- Ad 1: 60 KB/s × 1.0 × $0.005/KB × 1.0 = $0.30/s
+- Ad 2: 60 KB/s × 0.6 × $0.003/KB × 0.8 = $0.086/s
 - Regular hosting: 40 KB/s left × $0.001/KB = $0.04/s
-- Total: $0.34/s
+- Total: $0.426/s
