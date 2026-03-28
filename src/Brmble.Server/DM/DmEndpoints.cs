@@ -60,7 +60,7 @@ public static class DmEndpoints
             // Serialize room creation per user pair to prevent orphaned Matrix rooms
             var pairKey = (idLow, idHigh);
             var pairLock = _pairLocks.GetOrAdd(pairKey, _ => new SemaphoreSlim(1, 1));
-            await pairLock.WaitAsync();
+            await pairLock.WaitAsync(httpContext.RequestAborted);
             try
             {
                 // Check for existing room

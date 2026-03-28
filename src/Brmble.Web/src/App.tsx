@@ -253,12 +253,10 @@ function App() {
     // that no longer correspond to a connected user with an avatar.
     const currentIdsWithAvatar = new Set(users.filter(u => u.matrixUserId && u.avatarUrl).map(u => u.matrixUserId!));
     const currentMatrixIds = new Set(users.filter(u => u.matrixUserId).map(u => u.matrixUserId!));
-    for (const [id] of fetchedAvatarIdsRef.current) {
-      // Remove if user disconnected, or if user reconnected without avatar (allow re-fetch)
-      if (!currentMatrixIds.has(id) || (!currentIdsWithAvatar.has(id) && fetchedAvatarIdsRef.current.get(id)! >= 3)) {
-        // Keep entries with < 3 attempts so retries aren't duplicated
-      }
-      if (!currentMatrixIds.has(id)) {
+    for (const [id, attempts] of fetchedAvatarIdsRef.current) {
+      // Remove if user disconnected, or if user reconnected without avatar after max attempts
+      // (so a future reconnect can start fresh)
+      if (!currentMatrixIds.has(id) || (!currentIdsWithAvatar.has(id) && attempts >= 3)) {
         fetchedAvatarIdsRef.current.delete(id);
       }
     }
@@ -305,13 +303,16 @@ function App() {
         }
       }
     });
+  }, [users, matrixClient.client, matrixClient.fetchAvatarUrl]);
 
+  // Clean up avatar retry timers only when the Matrix client or fetch function changes,
+  // or when the component unmounts, so that user list updates do not cancel pending retries.
+  useEffect(() => {
     return () => {
-      // Clean up retry timers on effect re-run
       for (const timer of avatarRetryTimersRef.current) clearTimeout(timer);
       avatarRetryTimersRef.current.clear();
     };
-  }, [users, matrixClient.client, matrixClient.fetchAvatarUrl]);
+  }, [matrixClient.client, matrixClient.fetchAvatarUrl]);
 
   const onUploadAvatar = useCallback(async (blob: Blob, contentType: string) => {
     if (!matrixClient.client) return;

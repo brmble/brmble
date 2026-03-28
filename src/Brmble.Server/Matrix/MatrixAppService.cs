@@ -293,10 +293,12 @@ public class MatrixAppService : IMatrixAppService
         var urlWithUser = userId is not null
             ? $"{url}{(url.Contains('?') ? '&' : '?')}user_id={Uri.EscapeDataString(userId)}"
             : url;
-        var request = new HttpRequestMessage(method, urlWithUser)
+        var request = new HttpRequestMessage(method, urlWithUser);
+        // GET requests must not include a body — some proxies/servers reject it
+        if (method != HttpMethod.Get)
         {
-            Content = new StringContent(jsonBody, Encoding.UTF8, "application/json")
-        };
+            request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+        }
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _appServiceToken);
         _logger.LogDebug("Matrix request: {Method} {Url}", method, urlWithUser);
         var response = await client.SendAsync(request);

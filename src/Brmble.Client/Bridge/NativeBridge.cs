@@ -215,19 +215,23 @@ public sealed class NativeBridge
         }
     }
 
+#if DEBUG
     private static readonly object _logLock = new();
+#endif
     private static void LogBridge(string message)
     {
         try
         {
             var line = $"[{DateTime.Now:HH:mm:ss.fff}] {message}";
             Debug.WriteLine(line);
+#if DEBUG
             lock (_logLock)
             {
                 File.AppendAllText(
                     Path.Combine(AppContext.BaseDirectory, "bridge.log"),
                     line + Environment.NewLine);
             }
+#endif
         }
         catch { /* best-effort logging */ }
     }

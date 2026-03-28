@@ -1392,9 +1392,54 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     }
 
                     var responseHeader = System.Text.Encoding.UTF8.GetString(headerBuf, 0, headerLen);
-                    if (!responseHeader.Contains("101", StringComparison.Ordinal))
+
+                    // Parse HTTP status line and headers to validate WebSocket upgrade
+                    var headerLines = responseHeader.Split(new[] { "\r\n" }, StringSplitOptions.RemoveEmptyEntries);
+                    if (headerLines.Length == 0)
                     {
-                        Debug.WriteLine($"[WS] Upgrade failed: {responseHeader.Split('\n')[0]}");
+                        Debug.WriteLine("[WS] Upgrade failed: empty HTTP response");
+                        throw new InvalidOperationException("WebSocket upgrade rejected");
+                    }
+
+                    var statusLine = headerLines[0];
+                    if (!statusLine.StartsWith("HTTP/1.1 101", StringComparison.Ordinal))
+                    {
+                        Debug.WriteLine($"[WS] Upgrade failed: {statusLine}");
+                        throw new InvalidOperationException("WebSocket upgrade rejected");
+                    }
+
+                    // Build a case-insensitive header dictionary
+                    var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    for (var i = 1; i < headerLines.Length; i++)
+                    {
+                        var line = headerLines[i];
+                        var colonIndex = line.IndexOf(':');
+                        if (colonIndex <= 0) continue;
+                        var name = line.Substring(0, colonIndex).Trim();
+                        var value = line.Substring(colonIndex + 1).Trim();
+                        if (name.Length == 0) continue;
+                        headers[name] = value;
+                    }
+
+                    if (!headers.TryGetValue("Sec-WebSocket-Accept", out var acceptHeader))
+                    {
+                        Debug.WriteLine($"[WS] Upgrade failed: missing Sec-WebSocket-Accept header ({statusLine})");
+                        throw new InvalidOperationException("WebSocket upgrade rejected");
+                    }
+
+                    // Compute the expected Sec-WebSocket-Accept value
+                    const string websocketGuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+                    var acceptSource = System.Text.Encoding.ASCII.GetBytes(wsKey + websocketGuid);
+                    string expectedAccept;
+                    using (var sha1 = System.Security.Cryptography.SHA1.Create())
+                    {
+                        var hash = sha1.ComputeHash(acceptSource);
+                        expectedAccept = Convert.ToBase64String(hash);
+                    }
+
+                    if (!string.Equals(acceptHeader, expectedAccept, StringComparison.Ordinal))
+                    {
+                        Debug.WriteLine($"[WS] Upgrade failed: invalid Sec-WebSocket-Accept ({statusLine})");
                         throw new InvalidOperationException("WebSocket upgrade rejected");
                     }
 
@@ -1473,9 +1518,15 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             }
 
             // Read frame payload
+            const long MaxPayloadSize = 16 * 1024 * 1024; // 16 MB
+            if (payloadLen > MaxPayloadSize)
+            {
+                Debug.WriteLine($"[WS] Frame too large ({payloadLen} bytes), closing");
+                return null;
+            }
             if (payloadLen > 0)
             {
-                var frameBuf = new byte[payloadLen];
+                var frameBuf = new byte[(int)payloadLen];
                 if (!await ReadExactAsync(stream, frameBuf, 0, (int)payloadLen, ct)) return null;
 
                 if (maskKey != null)
