@@ -103,16 +103,18 @@ This naturally limits stacking - spreading ads across multiple licenses is more 
 ```
 Regular Hosting Income = allocatedKB * license.incomePerKB
 
-Ad Income = license.cap * effectiveCap * effectiveVolume% * effectiveMarginRate * efficiency * licenseBonus
+Ad Income = license.cap * effectiveCap * volume% * effectiveMarginRate * licenseBonus
 
 Where:
 - license.cap = total capacity of license
 - effectiveCap = 0.6 (60% ad-density) + license bonus for capacity
-- effectiveVolume% = volume% * efficiency (0.2 to 1.0 based on stars)
+- volume% = 0.2 to 1.0 (based on Volume stars 1-5)
 - effectiveMarginRate = marginRate * efficiency * license bonus for margin
-- efficiency = based on number of ads on same license (1.0, 0.8, 0.6, 0.4)
+- efficiency = based on number of ads on same license: 1st=1.0, 2nd=0.8, 3rd=0.6, 4th+=0.4
 - licenseBonus = 1.0 + bonus from license type
 ```
+
+**Note:** Efficiency only affects Margin, not Volume. This prevents double multiplication.
 
 ---
 
