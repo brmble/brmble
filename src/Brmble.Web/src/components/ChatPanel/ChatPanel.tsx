@@ -311,7 +311,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
     };
   }, [channelId]);
 
-  const grouped = useMemo(() => groupMessages(messages, readMarkerTs), [messages, readMarkerTs]);
+  const grouped = useMemo(() => groupMessages(messages, readMarkerTs, currentUsername), [messages, readMarkerTs, currentUsername]);
 
   // Precompute message-id → index map to avoid O(n²) indexOf in render loop
   const messageIndexById = useMemo(() => new Map(messages.map((m, i) => [m.id, i])), [messages]);

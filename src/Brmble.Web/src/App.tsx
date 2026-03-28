@@ -236,31 +236,81 @@ function App() {
     });
   }, [currentUserAvatarUrl]);
 
-  // Track which matrixUserIds we've already fetched avatars for to avoid re-fetching
-  const fetchedAvatarIdsRef = useRef<Set<string>>(new Set());
+  // Track which matrixUserIds we've already fetched avatars for to avoid re-fetching.
+  // Maps matrixUserId -> number of fetch attempts so far (for retry logic).
+  const fetchedAvatarIdsRef = useRef<Map<string, number>>(new Map());
+  // Track pending retry timers so they can be cancelled on cleanup
+  const avatarRetryTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
 
-  // Fetch avatar URLs for all connected users that have a matrixUserId
+  // Fetch avatar URLs for all connected users that have a matrixUserId.
+  // If a fetch returns null (avatar not yet uploaded to Matrix, e.g. Mumble texture
+  // upload still in progress), schedule a retry after a delay (up to 3 attempts).
   useEffect(() => {
     if (!matrixClient.client) return;
-    const toFetch = users.filter(u => u.matrixUserId && !u.avatarUrl && !fetchedAvatarIdsRef.current.has(u.matrixUserId!));
+
+    // Prune stale entries: if a user disconnected and reconnected, their matrixUserId
+    // may still be in fetchedAvatarIdsRef from the previous session. Remove any IDs
+    // that no longer correspond to a connected user with an avatar.
+    const currentIdsWithAvatar = new Set(users.filter(u => u.matrixUserId && u.avatarUrl).map(u => u.matrixUserId!));
+    const currentMatrixIds = new Set(users.filter(u => u.matrixUserId).map(u => u.matrixUserId!));
+    for (const [id] of fetchedAvatarIdsRef.current) {
+      // Remove if user disconnected, or if user reconnected without avatar (allow re-fetch)
+      if (!currentMatrixIds.has(id) || (!currentIdsWithAvatar.has(id) && fetchedAvatarIdsRef.current.get(id)! >= 3)) {
+        // Keep entries with < 3 attempts so retries aren't duplicated
+      }
+      if (!currentMatrixIds.has(id)) {
+        fetchedAvatarIdsRef.current.delete(id);
+      }
+    }
+
+    const toFetch = users.filter(u =>
+      u.matrixUserId && !u.avatarUrl && !fetchedAvatarIdsRef.current.has(u.matrixUserId!)
+    );
     if (toFetch.length === 0) return;
 
     // Mark as in-flight so we don't re-fetch on re-render
-    for (const u of toFetch) fetchedAvatarIdsRef.current.add(u.matrixUserId!);
+    for (const u of toFetch) fetchedAvatarIdsRef.current.set(u.matrixUserId!, 1);
+
+    const fetchAvatar = matrixClient.fetchAvatarUrl;
 
     Promise.all(
       toFetch.map(async (u) => {
-        const url = await matrixClient.fetchAvatarUrl(u.matrixUserId!);
-        return { session: u.session, avatarUrl: url };
+        const url = await fetchAvatar(u.matrixUserId!);
+        return { session: u.session, matrixUserId: u.matrixUserId!, avatarUrl: url };
       })
     ).then((results) => {
       const resolved = results.filter(r => r.avatarUrl);
-      if (resolved.length === 0) return;
-      setUsers(prev => prev.map(u => {
-        const match = resolved.find(r => r.session === u.session);
-        return match ? { ...u, avatarUrl: match.avatarUrl! } : u;
-      }));
+      const failed = results.filter(r => !r.avatarUrl);
+
+      if (resolved.length > 0) {
+        setUsers(prev => prev.map(u => {
+          const match = resolved.find(r => r.session === u.session);
+          return match ? { ...u, avatarUrl: match.avatarUrl! } : u;
+        }));
+      }
+
+      // Schedule retries for failed fetches (avatar may not be uploaded to Matrix yet)
+      for (const f of failed) {
+        const attempts = fetchedAvatarIdsRef.current.get(f.matrixUserId) ?? 1;
+        if (attempts < 3) {
+          const timer = setTimeout(() => {
+            avatarRetryTimersRef.current.delete(timer);
+            // Only retry if user is still connected and still has no avatar
+            fetchedAvatarIdsRef.current.delete(f.matrixUserId);
+            // Trigger re-render to pick up the retry via a minimal state poke
+            setUsers(prev => [...prev]);
+          }, 2000 * attempts); // 2s, 4s backoff
+          avatarRetryTimersRef.current.add(timer);
+          fetchedAvatarIdsRef.current.set(f.matrixUserId, attempts + 1);
+        }
+      }
     });
+
+    return () => {
+      // Clean up retry timers on effect re-run
+      for (const timer of avatarRetryTimersRef.current) clearTimeout(timer);
+      avatarRetryTimersRef.current.clear();
+    };
   }, [users, matrixClient.client, matrixClient.fetchAvatarUrl]);
 
   const onUploadAvatar = useCallback(async (blob: Blob, contentType: string) => {
@@ -647,6 +697,10 @@ function App() {
       disconnectViewerRef.current?.();
       setSharingChannelId(undefined);
       setScreenShareToast(null);
+      // Reset divider timestamps so stale snapshots from the previous session
+      // don't persist across disconnect/reconnect cycles.
+      setChannelDividerTs(null);
+      setDmDividerTs(null);
       updateStatus('livekit', { state: 'idle', error: undefined });
       updateStatus('server', { state: 'idle', error: undefined });
     };
@@ -934,6 +988,10 @@ function App() {
       if (connectionStatusRef.current !== 'connected') {
         dmStoreRef.current.clearSelection();
         return;
+      }
+      // Clear selection when toggling FROM dm TO channels
+      if (dmStoreRef.current.appModeRef.current === 'dm') {
+        dmStoreRef.current.clearSelection();
       }
       dmStoreRef.current.toggleMode();
     };
@@ -1290,14 +1348,19 @@ const handleConnect = (serverData: SavedServer) => {
 
       if (dmStore.appMode === 'dm') {
         dmStore.toggleMode();
-        dmStore.clearSelection();
       }
+      dmStore.clearSelection();
     }
   };
 
   const handleSelectServer = () => {
     setCurrentChannelId('server-root');
     setCurrentChannelName(serverLabel || 'Server');
+    // Close DM mode if open and clear selection (mirrors handleSelectChannel)
+    if (dmStore.appMode === 'dm') {
+      dmStore.toggleMode();
+    }
+    dmStore.clearSelection();
   };
 
   const handleSendMessage = (content: string, image?: File) => {
@@ -1489,6 +1552,10 @@ const handleConnect = (serverData: SavedServer) => {
 
   const toggleDMMode = () => {
     setShowGame(false);
+    // Clear selection when toggling FROM dm TO channels
+    if (dmStore.appMode === 'dm') {
+      dmStore.clearSelection();
+    }
     dmStore.toggleMode();
   };
 
@@ -1503,7 +1570,7 @@ const handleConnect = (serverData: SavedServer) => {
     // Route based on whether the user is on a Brmble client
     if (user?.isBrmbleClient && user.matrixUserId) {
       // Brmble client → Matrix DM (persistent)
-      dmStore.startDM(user.matrixUserId, userName);
+      dmStore.startDM(user.matrixUserId, userName, user.avatarUrl);
     } else if (user?.certHash) {
       // Mumble client (even if Brmble-registered) → Mumble DM (ephemeral)
       // Check for existing ephemeral contact first

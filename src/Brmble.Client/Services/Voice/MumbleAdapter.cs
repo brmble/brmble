@@ -2,7 +2,6 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
-using System.Net.WebSockets;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using Org.BouncyCastle.Tls;
@@ -1325,9 +1324,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         var ct = _wsCts.Token;
 
         var builder = new UriBuilder(apiUrl);
-        builder.Scheme = builder.Scheme == "https" ? "wss" : "ws";
-        builder.Path = builder.Path.TrimEnd('/') + "/ws";
-        var wsUri = builder.Uri;
+        // Keep the original scheme for TCP connection; we do TLS via BouncyCastle
+        var host = builder.Host;
+        var port = builder.Port > 0 ? builder.Port : (builder.Scheme == "https" ? 443 : 80);
+        var wsPath = builder.Path.TrimEnd('/') + "/ws";
 
         _ = Task.Run(async () =>
         {
@@ -1336,53 +1336,88 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
             while (!ct.IsCancellationRequested)
             {
+                TlsClientProtocol? tlsProtocol = null;
+                TcpClient? tcp = null;
                 try
                 {
                     using var cert = _certService?.GetExportableCertificate();
                     if (cert is null)
                     {
                         Debug.WriteLine("[WS] No client certificate available, retrying...");
-                        // Apply backoff delay to avoid hot spinning
                         if (ct.IsCancellationRequested) break;
                         try { await Task.Delay(backoff, ct); } catch (OperationCanceledException) { break; }
                         backoff = TimeSpan.FromSeconds(Math.Min(backoff.TotalSeconds * 2, maxBackoff.TotalSeconds));
                         continue;
                     }
 
-                    // TODO: ClientWebSocket uses SChannel which may refuse self-signed client certs
-                    // on some Windows configurations. If WS auth fails, consider a BouncyCastle-based
-                    // WebSocket implementation (similar to FetchCredentialsViaBcTls).
-                    using var ws = new ClientWebSocket();
-                    ws.Options.RemoteCertificateValidationCallback = (_, _, _, _) => true;
-                    ws.Options.ClientCertificates.Add(cert);
+                    // Connect via BouncyCastle TLS (bypasses SChannel self-signed cert issue)
+                    tcp = new TcpClient();
+                    await tcp.ConnectAsync(host, port);
 
-                    await ws.ConnectAsync(wsUri, ct);
-                    backoff = TimeSpan.FromSeconds(1); // reset on successful connect
+                    var sniName = Uri.CheckHostName(host) == UriHostNameType.Dns ? host : null;
+                    var tlsClient = new BrmbleTlsClient(cert, sniName);
+                    tlsProtocol = new TlsClientProtocol(tcp.GetStream());
+                    tlsProtocol.Connect(tlsClient);
 
-                    Debug.WriteLine("[WS] Connected to Brmble WebSocket");
+                    var stream = tlsProtocol.Stream;
 
-                    // Accumulate frames until EndOfMessage for large messages
-                    var buffer = new byte[4096];
-                    using var ms = new MemoryStream();
-                    while (ws.State == WebSocketState.Open && !ct.IsCancellationRequested)
+                    // Perform WebSocket upgrade handshake
+                    var wsKey = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
+                    var hostHeader = port == 443 ? host : $"{host}:{port}";
+                    var upgradeRequest =
+                        $"GET {wsPath} HTTP/1.1\r\n" +
+                        $"Host: {hostHeader}\r\n" +
+                        $"Upgrade: websocket\r\n" +
+                        $"Connection: Upgrade\r\n" +
+                        $"Sec-WebSocket-Key: {wsKey}\r\n" +
+                        $"Sec-WebSocket-Version: 13\r\n" +
+                        $"\r\n";
+
+                    var requestBytes = System.Text.Encoding.UTF8.GetBytes(upgradeRequest);
+                    await stream.WriteAsync(requestBytes, 0, requestBytes.Length);
+                    await stream.FlushAsync();
+
+                    // Read the HTTP upgrade response (headers end with \r\n\r\n)
+                    var headerBuf = new byte[4096];
+                    var headerLen = 0;
+                    while (headerLen < headerBuf.Length)
                     {
-                        var result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), ct);
-                        if (result.MessageType == WebSocketMessageType.Close)
+                        var b = await stream.ReadAsync(headerBuf, headerLen, 1);
+                        if (b == 0) break;
+                        headerLen++;
+                        if (headerLen >= 4 &&
+                            headerBuf[headerLen - 4] == '\r' && headerBuf[headerLen - 3] == '\n' &&
+                            headerBuf[headerLen - 2] == '\r' && headerBuf[headerLen - 1] == '\n')
                             break;
+                    }
 
-                        ms.Write(buffer, 0, result.Count);
-                        if (!result.EndOfMessage)
-                            continue;
+                    var responseHeader = System.Text.Encoding.UTF8.GetString(headerBuf, 0, headerLen);
+                    if (!responseHeader.Contains("101", StringComparison.Ordinal))
+                    {
+                        Debug.WriteLine($"[WS] Upgrade failed: {responseHeader.Split('\n')[0]}");
+                        throw new InvalidOperationException("WebSocket upgrade rejected");
+                    }
 
-                        var json = System.Text.Encoding.UTF8.GetString(ms.GetBuffer(), 0, (int)ms.Length);
-                        ms.SetLength(0);
-                        HandleWebSocketMessage(json);
+                    backoff = TimeSpan.FromSeconds(1); // reset on successful connect
+                    Debug.WriteLine("[WS] Connected to Brmble WebSocket (BouncyCastle TLS)");
+
+                    // Read WebSocket frames
+                    while (!ct.IsCancellationRequested)
+                    {
+                        var message = await ReadWebSocketFrame(stream, ct);
+                        if (message is null) break; // connection closed
+                        HandleWebSocketMessage(message);
                     }
                 }
                 catch (OperationCanceledException) { break; }
                 catch (Exception ex)
                 {
                     Debug.WriteLine($"[WS] Error: {ex.Message}");
+                }
+                finally
+                {
+                    try { tlsProtocol?.Close(); } catch { }
+                    try { tcp?.Dispose(); } catch { }
                 }
 
                 if (ct.IsCancellationRequested) break;
@@ -1392,6 +1427,146 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 backoff = TimeSpan.FromSeconds(Math.Min(backoff.TotalSeconds * 2, maxBackoff.TotalSeconds));
             }
         }, ct);
+    }
+
+    /// <summary>
+    /// Reads a single WebSocket text frame from the stream.
+    /// Handles continuation frames, ping/pong, and close frames.
+    /// Returns null on connection close.
+    /// </summary>
+    private static async Task<string?> ReadWebSocketFrame(Stream stream, CancellationToken ct)
+    {
+        using var payload = new MemoryStream();
+
+        while (true)
+        {
+            // Read the 2-byte frame header
+            var header = new byte[2];
+            if (!await ReadExactAsync(stream, header, 0, 2, ct))
+                return null;
+
+            var fin = (header[0] & 0x80) != 0;
+            var opcode = header[0] & 0x0F;
+            var masked = (header[1] & 0x80) != 0;
+            long payloadLen = header[1] & 0x7F;
+
+            if (payloadLen == 126)
+            {
+                var ext = new byte[2];
+                if (!await ReadExactAsync(stream, ext, 0, 2, ct)) return null;
+                payloadLen = (ext[0] << 8) | ext[1];
+            }
+            else if (payloadLen == 127)
+            {
+                var ext = new byte[8];
+                if (!await ReadExactAsync(stream, ext, 0, 8, ct)) return null;
+                payloadLen = 0;
+                for (int i = 0; i < 8; i++)
+                    payloadLen = (payloadLen << 8) | ext[i];
+            }
+
+            byte[]? maskKey = null;
+            if (masked)
+            {
+                maskKey = new byte[4];
+                if (!await ReadExactAsync(stream, maskKey, 0, 4, ct)) return null;
+            }
+
+            // Read frame payload
+            if (payloadLen > 0)
+            {
+                var frameBuf = new byte[payloadLen];
+                if (!await ReadExactAsync(stream, frameBuf, 0, (int)payloadLen, ct)) return null;
+
+                if (maskKey != null)
+                    for (int i = 0; i < frameBuf.Length; i++)
+                        frameBuf[i] ^= maskKey[i % 4];
+
+                // Handle control frames
+                if (opcode == 0x9) // Ping
+                {
+                    // Send Pong with same payload (must be masked from client)
+                    await SendWebSocketFrame(stream, 0xA, frameBuf);
+                    continue;
+                }
+
+                if (opcode == 0x8) // Close
+                    return null;
+
+                if (opcode == 0xA) // Pong — ignore
+                    continue;
+
+                payload.Write(frameBuf, 0, frameBuf.Length);
+            }
+            else
+            {
+                if (opcode == 0x9) // Ping with empty payload
+                {
+                    await SendWebSocketFrame(stream, 0xA, Array.Empty<byte>());
+                    continue;
+                }
+                if (opcode == 0x8) return null;
+                if (opcode == 0xA) continue;
+            }
+
+            if (fin)
+            {
+                return System.Text.Encoding.UTF8.GetString(payload.GetBuffer(), 0, (int)payload.Length);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Sends a masked WebSocket frame (client-to-server frames must be masked per RFC 6455).
+    /// </summary>
+    private static async Task SendWebSocketFrame(Stream stream, int opcode, byte[] data)
+    {
+        // Client frames must be masked
+        var maskKey = System.Security.Cryptography.RandomNumberGenerator.GetBytes(4);
+
+        using var frame = new MemoryStream();
+        frame.WriteByte((byte)(0x80 | opcode)); // FIN + opcode
+
+        if (data.Length < 126)
+            frame.WriteByte((byte)(0x80 | data.Length)); // masked + length
+        else if (data.Length <= 65535)
+        {
+            frame.WriteByte(0x80 | 126);
+            frame.WriteByte((byte)(data.Length >> 8));
+            frame.WriteByte((byte)(data.Length & 0xFF));
+        }
+        else
+        {
+            frame.WriteByte(0x80 | 127);
+            var len = (long)data.Length;
+            for (int i = 7; i >= 0; i--)
+                frame.WriteByte((byte)((len >> (i * 8)) & 0xFF));
+        }
+
+        frame.Write(maskKey, 0, 4);
+
+        var masked = new byte[data.Length];
+        for (int i = 0; i < data.Length; i++)
+            masked[i] = (byte)(data[i] ^ maskKey[i % 4]);
+        frame.Write(masked, 0, masked.Length);
+
+        var bytes = frame.ToArray();
+        await stream.WriteAsync(bytes, 0, bytes.Length);
+        await stream.FlushAsync();
+    }
+
+    /// <summary>Reads exactly count bytes from stream. Returns false on EOF.</summary>
+    private static async Task<bool> ReadExactAsync(Stream stream, byte[] buffer, int offset, int count, CancellationToken ct)
+    {
+        int totalRead = 0;
+        while (totalRead < count)
+        {
+            ct.ThrowIfCancellationRequested();
+            var read = await stream.ReadAsync(buffer, offset + totalRead, count - totalRead);
+            if (read == 0) return false;
+            totalRead += read;
+        }
+        return true;
     }
 
     private void HandleWebSocketMessage(string json)
@@ -1994,7 +2169,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         bridge.RegisterHandler("dm.getOrCreateRoom", async data =>
         {
-            var targetMatrixUserId = data.TryGetProperty("targetMatrixUserId", out var t) ? t.GetString() : null;
+            var targetMatrixUserId = data.ValueKind == System.Text.Json.JsonValueKind.Object
+                ? (data.TryGetProperty("targetMatrixUserId", out var t) ? t.GetString() : null)
+                : null;
             if (string.IsNullOrWhiteSpace(targetMatrixUserId) || _apiUrl is null)
             {
                 _bridge?.Send("dm.roomError", new { targetMatrixUserId = targetMatrixUserId ?? "", error = "Not connected or missing targetMatrixUserId" });
@@ -2319,6 +2496,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             matrixUserId = hasJoinMapping ? joinMapping.MatrixUserId : _userMappings.GetValueOrDefault(joinedUserName),
             isBrmbleClient = hasJoinMapping && joinMapping.IsBrmbleClient
         });
+        _bridge?.NotifyUiThread();
 
         // Emit system message for genuinely new users (not initial sync, not self)
         if (isNewUser && !isSelf && ReceivedServerSync)

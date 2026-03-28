@@ -269,7 +269,7 @@ export function useUnreadTracker(
       highlightCount: serverHighlight + mentionCount,
       fullyReadEventId,
     };
-  }, [client, currentDisplayName, fp]);
+  }, [client, currentDisplayName, fp, dmRoomIds]);
 
   const refreshAll = useCallback(() => {
     if (!client) return;
@@ -318,12 +318,24 @@ export function useUnreadTracker(
     if (roomId === activeRoomIdRef.current) return;
     const room = client.getRoom(roomId);
     if (!room) return;
+
+    // Bootstrap a localStorage marker for rooms that don't have one yet.
+    // This handles DM rooms (and any other rooms) created after the initial
+    // PREPARED sync. Without a marker, buildRoomUnread returns 0 unreads
+    // because it can't distinguish new messages from backfilled ones.
+    // We set ts=0 so ALL messages in the timeline count as unread, and
+    // eventId="" as a sentinel that won't match any real event.
+    const existingMarker = getMarker(roomId, fp);
+    if (!existingMarker) {
+      saveMarker(roomId, '', 0, fp);
+    }
+
     setRoomUnreads(prev => {
       const next = new Map(prev);
       next.set(roomId, buildRoomUnread(room));
       return next;
     });
-  }, [client, buildRoomUnread]);
+  }, [client, buildRoomUnread, dmRoomIds, fp]);
 
   // Subscribe to Matrix events that affect unread state
   useEffect(() => {
@@ -440,14 +452,16 @@ export function useUnreadTracker(
   useEffect(() => {
     if (!client || !activeRoomId) return;
 
-    const onTimeline = (event: { getType: () => string; getSender: () => string | undefined; getId: () => string | undefined }, room: Room | undefined) => {
+    const onTimeline = (event: { getType: () => string; getSender: () => string | undefined; getId: () => string | undefined; getTs?: () => number }, room: Room | undefined) => {
       if (!room || room.roomId !== activeRoomIdRef.current) return;
       // Only act on actual messages, not state events or reactions
       if (event.getType() !== 'm.room.message') return;
-      // Don't mark as read for our own messages
-      if (event.getSender() === client.getUserId()) return;
       const eventId = event.getId();
       if (eventId) {
+        // Advance the read marker for ALL messages in the active room,
+        // including our own. Without this, the "New Messages" divider
+        // can appear above the user's own last sent message when they
+        // reconnect, because the marker timestamp wasn't advanced past it.
         markRoomRead(room.roomId, eventId);
       }
     };

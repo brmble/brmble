@@ -38,7 +38,7 @@ export interface DMStore {
   appMode: 'channels' | 'dm';
   selectContact: (id: string) => void;
   sendMessage: (content: string) => void;
-  startDM: (matrixUserId: string, displayName: string) => void;
+  startDM: (matrixUserId: string, displayName: string, avatarUrl?: string) => void;
   clearSelection: () => void;
   toggleMode: () => void;
   closeDM: (id: string) => void;
@@ -197,7 +197,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     }
   }, [fetchDMHistory]);
 
-  const startDM = useCallback((matrixUserId: string, displayName: string) => {
+  const startDM = useCallback((matrixUserId: string, displayName: string, avatarUrl?: string) => {
     // Add a pending contact if no DM room exists yet (first-time DM)
     if (!matrixDmRoomMap?.has(matrixUserId)) {
       setPendingMatrixContacts(prev => {
@@ -206,6 +206,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
         next.set(matrixUserId, {
           id: matrixUserId,
           displayName,
+          avatarUrl,
           unreadCount: 0,
         });
         return next;
