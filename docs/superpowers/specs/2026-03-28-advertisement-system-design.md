@@ -65,6 +65,18 @@ When you get an Ad contract, it has:
   - 5 stars = 100% of ad-space (full 60% of capacity)
 - **Margin** (1-5 Stars): What is the price per sold KB?
 
+### License Bonuses
+
+Each license type provides a bonus when ads are placed on it:
+
+| License | Bonus |
+|---------|-------|
+| **Blog Hosting** | +20% margin for low-volume ads (1-2 stars) |
+| **Game Servers** | +30% capacity for high-volume ads (4-5 stars) |
+| **Personal Website** | Slower saturation penalty (10% instead of 20%) |
+| **Video CDN** | +10% all ad revenue |
+| **Cloud Storage** | Can handle more stacked ads before efficiency penalty kicks in |
+
 ---
 
 ## Stacking Efficiency
@@ -91,14 +103,15 @@ This naturally limits stacking - spreading ads across multiple licenses is more 
 ```
 Regular Hosting Income = allocatedKB * license.incomePerKB
 
-Ad Income = license.cap * 0.6 * effectiveVolume% * effectiveMarginRate * efficiency
+Ad Income = license.cap * effectiveCap * effectiveVolume% * effectiveMarginRate * efficiency * licenseBonus
 
 Where:
 - license.cap = total capacity of license
-- 0.6 = 60% ad-density limit
+- effectiveCap = 0.6 (60% ad-density) + license bonus for capacity
 - effectiveVolume% = volume% * efficiency (0.2 to 1.0 based on stars)
-- effectiveMarginRate = marginRate * efficiency
+- effectiveMarginRate = marginRate * efficiency * license bonus for margin
 - efficiency = based on number of ads on same license (1.0, 0.8, 0.6, 0.4)
+- licenseBonus = 1.0 + bonus from license type
 ```
 
 ---
