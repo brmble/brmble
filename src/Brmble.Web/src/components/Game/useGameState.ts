@@ -514,7 +514,7 @@ export function useGameState() {
       
       if (prev.money < cost) return prev;
       
-      const duration = getDuration();
+      const duration = ad.duration ?? getDuration();
       const durationMs = getDurationMs(duration);
       const payout = calculateInvestmentPayout(cost, ad.volume, ad.margin, duration);
       
