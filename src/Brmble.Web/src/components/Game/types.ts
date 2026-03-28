@@ -9,6 +9,20 @@ export interface Advertisement {
   licenseId: string;
 }
 
+export type AdDuration = 'short' | 'medium' | 'long';
+
+export type InvestmentStatus = 'running' | 'ready' | 'collected';
+
+export interface ActiveInvestment {
+  adId: string;
+  licenseId: string;
+  startTime: number;
+  durationMs: number;
+  payout: number;
+  status: InvestmentStatus;
+  volumeKB: number;
+}
+
 export interface AdBonus {
   capacityBonus: number;
   marginBonus: number;
@@ -47,6 +61,7 @@ export interface License {
   baseUpgradeCost: number;
   adAllocated: number;
   bonus: AdBonus;
+  tier: number;
 }
 
 /**
@@ -63,6 +78,7 @@ export interface GameState {
   advertisements: Advertisement[];
   adSlots: number;
   lastAdRefresh: number;
+  activeInvestments: ActiveInvestment[];
 }
 
 /**
@@ -84,6 +100,8 @@ export interface GameActions {
   selectAd: (ad: Advertisement) => void;
   assignAdToLicense: (adId: string, licenseId: string) => void;
   buyAdSlot: () => void;
+  startInvestment: (adId: string, licenseId: string) => void;
+  collectInvestment: (adId: string) => void;
 }
 
 export const INITIAL_INFRASTRUCTURE: Infrastructure[] = [
@@ -295,7 +313,8 @@ export const INITIAL_LICENSES: License[] = [
     incomePerKB: 0.001,
     baseUpgradeCost: 10,
     adAllocated: 0,
-    bonus: { capacityBonus: 0, marginBonus: 0, efficiencyBonus: 0 }
+    bonus: { capacityBonus: 0, marginBonus: 0, efficiencyBonus: 0 },
+    tier: 1
   },
   { 
     id: 'blog-hosting', 
@@ -309,7 +328,8 @@ export const INITIAL_LICENSES: License[] = [
     incomePerKB: 0.0005,
     baseUpgradeCost: 100,
     adAllocated: 0,
-    bonus: { capacityBonus: 0, marginBonus: 0.2, efficiencyBonus: 0 }
+    bonus: { capacityBonus: 0, marginBonus: 0.2, efficiencyBonus: 0 },
+    tier: 1
   },
   { 
     id: 'file-hosting', 
@@ -323,7 +343,8 @@ export const INITIAL_LICENSES: License[] = [
     incomePerKB: 0.0004,
     baseUpgradeCost: 500,
     adAllocated: 0,
-    bonus: { capacityBonus: 0, marginBonus: 0, efficiencyBonus: 0 }
+    bonus: { capacityBonus: 0, marginBonus: 0, efficiencyBonus: 0 },
+    tier: 2
   },
   { 
     id: 'video-streaming', 
@@ -337,7 +358,8 @@ export const INITIAL_LICENSES: License[] = [
     incomePerKB: 0.0003,
     baseUpgradeCost: 1000,
     adAllocated: 0,
-    bonus: { capacityBonus: 0, marginBonus: 0, efficiencyBonus: 0 }
+    bonus: { capacityBonus: 0, marginBonus: 0, efficiencyBonus: 0 },
+    tier: 2
   },
   { 
     id: 'game-downloads', 
@@ -351,7 +373,8 @@ export const INITIAL_LICENSES: License[] = [
     incomePerKB: 0.0003,
     baseUpgradeCost: 10000,
     adAllocated: 0,
-    bonus: { capacityBonus: 0, marginBonus: 0, efficiencyBonus: 0 }
+    bonus: { capacityBonus: 0, marginBonus: 0, efficiencyBonus: 0 },
+    tier: 2
   },
   { 
     id: 'cloud-storage', 
@@ -365,7 +388,8 @@ export const INITIAL_LICENSES: License[] = [
     incomePerKB: 0.0002,
     baseUpgradeCost: 100000,
     adAllocated: 0,
-    bonus: { capacityBonus: 0, marginBonus: 0, efficiencyBonus: 0 }
+    bonus: { capacityBonus: 0, marginBonus: 0, efficiencyBonus: 0 },
+    tier: 2
   },
   { 
     id: 'live-streaming', 
@@ -379,7 +403,8 @@ export const INITIAL_LICENSES: License[] = [
     incomePerKB: 0.0002,
     baseUpgradeCost: 500000,
     adAllocated: 0,
-    bonus: { capacityBonus: 0, marginBonus: 0, efficiencyBonus: 0 }
+    bonus: { capacityBonus: 0, marginBonus: 0, efficiencyBonus: 0 },
+    tier: 2
   },
   { 
     id: 'video-cdn', 
@@ -393,7 +418,8 @@ export const INITIAL_LICENSES: License[] = [
     incomePerKB: 0.0002,
     baseUpgradeCost: 5000000,
     adAllocated: 0,
-    bonus: { capacityBonus: 0, marginBonus: 0, efficiencyBonus: 0 }
+    bonus: { capacityBonus: 0, marginBonus: 0, efficiencyBonus: 0 },
+    tier: 3
   },
   { 
     id: 'game-servers', 
@@ -407,7 +433,8 @@ export const INITIAL_LICENSES: License[] = [
     incomePerKB: 0.0002,
     baseUpgradeCost: 50000000,
     adAllocated: 0,
-    bonus: { capacityBonus: 0.3, marginBonus: 0, efficiencyBonus: 0 }
+    bonus: { capacityBonus: 0.3, marginBonus: 0, efficiencyBonus: 0 },
+    tier: 3
   },
   { 
     id: 'ai-hosting', 
@@ -421,7 +448,8 @@ export const INITIAL_LICENSES: License[] = [
     incomePerKB: 0.0002,
     baseUpgradeCost: 500000000,
     adAllocated: 0,
-    bonus: { capacityBonus: 0, marginBonus: 0, efficiencyBonus: 0 }
+    bonus: { capacityBonus: 0, marginBonus: 0, efficiencyBonus: 0 },
+    tier: 3
   },
   { 
     id: 'global-cdn', 
@@ -435,7 +463,8 @@ export const INITIAL_LICENSES: License[] = [
     incomePerKB: 0.0002,
     baseUpgradeCost: 5000000000,
     adAllocated: 0,
-    bonus: { capacityBonus: 0, marginBonus: 0, efficiencyBonus: 0 }
+    bonus: { capacityBonus: 0, marginBonus: 0, efficiencyBonus: 0 },
+    tier: 3
   },
   { 
     id: 'ai-pipeline', 
@@ -449,7 +478,8 @@ export const INITIAL_LICENSES: License[] = [
     incomePerKB: 0.0002,
     baseUpgradeCost: 50000000000,
     adAllocated: 0,
-    bonus: { capacityBonus: 0, marginBonus: 0, efficiencyBonus: 0 }
+    bonus: { capacityBonus: 0, marginBonus: 0, efficiencyBonus: 0 },
+    tier: 3
   },
 ];
 
@@ -464,4 +494,5 @@ export const INITIAL_STATE: GameState = {
   advertisements: [],
   adSlots: 1,
   lastAdRefresh: 0,
+  activeInvestments: [],
 };
