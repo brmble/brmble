@@ -16,7 +16,8 @@ interface ChatPanelProps {
   channelName?: string;
   messages: ChatMessage[];
   currentUsername?: string;
-  onSendMessage: (content: string) => void;
+  onSendMessage: (content: string, image?: File) => void;
+  onDismissMessage?: (messageId: string) => void;
   isDM?: boolean;
   matrixClient?: MatrixClient | null;
   matrixRoomId?: string | null;
@@ -35,7 +36,7 @@ const SCROLL_THRESHOLD = 150;
 const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
 const DEFAULT_SPLIT = 50;
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, screenShareVideoEl, screenSharerName, onCloseScreenShare, users, disabled, topNotice }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, screenShareVideoEl, screenSharerName, onCloseScreenShare, users, disabled, topNotice }: ChatPanelProps) {
   // Build lookup maps from sender name and matrixUserId → avatar data for MessageBubble.
   // Name-based lookup works when Mumble name matches message sender.
   // MatrixUserId-based lookup handles cases where the user connected with a different
@@ -717,6 +718,10 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
                     senderMatrixUserId={lookupAvatar(item.message.sender, item.message.senderMatrixUserId)?.matrixUserId}
                     currentUsername={currentUsername}
                     knownUsernames={knownUsernames}
+                    messageId={item.message.id}
+                    pending={item.message.pending}
+                    error={item.message.error}
+                    onDismiss={onDismissMessage}
                   />
                 </Fragment>
                 );

@@ -50,6 +50,7 @@ export interface ChatMessage {
   html?: boolean;
   media?: MediaAttachment[];
   pending?: boolean;
+  error?: boolean;
 }
 
 export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed' | 'disconnected';

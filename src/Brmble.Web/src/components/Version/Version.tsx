@@ -1,28 +1,20 @@
 import { useState, useEffect } from 'react';
+import bridge from '../../bridge';
 import './Version.css';
 
-interface VersionInfo {
-  version: string;
-}
-
 export function Version() {
-  const [version, setVersion] = useState<string | null>(null);
+  const [version, setVersion] = useState<string | null>(() =>
+    window.chrome?.webview ? null : 'dev'
+  );
 
   useEffect(() => {
-    fetch('/version.json')
-      .then(res => {
-        if (!res.ok) return null;
-        return res.json() as Promise<VersionInfo>;
-      })
-      .then(data => {
-        if (data?.version) {
-          const date = new Date(data.version);
-          if (isNaN(date.getTime())) return;
-          const formatted = `v${date.getUTCFullYear()}.${String(date.getUTCMonth() + 1).padStart(2, '0')}.${String(date.getUTCDate()).padStart(2, '0')}.${String(date.getUTCHours()).padStart(2, '0')}`;
-          setVersion(formatted);
-        }
-      })
-      .catch(() => {});
+    const onVersion = (data: unknown) => {
+      const d = data as { version: string };
+      if (d.version) setVersion(`v${d.version}`);
+    };
+
+    bridge.on('app.version', onVersion);
+    return () => bridge.off('app.version', onVersion);
   }, []);
 
   if (!version) return null;

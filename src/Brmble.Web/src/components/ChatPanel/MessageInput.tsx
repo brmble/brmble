@@ -2,10 +2,11 @@ import { useState, useRef, useEffect, useCallback, useId, type KeyboardEvent } f
 import type { MentionableUser } from '../../types';
 import { MentionDropdown } from './MentionDropdown';
 import { Tooltip } from '../Tooltip/Tooltip';
+import { validateImageFile } from '../../utils/imageUpload';
 import './MessageInput.css';
 
 interface MessageInputProps {
-  onSend: (content: string) => void;
+  onSend: (content: string, image?: File) => void;
   placeholder?: string;
   mentionableUsers?: MentionableUser[];
   disabled?: boolean;
@@ -20,6 +21,11 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
   const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
   const [mentionAnchorRect, setMentionAnchorRect] = useState<DOMRect | null>(null);
   const mentionStartRef = useRef<number>(-1);
+  const [pendingImage, setPendingImage] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const validationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ARIA IDs for combobox pattern
   const listboxId = useId();
@@ -140,11 +146,80 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
     });
   }, [message]);
 
+  const stageImage = useCallback((file: File) => {
+    const error = validateImageFile(file);
+    if (error) {
+      if (error.type === 'empty') return; // silently ignore
+      setValidationError(error.message);
+      if (validationTimerRef.current) clearTimeout(validationTimerRef.current);
+      validationTimerRef.current = setTimeout(() => setValidationError(null), 3000);
+      return;
+    }
+    // Revoke previous preview URL
+    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+    setPendingImage(file);
+    setImagePreviewUrl(URL.createObjectURL(file));
+    setValidationError(null);
+  }, [imagePreviewUrl]);
+
+  const clearImage = useCallback(() => {
+    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+    setPendingImage(null);
+    setImagePreviewUrl(null);
+    setValidationError(null);
+  }, [imagePreviewUrl]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+      if (validationTimerRef.current) clearTimeout(validationTimerRef.current);
+    };
+  }, [imagePreviewUrl]);
+
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith('image/')) {
+        e.preventDefault();
+        const file = items[i].getAsFile();
+        if (file) stageImage(file);
+        return;
+      }
+    }
+  }, [stageImage]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer.types.includes('Files')) {
+      setIsDragOver(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setIsDragOver(false);
+    }
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file && file.type.startsWith('image/')) {
+      stageImage(file);
+    }
+  }, [stageImage]);
+
   const handleSend = () => {
-    if (message.trim()) {
-      onSend(message.trim());
+    if (message.trim() || pendingImage) {
+      onSend(message.trim(), pendingImage ?? undefined);
       setMessage('');
       setMentionActive(false);
+      setPendingImage(null);
+      if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+      setImagePreviewUrl(null);
     }
   };
 
@@ -171,6 +246,12 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
         setMentionActive(false);
         return;
       }
+    }
+
+    if (e.key === 'Escape' && pendingImage) {
+      e.preventDefault();
+      clearImage();
+      return;
     }
 
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -200,7 +281,39 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
 
   return (
     <div className="message-input-container">
-      <div className="message-input-wrapper" ref={wrapperRef}>
+      {pendingImage && imagePreviewUrl && (
+        <div className="image-preview-strip">
+          <img
+            src={imagePreviewUrl}
+            alt={pendingImage.name}
+            className="image-preview-thumbnail"
+          />
+          <span className="image-preview-size">
+            {(pendingImage.size / 1024).toFixed(0)} KB
+          </span>
+          <button
+            className="image-preview-remove"
+            onClick={clearImage}
+            aria-label="Remove image"
+            type="button"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+      )}
+      {validationError && (
+        <div className="image-validation-error">{validationError}</div>
+      )}
+      <div
+        className={`message-input-wrapper${isDragOver ? ' drag-over' : ''}`}
+        ref={wrapperRef}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
         <textarea
           ref={textareaRef}
           className="message-input"
@@ -208,6 +321,7 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           onSelect={handleSelect}
+          onPaste={handlePaste}
           placeholder={disabled ? 'User is offline' : placeholder}
           disabled={disabled}
           rows={1}
@@ -222,7 +336,7 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
         <button
           className="btn btn-primary btn-icon send-button"
           onClick={handleSend}
-          disabled={disabled || !message.trim()}
+          disabled={disabled || (!message.trim() && !pendingImage)}
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <line x1="22" y1="2" x2="11" y2="13"></line>
