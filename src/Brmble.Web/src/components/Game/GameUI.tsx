@@ -94,7 +94,7 @@ export function GameUI({ onClose }: GameUIProps) {
             advertisements={state.advertisements}
             adSlots={state.adSlots}
             lastAdRefresh={state.lastAdRefresh}
-            onRefreshAd={actions.refreshAdvertisement}
+            selectAd={actions.selectAd}
             onAssignAd={actions.assignAdToLicense}
             generateAdOptions={actions.generateAdOptions}
           />
@@ -505,7 +505,7 @@ interface HostingTabProps {
   advertisements: Advertisement[];
   adSlots: number;
   lastAdRefresh: number;
-  onRefreshAd: (ad: Advertisement) => void;
+  selectAd: (ad: Advertisement) => void;
   onAssignAd: (adId: string, licenseId: string) => void;
   generateAdOptions: () => Advertisement[];
 }
@@ -553,13 +553,12 @@ interface AdSlotsSectionProps {
   advertisements: Advertisement[];
   adSlots: number;
   lastAdRefresh: number;
-  onRefreshAd: (ad: Advertisement) => void;
   onAssignAd: (adId: string, licenseId: string) => void;
   onFindNewAd: () => void;
   licenses: License[];
 }
 
-function AdSlotsSection({ advertisements, adSlots, lastAdRefresh, onRefreshAd, onAssignAd, onFindNewAd, licenses }: AdSlotsSectionProps) {
+function AdSlotsSection({ advertisements, adSlots, lastAdRefresh, onAssignAd, onFindNewAd, licenses }: AdSlotsSectionProps) {
   const [timeLeft, setTimeLeft] = useState(0);
 
   useEffect(() => {
@@ -720,7 +719,7 @@ const calculateCap = (baseCap: number, capPerLevel: number, level: number): numb
 
 const noop = () => {};
 
-function HostingTab({ licenses, uploadSpeed, bandwidthAllocated, onUnlockLicense, onUpgradeLicense, onAllocate, money, advertisements, adSlots, lastAdRefresh, onRefreshAd, onAssignAd, generateAdOptions }: HostingTabProps) {
+function HostingTab({ licenses, uploadSpeed, bandwidthAllocated, onUnlockLicense, onUpgradeLicense, onAllocate, money, advertisements, adSlots, lastAdRefresh, selectAd, onAssignAd, generateAdOptions }: HostingTabProps) {
   const [showAdModal, setShowAdModal] = useState(false);
   const [adOptions, setAdOptions] = useState<Advertisement[]>([]);
 
@@ -730,7 +729,7 @@ function HostingTab({ licenses, uploadSpeed, bandwidthAllocated, onUnlockLicense
   };
 
   const handleSelectAd = (ad: Advertisement) => {
-    onRefreshAd(ad);
+    selectAd(ad);
     setShowAdModal(false);
   };
 
@@ -745,7 +744,6 @@ function HostingTab({ licenses, uploadSpeed, bandwidthAllocated, onUnlockLicense
         advertisements={advertisements}
         adSlots={adSlots}
         lastAdRefresh={lastAdRefresh}
-        onRefreshAd={onRefreshAd}
         onAssignAd={onAssignAd}
         onFindNewAd={handleFindNewAd}
         licenses={licenses}
