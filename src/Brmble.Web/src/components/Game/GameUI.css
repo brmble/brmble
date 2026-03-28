@@ -1052,7 +1052,7 @@
 
 .ad-slot {
   display: grid;
-  grid-template-columns: 80px 1fr 80px 80px 80px 180px;
+  grid-template-columns: 80px 120px 1fr 80px 80px auto;
   gap: 12px;
   align-items: center;
   padding: 12px;
@@ -1070,11 +1070,17 @@
 .ad-name {
   font-weight: 600;
   font-size: 14px;
+  width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
 }
 
 .ad-stars {
   font-size: 11px;
   color: var(--text-muted, #888);
+  text-align: right;
 }
 
 .ad-efficiency {
@@ -1084,7 +1090,8 @@
 
 .ad-modal {
   width: 100%;
-  max-width: 700px;
+  max-width: 900px;
+  max-height: 90vh;
   padding: 24px;
 }
 
@@ -1098,6 +1105,9 @@
   grid-template-columns: repeat(3, 1fr);
   gap: 16px;
   margin-bottom: 24px;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding-right: 8px;
 }
 
 .ad-card {
@@ -1175,7 +1185,116 @@
   margin-left: 8px;
 }
 
+.ad-license-name {
+  font-size: 12px;
+  color: var(--text-primary, #e0e0e0);
+  padding: 4px 8px;
+  background: var(--bg-secondary, #2a2a2a);
+  border-radius: 4px;
+  text-align: right;
+}
+
+.ad-license-name.unassigned {
+  color: var(--text-muted, #888);
+  font-style: italic;
+}
+
+.ad-duration {
+  font-size: 12px;
+  color: var(--accent-primary, #22c55e);
+  padding: 4px 8px;
+  font-weight: 600;
+}
+
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.7; }
+}
+
+.ad-card-license-select {
+  margin: 12px 0;
+}
+
+.ad-card-license-select select {
+  width: 100%;
+  padding: 8px;
+  border-radius: 4px;
+  background: var(--bg-secondary, #2a2a2a);
+  color: var(--text-primary, #e0e0e0);
+  border: 1px solid var(--border-color, #444);
+  font-size: 13px;
+}
+
+.ad-card-investment-details {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  padding: 12px;
+  margin: 12px 0;
+}
+
+.investment-detail {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 12px;
+}
+
+.investment-detail .detail-label {
+  color: var(--text-muted, #888);
+}
+
+.investment-detail .detail-value {
+  color: var(--text-primary, #e0e0e0);
+  font-weight: 500;
+}
+
+.investment-detail.payout {
+  border-top: 1px solid var(--border-color, #444);
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
+.investment-detail.payout .detail-label {
+  color: var(--accent-primary, #22c55e);
+  font-weight: 600;
+}
+
+.investment-detail.payout .detail-value {
+  color: var(--accent-primary, #22c55e);
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.investment-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  width: 100%;
+  padding: 8px 0;
+}
+
+.progress-bar-container {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-secondary, #2a2a2a);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-bar-container.large {
+  height: 16px;
+  border-radius: 8px;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #22c55e);
+  border-radius: 4px;
+  transition: width 1s linear;
+}
+
+.investment-timer {
+  white-space: nowrap;
 }

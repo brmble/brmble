@@ -48,9 +48,9 @@ const STORAGE_KEY = 'idle-farm-save';
 const THEME_KEY = 'idle-farm-theme';
 
 const DURATION_VALUES = {
-  short: { minMs: 5 * 60 * 1000, maxMs: 20 * 60 * 1000, bonus: 1.1 },
-  medium: { minMs: 60 * 60 * 1000, maxMs: 4 * 60 * 60 * 1000, bonus: 1.25 },
-  long: { minMs: 6 * 60 * 60 * 1000, maxMs: 12 * 60 * 60 * 1000, bonus: 1.5 },
+  short: { minMs: 1 * 60 * 1000, maxMs: 10 * 60 * 1000, bonus: 1.1 },
+  medium: { minMs: 10 * 60 * 1000, maxMs: 30 * 60 * 1000, bonus: 1.25 },
+  long: { minMs: 30 * 60 * 1000, maxMs: 60 * 60 * 1000, bonus: 1.5 },
 };
 
 const VOLUME_TO_CAPACITY = {
@@ -75,12 +75,6 @@ const MARGIN_MULTIPLIER = {
   3: 1.6,
   4: 1.8,
   5: 2.0,
-};
-
-const MAX_VOLUME_BY_TIER: Record<number, number> = {
-  1: 3,
-  2: 4,
-  3: 5,
 };
 
 function hasInfrastructure(state: unknown): state is GameState {
@@ -177,7 +171,6 @@ export function useGameState() {
         for (const license of prev.licenses) {
           if (!license.unlocked) continue;
 
-          const cap = calculateCap(license, license.level);
           const adsOnLicense = prev.advertisements.filter(a => a.licenseId === license.id);
 
           for (let i = 0; i < adsOnLicense.length; i++) {
@@ -194,9 +187,8 @@ export function useGameState() {
             totalAdIncome += volumeKB * effectiveMargin;
           }
 
-          const minContent = cap * 0.4;
           const adUsage = adsOnLicense.reduce((sum, ad) => sum + getAdVolumeKB(ad, license), 0);
-          const regularKB = Math.max(0, cap - adUsage - minContent);
+          const regularKB = Math.max(0, license.allocated - adUsage);
           totalRegularIncome += regularKB * license.incomePerKB;
         }
 
@@ -505,9 +497,6 @@ export function useGameState() {
         i => i.licenseId === licenseId && i.status === 'running'
       );
       if (hasRunningInvestment) return prev;
-      
-      const maxVolume = MAX_VOLUME_BY_TIER[license.tier];
-      if (maxVolume === undefined || ad.volume > maxVolume) return prev;
       
       const volumeKB = getVolumeCapacityKB(license, ad.volume);
       const cost = calculateInvestmentCost(license, ad.volume);

@@ -10,11 +10,13 @@ interface GameUIProps {
   onClose: () => void;
 }
 
-type TabId = 'infrastructure' | 'upgrades' | 'hosting';
+type TabId = 'infrastructure' | 'upgrades' | 'hosting' | 'advertisement';
 
 export function GameUI({ onClose }: GameUIProps) {
   const { state, actions } = useGameState();
   const [activeTab, setActiveTab] = useState<TabId>('infrastructure');
+  const [showAdModal, setShowAdModal] = useState(false);
+  const [adOptions, setAdOptions] = useState<Advertisement[]>([]);
   const [showImportModal, setShowImportModal] = useState(false);
   const [importData, setImportData] = useState('');
   const [importStatus, setImportStatus] = useState<string | null>(null);
@@ -91,19 +93,41 @@ export function GameUI({ onClose }: GameUIProps) {
             onUpgradeLicense={actions.upgradeLicense}
             onAllocate={actions.allocateBandwidth}
             money={state.money}
+          />
+        )}
+        {activeTab === 'advertisement' && (
+          <AdSlotsSection
             advertisements={state.advertisements}
             adSlots={state.adSlots}
             lastAdRefresh={state.lastAdRefresh}
-            selectAd={actions.selectAd}
-            onAssignAd={actions.assignAdToLicense}
-            generateAdOptions={actions.generateAdOptions}
+            onFindNewAd={() => {
+              setAdOptions(actions.generateAdOptions());
+              setShowAdModal(true);
+            }}
+            licenses={state.licenses}
             activeInvestments={state.activeInvestments}
-            onStartInvestment={actions.startInvestment}
             onCollectInvestment={actions.collectInvestment}
           />
         )}
         </div>
       </div>
+
+      <AdSelectionModal
+        isOpen={showAdModal}
+        options={adOptions}
+        licenses={state.licenses}
+        money={state.money}
+        advertisements={state.advertisements}
+        onSelect={(ad, licenseId) => {
+          actions.selectAd(ad);
+          if (licenseId) {
+            actions.assignAdToLicense(ad.id, licenseId);
+            actions.startInvestment(ad.id, licenseId);
+          }
+          setShowAdModal(false);
+        }}
+        onClose={() => setShowAdModal(false)}
+      />
       
       {showImportModal && (
         <div className="modal-overlay" onClick={() => setShowImportModal(false)}>
@@ -277,6 +301,7 @@ function TabNav({ activeTab, onTabChange }: TabNavProps) {
   const tabs: { id: TabId; label: string }[] = [
     { id: 'infrastructure', label: 'Infrastructure' },
     { id: 'hosting', label: 'Hosting' },
+    { id: 'advertisement', label: 'Advertisement' },
     { id: 'upgrades', label: 'Tech Upgrades' },
   ];
 
@@ -505,26 +530,80 @@ interface HostingTabProps {
   onUpgradeLicense: (licenseId: string) => void;
   onAllocate: (licenseId: string, amount: number) => void;
   money: number;
-  advertisements: Advertisement[];
-  adSlots: number;
-  lastAdRefresh: number;
-  selectAd: (ad: Advertisement) => void;
-  onAssignAd: (adId: string, licenseId: string) => void;
-  generateAdOptions: () => Advertisement[];
-  activeInvestments: ActiveInvestment[];
-  onStartInvestment: (adId: string, licenseId: string) => void;
-  onCollectInvestment: (adId: string) => void;
 }
 
 interface AdSelectionModalProps {
   isOpen: boolean;
   options: Advertisement[];
-  onSelect: (ad: Advertisement) => void;
+  licenses: License[];
+  money: number;
+  advertisements: Advertisement[];
+  onSelect: (ad: Advertisement, licenseId: string) => void;
   onClose: () => void;
 }
 
-function AdSelectionModal({ isOpen, options, onSelect, onClose }: AdSelectionModalProps) {
+function AdSelectionModal({ isOpen, options, licenses, money, advertisements, onSelect, onClose }: AdSelectionModalProps) {
+  const [selectedLicenses, setSelectedLicenses] = useState<Record<string, string>>({});
+
   if (!isOpen) return null;
+
+  const getEffectiveCap = (license: License): number => {
+    return 0.6 + license.bonus.capacityBonus;
+  };
+
+  const getVolumeCapacityKB = (license: License, volumeStars: number): number => {
+    const cap = calculateCap(license.baseCap, license.capPerLevel, license.level);
+    const effectiveCap = getEffectiveCap(license);
+    const volumePercent = volumeStars / 5;
+    return cap * effectiveCap * volumePercent;
+  };
+
+  const getAdVolumeKB = (ad: Advertisement, license: License): number => {
+    return getVolumeCapacityKB(license, ad.volume);
+  };
+
+  const getAvailableKB = (license: License): number => {
+    const cap = calculateCap(license.baseCap, license.capPerLevel, license.level);
+    const effectiveCap = getEffectiveCap(license);
+    const maxAdKB = cap * effectiveCap;
+    const otherAds = advertisements
+      .filter(a => a.licenseId === license.id)
+      .reduce((sum, a) => sum + getAdVolumeKB(a, license), 0);
+    return maxAdKB - otherAds;
+  };
+
+  const calculateInvestmentCost = (license: License, volumeStars: number): number => {
+    const cap = calculateCap(license.baseCap, license.capPerLevel, license.level);
+    const effectiveCap = getEffectiveCap(license);
+    const volumeKB = cap * effectiveCap * (volumeStars / 5);
+    return volumeKB * license.incomePerKB * 60;
+  };
+
+  const calculateInvestmentPayout = (cost: number, volume: number, margin: number, duration: string): number => {
+    const marginMult = [1.2, 1.4, 1.6, 1.8, 2.0][margin - 1] || 1.2;
+    const volumeBonus = [0.9, 1.0, 1.1, 1.2, 1.3][volume - 1] || 1.0;
+    const durationBonus = duration === 'short' ? 1.1 : duration === 'medium' ? 1.25 : 1.5;
+    return cost * marginMult * volumeBonus * durationBonus;
+  };
+
+  const formatDuration = (duration: string): string => {
+    if (duration === 'short') return '1-10 min';
+    if (duration === 'medium') return '10-30 min';
+    return '30-60 min';
+  };
+
+  const handleLicenseChange = (adId: string, licenseId: string) => {
+    setSelectedLicenses(prev => ({ ...prev, [adId]: licenseId }));
+  };
+
+  const handleInvest = (ad: Advertisement) => {
+    const licenseId = selectedLicenses[ad.id];
+    if (licenseId) {
+      onSelect(ad, licenseId);
+    }
+  };
+
+  const getUnlockedLicenses = () => licenses.filter(l => l.unlocked);
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -533,19 +612,84 @@ function AdSelectionModal({ isOpen, options, onSelect, onClose }: AdSelectionMod
           <h2 className="heading-title">Choose Your Ad Contract</h2>
         </div>
         <div className="ad-modal-cards">
-          {options.map(ad => (
-            <div key={ad.id} className="ad-card">
-              <span className="ad-card-type">{ad.type}</span>
-              <span className="ad-card-name">{ad.name}</span>
-              <div className="ad-card-stats">
-                <span>Vol: {'★'.repeat(ad.volume)}{'☆'.repeat(5-ad.volume)}</span>
-                <span>Mar: {'★'.repeat(ad.margin)}{'☆'.repeat(5-ad.margin)}</span>
+          {options.map(ad => {
+            const selectedLicenseId = selectedLicenses[ad.id] || '';
+            const selectedLicense = licenses.find(l => l.id === selectedLicenseId);
+            const canAfford = selectedLicense ? money >= calculateInvestmentCost(selectedLicense, ad.volume) : false;
+            const hasCapacity = selectedLicense ? getAvailableKB(selectedLicense) >= getAdVolumeKB(ad, selectedLicense) : false;
+            const investmentCost = selectedLicense ? calculateInvestmentCost(selectedLicense, ad.volume) : 0;
+
+            return (
+              <div key={ad.id} className="ad-card">
+                <span className="ad-card-type">{ad.type}</span>
+                <span className="ad-card-name">{ad.name}</span>
+                <div className="ad-card-stats">
+                  <span>Vol: {'★'.repeat(ad.volume)}{'☆'.repeat(5-ad.volume)}</span>
+                  <span>Mar: {'★'.repeat(ad.margin)}{'☆'.repeat(5-ad.margin)}</span>
+                </div>
+                
+                <div className="ad-card-license-select">
+                  <select
+                    value={selectedLicenseId}
+                    onChange={(e) => handleLicenseChange(ad.id, e.target.value)}
+                  >
+                    <option value="">Select Hosting...</option>
+                    {getUnlockedLicenses().map(l => {
+                      const availableKB = getAvailableKB(l);
+                      const adKB = getAdVolumeKB(ad, l);
+                      return (
+                        <option key={l.id} value={l.id} disabled={availableKB < adKB}>
+                          {l.name} ({formatBandwidth(Math.max(0, availableKB))} free)
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+
+                {selectedLicense && (
+                  <div className="ad-card-investment-details">
+                    <div className="investment-detail">
+                      <span className="detail-label">Duration:</span>
+                      <span className="detail-value">{formatDuration(ad.duration || 'short')}</span>
+                    </div>
+                    <div className="investment-detail">
+                      <span className="detail-label">Bandwidth Required:</span>
+                      <span className="detail-value">{formatBandwidth(getAdVolumeKB(ad, selectedLicense))}</span>
+                    </div>
+                    <div className="investment-detail">
+                      <span className="detail-label">Available:</span>
+                      <span className="detail-value">{formatBandwidth(getAvailableKB(selectedLicense))}</span>
+                    </div>
+                    <div className="investment-detail">
+                      <span className="detail-label">Price:</span>
+                      <span className="detail-value">${calculateInvestmentCost(selectedLicense, ad.volume).toFixed(2)}</span>
+                    </div>
+                    <div className="investment-detail payout">
+                      <span className="detail-label">Payout:</span>
+                      <span className="detail-value">${calculateInvestmentPayout(
+                        calculateInvestmentCost(selectedLicense, ad.volume),
+                        ad.volume,
+                        ad.margin,
+                        ad.duration || 'short'
+                      ).toFixed(2)}</span>
+                    </div>
+                  </div>
+                )}
+
+                <button 
+                  className="btn btn-primary invest-btn" 
+                  onClick={() => handleInvest(ad)}
+                  disabled={!selectedLicenseId || !canAfford || !hasCapacity}
+                >
+                  {selectedLicenseId 
+                    ? (canAfford 
+                      ? `Invest $${investmentCost.toFixed(2)}` 
+                      : 'Insufficient Funds') 
+                    : 'Select Hosting First'}
+                </button>
               </div>
-              <button className="btn btn-primary" onClick={() => onSelect(ad)}>
-                Select
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
         <div className="ad-modal-footer">
           <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
@@ -559,31 +703,20 @@ interface AdSlotsSectionProps {
   advertisements: Advertisement[];
   adSlots: number;
   lastAdRefresh: number;
-  onAssignAd: (adId: string, licenseId: string) => void;
   onFindNewAd: () => void;
   licenses: License[];
   activeInvestments: ActiveInvestment[];
-  onStartInvestment: (adId: string, licenseId: string) => void;
   onCollectInvestment: (adId: string) => void;
-  money: number;
 }
-
-const calculateCostForAd = (_ad: Advertisement, license: License): number => {
-  const cap = calculateCap(license.baseCap, license.capPerLevel, license.level);
-  return cap * license.incomePerKB * 60;
-};
 
 function AdSlotsSection({ 
   advertisements, 
   adSlots, 
   lastAdRefresh, 
-  onAssignAd, 
   onFindNewAd, 
   licenses,
   activeInvestments,
-  onStartInvestment,
   onCollectInvestment,
-  money,
 }: AdSlotsSectionProps) {
   const [timeLeft, setTimeLeft] = useState(0);
 
@@ -599,13 +732,6 @@ function AdSlotsSection({
   const canRefresh = timeLeft === 0;
   const minutes = Math.floor(timeLeft / 60000);
   const seconds = Math.floor((timeLeft % 60000) / 1000);
-
-  const getAdVolumeKB = (ad: Advertisement, license: License): number => {
-    const cap = calculateCap(license.baseCap, license.capPerLevel, license.level);
-    const effectiveCap = 0.6 + license.bonus.capacityBonus;
-    const maxAdKB = cap * effectiveCap;
-    return maxAdKB * (ad.volume / 5);
-  };
 
   const getInvestmentForAd = (adId: string) => {
     return activeInvestments.find(i => i.adId === adId);
@@ -647,6 +773,13 @@ function AdSlotsSection({
         const canCollect = isInvestmentReady(ad.id);
         const timeRemaining = getTimeRemaining(ad.id);
 
+        const formatContractDuration = (duration: string) => {
+          if (duration === 'short') return 'Short';
+          if (duration === 'medium') return 'Medium';
+          if (duration === 'long') return 'Long';
+          return '-';
+        };
+
         const formatTime = (ms: number) => {
           const hours = Math.floor(ms / 3600000);
           const mins = Math.floor((ms % 3600000) / 60000);
@@ -658,6 +791,21 @@ function AdSlotsSection({
           <div key={ad.id} className={`ad-slot ${isRunning ? 'running' : ''} ${canCollect ? 'ready' : ''}`}>
             <span className="ad-type">{ad.type}</span>
             <span className="ad-name">{ad.name}</span>
+            
+            {isRunning && (
+              <div className="investment-progress">
+                <div className="progress-bar-container large">
+                  <div 
+                    className="progress-bar-fill" 
+                    style={{ width: `${((investment?.durationMs || 1) - timeRemaining) / (investment?.durationMs || 1) * 100}%` }}
+                  />
+                </div>
+                <span className="investment-timer">
+                  {formatTime(timeRemaining)} left
+                </span>
+              </div>
+            )}
+            
             <span className="ad-stars">Vol: {'★'.repeat(ad.volume)}{'☆'.repeat(5-ad.volume)}</span>
             <span className="ad-stars">Mar: {'★'.repeat(ad.margin)}{'☆'.repeat(5-ad.margin)}</span>
             
@@ -668,48 +816,19 @@ function AdSlotsSection({
               >
                 Collect ${investment?.payout.toFixed(2)}
               </button>
-            ) : isRunning ? (
-              <span className="investment-timer">
-                {formatTime(timeRemaining)} left
-              </span>
-            ) : (
+            ) : !isRunning && (
               <>
-                <select
-                  value={ad.licenseId}
-                  onChange={(e) => onAssignAd(ad.id, e.target.value)}
-                >
-                  <option value="">Unassigned</option>
-                  {licenses.filter(l => l.unlocked).map(l => {
-                    const cap = calculateCap(l.baseCap, l.capPerLevel, l.level);
-                    const effectiveCap = 0.6 + l.bonus.capacityBonus;
-                    const maxAdKB = cap * effectiveCap;
-                    const otherAds = advertisements
-                      .filter(a => a.id !== ad.id && a.licenseId === l.id)
-                      .reduce((sum, a) => sum + getAdVolumeKB(a, l), 0);
-                    const available = maxAdKB - otherAds;
-                    const adKB = getAdVolumeKB(ad, l);
-                    const hasRunningInvestment = activeInvestments.some(
-                      i => i.licenseId === l.id && i.status === 'running'
-                    );
-                    return (
-                      <option 
-                        key={l.id} 
-                        value={l.id} 
-                        disabled={available < adKB || hasRunningInvestment}
-                      >
-                        {l.name} ({formatBandwidth(Math.max(0, available))} free)
-                      </option>
-                    );
-                  })}
-                </select>
-                {ad.licenseId && (
-                  <button
-                    className="btn btn-primary invest-btn"
-                    disabled={money < calculateCostForAd(ad, licenses.find(l => l.id === ad.licenseId)!)}
-                    onClick={() => onStartInvestment(ad.id, ad.licenseId)}
-                  >
-                    Invest
-                  </button>
+                {ad.licenseId ? (
+                  <>
+                    <span className="ad-license-name">
+                      {licenses.find(l => l.id === ad.licenseId)?.name}
+                    </span>
+                    <span className="ad-duration">
+                      {ad.duration ? formatContractDuration(ad.duration) : '-'}
+                    </span>
+                  </>
+                ) : (
+                  <span className="ad-license-name unassigned">Unassigned</span>
                 )}
               </>
             )}
@@ -806,20 +925,7 @@ const calculateCap = (baseCap: number, capPerLevel: number, level: number): numb
 
 const noop = () => {};
 
-function HostingTab({ licenses, uploadSpeed, bandwidthAllocated, onUnlockLicense, onUpgradeLicense, onAllocate, money, advertisements, adSlots, lastAdRefresh, selectAd, onAssignAd, generateAdOptions, activeInvestments, onStartInvestment, onCollectInvestment }: HostingTabProps) {
-  const [showAdModal, setShowAdModal] = useState(false);
-  const [adOptions, setAdOptions] = useState<Advertisement[]>([]);
-
-  const handleFindNewAd = () => {
-    setAdOptions(generateAdOptions());
-    setShowAdModal(true);
-  };
-
-  const handleSelectAd = (ad: Advertisement) => {
-    selectAd(ad);
-    setShowAdModal(false);
-  };
-
+function HostingTab({ licenses, uploadSpeed, bandwidthAllocated, onUnlockLicense, onUpgradeLicense, onAllocate, money }: HostingTabProps) {
   const freeBandwidth = uploadSpeed - bandwidthAllocated;
   
   const unlockedLicenses = licenses.filter(l => l.unlocked);
@@ -827,26 +933,6 @@ function HostingTab({ licenses, uploadSpeed, bandwidthAllocated, onUnlockLicense
   
   return (
     <div className="hosting-tab">
-      <AdSlotsSection
-        advertisements={advertisements}
-        adSlots={adSlots}
-        lastAdRefresh={lastAdRefresh}
-        onAssignAd={onAssignAd}
-        onFindNewAd={handleFindNewAd}
-        licenses={licenses}
-        activeInvestments={activeInvestments}
-        onStartInvestment={onStartInvestment}
-        onCollectInvestment={onCollectInvestment}
-        money={money}
-      />
-
-      <AdSelectionModal
-        isOpen={showAdModal}
-        options={adOptions}
-        onSelect={handleSelectAd}
-        onClose={() => setShowAdModal(false)}
-      />
-
       <div className="bandwidth-summary">
         <div className="summary-stat">
           <span className="summary-label">Total Upload:</span>
