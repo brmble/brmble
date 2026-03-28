@@ -504,8 +504,8 @@ export function useGameState() {
       );
       if (hasRunningInvestment) return prev;
       
-      const maxVolume = MAX_VOLUME_BY_TIER[license.tier as keyof typeof MAX_VOLUME_BY_TIER];
-      if (ad.volume > maxVolume) return prev;
+      const maxVolume = MAX_VOLUME_BY_TIER[license.tier];
+      if (maxVolume === undefined || ad.volume > maxVolume) return prev;
       
       const volumeKB = getVolumeCapacityKB(license, ad.volume);
       const cost = calculateInvestmentCost(license, ad.volume);
@@ -542,9 +542,7 @@ export function useGameState() {
       return {
         ...prev,
         money: prev.money + investment.payout,
-        activeInvestments: prev.activeInvestments.map(i =>
-          i.adId === adId ? { ...i, status: 'collected' as InvestmentStatus } : i
-        ),
+        activeInvestments: prev.activeInvestments.filter(i => i.adId !== adId),
       };
     });
   }, []);
@@ -565,9 +563,13 @@ export function useGameState() {
     });
   }, []);
 
+  const hasRunningInvestments = useMemo(
+    () => state.activeInvestments.some(i => i.status === 'running'),
+    [state.activeInvestments]
+  );
+
   useEffect(() => {
-    const hasRunning = state.activeInvestments.some(i => i.status === 'running');
-    if (!hasRunning) return;
+    if (!hasRunningInvestments) return;
     
     const interval = setInterval(() => {
       setState(prev => {
@@ -591,7 +593,7 @@ export function useGameState() {
     }, 1000);
     
     return () => clearInterval(interval);
-  }, [state.activeInvestments.some(i => i.status === 'running')]);
+  }, [hasRunningInvestments]);
 
   const actions: GameActions = {
     buyInfrastructure,
