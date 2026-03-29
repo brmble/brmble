@@ -629,7 +629,9 @@ function App() {
         }
       }
 
-      // Persist Mumble registration status to the saved server entry
+      // Persist Mumble registration status to the saved server entry.
+      // Password is intentionally omitted here (not stored in localStorage);
+      // the backend preserves the existing password when an update omits it.
       const reg = data as { registered?: boolean; registeredName?: string } | undefined;
       if (reg?.registered) {
         try {
@@ -637,9 +639,8 @@ function App() {
           if (stored) {
             const savedServer = JSON.parse(stored) as SavedServer;
             if (savedServer.id) {
-              const { password } = savedServer;
-              const updated = { ...savedServer, registered: true, username: reg.registeredName ?? savedServer.username, registeredName: reg.registeredName };
-              bridge.send('servers.update', { ...updated, password });
+              const updated = { ...savedServer, registered: true, registeredName: reg.registeredName };
+              bridge.send('servers.update', updated);
               localStorage.setItem('brmble-server', JSON.stringify(updated));
             }
           }
@@ -651,9 +652,8 @@ function App() {
           if (stored) {
             const savedServer = JSON.parse(stored) as SavedServer;
             if (savedServer.id && savedServer.registered) {
-              const { password } = savedServer;
               const updated = { ...savedServer, registered: false, registeredName: undefined };
-              bridge.send('servers.update', { ...updated, password });
+              bridge.send('servers.update', updated);
               localStorage.setItem('brmble-server', JSON.stringify(updated));
             }
           }
@@ -1061,7 +1061,7 @@ function App() {
     };
 
     const onAutoConnect = (data: unknown) => {
-      const server = data as { id: string; label: string; apiUrl?: string; host?: string; port?: number; username: string } | undefined;
+      const server = data as { id: string; label: string; apiUrl?: string; host?: string; port?: number } | undefined;
       if (server) {
         setServerLabel(server.label || `${server.host}:${server.port}`);
         handleConnect({
@@ -1070,7 +1070,7 @@ function App() {
           apiUrl: server.apiUrl,
           host: server.host || '',
           port: server.port || 0,
-          username: server.username || activeProfileName || 'Brmble User',
+          username: activeProfileName || 'Brmble User',
           password: '',
         });
       }
@@ -1148,13 +1148,14 @@ function App() {
     const onRegistrationStatus = (data: unknown) => {
       const d = data as { serverId?: string; registered?: boolean; registeredName?: string } | undefined;
       if (!d?.registered || !d.serverId) return;
+      // Password is intentionally omitted (not in localStorage);
+      // the backend preserves the existing password when an update omits it.
       try {
         const stored = localStorage.getItem('brmble-server');
         if (stored) {
           const savedServer = JSON.parse(stored) as SavedServer;
           if (savedServer.id === d.serverId) {
-            const { password, ...safeServerData } = savedServer;
-            const updated = { ...safeServerData, registered: true, registeredName: d.registeredName, username: d.registeredName ?? savedServer.username };
+            const updated = { ...savedServer, registered: true, registeredName: d.registeredName };
             bridge.send('servers.update', updated);
             localStorage.setItem('brmble-server', JSON.stringify(updated));
           }
@@ -1308,7 +1309,7 @@ const handleConnect = (serverData: SavedServer) => {
       apiUrl: server.apiUrl,
       host: server.host,
       port: server.port,
-      username: server.username || activeProfileName || 'Brmble User',
+      username: (server.registered ? server.registeredName : null) || activeProfileName || 'Brmble User',
       password: server.password || '',
       registered: server.registered,
       registeredName: server.registeredName,

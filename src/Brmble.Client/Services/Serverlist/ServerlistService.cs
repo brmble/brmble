@@ -88,7 +88,11 @@ internal sealed class ServerlistService : IServerlistService
             var index = _servers.FindIndex(s => s.Id == server.Id);
             if (index >= 0)
             {
-                _servers[index] = server;
+                // Preserve the existing password when the incoming update omits it.
+                var merged = string.IsNullOrEmpty(server.Password)
+                    ? server with { Password = _servers[index].Password }
+                    : server;
+                _servers[index] = merged;
                 Save();
                 return _servers[index];
             }
@@ -130,8 +134,7 @@ internal sealed class ServerlistService : IServerlistService
 
     private static ServerEntry? ParseServerEntry(JsonElement data)
     {
-        if (!data.TryGetProperty("label", out var label) ||
-            !data.TryGetProperty("username", out var username))
+        if (!data.TryGetProperty("label", out var label))
         {
             return null;
         }
@@ -149,7 +152,6 @@ internal sealed class ServerlistService : IServerlistService
             apiUrl,
             data.TryGetProperty("host", out var hostEl) ? hostEl.GetString() : null,
             data.TryGetProperty("port", out var portEl) && portEl.ValueKind == JsonValueKind.Number ? portEl.GetInt32() : null,
-            username.GetString() ?? "",
             password
         );
     }

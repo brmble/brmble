@@ -6,7 +6,6 @@ public record ServerEntry(
     string? ApiUrl,
     string? Host,
     int? Port,
-    string Username,
     string Password = "",
     bool Registered = false,
     string? RegisteredName = null
