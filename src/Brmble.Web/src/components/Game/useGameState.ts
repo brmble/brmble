@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
-import type { GameState, GameActions, License, Advertisement, AdType, AdDuration, ActiveInvestment, InvestmentStatus } from './types';
+import type { GameState, GameActions, License, Advertisement, AdType, ActiveInvestment, InvestmentStatus } from './types';
 import { INITIAL_STATE } from './types';
 import { applyTheme } from '../../themes/theme-loader';
 import { useProfileFingerprint } from '../../contexts/ProfileContext';
@@ -89,34 +89,12 @@ const isLowVolume = (volume: number): boolean => volume <= 2;
 const STORAGE_KEY = 'idle-farm-save';
 const THEME_KEY = 'idle-farm-theme';
 
-const DURATION_VALUES = {
-  short: { minMs: 5 * 60 * 1000, maxMs: 20 * 60 * 1000, bonus: 1.1 },
-  medium: { minMs: 60 * 60 * 1000, maxMs: 4 * 60 * 60 * 1000, bonus: 1.25 },
-  long: { minMs: 6 * 60 * 60 * 1000, maxMs: 12 * 60 * 60 * 1000, bonus: 1.5 },
-};
-
 export const VOLUME_TO_CAPACITY = {
   1: 0.1,
   2: 0.2,
   3: 0.3,
   4: 0.4,
   5: 0.5,
-};
-
-const VOLUME_BONUS = {
-  1: 0.9,
-  2: 1.0,
-  3: 1.1,
-  4: 1.2,
-  5: 1.3,
-};
-
-const MARGIN_MULTIPLIER = {
-  1: 1.2,
-  2: 1.4,
-  3: 1.6,
-  4: 1.8,
-  5: 2.0,
 };
 
 const TIER_MAX_VOLUME = {
@@ -309,43 +287,6 @@ export function useGameState() {
   const calculateCap = (license: License, level: number): number => {
     const raw = license.baseCap + (level * license.capPerLevel);
     return Math.min(raw, MAX_SAFE_INTEGER);
-  };
-
-  const getDuration = (): AdDuration => {
-    const rand = Math.random();
-    if (rand < 0.33) return 'short';
-    if (rand < 0.66) return 'medium';
-    return 'long';
-  };
-
-  const getDurationMs = (duration: AdDuration): number => {
-    const { minMs, maxMs } = DURATION_VALUES[duration];
-    return Math.floor(Math.random() * (maxMs - minMs) + minMs);
-  };
-
-  const calculateInvestmentCost = (license: License, volumeStars: number): number => {
-    const cap = calculateCap(license, license.level);
-    const effectiveCap = getEffectiveCap(license);
-    const volumeKB = cap * effectiveCap * (VOLUME_TO_CAPACITY as Record<number, number>)[volumeStars];
-    return volumeKB * license.incomePerKB * 60;
-  };
-
-  const calculateInvestmentPayout = (
-    cost: number,
-    volume: number,
-    margin: number,
-    duration: AdDuration
-  ): number => {
-    const marginMult = (MARGIN_MULTIPLIER as Record<number, number>)[margin];
-    const volumeBonus = (VOLUME_BONUS as Record<number, number>)[volume];
-    const durationBonus = DURATION_VALUES[duration].bonus;
-    return cost * marginMult * volumeBonus * durationBonus;
-  };
-
-  const getVolumeCapacityKB = (license: License, volumeStars: number): number => {
-    const cap = calculateCap(license, license.level);
-    const effectiveCap = getEffectiveCap(license);
-    return cap * effectiveCap * (VOLUME_TO_CAPACITY as Record<number, number>)[volumeStars];
   };
 
   const unlockInfrastructure = useCallback((infraId: string) => {

@@ -1,10 +1,18 @@
 import { useState, useCallback, useEffect } from 'react';
 import type { Infrastructure, License, Advertisement, ActiveInvestment } from './types';
-import { useGameState, VOLUME_TO_CAPACITY } from './useGameState';
+import { useGameState } from './useGameState';
 import { confirm } from '../../hooks/usePrompt';
 import { Select } from '../Select/Select';
 import { Tooltip } from '../Tooltip/Tooltip';
 import './GameUI.css';
+
+const PASSIVE_INCOME_BY_STARS: Record<number, number> = {
+  1: 0.10,
+  2: 0.25,
+  3: 0.50,
+  4: 1.50,
+  5: 4.00,
+};
 
 interface GameUIProps {
   onClose: () => void;
@@ -108,6 +116,7 @@ export function GameUI({ onClose }: GameUIProps) {
             licenses={state.licenses}
             activeInvestments={state.activeInvestments}
             onCollectInvestment={actions.collectInvestment}
+            onCancelInvestment={actions.cancelInvestment}
           />
         )}
         </div>
@@ -564,46 +573,14 @@ function AdSelectionModal({ isOpen, options, licenses, money, advertisements, on
     return 0.6 + license.bonus.capacityBonus;
   };
 
-  const getVolumeCapacityKB = (license: License, volumeStars: number): number => {
-    const cap = calculateCap(license.baseCap, license.capPerLevel, license.level);
-    const effectiveCap = getEffectiveCap(license);
-    const volumePercent = VOLUME_TO_CAPACITY[volumeStars as keyof typeof VOLUME_TO_CAPACITY];
-    return cap * effectiveCap * volumePercent;
-  };
-
-  const getAdVolumeKB = (ad: Advertisement, license: License): number => {
-    return getVolumeCapacityKB(license, ad.volume);
-  };
-
   const getAvailableKB = (license: License): number => {
     const cap = calculateCap(license.baseCap, license.capPerLevel, license.level);
     const effectiveCap = getEffectiveCap(license);
     const maxAdKB = cap * effectiveCap;
     const otherAds = advertisements
       .filter(a => a.licenseId === license.id)
-      .reduce((sum, a) => sum + getAdVolumeKB(a, license), 0);
+      .reduce((sum, a) => sum + a.volumeKB, 0);
     return maxAdKB - otherAds;
-  };
-
-  const calculateInvestmentCost = (license: License, volumeStars: number): number => {
-    const cap = calculateCap(license.baseCap, license.capPerLevel, license.level);
-    const effectiveCap = getEffectiveCap(license);
-    const volumePercent = VOLUME_TO_CAPACITY[volumeStars as keyof typeof VOLUME_TO_CAPACITY];
-    const volumeKB = cap * effectiveCap * volumePercent;
-    return volumeKB * license.incomePerKB * 60;
-  };
-
-  const calculateInvestmentPayout = (cost: number, volume: number, margin: number, duration: string): number => {
-    const marginMult = [1.2, 1.4, 1.6, 1.8, 2.0][margin - 1] || 1.2;
-    const volumeBonus = [0.9, 1.0, 1.1, 1.2, 1.3][volume - 1] || 1.0;
-    const durationBonus = duration === 'short' ? 1.1 : duration === 'medium' ? 1.25 : 1.5;
-    return cost * marginMult * volumeBonus * durationBonus;
-  };
-
-  const formatDuration = (duration: string): string => {
-    if (duration === 'short') return '5-20 min';
-    if (duration === 'medium') return '1-4h';
-    return '6-12h';
   };
 
   const handleLicenseChange = (adId: string, licenseId: string) => {
@@ -619,6 +596,15 @@ function AdSelectionModal({ isOpen, options, licenses, money, advertisements, on
 
   const getUnlockedLicenses = () => licenses.filter(l => l.unlocked);
 
+  const renderStars = (count: number) => '★'.repeat(count) + '☆'.repeat(5 - count);
+
+  const formatTimeLimit = (ms: number) => {
+    const hours = Math.floor(ms / 3600000);
+    const mins = Math.floor((ms % 3600000) / 60000);
+    const secs = Math.floor((ms % 60000) / 1000);
+    return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="ad-modal glass-panel animate-slide-up" onClick={e => e.stopPropagation()}>
@@ -629,17 +615,21 @@ function AdSelectionModal({ isOpen, options, licenses, money, advertisements, on
           {options.map(ad => {
             const selectedLicenseId = selectedLicenses[ad.id] || '';
             const selectedLicense = licenses.find(l => l.id === selectedLicenseId);
-            const canAfford = selectedLicense ? money >= calculateInvestmentCost(selectedLicense, ad.volume) : false;
-            const hasCapacity = selectedLicense ? getAvailableKB(selectedLicense) >= getAdVolumeKB(ad, selectedLicense) : false;
-            const investmentCost = selectedLicense ? calculateInvestmentCost(selectedLicense, ad.volume) : 0;
+            const canAfford = money >= ad.buyPrice;
+            const hasCapacity = selectedLicense ? getAvailableKB(selectedLicense) >= ad.volumeKB : false;
+
+            const passivePerSec = PASSIVE_INCOME_BY_STARS[ad.passiveIncome];
 
             return (
               <div key={ad.id} className="ad-card">
                 <span className="ad-card-type">{ad.type}</span>
                 <span className="ad-card-name">{ad.name}</span>
+                
                 <div className="ad-card-stats">
-                  <span>Vol: {'★'.repeat(ad.volume)}{'☆'.repeat(5-ad.volume)}</span>
-                  <span>Mar: {'★'.repeat(ad.margin)}{'☆'.repeat(5-ad.margin)}</span>
+                  <span>Volume: {renderStars(ad.volume)}</span>
+                  <span>Margin: {renderStars(ad.margin)}</span>
+                  <span>Passive Income: ${passivePerSec.toFixed(2)}/s {renderStars(ad.passiveIncome)}</span>
+                  <span>Time Limit: {formatTimeLimit(ad.timeLimitMs)}</span>
                 </div>
                 
                 <div className="ad-card-license-select">
@@ -650,9 +640,8 @@ function AdSelectionModal({ isOpen, options, licenses, money, advertisements, on
                     <option value="">Select Hosting...</option>
                     {getUnlockedLicenses().map(l => {
                       const availableKB = getAvailableKB(l);
-                      const adKB = getAdVolumeKB(ad, l);
                       return (
-                        <option key={l.id} value={l.id} disabled={availableKB < adKB}>
+                        <option key={l.id} value={l.id} disabled={availableKB < ad.volumeKB}>
                           {l.name} ({formatBandwidth(Math.max(0, availableKB))} free)
                         </option>
                       );
@@ -660,45 +649,13 @@ function AdSelectionModal({ isOpen, options, licenses, money, advertisements, on
                   </select>
                 </div>
 
-                {selectedLicense && (
-                  <div className="ad-card-investment-details">
-                    <div className="investment-detail">
-                      <span className="detail-label">Duration:</span>
-                      <span className="detail-value">{formatDuration(ad.duration || 'short')}</span>
-                    </div>
-                    <div className="investment-detail">
-                      <span className="detail-label">Bandwidth Required:</span>
-                      <span className="detail-value">{formatBandwidth(getAdVolumeKB(ad, selectedLicense))}</span>
-                    </div>
-                    <div className="investment-detail">
-                      <span className="detail-label">Available:</span>
-                      <span className="detail-value">{formatBandwidth(getAvailableKB(selectedLicense))}</span>
-                    </div>
-                    <div className="investment-detail">
-                      <span className="detail-label">Price:</span>
-                      <span className="detail-value">${calculateInvestmentCost(selectedLicense, ad.volume).toFixed(2)}</span>
-                    </div>
-                    <div className="investment-detail payout">
-                      <span className="detail-label">Payout:</span>
-                      <span className="detail-value">${calculateInvestmentPayout(
-                        calculateInvestmentCost(selectedLicense, ad.volume),
-                        ad.volume,
-                        ad.margin,
-                        ad.duration || 'short'
-                      ).toFixed(2)}</span>
-                    </div>
-                  </div>
-                )}
-
                 <button 
                   className="btn btn-primary invest-btn" 
                   onClick={() => handleInvest(ad)}
                   disabled={!selectedLicenseId || !canAfford || !hasCapacity}
                 >
                   {selectedLicenseId 
-                    ? (canAfford 
-                      ? `Invest $${investmentCost.toFixed(2)}` 
-                      : 'Insufficient Funds') 
+                    ? (canAfford ? `Invest $${ad.buyPrice.toFixed(2)}` : 'Insufficient Funds')
                     : 'Select Hosting First'}
                 </button>
               </div>
@@ -721,6 +678,7 @@ interface AdSlotsSectionProps {
   licenses: License[];
   activeInvestments: ActiveInvestment[];
   onCollectInvestment: (adId: string) => void;
+  onCancelInvestment: (adId: string) => void;
 }
 
 function AdSlotsSection({ 
@@ -731,6 +689,7 @@ function AdSlotsSection({
   licenses,
   activeInvestments,
   onCollectInvestment,
+  onCancelInvestment,
 }: AdSlotsSectionProps) {
   const [timeLeft, setTimeLeft] = useState(0);
 
@@ -764,8 +723,10 @@ function AdSlotsSection({
   const getTimeRemaining = (adId: string): number => {
     const inv = getInvestmentForAd(adId);
     if (!inv || inv.status !== 'running') return 0;
+    const ad = advertisements.find(a => a.id === adId);
+    if (!ad) return 0;
     const elapsed = Date.now() - inv.startTime;
-    return Math.max(0, inv.durationMs - elapsed);
+    return Math.max(0, ad.timeLimitMs - elapsed);
   };
 
   return (
@@ -787,19 +748,35 @@ function AdSlotsSection({
         const canCollect = isInvestmentReady(ad.id);
         const timeRemaining = getTimeRemaining(ad.id);
 
-        const formatContractDuration = (duration: string) => {
-          if (duration === 'short') return 'Short';
-          if (duration === 'medium') return 'Medium';
-          if (duration === 'long') return 'Long';
-          return '-';
-        };
-
         const formatTime = (ms: number) => {
           const hours = Math.floor(ms / 3600000);
           const mins = Math.floor((ms % 3600000) / 60000);
-          if (hours > 0) return `${hours}h ${mins}m`;
-          return `${mins}m`;
+          const secs = Math.floor((ms % 60000) / 1000);
+          return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
         };
+
+        const elapsed = isRunning ? Date.now() - (investment?.startTime || 0) : 0;
+        const license = licenses.find(l => l.id === ad.licenseId);
+        
+        let kbProcessed = 0;
+        let progressPct = 0;
+        let passiveEarned = 0;
+        
+        if (investment && license) {
+          const allocatedKBps = license.allocated / 1000;
+          kbProcessed = Math.min(allocatedKBps * (elapsed / 1000), ad.volumeKB);
+          progressPct = (kbProcessed / ad.volumeKB) * 100;
+          passiveEarned = (elapsed / 1000) * (investment.passiveIncomePerSec || 0);
+        }
+        
+        const formatKB = (kb: number) => {
+          if (kb >= 1073741824) return (kb / 1073741824).toFixed(2) + ' TB';
+          if (kb >= 1048576) return (kb / 1048576).toFixed(2) + ' GB';
+          if (kb >= 1024) return (kb / 1024).toFixed(2) + ' MB';
+          return kb.toFixed(0) + ' KB';
+        };
+
+        const totalPayout = passiveEarned + (investment ? investment.volumeKB * investment.marginPerKB : 0);
 
         return (
           <div key={ad.id} className={`ad-slot ${isRunning ? 'running' : ''} ${canCollect ? 'ready' : ''}`}>
@@ -807,44 +784,53 @@ function AdSlotsSection({
             <span className="ad-name">{ad.name}</span>
             
             {isRunning && (
-              <div className="investment-progress">
+              <div className="ad-progress">
                 <div className="progress-bar-container large">
                   <div 
                     className="progress-bar-fill" 
-                    style={{ width: `${((investment?.durationMs || 1) - timeRemaining) / (investment?.durationMs || 1) * 100}%` }}
+                    style={{ width: `${Math.min(progressPct, 100)}%` }}
                   />
                 </div>
-                <span className="investment-timer">
-                  {formatTime(timeRemaining)} left
-                </span>
+                <span className="progress-text">{progressPct.toFixed(1)}%</span>
               </div>
             )}
             
-            <span className="ad-stars">Vol: {'★'.repeat(ad.volume)}{'☆'.repeat(5-ad.volume)}</span>
-            <span className="ad-stars">Mar: {'★'.repeat(ad.margin)}{'☆'.repeat(5-ad.margin)}</span>
+            <div className="ad-stats">
+              <span>KB: {formatKB(ad.volumeKB - kbProcessed)} remaining</span>
+              {isRunning && <span>Income: ${passiveEarned.toFixed(2)}</span>}
+              {isRunning && <span>Time Left: {formatTime(timeRemaining)}</span>}
+            </div>
             
             {canCollect ? (
               <button 
                 className="btn btn-primary collect-btn"
                 onClick={() => onCollectInvestment(ad.id)}
               >
-                Collect ${investment?.payout.toFixed(2)}
+                Collect ${totalPayout.toFixed(2)}
               </button>
             ) : !isRunning && (
               <>
                 {ad.licenseId ? (
-                  <>
-                    <span className="ad-license-name">
-                      {licenses.find(l => l.id === ad.licenseId)?.name}
-                    </span>
-                    <span className="ad-duration">
-                      {ad.duration ? formatContractDuration(ad.duration) : '-'}
-                    </span>
-                  </>
+                  <span className="ad-license-name">
+                    {licenses.find(l => l.id === ad.licenseId)?.name}
+                  </span>
                 ) : (
                   <span className="ad-license-name unassigned">Unassigned</span>
                 )}
               </>
+            )}
+            
+            {isRunning && investment && (
+              <button 
+                className="btn btn-danger cancel-btn"
+                onClick={() => {
+                  if (window.confirm(`Cancel investment? This will cost $${investment.breachFee.toFixed(2)} in breach fees.`)) {
+                    onCancelInvestment(ad.id);
+                  }
+                }}
+              >
+                Cancel (${investment.breachFee.toFixed(2)})
+              </button>
             )}
           </div>
         );
