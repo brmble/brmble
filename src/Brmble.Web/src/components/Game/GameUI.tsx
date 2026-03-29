@@ -461,7 +461,11 @@ function TechUpgradesTab({ infrastructure, licenses, money, onUnlockInfrastructu
             <button
               className="btn btn-primary unlock-btn"
               onClick={async () => {
-                const confirmed = await confirm(`Unlock ${nextInfraUnlock.name} for $${nextInfraUnlock.unlockCost?.toLocaleString()}?`);
+                const confirmed = await confirm({
+                  title: 'Unlock Infrastructure',
+                  message: `Unlock ${nextInfraUnlock.name} for $${nextInfraUnlock.unlockCost?.toLocaleString()}?`,
+                  confirmLabel: 'Unlock',
+                });
                 if (confirmed) {
                   onUnlockInfrastructure(nextInfraUnlock.id);
                 }
