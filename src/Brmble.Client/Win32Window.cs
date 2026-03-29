@@ -230,8 +230,15 @@ internal static class Win32Window
     private static extern IntPtr LoadImage(IntPtr hInst, string name, uint type,
         int cx, int cy, uint fuLoad);
 
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool DestroyIcon(IntPtr hIcon);
+
     private const uint IMAGE_ICON = 1;
     private const uint LR_LOADFROMFILE = 0x0010;
+
+    private static IntPtr _currentSmallIcon;
+    private static IntPtr _currentBigIcon;
 
     [DllImport("gdi32.dll")]
     private static extern IntPtr CreateSolidBrush(uint crColor);
@@ -283,9 +290,19 @@ internal static class Win32Window
         var hIconLg = LoadImage(IntPtr.Zero, icoPath, IMAGE_ICON, 32, 32, LR_LOADFROMFILE);
 
         if (hIconSm != IntPtr.Zero)
+        {
             SendMessage(hwnd, WM_SETICON, ICON_SMALL, hIconSm);
+            if (_currentSmallIcon != IntPtr.Zero)
+                DestroyIcon(_currentSmallIcon);
+            _currentSmallIcon = hIconSm;
+        }
         if (hIconLg != IntPtr.Zero)
+        {
             SendMessage(hwnd, WM_SETICON, ICON_BIG, hIconLg);
+            if (_currentBigIcon != IntPtr.Zero)
+                DestroyIcon(_currentBigIcon);
+            _currentBigIcon = hIconLg;
+        }
     }
 
     public static IntPtr Create(string className, string title, int x, int y, int width, int height, WndProc wndProc)

@@ -139,8 +139,23 @@ internal static class TaskbarBadge
         };
 
         var hdc = CreateCompatibleDC(IntPtr.Zero);
+        if (hdc == IntPtr.Zero)
+        {
+            return IntPtr.Zero;
+        }
+
         var hBitmap = CreateDIBSection(hdc, ref biHeader, 0, out var bits, IntPtr.Zero, 0);
         DeleteDC(hdc);
+
+        if (hBitmap == IntPtr.Zero || bits == IntPtr.Zero)
+        {
+            if (hBitmap != IntPtr.Zero)
+            {
+                DeleteObject(hBitmap);
+            }
+
+            return IntPtr.Zero;
+        }
 
         var pixels = new byte[size * size * 4];
 

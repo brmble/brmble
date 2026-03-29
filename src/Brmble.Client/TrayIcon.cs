@@ -113,7 +113,6 @@ internal static class TrayIcon
     private static bool _muted;
     private static bool _deafened;
     private static bool _hasBadge;
-    private static string? _currentTheme;
 
     /// <summary>
     /// Creates the tray icon and adds it to the notification area.
@@ -229,7 +228,6 @@ internal static class TrayIcon
     /// </summary>
     public static void SetTheme(string themeName)
     {
-        _currentTheme = themeName;
         CreateIcons(themeName);
         UpdateIconAndTooltip();
     }
@@ -317,7 +315,16 @@ internal static class TrayIcon
         };
 
         var hdc = CreateCompatibleDC(IntPtr.Zero);
+        if (hdc == IntPtr.Zero) return IntPtr.Zero;
+
         var hBitmap = CreateDIBSection(hdc, ref biHeader, 0, out var bits, IntPtr.Zero, 0);
+        if (hBitmap == IntPtr.Zero || bits == IntPtr.Zero)
+        {
+            DeleteDC(hdc);
+            if (hBitmap != IntPtr.Zero) DeleteObject(hBitmap);
+            return IntPtr.Zero;
+        }
+
         var oldBmp = SelectObject(hdc, hBitmap);
 
         // Draw the source icon onto our DIB

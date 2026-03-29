@@ -48,11 +48,31 @@ internal static class ThemeColors
     /// </summary>
     public static string GetIconPath(string? themeName)
     {
-        if (!string.IsNullOrEmpty(themeName))
+        if (IsValidThemeName(themeName))
         {
-            var themed = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", themeName, "brmble.ico");
+            var themed = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", themeName!, "brmble.ico");
             if (File.Exists(themed)) return themed;
         }
         return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "brmble.ico");
+    }
+
+    /// <summary>
+    /// Returns true if the provided theme name is one of the known valid themes.
+    /// This acts as a whitelist to prevent arbitrary paths being used for icon resolution.
+    /// </summary>
+    private static bool IsValidThemeName(string? themeName)
+    {
+        return themeName switch
+        {
+            "classic"        => true,
+            "clean"          => true,
+            "blue-lagoon"    => true,
+            "cosmopolitan"   => true,
+            "aperol-spritz"  => true,
+            "midori-sour"    => true,
+            "lemon-drop"     => true,
+            "retro-terminal" => true,
+            _                => false,
+        };
     }
 }
