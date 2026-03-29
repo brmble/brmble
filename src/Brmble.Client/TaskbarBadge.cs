@@ -97,8 +97,9 @@ internal static class TaskbarBadge
             _taskbarList = (ITaskbarList3)new TaskbarList();
             _taskbarList.HrInit();
 
-            var (r, g, b) = ThemeColors.GetAccent(null); // default accent until theme message arrives
-            _badgeIcon = CreateAccentDotIcon(r, g, b);
+            var (r, g, b) = ThemeColors.GetAccent(null);
+            var (rr, rg, rb) = ThemeColors.GetBgDeep(null);
+            _badgeIcon = CreateAccentDotIcon(r, g, b, rr, rg, rb);
             _initialized = true;
         }
         catch
@@ -108,12 +109,25 @@ internal static class TaskbarBadge
     }
 
     /// <summary>
-    /// Creates a small filled circle icon in the given accent color.
+    /// Creates a filled circle icon with accent color and a thin ring outline.
     /// Used as the taskbar overlay badge.
     /// </summary>
-    private static IntPtr CreateAccentDotIcon(byte r, byte g, byte b)
+    private static IntPtr CreateAccentDotIcon(byte r, byte g, byte b, byte ringR, byte ringG, byte ringB)
     {
+        // Centered dot with a thin ring on a 16x16 canvas.
+        // Windows always renders overlays in the bottom-right corner of
+        // the taskbar button. The ring (using --bg-deep) visually separates
+        // the dot from the icon behind it.
         const int size = 16;
+        const float center = 7.5f;
+
+        // Layer radii (outside-in): ring edge -> ring solid -> accent edge -> accent solid
+        // Thin 1px ring around the accent dot
+        const float ringOuter = 7.5f;   // anti-alias outer edge of ring
+        const float ringSolid = 6.5f;   // solid ring starts here
+        const float accentOuter = 6.0f; // anti-alias edge of accent dot (1px gap = ring)
+        const float accentSolid = 5.0f; // solid accent core
+
         var biHeader = new BITMAPINFOHEADER
         {
             biSize = (uint)Marshal.SizeOf<BITMAPINFOHEADER>(),
@@ -130,37 +144,51 @@ internal static class TaskbarBadge
 
         var pixels = new byte[size * size * 4];
 
-        float cx = (size - 1) / 2f;
-        float cy = (size - 1) / 2f;
-        float outerRadius = size / 2f;
-        float innerRadius = outerRadius - 1f;
-
         for (int y = 0; y < size; y++)
         {
             for (int x = 0; x < size; x++)
             {
-                float dx = x - cx;
-                float dy = y - cy;
+                float dx = x - center;
+                float dy = y - center;
                 float dist = MathF.Sqrt(dx * dx + dy * dy);
                 int offset = (y * size + x) * 4;
 
-                if (dist <= innerRadius)
+                if (dist <= accentSolid)
                 {
-                    pixels[offset + 0] = b; // B
-                    pixels[offset + 1] = g; // G
-                    pixels[offset + 2] = r; // R
-                    pixels[offset + 3] = 255; // A
-                }
-                else if (dist <= outerRadius)
-                {
-                    float alpha = 1f - (dist - innerRadius);
-                    byte a = (byte)(alpha * 255);
+                    // Solid accent fill
                     pixels[offset + 0] = b;
                     pixels[offset + 1] = g;
                     pixels[offset + 2] = r;
+                    pixels[offset + 3] = 255;
+                }
+                else if (dist <= accentOuter)
+                {
+                    // Anti-aliased accent-to-ring transition
+                    float accentAlpha = 1f - (dist - accentSolid);
+                    pixels[offset + 0] = (byte)(b * accentAlpha + ringB * (1f - accentAlpha));
+                    pixels[offset + 1] = (byte)(g * accentAlpha + ringG * (1f - accentAlpha));
+                    pixels[offset + 2] = (byte)(r * accentAlpha + ringR * (1f - accentAlpha));
+                    pixels[offset + 3] = 255;
+                }
+                else if (dist <= ringSolid)
+                {
+                    // Solid ring fill
+                    pixels[offset + 0] = ringB;
+                    pixels[offset + 1] = ringG;
+                    pixels[offset + 2] = ringR;
+                    pixels[offset + 3] = 255;
+                }
+                else if (dist <= ringOuter)
+                {
+                    // Anti-aliased ring outer edge
+                    float edgeAlpha = 1f - (dist - ringSolid);
+                    byte a = (byte)(255 * edgeAlpha);
+                    pixels[offset + 0] = ringB;
+                    pixels[offset + 1] = ringG;
+                    pixels[offset + 2] = ringR;
                     pixels[offset + 3] = a;
                 }
-                // else: transparent (already 0)
+                // else: transparent
             }
         }
 
@@ -190,7 +218,8 @@ internal static class TaskbarBadge
         }
 
         var (r, g, b) = ThemeColors.GetAccent(themeName);
-        _badgeIcon = CreateAccentDotIcon(r, g, b);
+        var (rr, rg, rb) = ThemeColors.GetBgDeep(themeName);
+        _badgeIcon = CreateAccentDotIcon(r, g, b, rr, rg, rb);
 
         // If badge is currently shown, re-apply with new icon
         if (_hasBadge && _initialized && _taskbarList != null && _badgeIcon != IntPtr.Zero)

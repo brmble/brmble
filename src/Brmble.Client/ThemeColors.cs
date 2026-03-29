@@ -23,6 +23,26 @@ internal static class ThemeColors
     }
 
     /// <summary>
+    /// Returns the --bg-deep color for the given theme.
+    /// These values must stay in sync with the CSS tokens in src/Brmble.Web/src/themes/.
+    /// </summary>
+    public static (byte R, byte G, byte B) GetBgDeep(string? themeName)
+    {
+        return themeName switch
+        {
+            "classic"        => (0x0F, 0x0A, 0x14), // #0f0a14
+            "clean"          => (0x0F, 0x0A, 0x14), // #0f0a14 (inherits classic)
+            "blue-lagoon"    => (0x0B, 0x13, 0x18), // #0b1318
+            "cosmopolitan"   => (0x14, 0x0A, 0x0D), // #140a0d
+            "aperol-spritz"  => (0x14, 0x0E, 0x08), // #140e08
+            "midori-sour"    => (0x08, 0x12, 0x10), // #081210
+            "lemon-drop"     => (0x13, 0x11, 0x08), // #131108
+            "retro-terminal" => (0x00, 0x00, 0x00), // #000000
+            _                => (0x0F, 0x0A, 0x14), // default to classic
+        };
+    }
+
+    /// <summary>
     /// Resolves the path to a theme's brmble.ico file.
     /// Falls back to the root Resources/brmble.ico if the theme folder doesn't exist.
     /// </summary>
