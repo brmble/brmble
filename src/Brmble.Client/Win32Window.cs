@@ -23,6 +23,9 @@ internal static class Win32Window
     public const uint WM_RBUTTONUP = 0x0205;
     public const uint WM_INPUT = 0x00FF;
     public const uint WM_HOTKEY = 0x0312;
+    public const uint WM_SETICON = 0x0080;
+    public const IntPtr ICON_SMALL = 0;
+    public const IntPtr ICON_BIG = 1;
 
     public const uint RIM_INPUT = 0x00;
     public const uint RIM_INPUTSINK = 0x01;
@@ -194,6 +197,9 @@ internal static class Win32Window
     public static extern bool PostMessage(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
 
     [DllImport("user32.dll")]
+    public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
     public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
 
     [DllImport("user32.dll")]
@@ -262,6 +268,24 @@ internal static class Win32Window
         var icoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "brmble.ico");
         if (!File.Exists(icoPath)) return IntPtr.Zero;
         return LoadImage(IntPtr.Zero, icoPath, IMAGE_ICON, size, size, LR_LOADFROMFILE);
+    }
+
+    /// <summary>
+    /// Updates the window's icon (taskbar and title bar) to the theme-specific .ico.
+    /// Falls back to the default Resources/brmble.ico if theme folder doesn't exist.
+    /// </summary>
+    public static void SetWindowIcon(IntPtr hwnd, string? themeName)
+    {
+        var icoPath = ThemeColors.GetIconPath(themeName);
+        if (!File.Exists(icoPath)) return;
+
+        var hIconSm = LoadImage(IntPtr.Zero, icoPath, IMAGE_ICON, 16, 16, LR_LOADFROMFILE);
+        var hIconLg = LoadImage(IntPtr.Zero, icoPath, IMAGE_ICON, 32, 32, LR_LOADFROMFILE);
+
+        if (hIconSm != IntPtr.Zero)
+            SendMessage(hwnd, WM_SETICON, ICON_SMALL, hIconSm);
+        if (hIconLg != IntPtr.Zero)
+            SendMessage(hwnd, WM_SETICON, ICON_BIG, hIconLg);
     }
 
     public static IntPtr Create(string className, string title, int x, int y, int width, int height, WndProc wndProc)
