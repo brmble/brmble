@@ -82,6 +82,27 @@ internal static class TrayIcon
     [DllImport("user32.dll")]
     private static extern bool DestroyIcon(IntPtr hIcon);
 
+    private const uint DI_NORMAL = 0x0003;
+    private const uint LR_LOADFROMFILE = 0x00000010;
+    private const uint IMAGE_ICON = 1;
+
+    [DllImport("user32.dll")]
+    private static extern bool DrawIconEx(IntPtr hdc, int xLeft, int yTop, IntPtr hIcon,
+        int cxWidth, int cyWidth, uint istepIfAniCur, IntPtr hbrFlickerFreeDraw, uint diFlags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr LoadImage(IntPtr hInst, string name, uint type, int cx, int cy, uint fuLoad);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr CreateCompatibleDC(IntPtr hdc);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr SelectObject(IntPtr hdc, IntPtr h);
+
+    [DllImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool DeleteDC(IntPtr hdc);
+
     private static NOTIFYICONDATA _nid;
     private static IntPtr _iconNormal;
     private static IntPtr _iconMuted;
@@ -92,6 +113,7 @@ internal static class TrayIcon
     private static bool _muted;
     private static bool _deafened;
     private static bool _hasBadge;
+    private static string? _currentTheme;
 
     /// <summary>
     /// Creates the tray icon and adds it to the notification area.
@@ -192,26 +214,52 @@ internal static class TrayIcon
         if (_iconDeafenedBadge != IntPtr.Zero) DestroyIcon(_iconDeafenedBadge);
     }
 
-    private static void CreateIcons()
+    private static void DestroyIconSafe(ref IntPtr icon)
     {
-        // Use the actual Brmble logo for normal state
-        _iconNormal = Win32Window.LoadAppIcon(16);
-        if (_iconNormal == IntPtr.Zero)
+        if (icon != IntPtr.Zero)
         {
-            // Fallback: programmatic green circle if .ico is missing
-            _iconNormal = CreateColoredIcon(0x00, 0xC8, 0x50);
+            DestroyIcon(icon);
+            icon = IntPtr.Zero;
         }
+    }
 
-        _iconMuted = CreateColoredIcon(0xE8, 0xB0, 0x00);    // yellow/amber
-        _iconDeafened = CreateColoredIcon(0xD4, 0x14, 0x5A); // berry red
+    /// <summary>
+    /// Switches tray icons to match the given theme.
+    /// Call from the UI thread.
+    /// </summary>
+    public static void SetTheme(string themeName)
+    {
+        _currentTheme = themeName;
+        CreateIcons(themeName);
+        UpdateIconAndTooltip();
+    }
 
-        Debug.WriteLine($"[TrayIcon] Icons created: normal={_iconNormal}, muted={_iconMuted}, deafened={_iconDeafened}");
+    private static void CreateIcons(string? themeName = null)
+    {
+        // Destroy previous icons
+        DestroyIconSafe(ref _iconNormal);
+        DestroyIconSafe(ref _iconMuted);
+        DestroyIconSafe(ref _iconDeafened);
+        DestroyIconSafe(ref _iconNormalBadge);
+        DestroyIconSafe(ref _iconMutedBadge);
+        DestroyIconSafe(ref _iconDeafenedBadge);
 
-        _iconNormalBadge = CreateColoredIconWithBadge(0x00, 0xC8, 0x50);
-        _iconMutedBadge = CreateColoredIconWithBadge(0xE8, 0xB0, 0x00);
-        _iconDeafenedBadge = CreateColoredIconWithBadge(0xD4, 0x14, 0x5A);
+        // Normal: load theme-specific .ico
+        var icoPath = ThemeColors.GetIconPath(themeName);
+        if (File.Exists(icoPath))
+            _iconNormal = LoadImage(IntPtr.Zero, icoPath, IMAGE_ICON, 16, 16, LR_LOADFROMFILE);
+        if (_iconNormal == IntPtr.Zero)
+            _iconNormal = CreateColoredIcon(0x00, 0xC8, 0x50); // fallback green circle
 
-        Debug.WriteLine($"[TrayIcon] Badge icons created: normal={_iconNormalBadge}, muted={_iconMutedBadge}, deafened={_iconDeafenedBadge}");
+        // Muted / Deafened: stay as programmatic colored circles
+        _iconMuted = CreateColoredIcon(0xE8, 0xB0, 0x00);
+        _iconDeafened = CreateColoredIcon(0xD4, 0x14, 0x5A);
+
+        // Badge variants: draw accent-colored dot on top
+        var (ar, ag, ab) = ThemeColors.GetAccent(themeName);
+        _iconNormalBadge = CreateBadgeFromIcon(_iconNormal, ar, ag, ab);
+        _iconMutedBadge = CreateColoredIconWithBadge(0xE8, 0xB0, 0x00, ar, ag, ab);
+        _iconDeafenedBadge = CreateColoredIconWithBadge(0xD4, 0x14, 0x5A, ar, ag, ab);
     }
 
     private static IntPtr CreateColoredIcon(byte r, byte g, byte b)
@@ -249,7 +297,54 @@ internal static class TrayIcon
         return CreateIconFromArgb(size, pixels);
     }
 
-    private static IntPtr CreateColoredIconWithBadge(byte r, byte g, byte b)
+    /// <summary>
+    /// Creates a badge variant of an existing icon by extracting its pixels
+    /// and drawing an accent-colored dot in the top-right corner.
+    /// </summary>
+    private static IntPtr CreateBadgeFromIcon(IntPtr sourceIcon, byte badgeR, byte badgeG, byte badgeB)
+    {
+        if (sourceIcon == IntPtr.Zero) return IntPtr.Zero;
+
+        const int size = 16;
+        var biHeader = new BITMAPINFOHEADER
+        {
+            biSize = (uint)Marshal.SizeOf<BITMAPINFOHEADER>(),
+            biWidth = size,
+            biHeight = -size, // top-down
+            biPlanes = 1,
+            biBitCount = 32,
+            biCompression = 0,
+        };
+
+        var hdc = CreateCompatibleDC(IntPtr.Zero);
+        var hBitmap = CreateDIBSection(hdc, ref biHeader, 0, out var bits, IntPtr.Zero, 0);
+        var oldBmp = SelectObject(hdc, hBitmap);
+
+        // Draw the source icon onto our DIB
+        DrawIconEx(hdc, 0, 0, sourceIcon, size, size, 0, IntPtr.Zero, DI_NORMAL);
+
+        SelectObject(hdc, oldBmp);
+
+        // Read pixels, draw badge dot, write back
+        var pixels = new byte[size * size * 4];
+        Marshal.Copy(bits, pixels, 0, pixels.Length);
+        DrawBadge(pixels, size, badgeR, badgeG, badgeB);
+        Marshal.Copy(pixels, 0, bits, pixels.Length);
+
+        // Create mask (all zeros = fully opaque, alpha is in the color bitmap)
+        var hMono = CreateBitmap(size, size, 1, 1, IntPtr.Zero);
+
+        var iconInfo = new ICONINFO { fIcon = true, hbmMask = hMono, hbmColor = hBitmap };
+        var result = CreateIconIndirect(ref iconInfo);
+
+        DeleteObject(hMono);
+        DeleteObject(hBitmap);
+        DeleteDC(hdc);
+
+        return result;
+    }
+
+    private static IntPtr CreateColoredIconWithBadge(byte r, byte g, byte b, byte badgeR, byte badgeG, byte badgeB)
     {
         const int size = 16;
         var pixels = new byte[size * size * 4];
@@ -281,8 +376,8 @@ internal static class TrayIcon
             }
         }
 
-        // Draw badge in top-right corner (darker red: RGB 180, 30, 30)
-        DrawBadge(pixels, size, 180, 30, 30);
+        // Draw badge in top-right corner
+        DrawBadge(pixels, size, badgeR, badgeG, badgeB);
 
         return CreateIconFromArgb(size, pixels);
     }
@@ -345,6 +440,9 @@ internal static class TrayIcon
 
     [DllImport("gdi32.dll")]
     private static extern IntPtr CreateBitmap(int nWidth, int nHeight, uint cPlanes, uint cBitsPerPel, byte[]? lpvBits);
+
+    [DllImport("gdi32.dll", EntryPoint = "CreateBitmap")]
+    private static extern IntPtr CreateBitmap(int nWidth, int nHeight, uint cPlanes, uint cBitsPerPel, IntPtr lpvBits);
 
     [DllImport("gdi32.dll")]
     private static extern IntPtr CreateDIBSection(IntPtr hdc, ref BITMAPINFOHEADER pbmi, uint iUsage, out IntPtr ppvBits, IntPtr hSection, uint dwOffset);
