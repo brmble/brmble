@@ -660,6 +660,25 @@ export function useGameState() {
     });
   }, []);
 
+  const cancelInvestment = useCallback((adId: string) => {
+    setState(prev => {
+      const investment = prev.activeInvestments.find(i => i.adId === adId);
+      if (!investment || investment.status !== 'running') return prev;
+      
+      const elapsedSec = (Date.now() - investment.startTime) / 1000;
+      const passiveEarned = elapsedSec * investment.passiveIncomePerSec;
+      
+      const newMoney = prev.money - investment.breachFee + passiveEarned;
+      
+      return {
+        ...prev,
+        money: Math.max(0, newMoney),
+        activeInvestments: prev.activeInvestments.filter(i => i.adId !== adId),
+        advertisements: prev.advertisements.filter(a => a.id !== adId),
+      };
+    });
+  }, []);
+
   const selectAd = useCallback((ad: Advertisement) => {
     setState(prev => {
       let newAds: Advertisement[];
@@ -727,6 +746,7 @@ export function useGameState() {
     buyAdSlot,
     startInvestment,
     collectInvestment,
+    cancelInvestment,
   };
 
   return {

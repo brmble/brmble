@@ -110,6 +110,7 @@ export interface GameActions {
   buyAdSlot: () => void;
   startInvestment: (adId: string, licenseId: string) => void;
   collectInvestment: (adId: string) => void;
+  cancelInvestment: (adId: string) => void;
 }
 
 export const INITIAL_INFRASTRUCTURE: Infrastructure[] = [
