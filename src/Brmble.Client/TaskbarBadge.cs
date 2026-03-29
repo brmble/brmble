@@ -1,4 +1,3 @@
-using System.Drawing;
 using System.Runtime.InteropServices;
 
 namespace Brmble.Client;
@@ -70,7 +69,14 @@ internal static class TaskbarBadge
     private static extern bool DestroyIcon(IntPtr hIcon);
 
     [DllImport("gdi32.dll")]
-    private static extern IntPtr CreateBitmap(int nWidth, int nHeight, uint cPlanes, uint cBitsPerPel, byte[]? lpvBits);
+    private static extern IntPtr CreateBitmap(int nWidth, int nHeight, uint nPlanes, uint nBitCount, IntPtr lpBits);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr CreateCompatibleDC(IntPtr hdc);
+
+    [DllImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool DeleteDC(IntPtr hdc);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct ICONINFO
@@ -91,7 +97,9 @@ internal static class TaskbarBadge
             _taskbarList = (ITaskbarList3)new TaskbarList();
             _taskbarList.HrInit();
 
-            _badgeIcon = LoadBrmbleOverlayIcon();
+            var (r, g, b) = ThemeColors.GetAccent(null);
+            var (rr, rg, rb) = ThemeColors.GetBgDeep(null);
+            _badgeIcon = CreateAccentDotIcon(r, g, b, rr, rg, rb);
             _initialized = true;
         }
         catch
@@ -100,54 +108,139 @@ internal static class TaskbarBadge
         }
     }
 
-    private static IntPtr LoadBrmbleOverlayIcon()
+    /// <summary>
+    /// Creates a filled circle icon with accent color and a thin ring outline.
+    /// Used as the taskbar overlay badge.
+    /// </summary>
+    private static IntPtr CreateAccentDotIcon(byte r, byte g, byte b, byte ringR, byte ringG, byte ringB)
     {
-        try
-        {
-            return Win32Window.LoadAppIcon(16);
-        }
-        catch
-        {
-            return CreateSmallBrmbleIcon();
-        }
-    }
+        // Centered dot with a thin ring on a 16x16 canvas.
+        // Windows always renders overlays in the bottom-right corner of
+        // the taskbar button. The ring (using --bg-deep) visually separates
+        // the dot from the icon behind it.
+        const int size = 16;
+        const float center = 7.5f;
 
-    private static IntPtr CreateSmallBrmbleIcon()
-    {
-        // Create a small 12x12 Brmble-style circle (green gradient)
-        const int size = 12;
+        // Layer radii (outside-in): ring edge -> ring solid -> accent edge -> accent solid
+        // Thin 1px ring around the accent dot
+        const float ringOuter = 7.5f;   // anti-alias outer edge of ring
+        const float ringSolid = 6.5f;   // solid ring starts here
+        const float accentOuter = 6.0f; // anti-alias edge of accent dot (1px gap = ring)
+        const float accentSolid = 5.0f; // solid accent core
+
+        var biHeader = new BITMAPINFOHEADER
+        {
+            biSize = (uint)Marshal.SizeOf<BITMAPINFOHEADER>(),
+            biWidth = size,
+            biHeight = -size, // top-down
+            biPlanes = 1,
+            biBitCount = 32,
+            biCompression = 0,
+        };
+
+        var hdc = CreateCompatibleDC(IntPtr.Zero);
+        if (hdc == IntPtr.Zero)
+        {
+            return IntPtr.Zero;
+        }
+
+        var hBitmap = CreateDIBSection(hdc, ref biHeader, 0, out var bits, IntPtr.Zero, 0);
+        DeleteDC(hdc);
+
+        if (hBitmap == IntPtr.Zero || bits == IntPtr.Zero)
+        {
+            if (hBitmap != IntPtr.Zero)
+            {
+                DeleteObject(hBitmap);
+            }
+
+            return IntPtr.Zero;
+        }
+
         var pixels = new byte[size * size * 4];
 
         for (int y = 0; y < size; y++)
         {
             for (int x = 0; x < size; x++)
             {
-                var dx = x - 5.5;
-                var dy = y - 5.5;
-                var dist = Math.Sqrt(dx * dx + dy * dy);
-                var idx = (y * size + x) * 4;
+                float dx = x - center;
+                float dy = y - center;
+                float dist = MathF.Sqrt(dx * dx + dy * dy);
+                int offset = (y * size + x) * 4;
 
-                if (dist <= 4.5)
+                if (dist <= accentSolid)
                 {
-                    // Brmble green gradient from center
-                    var factor = 1.0 - (dist / 5.0);
-                    pixels[idx + 0] = (byte)(0x50 * factor + 0x30);  // Blue
-                    pixels[idx + 1] = (byte)(0xC8 * factor + 0x80);  // Green
-                    pixels[idx + 2] = (byte)(0x00 * factor + 0x20);  // Red
-                    pixels[idx + 3] = 0xFF;  // Alpha
+                    // Solid accent fill
+                    pixels[offset + 0] = b;
+                    pixels[offset + 1] = g;
+                    pixels[offset + 2] = r;
+                    pixels[offset + 3] = 255;
                 }
-                else if (dist <= 5.5)
+                else if (dist <= accentOuter)
                 {
-                    var alpha = (byte)(255 * (5.5 - dist));
-                    pixels[idx + 0] = 0x40;
-                    pixels[idx + 1] = 0xC0;
-                    pixels[idx + 2] = 0x20;
-                    pixels[idx + 3] = alpha;
+                    // Anti-aliased accent-to-ring transition
+                    float accentAlpha = 1f - (dist - accentSolid);
+                    pixels[offset + 0] = (byte)(b * accentAlpha + ringB * (1f - accentAlpha));
+                    pixels[offset + 1] = (byte)(g * accentAlpha + ringG * (1f - accentAlpha));
+                    pixels[offset + 2] = (byte)(r * accentAlpha + ringR * (1f - accentAlpha));
+                    pixels[offset + 3] = 255;
                 }
+                else if (dist <= ringSolid)
+                {
+                    // Solid ring fill
+                    pixels[offset + 0] = ringB;
+                    pixels[offset + 1] = ringG;
+                    pixels[offset + 2] = ringR;
+                    pixels[offset + 3] = 255;
+                }
+                else if (dist <= ringOuter)
+                {
+                    // Anti-aliased ring outer edge
+                    float edgeAlpha = 1f - (dist - ringSolid);
+                    byte a = (byte)(255 * edgeAlpha);
+                    pixels[offset + 0] = ringB;
+                    pixels[offset + 1] = ringG;
+                    pixels[offset + 2] = ringR;
+                    pixels[offset + 3] = a;
+                }
+                // else: transparent
             }
         }
 
-        return CreateIconFromArgb(size, pixels);
+        Marshal.Copy(pixels, 0, bits, pixels.Length);
+
+        var hMono = CreateBitmap(size, size, 1, 1, IntPtr.Zero);
+        var iconInfo = new ICONINFO { fIcon = true, hbmMask = hMono, hbmColor = hBitmap };
+        var result = CreateIconIndirect(ref iconInfo);
+
+        DeleteObject(hMono);
+        DeleteObject(hBitmap);
+
+        return result;
+    }
+
+    /// <summary>
+    /// Updates the overlay badge icon to use the given theme's accent color.
+    /// Call from the UI thread.
+    /// </summary>
+    public static void SetTheme(string themeName)
+    {
+        // Destroy old badge icon
+        if (_badgeIcon != IntPtr.Zero)
+        {
+            DestroyIcon(_badgeIcon);
+            _badgeIcon = IntPtr.Zero;
+        }
+
+        var (r, g, b) = ThemeColors.GetAccent(themeName);
+        var (rr, rg, rb) = ThemeColors.GetBgDeep(themeName);
+        _badgeIcon = CreateAccentDotIcon(r, g, b, rr, rg, rb);
+
+        // If badge is currently shown, re-apply with new icon
+        if (_hasBadge && _initialized && _taskbarList != null && _badgeIcon != IntPtr.Zero)
+        {
+            _taskbarList.SetOverlayIcon(_hwnd, _badgeIcon, "Unread messages");
+        }
     }
 
     public static void SetHasBadge(bool hasBadge)
@@ -165,42 +258,6 @@ internal static class TaskbarBadge
         {
             _taskbarList.SetOverlayIcon(_hwnd, IntPtr.Zero, "");
         }
-    }
-
-    private static IntPtr CreateIconFromArgb(int size, byte[] pixels)
-    {
-        var bmi = new BITMAPINFOHEADER
-        {
-            biSize = (uint)Marshal.SizeOf<BITMAPINFOHEADER>(),
-            biWidth = size,
-            biHeight = -size,
-            biPlanes = 1,
-            biBitCount = 32,
-            biCompression = 0
-        };
-
-        var hbmColor = CreateDIBSection(IntPtr.Zero, ref bmi, 0, out var bits, IntPtr.Zero, 0);
-        if (hbmColor == IntPtr.Zero || bits == IntPtr.Zero) return IntPtr.Zero;
-
-        Marshal.Copy(pixels, 0, bits, pixels.Length);
-
-        var stride = ((size + 15) / 16) * 2;
-        var maskBits = new byte[stride * size];
-        var hbmMask = CreateBitmap(size, size, 1, 1, maskBits);
-
-        var iconInfo = new ICONINFO
-        {
-            fIcon = true,
-            hbmMask = hbmMask,
-            hbmColor = hbmColor
-        };
-
-        var hIcon = CreateIconIndirect(ref iconInfo);
-
-        DeleteObject(hbmColor);
-        DeleteObject(hbmMask);
-
-        return hIcon;
     }
 
     public static void Destroy()
