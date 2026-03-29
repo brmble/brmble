@@ -1565,6 +1565,32 @@ const handleConnect = (serverData: SavedServer) => {
     updateBadge(totalDmUnreadCount, hasPendingInvite);
   }, [totalDmUnreadCount, hasPendingInvite, updateBadge]);
 
+  // Push current theme to native side for themed tray/taskbar icons
+  useEffect(() => {
+    const sendTheme = () => {
+      const theme = document.documentElement.getAttribute('data-theme');
+      if (theme) {
+        bridge.send('notification.theme', { theme });
+      }
+    };
+
+    // Send current theme on mount
+    sendTheme();
+
+    // Watch for theme changes (applyTheme sets data-theme attribute)
+    const observer = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        if (m.attributeName === 'data-theme') {
+          sendTheme();
+          break;
+        }
+      }
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+    return () => observer.disconnect();
+  }, []);
+
   const handleStartDMFromContextMenu = useCallback((sessionIdStr: string, userName: string) => {
     const user = users.find(u => String(u.session) === sessionIdStr);
 
