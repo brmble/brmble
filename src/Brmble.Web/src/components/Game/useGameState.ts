@@ -4,6 +4,48 @@ import { INITIAL_STATE } from './types';
 import { applyTheme } from '../../themes/theme-loader';
 import { useProfileFingerprint } from '../../contexts/ProfileContext';
 
+const STAR_WEIGHTS = [
+  { stars: 1, weight: 0.25 },
+  { stars: 2, weight: 0.25 },
+  { stars: 3, weight: 0.28 },
+  { stars: 4, weight: 0.15 },
+  { stars: 5, weight: 0.07 },
+];
+
+function getWeightedStarRating(): number {
+  const rand = Math.random();
+  let cumulative = 0;
+  for (const { stars, weight } of STAR_WEIGHTS) {
+    cumulative += weight;
+    if (rand < cumulative) return stars;
+  }
+  return 3;
+}
+
+const PASSIVE_INCOME_BY_STARS: Record<number, number> = {
+  1: 0.10,
+  2: 0.25,
+  3: 0.50,
+  4: 1.50,
+  5: 4.00,
+};
+
+const MARGIN_MULTIPLIER_BY_STARS: Record<number, number> = {
+  1: 0.8,
+  2: 1.0,
+  3: 1.2,
+  4: 1.6,
+  5: 2.5,
+};
+
+const VOLUME_KB_BY_STARS: Record<number, number> = {
+  1: 512,
+  2: 1024,
+  3: 2048,
+  4: 4096,
+  5: 8192,
+};
+
 const AD_TYPES = ['video', 'banner', 'popup', 'sponsored'] as const;
 
 const AD_TYPE_NAMES = {
