@@ -102,6 +102,8 @@ export function GameUI({ onClose }: GameUIProps) {
             onUpgradeLicense={actions.upgradeLicense}
             onAllocate={actions.allocateBandwidth}
             money={state.money}
+            activeInvestments={state.activeInvestments}
+            advertisements={state.advertisements}
           />
         )}
         {activeTab === 'advertisement' && (
@@ -552,6 +554,8 @@ interface HostingTabProps {
   onUpgradeLicense: (licenseId: string) => void;
   onAllocate: (licenseId: string, amount: number) => void;
   money: number;
+  activeInvestments: ActiveInvestment[];
+  advertisements: Advertisement[];
 }
 
 interface AdSelectionModalProps {
@@ -848,9 +852,11 @@ interface LicenseRowProps {
   money: number;
   onUpgrade: () => void;
   onAllocate: (amount: number) => void;
+  activeInvestments: ActiveInvestment[];
+  advertisements: Advertisement[];
 }
 
-function LicenseRow({ license, cap, maxSlider, upgradeCost, canUpgrade, money, onUpgrade, onAllocate }: LicenseRowProps) {
+function LicenseRow({ license, cap, maxSlider, upgradeCost, canUpgrade, money, onUpgrade, onAllocate, activeInvestments, advertisements }: LicenseRowProps) {
   const [localAllocated, setLocalAllocated] = useState(license.allocated);
   
   useEffect(() => {
@@ -869,6 +875,16 @@ function LicenseRow({ license, cap, maxSlider, upgradeCost, canUpgrade, money, o
   const income = license.allocated * license.incomePerKB;
   const incomeRate = license.incomePerKB * 1000;
   const isLocked = !license.unlocked;
+  
+  const investment = activeInvestments.find(
+    i => i.licenseId === license.id && i.status === 'running'
+  );
+  const ad = investment ? advertisements.find(a => a.id === investment.adId) : null;
+  
+  const elapsed = investment ? Date.now() - investment.startTime : 0;
+  const allocatedKBps = license.allocated / 1000;
+  const kbProcessed = ad ? Math.min(allocatedKBps * (elapsed / 1000), ad.volumeKB) : 0;
+  const progressPct = ad ? (kbProcessed / ad.volumeKB) * 100 : 0;
   
   if (isLocked) {
     return (
@@ -891,6 +907,15 @@ function LicenseRow({ license, cap, maxSlider, upgradeCost, canUpgrade, money, o
         <span className="license-name">{license.name}</span>
         <span className="license-level">Lv.{license.level} | Cap: {formatBandwidth(cap)} | ${incomeRate.toFixed(2)}/KB</span>
       </div>
+      {ad && investment && (
+        <div className="license-ad-progress">
+          <div className="mini-progress-bar">
+            <div className="mini-progress-fill" style={{ width: `${progressPct}%` }} />
+          </div>
+          <span className="ad-name">{ad.name}</span>
+          <span className="ad-income">+${investment.passiveIncomePerSec.toFixed(2)}/s</span>
+        </div>
+      )}
       <div className="license-slider-container">
         <input
           type="range"
@@ -925,7 +950,7 @@ const calculateCap = (baseCap: number, capPerLevel: number, level: number): numb
 
 const noop = () => {};
 
-function HostingTab({ licenses, uploadSpeed, bandwidthAllocated, onUnlockLicense, onUpgradeLicense, onAllocate, money }: HostingTabProps) {
+function HostingTab({ licenses, uploadSpeed, bandwidthAllocated, onUnlockLicense, onUpgradeLicense, onAllocate, money, activeInvestments, advertisements }: HostingTabProps) {
   const freeBandwidth = uploadSpeed - bandwidthAllocated;
   
   const unlockedLicenses = licenses.filter(l => l.unlocked);
@@ -970,6 +995,8 @@ function HostingTab({ licenses, uploadSpeed, bandwidthAllocated, onUnlockLicense
               money={money}
               onUpgrade={() => onUpgradeLicense(license.id)}
               onAllocate={(amount) => onAllocate(license.id, amount)}
+              activeInvestments={activeInvestments}
+              advertisements={advertisements}
             />
           );
         })}
@@ -988,6 +1015,8 @@ function HostingTab({ licenses, uploadSpeed, bandwidthAllocated, onUnlockLicense
                 money={money}
                 onUpgrade={() => onUnlockLicense(license.id)}
                 onAllocate={noop}
+                activeInvestments={activeInvestments}
+                advertisements={advertisements}
               />
             ))}
           </>
