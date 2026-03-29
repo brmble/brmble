@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Brmble.Server.DM;
 using Brmble.Server.Events;
 using Brmble.Server.Matrix;
 using Brmble.Server.Mumble;
@@ -16,6 +17,7 @@ public static class AuthEndpoints
             AuthService authService,
             IMatrixAppService matrixAppService,
             ChannelRepository channelRepository,
+            DmRoomRepository dmRoomRepository,
             UserRepository userRepository,
             IOptions<MatrixSettings> matrixSettings,
             ISessionMappingService sessionMapping,
@@ -117,6 +119,9 @@ public static class AuthEndpoints
             var roomMap = (await channelRepository.GetAllAsync())
                 .ToDictionary(m => m.MumbleChannelId.ToString(), m => m.MatrixRoomId);
 
+            var dmRooms = await dmRoomRepository.GetAllForUserAsync(result.UserId);
+            var dmRoomMap = dmRooms.ToDictionary(r => r.OtherMatrixUserId, r => r.MatrixRoomId);
+
             var allUsers = await userRepository.GetAllAsync();
             // Group by display name and pick the most recently created user to handle duplicates
             var userMappings = allUsers
@@ -150,7 +155,8 @@ public static class AuthEndpoints
                     homeserverUrl = publicHomeserverUrl,
                     accessToken = result.MatrixAccessToken,
                     userId = result.MatrixUserId,
-                    roomMap
+                    roomMap,
+                    dmRoomMap
                 },
                 userMappings,
                 sessionMappings = sessionMapping.GetSnapshot()

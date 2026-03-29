@@ -1,5 +1,6 @@
 using Brmble.Server;
 using Brmble.Server.Auth;
+using Brmble.Server.DM;
 using Brmble.Server.Middleware;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
@@ -46,6 +47,7 @@ app.UseMiddleware<ConnectionLoggingMiddleware>();
 
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
 app.MapAuthEndpoints();
+app.MapDmEndpoints();
 app.Map("/ws", BrmbleWebSocketHandler.HandleAsync);
 app.MapServerInfoEndpoints();
 app.MapLiveKitEndpoints();

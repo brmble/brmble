@@ -113,4 +113,16 @@ public class UserRepository
             "UPDATE users SET texture_hash = @Hash WHERE id = @Id",
             new { Hash = hash, Id = userId });
     }
+
+    public virtual async Task<User?> GetByMatrixUserId(string matrixUserId)
+    {
+        using var conn = _db.CreateConnection();
+        return await conn.QuerySingleOrDefaultAsync<User>(
+            """
+            SELECT id AS Id, cert_hash AS CertHash, display_name AS DisplayName, matrix_user_id AS MatrixUserId, matrix_access_token AS MatrixAccessToken
+            FROM users
+            WHERE matrix_user_id = @MatrixUserId
+            """,
+            new { MatrixUserId = matrixUserId });
+    }
 }

@@ -34,6 +34,14 @@ public class Database
                 created_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (mumble_channel_id)
             );
+            CREATE TABLE IF NOT EXISTS dm_room_map (
+                user_id_low     INTEGER NOT NULL,
+                user_id_high    INTEGER NOT NULL,
+                matrix_room_id  TEXT NOT NULL UNIQUE,
+                created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id_low, user_id_high),
+                CHECK (user_id_low < user_id_high)
+            );
             """);
 
         // Migrate existing deployments: add matrix_access_token if the column is missing

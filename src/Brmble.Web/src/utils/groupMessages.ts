@@ -26,8 +26,17 @@ function isSameDay(a: Date, b: Date): boolean {
  *   whose timestamp exceeds this value.  Using a timestamp instead of an event
  *   ID makes the divider resilient to timeline changes (backfill, pagination,
  *   reconnect) — it always appears above the first truly-new message.
+ * @param currentUsername  The current user's display name.  When provided, the
+ *   divider is never placed above the user's own messages — it skips past them
+ *   to land on the first message from another user.  This prevents clock skew
+ *   between the client and homeserver from causing the divider to appear above
+ *   the user's own last sent message.
  */
-export function groupMessages(messages: ChatMessage[], readMarkerTs?: number | null): GroupedMessage[] {
+export function groupMessages(
+  messages: ChatMessage[],
+  readMarkerTs?: number | null,
+  currentUsername?: string,
+): GroupedMessage[] {
   let unreadDividerPlaced = false;
 
   return messages.map((message, index) => {
@@ -43,12 +52,19 @@ export function groupMessages(messages: ChatMessage[], readMarkerTs?: number | n
       showDateSeparator ||
       message.timestamp.getTime() - prev.timestamp.getTime() > GROUP_THRESHOLD_MS;
 
-    // Place the divider above the first message that arrived after the read
-    // marker timestamp. This mirrors how countUnreadFromTimeline works:
-    // only events with origin_server_ts > marker.ts are "unread".
+    // Place the divider above the first message from ANOTHER user that arrived
+    // after the read marker timestamp.  Skip own messages because the marker is
+    // saved with Date.now() when the local echo fires, but the server may
+    // assign a slightly later origin_server_ts — causing a false "unread" on
+    // the user's own message due to clock skew.
+    const isOwnMessage = currentUsername != null
+      && message.sender === currentUsername
+      && message.type !== 'system';
+
     const showUnreadDivider = !unreadDividerPlaced
       && readMarkerTs != null
-      && message.timestamp.getTime() > readMarkerTs;
+      && message.timestamp.getTime() > readMarkerTs
+      && !isOwnMessage;
 
     if (showUnreadDivider) unreadDividerPlaced = true;
 

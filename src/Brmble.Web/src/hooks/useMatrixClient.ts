@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { createClient, RoomEvent, ClientEvent, EventType, MsgType, Preset, KnownMembership } from 'matrix-js-sdk';
+import { createClient, RoomEvent, ClientEvent, EventType, MsgType, KnownMembership } from 'matrix-js-sdk';
 import type { MatrixClient, MatrixEvent, Room } from 'matrix-js-sdk';
 import type { ChatMessage, MediaAttachment } from '../types';
 import { useServiceStatus } from './useServiceStatus';
+import bridge from '../bridge';
 
 /** Insert a message into a chronologically sorted array, deduplicating by id. Returns the same array if already present. */
 function insertMessage(existing: ChatMessage[], msg: ChatMessage): ChatMessage[] {
@@ -28,6 +29,7 @@ export interface MatrixCredentials {
   accessToken: string;
   userId: string;
   roomMap: Record<string, string>; // mumbleChannelId → matrixRoomId
+  dmRoomMap?: Record<string, string>; // matrixUserId → matrixRoomId (from server)
 }
 
 export function useMatrixClient(credentials: MatrixCredentials | null) {
@@ -48,6 +50,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
   const roomIdToDMUserIdRef = useRef<Map<string, string>>(new Map());
   const pendingRoomCreations = useRef(new Map<string, Promise<string>>());
   const lastSyncStateRef = useRef<string | null>(null);
+  const waitForRoomRef = useRef<((roomId: string, timeoutMs?: number) => Promise<Room>) | null>(null);
 
   // Reverse lookup: matrixRoomId → mumbleChannelId
   const roomIdToChannelId = useMemo(() => {
@@ -209,29 +212,24 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     clientRef.current = client;
     setClient(client);
 
-    const refreshDMRoomMaps = (directContent: Record<string, string[]>) => {
-      const newDmRoomMap = new Map<string, string>();
-      const newRoomIdToDMUserId = new Map<string, string>();
-      for (const [userId, roomIds] of Object.entries(directContent)) {
-        if (roomIds && roomIds.length > 0) {
-          newDmRoomMap.set(userId, roomIds[0]);
-          newRoomIdToDMUserId.set(roomIds[0], userId);
-        }
-      }
-      setDmRoomMap(newDmRoomMap);
-      dmRoomMapRef.current = newDmRoomMap;
-      roomIdToDMUserIdRef.current = newRoomIdToDMUserId;
-    };
-
     const onSync = (state: string) => {
       let derivedState: string;
       if (state === 'PREPARED' || state === 'SYNCING') {
         derivedState = 'connected';
         if (state === 'PREPARED') {
           isPrepared = true;
-          const directEvent = client.getAccountData(EventType.Direct);
-          if (directEvent) {
-            refreshDMRoomMaps(directEvent.getContent() as Record<string, string[]>);
+
+          // Server-provided DM room map is the sole source of truth
+          if (credentials.dmRoomMap) {
+            const serverDmMap = new Map<string, string>();
+            const serverRoomToUser = new Map<string, string>();
+            for (const [userId, roomId] of Object.entries(credentials.dmRoomMap)) {
+              serverDmMap.set(userId, roomId);
+              serverRoomToUser.set(roomId, userId);
+            }
+            dmRoomMapRef.current = serverDmMap;
+            roomIdToDMUserIdRef.current = serverRoomToUser;
+            setDmRoomMap(serverDmMap);
           }
 
           // Replay any DM timeline events that arrived before room maps were ready
@@ -264,118 +262,157 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       }
     };
 
-    const onAccountData = (event: MatrixEvent) => {
-      if (event.getType() !== EventType.Direct) return;
-      refreshDMRoomMaps(event.getContent() as Record<string, string[]>);
+    /** Register a newly-discovered DM room in local maps and backfill any messages
+     *  that onTimeline may have dropped before the mapping existed. */
+    const registerDMRoom = (room: Room, otherUserId: string) => {
+      if (roomIdToDMUserIdRef.current.has(room.roomId)) return; // already tracked
+
+      setDmRoomMap(prev => new Map(prev).set(otherUserId, room.roomId));
+      dmRoomMapRef.current = new Map(dmRoomMapRef.current).set(otherUserId, room.roomId);
+      roomIdToDMUserIdRef.current = new Map(roomIdToDMUserIdRef.current).set(room.roomId, otherUserId);
+
+      // Backfill: the SDK already has timeline events for this room that onTimeline
+      // dropped because the room wasn't in roomIdToDMUserIdRef at the time.
+      const timelineEvents = room.getLiveTimeline().getEvents();
+      const backfillMsgs: ChatMessage[] = [];
+      for (const ev of timelineEvents) {
+        if (ev.getType() !== EventType.RoomMessage) continue;
+        const senderId = ev.getSender() ?? 'Unknown';
+        const senderMember = room.getMember(senderId);
+        const displayName = senderMember?.rawDisplayName || senderMember?.name || senderId;
+
+        const content = ev.getContent() as {
+          body?: string;
+          msgtype?: string;
+          url?: string;
+          info?: { thumbnail_url?: string; w?: number; h?: number; mimetype?: string; size?: number };
+        };
+
+        let media: MediaAttachment[] | undefined;
+        if (content.msgtype === 'm.image' && content.url) {
+          const cl = clientRef.current;
+          const fullUrl = cl?.mxcUrlToHttp(content.url) ?? content.url;
+          media = [{
+            type: content.info?.mimetype?.toLowerCase() === 'image/gif' ? 'gif' : 'image',
+            url: fullUrl,
+            width: content.info?.w,
+            height: content.info?.h,
+            mimetype: content.info?.mimetype,
+            size: content.info?.size,
+          }];
+        }
+
+        const rawBody = content.body ?? '';
+        const isBridgeBotSender = /^@brmble[_-]?/.test(senderId);
+        const bridgeMatch = isBridgeBotSender ? rawBody.match(/^\[(.+?)\]:\s*/) : null;
+        const messageSender = bridgeMatch ? bridgeMatch[1] : displayName;
+        const messageContent = bridgeMatch ? rawBody.slice(bridgeMatch[0].length) : rawBody;
+
+        backfillMsgs.push({
+          id: ev.getId() ?? crypto.randomUUID(),
+          channelId: otherUserId,
+          sender: messageSender,
+          senderMatrixUserId: senderId,
+          content: media ? '' : messageContent,
+          timestamp: new Date(ev.getTs()),
+          ...(media && { media }),
+        });
+      }
+
+      if (backfillMsgs.length > 0) {
+        setDmMessages(prev => {
+          const existing = prev.get(otherUserId) ?? [];
+          let merged = existing;
+          for (const msg of backfillMsgs) {
+            merged = insertMessage(merged, msg);
+          }
+          if (merged === existing) return prev;
+          return new Map(prev).set(otherUserId, merged);
+        });
+      }
     };
 
     const onMyMembership = (room: Room, membership: string) => {
-      const inviter = room.getDMInviter();
-      if (!inviter) return;
-
       if (membership === KnownMembership.Invite) {
-        // Auto-join DM invites
+        // Auto-join DM invites (server creates rooms and invites both users)
+        const inviter = room.getDMInviter();
+        if (!inviter) return;
         client.joinRoom(room.roomId).then(() => {
-          trackDMRoom(room.roomId, inviter);
+          registerDMRoom(room, inviter);
         }).catch(err => {
           console.warn(`[Matrix] Failed to auto-join DM room ${room.roomId}:`, err);
         });
-      } else if (membership === KnownMembership.Join) {
-        // Already joined — ensure it's tracked (covers rooms created by the other user
-        // that we joined but never added to m.direct)
-        if (!roomIdToDMUserIdRef.current.has(room.roomId)) {
-          trackDMRoom(room.roomId, inviter);
-        }
-      }
-    };
-
-    /** Add a DM room to local maps, persist to m.direct, and backfill messages from SDK timeline */
-    const trackDMRoom = (roomId: string, otherUserId: string) => {
-      // Update local DM maps so timeline handler can route messages immediately
-      setDmRoomMap(prev => new Map(prev).set(otherUserId, roomId));
-      dmRoomMapRef.current = new Map(dmRoomMapRef.current).set(otherUserId, roomId);
-      roomIdToDMUserIdRef.current = new Map(roomIdToDMUserIdRef.current).set(roomId, otherUserId);
-
-      // Update m.direct account data
-      const directEvent = client.getAccountData(EventType.Direct);
-      const directContent = (directEvent?.getContent() ?? {}) as Record<string, string[]>;
-      if (!directContent[otherUserId]?.includes(roomId)) {
-        directContent[otherUserId] = [roomId, ...(directContent[otherUserId] ?? [])];
-        client.setAccountData(EventType.Direct, directContent).catch(console.warn);
-      }
-
-      // Backfill: the SDK already has timeline events for this room that we missed
-      // because the room wasn't in our maps when onTimeline fired
-      const sdkRoom = client.getRoom(roomId);
-      if (sdkRoom) {
-        const timelineEvents = sdkRoom.getLiveTimeline().getEvents();
-        const backfillMsgs: ChatMessage[] = [];
-        for (const ev of timelineEvents) {
-          if (ev.getType() !== EventType.RoomMessage) continue;
-          const senderId = ev.getSender() ?? 'Unknown';
-          const senderMember = sdkRoom.getMember(senderId);
-          const displayName = senderMember?.rawDisplayName || senderMember?.name || senderId;
-
-          const content = ev.getContent() as {
-            body?: string;
-            msgtype?: string;
-            url?: string;
-            info?: { thumbnail_url?: string; w?: number; h?: number; mimetype?: string; size?: number };
-          };
-
-          let media: MediaAttachment[] | undefined;
-          if (content.msgtype === 'm.image' && content.url) {
-            const cl = clientRef.current;
-            const fullUrl = cl?.mxcUrlToHttp(content.url) ?? content.url;
-            media = [{
-              type: content.info?.mimetype?.toLowerCase() === 'image/gif' ? 'gif' : 'image',
-              url: fullUrl,
-              width: content.info?.w,
-              height: content.info?.h,
-              mimetype: content.info?.mimetype,
-              size: content.info?.size,
-            }];
+      } else if (membership === KnownMembership.Join && isPrepared) {
+        // Server already auto-joined us via the appservice — register the room.
+        // The isPrepared guard ensures we only pick up rooms that appear AFTER
+        // initial sync, not old pre-migration rooms the SDK already knows about.
+        //
+        // getDMInviter() returns null for force-joined users (the appservice
+        // bypasses normal invite→join flow), so we determine the other user
+        // from the room's joined members instead.
+        const inviter = room.getDMInviter();
+        if (inviter) {
+          registerDMRoom(room, inviter);
+        } else {
+          // Look up the other user from room members
+          const members = room.getJoinedMembers();
+          const myUserId = credentials.userId;
+          const otherMember = members.find(m => m.userId !== myUserId);
+          if (otherMember) {
+            registerDMRoom(room, otherMember.userId);
           }
-
-          const rawBody = content.body ?? '';
-          const isBridgeBotSender = /^@brmble[_-]?/.test(senderId);
-          const bridgeMatch = isBridgeBotSender ? rawBody.match(/^\[(.+?)\]:\s*/) : null;
-          const messageSender = bridgeMatch ? bridgeMatch[1] : displayName;
-          const messageContent = bridgeMatch ? rawBody.slice(bridgeMatch[0].length) : rawBody;
-
-          backfillMsgs.push({
-            id: ev.getId() ?? crypto.randomUUID(),
-            channelId: otherUserId,
-            sender: messageSender,
-            senderMatrixUserId: senderId,
-            content: media ? '' : messageContent,
-            timestamp: new Date(ev.getTs()),
-            ...(media && { media }),
-          });
-        }
-
-        if (backfillMsgs.length > 0) {
-          setDmMessages(prev => {
-            const existing = prev.get(otherUserId) ?? [];
-            let merged = existing;
-            for (const msg of backfillMsgs) {
-              merged = insertMessage(merged, msg);
-            }
-            if (merged === existing) return prev;
-            return new Map(prev).set(otherUserId, merged);
-          });
         }
       }
     };
 
     client.on(ClientEvent.Sync, onSync);
-    client.on(ClientEvent.AccountData, onAccountData);
     client.on(RoomEvent.MyMembership, onMyMembership);
 
+    // Wait for the SDK to sync a room into its local store (server-created rooms
+    // may not be available immediately after the server responds).
+    const waitForRoom = (roomId: string, timeoutMs = 10000): Promise<Room> => {
+      const existing = clientRef.current?.getRoom(roomId);
+      if (existing) return Promise.resolve(existing);
+
+      return new Promise<Room>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          cleanup();
+          reject(new Error(`Timed out waiting for room ${roomId} to appear in SDK`));
+        }, timeoutMs);
+
+        const onMyMembershipCheck = (room: Room) => {
+          if (room.roomId === roomId) {
+            cleanup();
+            resolve(room);
+          }
+        };
+
+        // Also check on every sync in case the room appears without a membership event
+        const onSyncCheck = () => {
+          const room = clientRef.current?.getRoom(roomId);
+          if (room) {
+            cleanup();
+            resolve(room);
+          }
+        };
+
+        const cleanup = () => {
+          clearTimeout(timer);
+          clientRef.current?.off(RoomEvent.MyMembership, onMyMembershipCheck);
+          clientRef.current?.off(ClientEvent.Sync, onSyncCheck);
+        };
+
+        clientRef.current?.on(RoomEvent.MyMembership, onMyMembershipCheck);
+        clientRef.current?.on(ClientEvent.Sync, onSyncCheck);
+      });
+    };
+
+    waitForRoomRef.current = waitForRoom;
+
     return () => {
+      waitForRoomRef.current = null;
       client.off(RoomEvent.Timeline, onTimeline);
       client.off(ClientEvent.Sync, onSync);
-      client.off(ClientEvent.AccountData, onAccountData);
       client.off(RoomEvent.MyMembership, onMyMembership);
       client.stopClient();
       clientRef.current = null;
@@ -431,40 +468,68 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     let roomId = dmRoomMapRef.current.get(targetMatrixUserId);
 
     if (!roomId) {
-      // Check if a room creation is already in flight for this user
+      // Check if a room resolution is already in flight for this user
       const pending = pendingRoomCreations.current.get(targetMatrixUserId);
       if (pending) {
         roomId = await pending;
       } else {
-        // Create room with mutex
-        const createPromise = (async () => {
-          const createResult = await client.createRoom({
-            is_direct: true,
-            invite: [targetMatrixUserId],
-            preset: Preset.TrustedPrivateChat,
-          });
-          const newRoomId = createResult.room_id;
+        // Request room from server via bridge (server creates if needed)
+        const resolvePromise = new Promise<string>((resolve, reject) => {
+          let settled = false;
+          const cleanup = () => {
+            bridge.off('dm.roomResolved', onResolved);
+            bridge.off('dm.roomError', onError);
+            clearTimeout(timeout);
+          };
+          const onResolved = (data: unknown) => {
+            const d = data as { targetMatrixUserId?: string; roomId?: string };
+            if (d?.targetMatrixUserId === targetMatrixUserId && d?.roomId) {
+              settled = true;
+              cleanup();
+              resolve(d.roomId);
+            }
+          };
+          const onError = (data: unknown) => {
+            const d = data as { targetMatrixUserId?: string; error?: string };
+            if (d?.targetMatrixUserId === targetMatrixUserId) {
+              settled = true;
+              cleanup();
+              reject(new Error(d?.error || 'Failed to get DM room'));
+            }
+          };
+          const timeout = setTimeout(() => {
+            if (!settled) {
+              settled = true;
+              cleanup();
+              reject(new Error('DM room creation timed out'));
+            }
+          }, 15_000);
+          bridge.on('dm.roomResolved', onResolved);
+          bridge.on('dm.roomError', onError);
+          bridge.send('dm.getOrCreateRoom', { targetMatrixUserId });
+        });
 
-          // Update m.direct account data
-          const directEvent = client.getAccountData(EventType.Direct);
-          const directContent = (directEvent?.getContent() ?? {}) as Record<string, string[]>;
-          directContent[targetMatrixUserId] = [newRoomId, ...(directContent[targetMatrixUserId] ?? [])];
-          await client.setAccountData(EventType.Direct, directContent);
+        pendingRoomCreations.current.set(targetMatrixUserId, resolvePromise);
+        try {
+          roomId = await resolvePromise;
 
           // Update local maps
-          setDmRoomMap(prev => new Map(prev).set(targetMatrixUserId, newRoomId));
-          dmRoomMapRef.current = new Map(dmRoomMapRef.current).set(targetMatrixUserId, newRoomId);
-          roomIdToDMUserIdRef.current = new Map(roomIdToDMUserIdRef.current).set(newRoomId, targetMatrixUserId);
-
-          return newRoomId;
-        })();
-
-        pendingRoomCreations.current.set(targetMatrixUserId, createPromise);
-        try {
-          roomId = await createPromise;
+          setDmRoomMap(prev => new Map(prev).set(targetMatrixUserId, roomId!));
+          dmRoomMapRef.current = new Map(dmRoomMapRef.current).set(targetMatrixUserId, roomId);
+          roomIdToDMUserIdRef.current = new Map(roomIdToDMUserIdRef.current).set(roomId, targetMatrixUserId);
         } finally {
           pendingRoomCreations.current.delete(targetMatrixUserId);
         }
+      }
+    }
+
+    // Ensure the SDK has synced the room before sending — the server may have
+    // just created it via appservice and the local store doesn't know about it yet.
+    if (waitForRoomRef.current) {
+      try {
+        await waitForRoomRef.current(roomId);
+      } catch (err) {
+        // Room may not be in local store yet; attempt send anyway
       }
     }
 

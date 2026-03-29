@@ -148,35 +148,91 @@ public sealed class NativeBridge
         try
         {
             var json = e.WebMessageAsJson;
-            using var doc = JsonDocument.Parse(json);
-            var root = doc.RootElement;
+            LogBridge($"[NativeBridge] RAW message received, length={json?.Length}");
+            // Clone the data so it survives JsonDocument disposal for async handlers
+            JsonElement? clonedData = null;
+            string? type = null;
 
-            if (root.TryGetProperty("type", out var typeProp))
+            using (var doc = JsonDocument.Parse(json))
             {
-                var type = typeProp.GetString();
-                var data = root.TryGetProperty("data", out var dataProp) ? dataProp : default(JsonElement?);
+                var root = doc.RootElement;
 
-                Debug.WriteLine($"[NativeBridge] Received: {type}");
-
-                if (type != null && _handlers.TryGetValue(type, out var handlers))
+                if (root.TryGetProperty("type", out var typeProp))
                 {
-                    foreach (var handler in handlers)
+                    type = typeProp.GetString();
+                    if (root.TryGetProperty("data", out var dataProp))
                     {
-                        _ = handler(data ?? default);
+                        clonedData = dataProp.Clone();
                     }
                 }
-
-                OnMessage?.Invoke(type ?? "");
-
-                // Handlers may have enqueued response messages via Send().
-                // Since OnWebMessageReceived runs on the UI thread, flush now
-                // so replies are delivered without waiting for a WM_USER roundtrip.
-                Flush();
             }
+
+            if (type == null)
+            {
+                LogBridge($"[NativeBridge] Message had no 'type' property, skipping");
+                return;
+            }
+
+            LogBridge($"[NativeBridge] Received type='{type}', hasHandler={_handlers.ContainsKey(type)}, registeredTypes=[{string.Join(",", _handlers.Keys)}]");
+
+            if (_handlers.TryGetValue(type, out var handlers))
+            {
+                LogBridge($"[NativeBridge] Dispatching '{type}' to {handlers.Count} handler(s)");
+                var dataForHandler = clonedData ?? default(JsonElement);
+                foreach (var handler in handlers)
+                {
+                    _ = InvokeHandlerAsync(type, handler, dataForHandler);
+                }
+            }
+
+            OnMessage?.Invoke(type);
+
+            // Handlers may have enqueued response messages via Send().
+            // Since OnWebMessageReceived runs on the UI thread, flush now
+            // so replies are delivered without waiting for a WM_USER roundtrip.
+            Flush();
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[NativeBridge] Error: {ex.Message}");
+            LogBridge($"[NativeBridge] Error: {ex}");
         }
+    }
+
+    /// <summary>
+    /// Invokes an async handler with proper error logging so exceptions are not silently swallowed.
+    /// </summary>
+    private static async Task InvokeHandlerAsync(string type, Func<JsonElement, Task> handler, JsonElement data)
+    {
+        try
+        {
+            LogBridge($"[NativeBridge] InvokeHandlerAsync START for '{type}'");
+            await handler(data);
+            LogBridge($"[NativeBridge] InvokeHandlerAsync DONE for '{type}'");
+        }
+        catch (Exception ex)
+        {
+            LogBridge($"[NativeBridge] Handler error for '{type}': {ex}");
+        }
+    }
+
+#if DEBUG
+    private static readonly object _logLock = new();
+#endif
+    private static void LogBridge(string message)
+    {
+        try
+        {
+            var line = $"[{DateTime.Now:HH:mm:ss.fff}] {message}";
+            Debug.WriteLine(line);
+#if DEBUG
+            lock (_logLock)
+            {
+                File.AppendAllText(
+                    Path.Combine(AppContext.BaseDirectory, "bridge.log"),
+                    line + Environment.NewLine);
+            }
+#endif
+        }
+        catch { /* best-effort logging */ }
     }
 }

@@ -1,7 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
+import React from 'react';
 import { useMatrixClient } from './useMatrixClient';
 import type { MatrixCredentials } from './useMatrixClient';
+import { ServiceStatusProvider } from './useServiceStatus';
+
+// --- mock bridge ---
+vi.mock('../bridge', () => ({
+  default: {
+    send: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
+  },
+}));
 
 // --- mock matrix-js-sdk ---
 const mockClient = {
@@ -26,6 +37,7 @@ vi.mock('matrix-js-sdk', () => ({
   EventType: { RoomMessage: 'm.room.message', Direct: 'm.direct' },
   MsgType: { Text: 'm.text' },
   Preset: { TrustedPrivateChat: 'trusted_private_chat' },
+  KnownMembership: { Join: 'join', Invite: 'invite', Leave: 'leave' },
 }));
 
 const creds: MatrixCredentials = {
@@ -35,23 +47,28 @@ const creds: MatrixCredentials = {
   roomMap: { '42': '!room:example.com' },
 };
 
+/** Wrapper that provides required context providers */
+function wrapper({ children }: { children: React.ReactNode }) {
+  return React.createElement(ServiceStatusProvider, null, children);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
 describe('useMatrixClient', () => {
   it('calls startClient when credentials are provided', () => {
-    renderHook(() => useMatrixClient(creds));
+    renderHook(() => useMatrixClient(creds), { wrapper });
     expect(mockClient.startClient).toHaveBeenCalledWith({ initialSyncLimit: 20 });
   });
 
   it('does not call startClient when credentials are null', () => {
-    renderHook(() => useMatrixClient(null));
+    renderHook(() => useMatrixClient(null), { wrapper });
     expect(mockClient.startClient).not.toHaveBeenCalled();
   });
 
   it('calls stopClient on unmount', () => {
-    const { unmount } = renderHook(() => useMatrixClient(creds));
+    const { unmount } = renderHook(() => useMatrixClient(creds), { wrapper });
     unmount();
     expect(mockClient.stopClient).toHaveBeenCalled();
   });
@@ -59,7 +76,7 @@ describe('useMatrixClient', () => {
   it('calls stopClient and clears messages when credentials become null', () => {
     const { result, rerender } = renderHook(
       ({ c }: { c: MatrixCredentials | null }) => useMatrixClient(c),
-      { initialProps: { c: creds as MatrixCredentials | null } }
+      { initialProps: { c: creds as MatrixCredentials | null }, wrapper }
     );
     act(() => rerender({ c: null }));
     expect(mockClient.stopClient).toHaveBeenCalled();
@@ -67,12 +84,12 @@ describe('useMatrixClient', () => {
   });
 
   it('registers RoomEvent.Timeline listener', () => {
-    renderHook(() => useMatrixClient(creds));
+    renderHook(() => useMatrixClient(creds), { wrapper });
     expect(mockClient.on).toHaveBeenCalledWith('Room.timeline', expect.any(Function));
   });
 
   it('sendMessage posts to correct Matrix room', async () => {
-    const { result } = renderHook(() => useMatrixClient(creds));
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
     await act(() => result.current.sendMessage('42', 'hello'));
     expect(mockClient.sendMessage).toHaveBeenCalledWith('!room:example.com', {
       msgtype: 'm.text',
@@ -81,7 +98,7 @@ describe('useMatrixClient', () => {
   });
 
   it('sendMessage does nothing when channelId has no room mapping', async () => {
-    const { result } = renderHook(() => useMatrixClient(creds));
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
     await act(() => result.current.sendMessage('999', 'hello'));
     expect(mockClient.sendMessage).not.toHaveBeenCalled();
   });
@@ -89,13 +106,13 @@ describe('useMatrixClient', () => {
   it('fetchHistory calls scrollback on the room', async () => {
     const mockRoom = { roomId: '!room:example.com' };
     mockClient.getRoom.mockReturnValue(mockRoom);
-    const { result } = renderHook(() => useMatrixClient(creds));
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
     await act(() => result.current.fetchHistory('42'));
     expect(mockClient.scrollback).toHaveBeenCalledWith(mockRoom, 50);
   });
 
   it('timeline handler uses member display name as sender', () => {
-    const { result } = renderHook(() => useMatrixClient(creds));
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
 
     // Extract the registered timeline handler
     const onCall = mockClient.on.mock.calls.find(
@@ -126,17 +143,17 @@ describe('useMatrixClient', () => {
   });
 
   it('exposes the Matrix client instance', () => {
-    const { result } = renderHook(() => useMatrixClient(creds));
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
     expect(result.current.client).not.toBeNull();
   });
 
   it('client is null when credentials are null', () => {
-    const { result } = renderHook(() => useMatrixClient(null));
+    const { result } = renderHook(() => useMatrixClient(null), { wrapper });
     expect(result.current.client).toBeNull();
   });
 
   it('timeline handler falls back to senderId when member has no display name', () => {
-    const { result } = renderHook(() => useMatrixClient(creds));
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
 
     const onCall = mockClient.on.mock.calls.find(
       (c: unknown[]) => c[0] === 'Room.timeline'
@@ -163,7 +180,7 @@ describe('useMatrixClient', () => {
   });
 
   it('timeline handler extracts sender from bridge prefix when sent by bridge bot', () => {
-    const { result } = renderHook(() => useMatrixClient(creds));
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
 
     const onCall = mockClient.on.mock.calls.find(
       (c: unknown[]) => c[0] === 'Room.timeline'
@@ -194,7 +211,7 @@ describe('useMatrixClient', () => {
   });
 
   it('timeline handler does NOT parse bridge prefix for non-bot senders', () => {
-    const { result } = renderHook(() => useMatrixClient(creds));
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
 
     const onCall = mockClient.on.mock.calls.find(
       (c: unknown[]) => c[0] === 'Room.timeline'

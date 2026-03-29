@@ -9,6 +9,7 @@ public interface IMatrixAppService
 {
     Task SendMessage(string roomId, string displayName, string text);
     Task<string> CreateRoom(string name);
+    Task<string> CreateDMRoom(string localpartA, string localpartB);
     Task SetRoomName(string roomId, string name);
     Task<string> RegisterUser(string localpart, string displayName);
     Task<string> LoginUser(string localpart);
@@ -17,6 +18,8 @@ public interface IMatrixAppService
     Task SetAvatarUrl(string localpart, string avatarUrl);
     Task<string> UploadMedia(byte[] data, string contentType, string fileName);
     Task SendImageMessage(string roomId, string displayName, string mxcUrl, string fileName, string mimetype, int size);
+    Task SetAccountData(string localpart, string eventType, string jsonContent);
+    Task<string?> GetAccountData(string localpart, string eventType);
 }
 
 public class MatrixAppService : IMatrixAppService
@@ -227,6 +230,60 @@ public class MatrixAppService : IMatrixAppService
         await SendRequest(HttpMethod.Put, url, body);
     }
 
+    public async Task<string> CreateDMRoom(string localpartA, string localpartB)
+    {
+        var userIdA = $"@{localpartA}:{_serverDomain}";
+        var userIdB = $"@{localpartB}:{_serverDomain}";
+
+        // Create the room as user A with is_direct and invite user B
+        var url = $"{_homeserverUrl}/_matrix/client/v3/createRoom";
+        var body = JsonSerializer.Serialize(new
+        {
+            is_direct = true,
+            preset = "trusted_private_chat",
+            invite = new[] { userIdB }
+        });
+        var response = await SendRequest(HttpMethod.Post, url, body, actAs: userIdA);
+        var json = JsonSerializer.Deserialize<JsonElement>(response);
+        var roomId = json.GetProperty("room_id").GetString()
+            ?? throw new InvalidOperationException("Matrix did not return a room_id");
+
+        // Join user B to the room
+        try
+        {
+            var joinUrl = $"{_homeserverUrl}/_matrix/client/v3/join/{Uri.EscapeDataString(roomId)}";
+            await SendRequest(HttpMethod.Post, joinUrl, "{}", actAs: userIdB);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Failed to auto-join {UserB} to DM room {RoomId}: {Error}", userIdB, roomId, ex.Message);
+        }
+
+        return roomId;
+    }
+
+    public async Task SetAccountData(string localpart, string eventType, string jsonContent)
+    {
+        var userId = $"@{localpart}:{_serverDomain}";
+        var url = $"{_homeserverUrl}/_matrix/client/v3/user/{Uri.EscapeDataString(userId)}/account_data/{Uri.EscapeDataString(eventType)}";
+        await SendRequest(HttpMethod.Put, url, jsonContent, actAs: userId);
+    }
+
+    public async Task<string?> GetAccountData(string localpart, string eventType)
+    {
+        var userId = $"@{localpart}:{_serverDomain}";
+        var url = $"{_homeserverUrl}/_matrix/client/v3/user/{Uri.EscapeDataString(userId)}/account_data/{Uri.EscapeDataString(eventType)}";
+        try
+        {
+            return await SendRequest(HttpMethod.Get, url, "{}", actAs: userId);
+        }
+        catch (Exception)
+        {
+            // Account data may not exist yet (404)
+            return null;
+        }
+    }
+
     private Task<string> SendRequest(HttpMethod method, string url, string jsonBody, string? actAs = null)
         => SendRequestCore(method, url, jsonBody, actAs ?? _botUserId);
 
@@ -236,10 +293,12 @@ public class MatrixAppService : IMatrixAppService
         var urlWithUser = userId is not null
             ? $"{url}{(url.Contains('?') ? '&' : '?')}user_id={Uri.EscapeDataString(userId)}"
             : url;
-        var request = new HttpRequestMessage(method, urlWithUser)
+        var request = new HttpRequestMessage(method, urlWithUser);
+        // GET requests must not include a body — some proxies/servers reject it
+        if (method != HttpMethod.Get)
         {
-            Content = new StringContent(jsonBody, Encoding.UTF8, "application/json")
-        };
+            request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+        }
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _appServiceToken);
         _logger.LogDebug("Matrix request: {Method} {Url}", method, urlWithUser);
         var response = await client.SendAsync(request);

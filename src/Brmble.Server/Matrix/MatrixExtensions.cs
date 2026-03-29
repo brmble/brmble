@@ -1,3 +1,4 @@
+using Brmble.Server.DM;
 using Brmble.Server.Mumble;
 
 namespace Brmble.Server.Matrix;
@@ -19,6 +20,7 @@ public static class MatrixExtensions
 
         services.AddHttpClient();
         services.AddSingleton<ChannelRepository>();
+        services.AddSingleton<DmRoomRepository>();
         services.AddSingleton<IMatrixAppService, MatrixAppService>();
         services.AddSingleton<MatrixService>();
         services.AddSingleton<IMumbleEventHandler, MatrixEventHandler>();
