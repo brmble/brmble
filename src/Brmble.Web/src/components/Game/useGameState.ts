@@ -604,34 +604,44 @@ export function useGameState() {
       );
       if (hasRunningForAd) return prev;
       
-      const hasRunningInvestment = prev.activeInvestments.some(
+      const hasRunningForLicense = prev.activeInvestments.some(
         i => i.licenseId === licenseId && i.status === 'running'
       );
-      if (hasRunningInvestment) return prev;
+      if (hasRunningForLicense) return prev;
       
-      const volumeKB = getVolumeCapacityKB(license, ad.volume);
-      const cost = calculateInvestmentCost(license, ad.volume);
+      const passivePerSec = PASSIVE_INCOME_BY_STARS[ad.passiveIncome];
+      const marginMult = MARGIN_MULTIPLIER_BY_STARS[ad.margin];
+      const marginPerKB = license.incomePerKB * marginMult;
       
-      if (prev.money < cost) return prev;
+      const expectedDurationSec = ad.volumeKB / Math.max(license.allocated, 1);
+      const expectedPassive = passivePerSec * expectedDurationSec;
+      const expectedMargin = ad.volumeKB * marginPerKB;
+      const expectedTotal = expectedPassive + expectedMargin;
       
-      const duration = ad.duration ?? getDuration();
-      const durationMs = getDurationMs(duration);
-      const payout = calculateInvestmentPayout(cost, ad.volume, ad.margin, duration);
+      const breachFee = ad.buyPrice + (expectedTotal * 0.20);
+      
+      if (prev.money < ad.buyPrice) return prev;
       
       const newInvestment: ActiveInvestment = {
         adId,
         licenseId,
         startTime: Date.now(),
-        durationMs,
-        payout,
+        volumeKB: ad.volumeKB,
+        passiveIncomePerSec: passivePerSec,
+        marginPerKB,
+        buyPrice: ad.buyPrice,
+        breachFee: Math.round(breachFee * 100) / 100,
+        expectedTotalPayout: Math.round(expectedTotal * 100) / 100,
         status: 'running',
-        volumeKB,
       };
       
       return {
         ...prev,
-        money: prev.money - cost,
+        money: prev.money - ad.buyPrice,
         activeInvestments: [...prev.activeInvestments, newInvestment],
+        advertisements: prev.advertisements.map(a =>
+          a.id === adId ? { ...a, licenseId } : a
+        ),
       };
     });
   }, []);
