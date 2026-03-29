@@ -17,7 +17,7 @@ export function ServerList({ onConnect, connectionError, onClearError, activePro
   const { servers, loading, addServer, updateServer, removeServer } = useServerlist();
   const [editing, setEditing] = useState<ServerEntry | null>(null);
   const [isAdding, setIsAdding] = useState(false);
-  const [form, setForm] = useState({ label: '', host: '', port: '64738', username: '', password: '' });
+  const [form, setForm] = useState({ label: '', host: '', port: '64738', password: '' });
   const [showPassword, setShowPassword] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
   const [toggleFocused, setToggleFocused] = useState(false);
@@ -34,7 +34,7 @@ export function ServerList({ onConnect, connectionError, onClearError, activePro
       addServer(server);
       setIsAdding(false);
     }
-    setForm({ label: '', host: '', port: '64738', username: '', password: '' });
+    setForm({ label: '', host: '', port: '64738', password: '' });
     setShowPassword(false);
     setToggleFocused(false);
   };
@@ -45,7 +45,6 @@ export function ServerList({ onConnect, connectionError, onClearError, activePro
       label: server.label,
       host: server.host,
       port: String(server.port),
-      username: server.username,
       password: server.password || ''
     });
     setIsAdding(false);
@@ -56,7 +55,7 @@ export function ServerList({ onConnect, connectionError, onClearError, activePro
   const handleCancel = () => {
     setEditing(null);
     setIsAdding(false);
-    setForm({ label: '', host: '', port: '64738', username: '', password: '' });
+    setForm({ label: '', host: '', port: '64738', password: '' });
     setShowPassword(false);
     setToggleFocused(false);
   };
@@ -78,7 +77,7 @@ export function ServerList({ onConnect, connectionError, onClearError, activePro
       if (e.key === 'Escape') {
         setEditing(null);
         setIsAdding(false);
-        setForm({ label: '', host: '', port: '64738', username: '', password: '' });
+        setForm({ label: '', host: '', port: '64738', password: '' });
         setShowPassword(false);
         setToggleFocused(false);
       }
@@ -253,8 +252,7 @@ export function ServerList({ onConnect, connectionError, onClearError, activePro
                   <input
                     className="brmble-input server-list-input server-list-input-registered"
                     placeholder="Username"
-                    value={editing.registeredName ?? form.username}
-                    onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
+                    value={editing.registeredName ?? ''}
                     disabled
                   />
                   <svg className="server-list-registered-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-label="Registered">

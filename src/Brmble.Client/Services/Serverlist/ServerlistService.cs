@@ -130,8 +130,7 @@ internal sealed class ServerlistService : IServerlistService
 
     private static ServerEntry? ParseServerEntry(JsonElement data)
     {
-        if (!data.TryGetProperty("label", out var label) ||
-            !data.TryGetProperty("username", out var username))
+        if (!data.TryGetProperty("label", out var label))
         {
             return null;
         }
@@ -149,7 +148,6 @@ internal sealed class ServerlistService : IServerlistService
             apiUrl,
             data.TryGetProperty("host", out var hostEl) ? hostEl.GetString() : null,
             data.TryGetProperty("port", out var portEl) && portEl.ValueKind == JsonValueKind.Number ? portEl.GetInt32() : null,
-            username.GetString() ?? "",
             password
         );
     }

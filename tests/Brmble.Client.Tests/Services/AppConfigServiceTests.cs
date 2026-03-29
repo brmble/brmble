@@ -66,7 +66,7 @@ public class AppConfigServiceTests
     public void SavesAndReloads_Servers()
     {
         var svc = new AppConfigService(_tempDir, null);
-        var server = new ServerEntry("id1", "My Server", null, "localhost", 64738, "alice");
+        var server = new ServerEntry("id1", "My Server", null, "localhost", 64738);
 
         svc.AddServer(server);
         var svc2 = new AppConfigService(_tempDir, null);
@@ -100,7 +100,7 @@ public class AppConfigServiceTests
     public void MigratesPlainTextPasswords_ToEncrypted()
     {
         var svc = new AppConfigService(_tempDir, null);
-        var server = new ServerEntry("id1", "Test", null, "localhost", 64738, "alice", "plainTextPassword123");
+        var server = new ServerEntry("id1", "Test", null, "localhost", 64738, "plainTextPassword123");
 
         svc.AddServer(server);
 
@@ -188,7 +188,7 @@ public class AppConfigServiceTests
     public void AutoConnect_ClearsServerId_WhenServerRemoved()
     {
         var svc = new AppConfigService(_tempDir, null);
-        svc.AddServer(new ServerEntry("srv1", "Test Server", null, "localhost", 64738, "alice"));
+        svc.AddServer(new ServerEntry("srv1", "Test Server", null, "localhost", 64738));
         svc.SetSettings(svc.GetSettings() with { AutoConnectEnabled = true, AutoConnectServerId = "srv1" });
 
         svc.RemoveServer("srv1");

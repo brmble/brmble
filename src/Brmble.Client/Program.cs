@@ -402,7 +402,6 @@ static class Program
             apiUrl = server.ApiUrl,
             host = server.Host,
             port = server.Port,
-            username = server.Username,
         });
     }
 

@@ -409,7 +409,6 @@ internal sealed class AppConfigService : IAppConfigService
             return null;
 
         var label = data.TryGetProperty("label", out var labelEl) ? labelEl.GetString() ?? "" : "";
-        var username = data.TryGetProperty("username", out var usernameEl) ? usernameEl.GetString() ?? "" : "";
         var apiUrl = data.TryGetProperty("apiUrl", out var apiEl) ? apiEl.GetString() : null;
         var passwordRaw = data.TryGetProperty("password", out var pwEl) ? pwEl.GetString() ?? "" : "";
         var password = TryDecryptPassword(passwordRaw, passwordStorage);
@@ -422,7 +421,6 @@ internal sealed class AppConfigService : IAppConfigService
             apiUrl,
             data.TryGetProperty("host", out var hostEl) ? hostEl.GetString() : null,
             data.TryGetProperty("port", out var portEl) && portEl.ValueKind == System.Text.Json.JsonValueKind.Number ? portEl.GetInt32() : null,
-            username,
             password,
             registered,
             registeredName);
