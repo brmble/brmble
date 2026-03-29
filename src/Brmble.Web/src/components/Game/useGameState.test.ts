@@ -47,9 +47,13 @@ describe('useGameState', () => {
         bandwidthAllocated: 0,
         infrastructure: [],
         licenses: [
-          { id: 'personal-website', name: 'Personal Website', unlocked: true, level: 0, allocated: 0, unlockCost: 0, baseCap: 1024, capPerLevel: 1024, incomePerKB: 0.001, baseUpgradeCost: 10 },
-          { id: 'blog-hosting', name: 'Blog Hosting', unlocked: false, level: 0, allocated: 0, unlockCost: 100, baseCap: 5120, capPerLevel: 10240, incomePerKB: 0.0005, baseUpgradeCost: 100 },
+          { id: 'personal-website', name: 'Personal Website', unlocked: true, level: 0, allocated: 0, unlockCost: 0, baseCap: 1024, capPerLevel: 1024, incomePerKB: 0.001, baseUpgradeCost: 10, adAllocated: 0, bonus: { capacityBonus: 0, marginBonus: 0, efficiencyBonus: 0 }, tier: 1 },
+          { id: 'blog-hosting', name: 'Blog Hosting', unlocked: false, level: 0, allocated: 0, unlockCost: 100, baseCap: 5120, capPerLevel: 10240, incomePerKB: 0.0005, baseUpgradeCost: 100, adAllocated: 0, bonus: { capacityBonus: 0, marginBonus: 0.2, efficiencyBonus: 0 }, tier: 1 },
         ],
+        advertisements: [],
+        adSlots: 1,
+        lastAdRefresh: 0,
+        activeInvestments: [],
         lastSaved: Date.now(),
       }));
       
@@ -98,9 +102,13 @@ describe('useGameState', () => {
         bandwidthAllocated: 0,
         infrastructure: [],
         licenses: [
-          { id: 'personal-website', name: 'Personal Website', unlocked: true, level: 0, allocated: 0, unlockCost: 0, baseCap: 1024, capPerLevel: 1024, incomePerKB: 0.001, baseUpgradeCost: 10 },
-          { id: 'blog-hosting', name: 'Blog Hosting', unlocked: true, level: 0, allocated: 0, unlockCost: 100, baseCap: 5120, capPerLevel: 10240, incomePerKB: 0.0005, baseUpgradeCost: 100 },
+          { id: 'personal-website', name: 'Personal Website', unlocked: true, level: 0, allocated: 0, unlockCost: 0, baseCap: 1024, capPerLevel: 1024, incomePerKB: 0.001, baseUpgradeCost: 10, adAllocated: 0, bonus: { capacityBonus: 0, marginBonus: 0, efficiencyBonus: 0 }, tier: 1 },
+          { id: 'blog-hosting', name: 'Blog Hosting', unlocked: true, level: 0, allocated: 0, unlockCost: 100, baseCap: 5120, capPerLevel: 10240, incomePerKB: 0.0005, baseUpgradeCost: 100, adAllocated: 0, bonus: { capacityBonus: 0, marginBonus: 0.2, efficiencyBonus: 0 }, tier: 1 },
         ],
+        advertisements: [],
+        adSlots: 1,
+        lastAdRefresh: 0,
+        activeInvestments: [],
         lastSaved: Date.now(),
       }));
       
@@ -133,9 +141,13 @@ describe('useGameState', () => {
         bandwidthAllocated: 0,
         infrastructure: [],
         licenses: [
-          { id: 'personal-website', name: 'Personal Website', unlocked: true, level: 0, allocated: 0, unlockCost: 0, baseCap: 1024, capPerLevel: 1024, incomePerKB: 0.001, baseUpgradeCost: 10 },
-          { id: 'blog-hosting', name: 'Blog Hosting', unlocked: true, level: 0, allocated: 0, unlockCost: 100, baseCap: 5120, capPerLevel: 10240, incomePerKB: 0.0005, baseUpgradeCost: 100 },
+          { id: 'personal-website', name: 'Personal Website', unlocked: true, level: 0, allocated: 0, unlockCost: 0, baseCap: 1024, capPerLevel: 1024, incomePerKB: 0.001, baseUpgradeCost: 10, adAllocated: 0, bonus: { capacityBonus: 0, marginBonus: 0, efficiencyBonus: 0 }, tier: 1 },
+          { id: 'blog-hosting', name: 'Blog Hosting', unlocked: true, level: 0, allocated: 0, unlockCost: 100, baseCap: 5120, capPerLevel: 10240, incomePerKB: 0.0005, baseUpgradeCost: 100, adAllocated: 0, bonus: { capacityBonus: 0, marginBonus: 0.2, efficiencyBonus: 0 }, tier: 1 },
         ],
+        advertisements: [],
+        adSlots: 1,
+        lastAdRefresh: 0,
+        activeInvestments: [],
         lastSaved: Date.now(),
       }));
       
@@ -158,9 +170,13 @@ describe('useGameState', () => {
         bandwidthAllocated: 0,
         infrastructure: [],
         licenses: [
-          { id: 'personal-website', name: 'Personal Website', unlocked: true, level: 0, allocated: 0, unlockCost: 0, baseCap: 1024, capPerLevel: 1024, incomePerKB: 0.001, baseUpgradeCost: 10 },
-          { id: 'blog-hosting', name: 'Blog Hosting', unlocked: true, level: 0, allocated: 0, unlockCost: 100, baseCap: 5120, capPerLevel: 10240, incomePerKB: 0.0005, baseUpgradeCost: 100 },
+          { id: 'personal-website', name: 'Personal Website', unlocked: true, level: 0, allocated: 0, unlockCost: 0, baseCap: 1024, capPerLevel: 1024, incomePerKB: 0.001, baseUpgradeCost: 10, adAllocated: 0, bonus: { capacityBonus: 0, marginBonus: 0, efficiencyBonus: 0 }, tier: 1 },
+          { id: 'blog-hosting', name: 'Blog Hosting', unlocked: true, level: 0, allocated: 0, unlockCost: 100, baseCap: 5120, capPerLevel: 10240, incomePerKB: 0.0005, baseUpgradeCost: 100, adAllocated: 0, bonus: { capacityBonus: 0, marginBonus: 0.2, efficiencyBonus: 0 }, tier: 1 },
         ],
+        advertisements: [],
+        adSlots: 1,
+        lastAdRefresh: 0,
+        activeInvestments: [],
         lastSaved: Date.now(),
       }));
       
@@ -234,9 +250,13 @@ describe('useGameState', () => {
         bandwidthAllocated: 0,
         infrastructure: [],
         licenses: [
-          { id: 'personal-website', name: 'Personal Website', unlocked: true, level: 0, allocated: 0, unlockCost: 0, baseCap: 1024, capPerLevel: 1024, incomePerKB: 0.001, baseUpgradeCost: 10 },
-          { id: 'blog-hosting', name: 'Blog Hosting', unlocked: true, level: 0, allocated: 0, unlockCost: 100, baseCap: 5120, capPerLevel: 10240, incomePerKB: 0.0005, baseUpgradeCost: 100 },
+          { id: 'personal-website', name: 'Personal Website', unlocked: true, level: 0, allocated: 0, unlockCost: 0, baseCap: 1024, capPerLevel: 1024, incomePerKB: 0.001, baseUpgradeCost: 10, adAllocated: 0, bonus: { capacityBonus: 0, marginBonus: 0, efficiencyBonus: 0 }, tier: 1 },
+          { id: 'blog-hosting', name: 'Blog Hosting', unlocked: true, level: 0, allocated: 0, unlockCost: 100, baseCap: 5120, capPerLevel: 10240, incomePerKB: 0.0005, baseUpgradeCost: 100, adAllocated: 0, bonus: { capacityBonus: 0, marginBonus: 0.2, efficiencyBonus: 0 }, tier: 1 },
         ],
+        advertisements: [],
+        adSlots: 1,
+        lastAdRefresh: 0,
+        activeInvestments: [],
         lastSaved: Date.now(),
       }));
       

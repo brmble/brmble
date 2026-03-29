@@ -48,12 +48,12 @@ const STORAGE_KEY = 'idle-farm-save';
 const THEME_KEY = 'idle-farm-theme';
 
 const DURATION_VALUES = {
-  short: { minMs: 1 * 60 * 1000, maxMs: 10 * 60 * 1000, bonus: 1.1 },
-  medium: { minMs: 10 * 60 * 1000, maxMs: 30 * 60 * 1000, bonus: 1.25 },
-  long: { minMs: 30 * 60 * 1000, maxMs: 60 * 60 * 1000, bonus: 1.5 },
+  short: { minMs: 5 * 60 * 1000, maxMs: 20 * 60 * 1000, bonus: 1.1 },
+  medium: { minMs: 60 * 60 * 1000, maxMs: 4 * 60 * 60 * 1000, bonus: 1.25 },
+  long: { minMs: 6 * 60 * 60 * 1000, maxMs: 12 * 60 * 60 * 1000, bonus: 1.5 },
 };
 
-const VOLUME_TO_CAPACITY = {
+export const VOLUME_TO_CAPACITY = {
   1: 0.1,
   2: 0.2,
   3: 0.3,
@@ -77,6 +77,12 @@ const MARGIN_MULTIPLIER = {
   5: 2.0,
 };
 
+const TIER_MAX_VOLUME = {
+  1: 2,
+  2: 4,
+  3: 5,
+};
+
 function hasInfrastructure(state: unknown): state is GameState {
   if (typeof state !== 'object' || state === null) return false;
   return 'infrastructure' in state && Array.isArray((state as GameState).infrastructure);
@@ -85,8 +91,11 @@ function hasInfrastructure(state: unknown): state is GameState {
 function hasLicenses(state: unknown): state is GameState {
   if (typeof state !== 'object' || state === null) return false;
   if (!('licenses' in state) || !Array.isArray((state as GameState).licenses)) return false;
+  if (!('advertisements' in state) || !Array.isArray((state as GameState).advertisements)) return false;
+  if (!('adSlots' in state) || typeof (state as GameState).adSlots !== 'number') return false;
+  if (!('activeInvestments' in state) || !Array.isArray((state as GameState).activeInvestments)) return false;
   const licenses = (state as GameState).licenses;
-  if (licenses.length === 0) return false;
+  if (licenses.length === 0) return true;
   const first = licenses[0];
   if (!first || typeof first !== 'object') return false;
   return 'baseCap' in first;
@@ -154,17 +163,17 @@ export function useGameState() {
     }
   }, [fingerprint]);
 
+  const getAdVolumeKB = (ad: Advertisement, license: License): number => {
+    const cap = calculateCap(license, license.level);
+    const effectiveCap = getEffectiveCap(license);
+    const maxAdKB = cap * effectiveCap;
+    const volumePercent = ad.volume / 5;
+    return maxAdKB * volumePercent;
+  };
+
   useEffect(() => {
     const interval = setInterval(() => {
       setState(prev => {
-        const getAdVolumeKB = (ad: Advertisement, license: License): number => {
-          const cap = calculateCap(license, license.level);
-          const effectiveCap = getEffectiveCap(license);
-          const maxAdKB = cap * effectiveCap;
-          const volumePercent = ad.volume * 0.05; // 5% per star (1-5 stars = 5-25%)
-          return maxAdKB * volumePercent;
-        };
-
         let totalAdIncome = 0;
         let totalRegularIncome = 0;
 
@@ -172,11 +181,22 @@ export function useGameState() {
           if (!license.unlocked) continue;
 
           const adsOnLicense = prev.advertisements.filter(a => a.licenseId === license.id);
+          const runningAdIds = new Set(
+            prev.activeInvestments
+              .filter(i => i.licenseId === license.id && i.status === 'running')
+              .map(i => i.adId)
+          );
+
+          let adUsage = 0;
 
           for (let i = 0; i < adsOnLicense.length; i++) {
             const ad = adsOnLicense[i];
-            const efficiency = getEfficiency(i + 1, license.bonus.efficiencyBonus);
             const volumeKB = getAdVolumeKB(ad, license);
+            adUsage += volumeKB;
+
+            if (runningAdIds.has(ad.id)) continue;
+
+            const efficiency = getEfficiency(i + 1, license.bonus.efficiencyBonus);
 
             let marginRate = ad.margin * 0.00001;
             if (isLowVolume(ad.volume) && license.bonus.marginBonus > 0) {
@@ -187,8 +207,11 @@ export function useGameState() {
             totalAdIncome += volumeKB * effectiveMargin;
           }
 
-          const adUsage = adsOnLicense.reduce((sum, ad) => sum + getAdVolumeKB(ad, license), 0);
-          const regularKB = Math.max(0, license.allocated - adUsage);
+          const investmentUsage = prev.activeInvestments
+            .filter(i => i.licenseId === license.id && i.status === 'running')
+            .reduce((sum, i) => sum + i.volumeKB, 0);
+
+          const regularKB = Math.max(0, license.allocated - adUsage - investmentUsage);
           totalRegularIncome += regularKB * license.incomePerKB;
         }
 
@@ -283,6 +306,23 @@ export function useGameState() {
     return cap * effectiveCap * (VOLUME_TO_CAPACITY as Record<number, number>)[volumeStars];
   };
 
+  const unlockInfrastructure = useCallback((infraId: string) => {
+    setState(prev => {
+      const infra = prev.infrastructure.find(i => i.id === infraId);
+      if (!infra || infra.unlocked || !infra.unlockCost || prev.money < infra.unlockCost) {
+        return prev;
+      }
+      
+      return {
+        ...prev,
+        money: prev.money - infra.unlockCost,
+        infrastructure: prev.infrastructure.map(i =>
+          i.id === infraId ? { ...i, unlocked: true } : i
+        ),
+      };
+    });
+  }, []);
+
   const unlockLicense = useCallback((licenseId: string) => {
     setState(prev => {
       const license = prev.licenses.find(l => l.id === licenseId);
@@ -307,13 +347,16 @@ export function useGameState() {
         return prev;
       }
       
+      if (license.level >= 10) {
+        return prev;
+      }
+      
       const cost = Math.floor(license.baseUpgradeCost * Math.pow(1.15, license.level));
       if (prev.money < cost) {
         return prev;
       }
       
       const newLevel = license.level + 1;
-      const newCost = Math.floor(license.baseUpgradeCost * Math.pow(1.15, newLevel));
       const newCap = calculateCap(license, newLevel);
       const newAllocated = Math.min(license.allocated, newCap);
       
@@ -322,7 +365,7 @@ export function useGameState() {
         money: prev.money - cost,
         licenses: prev.licenses.map(l =>
           l.id === licenseId
-            ? { ...l, level: newLevel, upgradeCost: newCost, allocated: newAllocated }
+            ? { ...l, level: newLevel, allocated: newAllocated }
             : l
         ),
       };
@@ -405,14 +448,6 @@ export function useGameState() {
     }
   }, []);
 
-  const getAdVolumeKB = (ad: Advertisement, license: License): number => {
-    const cap = calculateCap(license, license.level);
-    const effectiveCap = getEffectiveCap(license);
-    const maxAdKB = cap * effectiveCap;
-    const volumePercent = ad.volume / 5;
-    return maxAdKB * volumePercent;
-  };
-
   const generateAdOptions = useCallback((): Advertisement[] => {
     const options: Advertisement[] = [];
     for (let i = 0; i < 3; i++) {
@@ -475,7 +510,6 @@ export function useGameState() {
     setState(prev => {
       const cost = getAdSlotCost(prev.adSlots);
       if (prev.money < cost) return prev;
-      if (prev.advertisements.length >= prev.adSlots) return prev;
 
       return {
         ...prev,
@@ -492,6 +526,14 @@ export function useGameState() {
       
       const license = prev.licenses.find(l => l.id === licenseId);
       if (!license || !license.unlocked) return prev;
+      
+      const maxVolume = (TIER_MAX_VOLUME as Record<number, number>)[license.tier] ?? 2;
+      if (ad.volume > maxVolume) return prev;
+      
+      const hasRunningForAd = prev.activeInvestments.some(
+        i => i.adId === adId && i.status === 'running'
+      );
+      if (hasRunningForAd) return prev;
       
       const hasRunningInvestment = prev.activeInvestments.some(
         i => i.licenseId === licenseId && i.status === 'running'
@@ -534,6 +576,7 @@ export function useGameState() {
         ...prev,
         money: prev.money + investment.payout,
         activeInvestments: prev.activeInvestments.filter(i => i.adId !== adId),
+        advertisements: prev.advertisements.filter(ad => ad.id !== adId),
       };
     });
   }, []);
@@ -589,6 +632,7 @@ export function useGameState() {
   const actions: GameActions = {
     buyInfrastructure,
     upgradeInfrastructure,
+    unlockInfrastructure,
     unlockLicense,
     upgradeLicense,
     allocateBandwidth,

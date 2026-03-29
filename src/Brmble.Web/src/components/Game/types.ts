@@ -88,6 +88,7 @@ export interface GameState {
 export interface GameActions {
   buyInfrastructure: (infrastructureId: string) => void;
   upgradeInfrastructure: (infrastructureId: string) => void;
+  unlockInfrastructure: (infrastructureId: string) => void;
   unlockLicense: (licenseId: string) => void;
   upgradeLicense: (licenseId: string) => void;
   allocateBandwidth: (licenseId: string, amount: number) => void;

@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import type { Infrastructure, License, Advertisement, ActiveInvestment } from './types';
-import { useGameState } from './useGameState';
+import { useGameState, VOLUME_TO_CAPACITY } from './useGameState';
 import { confirm } from '../../hooks/usePrompt';
 import { Select } from '../Select/Select';
 import { Tooltip } from '../Tooltip/Tooltip';
@@ -81,6 +81,7 @@ export function GameUI({ onClose }: GameUIProps) {
             infrastructure={state.infrastructure} 
             licenses={state.licenses}
             money={state.money}
+            onUnlockInfrastructure={actions.unlockInfrastructure}
             onUnlockLicense={actions.unlockLicense}
           />
         )}
@@ -395,7 +396,7 @@ function InfrastructureTab({ infrastructure, onBuy, onUpgrade, money }: Infrastr
   );
 }
 
-function TechUpgradesTab({ infrastructure, licenses, money, onUnlockLicense }: { infrastructure: Infrastructure[]; licenses: License[]; money: number; onUnlockLicense: (licenseId: string) => void }) {
+function TechUpgradesTab({ infrastructure, licenses, money, onUnlockInfrastructure, onUnlockLicense }: { infrastructure: Infrastructure[]; licenses: License[]; money: number; onUnlockInfrastructure: (infrastructureId: string) => void; onUnlockLicense: (licenseId: string) => void }) {
   const nextInfraUnlock = infrastructure.find(i => !i.unlocked && i.unlockCost);
   const unlockedInfrastructure = infrastructure.filter(i => i.unlocked);
   const nextLicenseUnlock = licenses.find(l => !l.unlocked);
@@ -457,9 +458,17 @@ function TechUpgradesTab({ infrastructure, licenses, money, onUnlockLicense }: {
           </div>
 
           {infraProgress >= 100 ? (
-            <div className="unlock-rewards">
-              <span className="rewards-label">Available - Purchase infrastructure to unlock</span>
-            </div>
+            <button
+              className="btn btn-primary unlock-btn"
+              onClick={async () => {
+                const confirmed = await confirm(`Unlock ${nextInfraUnlock.name} for $${nextInfraUnlock.unlockCost?.toLocaleString()}?`);
+                if (confirmed) {
+                  onUnlockInfrastructure(nextInfraUnlock.id);
+                }
+              }}
+            >
+              UNLOCK {nextInfraUnlock.name.toUpperCase()}
+            </button>
           ) : (
             <div className="unlock-rewards">
               <span className="rewards-label">Reward:</span>
@@ -554,7 +563,7 @@ function AdSelectionModal({ isOpen, options, licenses, money, advertisements, on
   const getVolumeCapacityKB = (license: License, volumeStars: number): number => {
     const cap = calculateCap(license.baseCap, license.capPerLevel, license.level);
     const effectiveCap = getEffectiveCap(license);
-    const volumePercent = volumeStars / 5;
+    const volumePercent = VOLUME_TO_CAPACITY[volumeStars as keyof typeof VOLUME_TO_CAPACITY];
     return cap * effectiveCap * volumePercent;
   };
 
@@ -575,7 +584,8 @@ function AdSelectionModal({ isOpen, options, licenses, money, advertisements, on
   const calculateInvestmentCost = (license: License, volumeStars: number): number => {
     const cap = calculateCap(license.baseCap, license.capPerLevel, license.level);
     const effectiveCap = getEffectiveCap(license);
-    const volumeKB = cap * effectiveCap * (volumeStars / 5);
+    const volumePercent = VOLUME_TO_CAPACITY[volumeStars as keyof typeof VOLUME_TO_CAPACITY];
+    const volumeKB = cap * effectiveCap * volumePercent;
     return volumeKB * license.incomePerKB * 60;
   };
 
@@ -587,9 +597,9 @@ function AdSelectionModal({ isOpen, options, licenses, money, advertisements, on
   };
 
   const formatDuration = (duration: string): string => {
-    if (duration === 'short') return '1-10 min';
-    if (duration === 'medium') return '10-30 min';
-    return '30-60 min';
+    if (duration === 'short') return '5-20 min';
+    if (duration === 'medium') return '1-4h';
+    return '6-12h';
   };
 
   const handleLicenseChange = (adId: string, licenseId: string) => {
