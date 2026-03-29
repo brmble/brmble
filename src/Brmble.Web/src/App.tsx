@@ -417,7 +417,7 @@ function App() {
     // Add Mumble DM unreads
     for (const contact of dmStore.contacts) {
       if (contact.isEphemeral) {
-        total += contact.unreadCount;
+        total += contact.unreadCount > 0 ? 1 : 0;
       }
     }
     return total;

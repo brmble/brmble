@@ -500,7 +500,7 @@ export function useUnreadTracker(
   for (const [roomId, state] of roomUnreads) {
     totalUnreadCount += state.notificationCount;
     if (dmRoomIds.has(roomId)) {
-      totalDmUnreadCount += state.notificationCount;
+      totalDmUnreadCount += state.notificationCount > 0 ? 1 : 0;
     }
   }
 
