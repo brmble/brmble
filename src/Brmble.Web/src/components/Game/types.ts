@@ -4,10 +4,13 @@ export interface Advertisement {
   id: string;
   name: string;
   type: AdType;
-  volume: number;
-  margin: number;
+  volume: number;           // 1-5 stars (KB to process)
+  margin: number;          // 1-5 stars (profit per KB)
+  passiveIncome: number;   // 1-5 stars (fixed $/sec while active)
+  timeLimitMs: number;     // deadline in ms
   licenseId: string;
-  duration?: AdDuration;
+  buyPrice: number;        // cost to "invest"
+  volumeKB: number;        // calculated KB based on volume stars
 }
 
 export type AdDuration = 'short' | 'medium' | 'long';
