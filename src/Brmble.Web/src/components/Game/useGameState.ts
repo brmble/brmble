@@ -651,9 +651,16 @@ export function useGameState() {
       const investment = prev.activeInvestments.find(i => i.adId === adId);
       if (!investment || investment.status !== 'ready') return prev;
       
+      const elapsedSec = (Date.now() - investment.startTime) / 1000;
+      const passiveEarned = elapsedSec * investment.passiveIncomePerSec;
+      
+      const marginEarned = investment.volumeKB * investment.marginPerKB;
+      
+      const totalPayout = passiveEarned + marginEarned;
+      
       return {
         ...prev,
-        money: prev.money + investment.payout,
+        money: prev.money + totalPayout,
         activeInvestments: prev.activeInvestments.filter(i => i.adId !== adId),
         advertisements: prev.advertisements.filter(ad => ad.id !== adId),
       };
