@@ -31,11 +31,11 @@ const PASSIVE_INCOME_BY_STARS: Record<number, number> = {
 };
 
 const MARGIN_MULTIPLIER_BY_STARS: Record<number, number> = {
-  1: 0.8,
-  2: 1.0,
-  3: 1.2,
-  4: 1.6,
-  5: 2.5,
+  1: 100,
+  2: 200,
+  3: 400,
+  4: 800,
+  5: 1600,
 };
 
 const VOLUME_KB_BY_STARS: Record<number, number> = {
@@ -74,17 +74,10 @@ const getAdSlotCost = (currentSlots: number): number => {
   return Math.floor(10000 * Math.pow(2, currentSlots - 1));
 };
 
-const getEfficiency = (adCountOnLicense: number, efficiencyBonus: number = 0): number => {
-  const baseEfficiency = adCountOnLicense === 1 ? 1.0 : adCountOnLicense === 2 ? 0.8 : adCountOnLicense === 3 ? 0.6 : 0.4;
-  return Math.min(1.0, baseEfficiency + efficiencyBonus);
-};
-
 const getEffectiveCap = (license: License): number => {
   const baseAdCap = 0.6;
   return baseAdCap + license.bonus.capacityBonus;
 };
-
-const isLowVolume = (volume: number): boolean => volume <= 2;
 
 const STORAGE_KEY = 'idle-farm-save';
 const THEME_KEY = 'idle-farm-theme';
@@ -194,48 +187,15 @@ export function useGameState() {
   useEffect(() => {
     const interval = setInterval(() => {
       setState(prev => {
-        let totalAdIncome = 0;
-        let totalRegularIncome = 0;
+        const regularIncome = prev.licenses
+          .filter(l => l.unlocked)
+          .reduce((sum, l) => sum + l.allocated * l.incomePerKB, 0);
 
-        for (const license of prev.licenses) {
-          if (!license.unlocked) continue;
+        const passiveIncome = prev.activeInvestments
+          .filter(i => i.status === 'running')
+          .reduce((sum, i) => sum + i.passiveIncomePerSec, 0);
 
-          const adsOnLicense = prev.advertisements.filter(a => a.licenseId === license.id);
-          const runningAdIds = new Set(
-            prev.activeInvestments
-              .filter(i => i.licenseId === license.id && i.status === 'running')
-              .map(i => i.adId)
-          );
-
-          let adUsage = 0;
-
-          for (let i = 0; i < adsOnLicense.length; i++) {
-            const ad = adsOnLicense[i];
-            const volumeKB = getAdVolumeKB(ad, license);
-            adUsage += volumeKB;
-
-            if (runningAdIds.has(ad.id)) continue;
-
-            const efficiency = getEfficiency(i + 1, license.bonus.efficiencyBonus);
-
-            let marginRate = ad.margin * 0.00001;
-            if (isLowVolume(ad.volume) && license.bonus.marginBonus > 0) {
-              marginRate *= (1 + license.bonus.marginBonus);
-            }
-
-            const effectiveMargin = marginRate * efficiency;
-            totalAdIncome += volumeKB * effectiveMargin;
-          }
-
-          const investmentUsage = prev.activeInvestments
-            .filter(i => i.licenseId === license.id && i.status === 'running')
-            .reduce((sum, i) => sum + i.volumeKB, 0);
-
-          const regularKB = Math.max(0, license.allocated - adUsage - investmentUsage);
-          totalRegularIncome += regularKB * license.incomePerKB;
-        }
-
-        const totalIncome = totalAdIncome + totalRegularIncome;
+        const totalIncome = regularIncome + passiveIncome;
 
         return {
           ...prev,
@@ -327,10 +287,6 @@ export function useGameState() {
     setState(prev => {
       const license = prev.licenses.find(l => l.id === licenseId);
       if (!license || !license.unlocked) {
-        return prev;
-      }
-      
-      if (license.level >= 10) {
         return prev;
       }
       
@@ -440,6 +396,16 @@ export function useGameState() {
     
     const tierMultiplier = Math.pow(2, highestTier - 1);
     
+    const totalUploadSpeedKBps = state.uploadSpeed / 1024;
+    
+    const TIME_RANGES: Record<number, { minFactor: number; maxFactor: number }> = {
+      1: { minFactor: 6.0, maxFactor: 30.0 },
+      2: { minFactor: 30.0, maxFactor: 90.0 },
+      3: { minFactor: 90.0, maxFactor: 180.0 },
+      4: { minFactor: 180.0, maxFactor: 360.0 },
+      5: { minFactor: 360.0, maxFactor: 1080.0 },
+    };
+    
     for (let i = 0; i < 3; i++) {
       const type = AD_TYPES[Math.floor(Math.random() * AD_TYPES.length)];
       const volume = getWeightedStarRating();
@@ -448,14 +414,15 @@ export function useGameState() {
       
       const volumeKB = VOLUME_KB_BY_STARS[volume] * tierMultiplier;
       
-      const baseSeconds = volumeKB / 1024;
-      const randomFactor = 0.7 + Math.random() * 0.6;
-      const timeLimitMs = Math.floor(baseSeconds * randomFactor * 1000);
+      const baseTimeSec = volumeKB / totalUploadSpeedKBps;
+      const { minFactor, maxFactor } = TIME_RANGES[volume];
+      const timeFactor = minFactor + Math.random() * (maxFactor - minFactor);
+      const timeLimitMs = Math.floor(baseTimeSec * timeFactor * 1000);
       
       const passivePerSec = PASSIVE_INCOME_BY_STARS[passiveIncome];
       const marginMult = MARGIN_MULTIPLIER_BY_STARS[margin];
       
-      const estimatedDurationSec = volumeKB / 1024;
+      const estimatedDurationSec = timeLimitMs / 1000;
       const expectedPassive = passivePerSec * estimatedDurationSec;
       const expectedMargin = volumeKB * 0.001 * marginMult;
       const expectedTotal = expectedPassive + expectedMargin;
@@ -476,7 +443,7 @@ export function useGameState() {
       });
     }
     return options;
-  }, [state.licenses]);
+  }, [state.licenses, state.uploadSpeed]);
 
   const assignAdToLicense = useCallback((adId: string, licenseId: string) => {
     setState(prev => {
@@ -611,19 +578,30 @@ export function useGameState() {
   const cancelInvestment = useCallback((adId: string) => {
     setState(prev => {
       const investment = prev.activeInvestments.find(i => i.adId === adId);
-      if (!investment || investment.status !== 'running') return prev;
+      if (!investment) return prev;
       
-      const elapsedSec = (Date.now() - investment.startTime) / 1000;
-      const passiveEarned = elapsedSec * investment.passiveIncomePerSec;
+      if (investment.status === 'running') {
+        const elapsedSec = (Date.now() - investment.startTime) / 1000;
+        const passiveEarned = elapsedSec * investment.passiveIncomePerSec;
+        const newMoney = prev.money - investment.breachFee + passiveEarned;
+        
+        return {
+          ...prev,
+          money: Math.max(0, newMoney),
+          activeInvestments: prev.activeInvestments.filter(i => i.adId !== adId),
+          advertisements: prev.advertisements.filter(a => a.id !== adId),
+        };
+      }
       
-      const newMoney = prev.money - investment.breachFee + passiveEarned;
+      if (investment.status === 'failed') {
+        return {
+          ...prev,
+          activeInvestments: prev.activeInvestments.filter(i => i.adId !== adId),
+          advertisements: prev.advertisements.filter(a => a.id !== adId),
+        };
+      }
       
-      return {
-        ...prev,
-        money: Math.max(0, newMoney),
-        activeInvestments: prev.activeInvestments.filter(i => i.adId !== adId),
-        advertisements: prev.advertisements.filter(a => a.id !== adId),
-      };
+      return prev;
     });
   }, []);
 
@@ -662,11 +640,21 @@ export function useGameState() {
           const ad = prev.advertisements.find(a => a.id === inv.adId);
           if (!ad) return inv;
           
-          const elapsed = now - inv.startTime;
+          const license = prev.licenses.find(l => l.id === inv.licenseId);
+          if (!license) return inv;
           
-          if (elapsed >= ad.timeLimitMs) {
+          const elapsedSec = (now - inv.startTime) / 1000;
+          const allocatedKBps = license.allocated / 1000;
+          const kbProcessed = allocatedKBps * elapsedSec;
+          
+          if (kbProcessed >= ad.volumeKB) {
             hasChanges = true;
             return { ...inv, status: 'ready' as InvestmentStatus };
+          }
+          
+          if (elapsedSec * 1000 >= ad.timeLimitMs) {
+            hasChanges = true;
+            return { ...inv, status: 'failed' as InvestmentStatus };
           }
           
           return inv;

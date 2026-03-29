@@ -15,7 +15,7 @@ export interface Advertisement {
 
 export type AdDuration = 'short' | 'medium' | 'long';
 
-export type InvestmentStatus = 'running' | 'ready' | 'collected';
+export type InvestmentStatus = 'running' | 'ready' | 'failed' | 'collected';
 
 export interface ActiveInvestment {
   adId: string;
