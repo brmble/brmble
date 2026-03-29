@@ -492,23 +492,50 @@ export function useGameState() {
 
   const generateAdOptions = useCallback((): Advertisement[] => {
     const options: Advertisement[] = [];
+    
+    const highestTier = Math.max(...state.licenses
+      .filter(l => l.unlocked)
+      .map(l => l.tier));
+    
+    const tierMultiplier = Math.pow(2, highestTier - 1);
+    
     for (let i = 0; i < 3; i++) {
       const type = AD_TYPES[Math.floor(Math.random() * AD_TYPES.length)];
-      const volume = Math.floor(Math.random() * 5) + 1;
-      const margin = Math.floor(Math.random() * 5) + 1;
-      const duration = getDuration();
+      const volume = getWeightedStarRating();
+      const margin = getWeightedStarRating();
+      const passiveIncome = getWeightedStarRating();
+      
+      const volumeKB = VOLUME_KB_BY_STARS[volume] * tierMultiplier;
+      
+      const baseSeconds = volumeKB / 1024;
+      const randomFactor = 0.7 + Math.random() * 0.6;
+      const timeLimitMs = Math.floor(baseSeconds * randomFactor * 1000);
+      
+      const passivePerSec = PASSIVE_INCOME_BY_STARS[passiveIncome];
+      const marginMult = MARGIN_MULTIPLIER_BY_STARS[margin];
+      
+      const estimatedDurationSec = volumeKB / 1024;
+      const expectedPassive = passivePerSec * estimatedDurationSec;
+      const expectedMargin = volumeKB * 0.001 * marginMult;
+      const expectedTotal = expectedPassive + expectedMargin;
+      
+      const buyPrice = expectedTotal * (0.20 + Math.random() * 0.10);
+      
       options.push({
         id: crypto.randomUUID(),
         name: generateAdName(type),
         type,
         volume,
         margin,
+        passiveIncome,
+        volumeKB,
+        timeLimitMs,
         licenseId: '',
-        duration,
+        buyPrice: Math.round(buyPrice * 100) / 100,
       });
     }
     return options;
-  }, []);
+  }, [state.licenses]);
 
   const assignAdToLicense = useCallback((adId: string, licenseId: string) => {
     setState(prev => {
