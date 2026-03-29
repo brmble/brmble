@@ -1298,3 +1298,90 @@
 .investment-timer {
   white-space: nowrap;
 }
+
+.ad-progress {
+  margin: 0.5rem 0;
+}
+
+.ad-progress .progress-bar-container.large {
+  height: 1.5rem;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.ad-progress .progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
+  transition: width 0.3s ease;
+}
+
+.ad-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.ad-stats span {
+  display: flex;
+  justify-content: space-between;
+}
+
+.cancel-btn {
+  background: var(--danger, #dc3545);
+  color: white;
+  margin-top: 0.5rem;
+  width: 100%;
+}
+
+.license-ad-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  padding: 0.5rem;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+}
+
+.mini-progress-bar {
+  flex: 1;
+  height: 0.5rem;
+  background: var(--bg-secondary);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.mini-progress-fill {
+  height: 100%;
+  background: var(--accent-primary);
+  transition: width 0.3s ease;
+}
+
+.license-ad-progress .ad-name {
+  font-size: 0.8rem;
+  color: var(--text-primary);
+}
+
+.license-ad-progress .ad-income {
+  font-size: 0.8rem;
+  color: var(--income, #28a745);
+}
+
+.ad-card-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  margin: 0.5rem 0;
+}
+
+.ad-card-stats span {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9rem;
+}
