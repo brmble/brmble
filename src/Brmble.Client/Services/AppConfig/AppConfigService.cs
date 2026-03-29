@@ -145,9 +145,14 @@ internal sealed class AppConfigService : IAppConfigService
             var i = _servers.FindIndex(s => s.Id == server.Id);
             if (i >= 0)
             {
-                // Replace the existing entry wholesale with the incoming server entry.
-                // The frontend sends a full ServerEntry on edit, so this allows fields to be cleared.
-                _servers[i] = server;
+                // Preserve the existing password when the incoming update omits it.
+                // Registration-status updates from the frontend don't carry the password
+                // (it's kept in secure storage, not localStorage), so a wholesale replace
+                // would wipe it.
+                var merged = string.IsNullOrEmpty(server.Password)
+                    ? server with { Password = _servers[i].Password }
+                    : server;
+                _servers[i] = merged;
                 Save();
                 return _servers[i];
             }

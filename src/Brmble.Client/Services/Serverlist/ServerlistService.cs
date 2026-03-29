@@ -88,7 +88,11 @@ internal sealed class ServerlistService : IServerlistService
             var index = _servers.FindIndex(s => s.Id == server.Id);
             if (index >= 0)
             {
-                _servers[index] = server;
+                // Preserve the existing password when the incoming update omits it.
+                var merged = string.IsNullOrEmpty(server.Password)
+                    ? server with { Password = _servers[index].Password }
+                    : server;
+                _servers[index] = merged;
                 Save();
                 return _servers[index];
             }

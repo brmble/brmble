@@ -629,7 +629,9 @@ function App() {
         }
       }
 
-      // Persist Mumble registration status to the saved server entry
+      // Persist Mumble registration status to the saved server entry.
+      // Password is intentionally omitted here (not stored in localStorage);
+      // the backend preserves the existing password when an update omits it.
       const reg = data as { registered?: boolean; registeredName?: string } | undefined;
       if (reg?.registered) {
         try {
@@ -637,9 +639,8 @@ function App() {
           if (stored) {
             const savedServer = JSON.parse(stored) as SavedServer;
             if (savedServer.id) {
-              const { password } = savedServer;
               const updated = { ...savedServer, registered: true, registeredName: reg.registeredName };
-              bridge.send('servers.update', { ...updated, password });
+              bridge.send('servers.update', updated);
               localStorage.setItem('brmble-server', JSON.stringify(updated));
             }
           }
@@ -651,9 +652,8 @@ function App() {
           if (stored) {
             const savedServer = JSON.parse(stored) as SavedServer;
             if (savedServer.id && savedServer.registered) {
-              const { password } = savedServer;
               const updated = { ...savedServer, registered: false, registeredName: undefined };
-              bridge.send('servers.update', { ...updated, password });
+              bridge.send('servers.update', updated);
               localStorage.setItem('brmble-server', JSON.stringify(updated));
             }
           }
@@ -1148,13 +1148,14 @@ function App() {
     const onRegistrationStatus = (data: unknown) => {
       const d = data as { serverId?: string; registered?: boolean; registeredName?: string } | undefined;
       if (!d?.registered || !d.serverId) return;
+      // Password is intentionally omitted (not in localStorage);
+      // the backend preserves the existing password when an update omits it.
       try {
         const stored = localStorage.getItem('brmble-server');
         if (stored) {
           const savedServer = JSON.parse(stored) as SavedServer;
           if (savedServer.id === d.serverId) {
-            const { password, ...safeServerData } = savedServer;
-            const updated = { ...safeServerData, registered: true, registeredName: d.registeredName };
+            const updated = { ...savedServer, registered: true, registeredName: d.registeredName };
             bridge.send('servers.update', updated);
             localStorage.setItem('brmble-server', JSON.stringify(updated));
           }
