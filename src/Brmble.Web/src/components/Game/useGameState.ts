@@ -718,11 +718,16 @@ export function useGameState() {
         const updatedInvestments = prev.activeInvestments.map(inv => {
           if (inv.status !== 'running') return inv;
           
+          const ad = prev.advertisements.find(a => a.id === inv.adId);
+          if (!ad) return inv;
+          
           const elapsed = now - inv.startTime;
-          if (elapsed >= inv.durationMs) {
+          
+          if (elapsed >= ad.timeLimitMs) {
             hasChanges = true;
             return { ...inv, status: 'ready' as InvestmentStatus };
           }
+          
           return inv;
         });
         
