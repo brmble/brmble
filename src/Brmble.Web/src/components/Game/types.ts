@@ -21,10 +21,13 @@ export interface ActiveInvestment {
   adId: string;
   licenseId: string;
   startTime: number;
-  durationMs: number;
-  payout: number;
+  volumeKB: number;              // total KB to process
+  passiveIncomePerSec: number;  // $/sec earned while active
+  marginPerKB: number;          // $/KB earned at completion
+  buyPrice: number;             // initial investment cost
+  breachFee: number;            // cost to cancel early
+  expectedTotalPayout: number;  // for breach calculation
   status: InvestmentStatus;
-  volumeKB: number;
 }
 
 export interface AdBonus {
