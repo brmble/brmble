@@ -379,6 +379,18 @@ static class Program
             TaskbarBadge.SetHasBadge(hasUnreadDMs || hasPendingInvite);
             return Task.CompletedTask;
         });
+
+        _bridge.RegisterHandler("notification.theme", data =>
+        {
+            var theme = data.TryGetProperty("theme", out var t) ? t.GetString() : null;
+            if (!string.IsNullOrEmpty(theme))
+            {
+                TrayIcon.SetTheme(theme);
+                TaskbarBadge.SetTheme(theme);
+                Win32Window.SetWindowIcon(_hwnd, theme);
+            }
+            return Task.CompletedTask;
+        });
     }
  
     private static void TryAutoConnect()
