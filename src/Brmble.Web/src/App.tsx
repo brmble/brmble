@@ -25,7 +25,7 @@ import { CloseDialog } from './components/CloseDialog/CloseDialog';
 import { CertWizard } from './components/CertWizard/CertWizard';
 import { Version } from './components/Version/Version';
 import { ZoomIndicator } from './components/ZoomIndicator/ZoomIndicator';
-import { useChatStore, addMessageToStore, clearChatStorage } from './hooks/useChatStore';
+import { useChatStore, addMessageToStore, clearChatStorage, purgeEphemeralMessages } from './hooks/useChatStore';
 import { parseMessageMedia } from './utils/parseMessageMedia';
 import { useDMStore } from './hooks/useDMStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
@@ -663,6 +663,7 @@ function App() {
 
     const onVoiceDisconnected = (data: unknown) => {
       clearPendingAction();
+      purgeEphemeralMessages('server-root');
       const d = data as { reconnectAvailable?: boolean } | null;
 
       if (d?.reconnectAvailable && userSawConnectedRef.current) {
@@ -787,9 +788,9 @@ function App() {
       if (d?.message) {
         const currentKey = currentChannelIdRef.current;
         if (currentKey === 'server-root') {
-          addMessageRef.current('Server', d.message, 'system', d.html);
+          addMessageRef.current('Server', d.message, 'system', d.html, undefined, d.systemType);
         } else {
-          addMessageToStore('server-root', 'Server', d.message, 'system', d.html);
+          addMessageToStore('server-root', 'Server', d.message, 'system', d.html, undefined, d.systemType);
         }
       }
     });
