@@ -439,7 +439,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                   <line x1="12" y1="17" x2="12" y2="21"/>
                 </svg>
               ),
-              onClick: () => {
+onClick: () => {
                 const channelId = contextMenu.channelId ?? currentChannelId;
                 onWatchScreenShare?.(`channel-${channelId}`);
               },
