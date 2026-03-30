@@ -111,11 +111,21 @@ Confirmation to UI
    - Admin can force re-sync from the channel edit UI
    - Shows sync status per channel: "synced", "pending", "failed"
 
+### Channel Deletion Cleanup
+
+When a channel is deleted in Brmble:
+
+1. Delete all `ModeratorAssignment` records where `channel_id` matches
+2. Send command to Mumble to remove the `brmble_mod_<channelId>` ACL group
+3. Log deletion for audit purposes
+
+If Mumble cleanup fails, log error and add to retry queue (similar to sync failures above).
+
 ## Permission Enforcement
 
 ### Dual-Validation Flow
 
-1. Client sends moderation action (kick, ban, rename, etc.)
+1. Client sends moderation action (kick, deny-enter, rename, etc.)
 2. Server extracts: requesting user, target channel, action type
 3. **Brmble validation:**
    - Query `ModeratorAssignment` for user + channel
@@ -127,6 +137,16 @@ Confirmation to UI
 5. **Decision:**
    - Both pass → Execute action
    - Either fails → Reject with 403 Forbidden
+
+### Admin Override
+
+Global admins always bypass moderator permission checks. The PermissionEnforcer checks admin status **before** evaluating moderator role permissions:
+
+1. Is requesting user a global admin?
+   - Yes → Allow action, skip remaining checks
+   - No → Continue to moderator permission validation
+
+This ensures an admin assigning themselves a lower moderator role cannot accidentally lock themselves out of admin capabilities.
 
 ### Actions and Required Permissions
 
