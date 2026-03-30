@@ -61,8 +61,10 @@ export function flushPendingWrites(channelId: string) {
 }
 
 /**
- * Purge ephemeral messages (connecting, welcome, userJoined, userLeft)
- * from localStorage for the given channel. Flushes the debounce buffer first.
+ * Purge ephemeral messages from localStorage for the given channel.
+ * Removes messages with ephemeral systemType (connecting, welcome, userJoined, userLeft)
+ * AND legacy server messages that predate the systemType field.
+ * Flushes the debounce buffer first.
  */
 export function purgeEphemeralMessages(channelId: string) {
   flushPendingWrites(channelId);
@@ -78,9 +80,14 @@ export function purgeEphemeralMessages(channelId: string) {
     return;
   }
 
-  const filtered = messages.filter(
-    (m) => !m.systemType || !EPHEMERAL_TYPES.has(m.systemType)
-  );
+  const filtered = messages.filter((m) => {
+    // New messages: purge if systemType is ephemeral
+    if (m.systemType) return !EPHEMERAL_TYPES.has(m.systemType);
+    // Legacy server messages without systemType: purge (predates classification)
+    if (m.sender === 'Server') return false;
+    // User-sent messages: always keep
+    return true;
+  });
 
   if (filtered.length === 0) {
     localStorage.removeItem(fullKey);

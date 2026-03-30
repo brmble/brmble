@@ -115,6 +115,23 @@ describe('purgeEphemeralMessages', () => {
     expect(stored[1].content).toBe('Hello');
   });
 
+  it('purges legacy server messages without systemType', () => {
+    const messages = [
+      { id: '1', channelId: 'server-root', sender: 'Server', content: 'Alice disconnected from the server', timestamp: new Date().toISOString(), type: 'system' },
+      { id: '2', channelId: 'server-root', sender: 'Server', content: 'Bob connected to the server', timestamp: new Date().toISOString(), type: 'system' },
+      { id: '3', channelId: 'server-root', sender: 'User', content: 'Hello everyone', timestamp: new Date().toISOString() },
+      { id: '4', channelId: 'server-root', sender: 'Server', content: 'You were kicked', timestamp: new Date().toISOString(), type: 'system', systemType: 'kicked' },
+    ];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
+
+    purgeEphemeralMessages('server-root');
+
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
+    expect(stored).toHaveLength(2);
+    expect(stored[0].content).toBe('Hello everyone');
+    expect(stored[1].content).toBe('You were kicked');
+  });
+
   it('handles empty localStorage gracefully', () => {
     purgeEphemeralMessages('server-root');
     // Should not throw
