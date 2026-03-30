@@ -1413,7 +1413,6 @@ const handleConnect = (serverData: SavedServer) => {
       setCurrentChannelId(String(channelId));
       setCurrentChannelName(channel.name);
       setUnreadCount(0);
-      updateBadge(0, hasPendingInvite);
       setShowGame(false);
 
       if (dmStore.appMode === 'dm') {
@@ -1511,7 +1510,6 @@ const handleConnect = (serverData: SavedServer) => {
     }
 
     setUnreadCount(0);
-    updateBadge(0, hasPendingInvite);
   };
 
   const handleDismissMessage = (messageId: string) => {
