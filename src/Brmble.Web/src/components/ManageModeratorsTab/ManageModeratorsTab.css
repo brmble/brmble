@@ -1,0 +1,128 @@
+.manage-moderators-tab {
+  padding: var(--spacing-md);
+}
+
+.moderator-view-only-banner,
+.moderator-view-banner {
+  padding: var(--spacing-sm) var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+}
+
+.moderator-view-only-banner {
+  background: var(--color-warning-bg, rgba(255, 193, 7, 0.1));
+  border: 1px solid var(--color-warning, #ffc107);
+  color: var(--color-warning-text, #856404);
+}
+
+.moderator-view-banner {
+  background: var(--color-info-bg, rgba(0, 123, 255, 0.1));
+  border: 1px solid var(--color-info, #007bff);
+  color: var(--color-info-text, #004085);
+}
+
+.moderators-section,
+.roles-section {
+  margin-bottom: var(--spacing-lg);
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-md);
+}
+
+.moderator-list,
+.role-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.moderator-row,
+.role-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+}
+
+.moderator-info,
+.role-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.moderator-user-id {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.moderator-role-name,
+.role-name {
+  font-weight: 500;
+}
+
+.moderator-permissions,
+.role-permissions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+}
+
+.permission-badge {
+  padding: 2px var(--spacing-xs);
+  font-size: var(--font-size-xs);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+
+.permission-badge.granted {
+  background: var(--color-success-bg, rgba(40, 167, 69, 0.1));
+  color: var(--color-success, #28a745);
+}
+
+.role-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+}
+
+.form-group {
+  margin-bottom: var(--spacing-md);
+}
+
+.form-label {
+  display: block;
+  margin-bottom: var(--spacing-xs);
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.permission-checkboxes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.permission-checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  cursor: pointer;
+}
+
+.permission-checkbox input {
+  width: auto;
+}
+
+.empty-state {
+  color: var(--text-muted);
+  font-style: italic;
+}
