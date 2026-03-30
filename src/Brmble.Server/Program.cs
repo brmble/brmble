@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Brmble.Server.Data;
 using Brmble.Server.LiveKit;
 using Brmble.Server.Matrix;
+using Brmble.Server.Moderator;
 using Brmble.Server.Mumble;
 using Brmble.Server.ServerInfo;
 using Brmble.Server.WebSockets;
@@ -39,6 +40,7 @@ builder.Services.AddOptions<ServerInfoSettings>()
     .BindConfiguration("ServerInfo");
 builder.Services.AddReverseProxy()
     .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
+builder.Services.AddSingleton<IMumbleGroupSyncService, MumbleGroupSyncService>();
 
 var app = builder.Build();
 
