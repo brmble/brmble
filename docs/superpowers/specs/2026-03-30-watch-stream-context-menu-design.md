@@ -7,7 +7,7 @@ Approved
 Add "Watch Stream" to the user context menu in the channel list. The item appears near the top alongside "Direct Message" and "User Info", but only when the right-clicked user is currently sharing their screen.
 
 ## Placement
-- Position: After "User Info" in the context menu
+- Position: **First item** in the context menu (before Direct Message)
 - Only rendered when `user.session === sharingUserSession`
 
 ## Behavior
@@ -24,7 +24,7 @@ Add "Watch Stream" to the user context menu in the channel list. The item appear
 `src/Brmble.Web/src/components/Sidebar/ChannelTree.tsx`
 
 ### Location
-Inside the user context menu items array (~line 453, after User Info)
+Inside the user context menu items array (~line 432, as first item)
 
 ### Code
 ```tsx
