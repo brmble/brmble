@@ -78,9 +78,24 @@ export function useModeratorPermissions(channelId: number | null) {
       }
     };
 
+    const handleRoleCreated = () => loadRoles();
+    const handleRoleUpdated = () => loadRoles();
+    const handleRoleDeleted = () => loadRoles();
+    const handleAssigned = () => {
+      if (channelId !== null) loadModerators(channelId);
+    };
+    const handleRemoved = () => {
+      if (channelId !== null) loadModerators(channelId);
+    };
+
     bridge.on('moderator.roles', handleRoles);
     bridge.on('moderator.channelModerators', handleModerators);
     bridge.on('moderator.currentUserPermissions', handleCurrentUserPermissions);
+    bridge.on('moderator.roleCreated', handleRoleCreated);
+    bridge.on('moderator.roleUpdated', handleRoleUpdated);
+    bridge.on('moderator.roleDeleted', handleRoleDeleted);
+    bridge.on('moderator.assigned', handleAssigned);
+    bridge.on('moderator.removed', handleRemoved);
 
     loadRoles();
 
@@ -88,6 +103,11 @@ export function useModeratorPermissions(channelId: number | null) {
       bridge.off('moderator.roles', handleRoles);
       bridge.off('moderator.channelModerators', handleModerators);
       bridge.off('moderator.currentUserPermissions', handleCurrentUserPermissions);
+      bridge.off('moderator.roleCreated', handleRoleCreated);
+      bridge.off('moderator.roleUpdated', handleRoleUpdated);
+      bridge.off('moderator.roleDeleted', handleRoleDeleted);
+      bridge.off('moderator.assigned', handleAssigned);
+      bridge.off('moderator.removed', handleRemoved);
     };
   }, [loadRoles]);
 
