@@ -18,7 +18,7 @@ public class MumbleGroupSyncService : IMumbleGroupSyncService
 
     private static string GetGroupName(int channelId) => $"brmble_mod_{channelId}";
 
-    public async Task AddUserToChannelGroupAsync(int userId, int channelId)
+    public Task AddUserToChannelGroupAsync(int userId, int channelId)
     {
         var groupName = GetGroupName(channelId);
         _logger.LogInformation("Adding user {UserId} to Mumble group {GroupName}", userId, groupName);
@@ -27,9 +27,10 @@ public class MumbleGroupSyncService : IMumbleGroupSyncService
         // This requires looking up the Mumble ICE API for ACL group management
         
         _logger.LogDebug("Mumble group add: user {UserId} to group {GroupName} (stub)", userId, groupName);
+        return Task.CompletedTask;
     }
 
-    public async Task RemoveUserFromChannelGroupAsync(int userId, int channelId)
+    public Task RemoveUserFromChannelGroupAsync(int userId, int channelId)
     {
         var groupName = GetGroupName(channelId);
         _logger.LogInformation("Removing user {UserId} from Mumble group {GroupName}", userId, groupName);
@@ -37,6 +38,7 @@ public class MumbleGroupSyncService : IMumbleGroupSyncService
         // TODO: Implement actual Mumble ICE call to remove user from ACL group
         
         _logger.LogDebug("Mumble group remove: user {UserId} from group {GroupName} (stub)", userId, groupName);
+        return Task.CompletedTask;
     }
 
     public async Task<bool> SyncAssignmentAsync(string assignmentId, int userId, int channelId, bool add)
