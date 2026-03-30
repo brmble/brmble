@@ -60,6 +60,7 @@ app.MapDmEndpoints();
 app.Map("/ws", BrmbleWebSocketHandler.HandleAsync);
 app.MapServerInfoEndpoints();
 app.MapLiveKitEndpoints();
+app.MapModeratorEndpoints();
 app.MapReverseProxy();
 
 app.Run();
