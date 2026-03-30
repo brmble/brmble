@@ -25,6 +25,11 @@ public sealed class R8BrainResampler : IDisposable
         if (_handle == IntPtr.Zero)
             throw new ObjectDisposedException(nameof(R8BrainResampler));
 
+        if (input.Length > _maxInLen)
+            throw new ArgumentException(
+                $"Input length {input.Length} exceeds maxInLen {_maxInLen} configured at construction",
+                nameof(input));
+
         var pinned = GCHandle.Alloc(input, GCHandleType.Pinned);
         try
         {

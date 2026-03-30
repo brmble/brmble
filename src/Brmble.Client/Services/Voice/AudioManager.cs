@@ -228,6 +228,7 @@ private int _screenShareHotkeyId = -1;
     // Device→48kHz resampler (r8brain)
     private R8BrainResampler? _deviceResampler;
     private int _deviceSampleRate;
+    private int _deviceMaxInLen;
 
     // RNNoise denoising
     private RnnoiseService? _rnnoise;
@@ -500,10 +501,9 @@ private int _screenShareHotkeyId = -1;
         {
             if (_micStarted || _muted) return;
 
-            _encodePipeline ??= new EncodePipeline(
-                sampleRate: 48000, channels: 1, bitrate: _opusBitrate,
-                onPacketReady: packet => SendVoicePacket?.Invoke(packet),
-                frameSize: 48000 / 1000 * _opusFrameMs);
+            _micStarted = true;
+            if (_encodePipeline == null)
+                RecreateEncodePipelineLocked();
 
             if (_waveIn == null)
             {
@@ -575,7 +575,6 @@ private int _screenShareHotkeyId = -1;
             }
 
             _waveIn.StartRecording();
-            _micStarted = true;
             AudioLog.Write("[Audio] Mic started");
         }
     }
@@ -590,6 +589,8 @@ private int _screenShareHotkeyId = -1;
             _waveIn?.StopRecording();
             _encodePipeline?.Dispose();
             _encodePipeline = null;
+            _deviceResampler?.Dispose();
+            _deviceResampler = null;
             _micStarted = false;
             AudioLog.Write("[Audio] Mic stopped");
         }
@@ -685,11 +686,12 @@ private int _screenShareHotkeyId = -1;
             int srcRate = fmt.SampleRate;
             if (srcRate != 48000)
             {
-                // Create or recreate r8brain resampler if device rate changed
-                if (_deviceResampler == null || _deviceSampleRate != srcRate)
+                // Create or recreate r8brain resampler if device rate changed or buffer exceeds maxInLen
+                if (_deviceResampler == null || _deviceSampleRate != srcRate || monoFrames > _deviceMaxInLen)
                 {
                     _deviceResampler?.Dispose();
                     _deviceSampleRate = srcRate;
+                    _deviceMaxInLen = monoFrames;
                     _deviceResampler = new R8BrainResampler(srcRate, 48000, monoFrames);
                 }
 
@@ -699,16 +701,15 @@ private int _screenShareHotkeyId = -1;
                 for (int i = 0; i < monoFrames; i++)
                     _resampleDoubleScratch[i] = _wasapiMonoScratch[i];
 
-                var inputSlice = new double[monoFrames];
-                Array.Copy(_resampleDoubleScratch, inputSlice, monoFrames);
+                int outSamples = _deviceResampler.Process(_resampleDoubleScratch, out double[] resampledDouble);
 
-                int outSamples = _deviceResampler.Process(inputSlice, out double[] resampledDouble);
-
-                var resampled = new float[outSamples];
+                // Reuse mono scratch buffer for float conversion
+                if (_wasapiMonoScratch == null || _wasapiMonoScratch.Length < outSamples)
+                    _wasapiMonoScratch = new float[outSamples];
                 for (int i = 0; i < outSamples; i++)
-                    resampled[i] = (float)resampledDouble[i];
+                    _wasapiMonoScratch[i] = (float)resampledDouble[i];
 
-                monoAt48k = resampled;
+                monoAt48k = _wasapiMonoScratch;
                 monoFrames = outSamples;
             }
             else
