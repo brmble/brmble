@@ -152,6 +152,33 @@ describe('purgeEphemeralMessages', () => {
     expect(stored).toHaveLength(1);
     expect(stored[0].content).toBe('You were banned');
   });
+
+  it('flushes hook-based debounce before purging and prevents stale overwrite', () => {
+    const { result } = renderHook(() => useChatStore('server-root'));
+
+    // Add an ephemeral and a persistent message via the hook (debounce pending)
+    act(() => {
+      result.current.addMessage('Server', 'Alice joined', 'system', false, undefined, 'userJoined');
+      result.current.addMessage('Server', 'You were kicked', 'system', false, undefined, 'kicked');
+    });
+
+    // React state has both messages, localStorage write is still debounced
+    expect(result.current.messages).toHaveLength(2);
+
+    // Purge should flush the hook debounce first, then remove ephemeral messages
+    purgeEphemeralMessages('server-root');
+
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
+    expect(stored).toHaveLength(1);
+    expect(stored[0].content).toBe('You were kicked');
+
+    // Advance timers — the old hookTimer should NOT fire and overwrite with stale data
+    vi.advanceTimersByTime(600);
+
+    const afterTimer = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
+    expect(afterTimer).toHaveLength(1);
+    expect(afterTimer[0].content).toBe('You were kicked');
+  });
 });
 
 describe('debounced localStorage writes', () => {

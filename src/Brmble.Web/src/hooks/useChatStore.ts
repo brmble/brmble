@@ -50,13 +50,15 @@ function flushBgBuffer() {
 }
 
 /**
- * Flush any pending background (addMessageToStore) writes for a given channel.
- * Does not flush the hook-based debounce timer — that is flushed automatically
- * when the hook unmounts or the channel changes.
+ * Flush any pending debounced writes for a given channel.
+ * Flushes both the background buffer (addMessageToStore) and the hook-based
+ * debounce timer (useChatStore's saveMessages) to ensure localStorage is
+ * fully up-to-date before reads or purges.
  */
 export function flushPendingWrites(channelId: string) {
   if (channelId === SERVER_ROOT_KEY) {
     flushBgBuffer();
+    flushHookTimer();
   }
 }
 
@@ -97,16 +99,39 @@ export function purgeEphemeralMessages(channelId: string) {
 }
 
 // --- Hook-based debounce timer for server-root ---
+//
+// The pending payload (hookPendingKey/hookPendingMsgs) is stored at module level
+// so that flushPendingWrites() can flush both the background buffer AND the hook
+// debounce path. This prevents purgeEphemeralMessages() from missing pending
+// hook writes that could overwrite the purge result.
 
 let hookTimer: ReturnType<typeof setTimeout> | null = null;
+let hookPendingKey: string | null = null;
+let hookPendingMsgs: ChatMessage[] | null = null;
+
+function flushHookTimer() {
+  if (hookTimer !== null) {
+    clearTimeout(hookTimer);
+    hookTimer = null;
+  }
+  if (hookPendingKey !== null && hookPendingMsgs !== null) {
+    localStorage.setItem(hookPendingKey, JSON.stringify(hookPendingMsgs));
+    hookPendingKey = null;
+    hookPendingMsgs = null;
+  }
+}
 
 function debouncedSave(fullKey: string, msgs: ChatMessage[]) {
   if (hookTimer !== null) {
     clearTimeout(hookTimer);
   }
+  hookPendingKey = fullKey;
+  hookPendingMsgs = msgs;
   hookTimer = setTimeout(() => {
     hookTimer = null;
     localStorage.setItem(fullKey, JSON.stringify(msgs));
+    hookPendingKey = null;
+    hookPendingMsgs = null;
   }, DEBOUNCE_MS);
 }
 
@@ -119,10 +144,7 @@ export function useChatStore(channelId: string) {
     // so we read the latest data.
     if (isServerRoot) {
       flushBgBuffer();
-      if (hookTimer !== null) {
-        clearTimeout(hookTimer);
-        hookTimer = null;
-      }
+      flushHookTimer();
     }
 
     const stored = localStorage.getItem(`${STORAGE_KEY_PREFIX}${channelId}`);
@@ -139,6 +161,14 @@ export function useChatStore(channelId: string) {
     } else {
       setMessages([]);
     }
+
+    // Cleanup: flush pending hook writes on unmount or channel change
+    // to prevent stale/unpurged data from being written after disconnect.
+    return () => {
+      if (isServerRoot) {
+        flushHookTimer();
+      }
+    };
   }, [channelId, isServerRoot]);
 
   const saveMessages = useCallback((msgs: ChatMessage[]) => {
