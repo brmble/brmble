@@ -323,7 +323,6 @@ private int _screenShareHotkeyId = -1;
                 sampleRate: 48000, channels: 1, bitrate: _opusBitrate,
                 onPacketReady: packet => SendVoicePacket?.Invoke(packet),
                 frameSize: 48000 / 1000 * _opusFrameMs);
-            _encodePipeline.ResetSequence();
         }
     }
 
