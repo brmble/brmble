@@ -8,7 +8,15 @@ const DEBOUNCE_MS = 500;
 
 const EPHEMERAL_TYPES = new Set(['connecting', 'welcome', 'userJoined', 'userLeft']);
 
-// --- Debounce infrastructure for server-root background writes ---
+// --- Debounce infrastructure for server-root ---
+//
+// Two independent debounce paths exist for server-root localStorage writes:
+//   1. bgBuffer/bgTimer — used by addMessageToStore() when the user is NOT viewing server-root
+//   2. hookTimer/debouncedSave — used by the useChatStore hook when the user IS viewing server-root
+//
+// These paths are mutually exclusive by design: App.tsx routes messages through addMessageToStore
+// when server-root is not the active channel, and through the hook's addMessage when it is.
+// The useChatStore useEffect flushes bgBuffer on mount to prevent data loss on channel switch.
 
 let bgBuffer: ChatMessage[] = [];
 let bgTimer: ReturnType<typeof setTimeout> | null = null;
@@ -42,8 +50,9 @@ function flushBgBuffer() {
 }
 
 /**
- * Flush any pending debounced writes for a given channel.
- * Currently only server-root has debounced writes.
+ * Flush any pending background (addMessageToStore) writes for a given channel.
+ * Does not flush the hook-based debounce timer — that is flushed automatically
+ * when the hook unmounts or the channel changes.
  */
 export function flushPendingWrites(channelId: string) {
   if (channelId === SERVER_ROOT_KEY) {

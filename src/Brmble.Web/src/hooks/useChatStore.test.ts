@@ -149,12 +149,10 @@ describe('debounced localStorage writes', () => {
     expect(result.current.messages).toHaveLength(1);
 
     // localStorage not yet written (debounce pending)
+    // Either null (never written) or stale (doesn't contain the new message)
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      // Should not contain the new message yet
-      expect(parsed.find((m: { content: string }) => m.content === 'test msg')).toBeUndefined();
-    }
+    const parsed = stored ? JSON.parse(stored) : [];
+    expect(parsed.find((m: { content: string }) => m.content === 'test msg')).toBeUndefined();
   });
 
   it('writes to localStorage after debounce period', () => {
