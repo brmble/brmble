@@ -52,18 +52,22 @@ public class SyncFailedAssignmentRepository
     public async Task IncrementRetryAsync(string id, string errorMessage)
     {
         using var conn = _db.CreateConnection();
-        var existing = await conn.QuerySingleOrDefaultAsync<SyncFailedAssignment>(
-            "SELECT * FROM sync_failed_assignments WHERE id = @Id", new { Id = id });
-        if (existing == null) return;
-
-        var nextDelayIndex = Math.Min(existing.RetryCount, RetryDelays.Length - 1);
-        var nextRetryAt = DateTime.UtcNow.AddSeconds(RetryDelays[nextDelayIndex]);
-        var retryCount = existing.RetryCount + 1;
-
-        await conn.ExecuteAsync(
-            @"UPDATE sync_failed_assignments SET retry_count = @RetryCount, next_retry_at = @NextRetryAt, error_message = @ErrorMessage
-              WHERE id = @Id",
-            new { Id = id, RetryCount = retryCount, NextRetryAt = nextRetryAt, ErrorMessage = errorMessage });
+        
+        var sql = @"
+            UPDATE sync_failed_assignments 
+            SET retry_count = retry_count + 1,
+                next_retry_at = datetime('now', '+' || 
+                    CASE 
+                        WHEN retry_count = 0 THEN 30
+                        WHEN retry_count = 1 THEN 60
+                        WHEN retry_count = 2 THEN 120
+                        WHEN retry_count = 3 THEN 240
+                        ELSE 480
+                    END || ' seconds'),
+                error_message = @ErrorMessage
+            WHERE id = @Id";
+        
+        await conn.ExecuteAsync(sql, new { Id = id, ErrorMessage = errorMessage });
     }
 
     public async Task RemoveAsync(string id)

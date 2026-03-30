@@ -48,12 +48,29 @@ public class ModeratorRoleRepository
     public async Task UpdateAsync(string id, string? name = null, ModeratorPermissions? permissions = null)
     {
         using var conn = _db.CreateConnection();
-        var existing = await GetByIdAsync(id);
-        if (existing == null) return;
-
-        await conn.ExecuteAsync(
-            "UPDATE moderator_roles SET name = @Name, permissions = @Permissions, updated_at = @UpdatedAt WHERE id = @Id",
-            new { Id = id, Name = name ?? existing.Name, Permissions = permissions ?? existing.Permissions, UpdatedAt = DateTime.UtcNow });
+        
+        var updates = new List<string>();
+        var args = new DynamicParameters();
+        args.Add("Id", id);
+        
+        if (name != null)
+        {
+            updates.Add("name = @Name");
+            args.Add("Name", name);
+        }
+        if (permissions != null)
+        {
+            updates.Add("permissions = @Permissions");
+            args.Add("Permissions", permissions);
+        }
+        
+        if (updates.Count == 0) return;
+        
+        updates.Add("updated_at = @UpdatedAt");
+        args.Add("UpdatedAt", DateTime.UtcNow);
+        
+        var sql = $"UPDATE moderator_roles SET {string.Join(", ", updates)} WHERE id = @Id";
+        await conn.ExecuteAsync(sql, args);
     }
 
     public async Task DeleteAsync(string id)
