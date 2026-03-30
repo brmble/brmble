@@ -48,6 +48,7 @@ builder.Services.AddSingleton<ModeratorService>();
 builder.Services.AddSingleton<IModeratorService>(sp => (IModeratorService)sp.GetRequiredService<ModeratorService>());
 builder.Services.AddSingleton<IModeratorPermissionChecker>(sp => (IModeratorPermissionChecker)sp.GetRequiredService<ModeratorService>());
 builder.Services.AddSingleton<PermissionEnforcer>();
+builder.Services.AddHostedService<SyncRetryBackgroundService>();
 
 var app = builder.Build();
 
