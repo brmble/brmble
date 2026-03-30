@@ -75,5 +75,45 @@ namespace MumbleVoiceEngine.Tests.Codec
             int len = encoder.Encode(pcm, 0, encoded, 0, 960);
             Assert.IsTrue(len > 0);
         }
+
+        [TestMethod]
+        public void Encoder_ComplexityProperty_CanBeSet()
+        {
+            using var encoder = new OpusEncoder(48000, 1);
+            encoder.Complexity = 10;
+            Assert.AreEqual(10, encoder.Complexity);
+        }
+
+        [TestMethod]
+        public void Encoder_SignalTypeProperty_CanBeSet()
+        {
+            using var encoder = new OpusEncoder(48000, 1);
+            encoder.SignalType = OpusSignalType.Voice;
+            Assert.AreEqual(OpusSignalType.Voice, encoder.SignalType);
+        }
+
+        [TestMethod]
+        public void Encoder_BandwidthProperty_CanBeSet()
+        {
+            using var encoder = new OpusEncoder(48000, 1);
+            encoder.Bandwidth = OpusBandwidth.Fullband;
+            Assert.AreEqual(OpusBandwidth.Fullband, encoder.Bandwidth);
+        }
+
+        [TestMethod]
+        public void Encoder_DtxProperty_CanBeSet()
+        {
+            using var encoder = new OpusEncoder(48000, 1);
+            encoder.Dtx = true;
+            Assert.IsTrue(encoder.Dtx);
+        }
+
+        [TestMethod]
+        public void Encoder_PacketLossPercentageProperty_CanBeSet()
+        {
+            using var encoder = new OpusEncoder(48000, 1);
+            encoder.PacketLossPercentage = 3;
+            Assert.AreEqual(3, encoder.PacketLossPercentage);
+        }
     }
 }

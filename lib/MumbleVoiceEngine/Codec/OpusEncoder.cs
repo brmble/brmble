@@ -220,6 +220,131 @@ namespace MumbleVoiceEngine.Codec
         }
 
         /// <summary>
+        /// Gets or sets the encoder computational complexity (0-10).
+        /// </summary>
+        public int Complexity
+        {
+            get
+            {
+                if (_encoder == IntPtr.Zero)
+                    throw new ObjectDisposedException("OpusEncoder");
+                int value;
+                var ret = NativeMethods.opus_encoder_ctl_out(_encoder, NativeMethods.Ctl.GetComplexityRequest, out value);
+                if (ret < 0)
+                    throw new Exception("Encoder error - " + ((NativeMethods.OpusErrors)ret));
+                return value;
+            }
+            set
+            {
+                if (_encoder == IntPtr.Zero)
+                    throw new ObjectDisposedException("OpusEncoder");
+                var ret = NativeMethods.opus_encoder_ctl(_encoder, NativeMethods.Ctl.SetComplexityRequest, value);
+                if (ret < 0)
+                    throw new Exception("Encoder error - " + ((NativeMethods.OpusErrors)ret));
+            }
+        }
+
+        /// <summary>
+        /// Gets or sets the signal type hint for the encoder.
+        /// </summary>
+        public OpusSignalType SignalType
+        {
+            get
+            {
+                if (_encoder == IntPtr.Zero)
+                    throw new ObjectDisposedException("OpusEncoder");
+                int value;
+                var ret = NativeMethods.opus_encoder_ctl_out(_encoder, NativeMethods.Ctl.GetSignalRequest, out value);
+                if (ret < 0)
+                    throw new Exception("Encoder error - " + ((NativeMethods.OpusErrors)ret));
+                return (OpusSignalType)value;
+            }
+            set
+            {
+                if (_encoder == IntPtr.Zero)
+                    throw new ObjectDisposedException("OpusEncoder");
+                var ret = NativeMethods.opus_encoder_ctl(_encoder, NativeMethods.Ctl.SetSignalRequest, (int)value);
+                if (ret < 0)
+                    throw new Exception("Encoder error - " + ((NativeMethods.OpusErrors)ret));
+            }
+        }
+
+        /// <summary>
+        /// Gets or sets the encoder bandwidth.
+        /// </summary>
+        public OpusBandwidth Bandwidth
+        {
+            get
+            {
+                if (_encoder == IntPtr.Zero)
+                    throw new ObjectDisposedException("OpusEncoder");
+                int value;
+                var ret = NativeMethods.opus_encoder_ctl_out(_encoder, NativeMethods.Ctl.GetBandwidthRequest, out value);
+                if (ret < 0)
+                    throw new Exception("Encoder error - " + ((NativeMethods.OpusErrors)ret));
+                return (OpusBandwidth)value;
+            }
+            set
+            {
+                if (_encoder == IntPtr.Zero)
+                    throw new ObjectDisposedException("OpusEncoder");
+                var ret = NativeMethods.opus_encoder_ctl(_encoder, NativeMethods.Ctl.SetBandwidthRequest, (int)value);
+                if (ret < 0)
+                    throw new Exception("Encoder error - " + ((NativeMethods.OpusErrors)ret));
+            }
+        }
+
+        /// <summary>
+        /// Gets or sets whether Discontinuous Transmission is enabled.
+        /// </summary>
+        public bool Dtx
+        {
+            get
+            {
+                if (_encoder == IntPtr.Zero)
+                    throw new ObjectDisposedException("OpusEncoder");
+                int value;
+                var ret = NativeMethods.opus_encoder_ctl_out(_encoder, NativeMethods.Ctl.GetDtxRequest, out value);
+                if (ret < 0)
+                    throw new Exception("Encoder error - " + ((NativeMethods.OpusErrors)ret));
+                return value > 0;
+            }
+            set
+            {
+                if (_encoder == IntPtr.Zero)
+                    throw new ObjectDisposedException("OpusEncoder");
+                var ret = NativeMethods.opus_encoder_ctl(_encoder, NativeMethods.Ctl.SetDtxRequest, Convert.ToInt32(value));
+                if (ret < 0)
+                    throw new Exception("Encoder error - " + ((NativeMethods.OpusErrors)ret));
+            }
+        }
+
+        /// <summary>
+        /// Gets or sets the expected packet loss percentage (0-100).
+        /// </summary>
+        public int PacketLossPercentage
+        {
+            get
+            {
+                if (_encoder == IntPtr.Zero)
+                    throw new ObjectDisposedException("OpusEncoder");
+                int value;
+                var ret = NativeMethods.opus_encoder_ctl_out(_encoder, NativeMethods.Ctl.GetPacketLossPercRequest, out value);
+                if (ret < 0)
+                    throw new Exception("Encoder error - " + ((NativeMethods.OpusErrors)ret));
+                return value;
+            }
+            set
+            {
+                if (_encoder == IntPtr.Zero)
+                    throw new ObjectDisposedException("OpusEncoder");
+                var ret = NativeMethods.opus_encoder_ctl(_encoder, NativeMethods.Ctl.SetPacketLossPercRequest, value);
+                if (ret < 0)
+                    throw new Exception("Encoder error - " + ((NativeMethods.OpusErrors)ret));
+            }
+        }
+
+        /// <summary>
         /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
         /// </summary>
         /// <filterpriority>2</filterpriority>
