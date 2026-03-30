@@ -664,6 +664,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (parsed == TransmissionMode.PushToTalk)
             _currentPttKey = key;
 
+        // DTX on for VAD/Continuous (silence suppression), off for PTT
+        _audioManager?.SetDtx(parsed != TransmissionMode.PushToTalk);
         _audioManager?.SetTransmissionMode(parsed, key, _hwnd);
     }
 

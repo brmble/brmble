@@ -7,6 +7,7 @@ using Brmble.Audio.NetEQ;
 using Brmble.Audio.NetEQ.Models;
 using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.SpeechEnhancement;
+using MumbleVoiceEngine.Audio;
 using MumbleVoiceEngine.Pipeline;
 using NAudio.Wave;
 using NAudio.CoreAudioApi;
@@ -217,11 +218,17 @@ private int _screenShareHotkeyId = -1;
     // Encoder settings
     private int _opusBitrate = 72000;
     private int _opusFrameMs = 20;
+    private bool _dtxEnabled;
 
     // Speech enhancement
     private SpeechEnhancementService? _speechEnhancement;
     private AudioResampler? _to16kResampler;
     private AudioResampler? _to48kResampler;
+
+    // Device→48kHz resampler (r8brain)
+    private R8BrainResampler? _deviceResampler;
+    private int _deviceSampleRate;
+    private int _deviceMaxInLen;
 
     // RNNoise denoising
     private RnnoiseService? _rnnoise;
@@ -306,6 +313,16 @@ private int _screenShareHotkeyId = -1;
         }
     }
 
+    public void SetDtx(bool enabled)
+    {
+        lock (_lock)
+        {
+            if (_dtxEnabled == enabled) return;
+            _dtxEnabled = enabled;
+            RecreateEncodePipelineLocked();
+        }
+    }
+
     /// <summary>
     /// Disposes and immediately recreates <see cref="_encodePipeline"/> with the current
     /// encoder settings. If the mic is not active the field is left null so the pipeline
@@ -314,6 +331,7 @@ private int _screenShareHotkeyId = -1;
     /// </summary>
     private void RecreateEncodePipelineLocked()
     {
+        long seq = _encodePipeline?.CurrentSequence ?? 0;
         _encodePipeline?.Dispose();
         _encodePipeline = null;
 
@@ -322,8 +340,9 @@ private int _screenShareHotkeyId = -1;
             _encodePipeline = new EncodePipeline(
                 sampleRate: 48000, channels: 1, bitrate: _opusBitrate,
                 onPacketReady: packet => SendVoicePacket?.Invoke(packet),
-                frameSize: 48000 / 1000 * _opusFrameMs);
-            _encodePipeline.ResetSequence();
+                frameSize: 48000 / 1000 * _opusFrameMs,
+                dtx: _dtxEnabled,
+                initialSequence: seq);
         }
     }
 
@@ -332,6 +351,8 @@ private int _screenShareHotkeyId = -1;
         lock (_lock)
         {
             _speechEnhancement?.Dispose();
+            _to16kResampler?.Dispose();
+            _to48kResampler?.Dispose();
             _to16kResampler = null;
             _to48kResampler = null;
 
@@ -480,10 +501,9 @@ private int _screenShareHotkeyId = -1;
         {
             if (_micStarted || _muted) return;
 
-            _encodePipeline ??= new EncodePipeline(
-                sampleRate: 48000, channels: 1, bitrate: _opusBitrate,
-                onPacketReady: packet => SendVoicePacket?.Invoke(packet),
-                frameSize: 48000 / 1000 * _opusFrameMs);
+            _micStarted = true;
+            if (_encodePipeline == null)
+                RecreateEncodePipelineLocked();
 
             if (_waveIn == null)
             {
@@ -555,7 +575,6 @@ private int _screenShareHotkeyId = -1;
             }
 
             _waveIn.StartRecording();
-            _micStarted = true;
             AudioLog.Write("[Audio] Mic started");
         }
     }
@@ -570,6 +589,8 @@ private int _screenShareHotkeyId = -1;
             _waveIn?.StopRecording();
             _encodePipeline?.Dispose();
             _encodePipeline = null;
+            _deviceResampler?.Dispose();
+            _deviceResampler = null;
             _micStarted = false;
             AudioLog.Write("[Audio] Mic stopped");
         }
@@ -611,6 +632,8 @@ private int _screenShareHotkeyId = -1;
             _waveIn?.StopRecording();
             _encodePipeline?.Dispose();
             _encodePipeline = null;
+            _deviceResampler?.Dispose();
+            _deviceResampler = null;
             _micStarted = false;
             AudioLog.Write("[Audio] Mic stopped (with silence tail)");
         }
@@ -620,6 +643,7 @@ private int _screenShareHotkeyId = -1;
     [ThreadStatic] private static float[]? _wasapiFloatScratch;
     [ThreadStatic] private static float[]? _wasapiMonoScratch;
     [ThreadStatic] private static byte[]? _wasapiInt16Scratch;
+    [ThreadStatic] private static double[]? _resampleDoubleScratch;
 
     private void OnMicData(object? sender, WaveInEventArgs e)
     {
@@ -662,19 +686,31 @@ private int _screenShareHotkeyId = -1;
             int srcRate = fmt.SampleRate;
             if (srcRate != 48000)
             {
-                // Simple linear interpolation resampling to 48kHz.
-                int outFrames = (int)Math.Round((double)monoFrames * 48000 / srcRate);
-                var resampled = new float[outFrames];
-                for (int i = 0; i < outFrames; i++)
+                // Create or recreate r8brain resampler if device rate changed or buffer exceeds maxInLen
+                if (_deviceResampler == null || _deviceSampleRate != srcRate || monoFrames > _deviceMaxInLen)
                 {
-                    double srcPos = (double)i * srcRate / 48000;
-                    int lo = (int)srcPos;
-                    int hi = Math.Min(lo + 1, monoFrames - 1);
-                    float frac = (float)(srcPos - lo);
-                    resampled[i] = _wasapiMonoScratch[lo] * (1f - frac) + _wasapiMonoScratch[hi] * frac;
+                    _deviceResampler?.Dispose();
+                    _deviceSampleRate = srcRate;
+                    _deviceMaxInLen = monoFrames;
+                    _deviceResampler = new R8BrainResampler(srcRate, 48000, monoFrames);
                 }
-                monoAt48k = resampled;
-                monoFrames = outFrames;
+
+                // Convert float→double for r8brain
+                if (_resampleDoubleScratch == null || _resampleDoubleScratch.Length < monoFrames)
+                    _resampleDoubleScratch = new double[monoFrames];
+                for (int i = 0; i < monoFrames; i++)
+                    _resampleDoubleScratch[i] = _wasapiMonoScratch[i];
+
+                int outSamples = _deviceResampler.Process(_resampleDoubleScratch, out double[] resampledDouble);
+
+                // Reuse mono scratch buffer for float conversion
+                if (_wasapiMonoScratch == null || _wasapiMonoScratch.Length < outSamples)
+                    _wasapiMonoScratch = new float[outSamples];
+                for (int i = 0; i < outSamples; i++)
+                    _wasapiMonoScratch[i] = (float)resampledDouble[i];
+
+                monoAt48k = _wasapiMonoScratch;
+                monoFrames = outSamples;
             }
             else
             {
@@ -1796,9 +1832,13 @@ private int _screenShareHotkeyId = -1;
 
     public void Dispose()
     {
+        _deviceResampler?.Dispose();
+        _deviceResampler = null;
         _rnnoise?.Dispose();
         _rnnoiseRemainder = null;
         _speechEnhancement?.Dispose();
+        _to16kResampler?.Dispose();
+        _to48kResampler?.Dispose();
         _speakingTimer.Dispose();
         StopPttPolling();
         StopShortcutKeyboardPolling();
