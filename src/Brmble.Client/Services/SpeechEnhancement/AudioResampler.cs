@@ -1,7 +1,10 @@
+using MumbleVoiceEngine.Audio;
+
 namespace Brmble.Client.Services.SpeechEnhancement;
 
-public sealed class AudioResampler
+public sealed class AudioResampler : IDisposable
 {
+    private R8BrainResampler? _resampler;
     private readonly int _sourceRate;
     private readonly int _targetRate;
 
@@ -9,6 +12,9 @@ public sealed class AudioResampler
     {
         _sourceRate = sourceRate;
         _targetRate = targetRate;
+        // Max input length: 20ms at source rate is a safe upper bound
+        int maxInLen = sourceRate / 1000 * 20;
+        _resampler = new R8BrainResampler(sourceRate, targetRate, maxInLen);
     }
 
     public float[] Resample(ReadOnlySpan<float> input)
@@ -16,27 +22,27 @@ public sealed class AudioResampler
         if (input.Length == 0)
             return Array.Empty<float>();
 
-        var outputLength = (int)((long)input.Length * _targetRate / _sourceRate);
-        var output = new float[outputLength];
+        if (_resampler == null)
+            throw new ObjectDisposedException(nameof(AudioResampler));
 
-        var ratio = (double)_sourceRate / _targetRate;
-        
-        for (int i = 0; i < outputLength; i++)
-        {
-            var sourceIndex = i * ratio;
-            var sourceIndexInt = (int)sourceIndex;
-            var fraction = sourceIndex - sourceIndexInt;
+        // Convert float→double
+        var doubleInput = new double[input.Length];
+        for (int i = 0; i < input.Length; i++)
+            doubleInput[i] = input[i];
 
-            if (sourceIndexInt >= input.Length - 1)
-            {
-                output[i] = sourceIndexInt < input.Length ? input[sourceIndexInt] : 0;
-            }
-            else
-            {
-                output[i] = (float)((1 - fraction) * input[sourceIndexInt] + fraction * input[sourceIndexInt + 1]);
-            }
-        }
+        int outSamples = _resampler.Process(doubleInput, out double[] doubleOutput);
+
+        // Convert double→float
+        var output = new float[outSamples];
+        for (int i = 0; i < outSamples; i++)
+            output[i] = (float)doubleOutput[i];
 
         return output;
+    }
+
+    public void Dispose()
+    {
+        _resampler?.Dispose();
+        _resampler = null;
     }
 }

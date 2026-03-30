@@ -336,6 +336,8 @@ private int _screenShareHotkeyId = -1;
         lock (_lock)
         {
             _speechEnhancement?.Dispose();
+            _to16kResampler?.Dispose();
+            _to48kResampler?.Dispose();
             _to16kResampler = null;
             _to48kResampler = null;
 
@@ -1820,6 +1822,8 @@ private int _screenShareHotkeyId = -1;
         _rnnoise?.Dispose();
         _rnnoiseRemainder = null;
         _speechEnhancement?.Dispose();
+        _to16kResampler?.Dispose();
+        _to48kResampler?.Dispose();
         _speakingTimer.Dispose();
         StopPttPolling();
         StopShortcutKeyboardPolling();
