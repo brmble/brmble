@@ -4,6 +4,7 @@ import type { ContextMenuItem } from '../ContextMenu/ContextMenu';
 import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { UserTooltip } from '../UserTooltip/UserTooltip';
+import { ChannelEditModal } from '../ChannelEditModal/ChannelEditModal';
 import { usePermissions } from '../../hooks/usePermissions';
 import { prompt } from '../../hooks/usePrompt';
 import bridge from '../../bridge';
@@ -59,7 +60,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
   const [infoDialogUser, setInfoDialogUser] = useState<{ userId: string; userName: string; isSelf: boolean } | null>(null);
   const [draggedUser, setDraggedUser] = useState<number | null>(null);
   const [dropTargetChannel, setDropTargetChannel] = useState<number | null>(null);
-  const [editChannelDialog, setEditChannelDialog] = useState<{ id: number; name: string } | null>(null);
+  const [editChannelDialog, setEditChannelDialog] = useState<{ id: number; name: string; isAdmin: boolean } | null>(null);
   const [addSubchannelDialog, setAddSubchannelDialog] = useState<{ parentId: number } | null>(null);
   const [removeChannelDialog, setRemoveChannelDialog] = useState<{ id: number; name: string } | null>(null);
   const [removeConfirmText, setRemoveConfirmText] = useState('');
@@ -390,7 +391,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
         type: 'item' as const,
         label: 'Edit',
         onClick: () => {
-          setEditChannelDialog({ id: channelContextMenu.channelId, name: channelContextMenu.channelName });
+          setEditChannelDialog({ id: channelContextMenu.channelId, name: channelContextMenu.channelName, isAdmin: hasEditPermission });
           setChannelContextMenu(null);
         },
       });
@@ -639,24 +640,12 @@ onClick: () => {
         />
       )}
       {editChannelDialog && (
-        <div className="modal-overlay" onClick={() => setEditChannelDialog(null)}>
-          <div
-            className="prompt glass-panel animate-slide-up"
-            role="dialog"
-            aria-modal="true"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="modal-header">
-              <h2 className="heading-title modal-title">Edit Channel</h2>
-              <p className="modal-subtitle">Channel editing coming soon</p>
-            </div>
-            <div className="prompt-footer">
-              <button className="btn btn-primary" onClick={() => setEditChannelDialog(null)}>
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
+        <ChannelEditModal
+          channelId={editChannelDialog.id}
+          channelName={editChannelDialog.name}
+          isAdmin={editChannelDialog.isAdmin}
+          onClose={() => setEditChannelDialog(null)}
+        />
       )}
 
       {addSubchannelDialog && (
