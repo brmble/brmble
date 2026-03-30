@@ -429,7 +429,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
           x={contextMenu.x}
           y={contextMenu.y}
           items={[
-            ...(contextMenu.userId === String(sharingUserSession) ? [{
+            ...(contextMenu.userId === String(sharingUserSession) && onWatchScreenShare ? [{
               type: 'item' as const,
               label: 'Watch Stream',
               icon: (

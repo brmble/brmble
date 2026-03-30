@@ -8,7 +8,7 @@ Add "Watch Stream" to the user context menu in the channel list. The item appear
 
 ## Placement
 - Position: **First item** in the context menu (before Direct Message)
-- Only rendered when `user.session === sharingUserSession`
+- Only rendered when `contextMenu.userId === String(sharingUserSession) && onWatchScreenShare`
 
 ## Behavior
 | State | Visibility | Click Action |
@@ -28,7 +28,7 @@ Inside the user context menu items array (~line 432, as first item)
 
 ### Code
 ```tsx
-...(user.session === sharingUserSession ? [{
+...(contextMenu.userId === String(sharingUserSession) && onWatchScreenShare ? [{
   type: 'item' as const,
   label: 'Watch Stream',
   icon: (
@@ -38,7 +38,10 @@ Inside the user context menu items array (~line 432, as first item)
       <line x1="12" y1="17" x2="12" y2="21"/>
     </svg>
   ),
-  onClick: () => onWatchScreenShare?.(`channel-${channel.id}`),
+  onClick: () => {
+    const channelId = contextMenu.channelId ?? currentChannelId;
+    onWatchScreenShare?.(`channel-${channelId}`);
+  },
 }] : []),
 ```
 
