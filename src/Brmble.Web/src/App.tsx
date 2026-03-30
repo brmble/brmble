@@ -241,69 +241,32 @@ function App() {
   const fetchedAvatarIdsRef = useRef<Map<string, number>>(new Map());
   // Track pending retry timers so they can be cancelled on cleanup
   const avatarRetryTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  // Ref for fetchAvatarForUser so the safety-net useEffect can call it without
+  // adding it as a dependency (it's defined later, after the refs section).
+  const fetchAvatarForUserRef = useRef<(session: number, matrixUserId: string) => void>(() => {});
 
-  // Fetch avatar URLs for all connected users that have a matrixUserId.
-  // If a fetch returns null (avatar not yet uploaded to Matrix, e.g. Mumble texture
-  // upload still in progress), schedule a retry after a delay (up to 3 attempts).
+  // Safety-net: scan users on every change and trigger avatar fetches for any user
+  // that has a matrixUserId but no avatarUrl. The primary fetch path is via bridge
+  // event handlers (onVoiceConnected, onVoiceUserJoined, onUserMappingUpdated,
+  // onSessionMappingSnapshot), but this catches edge cases they might miss.
   useEffect(() => {
     if (!matrixClient.client) return;
 
     // Prune stale entries: if a user disconnected and reconnected, their matrixUserId
-    // may still be in fetchedAvatarIdsRef from the previous session. Remove any IDs
-    // that no longer correspond to a connected user with an avatar.
-    const currentIdsWithAvatar = new Set(users.filter(u => u.matrixUserId && u.avatarUrl).map(u => u.matrixUserId!));
+    // may still be in fetchedAvatarIdsRef from the previous session.
     const currentMatrixIds = new Set(users.filter(u => u.matrixUserId).map(u => u.matrixUserId!));
-    for (const [id, attempts] of fetchedAvatarIdsRef.current) {
-      // Remove if user disconnected, or if user reconnected without avatar after max attempts
-      // (so a future reconnect can start fresh)
-      if (!currentMatrixIds.has(id) || (!currentIdsWithAvatar.has(id) && attempts >= 3)) {
+    for (const id of fetchedAvatarIdsRef.current.keys()) {
+      if (!currentMatrixIds.has(id)) {
         fetchedAvatarIdsRef.current.delete(id);
       }
     }
 
-    const toFetch = users.filter(u =>
-      u.matrixUserId && !u.avatarUrl && !fetchedAvatarIdsRef.current.has(u.matrixUserId!)
-    );
-    if (toFetch.length === 0) return;
-
-    // Mark as in-flight so we don't re-fetch on re-render
-    for (const u of toFetch) fetchedAvatarIdsRef.current.set(u.matrixUserId!, 1);
-
-    const fetchAvatar = matrixClient.fetchAvatarUrl;
-
-    Promise.all(
-      toFetch.map(async (u) => {
-        const url = await fetchAvatar(u.matrixUserId!);
-        return { session: u.session, matrixUserId: u.matrixUserId!, avatarUrl: url };
-      })
-    ).then((results) => {
-      const resolved = results.filter(r => r.avatarUrl);
-      const failed = results.filter(r => !r.avatarUrl);
-
-      if (resolved.length > 0) {
-        setUsers(prev => prev.map(u => {
-          const match = resolved.find(r => r.session === u.session);
-          return match ? { ...u, avatarUrl: match.avatarUrl! } : u;
-        }));
+    for (const u of users) {
+      if (u.matrixUserId && !u.avatarUrl) {
+        fetchAvatarForUserRef.current(u.session, u.matrixUserId);
       }
-
-      // Schedule retries for failed fetches (avatar may not be uploaded to Matrix yet)
-      for (const f of failed) {
-        const attempts = fetchedAvatarIdsRef.current.get(f.matrixUserId) ?? 1;
-        if (attempts < 3) {
-          const timer = setTimeout(() => {
-            avatarRetryTimersRef.current.delete(timer);
-            // Only retry if user is still connected and still has no avatar
-            fetchedAvatarIdsRef.current.delete(f.matrixUserId);
-            // Trigger re-render to pick up the retry via a minimal state poke
-            setUsers(prev => [...prev]);
-          }, 2000 * attempts); // 2s, 4s backoff
-          avatarRetryTimersRef.current.add(timer);
-          fetchedAvatarIdsRef.current.set(f.matrixUserId, attempts + 1);
-        }
-      }
-    });
-  }, [users, matrixClient.client, matrixClient.fetchAvatarUrl]);
+    }
+  }, [users, matrixClient.client]);
 
   // Clean up avatar retry timers only when the Matrix client or fetch function changes,
   // or when the component unmounts, so that user list updates do not cancel pending retries.
@@ -471,7 +434,9 @@ function App() {
   const disconnectViewerRef = useRef<(() => void) | null>(null);
 
   // Fetch avatar for a specific user by matrixUserId and session, updating user state.
-  // Uses refs so it can be called from bridge event handlers (which capture initial closures).
+  // Uses refs so it can be called from both bridge event handlers (which capture initial
+  // closures) and the useEffect safety-net below.  Handles deduping, bounded retries with
+  // backoff, and clearing the dedupe entry after max attempts so later events can retry.
   const fetchAvatarForUser = useCallback((session: number, matrixUserId: string) => {
     if (!matrixClientRef.current) return;
     // Skip if already fetched or in-flight
@@ -480,39 +445,38 @@ function App() {
     const user = usersRef.current.find(u => u.session === session);
     if (user?.avatarUrl) return;
 
-    fetchedAvatarIdsRef.current.set(matrixUserId, 1);
-    fetchAvatarUrlRef.current(matrixUserId).then((url) => {
-      if (url) {
-        setUsers(prev => prev.map(u =>
-          u.session === session ? { ...u, avatarUrl: url } : u
-        ));
-      } else {
-        // Avatar not available yet — schedule retries (e.g. Mumble texture still uploading)
-        const scheduleRetry = (attempt: number) => {
-          if (attempt >= 3) return;
-          const timer = setTimeout(() => {
-            avatarRetryTimersRef.current.delete(timer);
-            fetchedAvatarIdsRef.current.delete(matrixUserId);
-            // Re-check: user may have disconnected or gotten an avatar since
-            const current = usersRef.current.find(u => u.session === session);
-            if (!current || current.avatarUrl || !current.matrixUserId) return;
-            fetchedAvatarIdsRef.current.set(matrixUserId, attempt + 1);
-            fetchAvatarUrlRef.current(matrixUserId).then((retryUrl) => {
-              if (retryUrl) {
-                setUsers(prev => prev.map(u =>
-                  u.session === session ? { ...u, avatarUrl: retryUrl } : u
-                ));
-              } else {
-                scheduleRetry(attempt + 1);
-              }
-            });
-          }, 2000 * (attempt + 1));
-          avatarRetryTimersRef.current.add(timer);
-        };
-        scheduleRetry(0);
-      }
-    });
+    const maxAttempts = 3;
+
+    const attemptFetch = (attempt: number) => {
+      fetchedAvatarIdsRef.current.set(matrixUserId, attempt + 1);
+      fetchAvatarUrlRef.current(matrixUserId).then((url) => {
+        if (url) {
+          setUsers(prev => prev.map(u =>
+            u.session === session ? { ...u, avatarUrl: url } : u
+          ));
+          return;
+        }
+        // Avatar not available yet — schedule retry (e.g. Mumble texture still uploading)
+        if (attempt + 1 >= maxAttempts) {
+          // Clear dedupe entry so a future bridge event (e.g. mapping update) can retry
+          fetchedAvatarIdsRef.current.delete(matrixUserId);
+          return;
+        }
+        const timer = setTimeout(() => {
+          avatarRetryTimersRef.current.delete(timer);
+          fetchedAvatarIdsRef.current.delete(matrixUserId);
+          // Re-check: user may have disconnected or gotten an avatar since
+          const current = usersRef.current.find(u => u.session === session);
+          if (!current || current.avatarUrl || !current.matrixUserId) return;
+          attemptFetch(attempt + 1);
+        }, 2000 * (attempt + 1)); // 2s, 4s backoff
+        avatarRetryTimersRef.current.add(timer);
+      });
+    };
+
+    attemptFetch(0);
   }, []);
+  fetchAvatarForUserRef.current = fetchAvatarForUser;
 
   // Tracks whether the user ever saw the 'connected' UI (ChatPanel rendered).
   // Set to true via useEffect (fires after render commit), so transient
