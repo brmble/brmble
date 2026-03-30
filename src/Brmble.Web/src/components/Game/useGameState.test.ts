@@ -162,9 +162,9 @@ describe('useGameState', () => {
       expect(result.current.state.money).toBe(initialMoney);
     });
 
-    it('caps upgrade at level 10', () => {
+    it('continues to upgrade beyond level 10 with increasing costs', () => {
       localStorage.setItem('idle-farm-save_test-fingerprint', JSON.stringify({
-        money: 100000,
+        money: 10000000,
         incomePerSecond: 0,
         uploadSpeed: 0,
         bandwidthAllocated: 0,
@@ -189,7 +189,7 @@ describe('useGameState', () => {
       }
       
       const license = result.current.state.licenses.find(l => l.id === 'blog-hosting');
-      expect(license?.level).toBe(10);
+      expect(license?.level).toBe(15);
     });
   });
 
