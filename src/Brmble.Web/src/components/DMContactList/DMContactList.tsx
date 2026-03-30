@@ -17,7 +17,7 @@ interface DMContactListProps {
 
 export function DMContactList({ contacts, selectedUserId, onSelectContact, onCloseConversation, onlineUserIds, visible }: DMContactListProps) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; id: string; displayName: string } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; id: string; displayName: string; isEphemeral?: boolean } | null>(null);
   const [infoDialogUser, setInfoDialogUser] = useState<{ id: string; displayName: string } | null>(null);
 
   const filtered = contacts.filter(c =>
@@ -70,7 +70,7 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
             onClick={() => onSelectContact(contact.id, contact.displayName)}
             onContextMenu={(e) => {
               e.preventDefault();
-              setContextMenu({ x: e.clientX, y: e.clientY, id: contact.id, displayName: contact.displayName });
+              setContextMenu({ x: e.clientX, y: e.clientY, id: contact.id, displayName: contact.displayName, isEphemeral: contact.isEphemeral });
             }}
           >
             <Avatar user={{ name: contact.displayName, matrixUserId: contact.isEphemeral ? undefined : contact.id, avatarUrl: contact.avatarUrl }} size={28} isMumbleOnly={contact.isEphemeral} />
@@ -127,7 +127,8 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
               disabled: !onlineUserIds.includes(contextMenu.id),
               onClick: () => { setInfoDialogUser({ id: contextMenu.id, displayName: contextMenu.displayName }); setContextMenu(null); },
             },
-            {
+            // Only Mumble (ephemeral) contacts can be closed — Brmble DMs are persistent
+            ...(contextMenu.isEphemeral ? [{
               type: 'item' as const,
               label: 'Close Conversation',
               icon: (
@@ -137,7 +138,7 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
                 </svg>
               ),
               onClick: () => { onCloseConversation(contextMenu.id); setContextMenu(null); },
-            },
+            }] : []),
           ]}
           onClose={() => setContextMenu(null)}
         />
