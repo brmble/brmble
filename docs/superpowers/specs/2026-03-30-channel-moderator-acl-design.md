@@ -2,7 +2,7 @@
 
 ## Overview
 
-Implement a channel-level moderator permission system where admins can assign users as moderators for specific voice channels. Moderators gain configurable powers (kick, ban, rename, password, description) scoped to their assigned channels. The system uses dual-validation (Brmble DB + Mumble) for robust permission enforcement.
+Implement a channel-level moderator permission system where admins can assign users as moderators for specific voice channels. Moderators gain configurable powers (kick, deny-enter, rename, password, description) scoped to their assigned channels. The system uses dual-validation (Brmble DB + Mumble) for robust permission enforcement.
 
 ## Background
 
@@ -32,19 +32,21 @@ Brmble currently has basic permission bits for channels but lacks a moderator as
 | id | UUID | Primary key |
 | role_id | UUID | FK → ModeratorRole |
 | channel_id | INTEGER | Mumble channel ID |
-| user_id | INTEGER | Mumble user session ID |
-| assigned_by | INTEGER | User ID who made the assignment |
+| user_id | INTEGER | Mumble registration ID (permanent ID assigned when a user registers with the server) |
+| assigned_by | INTEGER | User registration ID who made the assignment |
 | assigned_at | TIMESTAMP | Assignment timestamp |
 
 ### Permission Bits
 
 ```
 Kick          = 0x001  (1)
-Ban           = 0x002  (2)
+DenyEnter     = 0x002  (2)
 RenameChannel = 0x004  (4)
 SetPassword   = 0x008  (8)
 EditDesc      = 0x010  (16)
 ```
+
+**Note:** `DenyEnter` denies a user from entering the channel. This is a channel-level restriction, not a server-wide ban.
 
 ### Constraints
 
@@ -86,6 +88,29 @@ Confirmation to UI
 
 **Scope:** Groups are applied on the specific channel only, not inherited by child channels.
 
+### Error Handling
+
+**Sync Failure Scenarios:**
+
+1. **Brmble DB succeeds, Mumble sync fails:**
+   - DB transaction is already committed
+   - Log error with full context (assignment details, error message)
+   - Add to background retry queue
+   - UI shows success but with warning: "Assignment saved, Mumble sync pending"
+
+2. **Retry mechanism:**
+   - Background service polls failed syncs every 30 seconds
+   - Exponential backoff: 30s, 60s, 120s, 240s (max 5 retries)
+   - After max retries, mark as "sync_failed" and alert admins
+
+3. **Mumble reconnection:**
+   - On Mumble connection restored, trigger immediate sync of all pending assignments
+   - Clear retry counters on successful sync
+
+4. **Manual override:**
+   - Admin can force re-sync from the channel edit UI
+   - Shows sync status per channel: "synced", "pending", "failed"
+
 ## Permission Enforcement
 
 ### Dual-Validation Flow
@@ -108,7 +133,7 @@ Confirmation to UI
 | Action | Permission Bit |
 |--------|----------------|
 | Kick user from channel | Kick (0x001) |
-| Ban user from channel | Ban (0x002) |
+| Deny user from entering channel | DenyEnter (0x002) |
 | Rename channel | RenameChannel (0x004) |
 | Set/clear channel password | SetPassword (0x008) |
 | Edit channel description | EditDesc (0x010) |
@@ -153,8 +178,9 @@ Confirmation to UI
 **POST /api/voice/kick**
 - Body: `{ userId: number, channelId: number, reason?: string }`
 
-**POST /api/voice/ban**
-- Body: `{ userId: number, channelId: number, duration?: number }`
+**POST /api/voice/deny-enter**
+- Body: `{ userId: number, channelId: number }`
+- Adds user to channel's deny list (prevents entry)
 
 **PATCH /api/channels/:channelId**
 - Body: `{ name?: string, password?: string | null, description?: string }`
@@ -184,7 +210,7 @@ Confirmation to UI
 - Role name input
 - Permission checkboxes:
   - [ ] Kick users
-  - [ ] Ban users
+  - [ ] Deny user enter
   - [ ] Rename channel
   - [ ] Set/change channel password
   - [ ] Edit channel description
@@ -193,7 +219,7 @@ Confirmation to UI
 ### Contextual Actions
 
 Users with moderator permissions see additional options:
-- Right-click user in channel → Kick, Ban (if permitted)
+- Right-click user in channel → Kick, Deny Enter (if permitted)
 - Channel edit cog → Edit Name, Password, Description (if permitted)
 
 ## Security Considerations
@@ -203,6 +229,12 @@ Users with moderator permissions see additional options:
 3. **Dual validation** - Both Brmble and Mumble must agree on permissions
 4. **Audit logging** - Log all assignment changes and moderation actions
 5. **Input validation** - Validate all IDs, UUIDs, and permission bits server-side
+
+## Technical Notes
+
+1. **Permissions bitmask storage:** The `permissions` column uses INTEGER. With 5 bits defined, this fits in a standard 32-bit integer. If expanding beyond 31 permissions in the future, change to BIGINT.
+
+2. **Mumble group naming:** Group names follow `brmble_mod_<channelId>` format. Mumble groups are case-sensitive and have a length limit (typically 32 or 64 characters depending on version/DB backend). The generated names are well within these limits.
 
 ## Dependencies
 
