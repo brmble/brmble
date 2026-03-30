@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Web.WebView2.Core;
+using Brmble.Client.Services.Moderator;
 
 namespace Brmble.Client.Bridge;
 
@@ -34,6 +35,8 @@ public sealed class NativeBridge
     private readonly Dictionary<string, List<Func<JsonElement, Task>>> _handlers = new();
     private IntPtr _hwnd;
     private readonly ConcurrentQueue<string> _pendingMessages = new();
+    private readonly ModeratorService _moderatorService;
+    private int _localUserId;
 
     /// <summary>
     /// Occurs when a message is received from the frontend.
@@ -45,11 +48,107 @@ public sealed class NativeBridge
     /// </summary>
     /// <param name="webView">The WebView2 instance for message communication.</param>
     /// <param name="hwnd">The window handle for UI thread marshaling.</param>
-    public NativeBridge(CoreWebView2 webView, IntPtr hwnd)
+    /// <param name="moderatorService">The moderator service for handling moderator operations.</param>
+    public NativeBridge(CoreWebView2 webView, IntPtr hwnd, ModeratorService moderatorService)
     {
         _webView = webView;
         _hwnd = hwnd;
+        _moderatorService = moderatorService;
         _webView.WebMessageReceived += OnWebMessageReceived;
+    }
+
+    public void SetLocalUserId(int userId)
+    {
+        _localUserId = userId;
+    }
+
+    public void RegisterModeratorHandlers()
+    {
+        RegisterHandler("moderator.getRoles", async _ =>
+        {
+            var roles = await _moderatorService.GetRolesAsync();
+            Send("moderator.roles", roles.Select(r => new {
+                r.Id,
+                r.Name,
+                Permissions = (int)r.Permissions
+            }));
+        });
+
+        RegisterHandler("moderator.createRole", async data =>
+        {
+            if (data.ValueKind == JsonValueKind.Undefined || data.ValueKind == JsonValueKind.Null) return;
+            var name = data.GetProperty("name").GetString() ?? "";
+            var permissions = (ModeratorPermissions)data.GetProperty("permissions").GetInt32();
+            var role = await _moderatorService.CreateRoleAsync(name, permissions);
+            Send("moderator.roleCreated", new { role.Id });
+        });
+
+        RegisterHandler("moderator.updateRole", async data =>
+        {
+            if (data.ValueKind == JsonValueKind.Undefined || data.ValueKind == JsonValueKind.Null) return;
+            var id = data.GetProperty("id").GetString();
+            string? name = null;
+            ModeratorPermissions? permissions = null;
+            if (data.TryGetProperty("name", out var nameEl) && nameEl.ValueKind != JsonValueKind.Null)
+                name = nameEl.GetString();
+            if (data.TryGetProperty("permissions", out var permEl) && permEl.ValueKind != JsonValueKind.Null)
+                permissions = (ModeratorPermissions)permEl.GetInt32();
+            await _moderatorService.UpdateRoleAsync(id!, name, permissions);
+            Send("moderator.roleUpdated", new { id });
+        });
+
+        RegisterHandler("moderator.deleteRole", async data =>
+        {
+            if (data.ValueKind == JsonValueKind.Undefined || data.ValueKind == JsonValueKind.Null) return;
+            var id = data.GetProperty("id").GetString();
+            await _moderatorService.DeleteRoleAsync(id!);
+            Send("moderator.roleDeleted", new { id });
+        });
+
+        RegisterHandler("moderator.getChannelModerators", async data =>
+        {
+            if (data.ValueKind == JsonValueKind.Undefined || data.ValueKind == JsonValueKind.Null) return;
+            var channelId = data.GetProperty("channelId").GetUInt32();
+            var moderators = await _moderatorService.GetChannelModeratorsAsync((int)channelId);
+            Send("moderator.channelModerators", moderators.Select(m => new {
+                m.Id,
+                m.UserId,
+                m.RoleId,
+                m.RoleName,
+                RolePermissions = (int)m.RolePermissions,
+                m.AssignedAt
+            }));
+        });
+
+        RegisterHandler("moderator.assign", async data =>
+        {
+            if (data.ValueKind == JsonValueKind.Undefined || data.ValueKind == JsonValueKind.Null) return;
+            var channelId = data.GetProperty("channelId").GetUInt32();
+            var roleId = data.GetProperty("roleId").GetString();
+            var userId = data.GetProperty("userId").GetInt32();
+            var assignment = await _moderatorService.AssignModeratorAsync(roleId!, (int)channelId, userId);
+            Send("moderator.assigned", new { assignment.Id });
+        });
+
+        RegisterHandler("moderator.remove", async data =>
+        {
+            if (data.ValueKind == JsonValueKind.Undefined || data.ValueKind == JsonValueKind.Null) return;
+            var assignmentId = data.GetProperty("assignmentId").GetString();
+            var channelId = data.TryGetProperty("channelId", out var chEl) ? (int)chEl.GetUInt32() : 0;
+            await _moderatorService.RemoveModeratorAsync(assignmentId!, channelId);
+            Send("moderator.removed", new { assignmentId });
+        });
+
+        RegisterHandler("moderator.getCurrentUserPermissions", async data =>
+        {
+            if (data.ValueKind == JsonValueKind.Undefined || data.ValueKind == JsonValueKind.Null) return;
+            var channelId = data.GetProperty("channelId").GetUInt32();
+            var permissions = await _moderatorService.GetUserPermissionsForChannelAsync(_localUserId, (int)channelId);
+            Send("moderator.currentUserPermissions", new {
+                channelId,
+                permissions = (int)permissions
+            });
+        });
     }
 
     /// <summary>

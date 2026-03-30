@@ -10,6 +10,7 @@ using Brmble.Client.Services.Certificate;
 using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.Voice;
 using Brmble.Client.Services.Update;
+using Brmble.Client.Services.Moderator;
 
 namespace Brmble.Client;
 
@@ -24,6 +25,7 @@ static class Program
     private static CertificateService? _certService;
     private static MumbleAdapter? _mumbleClient;
     private static UpdateService? _updateService;
+    private static ModeratorService? _moderatorService;
     private static IntPtr _hwnd;
     private static volatile bool _muted;
     private static volatile bool _deafened;
@@ -225,7 +227,9 @@ static class Program
             _controller.CoreWebView2.SetVirtualHostNameToFolderMapping(
                 "brmble.local", webRoot, CoreWebView2HostResourceAccessKind.Allow);
 
-            _bridge = new NativeBridge(_controller.CoreWebView2, hwnd);
+            _moderatorService = new ModeratorService(new HttpClient());
+            _bridge = new NativeBridge(_controller.CoreWebView2, hwnd, _moderatorService);
+            _bridge.RegisterModeratorHandlers();
 
             // Send zoom percentage to the frontend whenever the user zooms (Ctrl+scroll)
             // and debounce-save the zoom level to config for persistence across restarts.
@@ -280,6 +284,7 @@ static class Program
 
                 if (entry is null) return;
                 _appConfigService.UpdateServer(entry with { ApiUrl = discoveredUrl });
+                _moderatorService?.SetBaseUrl(discoveredUrl);
             };
 
             SetupBridgeHandlers();
@@ -405,6 +410,9 @@ static class Program
         var servers = _appConfigService.GetServers();
         var server = servers.FirstOrDefault(s => s.Id == targetId);
         if (server is null) return;
+
+        if (!string.IsNullOrEmpty(server.ApiUrl))
+            _moderatorService?.SetBaseUrl(server.ApiUrl);
 
         // Trigger connection via bridge — same path as manual connect
         _bridge!.Send("voice.autoConnect", new
