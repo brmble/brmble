@@ -218,6 +218,7 @@ private int _screenShareHotkeyId = -1;
     // Encoder settings
     private int _opusBitrate = 72000;
     private int _opusFrameMs = 20;
+    private bool _dtxEnabled;
 
     // Speech enhancement
     private SpeechEnhancementService? _speechEnhancement;
@@ -311,6 +312,16 @@ private int _screenShareHotkeyId = -1;
         }
     }
 
+    public void SetDtx(bool enabled)
+    {
+        lock (_lock)
+        {
+            if (_dtxEnabled == enabled) return;
+            _dtxEnabled = enabled;
+            RecreateEncodePipelineLocked();
+        }
+    }
+
     /// <summary>
     /// Disposes and immediately recreates <see cref="_encodePipeline"/> with the current
     /// encoder settings. If the mic is not active the field is left null so the pipeline
@@ -319,6 +330,7 @@ private int _screenShareHotkeyId = -1;
     /// </summary>
     private void RecreateEncodePipelineLocked()
     {
+        long seq = _encodePipeline?.CurrentSequence ?? 0;
         _encodePipeline?.Dispose();
         _encodePipeline = null;
 
@@ -327,7 +339,9 @@ private int _screenShareHotkeyId = -1;
             _encodePipeline = new EncodePipeline(
                 sampleRate: 48000, channels: 1, bitrate: _opusBitrate,
                 onPacketReady: packet => SendVoicePacket?.Invoke(packet),
-                frameSize: 48000 / 1000 * _opusFrameMs);
+                frameSize: 48000 / 1000 * _opusFrameMs,
+                dtx: _dtxEnabled,
+                initialSequence: seq);
         }
     }
 
