@@ -47,6 +47,7 @@ export interface ChatMessage {
   content: string;
   timestamp: Date;
   type?: 'system';
+  systemType?: string;
   html?: boolean;
   media?: MediaAttachment[];
   pending?: boolean;
