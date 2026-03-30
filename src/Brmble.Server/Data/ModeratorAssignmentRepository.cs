@@ -49,7 +49,7 @@ public class ModeratorAssignmentRepository
     {
         using var conn = _db.CreateConnection();
         return await conn.QuerySingleOrDefaultAsync<ModeratorAssignment>(
-            "SELECT * FROM moderator_assignments WHERE id = @Id", new { Id = id });
+            "SELECT id as Id, role_id as RoleId, channel_id as ChannelId, user_id as UserId, assigned_by as AssignedBy, assigned_at as AssignedAt FROM moderator_assignments WHERE id = @Id", new { Id = id });
     }
 
     public async Task<IReadOnlyList<ModeratorAssignmentWithRole>> GetByChannelAsync(int channelId)

@@ -32,7 +32,7 @@ public class SyncFailedAssignmentRepository
             Action = action,
             ErrorMessage = errorMessage,
             RetryCount = 0,
-            NextRetryAt = DateTime.UtcNow.AddSeconds(RetryDelays[0])
+            NextRetryAt = DateTime.UtcNow
         };
         await conn.ExecuteAsync(
             @"INSERT INTO sync_failed_assignments (id, assignment_id, action, error_message, retry_count, next_retry_at, created_at)
