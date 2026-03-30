@@ -7,10 +7,11 @@ interface ChannelEditModalProps {
   channelId: number;
   channelName: string;
   isAdmin: boolean;
+  connectedUsers?: { session: number; name: string; userId?: number }[];
   onClose: () => void;
 }
 
-export function ChannelEditModal({ channelId, channelName, isAdmin, onClose }: ChannelEditModalProps) {
+export function ChannelEditModal({ channelId, channelName, isAdmin, connectedUsers, onClose }: ChannelEditModalProps) {
   const [activeTab, setActiveTab] = useState<'general' | 'moderators'>('general');
   const [name, setName] = useState(channelName);
   const [description, setDescription] = useState('');
@@ -97,6 +98,7 @@ export function ChannelEditModal({ channelId, channelName, isAdmin, onClose }: C
             <ManageModeratorsTab
               channelId={channelId}
               isAdmin={isAdmin}
+              connectedUsers={connectedUsers}
             />
           )}
         </div>

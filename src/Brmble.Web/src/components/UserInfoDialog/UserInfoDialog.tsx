@@ -9,6 +9,7 @@ export interface UserInfoDialogProps {
   userName: string;
   session: number;
   isSelf: boolean;
+  userId?: number;
   comment?: string;
   matrixUserId?: string;
   avatarUrl?: string;
@@ -21,6 +22,7 @@ export function UserInfoDialog({
   userName,
   session,
   isSelf,
+  userId,
   comment,
   matrixUserId,
   avatarUrl,
@@ -157,6 +159,12 @@ export function UserInfoDialog({
             <h2 id="user-info-title" className="user-info-name">{userName}</h2>
             {isSelf && <span className="user-info-badge">you</span>}
           </div>
+          {userId !== undefined && (
+            <div className="user-info-id-row">
+              <span className="user-info-id-label">User ID:</span>
+              <span className="user-info-id-value">{userId}</span>
+            </div>
+          )}
         </div>
 
         <div className="user-info-content">

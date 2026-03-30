@@ -1,14 +1,15 @@
 import { useState } from 'react';
 import { useModeratorPermissions, ModeratorPermission } from '../../hooks/useModeratorPermissions';
-import { prompt, confirm } from '../../hooks/usePrompt';
+import { confirm } from '../../hooks/usePrompt';
 import './ManageModeratorsTab.css';
 
 interface ManageModeratorsTabProps {
   channelId: number;
   isAdmin: boolean;
+  connectedUsers?: { session: number; name: string; userId?: number }[];
 }
 
-export function ManageModeratorsTab({ channelId, isAdmin }: ManageModeratorsTabProps) {
+export function ManageModeratorsTab({ channelId, isAdmin, connectedUsers = [] }: ManageModeratorsTabProps) {
   const {
     roles,
     moderators,
@@ -17,41 +18,23 @@ export function ManageModeratorsTab({ channelId, isAdmin }: ManageModeratorsTabP
     createRole,
     updateRole,
     deleteRole,
-    assignModerator,
     removeModerator,
   } = useModeratorPermissions(channelId);
 
   const [showRoleModal, setShowRoleModal] = useState(false);
   const [editingRole, setEditingRole] = useState<{ id: string; name: string; permissions: number } | null>(null);
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
 
-  const handleAddModerator = async () => {
-    const userIdStr = await prompt({
-      title: 'Add Moderator',
-      message: 'Enter the user ID to assign as moderator:',
-      placeholder: 'User ID',
-    });
-    if (userIdStr === null) return;
+  const handleAddModerator = () => {
+    setSelectedUserId(null);
+    setShowUserModal(true);
+  };
 
-    const userId = parseInt(userIdStr, 10);
-    if (isNaN(userId)) {
-      alert('Invalid user ID');
-      return;
-    }
-
-    const roleOptions = roles.map(r => ({ label: r.name, value: r.id }));
-    if (roleOptions.length === 0) {
-      alert('No roles available. Create a role first.');
-      return;
-    }
-
-    const roleId = await prompt({
-      title: 'Select Role',
-      message: 'Select a role for this moderator:',
-      options: roleOptions,
-    });
-    if (!roleId) return;
-
-    assignModerator(roleId, userId);
+  const handleConfirmAddModerator = () => {
+    if (!selectedUserId) return;
+    console.log('[ManageModeratorsTab] Selected user:', selectedUserId);
+    setShowUserModal(false);
   };
 
   const handleRemoveModerator = async (assignmentId: string, userId: number) => {
@@ -231,6 +214,16 @@ export function ManageModeratorsTab({ channelId, isAdmin }: ManageModeratorsTabP
           onClose={() => setShowRoleModal(false)}
         />
       )}
+
+      {showUserModal && (
+        <AddModeratorModal
+          users={connectedUsers}
+          selectedUserId={selectedUserId}
+          onSelectUser={setSelectedUserId}
+          onConfirm={handleConfirmAddModerator}
+          onClose={() => setShowUserModal(false)}
+        />
+      )}
     </div>
   );
 }
@@ -264,7 +257,7 @@ function ModeratorRoleModal({ role, onSave, onClose }: ModeratorRoleModalProps) 
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="prompt glass-panel animate-slide-up" onClick={e => e.stopPropagation()}>
+      <div className="prompt glass-panel animate-slide-up role-modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h2 className="heading-title modal-title">
             {role ? 'Edit Role' : 'Create Role'}
@@ -287,14 +280,17 @@ function ModeratorRoleModal({ role, onSave, onClose }: ModeratorRoleModalProps) 
             <label className="form-label">Permissions</label>
             <div className="permission-checkboxes">
               {permissionItems.map(({ perm, label }) => (
-                <label key={perm} className="permission-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={(permissions & perm) !== 0}
-                    onChange={() => togglePermission(perm)}
-                  />
-                  <span>{label}</span>
-                </label>
+                <div key={perm} className="permission-checkbox">
+                  <label>{label}</label>
+                  <label className="brmble-toggle">
+                    <input
+                      type="checkbox"
+                      checked={(permissions & perm) !== 0}
+                      onChange={() => togglePermission(perm)}
+                    />
+                    <span className="brmble-toggle-slider"></span>
+                  </label>
+                </div>
               ))}
             </div>
           </div>
@@ -310,6 +306,68 @@ function ModeratorRoleModal({ role, onSave, onClose }: ModeratorRoleModalProps) 
             disabled={!name.trim()}
           >
             Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface AddModeratorModalProps {
+  users: { session: number; name: string; userId?: number }[];
+  selectedUserId: number | null;
+  onSelectUser: (userId: number) => void;
+  onConfirm: () => void;
+  onClose: () => void;
+}
+
+function AddModeratorModal({
+  users,
+  selectedUserId,
+  onSelectUser,
+  onConfirm,
+  onClose,
+}: AddModeratorModalProps) {
+  const usersWithId = users.filter(u => u.userId !== undefined);
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="prompt glass-panel animate-slide-up add-user-modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2 className="heading-title modal-title">Select User</h2>
+        </div>
+
+        <div className="modal-body">
+          <div className="form-group">
+            {usersWithId.length === 0 ? (
+              <div className="empty-state">No registered users currently connected.</div>
+            ) : (
+              <div className="user-list">
+                {usersWithId.map(user => (
+                  <div
+                    key={user.session}
+                    className={`user-item ${selectedUserId === user.userId ? 'selected' : ''}`}
+                    onClick={() => onSelectUser(user.userId!)}
+                  >
+                    <span className="user-name">{user.name}</span>
+                    <span className="user-id">#{user.userId}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="prompt-footer">
+          <button className="btn btn-secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            className="btn btn-primary"
+            onClick={onConfirm}
+            disabled={!selectedUserId}
+          >
+            Select
           </button>
         </div>
       </div>

@@ -23,6 +23,7 @@ interface User {
   matrixUserId?: string;
   avatarUrl?: string;
   isBrmbleClient?: boolean;
+  userId?: number;
 }
 
 interface Channel {
@@ -624,6 +625,7 @@ onClick: () => {
             userName={infoDialogUser.userName}
             session={parseInt(infoDialogUser.userId)}
             isSelf={infoDialogUser.isSelf}
+            userId={user?.userId}
             comment={user?.comment}
             matrixUserId={user?.matrixUserId}
             avatarUrl={user?.avatarUrl}
@@ -644,6 +646,7 @@ onClick: () => {
           channelId={editChannelDialog.id}
           channelName={editChannelDialog.name}
           isAdmin={editChannelDialog.isAdmin}
+          connectedUsers={users}
           onClose={() => setEditChannelDialog(null)}
         />
       )}

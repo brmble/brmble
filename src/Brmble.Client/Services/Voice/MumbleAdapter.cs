@@ -2438,7 +2438,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 comment = u.Comment,
                 certHash = u.CertificateHash,
                 matrixUserId = hasMap ? sm.MatrixUserId : _userMappings.GetValueOrDefault(u.Name),
-                isBrmbleClient = hasMap && sm.IsBrmbleClient
+                isBrmbleClient = hasMap && sm.IsBrmbleClient,
+                userId = u.RegisteredUserId
             };
         }).ToList();
 

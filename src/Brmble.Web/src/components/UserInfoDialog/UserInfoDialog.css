@@ -57,6 +57,22 @@
   width: fit-content;
 }
 
+.user-info-id-row {
+  display: flex;
+  gap: var(--space-xs);
+  margin-top: var(--space-2xs);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.user-info-id-label {
+  color: var(--text-muted);
+}
+
+.user-info-id-value {
+  color: var(--text-secondary);
+}
+
 .user-info-content {
   display: flex;
   flex-direction: column;

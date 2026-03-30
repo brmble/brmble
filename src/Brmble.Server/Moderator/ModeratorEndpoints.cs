@@ -1,4 +1,5 @@
 using Brmble.Server.Data;
+using Microsoft.Extensions.Logging;
 
 namespace Brmble.Server.Moderator;
 
@@ -19,18 +20,29 @@ public static class ModeratorEndpoints
 
         app.MapPost("/api/admin/moderator-roles", async (
             IModeratorService moderatorService,
+            ILogger<Program> logger,
             CreateRoleRequest request) =>
         {
-            if (string.IsNullOrWhiteSpace(request.Name))
-                return Results.BadRequest("Role name is required");
-            
-            var role = await moderatorService.CreateRoleAsync(request.Name, request.Permissions);
-            return Results.Created($"/api/admin/moderator-roles/{role.Id}", new
+            try
             {
-                role.Id,
-                role.Name,
-                Permissions = (int)role.Permissions
-            });
+                logger.LogInformation("Creating role: {Name} with permissions {Permissions}", request.Name, request.Permissions);
+                if (string.IsNullOrWhiteSpace(request.Name))
+                    return Results.BadRequest("Role name is required");
+                
+                var role = await moderatorService.CreateRoleAsync(request.Name, request.Permissions);
+                logger.LogInformation("Role created: {RoleId} - {RoleName}", role.Id, role.Name);
+                return Results.Created($"/api/admin/moderator-roles/{role.Id}", new
+                {
+                    role.Id,
+                    role.Name,
+                    Permissions = (int)role.Permissions
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error creating role");
+                return Results.BadRequest(ex.Message);
+            }
         });
 
         app.MapPut("/api/admin/moderator-roles/{id}", async (

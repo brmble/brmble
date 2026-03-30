@@ -502,6 +502,7 @@ export function Sidebar({
             userName={infoDialogUser.userName}
             session={parseInt(infoDialogUser.userId)}
             isSelf={infoDialogUser.isSelf}
+            userId={user?.userId}
             comment={user?.comment}
             matrixUserId={user?.matrixUserId}
             avatarUrl={user?.avatarUrl}

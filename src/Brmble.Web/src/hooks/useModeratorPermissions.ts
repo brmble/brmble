@@ -40,6 +40,7 @@ export function useModeratorPermissions(channelId: number | null) {
   }, []);
 
   const createRole = useCallback((name: string, permissions: number) => {
+    console.log('[useModeratorPermissions] Creating role:', { name, permissions });
     bridge.send('moderator.createRole', { name, permissions });
   }, []);
 

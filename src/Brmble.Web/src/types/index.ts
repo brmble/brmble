@@ -27,6 +27,7 @@ export interface User {
   avatarUrl?: string;
   certHash?: string;
   isBrmbleClient?: boolean;
+  userId?: number;
 }
 
 export interface MediaAttachment {
