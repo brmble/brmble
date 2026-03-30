@@ -105,6 +105,7 @@ public class ModeratorService : IModeratorService, IModeratorPermissionChecker
             var success = await _mumbleSync.SyncAssignmentAsync(assignment.Id, assignment.UserId, channelId, add: false);
             if (!success)
             {
+                _logger.LogWarning("Mumble sync removal failed for assignment {AssignmentId} during channel cleanup, queuing for retry", assignment.Id);
                 await _syncFailedRepo.AddAsync(assignment.Id, "remove", "Cleanup sync failed");
             }
         }
