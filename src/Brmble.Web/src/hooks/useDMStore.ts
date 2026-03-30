@@ -285,11 +285,24 @@ export function useDMStore(options: DMStoreOptions): DMStore {
   }, [selectedContactId, username, sendMatrixDM, mumbleContacts, sendMumbleDM]);
 
   const closeDM = useCallback((id: string) => {
-    // Matrix contacts can't truly be "closed" — just deselect if active
+    // Deselect if this contact is currently active
     if (selectedContactId === id) {
       setSelectedContactId(null);
     }
-  }, [selectedContactId]);
+    // Ephemeral (Mumble) contacts: remove contact and messages entirely
+    if (mumbleContacts.has(id)) {
+      setMumbleContacts(prev => {
+        const next = new Map(prev);
+        next.delete(id);
+        return next;
+      });
+      setMumbleMessages(prev => {
+        const next = new Map(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  }, [selectedContactId, mumbleContacts]);
 
   // ---- Mumble-specific actions ---------------------------------------------
 
