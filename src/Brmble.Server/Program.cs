@@ -41,6 +41,13 @@ builder.Services.AddOptions<ServerInfoSettings>()
 builder.Services.AddReverseProxy()
     .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
 builder.Services.AddSingleton<IMumbleGroupSyncService, MumbleGroupSyncService>();
+builder.Services.AddSingleton<ModeratorRoleRepository>();
+builder.Services.AddSingleton<ModeratorAssignmentRepository>();
+builder.Services.AddSingleton<SyncFailedAssignmentRepository>();
+builder.Services.AddSingleton<ModeratorService>();
+builder.Services.AddSingleton<IModeratorService>(sp => (IModeratorService)sp.GetRequiredService<ModeratorService>());
+builder.Services.AddSingleton<IModeratorPermissionChecker>(sp => (IModeratorPermissionChecker)sp.GetRequiredService<ModeratorService>());
+builder.Services.AddSingleton<PermissionEnforcer>();
 
 var app = builder.Build();
 
