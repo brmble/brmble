@@ -61,5 +61,53 @@ public class Database
             "SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='texture_hash'");
         if (hasTextureHash == 0)
             conn.Execute("ALTER TABLE users ADD COLUMN texture_hash TEXT");
+
+        // Migrate: add moderator_roles table
+        var hasModeratorRoles = conn.ExecuteScalar<int>(
+            "SELECT COUNT(*) FROM pragma_table_info('moderator_roles') WHERE name='id'");
+        if (hasModeratorRoles == 0)
+            conn.Execute("""
+                CREATE TABLE moderator_roles (
+                    id          TEXT PRIMARY KEY,
+                    name        TEXT NOT NULL,
+                    permissions INTEGER NOT NULL DEFAULT 0,
+                    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """);
+
+        // Migrate: add moderator_assignments table
+        var hasModeratorAssignments = conn.ExecuteScalar<int>(
+            "SELECT COUNT(*) FROM pragma_table_info('moderator_assignments') WHERE name='id'");
+        if (hasModeratorAssignments == 0)
+            conn.Execute("""
+                CREATE TABLE moderator_assignments (
+                    id          TEXT PRIMARY KEY,
+                    role_id     TEXT NOT NULL,
+                    channel_id  INTEGER NOT NULL,
+                    user_id     INTEGER NOT NULL,
+                    assigned_by INTEGER NOT NULL,
+                    assigned_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (role_id) REFERENCES moderator_roles(id) ON DELETE CASCADE,
+                    UNIQUE (channel_id, user_id)
+                )
+            """);
+
+        // Migrate: add sync_failed_assignments table for retry queue
+        var hasSyncFailed = conn.ExecuteScalar<int>(
+            "SELECT COUNT(*) FROM pragma_table_info('sync_failed_assignments') WHERE name='id'");
+        if (hasSyncFailed == 0)
+            conn.Execute("""
+                CREATE TABLE sync_failed_assignments (
+                    id              TEXT PRIMARY KEY,
+                    assignment_id    TEXT NOT NULL,
+                    action          TEXT NOT NULL,
+                    error_message   TEXT,
+                    retry_count     INTEGER NOT NULL DEFAULT 0,
+                    next_retry_at   DATETIME NOT NULL,
+                    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (assignment_id) REFERENCES moderator_assignments(id) ON DELETE CASCADE
+                )
+            """);
     }
 }
