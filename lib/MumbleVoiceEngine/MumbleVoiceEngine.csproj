@@ -10,5 +10,6 @@
   <ItemGroup Label="NativeLibraries">
     <Content Include="Native\opus.dll" Link="opus.dll" CopyToOutputDirectory="Always" />
     <Content Include="Native\speexdsp.dll" Link="speexdsp.dll" CopyToOutputDirectory="Always" />
+    <Content Include="Native\r8bsrc.dll" Link="r8bsrc.dll" CopyToOutputDirectory="Always" />
   </ItemGroup>
 </Project>
