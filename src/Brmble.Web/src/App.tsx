@@ -463,8 +463,56 @@ function App() {
   dmStoreRef.current = dmStore;
   const connectionStatusRef = useRef(connectionStatus);
   connectionStatusRef.current = connectionStatus;
+  const fetchAvatarUrlRef = useRef(matrixClient.fetchAvatarUrl);
+  fetchAvatarUrlRef.current = matrixClient.fetchAvatarUrl;
+  const matrixClientRef = useRef(matrixClient.client);
+  matrixClientRef.current = matrixClient.client;
   const handleToggleScreenShareRef = useRef<(() => void) | null>(null);
   const disconnectViewerRef = useRef<(() => void) | null>(null);
+
+  // Fetch avatar for a specific user by matrixUserId and session, updating user state.
+  // Uses refs so it can be called from bridge event handlers (which capture initial closures).
+  const fetchAvatarForUser = useCallback((session: number, matrixUserId: string) => {
+    if (!matrixClientRef.current) return;
+    // Skip if already fetched or in-flight
+    if (fetchedAvatarIdsRef.current.has(matrixUserId)) return;
+    // Check if user already has an avatar
+    const user = usersRef.current.find(u => u.session === session);
+    if (user?.avatarUrl) return;
+
+    fetchedAvatarIdsRef.current.set(matrixUserId, 1);
+    fetchAvatarUrlRef.current(matrixUserId).then((url) => {
+      if (url) {
+        setUsers(prev => prev.map(u =>
+          u.session === session ? { ...u, avatarUrl: url } : u
+        ));
+      } else {
+        // Avatar not available yet — schedule retries (e.g. Mumble texture still uploading)
+        const scheduleRetry = (attempt: number) => {
+          if (attempt >= 3) return;
+          const timer = setTimeout(() => {
+            avatarRetryTimersRef.current.delete(timer);
+            fetchedAvatarIdsRef.current.delete(matrixUserId);
+            // Re-check: user may have disconnected or gotten an avatar since
+            const current = usersRef.current.find(u => u.session === session);
+            if (!current || current.avatarUrl || !current.matrixUserId) return;
+            fetchedAvatarIdsRef.current.set(matrixUserId, attempt + 1);
+            fetchAvatarUrlRef.current(matrixUserId).then((retryUrl) => {
+              if (retryUrl) {
+                setUsers(prev => prev.map(u =>
+                  u.session === session ? { ...u, avatarUrl: retryUrl } : u
+                ));
+              } else {
+                scheduleRetry(attempt + 1);
+              }
+            });
+          }, 2000 * (attempt + 1));
+          avatarRetryTimersRef.current.add(timer);
+        };
+        scheduleRetry(0);
+      }
+    });
+  }, []);
 
   // Tracks whether the user ever saw the 'connected' UI (ChatPanel rendered).
   // Set to true via useEffect (fires after render commit), so transient
@@ -626,6 +674,12 @@ function App() {
           setSelfMuted(selfUser.muted || false);
           setSelfDeafened(selfUser.deafened || false);
           setSelfSession(selfUser.session);
+        }
+        // Fetch avatars for users already present at connect time
+        for (const u of d.users) {
+          if (u.matrixUserId && !u.self && !u.avatarUrl) {
+            fetchAvatarForUser(u.session, u.matrixUserId);
+          }
         }
       }
 
@@ -812,6 +866,11 @@ function App() {
           }
           return [...prev, d];
         });
+
+        // Fetch avatar for newly joined user if they have a matrixUserId
+        if (d.matrixUserId && !d.self) {
+          fetchAvatarForUser(d.session, d.matrixUserId);
+        }
 
         if (!d.self) {
           const selfUser = usersRef.current.find(u => u.self);
@@ -1109,6 +1168,10 @@ function App() {
             ? { ...u, matrixUserId: d.action === 'added' ? d.matrixUserId : undefined, isBrmbleClient: d.action === 'added' ? d.isBrmbleClient : undefined }
             : u
         ));
+        // Fetch avatar for the newly mapped user if they don't have one yet
+        if (d.action === 'added' && d.matrixUserId) {
+          fetchAvatarForUser(d.sessionId, d.matrixUserId);
+        }
       }
     };
 
@@ -1125,6 +1188,10 @@ function App() {
             return m ? { ...u, matrixUserId: m.matrixUserId, isBrmbleClient: m.isBrmbleClient } : u;
           });
         });
+        // Fetch avatars for users that gained a matrixUserId
+        for (const [sid, entry] of Object.entries(d.mappings)) {
+          fetchAvatarForUser(Number(sid), entry.matrixUserId);
+        }
       }
     };
 
