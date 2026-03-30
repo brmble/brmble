@@ -1,7 +1,7 @@
 namespace Brmble.Server.Moderator;
 
 [Flags]
-public enum ModeratorPermission
+public enum ModeratorPermissions
 {
     None = 0,
     Kick = 0x001,

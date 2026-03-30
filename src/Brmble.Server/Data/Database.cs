@@ -100,7 +100,7 @@ public class Database
             conn.Execute("""
                 CREATE TABLE sync_failed_assignments (
                     id              TEXT PRIMARY KEY,
-                    assignment_id    TEXT NOT NULL,
+                    assignment_id   TEXT NOT NULL,
                     action          TEXT NOT NULL,
                     error_message   TEXT,
                     retry_count     INTEGER NOT NULL DEFAULT 0,
