@@ -7,6 +7,7 @@ using Brmble.Audio.NetEQ;
 using Brmble.Audio.NetEQ.Models;
 using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.SpeechEnhancement;
+using MumbleVoiceEngine.Audio;
 using MumbleVoiceEngine.Pipeline;
 using NAudio.Wave;
 using NAudio.CoreAudioApi;
@@ -222,6 +223,10 @@ private int _screenShareHotkeyId = -1;
     private SpeechEnhancementService? _speechEnhancement;
     private AudioResampler? _to16kResampler;
     private AudioResampler? _to48kResampler;
+
+    // Device→48kHz resampler (r8brain)
+    private R8BrainResampler? _deviceResampler;
+    private int _deviceSampleRate;
 
     // RNNoise denoising
     private RnnoiseService? _rnnoise;
@@ -610,6 +615,8 @@ private int _screenShareHotkeyId = -1;
             _waveIn?.StopRecording();
             _encodePipeline?.Dispose();
             _encodePipeline = null;
+            _deviceResampler?.Dispose();
+            _deviceResampler = null;
             _micStarted = false;
             AudioLog.Write("[Audio] Mic stopped (with silence tail)");
         }
@@ -619,6 +626,7 @@ private int _screenShareHotkeyId = -1;
     [ThreadStatic] private static float[]? _wasapiFloatScratch;
     [ThreadStatic] private static float[]? _wasapiMonoScratch;
     [ThreadStatic] private static byte[]? _wasapiInt16Scratch;
+    [ThreadStatic] private static double[]? _resampleDoubleScratch;
 
     private void OnMicData(object? sender, WaveInEventArgs e)
     {
@@ -661,19 +669,31 @@ private int _screenShareHotkeyId = -1;
             int srcRate = fmt.SampleRate;
             if (srcRate != 48000)
             {
-                // Simple linear interpolation resampling to 48kHz.
-                int outFrames = (int)Math.Round((double)monoFrames * 48000 / srcRate);
-                var resampled = new float[outFrames];
-                for (int i = 0; i < outFrames; i++)
+                // Create or recreate r8brain resampler if device rate changed
+                if (_deviceResampler == null || _deviceSampleRate != srcRate)
                 {
-                    double srcPos = (double)i * srcRate / 48000;
-                    int lo = (int)srcPos;
-                    int hi = Math.Min(lo + 1, monoFrames - 1);
-                    float frac = (float)(srcPos - lo);
-                    resampled[i] = _wasapiMonoScratch[lo] * (1f - frac) + _wasapiMonoScratch[hi] * frac;
+                    _deviceResampler?.Dispose();
+                    _deviceSampleRate = srcRate;
+                    _deviceResampler = new R8BrainResampler(srcRate, 48000, monoFrames);
                 }
+
+                // Convert float→double for r8brain
+                if (_resampleDoubleScratch == null || _resampleDoubleScratch.Length < monoFrames)
+                    _resampleDoubleScratch = new double[monoFrames];
+                for (int i = 0; i < monoFrames; i++)
+                    _resampleDoubleScratch[i] = _wasapiMonoScratch[i];
+
+                var inputSlice = new double[monoFrames];
+                Array.Copy(_resampleDoubleScratch, inputSlice, monoFrames);
+
+                int outSamples = _deviceResampler.Process(inputSlice, out double[] resampledDouble);
+
+                var resampled = new float[outSamples];
+                for (int i = 0; i < outSamples; i++)
+                    resampled[i] = (float)resampledDouble[i];
+
                 monoAt48k = resampled;
-                monoFrames = outFrames;
+                monoFrames = outSamples;
             }
             else
             {
@@ -1795,6 +1815,8 @@ private int _screenShareHotkeyId = -1;
 
     public void Dispose()
     {
+        _deviceResampler?.Dispose();
+        _deviceResampler = null;
         _rnnoise?.Dispose();
         _rnnoiseRemainder = null;
         _speechEnhancement?.Dispose();
