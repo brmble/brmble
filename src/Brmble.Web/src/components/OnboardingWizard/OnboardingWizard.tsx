@@ -131,7 +131,7 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
   const [settings, setSettings] = useState<WizardSettings>(loadInitialSettings);
 
   // Server import step state
-  interface MumbleServer { label: string; host: string; port: number; username: string; }
+  interface MumbleServer { label: string; host: string; port: number; username: string; alreadySaved: boolean; }
   const [mumbleServers, setMumbleServers] = useState<MumbleServer[]>([]);
   const [selectedServers, setSelectedServers] = useState<Set<number>>(new Set());
   const [serversImportBusy, setServersImportBusy] = useState(false);
@@ -175,7 +175,11 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
       const d = data as { servers?: MumbleServer[] } | undefined;
       const svrs = d?.servers ?? [];
       setMumbleServers(svrs);
-      setSelectedServers(new Set(svrs.map((_, i) => i)));
+      // Pre-select all servers except those already saved in Brmble
+      setSelectedServers(new Set(svrs.reduce<number[]>((acc, srv, i) => {
+        if (!srv.alreadySaved) acc.push(i);
+        return acc;
+      }, [])));
     };
     const onServersImported = () => {
       setServersImportBusy(false);
@@ -797,9 +801,12 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
                           {srv.username ? ` · ${srv.username}` : ''}
                         </div>
                       </div>
-                      {selectedServers.has(i) && (
-                        <span className="onboarding-identity-badge brmble">Import</span>
-                      )}
+                      {srv.alreadySaved && !selectedServers.has(i)
+                        ? <span className="onboarding-identity-badge saved">Already saved</span>
+                        : selectedServers.has(i)
+                          ? <span className="onboarding-identity-badge brmble">Import</span>
+                          : null
+                      }
                     </button>
                   ))}
                 </div>
