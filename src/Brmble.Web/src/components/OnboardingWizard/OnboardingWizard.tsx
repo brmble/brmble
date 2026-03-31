@@ -264,18 +264,6 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
 
   // ── Step handlers ──────────────────────────────────────────────
 
-  const handleGetStarted = () => {
-    setDetecting(true);
-    bridge.send('mumble.detectCerts');
-    // 2-second fallback — advance to identity even if detectedCerts doesn't arrive
-    const timer = setTimeout(() => {
-      setDetecting(false);
-      setStep('identity');
-    }, 2000);
-    // Clean up timer if the event fires first (handled in setMumbleCertsAndAdvance effect)
-    return () => clearTimeout(timer);
-  };
-
   const detectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleGetStartedWithTimer = () => {
