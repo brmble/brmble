@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import type { Infrastructure, Service, Contract, GameState, GameActions } from './types';
+import type { Infrastructure, Service, Contract, GameState, GameActions, ActiveContract } from './types';
 import { useGameState } from './useGameState';
 import { ContractPopup } from './contracts/ContractPopup';
 import { ContractSlot } from './contracts/ContractSlot';
@@ -13,6 +13,33 @@ interface GameUIProps {
 }
 
 type TabId = 'infrastructure' | 'upgrades' | 'hosting';
+
+function ActiveContractBadge({ 
+  contract, 
+  onCollect 
+}: { 
+  contract: ActiveContract; 
+  onCollect: () => void;
+}) {
+  const progress = (contract.volumeFilledBytes / contract.volumeBytes) * 100;
+  const isComplete = progress >= 100;
+  
+  return (
+    <div className={`active-contract-badge ${isComplete ? 'complete' : ''}`}>
+      <div className="badge-header">
+        <span className="badge-stars">{'★'.repeat(contract.multiplierStars)}{'☆'.repeat(5 - contract.multiplierStars)}</span>
+        {isComplete && (
+          <button className="btn btn-sm btn-primary" onClick={onCollect}>
+            Collect
+          </button>
+        )}
+      </div>
+      <div className="progress-bar">
+        <div className="progress-fill" style={{ width: `${Math.min(progress, 100)}%` }} />
+      </div>
+    </div>
+  );
+}
 
 function LicenseSelectorModal({ 
   contract, 
@@ -183,10 +210,12 @@ export function GameUI({ onClose }: GameUIProps) {
             <ContractsSection state={state} actions={actions} />
             <HostingTab 
               services={state.services}
+              activeContracts={state.activeContracts}
               uploadSpeed={state.uploadSpeed}
               bandwidthSold={state.bandwidthSold}
               bandwidthDemanded={state.bandwidthDemanded}
               onBuyService={actions.buyService}
+              onCollectContract={actions.collectContract}
               money={state.money}
             />
           </>
@@ -685,14 +714,16 @@ function TechUpgradesTab({ infrastructure, services, money, onUnlockInfrastructu
 
 interface HostingTabProps {
   services: Service[];
+  activeContracts: ActiveContract[];
   uploadSpeed: number;
   bandwidthSold: number;
   bandwidthDemanded: number;
   onBuyService: (serviceId: string) => void;
+  onCollectContract: (slotIndex: number) => void;
   money: number;
 }
 
-function HostingTab({ services, uploadSpeed, bandwidthDemanded, onBuyService, money }: HostingTabProps) {
+function HostingTab({ services, activeContracts, uploadSpeed, bandwidthDemanded, onBuyService, onCollectContract, money }: HostingTabProps) {
   const isOverage = bandwidthDemanded > uploadSpeed;
   const penaltyPercent = isOverage ? 15 : 0;
   const overageAmount = isOverage ? bandwidthDemanded - uploadSpeed : 0;
@@ -725,6 +756,7 @@ function HostingTab({ services, uploadSpeed, bandwidthDemanded, onBuyService, mo
         {unlockedServices.map(service => {
           const cost = Math.floor(service.baseCost * Math.pow(1.15, service.owned));
           const canBuy = money >= cost;
+          const activeContract = service.owned > 0 ? activeContracts.find(c => c.assignedLicenseId === service.id) : undefined;
           return (
             <ServiceRow 
               key={service.id} 
@@ -732,6 +764,8 @@ function HostingTab({ services, uploadSpeed, bandwidthDemanded, onBuyService, mo
               cost={cost}
               onBuy={onBuyService} 
               canBuy={canBuy}
+              activeContract={activeContract}
+              onCollect={onCollectContract}
             />
           );
         })}
@@ -750,7 +784,14 @@ function HostingTab({ services, uploadSpeed, bandwidthDemanded, onBuyService, mo
   );
 }
 
-function ServiceRow({ service, cost, onBuy, canBuy }: { service: Service; cost: number; onBuy: (id: string) => void; canBuy: boolean }) {
+function ServiceRow({ service, cost, onBuy, canBuy, activeContract, onCollect }: { 
+  service: Service; 
+  cost: number; 
+  onBuy: (id: string) => void; 
+  canBuy: boolean;
+  activeContract?: ActiveContract;
+  onCollect?: (slotIndex: number) => void;
+}) {
   if (!service.unlocked) {
     return (
       <div className="hosting-row locked">
@@ -776,6 +817,13 @@ function ServiceRow({ service, cost, onBuy, canBuy }: { service: Service; cost: 
       <button className="btn btn-primary" disabled={!canBuy} onClick={() => onBuy(service.id)}>
         Buy
       </button>
+      
+      {activeContract && onCollect && (
+        <ActiveContractBadge 
+          contract={activeContract} 
+          onCollect={() => onCollect(activeContract.slotIndex)} 
+        />
+      )}
     </div>
   );
 }
