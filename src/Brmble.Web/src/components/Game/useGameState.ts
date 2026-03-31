@@ -242,31 +242,14 @@ export function useGameState() {
         // Handle failed contracts (remove timed out contracts)
         const activeContracts = updatedContracts.filter(c => c.status !== 'failed');
         
-        // Calculate contract bonus for income
-        let contractBonus = 0;
-        activeContracts.forEach(contract => {
-          if (contract.volumeBytes <= 0) return;
-          const license = currentServices.find(s => s.id === contract.assignedLicenseId);
-          if (license && license.owned > 0) {
-            // Bonus is proportional to how much of the contract is filled
-            const progress = contract.volumeFilledBytes / contract.volumeBytes;
-            // Use total base income from all owned licenses for consistency
-            const baseIncome = license.baseIncomePerSecond * license.owned;
-            contractBonus += baseIncome * contract.multiplierStars * 0.25 * progress;
-          }
-        });
-        
-        const totalIncome = derivedValues.incomePerSecond + contractBonus;
-        
         // Update refs for next tick
         servicesRef.current = prev.services;
         activeContractsRef.current = activeContracts;
         
-        // If contract timed out, no income from it (it was removed from activeContracts)
         return {
           ...prev,
           activeContracts,
-          money: prev.money + (totalIncome / 10),
+          money: prev.money + (derivedValues.incomePerSecond / 10),
         };
       });
     }, 100);
