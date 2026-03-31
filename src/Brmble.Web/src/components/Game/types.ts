@@ -414,5 +414,10 @@ export const INITIAL_STATE: GameState = {
   bandwidthDemanded: 0,
   infrastructure: INITIAL_INFRASTRUCTURE,
   services: INITIAL_SERVICES,
+  availableContracts: [],
+  activeContracts: [],
+  unlockedContractSlots: 1,
+  contractPopupOpen: false,
+  contractPopupSlotIndex: null,
   lastSaved: Date.now(),
 };
