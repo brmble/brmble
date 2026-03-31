@@ -1,0 +1,96 @@
+.contract-slot {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  min-width: 200px;
+}
+
+.contract-slot.locked {
+  opacity: 0.5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+}
+
+.contract-slot.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+}
+
+.contract-slot.active {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.contract-slot.complete {
+  border-color: var(--accent-success, #22c55e);
+}
+
+.slot-label {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.slot-locked {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.slot-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.contract-stars {
+  color: var(--accent-primary);
+  letter-spacing: 1px;
+  font-size: var(--text-sm);
+}
+
+.slot-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.volume-info {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.progress-container {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.progress-bar {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-elevated);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--accent-primary);
+  transition: width 0.1s linear;
+}
+
+.progress-percent {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  min-width: 35px;
+  text-align: right;
+}
