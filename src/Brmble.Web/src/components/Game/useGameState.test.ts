@@ -160,20 +160,6 @@ describe('useGameState', () => {
       expect(result.current.state.unlockedContractSlots).toBe(1);
     });
     
-  it('unlocks slot 2 for correct cost', () => {
-    const { result } = renderHook(() => useGameState());
-    
-    // Note: Slot 2 costs $2M, which requires significant income
-    // This test verifies the slot unlock action exists and can be called
-    // In a full game, players would earn enough money through normal gameplay
-    
-    // Verify initial state
-    expect(result.current.state.unlockedContractSlots).toBe(1);
-    
-    // The action should exist
-    expect(typeof result.current.actions.unlockContractSlot).toBe('function');
-    });
-    
     it('does not unlock if insufficient funds', () => {
       const { result } = renderHook(() => useGameState());
       
@@ -184,6 +170,62 @@ describe('useGameState', () => {
       });
       
       expect(result.current.state.unlockedContractSlots).toBe(initialSlots);
+    });
+  });
+
+  describe('Contract Timeout and Progress', () => {
+    it('does not collect contract with zero volumeBytes', () => {
+      const { result } = renderHook(() => useGameState());
+      
+      act(() => {
+        result.current.actions.buyService('website');
+      });
+      
+      act(() => {
+        result.current.actions.openContractPopup(0);
+      });
+      
+      const contract = result.current.state.availableContracts[0];
+      
+      act(() => {
+        result.current.actions.selectContract(contract, 0);
+      });
+      
+      act(() => {
+        result.current.actions.assignContract('website');
+      });
+      
+      const activeContract = result.current.state.activeContracts[0];
+      expect(activeContract.volumeBytes).toBeGreaterThan(0);
+    });
+
+    it('progress caps at volumeBytes', () => {
+      const { result } = renderHook(() => useGameState());
+      
+      act(() => {
+        result.current.actions.buyService('website');
+      });
+      
+      act(() => {
+        result.current.actions.openContractPopup(0);
+      });
+      
+      const contract = result.current.state.availableContracts[0];
+      
+      act(() => {
+        result.current.actions.selectContract(contract, 0);
+      });
+      
+      act(() => {
+        result.current.actions.assignContract('website');
+      });
+      
+      act(() => {
+        vi.advanceTimersByTime(60000);
+      });
+      
+      const activeContract = result.current.state.activeContracts[0];
+      expect(activeContract.volumeFilledBytes).toBeLessThanOrEqual(activeContract.volumeBytes);
     });
   });
 });

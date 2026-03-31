@@ -19,7 +19,7 @@ Contracts are time-limited income multipliers that players assign to active lice
 
 ### Tech Upgrades Tab Changes
 - Add 3 expensive upgrades to unlock additional contract slots:
-  - Slot 2: $2,000,000 (default unlocked)
+  - Slot 2: $2,000,000
   - Slot 3: $10,000,000
   - Slot 4: $50,000,000
 
@@ -31,8 +31,8 @@ When player clicks "Add Contract" on an empty slot:
 
 ### Process
 1. Pick 1 random active license as reference
-2. Calculate volume: `referenceBandwidth × (60-120 seconds) × tightnessFactor`
-   - Tightness Factor: 0.8 to 1.2 (random)
+2. Calculate volume: `referenceBandwidth × (120-300 seconds) × tightnessFactor`
+   - Tightness Factor: 0.9 to 1.1 (random)
    - Values > 1.0 mean the reference license alone can't complete in time
    - This creates strategic tension: upgrade, use multiple licenses, or accept failure risk
 3. Determine stars (fixed distribution)
@@ -49,8 +49,7 @@ When player clicks "Add Contract" on an empty slot:
 ### Time Ranges (by stars)
 | Stars | Time Range  |
 |-------|-------------|
-| 1-2★  | 6-9 min     |
-| 3★    | 5-7 min     |
+| 1-3★  | 6-9 min     |
 | 4★    | 4-6 min     |
 | 5★    | 3-5 min     |
 

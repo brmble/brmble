@@ -97,6 +97,27 @@ function hasServices(state: unknown): state is GameState {
   return 'baseCost' in first;
 }
 
+function migrateState(state: unknown): GameState {
+  const defaultState = INITIAL_STATE;
+  const merged = { ...defaultState, ...(state as Partial<GameState>) };
+  if (!Array.isArray(merged.activeContracts)) {
+    merged.activeContracts = [];
+  }
+  if (!Array.isArray(merged.availableContracts)) {
+    merged.availableContracts = [];
+  }
+  if (typeof merged.unlockedContractSlots !== 'number') {
+    merged.unlockedContractSlots = 1;
+  }
+  if (typeof merged.contractPopupOpen !== 'boolean') {
+    merged.contractPopupOpen = false;
+  }
+  if (merged.contractPopupSlotIndex !== null && typeof merged.contractPopupSlotIndex !== 'number') {
+    merged.contractPopupSlotIndex = null;
+  }
+  return merged;
+}
+
 export function useGameState() {
   const fingerprint = useProfileFingerprint();
   const storageKey = fingerprint ? `${STORAGE_KEY}_${fingerprint}` : STORAGE_KEY;
@@ -110,7 +131,7 @@ export function useGameState() {
         if (!hasInfrastructure(parsed) || !hasServices(parsed)) {
           return INITIAL_STATE;
         }
-        return parsed;
+        return migrateState(parsed);
       } catch {
         return INITIAL_STATE;
       }
@@ -119,7 +140,11 @@ export function useGameState() {
   });
 
   const stateRef = useRef(state);
+  const servicesRef = useRef(state.services);
+  const activeContractsRef = useRef(state.activeContracts);
   stateRef.current = state;
+  servicesRef.current = state.services;
+  activeContractsRef.current = state.activeContracts;
 
   const derivedValues = useMemo(() => {
     const bandwidth = calculateBandwidth(state.infrastructure);
@@ -135,7 +160,7 @@ export function useGameState() {
   const generateContract = useCallback((services: Service[]): Contract => {
     const activeServices = services.filter(s => s.owned > 0);
     if (activeServices.length === 0) {
-      return { id: generateId(), name: generateContractName(), volumeBytes: 0, multiplierStars: 1 };
+      return { id: generateId(), name: generateContractName(), volumeBytes: 1, multiplierStars: 1 };
     }
     
     const referenceService = activeServices[Math.floor(Math.random() * activeServices.length)];
@@ -189,23 +214,24 @@ export function useGameState() {
 
   useEffect(() => {
     const interval = setInterval(() => {
-      const currentIncome = derivedValues.incomePerSecond;
       setState(prev => {
+        const currentServices = servicesRef.current;
+        const currentActiveContracts = activeContractsRef.current;
+        
         // Update contract progress
-        const updatedContracts = prev.activeContracts.map(contract => {
+        const updatedContracts = currentActiveContracts.map(contract => {
           const elapsedSeconds = (Date.now() - contract.startTime) / 1000;
           
           // Check for timeout
           if (elapsedSeconds >= contract.timeLimitSeconds) {
-            return { ...contract, failed: true };
+            return { ...contract, status: 'failed' as const };
           }
           
           // Find the assigned license to get its bandwidth
-          const license = prev.services.find(s => s.id === contract.assignedLicenseId);
-          if (!license || license.owned === 0) return contract;
+          const license = currentServices.find(s => s.id === contract.assignedLicenseId);
+          if (!license || license.owned === 0 || contract.volumeBytes <= 0) return contract;
           
-          // Calculate bandwidth contribution (total bandwidth from all owned licenses)
-          // Each owned license contributes baseBandwidthRequired bytes per second
+          // Calculate bandwidth contribution (total bandwidth from all owned instances of the assigned license)
           const totalBandwidth = license.baseBandwidthRequired * license.owned;
           const deltaBytes = totalBandwidth * 0.1; // 100ms tick
           const newFilled = Math.min(contract.volumeBytes, contract.volumeFilledBytes + deltaBytes);
@@ -214,21 +240,27 @@ export function useGameState() {
         });
         
         // Handle failed contracts (remove timed out contracts)
-        const activeContracts = updatedContracts.filter(c => !(c as any).failed);
+        const activeContracts = updatedContracts.filter(c => c.status !== 'failed');
         
         // Calculate contract bonus for income
         let contractBonus = 0;
         activeContracts.forEach(contract => {
-          const license = prev.services.find(s => s.id === contract.assignedLicenseId);
-          if (license) {
+          if (contract.volumeBytes <= 0) return;
+          const license = currentServices.find(s => s.id === contract.assignedLicenseId);
+          if (license && license.owned > 0) {
             // Bonus is proportional to how much of the contract is filled
             const progress = contract.volumeFilledBytes / contract.volumeBytes;
-            const baseIncome = license.baseIncomePerSecond;
+            // Use total base income from all owned licenses for consistency
+            const baseIncome = license.baseIncomePerSecond * license.owned;
             contractBonus += baseIncome * contract.multiplierStars * 0.25 * progress;
           }
         });
         
-        const totalIncome = currentIncome + contractBonus;
+        const totalIncome = derivedValues.incomePerSecond + contractBonus;
+        
+        // Update refs for next tick
+        servicesRef.current = prev.services;
+        activeContractsRef.current = activeContracts;
         
         // If contract timed out, no income from it (it was removed from activeContracts)
         return {
@@ -239,7 +271,7 @@ export function useGameState() {
       });
     }, 100);
     return () => clearInterval(interval);
-  }, [derivedValues.incomePerSecond, state.activeContracts, state.services]);
+  }, [derivedValues.incomePerSecond]);
 
   const buyInfrastructure = useCallback((infraId: string) => {
     setState(prev => {
@@ -372,7 +404,7 @@ export function useGameState() {
         if (!hasInfrastructure(parsed) || !hasServices(parsed)) {
           setState(INITIAL_STATE);
         } else {
-          setState(parsed);
+          setState(migrateState(parsed));
         }
       } catch {
         // Invalid save data
@@ -395,7 +427,7 @@ export function useGameState() {
       if (!hasInfrastructure(parsed) || !hasServices(parsed)) {
         return false;
       }
-      setState(parsed);
+      setState(migrateState(parsed));
       return true;
     } catch {
       return false;
@@ -483,20 +515,29 @@ export function useGameState() {
     },
 
     collectContract: (slotIndex: number) => {
-      const contract = state.activeContracts.find(c => c.slotIndex === slotIndex);
-      if (!contract) return;
-      
-      const license = state.services.find(s => s.id === contract.assignedLicenseId);
-      if (!license) return;
-      
-      const licenseIncome = license.baseIncomePerSecond * license.owned;
-      const earned = (contract.volumeFilledBytes / contract.volumeBytes) * licenseIncome * 10;
-      
-      setState(prev => ({
-        ...prev,
-        activeContracts: prev.activeContracts.filter(c => c.slotIndex !== slotIndex),
-        money: prev.money + earned,
-      }));
+      setState(prev => {
+        const contract = prev.activeContracts.find(c => c.slotIndex === slotIndex);
+        if (!contract) return prev;
+        
+        const license = prev.services.find(s => s.id === contract.assignedLicenseId);
+        if (!license) return prev;
+        
+        if (contract.volumeBytes <= 0) {
+          return {
+            ...prev,
+            activeContracts: prev.activeContracts.filter(c => c.slotIndex !== slotIndex),
+          };
+        }
+        
+        const licenseIncome = license.baseIncomePerSecond * license.owned;
+        const earned = (contract.volumeFilledBytes / contract.volumeBytes) * licenseIncome * 10;
+        
+        return {
+          ...prev,
+          activeContracts: prev.activeContracts.filter(c => c.slotIndex !== slotIndex),
+          money: prev.money + earned,
+        };
+      });
     },
 
     failContract: (slotIndex: number) => {

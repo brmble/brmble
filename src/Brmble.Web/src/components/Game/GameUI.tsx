@@ -78,8 +78,9 @@ export function GameUI({ onClose }: GameUIProps) {
   }, [actions]);
 
   const handleDropContract = useCallback((licenseId: string) => {
+    if (!state.pendingContract) return;
     setPendingLicenseId(licenseId);
-  }, []);
+  }, [state.pendingContract]);
 
   const handleConfirmContract = useCallback(async () => {
     if (pendingLicenseId) {
@@ -91,6 +92,12 @@ export function GameUI({ onClose }: GameUIProps) {
   const handleCancelContract = useCallback(() => {
     setPendingLicenseId(null);
   }, []);
+
+  useEffect(() => {
+    if (!state.pendingContract && pendingLicenseId !== null) {
+      setPendingLicenseId(null);
+    }
+  }, [state.pendingContract, pendingLicenseId]);
   
   const handleClose = useCallback(() => {
     actions.saveGame();
@@ -244,7 +251,8 @@ export function GameUI({ onClose }: GameUIProps) {
         <ContractPopup
           contracts={state.availableContracts}
           onSelect={(contract) => {
-            actions.selectContract(contract, state.contractPopupSlotIndex!);
+            if (state.contractPopupSlotIndex == null) return;
+            actions.selectContract(contract, state.contractPopupSlotIndex);
           }}
           onClose={actions.closeContractPopup}
         />
@@ -612,11 +620,13 @@ function TechUpgradesTab({ infrastructure, services, money, onUnlockInfrastructu
         <h3 className="heading-label">Contract Slots</h3>
         <div className="infra-row">
           <div className="infra-info">
-            <span className="service-name">Slot {unlockedContractSlots + 1}</span>
+            <span className="service-name">
+              {unlockedContractSlots < 4 ? `Slot ${unlockedContractSlots + 1}` : 'All Slots Unlocked'}
+            </span>
             <span className="infra-stats">
               {unlockedContractSlots < 4 
                 ? `$${unlockedContractSlots === 1 ? '2,000,000' : unlockedContractSlots === 2 ? '10,000,000' : '50,000,000'}`
-                : 'All slots unlocked'}
+                : 'Maximum capacity reached'}
             </span>
           </div>
           {unlockedContractSlots < 4 && (
@@ -726,7 +736,7 @@ function ServiceRow({ service, cost, onBuy, canBuy, onDropContract }: {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-    if (service.owned > 0 && onDropContract) {
+    if (service.owned > 0 && onDropContract && e.dataTransfer.types.includes('contract-slot')) {
       onDropContract(service.id);
     }
   };

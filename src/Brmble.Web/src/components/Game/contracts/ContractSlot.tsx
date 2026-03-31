@@ -122,8 +122,9 @@ export function ContractSlot({ index, activeContract, pendingContract, license, 
   // At this point, activeContract is guaranteed to be non-null
   const ac = activeContract!;
   
-  const progress = (ac.volumeFilledBytes / ac.volumeBytes) * 100;
-  const isComplete = progress >= 100 || remainingSeconds <= 0;
+  const hasValidVolume = ac.volumeBytes > 0;
+  const progress = hasValidVolume ? (ac.volumeFilledBytes / ac.volumeBytes) * 100 : 0;
+  const isComplete = hasValidVolume && ac.volumeFilledBytes >= ac.volumeBytes;
   const earned = isComplete ? (ac.volumeFilledBytes / ac.volumeBytes) * incomePerSecond * 10 : 0;
 
   return (

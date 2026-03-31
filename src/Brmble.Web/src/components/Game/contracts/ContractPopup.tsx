@@ -17,6 +17,7 @@ function getTimeRange(stars: number): string {
   switch (stars) {
     case 5: return '± 3-5 min';
     case 4: return '± 4-6 min';
+    case 3: return '± 6-9 min';
     default: return '± 6-9 min';
   }
 }

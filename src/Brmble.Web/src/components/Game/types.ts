@@ -52,6 +52,7 @@ export interface ActiveContract {
   volumeBytes: number;
   volumeFilledBytes: number;
   multiplierStars: number;
+  status?: 'active' | 'failed';
 }
 
 /**
