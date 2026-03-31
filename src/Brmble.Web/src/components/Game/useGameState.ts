@@ -1,11 +1,48 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
-import type { GameState, GameActions, Infrastructure, Service } from './types';
+import type { GameState, GameActions, Infrastructure, Service, Contract } from './types';
 import { INITIAL_STATE } from './types';
 import { applyTheme } from '../../themes/theme-loader';
 import { useProfileFingerprint } from '../../contexts/ProfileContext';
 
 const STORAGE_KEY = 'idle-farm-save';
 const THEME_KEY = 'idle-farm-theme';
+
+const CONTRACT_PREFIXES = [
+  "Neural", "Data", "Batch", "Streaming", "Inference",
+  "Training", "ML", "Quantum", "Edge", "Cloud"
+];
+
+const CONTRACT_SUFFIXES = [
+  "Training Pack", "Inference Bundle", "Batch Set",
+  "Pipeline Pack", "Model Bundle", "Dataset Set", "Processing Pack"
+];
+
+function generateContractName(): string {
+  const prefix = CONTRACT_PREFIXES[Math.floor(Math.random() * CONTRACT_PREFIXES.length)];
+  const suffix = CONTRACT_SUFFIXES[Math.floor(Math.random() * CONTRACT_SUFFIXES.length)];
+  return `${prefix} ${suffix}`;
+}
+
+function generateId(): string {
+  return Math.random().toString(36).substring(2, 9);
+}
+
+const getRandomStars = (): number => {
+  const roll = Math.random() * 100;
+  if (roll < 5) return 5;
+  if (roll < 25) return 4;
+  if (roll < 60) return 3;
+  if (roll < 80) return 2;
+  return 1;
+};
+
+const getTimeRangeForStars = (stars: number): { min: number; max: number } => {
+  switch (stars) {
+    case 5: return { min: 180, max: 300 };
+    case 4: return { min: 240, max: 360 };
+    default: return { min: 360, max: 540 };
+  }
+};
 
 function calculateBandwidth(infra: Infrastructure[]): number {
   return infra.reduce((total, item) => {
@@ -94,6 +131,29 @@ export function useGameState() {
     const incomeAfterPenalty = isOverage ? Math.floor(income * 0.85) : income;
     return { uploadSpeed: bandwidth, bandwidthSold: bandwidthUsed, bandwidthDemanded: totalBandwidthDemanded, incomePerSecond: incomeAfterPenalty };
   }, [state.infrastructure, state.services]);
+
+  const generateContract = useCallback((services: Service[]): Contract => {
+    const activeServices = services.filter(s => s.owned > 0);
+    if (activeServices.length === 0) {
+      return { id: generateId(), name: generateContractName(), volumeBytes: 0, multiplierStars: 1 };
+    }
+    
+    const referenceService = activeServices[Math.floor(Math.random() * activeServices.length)];
+    const referenceBandwidth = referenceService.baseBandwidthRequired;
+    const volumeSeconds = 60 + Math.random() * 60;
+    
+    const tightness = 0.8 + Math.random() * 0.4;
+    const volumeBytes = Math.floor(referenceBandwidth * volumeSeconds * tightness);
+    
+    const stars = getRandomStars();
+    
+    return {
+      id: generateId(),
+      name: generateContractName(),
+      volumeBytes,
+      multiplierStars: stars,
+    };
+  }, []);
 
   useEffect(() => {
     setState(prev => ({ ...prev, ...derivedValues }));
