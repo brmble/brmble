@@ -22,7 +22,7 @@ import type { ServerEntry } from './hooks/useServerlist';
 import { SettingsModal } from './components/SettingsModal/SettingsModal';
 import { AvatarEditorModal } from './components/AvatarEditorModal/AvatarEditorModal';
 import { CloseDialog } from './components/CloseDialog/CloseDialog';
-import { CertWizard } from './components/CertWizard/CertWizard';
+import { OnboardingWizard } from './components/OnboardingWizard/OnboardingWizard';
 import { Version } from './components/Version/Version';
 import { ZoomIndicator } from './components/ZoomIndicator/ZoomIndicator';
 import { useChatStore, addMessageToStore, clearChatStorage, purgeEphemeralMessages } from './hooks/useChatStore';
@@ -156,6 +156,7 @@ function App() {
 
   // null = status not yet received, false = no cert, true = cert exists
   const [certExists, setCertExists] = useState<boolean | null>(null);
+  const [showPrefsWizard, setShowPrefsWizard] = useState(false);
   const [certFingerprint, setCertFingerprint] = useState('');
   const [activeProfileName, setActiveProfileName] = useState('');
 
@@ -2025,7 +2026,14 @@ const handleConnect = (serverData: SavedServer) => {
       </div>
 
       {certExists === false && (
-        <CertWizard onComplete={(fp) => { setCertExists(true); setCertFingerprint(fp); }} />
+        <OnboardingWizard onComplete={(fp) => { setCertExists(true); setCertFingerprint(fp); }} />
+      )}
+
+      {showPrefsWizard && certExists === true && (
+        <OnboardingWizard
+          startAtPreferences
+          onComplete={() => setShowPrefsWizard(false)}
+        />
       )}
 
       <ConnectModal
@@ -2045,6 +2053,7 @@ const handleConnect = (serverData: SavedServer) => {
         onRemoveAvatar={onRemoveAvatar}
         brmblegotchiEnabled={brmblegotchiEnabled}
         setBrmblegotchiEnabled={setBrmblegotchiEnabled}
+        onOpenWizard={() => setShowPrefsWizard(true)}
       />
 
       <AvatarEditorModal
