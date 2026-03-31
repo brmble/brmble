@@ -19,19 +19,26 @@ public class EncodePipeline : IDisposable
     private int _target;
 
     public EncodePipeline(int sampleRate, int channels, int bitrate,
-        Action<ReadOnlyMemory<byte>> onPacketReady, int frameSize = 960)
+        Action<ReadOnlyMemory<byte>> onPacketReady, int frameSize = 960,
+        bool dtx = false, long initialSequence = 0)
     {
         _frameSize = frameSize;
         _frameSizeBytes = frameSize * sizeof(short) * channels;
         _accumulator = new byte[_frameSizeBytes];
         _onPacketReady = onPacketReady;
+        _sequenceNumber = initialSequence;
 
         var application = bitrate >= 32000 ? Application.Audio : Application.Voip;
         _encoder = new OpusEncoder(sampleRate, channels, application)
         {
             Bitrate = bitrate,
             EnableForwardErrorCorrection = true,
-            Vbr = false  // CBR, matching Mumble behaviour
+            Vbr = true,
+            Complexity = 10,
+            SignalType = OpusSignalType.Voice,
+            Bandwidth = OpusBandwidth.Fullband,
+            PacketLossPercentage = 3,
+            Dtx = dtx
         };
 
         if (!_encoder.PermittedFrameSizes.Contains(_frameSize))
@@ -43,7 +50,7 @@ public class EncodePipeline : IDisposable
 
     public void SetTarget(int target) => _target = target;
 
-    public void ResetSequence() => _sequenceNumber = 0;
+    public long CurrentSequence => _sequenceNumber;
 
     /// <summary>
     /// Submit raw PCM audio. Voice packets are emitted via onPacketReady
