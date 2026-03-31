@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Brmble.Client.Bridge;
+using Microsoft.Data.Sqlite;
 
 namespace Brmble.Client.Services.Serverlist;
 
@@ -62,6 +63,39 @@ internal sealed class ServerlistService : IServerlistService
                 }
             }
         });
+
+        bridge.RegisterHandler("mumble.detectServers", async _ =>
+        {
+            var servers = DetectMumbleServers();
+            bridge.Send("mumble.detectedServers", new { servers });
+            await Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("mumble.importServers", async data =>
+        {
+            if (!data.TryGetProperty("servers", out var serversEl)) return;
+            var added = new List<ServerEntry>();
+            foreach (var s in serversEl.EnumerateArray())
+            {
+                var label = s.TryGetProperty("label", out var lEl) ? lEl.GetString() ?? "" : "";
+                var host  = s.TryGetProperty("host",  out var hEl) ? hEl.GetString() ?? "" : "";
+                var port  = s.TryGetProperty("port",  out var pEl) && pEl.ValueKind == JsonValueKind.Number
+                            ? (int?)pEl.GetInt32() : null;
+                if (string.IsNullOrWhiteSpace(host)) continue;
+                var entry = new ServerEntry(
+                    Guid.NewGuid().ToString(),
+                    string.IsNullOrEmpty(label) ? host : label,
+                    null, // no Brmble API URL — plain Mumble server
+                    host,
+                    port,
+                    ""    // password intentionally omitted for security
+                );
+                AddServer(entry);
+                added.Add(entry);
+            }
+            bridge.Send("mumble.serversImported", new { servers = added });
+            await Task.CompletedTask;
+        });
     }
 
     public IReadOnlyList<ServerEntry> GetServers()
@@ -107,6 +141,43 @@ internal sealed class ServerlistService : IServerlistService
             _servers.RemoveAll(s => s.Id == id);
             Save();
         }
+    }
+
+    private List<object> DetectMumbleServers()
+    {
+        var result = new List<object>();
+        try
+        {
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var dbPath = Path.Combine(localAppData, "Mumble", "Mumble", "mumble.sqlite");
+            if (!File.Exists(dbPath)) return result;
+
+            var connStr = new SqliteConnectionStringBuilder
+            {
+                DataSource = dbPath,
+                Mode = SqliteOpenMode.ReadOnly,
+            }.ToString();
+
+            using var conn = new SqliteConnection(connStr);
+            conn.Open();
+
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT name, hostname, port, username FROM servers ORDER BY id";
+
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                result.Add(new
+                {
+                    label    = reader.IsDBNull(0) ? "" : reader.GetString(0),
+                    host     = reader.IsDBNull(1) ? "" : reader.GetString(1),
+                    port     = reader.IsDBNull(2) ? 64738 : reader.GetInt32(2),
+                    username = reader.IsDBNull(3) ? "" : reader.GetString(3),
+                });
+            }
+        }
+        catch { /* db locked, missing, or corrupt — return empty */ }
+        return result;
     }
 
     private void Load()
