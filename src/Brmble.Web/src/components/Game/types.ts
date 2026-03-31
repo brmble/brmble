@@ -31,6 +31,24 @@ export interface Service {
   unlockRequirement: number;
 }
 
+export interface Contract {
+  id: string;
+  name: string;
+  volumeBytes: number;
+  multiplierStars: number;
+}
+
+export interface ActiveContract {
+  contractId: string;
+  slotIndex: number;
+  assignedLicenseId: string;
+  startTime: number;
+  timeLimitSeconds: number;
+  volumeBytes: number;
+  volumeFilledBytes: number;
+  multiplierStars: number;
+}
+
 /**
  * Main game state
  */
@@ -43,6 +61,11 @@ export interface GameState {
   infrastructure: Infrastructure[];
   services: Service[];
   lastSaved: number;
+  availableContracts: Contract[];
+  activeContracts: ActiveContract[];
+  unlockedContractSlots: number;
+  contractPopupOpen: boolean;
+  contractPopupSlotIndex: number | null;
 }
 
 /**
