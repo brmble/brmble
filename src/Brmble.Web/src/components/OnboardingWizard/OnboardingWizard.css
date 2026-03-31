@@ -168,6 +168,11 @@
   color: var(--accent-success-text);
 }
 
+.onboarding-identity-badge.saved {
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+}
+
 /* ── New identity inline form ────────────────────────────────────── */
 .onboarding-new-identity-form {
   padding: var(--space-md) var(--space-lg);
