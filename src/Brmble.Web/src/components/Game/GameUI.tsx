@@ -174,6 +174,8 @@ export function GameUI({ onClose }: GameUIProps) {
             money={state.money}
             onUnlockInfrastructure={actions.unlockInfrastructure}
             onUnlockService={actions.unlockService}
+            unlockedContractSlots={state.unlockedContractSlots}
+            onUnlockContractSlot={actions.unlockContractSlot}
           />
         )}
         {activeTab === 'hosting' && (
@@ -528,7 +530,7 @@ function InfrastructureTab({ infrastructure, onBuy, onUpgrade1, onUpgrade2, onUp
   );
 }
 
-function TechUpgradesTab({ infrastructure, services, money, onUnlockInfrastructure, onUnlockService }: { infrastructure: Infrastructure[]; services: Service[]; money: number; onUnlockInfrastructure: (infrastructureId: string) => void; onUnlockService: (serviceId: string) => void }) {
+function TechUpgradesTab({ infrastructure, services, money, onUnlockInfrastructure, onUnlockService, unlockedContractSlots, onUnlockContractSlot }: { infrastructure: Infrastructure[]; services: Service[]; money: number; onUnlockInfrastructure: (infrastructureId: string) => void; onUnlockService: (serviceId: string) => void; unlockedContractSlots: number; onUnlockContractSlot: (slotNumber: number) => void }) {
   const nextInfraUnlock = infrastructure.find(i => !i.unlocked && i.unlockCost);
   const unlockedInfrastructure = infrastructure.filter(i => i.unlocked);
   const nextServiceUnlock = services.find(s => !s.unlocked);
@@ -654,6 +656,29 @@ function TechUpgradesTab({ infrastructure, services, money, onUnlockInfrastructu
           <p>All upgrades unlocked!</p>
         </div>
       )}
+
+      <div className="upgrade-category">
+        <h3 className="heading-label">Contract Slots</h3>
+        <div className="upgrade-item">
+          <div className="upgrade-info">
+            <span className="upgrade-name">Unlock Slot {unlockedContractSlots + 1}</span>
+            <span className="upgrade-desc">
+              {unlockedContractSlots < 4 
+                ? `Cost: $${unlockedContractSlots === 1 ? '2,000,000' : unlockedContractSlots === 2 ? '10,000,000' : '50,000,000'}`
+                : 'All slots unlocked'}
+            </span>
+          </div>
+          {unlockedContractSlots < 4 && (
+            <button
+              className="btn btn-primary"
+              onClick={() => onUnlockContractSlot(unlockedContractSlots + 1)}
+              disabled={money < (unlockedContractSlots === 1 ? 2000000 : unlockedContractSlots === 2 ? 10000000 : 50000000)}
+            >
+              Unlock
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
