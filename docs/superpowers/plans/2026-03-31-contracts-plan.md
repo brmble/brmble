@@ -66,7 +66,6 @@ Find `interface GameState` and add:
 ```typescript
 availableContracts: Contract[];
 activeContracts: ActiveContract[];
-reputation: number;
 unlockedContractSlots: number;
 contractPopupOpen: boolean;
 contractPopupSlotIndex: number | null;
@@ -97,7 +96,6 @@ Find `initialState` object and add:
 ```typescript
 availableContracts: [],
 activeContracts: [],
-reputation: 100,
 unlockedContractSlots: 1,
 contractPopupOpen: false,
 contractPopupSlotIndex: null,
@@ -159,7 +157,7 @@ const generateContract = useCallback((services: Service[]): Contract => {
   const volumeSeconds = 60 + Math.random() * 60;
   const volumeBytes = Math.floor(referenceBandwidth * volumeSeconds);
   
-  const stars = getStarsForReputation(state.reputation);
+  const stars = getRandomStars();
   
   return {
     id: generateId(),
@@ -167,29 +165,21 @@ const generateContract = useCallback((services: Service[]): Contract => {
     volumeBytes,
     multiplierStars: stars,
   };
-}, [state.reputation]);
+}, []);
 ```
 
-- [ ] **Step 3: Add stars calculation based on reputation**
+- [ ] **Step 3: Add stars calculation (fixed distribution)**
 
 Add helper:
 
 ```typescript
-const getStarsForReputation = (reputation: number): number => {
+const getRandomStars = (): number => {
   const roll = Math.random() * 100;
-  if (reputation === 100) {
-    if (roll < 5) return 5;
-    if (roll < 25) return 4;
-    if (roll < 60) return 3;
-    if (roll < 80) return 2;
-    return 1;
-  } else {
-    if (roll < 1) return 5;
-    if (roll < 15) return 4;
-    if (roll < 45) return 3;
-    if (roll < 75) return 2;
-    return 1;
-  }
+  if (roll < 5) return 5;      // 5%
+  if (roll < 25) return 4;     // 20%
+  if (roll < 60) return 3;     // 35%
+  if (roll < 80) return 2;     // 20%
+  return 1;                     // 20%
 };
 ```
 
@@ -282,7 +272,6 @@ collectContract: (slotIndex: number) => {
     ...prev,
     activeContracts: prev.activeContracts.filter(c => c.slotIndex !== slotIndex),
     money: prev.money + earned,
-    reputation: Math.min(105, prev.reputation + 5),
   }));
 },
 
@@ -290,7 +279,6 @@ failContract: (slotIndex: number) => {
   setState(prev => ({
     ...prev,
     activeContracts: prev.activeContracts.filter(c => c.slotIndex !== slotIndex),
-    reputation: Math.max(70, prev.reputation - 10),
   }));
 },
 
@@ -1210,7 +1198,7 @@ describe('Contract Generation', () => {
     // Test that generateContract returns proper Contract shape
   });
   
-  it('respects reputation weights for star distribution', () => {
+  it('star distribution is correct (5% rare)', () => {
     // Test that 5★ is rare, 1-3★ is common
   });
   
@@ -1234,12 +1222,18 @@ describe('Contract Completion', () => {
     // Test completion trigger
   });
   
-  it('increases reputation on completion', () => {
-    // Test reputation +5% on collect
+  it('removes contract and adds money on collect', () => {
+    // Test collectContract removes from activeContracts, adds money
+  });
+});
+
+describe('Contract Failure', () => {
+  it('removes contract on timeout', () => {
+    // Test failContract removes from activeContracts
   });
   
-  it('decreases reputation on failure', () => {
-    // Test reputation -10% on timeout, caps at 70%
+  it('does NOT retain partial income on failure', () => {
+    // Verify earned money is only added on collect, not on fail
   });
 });
 
@@ -1310,7 +1304,6 @@ git add -A && git commit -m "fix(contracts): final integration fixes"
 | Contract Generation | Task 3, 6 |
 | Data Structures | Task 1, 2 |
 | Active Contract Behavior | Task 4, 5 |
-| Reputation | Task 3, 4 |
 | Contract Names | Task 3 |
 | UI Components | Task 6, 7, 8, 10, 12 |
 | Testing | Task 13 |

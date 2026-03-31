@@ -35,13 +35,13 @@ When player clicks "Add Contract" on an empty slot:
 3. Determine stars based on reputation weights
 4. Determine time range based on stars
 
-### Star Distribution (by reputation)
-| Stars | 100% Rep | <100% Rep |
-|-------|----------|-----------|
-| 1-2★  | 40%      | 55%       |
-| 3★    | 35%      | 30%       |
-| 4★    | 20%      | 14%       |
-| 5★    | 5%       | 1%        |
+### Star Distribution (fixed)
+| Stars | Chance |
+|-------|--------|
+| 1-2★  | 40%    |
+| 3★    | 35%    |
+| 4★    | 20%    |
+| 5★    | 5%     |
 
 ### Time Ranges (by stars)
 | Stars | Time Range  |
@@ -95,7 +95,6 @@ interface GameState {
   // ... existing fields
   availableContracts: Contract[];      // 0-3 contracts in popup
   activeContracts: ActiveContract[];   // 0-4 running contracts
-  reputation: number;                  // 0-100, starts at 100
   unlockedContractSlots: number;       // 1-4, default 1
   contractPopupOpen: boolean;
 }
@@ -129,18 +128,10 @@ Examples:
 - Player clicks → money added to balance
 - Contract removed from activeContracts
 - Slot becomes empty
-- Reputation +5%
 
 ### Failure (time runs out)
 - Contract disappears
 - No partial income kept
-- Reputation -10% (minimum 70%)
-
-### Reputation
-- Starts at 100%
-- Hidden from player (only affects contract generation)
-- Below 100%: worse contracts appear
-- Caps at 70% minimum
 
 ---
 
@@ -205,7 +196,7 @@ Procedurally generated from prefix + suffix:
 ### Unit Tests (Core Logic)
 1. **Contract Generation**
    - Volume is always completable by some active license
-   - Star distribution matches reputation weights
+   - Star distribution is correct
    - Time range matches star tier
 
 2. **Progress Calculation**
@@ -215,17 +206,10 @@ Procedurally generated from prefix + suffix:
 3. **Completion**
    - Contract completes when volumeFilledBytes >= volumeBytes
    - Exact timeLimitSeconds is set on start (not before)
-   - Reputation changes correctly on complete
 
 4. **Failure**
    - Contract fails when timeLimitSeconds elapsed
    - Partial income is NOT retained on failure
-   - Reputation decreases correctly
-
-5. **Reputation**
-   - Starts at 100%
-   - Caps at 70% minimum
-   - Affects contract generation probabilities
 
 ---
 
