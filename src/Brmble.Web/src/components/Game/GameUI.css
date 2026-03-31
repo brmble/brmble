@@ -1359,18 +1359,12 @@
 
 /* Unlocked Lists */
 .unlocked-section {
-  margin-bottom: var(--space-lg);
   padding: var(--space-md);
   background: var(--bg-elevated);
   border-radius: var(--radius-md);
 }
 
-.unlocked-section .unlocked-title {
-  font-family: var(--font-display);
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+.unlocked-section > .heading-label {
   margin-bottom: var(--space-md);
 }
 
@@ -1398,5 +1392,42 @@
 
 .unlocked-name {
   color: var(--text-primary);
+}
+
+/* Upgrade progress bar for Tech Upgrades */
+.upgrade-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 150px;
+}
+
+.upgrade-progress .progress-bar {
+  flex: 1;
+  height: 10px;
+}
+
+.upgrade-progress .progress-percent {
+  font-size: var(--text-xs);
+  min-width: 35px;
+}
+
+/* All done state */
+.infra-row.all-done {
+  justify-content: center;
+  opacity: 0.7;
+}
+
+.infra-row.all-done:hover {
+  transform: none;
+  border-color: var(--border-subtle);
+  box-shadow: none;
+}
+
+/* Upgrades tab - sections without border */
+.upgrades-tab .services-section {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
 }
 

@@ -528,11 +528,11 @@ function TechUpgradesTab({ infrastructure, services, money, onUnlockInfrastructu
 
   return (
     <div className="upgrades-tab">
-      <h2 className="heading-section">Unlocks</h2>
+      <h2 className="heading-section">Upgrades</h2>
       
       {unlockedInfrastructure.length > 0 && (
         <div className="unlocked-section">
-          <h3 className="unlocked-title">Unlocked Infrastructure</h3>
+          <h3 className="heading-label">Unlocked Infrastructure</h3>
           <div className="unlocked-list">
             {unlockedInfrastructure.map(infra => (
               <div key={infra.id} className="unlocked-item">
@@ -546,7 +546,7 @@ function TechUpgradesTab({ infrastructure, services, money, onUnlockInfrastructu
 
       {unlockedServices.length > 0 && (
         <div className="unlocked-section">
-          <h3 className="unlocked-title">Unlocked Services</h3>
+          <h3 className="heading-label">Unlocked Services</h3>
           <div className="unlocked-list">
             {unlockedServices.map(service => (
               <div key={service.id} className="unlocked-item">
@@ -558,100 +558,64 @@ function TechUpgradesTab({ infrastructure, services, money, onUnlockInfrastructu
         </div>
       )}
       
-      {nextInfraUnlock ? (
-        <div className="unlock-card">
-          <div className="unlock-info">
-            <span className="unlock-label">Next Infrastructure:</span>
-            <span className="unlock-value">{nextInfraUnlock.name}</span>
+      {nextInfraUnlock && (
+        <div className="infra-row">
+          <div className="infra-info">
+            <span className="service-name">{nextInfraUnlock.name}</span>
+            <span className="infra-stats">Unlock: ${nextInfraUnlock.unlockCost?.toLocaleString()}</span>
           </div>
-          <div className="unlock-info">
-            <span className="unlock-label">Unlock Requirement:</span>
-            <span className="unlock-value cost">${nextInfraUnlock.unlockCost?.toLocaleString()}</span>
-          </div>
-          
-          <div className="unlock-progress">
-            <div className="progress-container">
-              <div className="progress-bar">
-                <div className="progress-fill" style={{ width: `${infraProgress}%` }} />
-              </div>
-              <span className="progress-percent">{Math.round(infraProgress)}%</span>
+          <div className="upgrade-progress">
+            <div className="progress-bar">
+              <div className="progress-fill" style={{ width: `${infraProgress}%` }} />
             </div>
+            <span className="progress-percent">{Math.round(infraProgress)}%</span>
           </div>
-
-          {infraProgress >= 100 ? (
-            <button
-              className="btn btn-primary unlock-btn"
-              onClick={() => onUnlockInfrastructure(nextInfraUnlock.id)}
-            >
-              UNLOCK {nextInfraUnlock.name.toUpperCase()}
-            </button>
-          ) : (
-            <div className="unlock-rewards">
-              <span className="rewards-label">Reward:</span>
-              <ul className="rewards-list">
-                <li>Unlock {nextInfraUnlock.name}</li>
-              </ul>
-            </div>
-          )}
-        </div>
-      ) : nextServiceUnlock ? null : (
-        <div className="all-unlocked">
-          <p>All infrastructure unlocked!</p>
+          <button
+            className="btn btn-primary"
+            disabled={infraProgress < 100}
+            onClick={() => onUnlockInfrastructure(nextInfraUnlock.id)}
+          >
+            Unlock
+          </button>
         </div>
       )}
 
       {nextServiceUnlock && (
-        <div className="unlock-card">
-          <div className="unlock-info">
-            <span className="unlock-label">Next Service:</span>
-            <span className="unlock-value">{nextServiceUnlock.name}</span>
+        <div className="infra-row">
+          <div className="infra-info">
+            <span className="service-name">{nextServiceUnlock.name}</span>
+            <span className="infra-stats">Unlock: ${nextServiceUnlock.unlockRequirement.toLocaleString()}</span>
           </div>
-          <div className="unlock-info">
-            <span className="unlock-label">Unlock Requirement:</span>
-            <span className="unlock-value cost">${nextServiceUnlock.unlockRequirement.toLocaleString()}</span>
-          </div>
-          
-          <div className="unlock-progress">
-            <div className="progress-container">
-              <div className="progress-bar">
-                <div className="progress-fill" style={{ width: `${serviceProgress}%` }} />
-              </div>
-              <span className="progress-percent">{Math.round(serviceProgress)}%</span>
+          <div className="upgrade-progress">
+            <div className="progress-bar">
+              <div className="progress-fill" style={{ width: `${serviceProgress}%` }} />
             </div>
+            <span className="progress-percent">{Math.round(serviceProgress)}%</span>
           </div>
-
-          {serviceProgress >= 100 ? (
-            <button
-              className="btn btn-primary unlock-btn"
-              onClick={() => onUnlockService(nextServiceUnlock.id)}
-            >
-              UNLOCK {nextServiceUnlock.name.toUpperCase()}
-            </button>
-          ) : (
-            <div className="unlock-rewards">
-              <span className="rewards-label">Reward:</span>
-              <ul className="rewards-list">
-                <li>Unlock {nextServiceUnlock.name}</li>
-              </ul>
-            </div>
-          )}
+          <button
+            className="btn btn-primary"
+            disabled={serviceProgress < 100}
+            onClick={() => onUnlockService(nextServiceUnlock.id)}
+          >
+            Unlock
+          </button>
         </div>
       )}
 
       {!nextInfraUnlock && !nextServiceUnlock && (
-        <div className="all-unlocked">
-          <p>All upgrades unlocked!</p>
+        <div className="infra-row all-done">
+          <span className="service-name">All upgrades unlocked!</span>
         </div>
       )}
 
-      <div className="upgrade-category">
+      <div className="services-section">
         <h3 className="heading-label">Contract Slots</h3>
-        <div className="upgrade-item">
-          <div className="upgrade-info">
-            <span className="upgrade-name">Unlock Slot {unlockedContractSlots + 1}</span>
-            <span className="upgrade-desc">
+        <div className="infra-row">
+          <div className="infra-info">
+            <span className="service-name">Slot {unlockedContractSlots + 1}</span>
+            <span className="infra-stats">
               {unlockedContractSlots < 4 
-                ? `Cost: $${unlockedContractSlots === 1 ? '2,000,000' : unlockedContractSlots === 2 ? '10,000,000' : '50,000,000'}`
+                ? `$${unlockedContractSlots === 1 ? '2,000,000' : unlockedContractSlots === 2 ? '10,000,000' : '50,000,000'}`
                 : 'All slots unlocked'}
             </span>
           </div>
