@@ -464,7 +464,8 @@ function InfrastructureTab({ infrastructure, onBuy, onUpgrade1, onUpgrade2, onUp
   };
 
   return (
-    <div className="hosting-tab">
+    <div className="infra-tab">
+      <h2 className="heading-section">Infrastructure</h2>
       <div className="services-section">
         {infrastructure.map(infra => {
           const cost = calculateCost(infra);
