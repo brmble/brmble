@@ -163,7 +163,7 @@ internal sealed class ServerlistService : IServerlistService
         }
     }
 
-    private record DetectedMumbleServer(string Label, string Host, int Port, string Username, bool AlreadySaved = false);
+    private record DetectedMumbleServer(string Label, string Host, int Port, string Username);
 
     private List<DetectedMumbleServer> DetectMumbleServers()
     {
