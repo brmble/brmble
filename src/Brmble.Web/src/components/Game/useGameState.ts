@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
-import type { GameState, GameActions, Infrastructure, Service, Contract } from './types';
+import type { GameState, GameActions, Infrastructure, Service, Contract, ActiveContract } from './types';
 import { INITIAL_STATE } from './types';
 import { applyTheme } from '../../themes/theme-loader';
 import { useProfileFingerprint } from '../../contexts/ProfileContext';
@@ -189,13 +189,57 @@ export function useGameState() {
   useEffect(() => {
     const interval = setInterval(() => {
       const currentIncome = derivedValues.incomePerSecond;
-      setState(prev => ({
-        ...prev,
-        money: prev.money + (currentIncome / 10),
-      }));
+      setState(prev => {
+        // Update contract progress
+        const updatedContracts = prev.activeContracts.map(contract => {
+          const elapsedSeconds = (Date.now() - contract.startTime) / 1000;
+          
+          // Check for timeout
+          if (elapsedSeconds >= contract.timeLimitSeconds) {
+            return { ...contract, failed: true };
+          }
+          
+          // Find the assigned license to get its bandwidth
+          const license = prev.services.find(s => s.id === contract.assignedLicenseId);
+          if (!license) return contract;
+          
+          // Calculate bandwidth contribution (bandwidth used by license = baseBandwidthRequired)
+          // This represents how much "work" the license does per second
+          const bandwidth = license.baseBandwidthRequired;
+          const deltaBytes = bandwidth * 0.1; // 100ms tick
+          const newFilled = Math.min(contract.volumeBytes, contract.volumeFilledBytes + deltaBytes);
+          
+          return { ...contract, volumeFilledBytes: newFilled };
+        });
+        
+        // Handle failed contracts
+        const failedContracts = updatedContracts.filter(c => (c as any).failed);
+        const activeContracts = updatedContracts.filter(c => !(c as any).failed);
+        
+        // Calculate contract bonus for income
+        let contractBonus = 0;
+        activeContracts.forEach(contract => {
+          const license = prev.services.find(s => s.id === contract.assignedLicenseId);
+          if (license) {
+            // Bonus is proportional to how much of the contract is filled
+            const progress = contract.volumeFilledBytes / contract.volumeBytes;
+            const baseIncome = license.baseIncomePerSecond;
+            contractBonus += baseIncome * contract.multiplierStars * 0.25 * progress;
+          }
+        });
+        
+        const totalIncome = currentIncome + contractBonus;
+        
+        // If contract timed out, no income from it (it was removed from activeContracts)
+        return {
+          ...prev,
+          activeContracts,
+          money: prev.money + (totalIncome / 10),
+        };
+      });
     }, 100);
     return () => clearInterval(interval);
-  }, [derivedValues.incomePerSecond]);
+  }, [derivedValues.incomePerSecond, state.activeContracts, state.services]);
 
   const buyInfrastructure = useCallback((infraId: string) => {
     setState(prev => {
@@ -372,6 +416,83 @@ export function useGameState() {
     resetGame,
     exportSave,
     importSave,
+    openContractPopup: (slotIndex: number) => {
+      const contracts: Contract[] = [];
+      for (let i = 0; i < 3; i++) {
+        contracts.push(generateContract(state.services));
+      }
+      setState(prev => ({
+        ...prev,
+        availableContracts: contracts,
+        contractPopupOpen: true,
+        contractPopupSlotIndex: slotIndex,
+      }));
+    },
+
+    closeContractPopup: () => {
+      setState(prev => ({
+        ...prev,
+        availableContracts: [],
+        contractPopupOpen: false,
+        contractPopupSlotIndex: null,
+      }));
+    },
+
+    selectContract: (contract: Contract, licenseId: string) => {
+      const timeRange = getTimeRangeForStars(contract.multiplierStars);
+      const exactTime = Math.floor(timeRange.min + Math.random() * (timeRange.max - timeRange.min));
+      
+      const activeContract: ActiveContract = {
+        contractId: contract.id,
+        slotIndex: state.contractPopupSlotIndex!,
+        assignedLicenseId: licenseId,
+        startTime: Date.now(),
+        timeLimitSeconds: exactTime,
+        volumeBytes: contract.volumeBytes,
+        volumeFilledBytes: 0,
+        multiplierStars: contract.multiplierStars,
+      };
+      
+      setState(prev => ({
+        ...prev,
+        activeContracts: [...prev.activeContracts.filter(c => c.slotIndex !== state.contractPopupSlotIndex), activeContract],
+        availableContracts: [],
+        contractPopupOpen: false,
+        contractPopupSlotIndex: null,
+      }));
+    },
+
+    collectContract: (slotIndex: number) => {
+      const contract = state.activeContracts.find(c => c.slotIndex === slotIndex);
+      if (!contract) return;
+      
+      const earned = (contract.volumeFilledBytes / contract.volumeBytes) * derivedValues.incomePerSecond * 10;
+      
+      setState(prev => ({
+        ...prev,
+        activeContracts: prev.activeContracts.filter(c => c.slotIndex !== slotIndex),
+        money: prev.money + earned,
+      }));
+    },
+
+    failContract: (slotIndex: number) => {
+      setState(prev => ({
+        ...prev,
+        activeContracts: prev.activeContracts.filter(c => c.slotIndex !== slotIndex),
+      }));
+    },
+
+    unlockContractSlot: (slotNumber: number) => {
+      const costs: Record<number, number> = { 2: 2000000, 3: 10000000, 4: 50000000 };
+      const cost = costs[slotNumber];
+      if (!cost || state.money < cost || state.unlockedContractSlots >= slotNumber) return;
+      
+      setState(prev => ({
+        ...prev,
+        money: prev.money - cost,
+        unlockedContractSlots: slotNumber,
+      }));
+    },
   };
 
   return {
