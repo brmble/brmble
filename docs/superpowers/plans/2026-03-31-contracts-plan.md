@@ -155,7 +155,12 @@ const generateContract = useCallback((services: Service[]): Contract => {
   const referenceService = activeServices[Math.floor(Math.random() * activeServices.length)];
   const referenceBandwidth = referenceService.bandwidthBytesPerSecond;
   const volumeSeconds = 60 + Math.random() * 60;
-  const volumeBytes = Math.floor(referenceBandwidth * volumeSeconds);
+  
+  // Tightness Factor: 0.8 to 1.2
+  // Values > 1.0 make the contract "tight" - reference license alone can't complete in time
+  // This forces player to strategize (upgrades, other licenses, or accept risk)
+  const tightness = 0.8 + Math.random() * 0.4;
+  const volumeBytes = Math.floor(referenceBandwidth * volumeSeconds * tightness);
   
   const stars = getRandomStars();
   

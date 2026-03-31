@@ -31,8 +31,11 @@ When player clicks "Add Contract" on an empty slot:
 
 ### Process
 1. Pick 1 random active license as reference
-2. Calculate volume: `referenceBandwidth × random(60-120 seconds)`
-3. Determine stars based on reputation weights
+2. Calculate volume: `referenceBandwidth × (60-120 seconds) × tightnessFactor`
+   - Tightness Factor: 0.8 to 1.2 (random)
+   - Values > 1.0 mean the reference license alone can't complete in time
+   - This creates strategic tension: upgrade, use multiple licenses, or accept failure risk
+3. Determine stars (fixed distribution)
 4. Determine time range based on stars
 
 ### Star Distribution (fixed)
