@@ -68,29 +68,142 @@
   font-family: var(--font-mono);
 }
 
-.progress-container {
+.slot-timer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-sm) 0;
+}
+
+.timer-value {
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.timer-value.urgent {
+  color: var(--accent-danger, #ef4444);
+}
+
+.timer-progress {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+/* Contract progress bar - more prominent */
+.contract-progress-bar {
+  height: 12px;
+  background: #2a2a2a;
+  border-radius: 6px;
+  overflow: hidden;
+  margin: var(--space-xs) 0;
+  border: 1px solid #444;
+}
+
+.contract-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #22c55e, #3b82f6);
+  transition: width 0.1s linear;
+  min-width: 4px;
+}
+
+/* Pending contract state */
+.contract-slot.pending {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.05) 100%);
+  border: 2px solid var(--accent-primary, #3b82f6);
+  cursor: grab;
+  transition: all 0.2s ease;
+}
+
+.contract-slot.pending:hover {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.25) 0%, rgba(59, 130, 246, 0.1) 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+}
+
+.contract-slot.pending:active {
+  cursor: grabbing;
+}
+
+.contract-slot.pending.dragging {
+  opacity: 0.4;
+  transform: scale(0.98);
+  box-shadow: none;
+}
+
+.pending-body {
+  display: flex;
+  gap: var(--space-md);
+  padding: var(--space-sm) 0;
+  align-items: center;
+}
+
+.drag-handle {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
+  justify-content: center;
+  width: 24px;
+  height: 40px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
 }
 
-.progress-bar {
+.drag-dots {
+  color: var(--text-muted);
+  font-size: 14px;
+  letter-spacing: -2px;
+  user-select: none;
+}
+
+.contract-slot.pending:hover .drag-dots {
+  color: var(--accent-primary);
+}
+
+.pending-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
   flex: 1;
-  height: 8px;
-  background: var(--bg-elevated);
-  border-radius: 4px;
+  min-width: 0;
+}
+
+.pending-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.progress-fill {
-  height: 100%;
-  background: var(--accent-primary);
-  transition: width 0.1s linear;
-}
-
-.progress-percent {
+.pending-volume {
   font-size: var(--text-xs);
-  color: var(--text-secondary);
-  min-width: 35px;
-  text-align: right;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.pending-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--text-xs);
+  color: var(--accent-primary, #3b82f6);
+  padding: var(--space-xs) 0;
+}
+
+.hint-icon {
+  font-size: 12px;
+}
+
+.slot-cancel {
+  padding: 2px 6px;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.6;
+}
+
+.slot-cancel:hover {
+  opacity: 1;
 }

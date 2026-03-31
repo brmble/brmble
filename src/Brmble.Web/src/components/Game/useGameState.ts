@@ -139,11 +139,12 @@ export function useGameState() {
     }
     
     const referenceService = activeServices[Math.floor(Math.random() * activeServices.length)];
-    const referenceBandwidth = referenceService.baseBandwidthRequired;
-    const volumeSeconds = 60 + Math.random() * 60;
+    const totalBandwidth = referenceService.baseBandwidthRequired * referenceService.owned;
     
-    const tightness = 0.8 + Math.random() * 0.4;
-    const volumeBytes = Math.floor(referenceBandwidth * volumeSeconds * tightness);
+    const volumeSeconds = 120 + Math.random() * 180;
+    
+    const tightness = 0.9 + Math.random() * 0.2;
+    const volumeBytes = Math.floor(totalBandwidth * volumeSeconds * tightness);
     
     const stars = getRandomStars();
     
@@ -201,12 +202,12 @@ export function useGameState() {
           
           // Find the assigned license to get its bandwidth
           const license = prev.services.find(s => s.id === contract.assignedLicenseId);
-          if (!license) return contract;
+          if (!license || license.owned === 0) return contract;
           
-          // Calculate bandwidth contribution (bandwidth used by license = baseBandwidthRequired)
-          // This represents how much "work" the license does per second
-          const bandwidth = license.baseBandwidthRequired;
-          const deltaBytes = bandwidth * 0.1; // 100ms tick
+          // Calculate bandwidth contribution (total bandwidth from all owned licenses)
+          // Each owned license contributes baseBandwidthRequired bytes per second
+          const totalBandwidth = license.baseBandwidthRequired * license.owned;
+          const deltaBytes = totalBandwidth * 0.1; // 100ms tick
           const newFilled = Math.min(contract.volumeBytes, contract.volumeFilledBytes + deltaBytes);
           
           return { ...contract, volumeFilledBytes: newFilled };
@@ -437,27 +438,47 @@ export function useGameState() {
       }));
     },
 
-    selectContract: (contract: Contract, licenseId: string) => {
-      const timeRange = getTimeRangeForStars(contract.multiplierStars);
-      const exactTime = Math.floor(timeRange.min + Math.random() * (timeRange.max - timeRange.min));
-      
-      const activeContract: ActiveContract = {
-        contractId: contract.id,
-        slotIndex: state.contractPopupSlotIndex!,
-        assignedLicenseId: licenseId,
-        startTime: Date.now(),
-        timeLimitSeconds: exactTime,
-        volumeBytes: contract.volumeBytes,
-        volumeFilledBytes: 0,
-        multiplierStars: contract.multiplierStars,
-      };
-      
+    selectContract: (contract: Contract, slotIndex: number) => {
       setState(prev => ({
         ...prev,
-        activeContracts: [...prev.activeContracts.filter(c => c.slotIndex !== state.contractPopupSlotIndex), activeContract],
+        pendingContract: { contract, slotIndex },
         availableContracts: [],
         contractPopupOpen: false,
         contractPopupSlotIndex: null,
+      }));
+    },
+
+    assignContract: (licenseId: string) => {
+      setState(prev => {
+        if (!prev.pendingContract) return prev;
+        
+        const { contract, slotIndex } = prev.pendingContract;
+        const timeRange = getTimeRangeForStars(contract.multiplierStars);
+        const exactTime = Math.floor(timeRange.min + Math.random() * (timeRange.max - timeRange.min));
+        
+        const activeContract: ActiveContract = {
+          contractId: contract.id,
+          slotIndex: slotIndex,
+          assignedLicenseId: licenseId,
+          startTime: Date.now(),
+          timeLimitSeconds: exactTime,
+          volumeBytes: contract.volumeBytes,
+          volumeFilledBytes: 0,
+          multiplierStars: contract.multiplierStars,
+        };
+        
+        return {
+          ...prev,
+          activeContracts: [...prev.activeContracts.filter(c => c.slotIndex !== slotIndex), activeContract],
+          pendingContract: null,
+        };
+      });
+    },
+
+    cancelPendingContract: () => {
+      setState(prev => ({
+        ...prev,
+        pendingContract: null,
       }));
     },
 
@@ -465,7 +486,11 @@ export function useGameState() {
       const contract = state.activeContracts.find(c => c.slotIndex === slotIndex);
       if (!contract) return;
       
-      const earned = (contract.volumeFilledBytes / contract.volumeBytes) * derivedValues.incomePerSecond * 10;
+      const license = state.services.find(s => s.id === contract.assignedLicenseId);
+      if (!license) return;
+      
+      const licenseIncome = license.baseIncomePerSecond * license.owned;
+      const earned = (contract.volumeFilledBytes / contract.volumeBytes) * licenseIncome * 10;
       
       setState(prev => ({
         ...prev,

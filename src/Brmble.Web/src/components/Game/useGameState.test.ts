@@ -113,11 +113,20 @@ describe('useGameState', () => {
       const contract = result.current.state.availableContracts[0];
       
       act(() => {
-        result.current.actions.selectContract(contract, 'website');
+        result.current.actions.selectContract(contract, 0);
+      });
+      
+      expect(result.current.state.pendingContract).not.toBeNull();
+      expect(result.current.state.pendingContract?.slotIndex).toBe(0);
+      expect(result.current.state.contractPopupOpen).toBe(false);
+      
+      // Now assign to a license
+      act(() => {
+        result.current.actions.assignContract('website');
       });
       
       expect(result.current.state.activeContracts.length).toBe(1);
-      expect(result.current.state.contractPopupOpen).toBe(false);
+      expect(result.current.state.pendingContract).toBeNull();
       
       const activeContract = result.current.state.activeContracts[0];
       expect(activeContract.assignedLicenseId).toBe('website');

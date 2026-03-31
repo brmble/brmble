@@ -38,6 +38,11 @@ export interface Contract {
   multiplierStars: number;
 }
 
+export interface PendingContract {
+  contract: Contract;
+  slotIndex: number;
+}
+
 export interface ActiveContract {
   contractId: string;
   slotIndex: number;
@@ -63,6 +68,7 @@ export interface GameState {
   lastSaved: number;
   availableContracts: Contract[];
   activeContracts: ActiveContract[];
+  pendingContract: PendingContract | null;
   unlockedContractSlots: number;
   contractPopupOpen: boolean;
   contractPopupSlotIndex: number | null;
@@ -87,7 +93,9 @@ export interface GameActions {
   importSave: (data: string) => boolean;
   openContractPopup: (slotIndex: number) => void;
   closeContractPopup: () => void;
-  selectContract: (contract: Contract, licenseId: string) => void;
+  selectContract: (contract: Contract, slotIndex: number) => void;
+  assignContract: (licenseId: string) => void;
+  cancelPendingContract: () => void;
   collectContract: (slotIndex: number) => void;
   unlockContractSlot: (slotNumber: number) => void;
   failContract: (slotIndex: number) => void;
@@ -422,6 +430,7 @@ export const INITIAL_STATE: GameState = {
   services: INITIAL_SERVICES,
   availableContracts: [],
   activeContracts: [],
+  pendingContract: null,
   unlockedContractSlots: 1,
   contractPopupOpen: false,
   contractPopupSlotIndex: null,

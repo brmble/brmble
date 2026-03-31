@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import type { Infrastructure, Service, Contract, GameState, GameActions, ActiveContract } from './types';
+import type { Infrastructure, Service, GameState, GameActions } from './types';
 import { useGameState } from './useGameState';
 import { ContractPopup } from './contracts/ContractPopup';
 import { ContractSlot } from './contracts/ContractSlot';
@@ -14,78 +14,9 @@ interface GameUIProps {
 
 type TabId = 'infrastructure' | 'upgrades' | 'hosting';
 
-function ActiveContractBadge({ 
-  contract, 
-  onCollect 
-}: { 
-  contract: ActiveContract; 
-  onCollect: () => void;
-}) {
-  const progress = (contract.volumeFilledBytes / contract.volumeBytes) * 100;
-  const isComplete = progress >= 100;
-  
-  return (
-    <div className={`active-contract-badge ${isComplete ? 'complete' : ''}`}>
-      <div className="badge-header">
-        <span className="badge-stars">{'★'.repeat(contract.multiplierStars)}{'☆'.repeat(5 - contract.multiplierStars)}</span>
-        {isComplete && (
-          <button className="btn btn-sm btn-primary" onClick={onCollect}>
-            Collect
-          </button>
-        )}
-      </div>
-      <div className="progress-bar">
-        <div className="progress-fill" style={{ width: `${Math.min(progress, 100)}%` }} />
-      </div>
-    </div>
-  );
-}
-
-function LicenseSelectorModal({ 
-  contract, 
-  licenses, 
-  onSelect, 
-  onCancel 
-}: { 
-  contract: Contract; 
-  licenses: Service[]; 
-  onSelect: (licenseId: string) => void; 
-  onCancel: () => void;
-}) {
-  return (
-    <div className="modal-overlay" onClick={onCancel}>
-      <div className="prompt glass-panel animate-slide-up" onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2 className="heading-title modal-title">Assign Contract</h2>
-          <p className="modal-subtitle">Select a license for: {contract.name}</p>
-        </div>
-        
-        <div className="modal-body">
-          <div className="license-grid">
-            {licenses.filter(l => l.owned > 0).map(license => (
-              <button
-                key={license.id}
-                className="license-option"
-                onClick={() => onSelect(license.id)}
-              >
-                <span className="license-name">{license.name}</span>
-                <span className="license-bandwidth">
-                  Bandwidth: {formatBandwidth(license.baseBandwidthRequired)}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-        
-        <div className="prompt-footer">
-          <button className="btn btn-secondary" onClick={onCancel}>Cancel</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function ContractsSection({ state, actions }: { state: GameState; actions: GameActions }) {
+  const pendingForSlot = state.pendingContract?.slotIndex;
+  
   return (
     <div className="contracts-section">
       <div className="contracts-header">
@@ -98,15 +29,19 @@ function ContractsSection({ state, actions }: { state: GameState; actions: GameA
           const assignedLicense = activeContract 
             ? state.services.find(s => s.id === activeContract.assignedLicenseId) || null
             : null;
+          const pendingContract = pendingForSlot === index ? state.pendingContract?.contract || null : null;
+          
           return (
             <ContractSlot
               key={index}
               index={index}
               activeContract={activeContract}
+              pendingContract={pendingContract}
               license={assignedLicense}
               unlocked={index < state.unlockedContractSlots}
               onAddContract={() => actions.openContractPopup(index)}
               onCollect={() => actions.collectContract(index)}
+              onCancel={() => actions.cancelPendingContract()}
             />
           );
         })}
@@ -134,14 +69,28 @@ export function GameUI({ onClose }: GameUIProps) {
   const [importData, setImportData] = useState('');
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
-  const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
-  const [showLicenseSelector, setShowLicenseSelector] = useState(false);
+  const [pendingLicenseId, setPendingLicenseId] = useState<string | null>(null);
 
   useEffect(() => {
     return () => {
       actions.saveGame();
     };
   }, [actions]);
+
+  const handleDropContract = useCallback((licenseId: string) => {
+    setPendingLicenseId(licenseId);
+  }, []);
+
+  const handleConfirmContract = useCallback(async () => {
+    if (pendingLicenseId) {
+      actions.assignContract(pendingLicenseId);
+      setPendingLicenseId(null);
+    }
+  }, [pendingLicenseId, actions]);
+
+  const handleCancelContract = useCallback(() => {
+    setPendingLicenseId(null);
+  }, []);
   
   const handleClose = useCallback(() => {
     actions.saveGame();
@@ -210,12 +159,11 @@ export function GameUI({ onClose }: GameUIProps) {
             <ContractsSection state={state} actions={actions} />
             <HostingTab 
               services={state.services}
-              activeContracts={state.activeContracts}
               uploadSpeed={state.uploadSpeed}
               bandwidthSold={state.bandwidthSold}
               bandwidthDemanded={state.bandwidthDemanded}
               onBuyService={actions.buyService}
-              onCollectContract={actions.collectContract}
+              onDropContract={handleDropContract}
               money={state.money}
             />
           </>
@@ -296,28 +244,37 @@ export function GameUI({ onClose }: GameUIProps) {
         <ContractPopup
           contracts={state.availableContracts}
           onSelect={(contract) => {
-            setSelectedContract(contract);
-            setShowLicenseSelector(true);
+            actions.selectContract(contract, state.contractPopupSlotIndex!);
           }}
           onClose={actions.closeContractPopup}
         />
       )}
 
-      {showLicenseSelector && selectedContract && (
-        <LicenseSelectorModal
-          contract={selectedContract}
-          licenses={state.services}
-          onSelect={(licenseId) => {
-            actions.selectContract(selectedContract, licenseId);
-            setSelectedContract(null);
-            setShowLicenseSelector(false);
-          }}
-          onCancel={() => {
-            setSelectedContract(null);
-            setShowLicenseSelector(false);
-            actions.closeContractPopup();
-          }}
-        />
+      {pendingLicenseId && state.pendingContract && (
+        <div className="modal-overlay" onClick={handleCancelContract}>
+          <div className="prompt glass-panel animate-slide-up" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 className="heading-title modal-title">Activate Contract?</h2>
+              <p className="modal-subtitle">
+                Assign <strong>{state.pendingContract.contract.name}</strong> to{' '}
+                <strong>{state.services.find(s => s.id === pendingLicenseId)?.name}</strong>?
+              </p>
+            </div>
+            <div className="modal-body">
+              <p className="confirm-details">
+                Once activated, the contract will start immediately and the time limit will begin counting down.
+              </p>
+            </div>
+            <div className="prompt-footer">
+              <button className="btn btn-secondary" onClick={handleCancelContract}>
+                Cancel
+              </button>
+              <button className="btn btn-primary" onClick={handleConfirmContract}>
+                Activate
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -714,16 +671,15 @@ function TechUpgradesTab({ infrastructure, services, money, onUnlockInfrastructu
 
 interface HostingTabProps {
   services: Service[];
-  activeContracts: ActiveContract[];
   uploadSpeed: number;
   bandwidthSold: number;
   bandwidthDemanded: number;
   onBuyService: (serviceId: string) => void;
-  onCollectContract: (slotIndex: number) => void;
+  onDropContract: (licenseId: string) => void;
   money: number;
 }
 
-function HostingTab({ services, activeContracts, uploadSpeed, bandwidthDemanded, onBuyService, onCollectContract, money }: HostingTabProps) {
+function HostingTab({ services, uploadSpeed, bandwidthDemanded, onBuyService, onDropContract, money }: HostingTabProps) {
   const isOverage = bandwidthDemanded > uploadSpeed;
   const penaltyPercent = isOverage ? 15 : 0;
   const overageAmount = isOverage ? bandwidthDemanded - uploadSpeed : 0;
@@ -756,7 +712,6 @@ function HostingTab({ services, activeContracts, uploadSpeed, bandwidthDemanded,
         {unlockedServices.map(service => {
           const cost = Math.floor(service.baseCost * Math.pow(1.15, service.owned));
           const canBuy = money >= cost;
-          const activeContract = service.owned > 0 ? activeContracts.find(c => c.assignedLicenseId === service.id) : undefined;
           return (
             <ServiceRow 
               key={service.id} 
@@ -764,8 +719,7 @@ function HostingTab({ services, activeContracts, uploadSpeed, bandwidthDemanded,
               cost={cost}
               onBuy={onBuyService} 
               canBuy={canBuy}
-              activeContract={activeContract}
-              onCollect={onCollectContract}
+              onDropContract={onDropContract}
             />
           );
         })}
@@ -784,14 +738,34 @@ function HostingTab({ services, activeContracts, uploadSpeed, bandwidthDemanded,
   );
 }
 
-function ServiceRow({ service, cost, onBuy, canBuy, activeContract, onCollect }: { 
+function ServiceRow({ service, cost, onBuy, canBuy, onDropContract }: { 
   service: Service; 
   cost: number; 
   onBuy: (id: string) => void; 
   canBuy: boolean;
-  activeContract?: ActiveContract;
-  onCollect?: (slotIndex: number) => void;
+  onDropContract?: (licenseId: string) => void;
 }) {
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (service.owned > 0) {
+      setIsDragOver(true);
+    }
+  };
+
+  const handleDragLeave = () => {
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    if (service.owned > 0 && onDropContract) {
+      onDropContract(service.id);
+    }
+  };
+
   if (!service.unlocked) {
     return (
       <div className="hosting-row locked">
@@ -808,7 +782,12 @@ function ServiceRow({ service, cost, onBuy, canBuy, activeContract, onCollect }:
   }
   
   return (
-    <div className={`hosting-row ${service.owned > 0 ? 'active' : 'inactive'}`}>
+    <div 
+      className={`hosting-row ${service.owned > 0 ? 'active' : 'inactive'} ${isDragOver ? 'drag-over' : ''}`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <span className="service-name">{service.name}</span>
       <span className="service-owned">{service.owned}</span>
       <span className="service-bandwidth">{formatBandwidth(service.baseBandwidthRequired)}</span>
@@ -817,13 +796,7 @@ function ServiceRow({ service, cost, onBuy, canBuy, activeContract, onCollect }:
       <button className="btn btn-primary" disabled={!canBuy} onClick={() => onBuy(service.id)}>
         Buy
       </button>
-      
-      {activeContract && onCollect && (
-        <ActiveContractBadge 
-          contract={activeContract} 
-          onCollect={() => onCollect(activeContract.slotIndex)} 
-        />
-      )}
+      {isDragOver && <div className="drop-overlay">Drop to assign</div>}
     </div>
   );
 }
