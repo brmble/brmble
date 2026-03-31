@@ -85,6 +85,12 @@ export interface GameActions {
   resetGame: () => void;
   exportSave: () => string;
   importSave: (data: string) => boolean;
+  openContractPopup: (slotIndex: number) => void;
+  closeContractPopup: () => void;
+  selectContract: (contract: Contract, licenseId: string) => void;
+  collectContract: (slotIndex: number) => void;
+  unlockContractSlot: (slotNumber: number) => void;
+  failContract: (slotIndex: number) => void;
 }
 
 export const INITIAL_INFRASTRUCTURE: Infrastructure[] = [

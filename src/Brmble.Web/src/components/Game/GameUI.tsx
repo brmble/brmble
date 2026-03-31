@@ -1,6 +1,8 @@
 import { useState, useCallback, useEffect } from 'react';
-import type { Infrastructure, Service } from './types';
+import type { Infrastructure, Service, Contract, GameState, GameActions } from './types';
 import { useGameState } from './useGameState';
+import { ContractPopup } from './contracts/ContractPopup';
+import { ContractSlot } from './contracts/ContractSlot';
 import { confirm } from '../../hooks/usePrompt';
 import { Select } from '../Select/Select';
 import { Tooltip } from '../Tooltip/Tooltip';
@@ -12,6 +14,92 @@ interface GameUIProps {
 
 type TabId = 'infrastructure' | 'upgrades' | 'hosting';
 
+function LicenseSelectorModal({ 
+  contract, 
+  licenses, 
+  onSelect, 
+  onCancel 
+}: { 
+  contract: Contract; 
+  licenses: Service[]; 
+  onSelect: (licenseId: string) => void; 
+  onCancel: () => void;
+}) {
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="prompt glass-panel animate-slide-up" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2 className="heading-title modal-title">Assign Contract</h2>
+          <p className="modal-subtitle">Select a license for: {contract.name}</p>
+        </div>
+        
+        <div className="modal-body">
+          <div className="license-grid">
+            {licenses.filter(l => l.owned > 0).map(license => (
+              <button
+                key={license.id}
+                className="license-option"
+                onClick={() => onSelect(license.id)}
+              >
+                <span className="license-name">{license.name}</span>
+                <span className="license-bandwidth">
+                  Bandwidth: {formatBandwidth(license.baseBandwidthRequired)}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+        
+        <div className="prompt-footer">
+          <button className="btn btn-secondary" onClick={onCancel}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ContractsSection({ state, actions }: { state: GameState; actions: GameActions }) {
+  return (
+    <div className="contracts-section">
+      <div className="contracts-header">
+        <h2 className="heading-section">Contracts</h2>
+      </div>
+      
+      <div className="contracts-slots">
+        {[0, 1, 2, 3].map(index => {
+          const activeContract = state.activeContracts.find(c => c.slotIndex === index) || null;
+          const assignedLicense = activeContract 
+            ? state.services.find(s => s.id === activeContract.assignedLicenseId) || null
+            : null;
+          return (
+            <ContractSlot
+              key={index}
+              index={index}
+              activeContract={activeContract}
+              license={assignedLicense}
+              unlocked={index < state.unlockedContractSlots}
+              onAddContract={() => actions.openContractPopup(index)}
+              onCollect={() => actions.collectContract(index)}
+            />
+          );
+        })}
+      </div>
+      
+      {state.unlockedContractSlots < 4 && (
+        <button
+          className="btn btn-ghost"
+          onClick={() => actions.unlockContractSlot(state.unlockedContractSlots + 1)}
+        >
+          Unlock Slot {state.unlockedContractSlots + 1} (${
+            state.unlockedContractSlots === 1 ? '$2M' : 
+            state.unlockedContractSlots === 2 ? '$10M' : '$50M'
+          })
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function GameUI({ onClose }: GameUIProps) {
   const { state, actions } = useGameState();
   const [activeTab, setActiveTab] = useState<TabId>('infrastructure');
@@ -19,6 +107,8 @@ export function GameUI({ onClose }: GameUIProps) {
   const [importData, setImportData] = useState('');
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
+  const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
+  const [showLicenseSelector, setShowLicenseSelector] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -87,14 +177,17 @@ export function GameUI({ onClose }: GameUIProps) {
           />
         )}
         {activeTab === 'hosting' && (
-          <HostingTab 
-            services={state.services}
-            uploadSpeed={state.uploadSpeed}
-            bandwidthSold={state.bandwidthSold}
-            bandwidthDemanded={state.bandwidthDemanded}
-            onBuyService={actions.buyService}
-            money={state.money}
-          />
+          <>
+            <ContractsSection state={state} actions={actions} />
+            <HostingTab 
+              services={state.services}
+              uploadSpeed={state.uploadSpeed}
+              bandwidthSold={state.bandwidthSold}
+              bandwidthDemanded={state.bandwidthDemanded}
+              onBuyService={actions.buyService}
+              money={state.money}
+            />
+          </>
         )}
         </div>
       </div>
@@ -166,6 +259,34 @@ export function GameUI({ onClose }: GameUIProps) {
             </div>
           </div>
         </div>
+      )}
+
+      {state.contractPopupOpen && state.availableContracts.length > 0 && (
+        <ContractPopup
+          contracts={state.availableContracts}
+          onSelect={(contract) => {
+            setSelectedContract(contract);
+            setShowLicenseSelector(true);
+          }}
+          onClose={actions.closeContractPopup}
+        />
+      )}
+
+      {showLicenseSelector && selectedContract && (
+        <LicenseSelectorModal
+          contract={selectedContract}
+          licenses={state.services}
+          onSelect={(licenseId) => {
+            actions.selectContract(selectedContract, licenseId);
+            setSelectedContract(null);
+            setShowLicenseSelector(false);
+          }}
+          onCancel={() => {
+            setSelectedContract(null);
+            setShowLicenseSelector(false);
+            actions.closeContractPopup();
+          }}
+        />
       )}
     </div>
   );
