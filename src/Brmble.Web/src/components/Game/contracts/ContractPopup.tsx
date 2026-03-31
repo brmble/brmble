@@ -1,4 +1,4 @@
-import { Contract } from '../types';
+import type { Contract } from '../types';
 import './ContractPopup.css';
 
 interface ContractPopupProps {

@@ -212,8 +212,7 @@ export function useGameState() {
           return { ...contract, volumeFilledBytes: newFilled };
         });
         
-        // Handle failed contracts
-        const failedContracts = updatedContracts.filter(c => (c as any).failed);
+        // Handle failed contracts (remove timed out contracts)
         const activeContracts = updatedContracts.filter(c => !(c as any).failed);
         
         // Calculate contract bonus for income

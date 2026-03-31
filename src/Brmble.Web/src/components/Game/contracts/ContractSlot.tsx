@@ -1,4 +1,4 @@
-import { ActiveContract, Service } from '../types';
+import type { ActiveContract, Service } from '../types';
 import './ContractSlot.css';
 
 interface ContractSlotProps {
@@ -26,7 +26,7 @@ function formatMoney(amount: number): string {
   return '$' + amount.toFixed(2);
 }
 
-export function ContractSlot({ index, activeContract, license, unlocked, onAddContract, onCollect }: ContractSlotProps) {
+export function ContractSlot({ index, activeContract, license: _license, unlocked, onAddContract, onCollect }: ContractSlotProps) {
   if (!unlocked) {
     return (
       <div className="contract-slot locked">

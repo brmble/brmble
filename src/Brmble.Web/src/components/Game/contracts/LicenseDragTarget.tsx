@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Service, Contract } from '../types';
+import type { Service } from '../types';
 import './LicenseDragTarget.css';
 
 interface LicenseDragTargetProps {
