@@ -1,0 +1,51 @@
+.contract-popup {
+  min-width: 500px;
+}
+
+.contract-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.contract-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  cursor: pointer;
+  text-align: left;
+  transition: all var(--transition-fast);
+  width: 100%;
+}
+
+.contract-card:hover {
+  background: var(--bg-elevated);
+  border-color: var(--accent-primary);
+  transform: translateY(-2px);
+}
+
+.contract-name {
+  font-size: var(--text-base);
+  font-weight: 600;
+  margin-bottom: var(--space-sm);
+  color: var(--text-primary);
+}
+
+.contract-stats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.contract-stars {
+  color: var(--accent-primary);
+  letter-spacing: 2px;
+}
+
+.contract-time {
+  color: var(--text-muted);
+  font-style: italic;
+}

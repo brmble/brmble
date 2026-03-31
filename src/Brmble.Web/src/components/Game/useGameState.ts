@@ -1,11 +1,48 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
-import type { GameState, GameActions, Infrastructure, Service } from './types';
+import type { GameState, GameActions, Infrastructure, Service, Contract, ActiveContract } from './types';
 import { INITIAL_STATE } from './types';
 import { applyTheme } from '../../themes/theme-loader';
 import { useProfileFingerprint } from '../../contexts/ProfileContext';
 
 const STORAGE_KEY = 'idle-farm-save';
 const THEME_KEY = 'idle-farm-theme';
+
+const CONTRACT_PREFIXES = [
+  "Neural", "Data", "Batch", "Streaming", "Inference",
+  "Training", "ML", "Quantum", "Edge", "Cloud"
+];
+
+const CONTRACT_SUFFIXES = [
+  "Training Pack", "Inference Bundle", "Batch Set",
+  "Pipeline Pack", "Model Bundle", "Dataset Set", "Processing Pack"
+];
+
+function generateContractName(): string {
+  const prefix = CONTRACT_PREFIXES[Math.floor(Math.random() * CONTRACT_PREFIXES.length)];
+  const suffix = CONTRACT_SUFFIXES[Math.floor(Math.random() * CONTRACT_SUFFIXES.length)];
+  return `${prefix} ${suffix}`;
+}
+
+function generateId(): string {
+  return Math.random().toString(36).substring(2, 9);
+}
+
+const getRandomStars = (): number => {
+  const roll = Math.random() * 100;
+  if (roll < 5) return 5;
+  if (roll < 25) return 4;
+  if (roll < 60) return 3;
+  if (roll < 80) return 2;
+  return 1;
+};
+
+const getTimeRangeForStars = (stars: number): { min: number; max: number } => {
+  switch (stars) {
+    case 5: return { min: 180, max: 300 };
+    case 4: return { min: 240, max: 360 };
+    default: return { min: 360, max: 540 };
+  }
+};
 
 function calculateBandwidth(infra: Infrastructure[]): number {
   return infra.reduce((total, item) => {
@@ -60,6 +97,27 @@ function hasServices(state: unknown): state is GameState {
   return 'baseCost' in first;
 }
 
+function migrateState(state: unknown): GameState {
+  const defaultState = INITIAL_STATE;
+  const merged = { ...defaultState, ...(state as Partial<GameState>) };
+  if (!Array.isArray(merged.activeContracts)) {
+    merged.activeContracts = [];
+  }
+  if (!Array.isArray(merged.availableContracts)) {
+    merged.availableContracts = [];
+  }
+  if (typeof merged.unlockedContractSlots !== 'number') {
+    merged.unlockedContractSlots = 1;
+  }
+  if (typeof merged.contractPopupOpen !== 'boolean') {
+    merged.contractPopupOpen = false;
+  }
+  if (merged.contractPopupSlotIndex !== null && typeof merged.contractPopupSlotIndex !== 'number') {
+    merged.contractPopupSlotIndex = null;
+  }
+  return merged;
+}
+
 export function useGameState() {
   const fingerprint = useProfileFingerprint();
   const storageKey = fingerprint ? `${STORAGE_KEY}_${fingerprint}` : STORAGE_KEY;
@@ -73,7 +131,7 @@ export function useGameState() {
         if (!hasInfrastructure(parsed) || !hasServices(parsed)) {
           return INITIAL_STATE;
         }
-        return parsed;
+        return migrateState(parsed);
       } catch {
         return INITIAL_STATE;
       }
@@ -82,7 +140,11 @@ export function useGameState() {
   });
 
   const stateRef = useRef(state);
+  const servicesRef = useRef(state.services);
+  const activeContractsRef = useRef(state.activeContracts);
   stateRef.current = state;
+  servicesRef.current = state.services;
+  activeContractsRef.current = state.activeContracts;
 
   const derivedValues = useMemo(() => {
     const bandwidth = calculateBandwidth(state.infrastructure);
@@ -94,6 +156,30 @@ export function useGameState() {
     const incomeAfterPenalty = isOverage ? Math.floor(income * 0.85) : income;
     return { uploadSpeed: bandwidth, bandwidthSold: bandwidthUsed, bandwidthDemanded: totalBandwidthDemanded, incomePerSecond: incomeAfterPenalty };
   }, [state.infrastructure, state.services]);
+
+  const generateContract = useCallback((services: Service[]): Contract => {
+    const activeServices = services.filter(s => s.owned > 0);
+    if (activeServices.length === 0) {
+      return { id: generateId(), name: generateContractName(), volumeBytes: 1, multiplierStars: 1 };
+    }
+    
+    const referenceService = activeServices[Math.floor(Math.random() * activeServices.length)];
+    const totalBandwidth = referenceService.baseBandwidthRequired * referenceService.owned;
+    
+    const volumeSeconds = 120 + Math.random() * 180;
+    
+    const tightness = 0.9 + Math.random() * 0.2;
+    const volumeBytes = Math.floor(totalBandwidth * volumeSeconds * tightness);
+    
+    const stars = getRandomStars();
+    
+    return {
+      id: generateId(),
+      name: generateContractName(),
+      volumeBytes,
+      multiplierStars: stars,
+    };
+  }, []);
 
   useEffect(() => {
     setState(prev => ({ ...prev, ...derivedValues }));
@@ -128,11 +214,44 @@ export function useGameState() {
 
   useEffect(() => {
     const interval = setInterval(() => {
-      const currentIncome = derivedValues.incomePerSecond;
-      setState(prev => ({
-        ...prev,
-        money: prev.money + (currentIncome / 10),
-      }));
+      setState(prev => {
+        const currentServices = servicesRef.current;
+        const currentActiveContracts = activeContractsRef.current;
+        
+        // Update contract progress
+        const updatedContracts = currentActiveContracts.map(contract => {
+          const elapsedSeconds = (Date.now() - contract.startTime) / 1000;
+          
+          // Check for timeout
+          if (elapsedSeconds >= contract.timeLimitSeconds) {
+            return { ...contract, status: 'failed' as const };
+          }
+          
+          // Find the assigned license to get its bandwidth
+          const license = currentServices.find(s => s.id === contract.assignedLicenseId);
+          if (!license || license.owned === 0 || contract.volumeBytes <= 0) return contract;
+          
+          // Calculate bandwidth contribution (total bandwidth from all owned instances of the assigned license)
+          const totalBandwidth = license.baseBandwidthRequired * license.owned;
+          const deltaBytes = totalBandwidth * 0.1; // 100ms tick
+          const newFilled = Math.min(contract.volumeBytes, contract.volumeFilledBytes + deltaBytes);
+          
+          return { ...contract, volumeFilledBytes: newFilled };
+        });
+        
+        // Handle failed contracts (remove timed out contracts)
+        const activeContracts = updatedContracts.filter(c => c.status !== 'failed');
+        
+        // Update refs for next tick
+        servicesRef.current = prev.services;
+        activeContractsRef.current = activeContracts;
+        
+        return {
+          ...prev,
+          activeContracts,
+          money: prev.money + (derivedValues.incomePerSecond / 10),
+        };
+      });
     }, 100);
     return () => clearInterval(interval);
   }, [derivedValues.incomePerSecond]);
@@ -268,7 +387,7 @@ export function useGameState() {
         if (!hasInfrastructure(parsed) || !hasServices(parsed)) {
           setState(INITIAL_STATE);
         } else {
-          setState(parsed);
+          setState(migrateState(parsed));
         }
       } catch {
         // Invalid save data
@@ -291,7 +410,7 @@ export function useGameState() {
       if (!hasInfrastructure(parsed) || !hasServices(parsed)) {
         return false;
       }
-      setState(parsed);
+      setState(migrateState(parsed));
       return true;
     } catch {
       return false;
@@ -312,6 +431,116 @@ export function useGameState() {
     resetGame,
     exportSave,
     importSave,
+    openContractPopup: (slotIndex: number) => {
+      const contracts: Contract[] = [];
+      for (let i = 0; i < 3; i++) {
+        contracts.push(generateContract(state.services));
+      }
+      setState(prev => ({
+        ...prev,
+        availableContracts: contracts,
+        contractPopupOpen: true,
+        contractPopupSlotIndex: slotIndex,
+      }));
+    },
+
+    closeContractPopup: () => {
+      setState(prev => ({
+        ...prev,
+        availableContracts: [],
+        contractPopupOpen: false,
+        contractPopupSlotIndex: null,
+      }));
+    },
+
+    selectContract: (contract: Contract, slotIndex: number) => {
+      setState(prev => ({
+        ...prev,
+        pendingContract: { contract, slotIndex },
+        availableContracts: [],
+        contractPopupOpen: false,
+        contractPopupSlotIndex: null,
+      }));
+    },
+
+    assignContract: (licenseId: string) => {
+      setState(prev => {
+        if (!prev.pendingContract) return prev;
+        
+        const { contract, slotIndex } = prev.pendingContract;
+        const timeRange = getTimeRangeForStars(contract.multiplierStars);
+        const exactTime = Math.floor(timeRange.min + Math.random() * (timeRange.max - timeRange.min));
+        
+        const activeContract: ActiveContract = {
+          contractId: contract.id,
+          slotIndex: slotIndex,
+          assignedLicenseId: licenseId,
+          startTime: Date.now(),
+          timeLimitSeconds: exactTime,
+          volumeBytes: contract.volumeBytes,
+          volumeFilledBytes: 0,
+          multiplierStars: contract.multiplierStars,
+        };
+        
+        return {
+          ...prev,
+          activeContracts: [...prev.activeContracts.filter(c => c.slotIndex !== slotIndex), activeContract],
+          pendingContract: null,
+        };
+      });
+    },
+
+    cancelPendingContract: () => {
+      setState(prev => ({
+        ...prev,
+        pendingContract: null,
+      }));
+    },
+
+    collectContract: (slotIndex: number) => {
+      setState(prev => {
+        const contract = prev.activeContracts.find(c => c.slotIndex === slotIndex);
+        if (!contract) return prev;
+        
+        const license = prev.services.find(s => s.id === contract.assignedLicenseId);
+        if (!license) return prev;
+        
+        if (contract.volumeBytes <= 0) {
+          return {
+            ...prev,
+            activeContracts: prev.activeContracts.filter(c => c.slotIndex !== slotIndex),
+          };
+        }
+        
+        const licenseIncome = license.baseIncomePerSecond * license.owned;
+        const earned = (contract.volumeFilledBytes / contract.volumeBytes) * licenseIncome * 10;
+        
+        return {
+          ...prev,
+          activeContracts: prev.activeContracts.filter(c => c.slotIndex !== slotIndex),
+          money: prev.money + earned,
+        };
+      });
+    },
+
+    failContract: (slotIndex: number) => {
+      setState(prev => ({
+        ...prev,
+        activeContracts: prev.activeContracts.filter(c => c.slotIndex !== slotIndex),
+      }));
+    },
+
+    unlockContractSlot: (slotNumber: number) => {
+      const costs: Record<number, number> = { 2: 2000000, 3: 10000000, 4: 50000000 };
+      const cost = costs[slotNumber];
+      if (!cost || state.money < cost || state.unlockedContractSlots >= slotNumber) return;
+      
+      setState(prev => ({
+        ...prev,
+        money: prev.money - cost,
+        unlockedContractSlots: slotNumber,
+      }));
+    },
   };
 
   return {

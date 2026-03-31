@@ -31,6 +31,30 @@ export interface Service {
   unlockRequirement: number;
 }
 
+export interface Contract {
+  id: string;
+  name: string;
+  volumeBytes: number;
+  multiplierStars: number;
+}
+
+export interface PendingContract {
+  contract: Contract;
+  slotIndex: number;
+}
+
+export interface ActiveContract {
+  contractId: string;
+  slotIndex: number;
+  assignedLicenseId: string;
+  startTime: number;
+  timeLimitSeconds: number;
+  volumeBytes: number;
+  volumeFilledBytes: number;
+  multiplierStars: number;
+  status?: 'active' | 'failed';
+}
+
 /**
  * Main game state
  */
@@ -43,6 +67,12 @@ export interface GameState {
   infrastructure: Infrastructure[];
   services: Service[];
   lastSaved: number;
+  availableContracts: Contract[];
+  activeContracts: ActiveContract[];
+  pendingContract: PendingContract | null;
+  unlockedContractSlots: number;
+  contractPopupOpen: boolean;
+  contractPopupSlotIndex: number | null;
 }
 
 /**
@@ -62,6 +92,14 @@ export interface GameActions {
   resetGame: () => void;
   exportSave: () => string;
   importSave: (data: string) => boolean;
+  openContractPopup: (slotIndex: number) => void;
+  closeContractPopup: () => void;
+  selectContract: (contract: Contract, slotIndex: number) => void;
+  assignContract: (licenseId: string) => void;
+  cancelPendingContract: () => void;
+  collectContract: (slotIndex: number) => void;
+  unlockContractSlot: (slotNumber: number) => void;
+  failContract: (slotIndex: number) => void;
 }
 
 export const INITIAL_INFRASTRUCTURE: Infrastructure[] = [
@@ -391,5 +429,11 @@ export const INITIAL_STATE: GameState = {
   bandwidthDemanded: 0,
   infrastructure: INITIAL_INFRASTRUCTURE,
   services: INITIAL_SERVICES,
+  availableContracts: [],
+  activeContracts: [],
+  pendingContract: null,
+  unlockedContractSlots: 1,
+  contractPopupOpen: false,
+  contractPopupSlotIndex: null,
   lastSaved: Date.now(),
 };

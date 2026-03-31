@@ -790,6 +790,26 @@
   border-left: 3px solid var(--accent-success);
 }
 
+.hosting-row {
+  position: relative;
+}
+
+.badge-stars {
+  color: var(--accent-primary);
+  font-size: var(--text-xs);
+  letter-spacing: 1px;
+}
+
+.badge-time {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.badge-time.urgent {
+  color: var(--accent-danger, #ef4444);
+}
+
 /* Infrastructure Tab - restore original layout */
 .infra-info {
   display: flex;
@@ -905,3 +925,434 @@
 .import-status.error {
   color: var(--accent-danger);
 }
+
+.license-option .license-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: var(--text-base);
+}
+
+.license-owned {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  background: var(--bg-surface);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  width: fit-content;
+}
+
+.license-stats {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-xs);
+}
+
+.license-bandwidth {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.license-income {
+  font-size: var(--text-sm);
+  color: var(--accent-success);
+  font-weight: 600;
+}
+
+.no-licenses {
+  text-align: center;
+  color: var(--text-muted);
+  padding: var(--space-lg);
+}
+
+/* Drop target states */
+.hosting-row.drag-over {
+  background: rgba(59, 130, 246, 0.15);
+  border: 2px solid var(--accent-primary, #3b82f6);
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.hosting-row.drag-over:hover {
+  background: rgba(59, 130, 246, 0.25);
+}
+
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(59, 130, 246, 0.4);
+  color: white;
+  font-weight: 600;
+  font-size: var(--text-sm);
+  border-radius: var(--radius-md);
+  backdrop-filter: blur(2px);
+}
+
+/* Confirm dialog */
+.confirm-details {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+/* ============================================
+   UNIFIED BRMBBLE TAB STYLING
+   ============================================ */
+
+/* Tab Container - consistent padding for all tabs */
+.infra-tab,
+.hosting-tab,
+.upgrades-tab,
+.contracts-section {
+  padding: var(--space-lg);
+  background: var(--bg-surface);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
+}
+
+/* Section Headers - consistent across all tabs */
+.infra-tab > .heading-section,
+.hosting-tab > .heading-section,
+.upgrades-tab > .heading-section,
+.contracts-section > .heading-section {
+  margin-bottom: var(--space-lg);
+  padding-bottom: var(--space-md);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* Unified Section Title */
+.section-title {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--space-lg);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.section-title::before {
+  content: '';
+  width: 4px;
+  height: 20px;
+  background: var(--accent-primary);
+  border-radius: 2px;
+}
+
+/* Unified Card/Row Base */
+.infra-row,
+.hosting-row,
+.unlock-card,
+.upgrade-category {
+  background: var(--bg-primary);
+  border-radius: var(--radius-md);
+  padding: var(--space-md) var(--space-lg);
+  border: 1px solid var(--border-subtle);
+  transition: all var(--transition-fast);
+}
+
+.infra-row:hover,
+.hosting-row:hover,
+.unlock-card:hover,
+.upgrade-category:hover {
+  border-color: var(--accent-primary);
+  box-shadow: var(--shadow-sm, 0 2px 8px rgba(0, 0, 0, 0.1));
+  transform: translateY(-1px);
+}
+
+/* Infrastructure Tab Grid Layout */
+.infra-tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.infra-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: var(--space-lg);
+  align-items: center;
+}
+
+.infra-row .infra-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.infra-row .infra-stats {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+}
+
+.infra-upgrades {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.infra-row .service-cost {
+  font-family: var(--font-mono);
+  color: var(--accent-secondary);
+  font-weight: 600;
+}
+
+/* Services Section - Hosting Tab */
+.services-section {
+  margin-bottom: var(--space-lg);
+  padding-bottom: var(--space-lg);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.services-section:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.services-section > .heading-label {
+  margin-bottom: var(--space-md);
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+}
+
+/* Upgrades Tab - Category Styling */
+.upgrades-tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.upgrade-category {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.upgrade-category > .heading-label {
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.upgrade-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-md);
+  background: var(--bg-surface);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+}
+
+.upgrade-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.upgrade-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.upgrade-desc {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+/* Contracts Section - Unified */
+.contracts-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.contracts-header {
+  margin-bottom: var(--space-sm);
+  padding-bottom: var(--space-md);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.contracts-header > .heading-section {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.contracts-slots {
+  display: flex;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+/* Stats Row - consistent across tabs */
+.stats-row {
+  display: flex;
+  gap: var(--space-xl);
+  padding: var(--space-md);
+  background: var(--bg-elevated);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-lg);
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.stat-item .stat-label {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.stat-item .stat-value {
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Unified Unlock Progress */
+.unlock-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.unlock-card .unlock-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.unlock-card .unlock-progress {
+  margin-top: var(--space-sm);
+}
+
+.unlock-card .unlock-rewards {
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.unlock-card .rewards-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.unlock-card .rewards-list li::before {
+  content: '✓';
+  color: var(--accent-success);
+  font-weight: bold;
+}
+
+/* All Unlocked State */
+.all-unlocked {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xl);
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, rgba(34, 197, 94, 0.05) 100%);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.all-unlocked p {
+  color: var(--accent-success);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.all-unlocked p::before {
+  content: '✓';
+  font-size: var(--text-lg);
+}
+
+/* Unlocked Lists */
+.unlocked-section {
+  padding: var(--space-md);
+  background: var(--bg-elevated);
+  border-radius: var(--radius-md);
+}
+
+.unlocked-section > .heading-label {
+  margin-bottom: var(--space-md);
+}
+
+.unlocked-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.unlocked-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--bg-surface);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  font-size: var(--text-sm);
+}
+
+.unlocked-check {
+  color: var(--accent-success);
+  font-weight: bold;
+}
+
+.unlocked-name {
+  color: var(--text-primary);
+}
+
+/* Upgrade progress bar for Tech Upgrades */
+.upgrade-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 150px;
+}
+
+.upgrade-progress .progress-bar {
+  flex: 1;
+  height: 10px;
+}
+
+.upgrade-progress .progress-percent {
+  font-size: var(--text-xs);
+  min-width: 35px;
+}
+
+/* All done state */
+.infra-row.all-done {
+  justify-content: center;
+  opacity: 0.7;
+}
+
+.infra-row.all-done:hover {
+  transform: none;
+  border-color: var(--border-subtle);
+  box-shadow: none;
+}
+
+/* Upgrades tab - sections without border */
+.upgrades-tab .services-section {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
