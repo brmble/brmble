@@ -126,10 +126,31 @@ export function ContextMenu({ x, y, items, onClose, mouseLeaveDelay = MOUSE_LEAV
   useEffect(() => {
     if (menuRef.current) {
       const rect = menuRef.current.getBoundingClientRect();
-      const maxX = window.innerWidth - rect.width - 8;
-      const maxY = window.innerHeight - rect.height - 8;
-      if (x > maxX) menuRef.current.style.left = `${maxX}px`;
-      if (y > maxY) menuRef.current.style.top = `${maxY}px`;
+      const menuWidth = rect.width;
+      const menuHeight = rect.height;
+      
+      const spaceBelow = window.innerHeight - y - 8;
+      const spaceRight = window.innerWidth - x - 8;
+      const spaceAbove = y - 8;
+      const spaceLeft = x - 8;
+      
+      let finalX = x;
+      let finalY = y;
+      
+      if (menuHeight > spaceBelow && menuHeight <= spaceAbove) {
+        finalY = y - menuHeight;
+      } else if (menuHeight > spaceBelow && menuHeight > spaceAbove) {
+        finalY = Math.max(8, spaceAbove);
+      }
+      
+      if (menuWidth > spaceRight && menuWidth <= spaceLeft) {
+        finalX = x - menuWidth;
+      } else if (menuWidth > spaceRight && menuWidth > spaceLeft) {
+        finalX = Math.max(8, spaceLeft);
+      }
+      
+      menuRef.current.style.left = `${finalX}px`;
+      menuRef.current.style.top = `${finalY}px`;
     }
   }, [x, y]);
 
