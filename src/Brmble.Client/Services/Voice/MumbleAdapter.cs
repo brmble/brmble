@@ -2540,8 +2540,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 self = u == LocalUser,
                 comment = u.Comment,
                 certHash = u.CertificateHash,
-                matrixUserId = hasMap ? sm.MatrixUserId : _userMappings.GetValueOrDefault(u.Name),
-                isBrmbleClient = hasMap && sm.IsBrmbleClient
+                matrixUserId = hasMap ? sm!.MatrixUserId : _userMappings.GetValueOrDefault(u.Name),
+                isBrmbleClient = hasMap && sm!.IsBrmbleClient
             };
         }).ToList();
 
@@ -2647,8 +2647,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             self = isSelf,
             comment = user?.Comment,
             certHash = user?.CertificateHash,
-            matrixUserId = hasJoinMapping ? joinMapping.MatrixUserId : _userMappings.GetValueOrDefault(joinedUserName),
-            isBrmbleClient = hasJoinMapping && joinMapping.IsBrmbleClient
+            matrixUserId = hasJoinMapping ? joinMapping!.MatrixUserId : _userMappings.GetValueOrDefault(joinedUserName),
+            isBrmbleClient = hasJoinMapping && joinMapping!.IsBrmbleClient
         });
         _bridge?.NotifyUiThread();
 
