@@ -11,7 +11,7 @@ export default defineConfig({
           if (id.includes('matrix-js-sdk') || id.includes('matrix-widget-api') || id.includes('another-json')) {
             return 'matrix-sdk';
           }
-          if (id.includes('node_modules/react') || id.includes('node_modules/react-dom') || id.includes('node_modules/scheduler')) {
+          if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) {
             return 'react-vendor';
           }
           if (id.includes('node_modules')) {
