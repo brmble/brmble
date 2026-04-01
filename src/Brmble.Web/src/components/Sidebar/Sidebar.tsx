@@ -588,8 +588,8 @@ export function Sidebar({
               <button className="btn btn-secondary" onClick={() => { setAddChannelDialog(false); setNewChannelName(''); setNewChannelDescription(''); }}>
                 Cancel
               </button>
-              <button className="btn btn-primary" disabled>
-                Send (coming soon)
+              <button className="btn btn-primary" onClick={() => { bridge.send('voice.addChannel', { name: newChannelName, description: newChannelDescription, parent: 0 }); setAddChannelDialog(false); setNewChannelName(''); setNewChannelDescription(''); }}>
+                Send
               </button>
             </div>
           </div>
