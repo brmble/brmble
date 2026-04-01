@@ -1,14 +1,14 @@
-# Channel Edit & Add Subchannel Design
+# Channel Edit & Remove Design
 
 **Date:** 2026-04-01  
-**Status:** Approved  
+**Status:** Implemented (PR #422)  
 **Related Issues:** #421 (password protection blocked on ACL support)
 
 ---
 
 ## Overview
 
-Implement right-click context menu options to edit voice channel properties and create subchannels. Changes sync to Mumble server (and thus all connected clients including native Mumble) and Matrix room names update automatically.
+Implement right-click context menu options to edit and remove voice channel properties. Changes sync directly to Mumble server via Mumble protocol packets (`ChannelState`/`ChannelRemove`), not via ICE API. Matrix room names update automatically on channel rename.
 
 ---
 
@@ -38,21 +38,17 @@ Implement right-click context menu options to edit voice channel properties and 
 
 ---
 
-## 2. Add Subchannel Dialog
+## 2. Remove Channel Dialog
 
-**Trigger:** Right-click channel → "Add Subchannel" (admin only, requires MakeChannel permission)
-
-### Fields
-
-| Field | Type | Required |
-|-------|------|----------|
-| Name | text input | Yes |
+**Trigger:** Right-click channel → "Remove" (admin only, requires Write permission on channel)
 
 ### Behavior
 
-- Click "Create" → send `voice.createChannel` via bridge with `parent` set to current channel ID
-- No confirmation step — direct creation
-- Dialog closes on success
+- Show confirmation modal asking "Are you sure you want to remove '{channelName}'?"
+- User must type "Remove" to confirm
+- On confirm → send `voice.removeChannel` via bridge
+- On success: dialog closes, channel removed from tree
+- On failure: show error toast, keep dialog open
 
 ### Error Handling
 
@@ -87,12 +83,12 @@ Buttons: Cancel (secondary), Confirm (primary)
 
 ### Current State
 
-- "Edit" and "Add Subchannel" options exist but show "coming soon"
+- "Edit" option exists but shows "coming soon"
 
 ### Changes
 
-- Both options remain visible for admins
-- Wire up to open respective dialogs
+- "Edit" option wired to open EditChannelDialog (admin only, requires MakeChannel permission)
+- "Remove" option added and wired to open RemoveChannelDialog (admin only, requires Write permission)
 - Non-admins don't see these options (permission check on render)
 
 ---
@@ -102,34 +98,36 @@ Buttons: Cancel (secondary), Confirm (primary)
 ### Edit Channel Flow
 
 ```
-1. User opens Edit dialog (pre-filled)
+1. User opens Edit dialog (pre-filled with current name/description)
 2. User changes name/description
-3. If name changed → show confirmation dialog
+3. If name changed → show confirmation dialog (RenameConfirmDialog)
 4. User confirms → send voice.editChannel { channelId, name, description }
-5. Client bridge → Brmble Server
-6. Server → Mumble ICE API setChannelState()
+5. Client bridge → Brmble.Client (MumbleAdapter)
+6. MumbleAdapter sends ChannelState packet directly to Mumble server
 7. Mumble broadcasts ChannelState to all clients
-8. Brmble MatrixEventHandler detects OnChannelRenamed → updates Matrix room name
+8. Brmble receives channelChanged event → updates local state
+9. MatrixEventHandler detects OnChannelRenamed → updates Matrix room name
 ```
 
-### Add Subchannel Flow
+### Remove Channel Flow
 
 ```
-1. User opens Add Subchannel dialog
-2. User enters name
-3. Click "Create" → send voice.createChannel { parentId, name }
-4. Client bridge → Brmble Server
-5. Server → Mumble ICE API createChannel() with parent
-6. Mumble broadcasts new ChannelState
-7. Brmble MatrixEventHandler detects OnChannelCreated → creates Matrix room
+1. User right-click → "Remove"
+2. Show RemoveChannelDialog asking to type "Remove" to confirm
+3. User confirms → send voice.removeChannel { channelId }
+4. Client bridge → Brmble.Client (MumbleAdapter)
+5. MumbleAdapter sends ChannelRemove packet directly to Mumble server
+6. Mumble broadcasts ChannelRemove to all clients
+7. Brmble receives channelRemoved event → removes from local state
+8. MatrixEventHandler removes Matrix room
 ```
 
 ### Bridge Messages
 
 | Message | Direction | Payload |
 |---------|-----------|---------|
-| `voice.editChannel` | Frontend → Client → Server | `{ channelId: number, name?: string, description?: string }` |
-| `voice.createChannel` | Frontend → Client → Server | `{ parentId: number, name: string }` |
+| `voice.editChannel` | Frontend → Client | `{ channelId: number, name: string, description: string }` |
+| `voice.removeChannel` | Frontend → Client | `{ channelId: number }` |
 
 ---
 
@@ -144,32 +142,24 @@ Buttons: Cancel (secondary), Confirm (primary)
 
 ---
 
-## 7. Files to Modify
+## 7. Files Modified
 
 ### Frontend (src/Brmble.Web)
 
-- `src/components/Sidebar/ChannelTree.tsx` — wire up context menu handlers
-- `src/components/EditChannelDialog/` — new component for edit dialog
-- `src/components/AddSubchannelDialog/` — new component for add dialog
-- `src/components/ConfirmRenameDialog/` — new component for name confirmation
-- `src/hooks/useVoice.ts` — add/edit bridge message handlers
-- `src/App.tsx` — add voice event handlers for channel updates
-- CSS files for new components
+- `src/components/Sidebar/ChannelTree.tsx` — context menu handlers for Edit/Remove
+- `src/components/EditChannelDialog/EditChannelDialog.tsx` + `.css` — edit dialog component
+- `src/components/RenameConfirmDialog/RenameConfirmDialog.tsx` + `.css` — name change confirmation
+- `src/App.tsx` — handle `voice.channelChanged` event for state updates
 
 ### Client (src/Brmble.Client)
 
-- `src/Brmble.Client/Bridge/NativeBridge.cs` — route voice.editChannel, voice.createChannel
-- `src/Brmble.Client/Services/Voice/MumbleAdapter.cs` — implement editChannel, createChannel
-
-### Server (src/Brmble.Server)
-
-- `src/Brmble.Server/Voice/VoiceService.cs` — handle editChannel, createChannel messages
-- Mumble ICE API already has `setChannelState` and `createChannel` — use those
+- `src/Brmble.Client/Services/Voice/MumbleAdapter.cs` — handle `voice.editChannel`, `voice.removeChannel`
 
 ---
 
 ## 8. Out of Scope
 
+- Add Subchannel (not implemented)
 - Password protection (blocked on #421 — ACL support required)
 - Editing channel icon/image
 - Moving channels (drag-and-drop reordering)
@@ -179,7 +169,6 @@ Buttons: Cancel (secondary), Confirm (primary)
 
 ## 9. Dependencies
 
-- Mumble ICE API (`setChannelState`, `createChannel`) — already available
-- `OnChannelRenamed` event handling — already implemented
-- `OnChannelCreated` event handling — already implemented
-- Matrix room creation/rename — already implemented
+- Mumble protocol (`ChannelState`, `ChannelRemove` packets) — direct, not ICE
+- `OnChannelStateChanged` event handling — already implemented
+- Matrix room rename/remove — already implemented

@@ -1979,6 +1979,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             var name = data.TryGetProperty("name", out var n) ? n.GetString() : null;
             var description = data.TryGetProperty("description", out var d) ? d.GetString() : null;
 
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                _bridge?.Send("voice.error", new { message = "Channel name is required", type = "invalidName" });
+                return Task.CompletedTask;
+            }
+
             var channel = Channels.FirstOrDefault(c => c.Id == channelId);
             if (channel == null)
             {
@@ -1990,7 +1996,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             {
                 ChannelId = channelId,
                 Name = name,
-                Description = description,
+                Description = description ?? string.Empty,
             });
 
             return Task.CompletedTask;

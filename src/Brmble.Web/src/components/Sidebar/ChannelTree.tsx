@@ -4,7 +4,7 @@ import type { ContextMenuItem } from '../ContextMenu/ContextMenu';
 import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { UserTooltip } from '../UserTooltip/UserTooltip';
-import { usePermissions } from '../../hooks/usePermissions';
+import { usePermissions, Permission } from '../../hooks/usePermissions';
 import { prompt } from '../../hooks/usePrompt';
 import bridge from '../../bridge';
 import Avatar from '../Avatar/Avatar';
@@ -93,6 +93,16 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
       requestPermissions(channelContextMenu.channelId);
     }
   }, [channelContextMenu?.channelId, requestPermissions]);
+
+  useEffect(() => {
+    const handleError = (data: unknown) => {
+      const d = data as { message?: string; type?: string } | undefined;
+      const msg = d?.message || 'Failed to edit channel';
+      console.error('Edit channel error:', msg);
+    };
+    bridge.on('voice.error', handleError);
+    return () => bridge.off('voice.error', handleError);
+  }, []);
 
   const initialExpanded = useMemo(() => {
     const expanded = new Set<number>();
@@ -420,7 +430,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     }
 
     return [...items, { type: 'divider' as const }, ...adminItems];
-  }, [channelContextMenu, hasPermission, onJoinChannel]);
+  }, [channelContextMenu, hasPermission, onJoinChannel, channels, Permission]);
 
   return (
     <div className="channel-tree">
@@ -662,9 +672,9 @@ onClick: () => {
                 name,
                 description,
               });
-              setEditChannelDialog(null);
             }
           }}
+          onError={(msg) => console.error('Edit channel error:', msg)}
         />
       )}
 

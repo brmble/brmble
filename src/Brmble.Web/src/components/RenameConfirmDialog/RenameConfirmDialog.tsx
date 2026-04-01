@@ -22,12 +22,12 @@ export function RenameConfirmDialog({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (confirmText.toLowerCase() === 'change') {
+    if (confirmText.trim().toLowerCase() === 'change') {
       onConfirm();
     }
   };
 
-  const isValid = confirmText.toLowerCase() === 'change';
+  const isValid = confirmText.trim().toLowerCase() === 'change';
 
   return (
     <div className="modal-overlay" onClick={onClose}>

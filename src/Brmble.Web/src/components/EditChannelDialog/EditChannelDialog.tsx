@@ -7,6 +7,7 @@ interface EditChannelDialogProps {
   initialDescription?: string;
   onClose: () => void;
   onSave: (name: string, description: string) => void;
+  onError?: (message: string) => void;
 }
 
 export function EditChannelDialog({
@@ -15,6 +16,7 @@ export function EditChannelDialog({
   initialDescription = '',
   onClose,
   onSave,
+  onError,
 }: EditChannelDialogProps) {
   const [name, setName] = useState(initialName);
   const [description, setDescription] = useState(initialDescription);
