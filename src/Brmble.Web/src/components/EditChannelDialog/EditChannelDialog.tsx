@@ -16,7 +16,6 @@ export function EditChannelDialog({
   initialDescription = '',
   onClose,
   onSave,
-  onError,
 }: EditChannelDialogProps) {
   const [name, setName] = useState(initialName);
   const [description, setDescription] = useState(initialDescription);

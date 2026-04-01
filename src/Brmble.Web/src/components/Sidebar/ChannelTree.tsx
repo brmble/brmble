@@ -4,7 +4,7 @@ import type { ContextMenuItem } from '../ContextMenu/ContextMenu';
 import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { UserTooltip } from '../UserTooltip/UserTooltip';
-import { usePermissions, Permission } from '../../hooks/usePermissions';
+import { usePermissions } from '../../hooks/usePermissions';
 import { prompt } from '../../hooks/usePrompt';
 import bridge from '../../bridge';
 import Avatar from '../Avatar/Avatar';
