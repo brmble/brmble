@@ -553,6 +553,68 @@ export function Sidebar({
           />
         );
       })()}
+      {addChannelDialog && (
+        <div className="modal-overlay" onClick={() => { setAddChannelDialog(false); setNewChannelName(''); setNewChannelDescription(''); }}>
+          <div
+            className="prompt glass-panel animate-slide-up"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <h2 className="heading-title modal-title">Add Channel</h2>
+            </div>
+            <div className="prompt-input-container">
+              <input
+                type="text"
+                className="brmble-input"
+                placeholder="Channel name"
+                value={newChannelName}
+                onChange={(e) => setNewChannelName(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="prompt-input-container">
+              <textarea
+                className="brmble-input"
+                placeholder="Description (optional)"
+                value={newChannelDescription}
+                onChange={(e) => setNewChannelDescription(e.target.value)}
+                rows={3}
+                style={{ resize: 'vertical', minHeight: '60px' }}
+              />
+            </div>
+            <div className="prompt-footer">
+              <button className="btn btn-secondary" onClick={() => { setAddChannelDialog(false); setNewChannelName(''); setNewChannelDescription(''); }}>
+                Cancel
+              </button>
+              <button className="btn btn-primary" disabled>
+                Send (coming soon)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {requestChannelDialog && (
+        <div className="modal-overlay" onClick={() => setRequestChannelDialog(false)}>
+          <div
+            className="prompt glass-panel animate-slide-up"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <h2 className="heading-title modal-title">Request Channel</h2>
+              <p className="modal-subtitle">Channel request feature coming soon</p>
+            </div>
+            <div className="prompt-footer">
+              <button className="btn btn-primary" onClick={() => setRequestChannelDialog(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div
         className={`sidebar-resize-handle${isDragging ? ' sidebar-resize-handle--active' : ''}`}
         ref={handleProps.ref}
