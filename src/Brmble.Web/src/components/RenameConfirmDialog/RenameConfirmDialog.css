@@ -1,0 +1,40 @@
+.rename-confirm-dialog {
+  padding: var(--space-xl);
+  width: 100%;
+  max-width: 380px;
+}
+
+.rename-confirm-dialog .modal-header {
+  margin-bottom: var(--space-lg);
+}
+
+.rename-confirm-dialog .modal-subtitle {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  margin-top: var(--space-xs);
+}
+
+.rename-confirm-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.rename-confirm-form .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.rename-confirm-form .form-group label {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.rename-confirm-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+}

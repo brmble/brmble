@@ -10,6 +10,7 @@ export interface Channel {
   name: string;
   parent?: number;
   type?: 'voice' | 'text';
+  description?: string;
 }
 
 export interface User {

@@ -8,6 +8,8 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { prompt } from '../../hooks/usePrompt';
 import bridge from '../../bridge';
 import Avatar from '../Avatar/Avatar';
+import { EditChannelDialog } from '../EditChannelDialog/EditChannelDialog';
+import { RenameConfirmDialog } from '../RenameConfirmDialog/RenameConfirmDialog';
 import './ChannelTree.css';
 
 interface User {
@@ -28,6 +30,7 @@ interface Channel {
   id: number;
   name: string;
   parent?: number;
+  description?: string;
 }
 
 interface ChannelWithUsers extends Channel {
@@ -59,8 +62,13 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
   const [infoDialogUser, setInfoDialogUser] = useState<{ userId: string; userName: string; isSelf: boolean } | null>(null);
   const [draggedUser, setDraggedUser] = useState<number | null>(null);
   const [dropTargetChannel, setDropTargetChannel] = useState<number | null>(null);
-  const [editChannelDialog, setEditChannelDialog] = useState<{ id: number; name: string } | null>(null);
-  const [addSubchannelDialog, setAddSubchannelDialog] = useState<{ parentId: number } | null>(null);
+  const [editChannelDialog, setEditChannelDialog] = useState<{ id: number; name: string; description?: string } | null>(null);
+  const [renameConfirmDialog, setRenameConfirmDialog] = useState<{
+    channelId: number;
+    oldName: string;
+    newName: string;
+    description: string;
+  } | null>(null);
   const [removeChannelDialog, setRemoveChannelDialog] = useState<{ id: number; name: string } | null>(null);
   const [removeConfirmText, setRemoveConfirmText] = useState('');
   const { hasPermission, Permission, requestPermissions } = usePermissions();
@@ -85,6 +93,16 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
       requestPermissions(channelContextMenu.channelId);
     }
   }, [channelContextMenu?.channelId, requestPermissions]);
+
+  useEffect(() => {
+    const handleError = (data: unknown) => {
+      const d = data as { message?: string; type?: string } | undefined;
+      const msg = d?.message || 'Failed to edit channel';
+      console.error('Edit channel error:', msg);
+    };
+    bridge.on('voice.error', handleError);
+    return () => bridge.off('voice.error', handleError);
+  }, []);
 
   const initialExpanded = useMemo(() => {
     const expanded = new Set<number>();
@@ -377,9 +395,8 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     ];
 
     const hasEditPermission = hasPermission(channelContextMenu.channelId, Permission.MakeChannel);
-    const hasAddSubchannelPermission = hasPermission(channelContextMenu.channelId, Permission.MakeChannel);
     const hasRemovePermission = hasPermission(channelContextMenu.channelId, Permission.Write);
-    const hasAdmin = hasEditPermission || hasAddSubchannelPermission || hasRemovePermission;
+    const hasAdmin = hasEditPermission || hasRemovePermission;
 
     if (!hasAdmin) return items;
 
@@ -390,18 +407,12 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
         type: 'item' as const,
         label: 'Edit',
         onClick: () => {
-          setEditChannelDialog({ id: channelContextMenu.channelId, name: channelContextMenu.channelName });
-          setChannelContextMenu(null);
-        },
-      });
-    }
-
-    if (hasAddSubchannelPermission) {
-      adminItems.push({
-        type: 'item' as const,
-        label: 'Add Subchannel',
-        onClick: () => {
-          setAddSubchannelDialog({ parentId: channelContextMenu.channelId });
+          const channel = channels.find(c => c.id === channelContextMenu.channelId);
+          setEditChannelDialog({
+            id: channelContextMenu.channelId,
+            name: channelContextMenu.channelName,
+            description: channel?.description || '',
+          });
           setChannelContextMenu(null);
         },
       });
@@ -419,7 +430,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     }
 
     return [...items, { type: 'divider' as const }, ...adminItems];
-  }, [channelContextMenu, hasPermission, onJoinChannel]);
+  }, [channelContextMenu, hasPermission, onJoinChannel, channels, Permission]);
 
   return (
     <div className="channel-tree">
@@ -639,45 +650,50 @@ onClick: () => {
         />
       )}
       {editChannelDialog && (
-        <div className="modal-overlay" onClick={() => setEditChannelDialog(null)}>
-          <div
-            className="prompt glass-panel animate-slide-up"
-            role="dialog"
-            aria-modal="true"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="modal-header">
-              <h2 className="heading-title modal-title">Edit Channel</h2>
-              <p className="modal-subtitle">Channel editing coming soon</p>
-            </div>
-            <div className="prompt-footer">
-              <button className="btn btn-primary" onClick={() => setEditChannelDialog(null)}>
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
+        <EditChannelDialog
+          isOpen={true}
+          initialName={editChannelDialog.name}
+          initialDescription={editChannelDialog.description}
+          onClose={() => setEditChannelDialog(null)}
+          onSave={(name, description) => {
+            const channel = channels.find(c => c.id === editChannelDialog!.id);
+            const oldName = channel?.name || '';
+
+            if (name !== oldName) {
+              setRenameConfirmDialog({
+                channelId: editChannelDialog!.id,
+                oldName,
+                newName: name,
+                description,
+              });
+            } else {
+              bridge.send('voice.editChannel', {
+                channelId: editChannelDialog!.id,
+                name,
+                description,
+              });
+            }
+          }}
+          onError={(msg) => console.error('Edit channel error:', msg)}
+        />
       )}
 
-      {addSubchannelDialog && (
-        <div className="modal-overlay" onClick={() => setAddSubchannelDialog(null)}>
-          <div
-            className="prompt glass-panel animate-slide-up"
-            role="dialog"
-            aria-modal="true"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="modal-header">
-              <h2 className="heading-title modal-title">Add Subchannel</h2>
-              <p className="modal-subtitle">Subchannel creation coming soon</p>
-            </div>
-            <div className="prompt-footer">
-              <button className="btn btn-primary" onClick={() => setAddSubchannelDialog(null)}>
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
+      {renameConfirmDialog && (
+        <RenameConfirmDialog
+          isOpen={true}
+          oldName={renameConfirmDialog.oldName}
+          newName={renameConfirmDialog.newName}
+          onClose={() => setRenameConfirmDialog(null)}
+          onConfirm={() => {
+            bridge.send('voice.editChannel', {
+              channelId: renameConfirmDialog.channelId,
+              name: renameConfirmDialog.newName,
+              description: renameConfirmDialog.description,
+            });
+            setEditChannelDialog(null);
+            setRenameConfirmDialog(null);
+          }}
+        />
       )}
 
       {removeChannelDialog && (
