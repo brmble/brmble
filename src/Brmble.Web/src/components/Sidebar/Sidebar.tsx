@@ -302,6 +302,9 @@ export function Sidebar({
       )}
 
       <div className="sidebar-channels" onContextMenu={(e) => {
+        if (e.target !== e.currentTarget) {
+          return;
+        }
         e.preventDefault();
         setSidebarContextMenu({ x: e.clientX, y: e.clientY });
       }}>
@@ -577,18 +580,19 @@ export function Sidebar({
             <div className="prompt-input-container">
               <textarea
                 className="brmble-input"
-                placeholder="Description (optional)"
+                placeholder="Description (optional, max 127 chars)"
                 value={newChannelDescription}
-                onChange={(e) => setNewChannelDescription(e.target.value)}
+                onChange={(e) => setNewChannelDescription(e.target.value.slice(0, 127))}
                 rows={3}
                 style={{ resize: 'vertical', minHeight: '60px' }}
               />
             </div>
             <div className="prompt-footer">
+              <span className="char-counter">{newChannelDescription.length}/127</span>
               <button className="btn btn-secondary" onClick={() => { setAddChannelDialog(false); setNewChannelName(''); setNewChannelDescription(''); }}>
                 Cancel
               </button>
-              <button className="btn btn-primary" onClick={() => { bridge.send('voice.addChannel', { name: newChannelName, description: newChannelDescription, parent: 0 }); setAddChannelDialog(false); setNewChannelName(''); setNewChannelDescription(''); }}>
+              <button className="btn btn-primary" disabled={newChannelName.trim().length === 0} onClick={() => { const trimmedName = newChannelName.trim(); if (!trimmedName) { return; } bridge.send('voice.addChannel', { name: trimmedName, description: newChannelDescription, parent: 0 }); setAddChannelDialog(false); setNewChannelName(''); setNewChannelDescription(''); }}>
                 Send
               </button>
             </div>
