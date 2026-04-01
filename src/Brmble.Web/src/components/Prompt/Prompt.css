@@ -35,3 +35,10 @@
   flex: 1;
   max-width: 140px;
 }
+
+.char-counter {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  align-self: center;
+  min-width: 40px;
+}

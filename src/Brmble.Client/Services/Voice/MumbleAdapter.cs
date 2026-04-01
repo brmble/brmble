@@ -1961,6 +1961,43 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             return Task.CompletedTask;
         });
 
+        bridge.RegisterHandler("voice.addChannel", data =>
+        {
+            if (Connection is not { State: ConnectionStates.Connected })
+            {
+                _bridge?.Send("voice.error", new { message = "Not connected to server", type = "notConnected" });
+                return Task.CompletedTask;
+            }
+
+            var name = data.TryGetProperty("name", out var n) ? n.GetString() : null;
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                _bridge?.Send("voice.error", new { message = "Channel name is required", type = "invalidRequest" });
+                return Task.CompletedTask;
+            }
+
+            var description = data.TryGetProperty("description", out var d) ? d.GetString() : null;
+            if (!string.IsNullOrEmpty(description))
+            {
+                var utf8Length = System.Text.Encoding.UTF8.GetByteCount(description);
+                if (utf8Length >= 128)
+                {
+                    _bridge?.Send("voice.error", new { message = "Channel description exceeds 127 bytes (UTF-8)", type = "invalidRequest" });
+                    return Task.CompletedTask;
+                }
+            }
+            var parent = data.TryGetProperty("parent", out var p) ? p.GetUInt32() : 0u;
+
+            Connection.SendControl(PacketType.ChannelState, new MumbleProto.ChannelState
+            {
+                Parent = parent,
+                Name = name,
+                Description = description,
+            });
+
+            return Task.CompletedTask;
+        });
+
         bridge.RegisterHandler("voice.editChannel", data =>
         {
             if (Connection is not { State: ConnectionStates.Connected })
