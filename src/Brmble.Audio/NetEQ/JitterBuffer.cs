@@ -32,7 +32,6 @@ public class JitterBuffer : IDisposable
 
     private PlayoutDecision _previousDecision = PlayoutDecision.Normal;
     private readonly short[] _lastDecodedFrame = new short[FrameSize];
-    private bool _hasLastDecodedFrame;
     private bool _firstPacketReceived;
     private bool _playoutStarted; // true once we've buffered enough to start
     private readonly int _initialBufferFrames;
@@ -134,7 +133,6 @@ public class JitterBuffer : IDisposable
         {
             _syncBuffer.Read(output[..FrameSize]);
             output[..FrameSize].CopyTo(_lastDecodedFrame);
-            _hasLastDecodedFrame = true;
             _stats.NormalFrames++;
             _previousDecision = PlayoutDecision.Normal;
             _consecutiveExpandCount = 0;
@@ -164,7 +162,6 @@ public class JitterBuffer : IDisposable
             }
 
             output[..FrameSize].CopyTo(_lastDecodedFrame);
-            _hasLastDecodedFrame = true;
             _stats.ExpandFrames++;
             _previousDecision = PlayoutDecision.Expand;
         }
