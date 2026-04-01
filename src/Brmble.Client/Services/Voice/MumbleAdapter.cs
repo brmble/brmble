@@ -1964,27 +1964,56 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         bridge.RegisterHandler("voice.editChannel", data =>
         {
             if (Connection is not { State: ConnectionStates.Connected })
+            {
+                _bridge?.Send("voice.error", new { message = "Not connected to server", type = "notConnected" });
                 return Task.CompletedTask;
+            }
 
             var channelId = data.TryGetProperty("channelId", out var cid) ? cid.GetUInt32() : 0u;
-            if (channelId == 0) return Task.CompletedTask;
+            if (channelId == 0)
+            {
+                _bridge?.Send("voice.error", new { message = "Invalid channel ID", type = "invalidChannel" });
+                return Task.CompletedTask;
+            }
 
             var name = data.TryGetProperty("name", out var n) ? n.GetString() : null;
             var description = data.TryGetProperty("description", out var d) ? d.GetString() : null;
 
             var channel = Channels.FirstOrDefault(c => c.Id == channelId);
-            if (channel == null) return Task.CompletedTask;
-
-            if (name != null)
-                channel.Name = name;
-            if (description != null)
-                channel.Description = description;
+            if (channel == null)
+            {
+                _bridge?.Send("voice.error", new { message = "Channel not found", type = "channelNotFound" });
+                return Task.CompletedTask;
+            }
 
             Connection.SendControl(PacketType.ChannelState, new ChannelState
             {
                 ChannelId = channelId,
                 Name = name,
                 Description = description,
+            });
+
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.removeChannel", data =>
+        {
+            if (Connection is not { State: ConnectionStates.Connected })
+            {
+                _bridge?.Send("voice.error", new { message = "Not connected to server", type = "notConnected" });
+                return Task.CompletedTask;
+            }
+
+            var channelId = data.TryGetProperty("channelId", out var cid) ? cid.GetUInt32() : 0u;
+            if (channelId == 0)
+            {
+                _bridge?.Send("voice.error", new { message = "Invalid channel ID", type = "invalidChannel" });
+                return Task.CompletedTask;
+            }
+
+            Connection.SendControl(PacketType.ChannelRemove, new ChannelRemove
+            {
+                ChannelId = channelId,
             });
 
             return Task.CompletedTask;
