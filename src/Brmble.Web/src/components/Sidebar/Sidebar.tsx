@@ -113,6 +113,12 @@ export function Sidebar({
 
   const [infoDialogUser, setInfoDialogUser] = useState<{ userId: string; userName: string; isSelf: boolean } | null>(null);
 
+  const [sidebarContextMenu, setSidebarContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [addChannelDialog, setAddChannelDialog] = useState(false);
+  const [requestChannelDialog, setRequestChannelDialog] = useState(false);
+  const [newChannelName, setNewChannelName] = useState('');
+  const [newChannelDescription, setNewChannelDescription] = useState('');
+
   const { hasPermission, Permission, requestPermissions } = usePermissions();
 
   useEffect(() => {
@@ -295,7 +301,10 @@ export function Sidebar({
         </div>
       )}
 
-      <div className="sidebar-channels">
+      <div className="sidebar-channels" onContextMenu={(e) => {
+        e.preventDefault();
+        setSidebarContextMenu({ x: e.clientX, y: e.clientY });
+      }}>
         {connected && (
           <div className="channels-section-header">
             <h4 className="heading-label">Channels</h4>
@@ -491,6 +500,41 @@ export function Sidebar({
             })(),
           ]}
           onClose={() => setContextMenu(null)}
+        />
+      )}
+      {sidebarContextMenu && (
+        <ContextMenu
+          x={sidebarContextMenu.x}
+          y={sidebarContextMenu.y}
+          items={[
+            ...(hasPermission(0, Permission.MakeChannel) ? [{
+              type: 'item' as const,
+              label: 'Add Channel',
+              icon: (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 5v14M5 12h14"/>
+                </svg>
+              ),
+              onClick: () => {
+                setAddChannelDialog(true);
+                setSidebarContextMenu(null);
+              },
+            }] : []),
+            {
+              type: 'item' as const,
+              label: 'Request Channel',
+              icon: (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                </svg>
+              ),
+              onClick: () => {
+                setRequestChannelDialog(true);
+                setSidebarContextMenu(null);
+              },
+            },
+          ]}
+          onClose={() => setSidebarContextMenu(null)}
         />
       )}
       {infoDialogUser && (() => {
