@@ -207,6 +207,8 @@ private int _screenShareHotkeyId = -1;
     private readonly Timer _speakingTimer;
     private const int PttSilenceTailFrames = 4; // 4 × 20 ms = 80 ms tail
     private uint _localUserId = 0;
+    private long _lastLocalAudioTicks; // timestamp of last local audio submission
+    private const long LocalSpeakingTimeoutTicks = 300 * TimeSpan.TicksPerMillisecond; // 300ms silence → stop speaking
 
     // Volume controls
     private volatile float _inputVolume = 1.0f;
@@ -582,6 +584,7 @@ private int _screenShareHotkeyId = -1;
     /// <summary>Stop mic capture and dispose encode pipeline. No-op if not started.</summary>
     public void StopMic()
     {
+        bool wasSpeaking = false;
         lock (_lock)
         {
             if (!_micStarted) return;
@@ -592,8 +595,11 @@ private int _screenShareHotkeyId = -1;
             _deviceResampler?.Dispose();
             _deviceResampler = null;
             _micStarted = false;
+            wasSpeaking = _localUserId != 0 && _currentlySpeaking.Remove(_localUserId);
             AudioLog.Write("[Audio] Mic stopped");
         }
+        if (wasSpeaking)
+            UserStoppedSpeaking?.Invoke(_localUserId);
     }
 
     /// <summary>
@@ -602,6 +608,7 @@ private int _screenShareHotkeyId = -1;
     /// </summary>
     private void StopMicWithSilenceTail()
     {
+        bool wasSpeaking = false;
         lock (_lock)
         {
             if (!_micStarted) return;
@@ -635,8 +642,11 @@ private int _screenShareHotkeyId = -1;
             _deviceResampler?.Dispose();
             _deviceResampler = null;
             _micStarted = false;
+            wasSpeaking = _localUserId != 0 && _currentlySpeaking.Remove(_localUserId);
             AudioLog.Write("[Audio] Mic stopped (with silence tail)");
         }
+        if (wasSpeaking)
+            UserStoppedSpeaking?.Invoke(_localUserId);
     }
 
     // Reusable scratch buffers for WASAPI float→int16 conversion (avoid per-callback GC allocations).
@@ -879,6 +889,7 @@ private int _screenShareHotkeyId = -1;
             {
                 UserStartedSpeaking?.Invoke(_localUserId);
             }
+            _lastLocalAudioTicks = DateTime.UtcNow.Ticks;
             pipeline = _encodePipeline;
         }
 
@@ -1817,8 +1828,22 @@ private int _screenShareHotkeyId = -1;
                 }
             }
 
-            // Clean up users that were removed
-            _currentlySpeaking.IntersectWith(_jitterBuffers.Keys);
+            // Check local user: if no audio submitted recently, mark as stopped speaking
+            if (_localUserId != 0 && _currentlySpeaking.Contains(_localUserId))
+            {
+                long elapsed = DateTime.UtcNow.Ticks - _lastLocalAudioTicks;
+                if (elapsed > LocalSpeakingTimeoutTicks)
+                {
+                    _currentlySpeaking.Remove(_localUserId);
+                    (stopped ??= new()).Add(_localUserId);
+                }
+            }
+
+            // Clean up users that were removed (exclude local user from intersection)
+            var validIds = new HashSet<uint>(_jitterBuffers.Keys);
+            if (_localUserId != 0 && _currentlySpeaking.Contains(_localUserId))
+                validIds.Add(_localUserId);
+            _currentlySpeaking.IntersectWith(validIds);
         }
 
         if (started != null)
