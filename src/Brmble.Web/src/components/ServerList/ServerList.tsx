@@ -116,7 +116,7 @@ export function ServerList({ onConnect, connectionError, onClearError, activePro
           <BrmbleLogo size={192} heartbeat />
         </div>
         <div className="server-list-header">
-          <h2 className="heading-title server-list-title">Choose a Server{activeProfileName ? `, ${activeProfileName}!` : ''}</h2>
+          <h2 className="heading-title server-list-title">Choose a Server{activeProfileName && profiles.length < 2 ? `, ${activeProfileName}!` : ''}</h2>
           <p className="server-list-subtitle">Select a server to start talking and chatting</p>
         </div>
 
@@ -256,7 +256,7 @@ export function ServerList({ onConnect, connectionError, onClearError, activePro
                     </button>
                   )}
                 </div>
-                {editing?.registered && (
+                {editing?.registered && !form.defaultProfileId && (
                 <Tooltip content={`Registered as "${editing.registeredName}" on this server`}>
                 <div className="server-list-username-wrapper" tabIndex={0}>
                   <input
