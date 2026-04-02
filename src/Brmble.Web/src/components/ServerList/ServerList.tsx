@@ -273,6 +273,7 @@ export function ServerList({ onConnect, connectionError, onClearError, activePro
                 )}
                 {profiles.length >= 2 && (
                   <div className="server-list-profile-select">
+                    <label className="server-list-profile-label">Profile</label>
                     <Select
                       value={form.defaultProfileId}
                       onChange={(val) => setForm(f => ({ ...f, defaultProfileId: val }))}

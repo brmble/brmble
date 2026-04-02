@@ -1087,17 +1087,27 @@ function App() {
     };
 
     const onAutoConnect = (data: unknown) => {
-      const server = data as { id: string; label: string; apiUrl?: string; host?: string; port?: number } | undefined;
+      const server = data as { id: string; label: string; apiUrl?: string; host?: string; port?: number; defaultProfileId?: string } | undefined;
       if (server) {
         setServerLabel(server.label || `${server.host}:${server.port}`);
+
+        // Apply per-server profile override on auto-connect
+        let effectiveName = activeProfileName;
+        if (server.defaultProfileId) {
+          const overrideProfile = profiles.find(p => p.id === server.defaultProfileId);
+          if (overrideProfile) effectiveName = overrideProfile.name;
+          bridge.send('profiles.setActive', { id: server.defaultProfileId });
+        }
+
         handleConnect({
           id: server.id,
           label: server.label,
           apiUrl: server.apiUrl,
           host: server.host || '',
           port: server.port || 0,
-          username: activeProfileName || 'Brmble User',
+          username: effectiveName || 'Brmble User',
           password: '',
+          defaultProfileId: server.defaultProfileId,
         });
       }
     };
@@ -1355,7 +1365,7 @@ const handleConnect = (serverData: SavedServer) => {
       apiUrl: server.apiUrl,
       host: server.host,
       port: server.port,
-      username: (server.registered ? server.registeredName : null) || effectiveProfileName || 'Brmble User',
+      username: (!server.defaultProfileId && server.registered ? server.registeredName : null) || effectiveProfileName || 'Brmble User',
       password: server.password || '',
       registered: server.registered,
       registeredName: server.registeredName,
