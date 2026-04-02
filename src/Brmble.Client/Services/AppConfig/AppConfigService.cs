@@ -277,6 +277,14 @@ internal sealed class AppConfigService : IAppConfigService
             _profiles.RemoveAll(p => p.Id == id);
             if (_activeProfileId == id)
                 _activeProfileId = _profiles.FirstOrDefault()?.Id;
+
+            // Clear stale DefaultProfileId references on server entries
+            for (int i = 0; i < _servers.Count; i++)
+            {
+                if (_servers[i].DefaultProfileId == id)
+                    _servers[i] = _servers[i] with { DefaultProfileId = null };
+            }
+
             Save();
         }
     }

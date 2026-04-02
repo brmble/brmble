@@ -357,5 +357,26 @@ public class AppConfigServiceTests
         Assert.IsTrue(result);
     }
 
+    [TestMethod]
+    public void RemoveProfile_ClearsDefaultProfileId_OnServerEntries()
+    {
+        var svc = new AppConfigService(_tempDir, null);
+        svc.AddProfile(new ProfileEntry("p1", "Work"));
+        svc.AddProfile(new ProfileEntry("p2", "Personal"));
+        svc.SetActiveProfileId("p1");
+
+        // Add two servers: one linked to p1, one with no override
+        svc.AddServer(new ServerEntry("s1", "Work Server", null, "work.example.com", 64738, DefaultProfileId: "p1"));
+        svc.AddServer(new ServerEntry("s2", "Gaming", null, "game.example.com", 64738));
+
+        svc.RemoveProfile("p1");
+
+        var servers = svc.GetServers();
+        Assert.IsNull(servers.First(s => s.Id == "s1").DefaultProfileId,
+            "DefaultProfileId should be cleared when the referenced profile is removed");
+        Assert.IsNull(servers.First(s => s.Id == "s2").DefaultProfileId,
+            "Server without override should remain null");
+    }
+
     private AppConfigService CreateService() => new AppConfigService(_tempDir, null);
 }
