@@ -1335,6 +1335,12 @@ const handleConnect = (serverData: SavedServer) => {
 
   const handleServerConnect = (server: ServerEntry) => {
     setServerLabel(server.label || `${server.host}:${server.port}`);
+
+    // Switch to per-server profile override if set
+    if (server.defaultProfileId) {
+      bridge.send('profiles.setActive', { id: server.defaultProfileId });
+    }
+
     handleConnect({
       id: server.id,
       label: server.label,
