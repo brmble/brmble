@@ -107,6 +107,7 @@ interface SavedServer {
   password?: string;
   registered?: boolean;
   registeredName?: string;
+  defaultProfileId?: string;
 }
 
 interface Channel {
@@ -1358,6 +1359,7 @@ const handleConnect = (serverData: SavedServer) => {
       password: server.password || '',
       registered: server.registered,
       registeredName: server.registeredName,
+      defaultProfileId: server.defaultProfileId,
     });
   };
 
