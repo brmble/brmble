@@ -427,6 +427,7 @@ internal sealed class AppConfigService : IAppConfigService
         var password = TryDecryptPassword(passwordRaw, passwordStorage);
         var registered = data.TryGetProperty("registered", out var regEl) && regEl.ValueKind == System.Text.Json.JsonValueKind.True;
         var registeredName = data.TryGetProperty("registeredName", out var rnEl) ? rnEl.GetString() : null;
+        var defaultProfileId = data.TryGetProperty("defaultProfileId", out var dpEl) ? dpEl.GetString() : null;
 
         return new ServerEntry(
             id!,
@@ -436,7 +437,8 @@ internal sealed class AppConfigService : IAppConfigService
             data.TryGetProperty("port", out var portEl) && portEl.ValueKind == System.Text.Json.JsonValueKind.Number ? portEl.GetInt32() : null,
             password,
             registered,
-            registeredName);
+            registeredName,
+            defaultProfileId);
     }
 
     private record ConfigData
