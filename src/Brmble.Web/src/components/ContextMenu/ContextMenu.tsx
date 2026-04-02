@@ -32,10 +32,11 @@ function Submenu({ item, depth, onItemClick }: { item: { type: 'item'; children?
 
   useEffect(() => {
     if (submenuRef.current) {
+      const parentRect = submenuRef.current.parentElement?.getBoundingClientRect();
       const rect = submenuRef.current.getBoundingClientRect();
       
-      const x = parseInt(submenuRef.current.parentElement?.style.left || '0', 10);
-      const y = parseInt(submenuRef.current.parentElement?.style.top || '0', 10);
+      const x = parentRect?.left ?? 0;
+      const y = parentRect?.top ?? 0;
       
       const submenuWidth = rect.width;
       const submenuHeight = rect.height;
@@ -67,11 +68,12 @@ function Submenu({ item, depth, onItemClick }: { item: { type: 'item'; children?
         submenuRef.current.style.top = `${newTop}px`;
       }
 
-      if (rect.right > window.innerWidth - 8) {
+      const adjustedRect = submenuRef.current.getBoundingClientRect();
+      if (adjustedRect.right > window.innerWidth - 8) {
         submenuRef.current.classList.add('context-submenu--off-right');
       }
 
-      if (rect.bottom > window.innerHeight - 8) {
+      if (adjustedRect.bottom > window.innerHeight - 8) {
         submenuRef.current.classList.add('context-submenu--off-bottom');
       }
     }
