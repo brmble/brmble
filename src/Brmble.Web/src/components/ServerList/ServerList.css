@@ -397,12 +397,11 @@
 }
 
 .server-list-profile-badge {
-  background: var(--accent-primary-ghost);
-  border: 1px solid var(--accent-primary-dim);
-  border-radius: var(--radius-full);
-  padding: 2px var(--space-sm);
-  color: var(--accent-primary);
-  font-size: var(--text-xs);
+  font-size: var(--text-2xs);
+  color: var(--text-muted);
+  background: var(--bg-deep);
+  padding: 1px var(--space-xs);
+  border-radius: var(--radius-sm);
   white-space: nowrap;
   flex-shrink: 0;
 }
