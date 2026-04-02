@@ -378,5 +378,18 @@ public class AppConfigServiceTests
             "Server without override should remain null");
     }
 
+    [TestMethod]
+    public void ServerEntry_DefaultProfileId_PersistsAcrossReload()
+    {
+        var svc = new AppConfigService(_tempDir, null);
+        svc.AddServer(new ServerEntry("s1", "Test", null, "example.com", 64738, DefaultProfileId: "profile-123"));
+
+        // Reload from disk
+        var svc2 = new AppConfigService(_tempDir, null);
+        var server = svc2.GetServers().First(s => s.Id == "s1");
+
+        Assert.AreEqual("profile-123", server.DefaultProfileId);
+    }
+
     private AppConfigService CreateService() => new AppConfigService(_tempDir, null);
 }
