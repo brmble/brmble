@@ -8,7 +8,8 @@ public record ServerEntry(
     int? Port,
     string Password = "",
     bool Registered = false,
-    string? RegisteredName = null
+    string? RegisteredName = null,
+    string? DefaultProfileId = null
 );
 
 public interface IServerlistService
