@@ -395,3 +395,19 @@
   font-weight: 300;
   color: var(--accent-primary);
 }
+
+.server-list-profile-badge {
+  background: var(--accent-primary-ghost);
+  border: 1px solid var(--accent-primary-dim);
+  border-radius: var(--radius-full);
+  padding: 2px var(--space-sm);
+  color: var(--accent-primary);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.server-list-profile-select {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-sm);
+}
