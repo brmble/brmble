@@ -115,13 +115,6 @@
   text-align: center;
 }
 
-.onboarding-body {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  line-height: 1.6;
-  margin: 0 0 var(--space-xl);
-}
-
 .onboarding-actions {
   display: flex;
   gap: var(--space-sm);

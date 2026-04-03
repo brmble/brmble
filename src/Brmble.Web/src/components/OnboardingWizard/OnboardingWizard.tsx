@@ -55,6 +55,8 @@ function BrmbleCardIcon() {
 
 type WizardStep = 'welcome' | 'identity' | 'profile' | 'backup' | 'interface' | 'audio' | 'connection' | 'servers';
 
+type ProfileMode = 'real-cn' | 'generic-cn' | 'create-new';
+
 const STEPS: WizardStep[] = ['welcome', 'identity', 'profile', 'backup', 'interface', 'audio', 'connection', 'servers'];
 
 interface ScannedCert {
@@ -332,8 +334,20 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
   const handleProfileContinue = () => {
     if (!selectedIdentity || selectedIdentity.kind === 'new') return;
     setIdentityError('');
-    setBusy(true);
     const cert = selectedIdentity.cert;
+
+    // Validate name for generic-cn mode before submitting
+    if (isGenericCN(cert.name)) {
+      const name = newName.trim();
+      if (!name) return;
+      const nameError = validateProfileName(name);
+      if (nameError) {
+        setIdentityError(nameError);
+        return;
+      }
+    }
+
+    setBusy(true);
 
     if (selectedIdentity.kind === 'brmble') {
       if (!cert.profileId) {
@@ -351,21 +365,25 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
     }
   };
 
-  const handleProfileGenerate = async () => {
-    const name = newName.trim();
-    if (!name) return;
+  /** Shared validation and orphaned-cert check for profile creation flows. */
+  const validateAndCheckCert = async (name: string): Promise<'proceed' | 'reused' | 'aborted'> => {
     const nameError = validateProfileName(name);
     if (nameError) {
       await confirm({ title: 'Invalid name', message: nameError, confirmLabel: 'OK' });
-      return;
+      return 'aborted';
     }
     if (takenNames.includes(name.toLowerCase())) {
       await confirm({ title: 'Duplicate name', message: `A profile named "${name}" already exists.`, confirmLabel: 'OK' });
-      return;
+      return 'aborted';
     }
-    // Check for orphaned cert on disk
+    // Check for orphaned cert on disk (with timeout to avoid hanging forever)
     const checkResult = await new Promise<{ exists: boolean }>((resolve) => {
+      const timeout = setTimeout(() => {
+        bridge.off('profiles.checkCertResult', handler);
+        resolve({ exists: false });
+      }, 5000);
       const handler = (data: unknown) => {
+        clearTimeout(timeout);
         bridge.off('profiles.checkCertResult', handler);
         const d = data as { exists: boolean };
         resolve({ exists: d.exists });
@@ -376,16 +394,24 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
     if (checkResult.exists) {
       const reuse = await confirm({
         title: 'Certificate found',
-        message: `A certificate file for "${name}" already exists in Brmble. Would you like to use it instead of generating a new one?`,
+        message: `A certificate file for "${name}" already exists in Brmble. Would you like to use it?`,
         confirmLabel: 'Use existing',
-        cancelLabel: 'Generate new',
+        cancelLabel: 'Continue anyway',
       });
       if (reuse) {
         setBusy(true);
         bridge.send('profiles.addFromExisting', { name });
-        return;
+        return 'reused';
       }
     }
+    return 'proceed';
+  };
+
+  const handleProfileGenerate = async () => {
+    const name = newName.trim();
+    if (!name) return;
+    const result = await validateAndCheckCert(name);
+    if (result !== 'proceed') return;
     setBusy(true);
     bridge.send('profiles.add', { name });
   };
@@ -393,37 +419,8 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
   const handleProfileImport = async () => {
     const name = newName.trim();
     if (!name) return;
-    const nameError = validateProfileName(name);
-    if (nameError) {
-      await confirm({ title: 'Invalid name', message: nameError, confirmLabel: 'OK' });
-      return;
-    }
-    if (takenNames.includes(name.toLowerCase())) {
-      await confirm({ title: 'Duplicate name', message: `A profile named "${name}" already exists.`, confirmLabel: 'OK' });
-      return;
-    }
-    const checkResult = await new Promise<{ exists: boolean }>((resolve) => {
-      const handler = (data: unknown) => {
-        bridge.off('profiles.checkCertResult', handler);
-        const d = data as { exists: boolean };
-        resolve({ exists: d.exists });
-      };
-      bridge.on('profiles.checkCertResult', handler);
-      bridge.send('profiles.checkCert', { name });
-    });
-    if (checkResult.exists) {
-      const reuse = await confirm({
-        title: 'Certificate found',
-        message: `A certificate file for "${name}" already exists in Brmble. Would you like to use it instead of importing a different one?`,
-        confirmLabel: 'Use existing',
-        cancelLabel: 'Import different',
-      });
-      if (reuse) {
-        setBusy(true);
-        bridge.send('profiles.addFromExisting', { name });
-        return;
-      }
-    }
+    const result = await validateAndCheckCert(name);
+    if (result !== 'proceed') return;
     fileInputRef.current?.click();
   };
 
@@ -440,6 +437,9 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
       bytes.forEach(b => (binary += String.fromCharCode(b)));
       setBusy(true);
       bridge.send('profiles.import', { name, data: btoa(binary) });
+    };
+    reader.onerror = () => {
+      setIdentityError('Failed to read the certificate file. Please try again.');
     };
     reader.readAsArrayBuffer(file);
     e.target.value = '';
@@ -463,7 +463,6 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
   const canContinueIdentity = selectedIdentity !== null;
 
   // ── Profile step mode ────────────────────────────────────────────
-  type ProfileMode = 'real-cn' | 'generic-cn' | 'create-new';
 
   const profileMode: ProfileMode = useMemo(() => {
     if (!selectedIdentity || selectedIdentity.kind === 'new') return 'create-new';
@@ -764,7 +763,7 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
                 <button className="btn btn-ghost" onClick={() => setStep('identity')}>Back</button>
                 <button
                   className="btn btn-primary"
-                  disabled={profileMode === 'generic-cn' && (!newName.trim() || !!newNameValidation) || busy}
+                  disabled={(profileMode === 'generic-cn' && (!newName.trim() || !!newNameValidation)) || busy}
                   onClick={handleProfileContinue}
                 >
                   {busy ? 'Setting up…' : 'Continue'}
