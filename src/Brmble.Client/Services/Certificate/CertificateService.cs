@@ -628,6 +628,12 @@ internal sealed class CertificateService : IService
             Task.Run(HandleMumbleDetectCerts);
             return Task.CompletedTask;
         });
+
+        bridge.RegisterHandler("certs.scan", _ =>
+        {
+            Task.Run(HandleCertsScan);
+            return Task.CompletedTask;
+        });
     }
 
     /// <summary>
@@ -896,6 +902,199 @@ internal sealed class CertificateService : IService
                 // Skip files that can't be parsed or loaded — they're not valid certs
             }
         }
+    }
+
+    // ── Unified cert scan for onboarding wizard ───────────────────────
+
+    /// <summary>
+    /// Scans all known cert locations (Brmble certs/ dir + Mumble locations),
+    /// deduplicates by SHA-256 fingerprint (highest priority wins), and sends
+    /// the unified list via <c>certs.scanned</c>.
+    /// </summary>
+    private void HandleCertsScan()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var results = new List<object>();
+
+        // ── Priority 1: Brmble certs/ directory ──
+        try
+        {
+            var certsDir = _config.GetCertsDir();
+            if (Directory.Exists(certsDir))
+            {
+                foreach (var filePath in Directory.EnumerateFiles(certsDir, "*.pfx"))
+                {
+                    try
+                    {
+                        var rawBytes = File.ReadAllBytes(filePath);
+                        using var cert = X509CertificateLoader.LoadPkcs12(rawBytes, password: null,
+                            keyStorageFlags: X509KeyStorageFlags.EphemeralKeySet);
+
+                        var fingerprint = FormatSha256Fingerprint(cert);
+                        if (!seen.Add(fingerprint)) continue; // duplicate
+
+                        // Derive profileId from filename
+                        var fileNameWithoutExt = Path.GetFileNameWithoutExtension(filePath);
+                        string? profileId = null;
+                        string displayName = "Brmble Certificate";
+
+                        var lastUnderscore = fileNameWithoutExt.LastIndexOf('_');
+                        if (lastUnderscore >= 0)
+                        {
+                            var idPart = fileNameWithoutExt[(lastUnderscore + 1)..];
+                            if (Guid.TryParse(idPart, out _))
+                            {
+                                profileId = idPart;
+                                var namePart = fileNameWithoutExt[..lastUnderscore].Replace('_', ' ').Trim();
+                                if (!string.IsNullOrEmpty(namePart)) displayName = namePart;
+                            }
+                        }
+                        else if (Guid.TryParse(fileNameWithoutExt, out _))
+                        {
+                            // Legacy format: {GUID}.pfx
+                            profileId = fileNameWithoutExt;
+                        }
+
+                        // Prefer CN from cert subject over filename-derived name,
+                        // but skip the generic "Brmble User" CN (matches AdoptOrphanedCerts behavior)
+                        var cn = ExtractCN(cert);
+                        if (!string.IsNullOrEmpty(cn) && !cn.Equals("Brmble User", StringComparison.OrdinalIgnoreCase))
+                            displayName = cn;
+
+                        results.Add(new
+                        {
+                            source = "brmble",
+                            name = displayName,
+                            fingerprint,
+                            data = Convert.ToBase64String(rawBytes),
+                            profileId,
+                        });
+                    }
+                    catch { /* skip unreadable / corrupt files */ }
+                }
+            }
+        }
+        catch { /* certs dir inaccessible — continue to Mumble locations */ }
+
+        // ── Priority 2-5: Mumble cert locations ──
+        ScanMumbleCertLocations(seen, results);
+
+        _bridge.Send("certs.scanned", new { certs = results });
+        _bridge.NotifyUiThread();
+    }
+
+    /// <summary>
+    /// Scans all Mumble cert locations (1.5 JSON, 1.4 registry, 1.3 registry),
+    /// skipping any fingerprint already in <paramref name="seen"/>.
+    /// </summary>
+    private void ScanMumbleCertLocations(HashSet<string> seen, List<object> results)
+    {
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+
+        // Priority 2: Mumble 1.5.x — %LOCALAPPDATA%\Mumble\Mumble\mumble_settings.json
+        // Priority 3: Mumble 1.5.x pre-migration — %APPDATA%\Mumble\mumble_settings.json
+        var jsonPaths = new[]
+        {
+            (path: Path.Combine(localAppData, "Mumble", "Mumble", "mumble_settings.json"), source: "mumble-1.5"),
+            (path: Path.Combine(appData, "Mumble", "mumble_settings.json"), source: "mumble-1.5"),
+        };
+
+        foreach (var (jsonPath, source) in jsonPaths)
+        {
+            if (!File.Exists(jsonPath)) continue;
+            try
+            {
+                var json = File.ReadAllText(jsonPath);
+                using var doc = JsonDocument.Parse(json);
+                if (!doc.RootElement.TryGetProperty("certificate", out var certEl)) continue;
+                var b64 = certEl.GetString();
+                if (string.IsNullOrEmpty(b64)) continue;
+
+                var certBytes = Convert.FromBase64String(b64);
+                string? playerName = null;
+                if (doc.RootElement.TryGetProperty("playerName", out var nameEl))
+                    playerName = nameEl.GetString();
+
+                AddMumbleCert(certBytes, playerName, source, seen, results);
+            }
+            catch { /* malformed JSON — skip */ }
+        }
+
+        // Priority 4: Mumble 1.4.x — registry
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Mumble\Mumble");
+            if (key?.GetValue("net/certificate") is byte[] rawBytes && rawBytes.Length > 0)
+            {
+                string? playerName = key.GetValue("net/playername") as string;
+                AddMumbleCert(rawBytes, playerName, "mumble-1.4", seen, results);
+            }
+        }
+        catch { /* registry access denied or key missing */ }
+
+        // Priority 5: Mumble 1.3.x — registry (QSettings subkey)
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Mumble\Mumble\net");
+            if (key?.GetValue("certificate") is byte[] rawBytes && rawBytes.Length > 0)
+            {
+                string? playerName = key.GetValue("playername") as string;
+                AddMumbleCert(rawBytes, playerName, "mumble-1.3", seen, results);
+            }
+        }
+        catch { /* registry access denied or key missing */ }
+    }
+
+    /// <summary>
+    /// Loads a Mumble cert from raw bytes, checks for duplicates, and adds to results.
+    /// </summary>
+    private void AddMumbleCert(byte[] certBytes, string? playerName, string source,
+        HashSet<string> seen, List<object> results)
+    {
+        try
+        {
+            using var cert = X509CertificateLoader.LoadPkcs12(certBytes, password: null,
+                keyStorageFlags: X509KeyStorageFlags.EphemeralKeySet);
+
+            var fingerprint = FormatSha256Fingerprint(cert);
+            if (!seen.Add(fingerprint)) return; // already found at higher priority
+
+            var cn = ExtractCN(cert);
+            var displayName = !string.IsNullOrEmpty(cn) ? cn
+                : !string.IsNullOrWhiteSpace(playerName) ? playerName
+                : "Mumble Certificate";
+
+            results.Add(new
+            {
+                source,
+                name = displayName,
+                fingerprint,
+                data = Convert.ToBase64String(certBytes),
+            });
+        }
+        catch { /* corrupt cert — skip */ }
+    }
+
+    /// <summary>Extracts the CN value from an X509 certificate Subject, or null if not found.</summary>
+    private static string? ExtractCN(X509Certificate2 cert)
+    {
+        var subject = cert.Subject ?? "";
+        const string cnPrefix = "CN=";
+        var cnIndex = subject.IndexOf(cnPrefix, StringComparison.OrdinalIgnoreCase);
+        if (cnIndex < 0) return null;
+        var cn = subject[(cnIndex + cnPrefix.Length)..];
+        var commaIdx = cn.IndexOf(',');
+        if (commaIdx >= 0) cn = cn[..commaIdx];
+        cn = cn.Trim();
+        return string.IsNullOrEmpty(cn) ? null : cn;
+    }
+
+    /// <summary>Formats the SHA-256 fingerprint of a cert as colon-separated uppercase hex.</summary>
+    private static string FormatSha256Fingerprint(X509Certificate2 cert)
+    {
+        var hashBytes = cert.GetCertHash(HashAlgorithmName.SHA256);
+        return string.Join(":", hashBytes.Select(b => b.ToString("X2")));
     }
 
     // ── Mumble cert detection ─────────────────────────────────────────────
