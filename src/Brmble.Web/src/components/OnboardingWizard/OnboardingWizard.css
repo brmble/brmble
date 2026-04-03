@@ -287,49 +287,7 @@
   margin-top: var(--space-xs);
 }
 
-/* ── Inline warning (new identity) ──────────────────────────────── */
-.onboarding-inline-warning {
-  background: var(--accent-danger-subtle);
-  border: 1px solid var(--accent-danger-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-lg);
-  color: var(--accent-danger-text);
-  font-size: var(--text-sm);
-  line-height: 1.7;
-  margin-bottom: var(--space-lg);
-}
-
-.onboarding-inline-warning strong {
-  display: block;
-  font-size: var(--text-base);
-  margin-bottom: var(--space-xs);
-  color: var(--accent-danger-strong);
-}
-
-.onboarding-ack {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-sm);
-  margin-bottom: var(--space-lg);
-  cursor: pointer;
-}
-
-.onboarding-ack input[type="checkbox"] {
-  margin-top: 2px;
-  width: 16px;
-  height: 16px;
-  accent-color: var(--accent-primary);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.onboarding-ack span {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-
-/* ── Step 3: Backup ──────────────────────────────────────────────── */
+/* ── Step 4: Backup ──────────────────────────────────────────────── */
 .onboarding-fingerprint {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
@@ -341,15 +299,9 @@
   margin-bottom: var(--space-md);
 }
 
-.onboarding-backup-locations {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  margin: 0 0 var(--space-lg);
-  padding-left: var(--space-lg);
-  line-height: 1.8;
 }
 
-/* ── Steps 4–6: Preference sections ─────────────────────────────── */
+/* ── Steps 5–7: Preference sections ─────────────────────────────── */
 .onboarding-pref-section {
   margin-bottom: var(--space-xl);
 }
