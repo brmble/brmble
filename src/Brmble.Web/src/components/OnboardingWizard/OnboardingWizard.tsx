@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import bridge from '../../bridge';
 import { validateProfileName } from '../../utils/profileValidation';
 import { Select } from '../Select/Select';
@@ -308,6 +308,11 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
     setBusy(true);
 
     if (selectedIdentity.kind === 'brmble') {
+      if (!selectedIdentity.cert.profileId) {
+        setBusy(false);
+        setIdentityError('This certificate is missing a profile ID. Please select another or create a new profile.');
+        return;
+      }
       bridge.send('profiles.setActive', { id: selectedIdentity.cert.profileId });
     } else if (selectedIdentity.kind === 'mumble') {
       bridge.send('profiles.import', {
@@ -319,8 +324,10 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
     }
   };
 
-  // Derived: all known names (for uniqueness check)
-  const takenNames = discoveredCerts.map(c => c.name.toLowerCase());
+  // Derived: cert groups and taken names (memoized to avoid repeated .filter() in JSX)
+  const brmbleCerts = useMemo(() => discoveredCerts.filter(c => c.source === 'brmble'), [discoveredCerts]);
+  const mumbleCerts = useMemo(() => discoveredCerts.filter(c => c.source.startsWith('mumble-')), [discoveredCerts]);
+  const takenNames = useMemo(() => discoveredCerts.map(c => c.name.toLowerCase()), [discoveredCerts]);
 
   const newNameValidation = (() => {
     if (!newName.trim()) return null;
@@ -454,10 +461,10 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
             <div className="onboarding-identity-list">
 
               {/* Group 1: Brmble certificates found on disk */}
-              {discoveredCerts.filter(c => c.source === 'brmble').length > 0 && (
+              {brmbleCerts.length > 0 && (
                 <>
                   <div className="onboarding-identity-group-label">Your Brmble certificates</div>
-                  {discoveredCerts.filter(c => c.source === 'brmble').map(cert => (
+                  {brmbleCerts.map(cert => (
                     <button
                       key={cert.fingerprint}
                       className={`onboarding-identity-card${selectedIdentity?.kind === 'brmble' && selectedIdentity.cert.fingerprint === cert.fingerprint ? ' selected' : ''}`}
@@ -477,13 +484,11 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
               )}
 
               {/* Group 2: Mumble certificates found on disk */}
-              {discoveredCerts.filter(c => c.source.startsWith('mumble-')).length > 0 && (
+              {mumbleCerts.length > 0 && (
                 <>
                   <div className="onboarding-identity-group-label">Mumble certificates found</div>
-                  {discoveredCerts.filter(c => c.source.startsWith('mumble-')).map(cert => {
-                    const versionLabel = cert.source === 'mumble-1.5' ? 'Mumble 1.5'
-                      : cert.source === 'mumble-1.4' ? 'Mumble 1.4'
-                      : 'Mumble 1.3';
+                  {mumbleCerts.map(cert => {
+                    const versionLabel = `Mumble ${cert.source.replace('mumble-', '')}`;
                     return (
                       <button
                         key={cert.fingerprint}
