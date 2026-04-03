@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import bridge from '../../bridge';
-import { validateProfileName } from '../../utils/profileValidation';
+import { validateProfileName, isGenericCN } from '../../utils/profileValidation';
 import { Select } from '../Select/Select';
 import { PttKeyCapture } from './PttKeyCapture';
 import { themes } from '../../themes/theme-registry';
 import { applyTheme } from '../../themes/theme-loader';
 import brmbleLogo from '../../assets/brmble-logo.svg';
+import { confirm } from '../../hooks/usePrompt';
 // mumble-seeklogo.svg removed — Mumble cards now use inline MumbleIcon SVG
 import './OnboardingWizard.css';
 
@@ -52,9 +53,9 @@ function BrmbleCardIcon() {
 
 // ── Types ─────────────────────────────────────────────────────────
 
-type WizardStep = 'welcome' | 'identity' | 'backup' | 'interface' | 'audio' | 'connection' | 'servers';
+type WizardStep = 'welcome' | 'identity' | 'profile' | 'backup' | 'interface' | 'audio' | 'connection' | 'servers';
 
-const STEPS: WizardStep[] = ['welcome', 'identity', 'backup', 'interface', 'audio', 'connection', 'servers'];
+const STEPS: WizardStep[] = ['welcome', 'identity', 'profile', 'backup', 'interface', 'audio', 'connection', 'servers'];
 
 interface ScannedCert {
   source: 'brmble' | 'mumble-1.5' | 'mumble-1.4' | 'mumble-1.3';
@@ -160,7 +161,6 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
     | null
   >(null);
   const [newName, setNewName] = useState('');
-  const [acknowledged, setAcknowledged] = useState(false);
   const [busy, setBusy] = useState(false);
   const [identityError, setIdentityError] = useState('');
 
@@ -188,11 +188,18 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
       }
     };
     const onActiveChanged = (data: unknown) => {
-      const d = data as { fingerprint?: string } | undefined;
-      setBusy(false);
+      const d = data as { id?: string; fingerprint?: string } | undefined;
       if (d?.fingerprint) {
         setFingerprint(d.fingerprint);
       }
+      // If we have a pending rename (generic CN Brmble cert), send it now
+      if (pendingRenameRef.current && d?.id) {
+        bridge.send('profiles.rename', { id: d.id, name: pendingRenameRef.current });
+        pendingRenameRef.current = null;
+        // Don't advance yet — wait for profiles.renamed
+        return;
+      }
+      setBusy(false);
       setStep('backup');
     };
     const onProfilesError = (data: unknown) => {
@@ -222,9 +229,15 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
       setServersImportBusy(false);
       onComplete(fingerprint);
     };
+    const onRenamed = () => {
+      pendingRenameRef.current = null;
+      setBusy(false);
+      setStep('backup');
+    };
 
     bridge.on('profiles.added', onProfileAdded);
     bridge.on('profiles.activeChanged', onActiveChanged);
+    bridge.on('profiles.renamed', onRenamed);
     bridge.on('profiles.error', onProfilesError);
     bridge.on('cert.exportData', onExportData);
     bridge.on('cert.error', onCertError);
@@ -234,6 +247,7 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
     return () => {
       bridge.off('profiles.added', onProfileAdded);
       bridge.off('profiles.activeChanged', onActiveChanged);
+      bridge.off('profiles.renamed', onRenamed);
       bridge.off('profiles.error', onProfilesError);
       bridge.off('cert.exportData', onExportData);
       bridge.off('cert.error', onCertError);
@@ -246,7 +260,7 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
   const setCertsAndAdvance = useCallback((certs: ScannedCert[]) => {
     setDiscoveredCerts(certs);
     setDetecting(false);
-    setStep('identity');
+    setStep(certs.length > 0 ? 'identity' : 'profile');
   }, []);
 
   useEffect(() => {
@@ -297,6 +311,8 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
   // ── Step handlers ──────────────────────────────────────────────
 
   const detectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingRenameRef = useRef<string | null>(null);
 
   const handleGetStartedWithTimer = () => {
     setDetecting(true);
@@ -310,23 +326,123 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
   const handleIdentityContinue = () => {
     if (!selectedIdentity) return;
     setIdentityError('');
+    setStep('profile');
+  };
+
+  const handleProfileContinue = () => {
+    if (!selectedIdentity || selectedIdentity.kind === 'new') return;
+    setIdentityError('');
     setBusy(true);
+    const cert = selectedIdentity.cert;
 
     if (selectedIdentity.kind === 'brmble') {
-      if (!selectedIdentity.cert.profileId) {
+      if (!cert.profileId) {
         setBusy(false);
         setIdentityError('This certificate is missing a profile ID. Please select another or create a new profile.');
         return;
       }
-      bridge.send('profiles.setActive', { id: selectedIdentity.cert.profileId });
+      if (isGenericCN(cert.name) && newName.trim()) {
+        pendingRenameRef.current = newName.trim();
+      }
+      bridge.send('profiles.setActive', { id: cert.profileId });
     } else if (selectedIdentity.kind === 'mumble') {
-      bridge.send('profiles.import', {
-        name: selectedIdentity.cert.name,
-        data: selectedIdentity.cert.data,
-      });
-    } else {
-      bridge.send('profiles.add', { name: newName.trim() });
+      const importName = isGenericCN(cert.name) ? newName.trim() : cert.name;
+      bridge.send('profiles.import', { name: importName, data: cert.data });
     }
+  };
+
+  const handleProfileGenerate = async () => {
+    const name = newName.trim();
+    if (!name) return;
+    const nameError = validateProfileName(name);
+    if (nameError) {
+      await confirm({ title: 'Invalid name', message: nameError, confirmLabel: 'OK' });
+      return;
+    }
+    if (takenNames.includes(name.toLowerCase())) {
+      await confirm({ title: 'Duplicate name', message: `A profile named "${name}" already exists.`, confirmLabel: 'OK' });
+      return;
+    }
+    // Check for orphaned cert on disk
+    const checkResult = await new Promise<{ exists: boolean }>((resolve) => {
+      const handler = (data: unknown) => {
+        bridge.off('profiles.checkCertResult', handler);
+        const d = data as { exists: boolean };
+        resolve({ exists: d.exists });
+      };
+      bridge.on('profiles.checkCertResult', handler);
+      bridge.send('profiles.checkCert', { name });
+    });
+    if (checkResult.exists) {
+      const reuse = await confirm({
+        title: 'Certificate found',
+        message: `A certificate file for "${name}" already exists in Brmble. Would you like to use it instead of generating a new one?`,
+        confirmLabel: 'Use existing',
+        cancelLabel: 'Generate new',
+      });
+      if (reuse) {
+        setBusy(true);
+        bridge.send('profiles.addFromExisting', { name });
+        return;
+      }
+    }
+    setBusy(true);
+    bridge.send('profiles.add', { name });
+  };
+
+  const handleProfileImport = async () => {
+    const name = newName.trim();
+    if (!name) return;
+    const nameError = validateProfileName(name);
+    if (nameError) {
+      await confirm({ title: 'Invalid name', message: nameError, confirmLabel: 'OK' });
+      return;
+    }
+    if (takenNames.includes(name.toLowerCase())) {
+      await confirm({ title: 'Duplicate name', message: `A profile named "${name}" already exists.`, confirmLabel: 'OK' });
+      return;
+    }
+    const checkResult = await new Promise<{ exists: boolean }>((resolve) => {
+      const handler = (data: unknown) => {
+        bridge.off('profiles.checkCertResult', handler);
+        const d = data as { exists: boolean };
+        resolve({ exists: d.exists });
+      };
+      bridge.on('profiles.checkCertResult', handler);
+      bridge.send('profiles.checkCert', { name });
+    });
+    if (checkResult.exists) {
+      const reuse = await confirm({
+        title: 'Certificate found',
+        message: `A certificate file for "${name}" already exists in Brmble. Would you like to use it instead of importing a different one?`,
+        confirmLabel: 'Use existing',
+        cancelLabel: 'Import different',
+      });
+      if (reuse) {
+        setBusy(true);
+        bridge.send('profiles.addFromExisting', { name });
+        return;
+      }
+    }
+    fileInputRef.current?.click();
+  };
+
+  const handleProfileFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const name = newName.trim();
+    if (!name) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const buffer = ev.target?.result as ArrayBuffer;
+      const bytes = new Uint8Array(buffer);
+      let binary = '';
+      bytes.forEach(b => (binary += String.fromCharCode(b)));
+      setBusy(true);
+      bridge.send('profiles.import', { name, data: btoa(binary) });
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value = '';
   };
 
   // Derived: cert groups and taken names (memoized to avoid repeated .filter() in JSX)
@@ -344,17 +460,16 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
     return null;
   })();
 
-  const canCreateNew = selectedIdentity?.kind === 'new'
-    && newName.trim().length > 0
-    && newNameValidation === null
-    && acknowledged;
+  const canContinueIdentity = selectedIdentity !== null;
 
-  const canContinueIdentity = (() => {
-    if (!selectedIdentity) return false;
-    if (selectedIdentity.kind === 'brmble') return true;
-    if (selectedIdentity.kind === 'mumble') return true;
-    return canCreateNew;
-  })();
+  // ── Profile step mode ────────────────────────────────────────────
+  type ProfileMode = 'real-cn' | 'generic-cn' | 'create-new';
+
+  const profileMode: ProfileMode = useMemo(() => {
+    if (!selectedIdentity || selectedIdentity.kind === 'new') return 'create-new';
+    const cert = selectedIdentity.cert;
+    return isGenericCN(cert.name) ? 'generic-cn' : 'real-cn';
+  }, [selectedIdentity]);
 
   // ── Render ─────────────────────────────────────────────────────
 
@@ -544,45 +659,6 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
               </button>
             </div>
 
-            {/* Inline new identity form */}
-            {selectedIdentity?.kind === 'new' && (
-              <div className="onboarding-new-identity-form">
-                <label htmlFor="onboarding-new-name">Profile name (your username on servers)</label>
-                <input
-                  id="onboarding-new-name"
-                  className="brmble-input"
-                  type="text"
-                  value={newName}
-                  onChange={e => setNewName(e.target.value)}
-                  placeholder="e.g. YourName"
-                  autoFocus
-                />
-                {newName.trim() && newNameValidation && (
-                  <div className="onboarding-new-identity-error">{newNameValidation}</div>
-                )}
-              </div>
-            )}
-
-            {/* Inline warning + ack (only for new profile) */}
-            {selectedIdentity?.kind === 'new' && (
-              <>
-                <div className="onboarding-inline-warning">
-                  <strong>Starting fresh?</strong>
-                  This will generate a brand-new certificate. If you previously used Mumble,
-                  consider importing your existing certificate instead so you keep your
-                  username and history on all servers.
-                </div>
-                <label className="onboarding-ack">
-                  <input
-                    type="checkbox"
-                    checked={acknowledged}
-                    onChange={e => setAcknowledged(e.target.checked)}
-                  />
-                  <span>I understand — I want to create a new profile.</span>
-                </label>
-              </>
-            )}
-
             {identityError && (
               <p className="onboarding-error">{identityError}</p>
             )}
@@ -599,7 +675,106 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
           </>
         )}
 
-        {/* ── Step 3: Backup ── */}
+        {/* ── Step 3: Profile ── */}
+        {step === 'profile' && (
+          <>
+            <div className="onboarding-hero">
+              <div className="onboarding-step-icon">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                  <circle cx="12" cy="7" r="4" />
+                </svg>
+              </div>
+            </div>
+
+            <h2 className="heading-title onboarding-title">
+              {profileMode === 'create-new' ? 'Create Your Profile' : 'Your Profile'}
+            </h2>
+
+            <p className="onboarding-body">
+              {profileMode === 'real-cn'
+                ? "This is the name from your certificate — it's likely the name you're registered with on servers."
+                : profileMode === 'generic-cn'
+                ? "Your certificate doesn't have a personal name. Choose a name for your profile — this is how others will see you."
+                : 'Choose a name and set up your certificate. Your name will be embedded in the certificate.'}
+            </p>
+
+            {/* Profile name field */}
+            <div className="onboarding-new-identity-form">
+              <label htmlFor="onboarding-profile-name">Profile name</label>
+              <input
+                id="onboarding-profile-name"
+                className="brmble-input"
+                type="text"
+                value={profileMode === 'real-cn' && selectedIdentity && selectedIdentity.kind !== 'new'
+                  ? selectedIdentity.cert.name
+                  : newName}
+                onChange={e => setNewName(e.target.value)}
+                placeholder={profileMode === 'generic-cn' && selectedIdentity && selectedIdentity.kind !== 'new'
+                  ? selectedIdentity.cert.name || 'e.g. YourName'
+                  : 'e.g. YourName'}
+                disabled={profileMode === 'real-cn'}
+                autoFocus={profileMode !== 'real-cn'}
+              />
+              {profileMode !== 'real-cn' && newName.trim() && newNameValidation && (
+                <div className="onboarding-new-identity-error">{newNameValidation}</div>
+              )}
+            </div>
+
+            {/* Fingerprint (for existing cert modes) */}
+            {profileMode !== 'create-new' && selectedIdentity && selectedIdentity.kind !== 'new' && (
+              <div className="onboarding-fingerprint">
+                {selectedIdentity.cert.fingerprint}
+              </div>
+            )}
+
+            {identityError && (
+              <p className="onboarding-error">{identityError}</p>
+            )}
+
+            {/* Actions — different per mode */}
+            {profileMode === 'create-new' ? (
+              <>
+                <div className="onboarding-profile-actions">
+                  <button
+                    className="btn btn-primary"
+                    disabled={!newName.trim() || !!newNameValidation || busy}
+                    onClick={handleProfileGenerate}
+                  >
+                    {busy ? 'Setting up…' : 'Generate New Certificate'}
+                  </button>
+                  <button
+                    className="btn btn-ghost"
+                    disabled={!newName.trim() || !!newNameValidation || busy}
+                    onClick={handleProfileImport}
+                  >
+                    Import Certificate
+                  </button>
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pfx,.p12"
+                  style={{ display: 'none' }}
+                  onChange={handleProfileFileChange}
+                />
+              </>
+            ) : (
+              <div className="onboarding-actions">
+                <button className="btn btn-ghost" onClick={() => setStep('identity')}>Back</button>
+                <button
+                  className="btn btn-primary"
+                  disabled={profileMode === 'generic-cn' && (!newName.trim() || !!newNameValidation) || busy}
+                  onClick={handleProfileContinue}
+                >
+                  {busy ? 'Setting up…' : 'Continue'}
+                </button>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── Step 4: Backup ── */}
         {step === 'backup' && (
           <>
             <div className="onboarding-icon">💾</div>
@@ -644,7 +819,7 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
           </>
         )}
 
-        {/* ── Step 4: Interface ── */}
+        {/* ── Step 5: Interface ── */}
         {step === 'interface' && (
           <>
             <div className="onboarding-icon">🎨</div>
@@ -687,7 +862,7 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
           </>
         )}
 
-        {/* ── Step 5: Audio ── */}
+        {/* ── Step 6: Audio ── */}
         {step === 'audio' && (
           <>
             <div className="onboarding-icon">🎙️</div>
@@ -773,7 +948,7 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
           </>
         )}
 
-        {/* ── Step 6: Connection ── */}
+        {/* ── Step 7: Connection ── */}
         {step === 'connection' && (
           <>
             <div className="onboarding-icon">🌐</div>
@@ -839,7 +1014,7 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
           </>
         )}
 
-        {/* ── Step 7: Import Servers ── */}
+        {/* ── Step 8: Import Servers ── */}
         {step === 'servers' && (
           <>
             <div className="onboarding-icon">🖥️</div>
