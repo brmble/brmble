@@ -276,6 +276,10 @@ internal sealed class CertificateService : IService
 
         bridge.RegisterHandler("profiles.list", _ =>
         {
+            // Adopt orphaned .pfx files in the certs directory that aren't
+            // registered in config.json. Filename pattern: {SanitizedName}_{GUID}.pfx
+            AdoptOrphanedCerts();
+
             var profiles = _config.GetProfiles().Select(p =>
             {
                 var certPath = FindCertPath(p.Id, p.Name);
@@ -823,6 +827,77 @@ internal sealed class CertificateService : IService
         }
     }
 
+    // ── Orphaned cert adoption ──────────────────────────────────────────
+
+    /// <summary>
+    /// Scans the certs/ directory for .pfx files that aren't registered in config.json
+    /// and auto-registers them as profiles. Filename pattern: {SanitizedName}_{GUID}.pfx
+    /// </summary>
+    private void AdoptOrphanedCerts()
+    {
+        var certsDir = _config.GetCertsDir();
+        if (!Directory.Exists(certsDir)) return;
+
+        var registeredIds = new HashSet<string>(
+            _config.GetProfiles().Select(p => p.Id),
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var filePath in Directory.EnumerateFiles(certsDir, "*.pfx"))
+        {
+            try
+            {
+                var fileNameWithoutExt = Path.GetFileNameWithoutExtension(filePath);
+
+                // Try to extract {name}_{guid} from the filename
+                // The GUID is always at the end after the last underscore
+                var lastUnderscore = fileNameWithoutExt.LastIndexOf('_');
+                if (lastUnderscore < 0) continue; // not our naming convention
+
+                var idPart = fileNameWithoutExt[(lastUnderscore + 1)..];
+                var namePart = fileNameWithoutExt[..lastUnderscore];
+
+                // Validate that idPart looks like a GUID
+                if (!Guid.TryParse(idPart, out _)) continue;
+
+                // Skip if already registered
+                if (registeredIds.Contains(idPart)) continue;
+
+                // Validate the .pfx file is a loadable certificate
+                using var cert = X509CertificateLoader.LoadPkcs12FromFile(
+                    filePath, password: null, keyStorageFlags: X509KeyStorageFlags.EphemeralKeySet);
+
+                // Use the name part from the filename, replacing underscores back with spaces
+                // for a friendlier display name. If the cert has a CN, prefer that.
+                var displayName = namePart.Replace('_', ' ').Trim();
+                if (string.IsNullOrEmpty(displayName)) displayName = "Recovered Profile";
+
+                // Try to extract CN from the certificate subject for a better name
+                var subject = cert.Subject ?? "";
+                var cnPrefix = "CN=";
+                var cnIndex = subject.IndexOf(cnPrefix, StringComparison.OrdinalIgnoreCase);
+                if (cnIndex >= 0)
+                {
+                    var cn = subject[(cnIndex + cnPrefix.Length)..];
+                    var commaIdx = cn.IndexOf(',');
+                    if (commaIdx >= 0) cn = cn[..commaIdx];
+                    cn = cn.Trim();
+                    // Only use CN if it's meaningful (not the generic "Brmble User")
+                    if (!string.IsNullOrEmpty(cn) && !cn.Equals("Brmble User", StringComparison.OrdinalIgnoreCase))
+                        displayName = cn;
+                }
+
+                // Auto-register the orphaned cert as a profile
+                var profile = new ProfileEntry(idPart, displayName);
+                if (_config.AddProfile(profile))
+                    registeredIds.Add(idPart);
+            }
+            catch
+            {
+                // Skip files that can't be parsed or loaded — they're not valid certs
+            }
+        }
+    }
+
     // ── Mumble cert detection ─────────────────────────────────────────────
 
     private void HandleMumbleDetectCerts()
@@ -843,6 +918,7 @@ internal sealed class CertificateService : IService
             };
 
             byte[]? certBytes = null;
+            string? mumblePlayerName = null;
 
             foreach (var jsonPath in jsonPaths)
             {
@@ -857,6 +933,9 @@ internal sealed class CertificateService : IService
                         if (!string.IsNullOrEmpty(b64))
                         {
                             certBytes = Convert.FromBase64String(b64);
+                            // Also grab playerName from the same JSON (Mumble 1.5.x stores it here)
+                            if (doc.RootElement.TryGetProperty("playerName", out var nameEl))
+                                mumblePlayerName = nameEl.GetString();
                             break;
                         }
                     }
@@ -871,7 +950,30 @@ internal sealed class CertificateService : IService
                 {
                     using var key = Registry.CurrentUser.OpenSubKey(@"Software\Mumble\Mumble");
                     if (key?.GetValue("net/certificate") is byte[] rawBytes && rawBytes.Length > 0)
+                    {
                         certBytes = rawBytes;
+                        // Mumble 1.4.x stores the player name as "net/playername" in the same key
+                        if (key.GetValue("net/playername") is string regName && !string.IsNullOrWhiteSpace(regName))
+                            mumblePlayerName = regName;
+                    }
+                }
+                catch { /* registry access denied or key missing — skip */ }
+            }
+
+            // Priority 4: Mumble 1.3.x — registry uses QSettings NativeFormat which stores
+            // "net/certificate" as a subkey path: HKCU\Software\Mumble\Mumble\net, value "certificate"
+            if (certBytes == null)
+            {
+                try
+                {
+                    using var key = Registry.CurrentUser.OpenSubKey(@"Software\Mumble\Mumble\net");
+                    if (key?.GetValue("certificate") is byte[] rawBytes && rawBytes.Length > 0)
+                    {
+                        certBytes = rawBytes;
+                        // Mumble 1.3.x stores playername in the same subkey
+                        if (key.GetValue("playername") is string regName && !string.IsNullOrWhiteSpace(regName))
+                            mumblePlayerName = regName;
+                    }
                 }
                 catch { /* registry access denied or key missing — skip */ }
             }
@@ -895,6 +997,13 @@ internal sealed class CertificateService : IService
                         if (commaIdx >= 0) cn = cn[..commaIdx];
                         cn = cn.Trim();
                     }
+
+                    // Use playerName from Mumble settings when CN is empty or generic,
+                    // fall back to "Mumble Certificate" if nothing is available
+                    if (string.IsNullOrWhiteSpace(cn) || cn == subject)
+                        cn = mumblePlayerName ?? "Mumble Certificate";
+                    else if (string.IsNullOrWhiteSpace(cn))
+                        cn = "Mumble Certificate";
 
                     // Compute SHA-256 fingerprint, colon-separated
                     var hashBytes = cert.GetCertHash(HashAlgorithmName.SHA256);
