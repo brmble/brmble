@@ -445,3 +445,22 @@
   border-radius: var(--radius-full);
   animation: spin var(--animation-spin) linear infinite;
 }
+
+/* ── Step 3: Profile actions ─────────────────────────────────────── */
+.onboarding-profile-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin-top: var(--space-xl);
+}
+
+.onboarding-profile-actions .btn {
+  width: 100%;
+  justify-content: center;
+}
+
+.onboarding-new-identity-form input:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  background: var(--bg-subtle);
+}
