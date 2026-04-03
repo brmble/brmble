@@ -908,7 +908,7 @@ internal sealed class CertificateService : IService
 
     /// <summary>
     /// Scans all known cert locations (Brmble certs/ dir + Mumble locations),
-    /// deduplicates by SHA-256 fingerprint (highest priority wins), and sends
+    /// deduplicates by SHA-1 thumbprint (highest priority wins), and sends
     /// the unified list via <c>certs.scanned</c>.
     /// </summary>
     private void HandleCertsScan()
@@ -930,10 +930,11 @@ internal sealed class CertificateService : IService
                         using var cert = X509CertificateLoader.LoadPkcs12(rawBytes, password: null,
                             keyStorageFlags: X509KeyStorageFlags.EphemeralKeySet);
 
-                        var fingerprint = FormatSha256Fingerprint(cert);
+                        var fingerprint = cert.Thumbprint;
                         if (!seen.Add(fingerprint)) continue; // duplicate
 
                         // Derive profileId from filename
+                        var fileName = Path.GetFileName(filePath);
                         var fileNameWithoutExt = Path.GetFileNameWithoutExtension(filePath);
                         string? profileId = null;
                         string displayName = "Brmble Certificate";
@@ -956,9 +957,10 @@ internal sealed class CertificateService : IService
                         }
 
                         // Prefer CN from cert subject over filename-derived name,
-                        // but skip the generic "Brmble User" CN (matches AdoptOrphanedCerts behavior)
+                        // but skip generic default CNs so the filename-derived name wins
                         var cn = ExtractCN(cert);
-                        if (!string.IsNullOrEmpty(cn) && !cn.Equals("Brmble User", StringComparison.OrdinalIgnoreCase))
+                        var genericCNs = new[] { "Brmble User", "Mumble User", "Mumble Certificate" };
+                        if (!string.IsNullOrEmpty(cn) && !genericCNs.Any(g => cn.Equals(g, StringComparison.OrdinalIgnoreCase)))
                             displayName = cn;
 
                         results.Add(new
@@ -968,6 +970,7 @@ internal sealed class CertificateService : IService
                             fingerprint,
                             data = Convert.ToBase64String(rawBytes),
                             profileId,
+                            filename = fileName,
                         });
                     }
                     catch { /* skip unreadable / corrupt files */ }
@@ -1057,7 +1060,7 @@ internal sealed class CertificateService : IService
             using var cert = X509CertificateLoader.LoadPkcs12(certBytes, password: null,
                 keyStorageFlags: X509KeyStorageFlags.EphemeralKeySet);
 
-            var fingerprint = FormatSha256Fingerprint(cert);
+            var fingerprint = cert.Thumbprint;
             if (!seen.Add(fingerprint)) return; // already found at higher priority
 
             var cn = ExtractCN(cert);
@@ -1088,13 +1091,6 @@ internal sealed class CertificateService : IService
         if (commaIdx >= 0) cn = cn[..commaIdx];
         cn = cn.Trim();
         return string.IsNullOrEmpty(cn) ? null : cn;
-    }
-
-    /// <summary>Formats the SHA-256 fingerprint of a cert as colon-separated uppercase hex.</summary>
-    private static string FormatSha256Fingerprint(X509Certificate2 cert)
-    {
-        var hashBytes = cert.GetCertHash(HashAlgorithmName.SHA256);
-        return string.Join(":", hashBytes.Select(b => b.ToString("X2")));
     }
 
     // ── Mumble cert detection ─────────────────────────────────────────────

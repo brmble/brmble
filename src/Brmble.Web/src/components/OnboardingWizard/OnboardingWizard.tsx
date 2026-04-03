@@ -62,6 +62,7 @@ interface ScannedCert {
   fingerprint: string;
   data: string; // base64 PKCS#12
   profileId?: string; // only for source "brmble"
+  filename?: string;  // only for source "brmble" — on-disk filename
 }
 
 interface OnboardingWizardProps {
@@ -125,6 +126,10 @@ function loadInitialSettings(): WizardSettings {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────
+
+function formatFingerprint(fp: string) {
+  return fp;
+}
 
 function triggerBlobDownload(base64: string, filename: string) {
   const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
@@ -474,10 +479,14 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
                       <div className="onboarding-identity-card-body">
                         <div className="onboarding-identity-card-name">{cert.name}</div>
                         <div className="onboarding-identity-card-meta">
-                          {cert.fingerprint.slice(0, 23)}…
+                          Fingerprint: {formatFingerprint(cert.fingerprint)}
                         </div>
+                        {cert.filename && (
+                          <div className="onboarding-identity-card-meta">
+                            File: {cert.filename}
+                          </div>
+                        )}
                       </div>
-                      <span className="onboarding-identity-badge brmble">Brmble</span>
                     </button>
                   ))}
                 </>
@@ -499,14 +508,13 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
                         <div className="onboarding-identity-card-body">
                           <div className="onboarding-identity-card-name">{cert.name}</div>
                           <div className="onboarding-identity-card-meta">
-                            {cert.fingerprint.slice(0, 23)}…
+                            Fingerprint: {formatFingerprint(cert.fingerprint)}
                           </div>
                           <div className="onboarding-identity-card-desc">
                             Import this {versionLabel} certificate to keep your username
                             and permissions on servers.
                           </div>
                         </div>
-                        <span className="onboarding-identity-badge mumble">{versionLabel}</span>
                       </button>
                     );
                   })}
