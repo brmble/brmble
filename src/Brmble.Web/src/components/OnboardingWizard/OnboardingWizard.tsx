@@ -778,18 +778,13 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
         {step === 'backup' && (
           <>
             <div className="onboarding-icon">💾</div>
-            <h2 className="heading-title onboarding-title">Save a copy of your certificate</h2>
+            <h2 className="heading-title onboarding-title">Back Up Your Certificate</h2>
             <p className="onboarding-body">
-              Your certificate is the only copy of your identity. If you lose this computer
-              or reinstall Windows without a backup, there is no way to recover it — you
-              would start over as a new user on every server.
+              Your certificate is your identity on Brmble. If you lose it, you'll lose
+              access to any servers where you're registered. Export a backup and store it
+              somewhere safe — for example in Google Drive, OneDrive, iCloud, Dropbox, or
+              on a USB drive.
             </p>
-            <p className="onboarding-body">Suggested places to store your backup:</p>
-            <ul className="onboarding-backup-locations">
-              <li>OneDrive, Google Drive, Dropbox, or iCloud Drive</li>
-              <li>A USB drive kept somewhere safe</li>
-              <li>A password manager that supports file attachments</li>
-            </ul>
             {fingerprint && (
               <div className="onboarding-fingerprint">{fingerprint}</div>
             )}
@@ -803,7 +798,7 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
                 className="onboarding-skip-link"
                 onClick={() => setStep('interface')}
               >
-                Skip (Not Recommended)
+                I'll do this later
               </button>
               <button
                 className="btn btn-primary"
