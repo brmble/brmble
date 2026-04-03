@@ -153,6 +153,7 @@ public sealed class NativeBridge
             JsonElement? clonedData = null;
             string? type = null;
 
+            if (json is null) return;
             using (var doc = JsonDocument.Parse(json))
             {
                 var root = doc.RootElement;

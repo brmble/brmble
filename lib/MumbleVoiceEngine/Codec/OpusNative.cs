@@ -109,8 +109,18 @@ namespace MumbleVoiceEngine.Codec
             GetBitrateRequest = 4003,
             SetVbrRequest = 4006,
             GetVbrRequest = 4007,
+            SetBandwidthRequest = 4008,
+            GetBandwidthRequest = 4009,
+            SetComplexityRequest = 4010,
+            GetComplexityRequest = 4011,
             SetInbandFecRequest = 4012,
-            GetInbandFecRequest = 4013
+            GetInbandFecRequest = 4013,
+            SetPacketLossPercRequest = 4014,
+            GetPacketLossPercRequest = 4015,
+            SetDtxRequest = 4016,
+            GetDtxRequest = 4017,
+            SetSignalRequest = 4024,
+            GetSignalRequest = 4025
         }
 
         public enum OpusErrors

@@ -119,9 +119,9 @@ namespace MumbleVoiceEngine.Tests.Pipeline
             var silence = new byte[frameSizeBytes * silenceFrames]; // all zeros
             pipeline.SubmitPcm(silence);
 
-            // Assert — with CBR enabled every full frame produces exactly one packet.
+            // Assert — every full frame produces exactly one packet (VBR doesn't skip frames).
             Assert.AreEqual(silenceFrames, packets.Count,
-                "Expected exactly one packet per full silence frame with CBR enabled");
+                "Expected exactly one packet per full silence frame");
 
             // Each packet must have the Opus type byte (4 << 5 = 0x80)
             foreach (var pkt in packets)
@@ -185,6 +185,78 @@ namespace MumbleVoiceEngine.Tests.Pipeline
 
             pipeline.SubmitPcm(new byte[3840]); // exactly one 40ms frame
             Assert.AreEqual(1, packets.Count);
+        }
+
+        [TestMethod]
+        public void Pipeline_UsesVbr_ProducesVariableSizePackets()
+        {
+            var packets = new List<byte[]>();
+            using var pipeline = new EncodePipeline(
+                sampleRate: 48000, channels: 1, bitrate: 72000,
+                onPacketReady: p => packets.Add(p.ToArray()));
+
+            // Submit silence frame
+            pipeline.SubmitPcm(new byte[960 * 2]);
+            // Submit sine wave frame (more complex -> bigger packet with VBR)
+            var sine = new byte[960 * 2];
+            for (int i = 0; i < 960; i++)
+            {
+                short s = (short)(Math.Sin(2.0 * Math.PI * 400 * i / 48000) * 16000);
+                sine[i * 2] = (byte)(s & 0xFF);
+                sine[i * 2 + 1] = (byte)(s >> 8);
+            }
+            pipeline.SubmitPcm(sine);
+
+            Assert.AreEqual(2, packets.Count);
+            Assert.AreNotEqual(packets[0].Length, packets[1].Length,
+                $"VBR should produce different packet sizes for different content, but got {packets[0].Length}B and {packets[1].Length}B");
+        }
+
+        [TestMethod]
+        public void Pipeline_WithDtxEnabled_ConstructsSuccessfully()
+        {
+            var packets = new List<byte[]>();
+            using var pipeline = new EncodePipeline(
+                sampleRate: 48000, channels: 1, bitrate: 72000,
+                onPacketReady: p => packets.Add(p.ToArray()),
+                dtx: true);
+
+            pipeline.SubmitPcm(new byte[960 * 2]);
+            Assert.IsTrue(packets.TrueForAll(p => p != null && p.Length > 0),
+                "Any emitted packets should be non-empty");
+        }
+
+        [TestMethod]
+        public void Pipeline_InitialSequence_StartsFromGivenValue()
+        {
+            var packets = new List<byte[]>();
+            using var pipeline = new EncodePipeline(
+                sampleRate: 48000, channels: 1, bitrate: 72000,
+                onPacketReady: p => packets.Add(p.ToArray()),
+                initialSequence: 42);
+
+            pipeline.SubmitPcm(new byte[960 * 2]);
+            Assert.AreEqual(1, packets.Count);
+
+            using var reader = new PacketReader(new MemoryStream(packets[0], 1, packets[0].Length - 1));
+            long seq = reader.ReadVarInt64();
+            Assert.AreEqual(42L, seq);
+        }
+
+        [TestMethod]
+        public void Pipeline_CurrentSequence_ReturnsCorrectValue()
+        {
+            using var pipeline = new EncodePipeline(
+                sampleRate: 48000, channels: 1, bitrate: 72000,
+                onPacketReady: _ => { });
+
+            Assert.AreEqual(0L, pipeline.CurrentSequence);
+
+            pipeline.SubmitPcm(new byte[960 * 2]);
+            Assert.AreEqual(1L, pipeline.CurrentSequence);
+
+            pipeline.SubmitPcm(new byte[960 * 2]);
+            Assert.AreEqual(2L, pipeline.CurrentSequence);
         }
     }
 }

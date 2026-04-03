@@ -664,6 +664,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (parsed == TransmissionMode.PushToTalk)
             _currentPttKey = key;
 
+        // DTX on for VAD/Continuous (silence suppression), off for PTT
+        _audioManager?.SetDtx(parsed != TransmissionMode.PushToTalk);
         _audioManager?.SetTransmissionMode(parsed, key, _hwnd);
     }
 
@@ -1959,6 +1961,107 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             return Task.CompletedTask;
         });
 
+        bridge.RegisterHandler("voice.addChannel", data =>
+        {
+            if (Connection is not { State: ConnectionStates.Connected })
+            {
+                _bridge?.Send("voice.error", new { message = "Not connected to server", type = "notConnected" });
+                return Task.CompletedTask;
+            }
+
+            var name = data.TryGetProperty("name", out var n) ? n.GetString() : null;
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                _bridge?.Send("voice.error", new { message = "Channel name is required", type = "invalidRequest" });
+                return Task.CompletedTask;
+            }
+
+            var description = data.TryGetProperty("description", out var d) ? d.GetString() : null;
+            if (!string.IsNullOrEmpty(description))
+            {
+                var utf8Length = System.Text.Encoding.UTF8.GetByteCount(description);
+                if (utf8Length >= 128)
+                {
+                    _bridge?.Send("voice.error", new { message = "Channel description exceeds 127 bytes (UTF-8)", type = "invalidRequest" });
+                    return Task.CompletedTask;
+                }
+            }
+            var parent = data.TryGetProperty("parent", out var p) ? p.GetUInt32() : 0u;
+
+            Connection.SendControl(PacketType.ChannelState, new MumbleProto.ChannelState
+            {
+                Parent = parent,
+                Name = name,
+                Description = description,
+            });
+
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.editChannel", data =>
+        {
+            if (Connection is not { State: ConnectionStates.Connected })
+            {
+                _bridge?.Send("voice.error", new { message = "Not connected to server", type = "notConnected" });
+                return Task.CompletedTask;
+            }
+
+            var channelId = data.TryGetProperty("channelId", out var cid) ? cid.GetUInt32() : 0u;
+            if (channelId == 0)
+            {
+                _bridge?.Send("voice.error", new { message = "Invalid channel ID", type = "invalidChannel" });
+                return Task.CompletedTask;
+            }
+
+            var name = data.TryGetProperty("name", out var n) ? n.GetString() : null;
+            var description = data.TryGetProperty("description", out var d) ? d.GetString() : null;
+
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                _bridge?.Send("voice.error", new { message = "Channel name is required", type = "invalidName" });
+                return Task.CompletedTask;
+            }
+
+            var channel = Channels.FirstOrDefault(c => c.Id == channelId);
+            if (channel == null)
+            {
+                _bridge?.Send("voice.error", new { message = "Channel not found", type = "channelNotFound" });
+                return Task.CompletedTask;
+            }
+
+            Connection.SendControl(PacketType.ChannelState, new ChannelState
+            {
+                ChannelId = channelId,
+                Name = name,
+                Description = description ?? string.Empty,
+            });
+
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.removeChannel", data =>
+        {
+            if (Connection is not { State: ConnectionStates.Connected })
+            {
+                _bridge?.Send("voice.error", new { message = "Not connected to server", type = "notConnected" });
+                return Task.CompletedTask;
+            }
+
+            var channelId = data.TryGetProperty("channelId", out var cid) ? cid.GetUInt32() : 0u;
+            if (channelId == 0)
+            {
+                _bridge?.Send("voice.error", new { message = "Invalid channel ID", type = "invalidChannel" });
+                return Task.CompletedTask;
+            }
+
+            Connection.SendControl(PacketType.ChannelRemove, new ChannelRemove
+            {
+                ChannelId = channelId,
+            });
+
+            return Task.CompletedTask;
+        });
+
         bridge.RegisterHandler("voice.getBans", data =>
         {
             if (Connection is not { State: ConnectionStates.Connected })
@@ -2437,8 +2540,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 self = u == LocalUser,
                 comment = u.Comment,
                 certHash = u.CertificateHash,
-                matrixUserId = hasMap ? sm.MatrixUserId : _userMappings.GetValueOrDefault(u.Name),
-                isBrmbleClient = hasMap && sm.IsBrmbleClient
+                matrixUserId = hasMap ? sm!.MatrixUserId : _userMappings.GetValueOrDefault(u.Name),
+                isBrmbleClient = hasMap && sm!.IsBrmbleClient
             };
         }).ToList();
 
@@ -2544,8 +2647,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             self = isSelf,
             comment = user?.Comment,
             certHash = user?.CertificateHash,
-            matrixUserId = hasJoinMapping ? joinMapping.MatrixUserId : _userMappings.GetValueOrDefault(joinedUserName),
-            isBrmbleClient = hasJoinMapping && joinMapping.IsBrmbleClient
+            matrixUserId = hasJoinMapping ? joinMapping!.MatrixUserId : _userMappings.GetValueOrDefault(joinedUserName),
+            isBrmbleClient = hasJoinMapping && joinMapping!.IsBrmbleClient
         });
         _bridge?.NotifyUiThread();
 

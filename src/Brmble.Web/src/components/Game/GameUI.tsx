@@ -1,6 +1,8 @@
 import { useState, useCallback, useEffect } from 'react';
-import type { Infrastructure, Service } from './types';
+import type { Infrastructure, Service, GameState, GameActions } from './types';
 import { useGameState } from './useGameState';
+import { ContractPopup } from './contracts/ContractPopup';
+import { ContractSlot } from './contracts/ContractSlot';
 import { confirm } from '../../hooks/usePrompt';
 import { Select } from '../Select/Select';
 import { Tooltip } from '../Tooltip/Tooltip';
@@ -12,6 +14,54 @@ interface GameUIProps {
 
 type TabId = 'infrastructure' | 'upgrades' | 'hosting';
 
+function ContractsSection({ state, actions }: { state: GameState; actions: GameActions }) {
+  const pendingForSlot = state.pendingContract?.slotIndex;
+  
+  return (
+    <div className="contracts-section">
+      <div className="contracts-header">
+        <h2 className="heading-section">Contracts</h2>
+      </div>
+      
+      <div className="contracts-slots">
+        {[0, 1, 2, 3].map(index => {
+          const activeContract = state.activeContracts.find(c => c.slotIndex === index) || null;
+          const assignedLicense = activeContract 
+            ? state.services.find(s => s.id === activeContract.assignedLicenseId) || null
+            : null;
+          const pendingContract = pendingForSlot === index ? state.pendingContract?.contract || null : null;
+          
+          return (
+            <ContractSlot
+              key={index}
+              index={index}
+              activeContract={activeContract}
+              pendingContract={pendingContract}
+              license={assignedLicense}
+              unlocked={index < state.unlockedContractSlots}
+              onAddContract={() => actions.openContractPopup(index)}
+              onCollect={() => actions.collectContract(index)}
+              onCancel={() => actions.cancelPendingContract()}
+            />
+          );
+        })}
+      </div>
+      
+      {state.unlockedContractSlots < 4 && (
+        <button
+          className="btn btn-ghost"
+          onClick={() => actions.unlockContractSlot(state.unlockedContractSlots + 1)}
+        >
+          Unlock Slot {state.unlockedContractSlots + 1} (${
+            state.unlockedContractSlots === 1 ? '$2M' : 
+            state.unlockedContractSlots === 2 ? '$10M' : '$50M'
+          })
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function GameUI({ onClose }: GameUIProps) {
   const { state, actions } = useGameState();
   const [activeTab, setActiveTab] = useState<TabId>('infrastructure');
@@ -19,12 +69,35 @@ export function GameUI({ onClose }: GameUIProps) {
   const [importData, setImportData] = useState('');
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
+  const [pendingLicenseId, setPendingLicenseId] = useState<string | null>(null);
 
   useEffect(() => {
     return () => {
       actions.saveGame();
     };
   }, [actions]);
+
+  const handleDropContract = useCallback((licenseId: string) => {
+    if (!state.pendingContract) return;
+    setPendingLicenseId(licenseId);
+  }, [state.pendingContract]);
+
+  const handleConfirmContract = useCallback(async () => {
+    if (pendingLicenseId) {
+      actions.assignContract(pendingLicenseId);
+      setPendingLicenseId(null);
+    }
+  }, [pendingLicenseId, actions]);
+
+  const handleCancelContract = useCallback(() => {
+    setPendingLicenseId(null);
+  }, []);
+
+  useEffect(() => {
+    if (!state.pendingContract && pendingLicenseId !== null) {
+      setPendingLicenseId(null);
+    }
+  }, [state.pendingContract, pendingLicenseId]);
   
   const handleClose = useCallback(() => {
     actions.saveGame();
@@ -84,17 +157,23 @@ export function GameUI({ onClose }: GameUIProps) {
             money={state.money}
             onUnlockInfrastructure={actions.unlockInfrastructure}
             onUnlockService={actions.unlockService}
+            unlockedContractSlots={state.unlockedContractSlots}
+            onUnlockContractSlot={actions.unlockContractSlot}
           />
         )}
         {activeTab === 'hosting' && (
-          <HostingTab 
-            services={state.services}
-            uploadSpeed={state.uploadSpeed}
-            bandwidthSold={state.bandwidthSold}
-            bandwidthDemanded={state.bandwidthDemanded}
-            onBuyService={actions.buyService}
-            money={state.money}
-          />
+          <>
+            <ContractsSection state={state} actions={actions} />
+            <HostingTab 
+              services={state.services}
+              uploadSpeed={state.uploadSpeed}
+              bandwidthSold={state.bandwidthSold}
+              bandwidthDemanded={state.bandwidthDemanded}
+              onBuyService={actions.buyService}
+              onDropContract={handleDropContract}
+              money={state.money}
+            />
+          </>
         )}
         </div>
       </div>
@@ -162,6 +241,44 @@ export function GameUI({ onClose }: GameUIProps) {
             <div className="prompt-footer">
               <button className="btn btn-primary" onClick={() => setShowSaveConfirm(false)}>
                 OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {state.contractPopupOpen && state.availableContracts.length > 0 && (
+        <ContractPopup
+          contracts={state.availableContracts}
+          onSelect={(contract) => {
+            if (state.contractPopupSlotIndex == null) return;
+            actions.selectContract(contract, state.contractPopupSlotIndex);
+          }}
+          onClose={actions.closeContractPopup}
+        />
+      )}
+
+      {pendingLicenseId && state.pendingContract && (
+        <div className="modal-overlay" onClick={handleCancelContract}>
+          <div className="prompt glass-panel animate-slide-up" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 className="heading-title modal-title">Activate Contract?</h2>
+              <p className="modal-subtitle">
+                Assign <strong>{state.pendingContract.contract.name}</strong> to{' '}
+                <strong>{state.services.find(s => s.id === pendingLicenseId)?.name}</strong>?
+              </p>
+            </div>
+            <div className="modal-body">
+              <p className="confirm-details">
+                Once activated, the contract will start immediately and the time limit will begin counting down.
+              </p>
+            </div>
+            <div className="prompt-footer">
+              <button className="btn btn-secondary" onClick={handleCancelContract}>
+                Cancel
+              </button>
+              <button className="btn btn-primary" onClick={handleConfirmContract}>
+                Activate
               </button>
             </div>
           </div>
@@ -355,7 +472,8 @@ function InfrastructureTab({ infrastructure, onBuy, onUpgrade1, onUpgrade2, onUp
   };
 
   return (
-    <div className="hosting-tab">
+    <div className="infra-tab">
+      <h2 className="heading-section">Infrastructure</h2>
       <div className="services-section">
         {infrastructure.map(infra => {
           const cost = calculateCost(infra);
@@ -407,7 +525,7 @@ function InfrastructureTab({ infrastructure, onBuy, onUpgrade1, onUpgrade2, onUp
   );
 }
 
-function TechUpgradesTab({ infrastructure, services, money, onUnlockInfrastructure, onUnlockService }: { infrastructure: Infrastructure[]; services: Service[]; money: number; onUnlockInfrastructure: (infrastructureId: string) => void; onUnlockService: (serviceId: string) => void }) {
+function TechUpgradesTab({ infrastructure, services, money, onUnlockInfrastructure, onUnlockService, unlockedContractSlots, onUnlockContractSlot }: { infrastructure: Infrastructure[]; services: Service[]; money: number; onUnlockInfrastructure: (infrastructureId: string) => void; onUnlockService: (serviceId: string) => void; unlockedContractSlots: number; onUnlockContractSlot: (slotNumber: number) => void }) {
   const nextInfraUnlock = infrastructure.find(i => !i.unlocked && i.unlockCost);
   const unlockedInfrastructure = infrastructure.filter(i => i.unlocked);
   const nextServiceUnlock = services.find(s => !s.unlocked);
@@ -418,11 +536,11 @@ function TechUpgradesTab({ infrastructure, services, money, onUnlockInfrastructu
 
   return (
     <div className="upgrades-tab">
-      <h2 className="heading-section">Unlocks</h2>
+      <h2 className="heading-section">Upgrades</h2>
       
       {unlockedInfrastructure.length > 0 && (
         <div className="unlocked-section">
-          <h3 className="unlocked-title">Unlocked Infrastructure</h3>
+          <h3 className="heading-label">Unlocked Infrastructure</h3>
           <div className="unlocked-list">
             {unlockedInfrastructure.map(infra => (
               <div key={infra.id} className="unlocked-item">
@@ -436,7 +554,7 @@ function TechUpgradesTab({ infrastructure, services, money, onUnlockInfrastructu
 
       {unlockedServices.length > 0 && (
         <div className="unlocked-section">
-          <h3 className="unlocked-title">Unlocked Services</h3>
+          <h3 className="heading-label">Unlocked Services</h3>
           <div className="unlocked-list">
             {unlockedServices.map(service => (
               <div key={service.id} className="unlocked-item">
@@ -448,91 +566,80 @@ function TechUpgradesTab({ infrastructure, services, money, onUnlockInfrastructu
         </div>
       )}
       
-      {nextInfraUnlock ? (
-        <div className="unlock-card">
-          <div className="unlock-info">
-            <span className="unlock-label">Next Infrastructure:</span>
-            <span className="unlock-value">{nextInfraUnlock.name}</span>
+      {nextInfraUnlock && (
+        <div className="infra-row">
+          <div className="infra-info">
+            <span className="service-name">{nextInfraUnlock.name}</span>
+            <span className="infra-stats">Unlock: ${nextInfraUnlock.unlockCost?.toLocaleString()}</span>
           </div>
-          <div className="unlock-info">
-            <span className="unlock-label">Unlock Requirement:</span>
-            <span className="unlock-value cost">${nextInfraUnlock.unlockCost?.toLocaleString()}</span>
-          </div>
-          
-          <div className="unlock-progress">
-            <div className="progress-container">
-              <div className="progress-bar">
-                <div className="progress-fill" style={{ width: `${infraProgress}%` }} />
-              </div>
-              <span className="progress-percent">{Math.round(infraProgress)}%</span>
+          <div className="upgrade-progress">
+            <div className="progress-bar">
+              <div className="progress-fill" style={{ width: `${infraProgress}%` }} />
             </div>
+            <span className="progress-percent">{Math.round(infraProgress)}%</span>
           </div>
-
-          {infraProgress >= 100 ? (
-            <button
-              className="btn btn-primary unlock-btn"
-              onClick={() => onUnlockInfrastructure(nextInfraUnlock.id)}
-            >
-              UNLOCK {nextInfraUnlock.name.toUpperCase()}
-            </button>
-          ) : (
-            <div className="unlock-rewards">
-              <span className="rewards-label">Reward:</span>
-              <ul className="rewards-list">
-                <li>Unlock {nextInfraUnlock.name}</li>
-              </ul>
-            </div>
-          )}
-        </div>
-      ) : nextServiceUnlock ? null : (
-        <div className="all-unlocked">
-          <p>All infrastructure unlocked!</p>
+          <button
+            className="btn btn-primary"
+            disabled={infraProgress < 100}
+            onClick={() => onUnlockInfrastructure(nextInfraUnlock.id)}
+          >
+            Unlock
+          </button>
         </div>
       )}
 
       {nextServiceUnlock && (
-        <div className="unlock-card">
-          <div className="unlock-info">
-            <span className="unlock-label">Next Service:</span>
-            <span className="unlock-value">{nextServiceUnlock.name}</span>
+        <div className="infra-row">
+          <div className="infra-info">
+            <span className="service-name">{nextServiceUnlock.name}</span>
+            <span className="infra-stats">Unlock: ${nextServiceUnlock.unlockRequirement.toLocaleString()}</span>
           </div>
-          <div className="unlock-info">
-            <span className="unlock-label">Unlock Requirement:</span>
-            <span className="unlock-value cost">${nextServiceUnlock.unlockRequirement.toLocaleString()}</span>
-          </div>
-          
-          <div className="unlock-progress">
-            <div className="progress-container">
-              <div className="progress-bar">
-                <div className="progress-fill" style={{ width: `${serviceProgress}%` }} />
-              </div>
-              <span className="progress-percent">{Math.round(serviceProgress)}%</span>
+          <div className="upgrade-progress">
+            <div className="progress-bar">
+              <div className="progress-fill" style={{ width: `${serviceProgress}%` }} />
             </div>
+            <span className="progress-percent">{Math.round(serviceProgress)}%</span>
           </div>
-
-          {serviceProgress >= 100 ? (
-            <button
-              className="btn btn-primary unlock-btn"
-              onClick={() => onUnlockService(nextServiceUnlock.id)}
-            >
-              UNLOCK {nextServiceUnlock.name.toUpperCase()}
-            </button>
-          ) : (
-            <div className="unlock-rewards">
-              <span className="rewards-label">Reward:</span>
-              <ul className="rewards-list">
-                <li>Unlock {nextServiceUnlock.name}</li>
-              </ul>
-            </div>
-          )}
+          <button
+            className="btn btn-primary"
+            disabled={serviceProgress < 100}
+            onClick={() => onUnlockService(nextServiceUnlock.id)}
+          >
+            Unlock
+          </button>
         </div>
       )}
 
       {!nextInfraUnlock && !nextServiceUnlock && (
-        <div className="all-unlocked">
-          <p>All upgrades unlocked!</p>
+        <div className="infra-row all-done">
+          <span className="service-name">All upgrades unlocked!</span>
         </div>
       )}
+
+      <div className="services-section">
+        <h3 className="heading-label">Contract Slots</h3>
+        <div className="infra-row">
+          <div className="infra-info">
+            <span className="service-name">
+              {unlockedContractSlots < 4 ? `Slot ${unlockedContractSlots + 1}` : 'All Slots Unlocked'}
+            </span>
+            <span className="infra-stats">
+              {unlockedContractSlots < 4 
+                ? `$${unlockedContractSlots === 1 ? '2,000,000' : unlockedContractSlots === 2 ? '10,000,000' : '50,000,000'}`
+                : 'Maximum capacity reached'}
+            </span>
+          </div>
+          {unlockedContractSlots < 4 && (
+            <button
+              className="btn btn-primary"
+              onClick={() => onUnlockContractSlot(unlockedContractSlots + 1)}
+              disabled={money < (unlockedContractSlots === 1 ? 2000000 : unlockedContractSlots === 2 ? 10000000 : 50000000)}
+            >
+              Unlock
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -543,10 +650,11 @@ interface HostingTabProps {
   bandwidthSold: number;
   bandwidthDemanded: number;
   onBuyService: (serviceId: string) => void;
+  onDropContract: (licenseId: string) => void;
   money: number;
 }
 
-function HostingTab({ services, uploadSpeed, bandwidthDemanded, onBuyService, money }: HostingTabProps) {
+function HostingTab({ services, uploadSpeed, bandwidthDemanded, onBuyService, onDropContract, money }: HostingTabProps) {
   const isOverage = bandwidthDemanded > uploadSpeed;
   const penaltyPercent = isOverage ? 15 : 0;
   const overageAmount = isOverage ? bandwidthDemanded - uploadSpeed : 0;
@@ -586,6 +694,7 @@ function HostingTab({ services, uploadSpeed, bandwidthDemanded, onBuyService, mo
               cost={cost}
               onBuy={onBuyService} 
               canBuy={canBuy}
+              onDropContract={onDropContract}
             />
           );
         })}
@@ -604,7 +713,34 @@ function HostingTab({ services, uploadSpeed, bandwidthDemanded, onBuyService, mo
   );
 }
 
-function ServiceRow({ service, cost, onBuy, canBuy }: { service: Service; cost: number; onBuy: (id: string) => void; canBuy: boolean }) {
+function ServiceRow({ service, cost, onBuy, canBuy, onDropContract }: { 
+  service: Service; 
+  cost: number; 
+  onBuy: (id: string) => void; 
+  canBuy: boolean;
+  onDropContract?: (licenseId: string) => void;
+}) {
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (service.owned > 0) {
+      setIsDragOver(true);
+    }
+  };
+
+  const handleDragLeave = () => {
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    if (service.owned > 0 && onDropContract && e.dataTransfer.types.includes('contract-slot')) {
+      onDropContract(service.id);
+    }
+  };
+
   if (!service.unlocked) {
     return (
       <div className="hosting-row locked">
@@ -621,7 +757,12 @@ function ServiceRow({ service, cost, onBuy, canBuy }: { service: Service; cost: 
   }
   
   return (
-    <div className={`hosting-row ${service.owned > 0 ? 'active' : 'inactive'}`}>
+    <div 
+      className={`hosting-row ${service.owned > 0 ? 'active' : 'inactive'} ${isDragOver ? 'drag-over' : ''}`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <span className="service-name">{service.name}</span>
       <span className="service-owned">{service.owned}</span>
       <span className="service-bandwidth">{formatBandwidth(service.baseBandwidthRequired)}</span>
@@ -630,6 +771,7 @@ function ServiceRow({ service, cost, onBuy, canBuy }: { service: Service; cost: 
       <button className="btn btn-primary" disabled={!canBuy} onClick={() => onBuy(service.id)}>
         Buy
       </button>
+      {isDragOver && <div className="drop-overlay">Drop to assign</div>}
     </div>
   );
 }

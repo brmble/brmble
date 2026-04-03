@@ -137,10 +137,10 @@ function App() {
       const stored = localStorage.getItem('brmble-settings');
       if (stored) {
         const parsed = JSON.parse(stored);
-        return parsed.brmblegotchi?.enabled ?? true;
+        return parsed.brmblegotchi?.enabled ?? false;
       }
     } catch { /* ignore */ }
-    return true;
+    return false;
   });
   const setBrmblegotchiEnabled = useCallback((enabled: boolean) => {
     setBrmblegotchiEnabledState(enabled);

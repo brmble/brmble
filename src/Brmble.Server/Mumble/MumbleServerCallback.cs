@@ -45,7 +45,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         _logger.LogDebug("ICE callback: text message from {User} in channel {ChannelId} (length={Length})",
             user.Name, channelId, message.text?.Length ?? 0);
         Task.Run(() => SafeDispatch(
-            () => DispatchTextMessage(user, message.text, channelId),
+            () => DispatchTextMessage(user, message.text ?? string.Empty, channelId),
             nameof(userTextMessage)));
     }
 

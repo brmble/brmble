@@ -113,6 +113,12 @@ export function Sidebar({
 
   const [infoDialogUser, setInfoDialogUser] = useState<{ userId: string; userName: string; isSelf: boolean } | null>(null);
 
+  const [sidebarContextMenu, setSidebarContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [addChannelDialog, setAddChannelDialog] = useState(false);
+  const [requestChannelDialog, setRequestChannelDialog] = useState(false);
+  const [newChannelName, setNewChannelName] = useState('');
+  const [newChannelDescription, setNewChannelDescription] = useState('');
+
   const { hasPermission, Permission, requestPermissions } = usePermissions();
 
   useEffect(() => {
@@ -295,7 +301,13 @@ export function Sidebar({
         </div>
       )}
 
-      <div className="sidebar-channels">
+      <div className="sidebar-channels" onContextMenu={(e) => {
+        if (e.target !== e.currentTarget) {
+          return;
+        }
+        e.preventDefault();
+        setSidebarContextMenu({ x: e.clientX, y: e.clientY });
+      }}>
         {connected && (
           <div className="channels-section-header">
             <h4 className="heading-label">Channels</h4>
@@ -493,6 +505,41 @@ export function Sidebar({
           onClose={() => setContextMenu(null)}
         />
       )}
+      {sidebarContextMenu && (
+        <ContextMenu
+          x={sidebarContextMenu.x}
+          y={sidebarContextMenu.y}
+          items={[
+            ...(hasPermission(0, Permission.MakeChannel) ? [{
+              type: 'item' as const,
+              label: 'Add Channel',
+              icon: (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 5v14M5 12h14"/>
+                </svg>
+              ),
+              onClick: () => {
+                setAddChannelDialog(true);
+                setSidebarContextMenu(null);
+              },
+            }] : []),
+            {
+              type: 'item' as const,
+              label: 'Request Channel',
+              icon: (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                </svg>
+              ),
+              onClick: () => {
+                setRequestChannelDialog(true);
+                setSidebarContextMenu(null);
+              },
+            },
+          ]}
+          onClose={() => setSidebarContextMenu(null)}
+        />
+      )}
       {infoDialogUser && (() => {
         const user = users.find(u => u.session === parseInt(infoDialogUser.userId));
         return (
@@ -509,6 +556,69 @@ export function Sidebar({
           />
         );
       })()}
+      {addChannelDialog && (
+        <div className="modal-overlay" onClick={() => { setAddChannelDialog(false); setNewChannelName(''); setNewChannelDescription(''); }}>
+          <div
+            className="prompt glass-panel animate-slide-up"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <h2 className="heading-title modal-title">Add Channel</h2>
+            </div>
+            <div className="prompt-input-container">
+              <input
+                type="text"
+                className="brmble-input"
+                placeholder="Channel name"
+                value={newChannelName}
+                onChange={(e) => setNewChannelName(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="prompt-input-container">
+              <textarea
+                className="brmble-input"
+                placeholder="Description (optional, max 127 chars)"
+                value={newChannelDescription}
+                onChange={(e) => setNewChannelDescription(e.target.value.slice(0, 127))}
+                rows={3}
+                style={{ resize: 'vertical', minHeight: '60px' }}
+              />
+            </div>
+            <div className="prompt-footer">
+              <span className="char-counter">{newChannelDescription.length}/127</span>
+              <button className="btn btn-secondary" onClick={() => { setAddChannelDialog(false); setNewChannelName(''); setNewChannelDescription(''); }}>
+                Cancel
+              </button>
+              <button className="btn btn-primary" disabled={newChannelName.trim().length === 0} onClick={() => { const trimmedName = newChannelName.trim(); if (!trimmedName) { return; } bridge.send('voice.addChannel', { name: trimmedName, description: newChannelDescription, parent: 0 }); setAddChannelDialog(false); setNewChannelName(''); setNewChannelDescription(''); }}>
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {requestChannelDialog && (
+        <div className="modal-overlay" onClick={() => setRequestChannelDialog(false)}>
+          <div
+            className="prompt glass-panel animate-slide-up"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <h2 className="heading-title modal-title">Request Channel</h2>
+              <p className="modal-subtitle">Channel request feature coming soon</p>
+            </div>
+            <div className="prompt-footer">
+              <button className="btn btn-primary" onClick={() => setRequestChannelDialog(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div
         className={`sidebar-resize-handle${isDragging ? ' sidebar-resize-handle--active' : ''}`}
         ref={handleProps.ref}
