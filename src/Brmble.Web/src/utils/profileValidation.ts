@@ -33,3 +33,17 @@ export function validateProfileName(name: string | undefined | null): string | n
 export function isValidProfileName(name: string): boolean {
   return validateProfileName(name) === null;
 }
+
+/**
+ * Known generic / default CN names used by Mumble clients.
+ * Extend this list as more defaults are discovered.
+ */
+const GENERIC_CN_NAMES = ['mumble user'];
+
+/**
+ * Returns true if the certificate CN is empty, blank, or a known generic default.
+ */
+export function isGenericCN(name: string | null | undefined): boolean {
+  if (!name || !name.trim()) return true;
+  return GENERIC_CN_NAMES.includes(name.trim().toLowerCase());
+}
