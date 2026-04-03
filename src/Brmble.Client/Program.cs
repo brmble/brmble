@@ -414,6 +414,7 @@ static class Program
             apiUrl = server.ApiUrl,
             host = server.Host,
             port = server.Port,
+            defaultProfileId = server.DefaultProfileId,
         });
     }
 
