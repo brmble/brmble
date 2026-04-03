@@ -56,18 +56,12 @@ type WizardStep = 'welcome' | 'identity' | 'backup' | 'interface' | 'audio' | 'c
 
 const STEPS: WizardStep[] = ['welcome', 'identity', 'backup', 'interface', 'audio', 'connection', 'servers'];
 
-interface DetectedCert {
-  source: 'mumble';
+interface ScannedCert {
+  source: 'brmble' | 'mumble-1.5' | 'mumble-1.4' | 'mumble-1.3';
   name: string;
   fingerprint: string;
   data: string; // base64 PKCS#12
-}
-
-interface BrmbleProfile {
-  id: string;
-  name: string;
-  fingerprint?: string;
-  certValid?: boolean;
+  profileId?: string; // only for source "brmble"
 }
 
 interface OnboardingWizardProps {
@@ -151,13 +145,12 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
 
   // Detection state
   const [detecting, setDetecting] = useState(false);
-  const [mumbleCerts, setMumbleCerts] = useState<DetectedCert[]>([]);
-  const [brmbleProfiles, setBrmbleProfiles] = useState<BrmbleProfile[]>([]);
+  const [discoveredCerts, setDiscoveredCerts] = useState<ScannedCert[]>([]);
 
   // Identity step state
   const [selectedIdentity, setSelectedIdentity] = useState<
-    | { kind: 'brmble'; profile: BrmbleProfile }
-    | { kind: 'mumble'; cert: DetectedCert }
+    | { kind: 'brmble'; cert: ScannedCert }
+    | { kind: 'mumble'; cert: ScannedCert }
     | { kind: 'new' }
     | null
   >(null);
@@ -181,10 +174,6 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
 
   // Listen for bridge events
   useEffect(() => {
-    const onProfilesList = (data: unknown) => {
-      const d = data as { profiles?: BrmbleProfile[] } | undefined;
-      setBrmbleProfiles(d?.profiles ?? []);
-    };
     const onProfileAdded = (data: unknown) => {
       const d = data as { fingerprint?: string } | undefined;
       setBusy(false);
@@ -229,7 +218,6 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
       onComplete(fingerprint);
     };
 
-    bridge.on('profiles.list', onProfilesList);
     bridge.on('profiles.added', onProfileAdded);
     bridge.on('profiles.activeChanged', onActiveChanged);
     bridge.on('profiles.error', onProfilesError);
@@ -238,11 +226,7 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
     bridge.on('mumble.detectedServers', onDetectedServers);
     bridge.on('mumble.serversImported', onServersImported);
 
-    // Request current profiles list immediately
-    bridge.send('profiles.list');
-
     return () => {
-      bridge.off('profiles.list', onProfilesList);
       bridge.off('profiles.added', onProfileAdded);
       bridge.off('profiles.activeChanged', onActiveChanged);
       bridge.off('profiles.error', onProfilesError);
@@ -254,20 +238,20 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
   }, [fingerprint, onComplete]);
 
   // When detectedCerts arrives, advance to identity
-  const setMumbleCertsAndAdvance = useCallback((certs: DetectedCert[]) => {
-    setMumbleCerts(certs);
+  const setCertsAndAdvance = useCallback((certs: ScannedCert[]) => {
+    setDiscoveredCerts(certs);
     setDetecting(false);
     setStep('identity');
   }, []);
 
   useEffect(() => {
     const handler = (data: unknown) => {
-      const d = data as { certs?: DetectedCert[] } | undefined;
-      setMumbleCertsAndAdvance(d?.certs ?? []);
+      const d = data as { certs?: ScannedCert[] } | undefined;
+      setCertsAndAdvance(d?.certs ?? []);
     };
-    bridge.on('mumble.detectedCerts', handler);
-    return () => bridge.off('mumble.detectedCerts', handler);
-  }, [setMumbleCertsAndAdvance]);
+    bridge.on('certs.scanned', handler);
+    return () => bridge.off('certs.scanned', handler);
+  }, [setCertsAndAdvance]);
 
   // ── Save settings to localStorage and bridge ───────────────────
 
@@ -311,7 +295,7 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
 
   const handleGetStartedWithTimer = () => {
     setDetecting(true);
-    bridge.send('mumble.detectCerts');
+    bridge.send('certs.scan');
     detectionTimerRef.current = setTimeout(() => {
       setDetecting(false);
       setStep('identity');
@@ -324,7 +308,7 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
     setBusy(true);
 
     if (selectedIdentity.kind === 'brmble') {
-      bridge.send('profiles.setActive', { id: selectedIdentity.profile.id });
+      bridge.send('profiles.setActive', { id: selectedIdentity.cert.profileId });
     } else if (selectedIdentity.kind === 'mumble') {
       bridge.send('profiles.import', {
         name: selectedIdentity.cert.name,
@@ -336,10 +320,7 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
   };
 
   // Derived: all known names (for uniqueness check)
-  const takenNames = [
-    ...brmbleProfiles.map(p => p.name.toLowerCase()),
-    ...mumbleCerts.map(c => c.name.toLowerCase()),
-  ];
+  const takenNames = discoveredCerts.map(c => c.name.toLowerCase());
 
   const newNameValidation = (() => {
     if (!newName.trim()) return null;
@@ -451,7 +432,7 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
             </div>
             <h2 className="heading-title onboarding-title">Choose Your Profile</h2>
 
-            {(brmbleProfiles.some(p => p.certValid) || mumbleCerts.length > 0) ? (
+            {discoveredCerts.length > 0 ? (
               <p className="onboarding-body">
                 We found existing certificates on this computer. Select one to use as your
                 profile, or create a new one.
@@ -472,24 +453,22 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
 
             <div className="onboarding-identity-list">
 
-              {/* Group 1: Existing Brmble profiles (only those with a valid cert) */}
-              {brmbleProfiles.filter(p => p.certValid).length > 0 && (
+              {/* Group 1: Brmble certificates found on disk */}
+              {discoveredCerts.filter(c => c.source === 'brmble').length > 0 && (
                 <>
-                  <div className="onboarding-identity-group-label">Your Brmble profiles</div>
-                  {brmbleProfiles.filter(p => p.certValid).map(profile => (
+                  <div className="onboarding-identity-group-label">Your Brmble certificates</div>
+                  {discoveredCerts.filter(c => c.source === 'brmble').map(cert => (
                     <button
-                      key={profile.id}
-                      className={`onboarding-identity-card${selectedIdentity?.kind === 'brmble' && selectedIdentity.profile.id === profile.id ? ' selected' : ''}`}
-                      onClick={() => setSelectedIdentity({ kind: 'brmble', profile })}
+                      key={cert.fingerprint}
+                      className={`onboarding-identity-card${selectedIdentity?.kind === 'brmble' && selectedIdentity.cert.fingerprint === cert.fingerprint ? ' selected' : ''}`}
+                      onClick={() => setSelectedIdentity({ kind: 'brmble', cert })}
                     >
                       <BrmbleCardIcon />
                       <div className="onboarding-identity-card-body">
-                        <div className="onboarding-identity-card-name">{profile.name}</div>
-                        {profile.fingerprint && (
-                          <div className="onboarding-identity-card-meta">
-                            {profile.fingerprint.slice(0, 23)}…
-                          </div>
-                        )}
+                        <div className="onboarding-identity-card-name">{cert.name}</div>
+                        <div className="onboarding-identity-card-meta">
+                          {cert.fingerprint.slice(0, 23)}…
+                        </div>
                       </div>
                       <span className="onboarding-identity-badge brmble">Brmble</span>
                     </button>
@@ -497,36 +476,41 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
                 </>
               )}
 
-              {/* Group 2: Mumble certificate */}
-              {mumbleCerts.length > 0 && (
+              {/* Group 2: Mumble certificates found on disk */}
+              {discoveredCerts.filter(c => c.source.startsWith('mumble-')).length > 0 && (
                 <>
-                  <div className="onboarding-identity-group-label">Found on this computer</div>
-                  {mumbleCerts.map(cert => (
-                    <button
-                      key={cert.fingerprint}
-                      className={`onboarding-identity-card${selectedIdentity?.kind === 'mumble' && selectedIdentity.cert.fingerprint === cert.fingerprint ? ' selected' : ''}`}
-                      onClick={() => setSelectedIdentity({ kind: 'mumble', cert })}
-                    >
-                      <MumbleCardIcon />
-                      <div className="onboarding-identity-card-body">
-                        <div className="onboarding-identity-card-name">{cert.name}</div>
-                        <div className="onboarding-identity-card-meta">
-                          {cert.fingerprint.slice(0, 23)}…
+                  <div className="onboarding-identity-group-label">Mumble certificates found</div>
+                  {discoveredCerts.filter(c => c.source.startsWith('mumble-')).map(cert => {
+                    const versionLabel = cert.source === 'mumble-1.5' ? 'Mumble 1.5'
+                      : cert.source === 'mumble-1.4' ? 'Mumble 1.4'
+                      : 'Mumble 1.3';
+                    return (
+                      <button
+                        key={cert.fingerprint}
+                        className={`onboarding-identity-card${selectedIdentity?.kind === 'mumble' && selectedIdentity.cert.fingerprint === cert.fingerprint ? ' selected' : ''}`}
+                        onClick={() => setSelectedIdentity({ kind: 'mumble', cert })}
+                      >
+                        <MumbleCardIcon />
+                        <div className="onboarding-identity-card-body">
+                          <div className="onboarding-identity-card-name">{cert.name}</div>
+                          <div className="onboarding-identity-card-meta">
+                            {cert.fingerprint.slice(0, 23)}…
+                          </div>
+                          <div className="onboarding-identity-card-desc">
+                            Import this {versionLabel} certificate to keep your username
+                            and permissions on servers.
+                          </div>
                         </div>
-                        <div className="onboarding-identity-card-desc">
-                          Your existing Mumble certificate — import it to keep the same
-                          username and permissions on servers.
-                        </div>
-                      </div>
-                      <span className="onboarding-identity-badge mumble">Mumble</span>
-                    </button>
-                  ))}
+                        <span className="onboarding-identity-badge mumble">{versionLabel}</span>
+                      </button>
+                    );
+                  })}
                 </>
               )}
 
               {/* Group 3: Create new */}
               <div className="onboarding-identity-group-label">
-                {(brmbleProfiles.some(p => p.certValid) || mumbleCerts.length > 0) ? 'Or create a new one' : 'Get started'}
+                {discoveredCerts.length > 0 ? 'Or create a new one' : 'Get started'}
               </div>
               <button
                 className={`onboarding-identity-card${selectedIdentity?.kind === 'new' ? ' selected' : ''}`}
