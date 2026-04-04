@@ -668,6 +668,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             )}
 
             <div className="onboarding-actions">
+              <button className="btn btn-ghost" onClick={() => setStep('welcome')}>Back</button>
               <button
                 className="btn btn-primary"
                 disabled={!canContinueIdentity || busy}
@@ -741,6 +742,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             {profileMode === 'create-new' ? (
               <>
                 <div className="onboarding-profile-actions">
+                  <button className="btn btn-ghost" onClick={() => setStep('identity')}>Back</button>
                   <button
                     className="btn btn-primary"
                     disabled={!newName.trim() || !!newNameValidation || busy}
@@ -806,6 +808,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               </p>
             )}
             <div className="onboarding-actions">
+              <button className="btn btn-ghost" onClick={() => setStep('profile')}>Back</button>
               <button
                 className="onboarding-skip-link"
                 onClick={() => setStep('interface')}
