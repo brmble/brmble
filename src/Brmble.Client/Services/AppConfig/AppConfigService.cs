@@ -30,8 +30,10 @@ internal sealed class AppConfigService : IAppConfigService
     private readonly string _certsDir;
     private readonly object _lock = new();
     private readonly ISecurePasswordStorage _passwordStorage;
+    private bool _isFirstLaunch;
 
     public string ServiceName => "appConfig";
+    public bool IsFirstLaunch => _isFirstLaunch;
 
     /// <summary>Optional callback invoked after settings are updated via SetSettings.</summary>
     public Action<AppSettings>? OnSettingsChanged { get; set; }
@@ -275,6 +277,7 @@ internal sealed class AppConfigService : IAppConfigService
         lock (_lock)
         {
             _profiles.RemoveAll(p => p.Id == id);
+            _profileRegistrations.Remove(id);
             if (_activeProfileId == id)
                 _activeProfileId = _profiles.FirstOrDefault()?.Id;
             Save();
@@ -328,6 +331,7 @@ internal sealed class AppConfigService : IAppConfigService
                 _profiles = data?.Profiles ?? new List<ProfileEntry>();
                 _activeProfileId = data?.ActiveProfileId;
                 _profileRegistrations = data?.ProfileRegistrations ?? new();
+                _isFirstLaunch = false;
                 MigrateIdentityPfx();
                 return;
             }
@@ -341,6 +345,7 @@ internal sealed class AppConfigService : IAppConfigService
                     .Select(s => s with { Password = TryDecryptPassword(s.Password, _passwordStorage) })
                     .ToList();
                 Save(); // write config.json immediately
+                _isFirstLaunch = true;
                 MigrateIdentityPfx();
                 return;
             }
@@ -356,8 +361,10 @@ internal sealed class AppConfigService : IAppConfigService
             _profiles = new List<ProfileEntry>();
             _activeProfileId = null;
             _profileRegistrations = new();
+            _isFirstLaunch = true;
         }
 
+        _isFirstLaunch = true;
         MigrateIdentityPfx();
     }
 

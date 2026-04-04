@@ -90,6 +90,15 @@ internal sealed class CertificateService : IService
     private static readonly Regex ValidProfileNameRegex = new(@"^[-=\w\[\]\{\}\(\)\@\.]+$", RegexOptions.Compiled);
 
     /// <summary>
+    /// Certificate CNs that are considered generic/default and should not be used as profile names.
+    /// Shared by AdoptOrphanedCerts and HandleCertsScan to prevent filter drift.
+    /// </summary>
+    private static readonly string[] GenericCNs = { "Brmble User", "Mumble User", "Mumble Certificate" };
+
+    private static bool IsGenericCN(string? cn)
+        => string.IsNullOrEmpty(cn) || GenericCNs.Any(g => cn.Equals(g, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
     /// Validates a profile name. Returns null if valid, or an error message if invalid.
     /// </summary>
     private static string? ValidateProfileName(string? name)
@@ -276,9 +285,10 @@ internal sealed class CertificateService : IService
 
         bridge.RegisterHandler("profiles.list", _ =>
         {
-            // Adopt orphaned .pfx files in the certs directory that aren't
-            // registered in config.json. Filename pattern: {SanitizedName}_{GUID}.pfx
-            AdoptOrphanedCerts();
+            // Adopt orphaned .pfx files only on first launch (no prior config.json).
+            // This prevents re-adoption of intentionally deleted profiles.
+            if (_config.IsFirstLaunch)
+                AdoptOrphanedCerts();
 
             var profiles = _config.GetProfiles().Select(p =>
             {
@@ -589,6 +599,46 @@ internal sealed class CertificateService : IService
                 var id = data.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
                 if (id == null) return Task.CompletedTask;
 
+                // If the profile doesn't exist in config (e.g. user deleted it but the cert
+                // file is still on disk and was found by certs.scan), re-register it first.
+                if (!_config.GetProfiles().Any(p => p.Id == id))
+                {
+                    var certsDir = _config.GetCertsDir();
+                    string? match = null;
+                    if (Directory.Exists(certsDir))
+                    {
+                        // Try {name}_{id}.pfx first, then legacy {id}.pfx
+                        match = Directory.EnumerateFiles(certsDir, $"*_{id}.pfx").FirstOrDefault()
+                             ?? Directory.EnumerateFiles(certsDir, $"{id}.pfx").FirstOrDefault();
+                    }
+                    if (match != null)
+                    {
+                        var nameFromFile = Path.GetFileNameWithoutExtension(match);
+                        var lastUnderscore = nameFromFile.LastIndexOf('_');
+                        var displayName = lastUnderscore > 0
+                            ? nameFromFile[..lastUnderscore]
+                            : "Recovered Profile";
+                        if (string.IsNullOrEmpty(displayName)) displayName = "Recovered Profile";
+
+                        // Use CN from cert if it's meaningful
+                        try
+                        {
+                            using var cert = X509CertificateLoader.LoadPkcs12FromFile(
+                                match, password: null, keyStorageFlags: X509KeyStorageFlags.EphemeralKeySet);
+                            var cn = ExtractCN(cert);
+                            if (!IsGenericCN(cn)) displayName = cn!;
+                        }
+                        catch { /* use filename-derived name */ }
+
+                        _config.AddProfile(new ProfileEntry(id, displayName));
+                    }
+                    else
+                    {
+                        bridge.Send("profiles.error", new { message = "Certificate file not found for this profile." });
+                        return Task.CompletedTask;
+                    }
+                }
+
                 var oldProfileId = _config.GetActiveProfileId();
 
                 _config.SetActiveProfileId(id);
@@ -872,25 +922,17 @@ internal sealed class CertificateService : IService
                 using var cert = X509CertificateLoader.LoadPkcs12FromFile(
                     filePath, password: null, keyStorageFlags: X509KeyStorageFlags.EphemeralKeySet);
 
-                // Use the name part from the filename, replacing underscores back with spaces
-                // for a friendlier display name. If the cert has a CN, prefer that.
-                var displayName = namePart.Replace('_', ' ').Trim();
+                // Use the name part from the filename as-is (don't replace underscores —
+                // we can't tell them apart from originally-sanitized spaces).
+                // If the cert has a meaningful CN, prefer that instead.
+                var displayName = namePart;
                 if (string.IsNullOrEmpty(displayName)) displayName = "Recovered Profile";
 
-                // Try to extract CN from the certificate subject for a better name
-                var subject = cert.Subject ?? "";
-                var cnPrefix = "CN=";
-                var cnIndex = subject.IndexOf(cnPrefix, StringComparison.OrdinalIgnoreCase);
-                if (cnIndex >= 0)
-                {
-                    var cn = subject[(cnIndex + cnPrefix.Length)..];
-                    var commaIdx = cn.IndexOf(',');
-                    if (commaIdx >= 0) cn = cn[..commaIdx];
-                    cn = cn.Trim();
-                    // Only use CN if it's meaningful (not the generic "Brmble User")
-                    if (!string.IsNullOrEmpty(cn) && !cn.Equals("Brmble User", StringComparison.OrdinalIgnoreCase))
-                        displayName = cn;
-                }
+                // Prefer CN from cert subject over filename-derived name,
+                // but skip generic default CNs so the filename-derived name wins
+                var cn = ExtractCN(cert);
+                if (!IsGenericCN(cn))
+                    displayName = cn!;
 
                 // Auto-register the orphaned cert as a profile
                 var profile = new ProfileEntry(idPart, displayName);
@@ -946,8 +988,17 @@ internal sealed class CertificateService : IService
                             if (Guid.TryParse(idPart, out _))
                             {
                                 profileId = idPart;
-                                var namePart = fileNameWithoutExt[..lastUnderscore].Replace('_', ' ').Trim();
-                                if (!string.IsNullOrEmpty(namePart)) displayName = namePart;
+                                // Prefer the profile name from config (preserves original casing/underscores)
+                                var configProfile = _config.GetProfiles().FirstOrDefault(p => p.Id == idPart);
+                                if (configProfile != null)
+                                {
+                                    displayName = configProfile.Name;
+                                }
+                                else
+                                {
+                                    var namePart = fileNameWithoutExt[..lastUnderscore];
+                                    if (!string.IsNullOrEmpty(namePart)) displayName = namePart;
+                                }
                             }
                         }
                         else if (Guid.TryParse(fileNameWithoutExt, out _))
@@ -959,9 +1010,8 @@ internal sealed class CertificateService : IService
                         // Prefer CN from cert subject over filename-derived name,
                         // but skip generic default CNs so the filename-derived name wins
                         var cn = ExtractCN(cert);
-                        var genericCNs = new[] { "Brmble User", "Mumble User", "Mumble Certificate" };
-                        if (!string.IsNullOrEmpty(cn) && !genericCNs.Any(g => cn.Equals(g, StringComparison.OrdinalIgnoreCase)))
-                            displayName = cn;
+                        if (!IsGenericCN(cn))
+                            displayName = cn!;
 
                         results.Add(new
                         {

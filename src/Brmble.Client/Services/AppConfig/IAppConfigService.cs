@@ -7,6 +7,7 @@ public record RegistrationInfo(bool Registered, string? RegisteredName);
 
 public interface IAppConfigService
 {
+    bool IsFirstLaunch { get; }
     IReadOnlyList<ServerEntry> GetServers();
     void AddServer(ServerEntry server);
     ServerEntry? UpdateServer(ServerEntry server);
