@@ -10,6 +10,7 @@ import bridge from '../../bridge';
 import Avatar from '../Avatar/Avatar';
 import { EditChannelDialog } from '../EditChannelDialog/EditChannelDialog';
 import { RenameConfirmDialog } from '../RenameConfirmDialog/RenameConfirmDialog';
+import { Icon } from '../Icon/Icon';
 import './ChannelTree.css';
 
 interface User {
@@ -260,21 +261,13 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
             className={`expand-icon ${isExpanded ? 'expanded' : ''} ${!isExpandable ? 'placeholder' : ''}`}
             onClick={(e) => { e.stopPropagation(); if (isExpandable) toggleExpand(channel.id); }}
           >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
-              <path d="M3 2L7 5L3 8V2Z" />
-            </svg>
+            <Icon name="triangle-right" size={10} />
           </span>
           <span className="channel-icon">
             {channel.id === sharingChannelId ? (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-                <line x1="8" y1="21" x2="16" y2="21"/>
-                <line x1="12" y1="17" x2="12" y2="21"/>
-              </svg>
+              <Icon name="monitor" size={14} stroke="var(--accent-primary)" />
             ) : (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-              </svg>
+              <Icon name="folder" size={14} />
             )}
           </span>
           <span className="channel-name">{channel.name}</span>
@@ -339,26 +332,14 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
               >
                 <span className="user-status-area">
                   {user.session === sharingUserSession ? (
-                    <svg className="user-status-icon user-status-icon--sharing" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-                      <line x1="8" y1="21" x2="16" y2="21"/>
-                      <line x1="12" y1="17" x2="12" y2="21"/>
-                    </svg>
+                    <Icon name="monitor" size={11} className="user-status-icon user-status-icon--sharing" stroke="var(--accent-primary)" strokeWidth={2.5} />
                   ) : (
                     <>
                       {user.deafened && (
-                        <svg className="user-status-icon user-status-icon--deaf" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                          <line x1="1" y1="1" x2="23" y2="23"/>
-                          <path d="M3 18v-6a9 9 0 0 1 18 0v6"/>
-                          <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3z"/>
-                          <path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>
-                        </svg>
+                        <Icon name="headphones-off" size={11} className="user-status-icon user-status-icon--deaf" strokeWidth={2.5} />
                       )}
                       {user.muted && (
-                        <svg className="user-status-icon user-status-icon--muted" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                          <line x1="1" y1="1" x2="23" y2="23"/>
-                          <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/>
-                        </svg>
+                        <Icon name="mic-off" size={11} className="user-status-icon user-status-icon--muted" strokeWidth={2.5} />
                       )}
                     </>
                   )}
@@ -444,11 +425,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
               type: 'item' as const,
               label: 'Watch Stream',
               icon: (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-                  <line x1="8" y1="21" x2="16" y2="21"/>
-                  <line x1="12" y1="17" x2="12" y2="21"/>
-                </svg>
+                <Icon name="monitor" size={14} stroke="var(--accent-primary)" />
               ),
 onClick: () => {
                 const channelId = contextMenu.channelId ?? currentChannelId;
@@ -459,9 +436,7 @@ onClick: () => {
               type: 'item' as const,
               label: 'Direct Message',
               icon: (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                </svg>
+                <Icon name="message-square" size={14} />
               ),
               onClick: () => onStartDM(contextMenu.userId, contextMenu.userName),
             }] : []),
@@ -469,11 +444,7 @@ onClick: () => {
               type: 'item' as const,
               label: 'User Info',
               icon: (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="12" cy="12" r="10" />
-                  <circle cx="12" cy="8" r="1" fill="currentColor" stroke="none" />
-                  <line x1="12" y1="12" x2="12" y2="16" />
-                </svg>
+                <Icon name="info-filled" size={14} />
               ),
               onClick: () => setInfoDialogUser({ userId: contextMenu.userId, userName: contextMenu.userName, isSelf: contextMenu.isSelf }),
             },
@@ -481,10 +452,7 @@ onClick: () => {
               type: 'item' as const,
               label: 'Edit Profile',
               icon: (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                  <circle cx="12" cy="7" r="4" />
-                </svg>
+                <Icon name="user" size={14} />
               ),
               onClick: () => onEditAvatar(),
             }] : []),
@@ -495,10 +463,7 @@ onClick: () => {
                 return isLocallyMuted ? 'Local Unmute' : 'Local Mute';
               })(),
               icon: (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <line x1="1" y1="1" x2="23" y2="23"/>
-                  <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/>
-                </svg>
+                <Icon name="mic-off" size={14} />
               ),
               onClick: () => {
                 const session = parseInt(contextMenu.userId);
@@ -528,10 +493,7 @@ onClick: () => {
                   type: 'item' as const,
                   label: targetUser?.muted ? 'Server Unmute' : 'Server Mute',
                   icon: (
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <line x1="1" y1="1" x2="23" y2="23"/>
-                      <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/>
-                    </svg>
+                    <Icon name="mic-off" size={14} />
                   ),
                   onClick: () => bridge.send(targetUser?.muted ? 'voice.unmute' : 'voice.mute', { session: parseInt(contextMenu.userId) }),
                 });
@@ -542,9 +504,7 @@ onClick: () => {
                   type: 'item' as const,
                   label: 'Move to Root',
                   icon: (
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M5 12h14M12 5l7 7-7 7"/>
-                    </svg>
+                    <Icon name="arrow-right" size={14} />
                   ),
                   onClick: () => bridge.send('voice.move', { session: parseInt(contextMenu.userId), channelId: 0 }),
                 });
@@ -555,9 +515,7 @@ onClick: () => {
                   type: 'item' as const,
                   label: targetUser?.prioritySpeaker ? 'Remove Priority Speaker' : 'Priority Speaker',
                   icon: (
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M12 2L15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2z"/>
-                    </svg>
+                    <Icon name="star" size={14} />
                   ),
                   onClick: () => {
                     bridge.send('voice.setPrioritySpeaker', { session: parseInt(contextMenu.userId), enabled: !targetUser?.prioritySpeaker });
@@ -570,9 +528,7 @@ onClick: () => {
                   type: 'item' as const,
                   label: 'Kick User',
                   icon: (
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M18 6L6 18M6 6l12 12"/>
-                    </svg>
+                    <Icon name="x" size={14} />
                   ),
                   onClick: async () => {
                     const reason = await prompt({
@@ -592,10 +548,7 @@ onClick: () => {
                   type: 'item' as const,
                   label: 'Ban User',
                   icon: (
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <circle cx="12" cy="12" r="10"/>
-                      <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
-                    </svg>
+                    <Icon name="ban" size={14} />
                   ),
                   onClick: async () => {
                     const reason = await prompt({
@@ -614,9 +567,7 @@ onClick: () => {
                 type: 'item' as const,
                 label: 'Admin',
                 icon: (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-                  </svg>
+                  <Icon name="shield" size={14} />
                 ),
                 children: adminItems,
               }];

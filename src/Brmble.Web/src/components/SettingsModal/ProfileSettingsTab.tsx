@@ -7,6 +7,7 @@ import { confirm } from '../../hooks/usePrompt';
 import { validateProfileName } from '../../utils/profileValidation';
 import { Select } from '../Select/Select';
 import { Tooltip } from '../Tooltip/Tooltip';
+import { Icon } from '../Icon/Icon';
 import './ProfileSettingsTab.css';
 import './ProfilesSettingsTab.css';
 
@@ -283,9 +284,7 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
             <label>Registered name on server</label>
             <span className="profile-registered-name">
               {registeredName}
-              <svg className="profile-registered-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <polyline points="3.5 8 6.5 11 12.5 5" />
-              </svg>
+              <Icon name="check" size={14} className="profile-registered-icon" />
             </span>
           </div>
         )}
@@ -388,10 +387,7 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
         ) : !loading ? (
           <div className="profiles-empty">
             <div className="profiles-empty-icon">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true" focusable="false">
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                <circle cx="12" cy="7" r="4" />
-              </svg>
+              <Icon name="user" size={48} strokeWidth={1.5} />
             </div>
             <p>No profiles yet</p>
             <p className="profiles-empty-hint">Create a profile to manage multiple identities</p>

@@ -89,6 +89,12 @@
 }
 
 /* ── Step icon (circular container for non-logo steps) ──────────── */
+.onboarding-step-icon-row {
+  display: flex;
+  justify-content: center;
+  margin-bottom: var(--space-lg);
+}
+
 .onboarding-step-icon {
   width: 64px;
   height: 64px;

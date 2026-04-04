@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import Cropper from 'react-easy-crop';
 import type { Area } from 'react-easy-crop';
+import { Icon } from '../Icon/Icon';
 import './AvatarUpload.css';
 
 interface AvatarUploadProps {
@@ -214,20 +215,12 @@ export default function AvatarUpload({ onUpload, onCancel }: AvatarUploadProps) 
               }
             }}
           >
-            <svg
+            <Icon
+              name="upload"
+              size={48}
               className="avatar-upload-picker-icon"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="17 8 12 3 7 8" />
-              <line x1="12" y1="3" x2="12" y2="15" />
-            </svg>
+              strokeWidth={1.5}
+            />
             <span className="avatar-upload-picker-text">Click to choose an image</span>
             <span className="avatar-upload-picker-hint">
               PNG, JPEG, WebP, or GIF &middot; Max 5 MB

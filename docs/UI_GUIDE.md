@@ -12,6 +12,7 @@ Format: Flat rulebook. Numbered rules, tables, do/don't examples. No fluff.
 | Global tokens | `src/Brmble.Web/src/index.css` | 41 `:root` tokens (spacing, font sizes, layout, transitions, animations, heading scale) |
 | Heading classes | `src/Brmble.Web/src/styles/headings.css` | 3-tier heading system |
 | Theme template | `src/Brmble.Web/src/themes/_template.css` | 73 per-theme token slots with derivation formulas |
+| Icon component | `src/Brmble.Web/src/components/Icon/Icon.tsx` | Centralized icon map + `<Icon>` component |
 
 ### Heading Classes (Quick)
 
@@ -616,13 +617,94 @@ This gives the appearance of transitioning from solid to gradient.
 
 ---
 
-## 11. Inline SVG Guidelines
+## 11. Icon System
 
-### When to Use Inline SVG
+Reference: `src/Brmble.Web/src/components/Icon/Icon.tsx`
 
-- **Icons** (< 24 paths): Inline in JSX with `currentColor` for theme compatibility
+Brmble uses a centralized `<Icon>` component backed by a name-to-SVG-paths map. All standard UI icons live in one file, ensuring consistency and deduplication.
+
+### Usage
+
+```tsx
+import { Icon } from '../Icon/Icon';
+
+<Icon name="mic" />              // 16px default
+<Icon name="mic" size={28} />    // Custom size
+<Icon name="mic-off" size={14} className="status-icon" />
+```
+
+### Props
+
+| Prop | Type | Default | Description |
+|---|---|---|---|
+| `name` | `IconName` | required | Icon key from the icon map |
+| `size` | `number` | `16` | Width & height in px |
+| `className` | `string` | — | Additional CSS class |
+| `style` | `CSSProperties` | — | Inline styles |
+| `...rest` | `SVGProps` | — | Any valid SVG attribute |
+
+The component sets `aria-hidden="true"` automatically. Color inherits from `currentColor` (theme-compatible by default).
+
+### Available Icons (by category)
+
+| Category | Icons | Notes |
+|---|---|---|
+| **Voice** | `mic`, `mic-off`, `headphones`, `headphones-off`, `phone-off` | Audio & call controls |
+| **Media** | `monitor`, `monitor-off`, `minimize-2`, `maximize-2` | Screen share & fullscreen |
+| **Chat** | `message-square`, `message-circle` | Message bubble variants |
+| **Server** | `server`, `globe`, `folder`, `shield`, `star`, `ban`, `triangle-right` | Infrastructure & moderation |
+| **UI — Actions** | `x`, `search`, `plus`, `check`, `send`, `upload`, `arrow-right`, `eye`, `eye-off`, `chevron-up`, `chevron-down`, `info`, `info-filled` | Generic interactive icons |
+| **UI — Objects** | `user`, `settings`, `save`, `palette` | Profiles, preferences |
+| **Window** | `window-minimize`, `window-maximize`, `window-close` | Title bar controls (custom viewBox) |
+| **Brmblegotchi — Actions** | `gotchi-food`, `gotchi-play`, `gotchi-clean` | Pet interaction buttons |
+| **Brmblegotchi — Stats** | `gotchi-hunger`, `gotchi-happiness`, `gotchi-cleanliness` | Pet stat indicators |
+
+Brmblegotchi icons are prefixed `gotchi-` and shared across all pet themes (`original`, `dino`, `cat`). If a pet theme needs unique icons, add them under a sub-header like `/* ── gotchi · dino ── */` in the icon map.
+
+### Adding a New Icon
+
+1. Open `src/Brmble.Web/src/components/Icon/Icon.tsx`
+2. Add an entry to the `iconPaths` map in the appropriate group:
+   ```tsx
+   'my-icon': {
+     paths: (
+       <>
+         <path d="..." />
+         <circle cx="12" cy="12" r="3" />
+       </>
+     ),
+   },
+   ```
+3. Use it: `<Icon name="my-icon" size={20} />`
+
+#### Icon Conventions
+
+| Rule | Detail |
+|---|---|
+| ViewBox | `0 0 24 24` (omit `viewBox` field — it's the default). Only set for non-standard icons (e.g. `check` uses `0 0 16 16`) |
+| Style | Feather/Lucide conventions: stroke-based, `currentColor`, strokeWidth 2, round caps/joins |
+| Fill icons | Set `fill: true` on the definition (e.g. `triangle-right`). Stroke attributes are omitted automatically |
+| Naming | Use Lucide names. Pair toggleable icons with `-off` suffix (`mic` / `mic-off`) |
+| Grouping | Place related icons adjacent in the map with a comment header (`/* ── Mic ── */`) |
+| No emoji | Never use emoji characters for icons in the UI. Always use `<Icon>` |
+
+### When NOT to Use `<Icon>`
+
+- **BrmbleLogo** — Complex animated multi-ring SVG. Use the dedicated `<BrmbleLogo>` component.
+- **MumbleIcon / BrmbleIcon** — Large brand logos (50+ paths). Keep as local inline SVGs in their host component.
+- **Complex illustrations** — Use `<img>` tag referencing a static asset in `src/assets/`.
+
+---
+
+## 12. Inline SVG Guidelines (Legacy)
+
+> **Note:** New icons should use the `<Icon>` component (section 11). These rules apply to the remaining inline SVGs (brand logos, complex illustrations) that are too large or unique for the icon map.
+
+### When to Use Inline SVG (Instead of `<Icon>`)
+
 - **Logo** (35 paths, animated): Dedicated React component (`BrmbleLogo`)
 - **Complex illustrations**: Use `<img>` tag referencing static asset
+- **Brand icons** (MumbleIcon, BrmbleIcon): Multi-path logos kept local to their host component
 
 ### Rules
 

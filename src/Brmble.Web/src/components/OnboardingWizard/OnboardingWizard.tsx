@@ -7,6 +7,7 @@ import { themes } from '../../themes/theme-registry';
 import { applyTheme } from '../../themes/theme-loader';
 import brmbleLogo from '../../assets/brmble-logo.svg';
 import { confirm } from '../../hooks/usePrompt';
+import { Icon } from '../Icon/Icon';
 // mumble-seeklogo.svg removed — Mumble cards now use inline MumbleIcon SVG
 import '../SettingsModal/SettingsModal.css';
 import './OnboardingWizard.css';
@@ -54,11 +55,11 @@ function BrmbleCardIcon() {
 
 // ── Types ─────────────────────────────────────────────────────────
 
-type WizardStep = 'welcome' | 'identity' | 'profile' | 'backup' | 'interface' | 'audio' | 'connection' | 'servers';
+type WizardStep = 'welcome' | 'identity' | 'profile' | 'backup' | 'interface' | 'audio' | 'servers' | 'connection';
 
 type ProfileMode = 'real-cn' | 'generic-cn' | 'create-new';
 
-const STEPS: WizardStep[] = ['welcome', 'identity', 'profile', 'backup', 'interface', 'audio', 'connection', 'servers'];
+const STEPS: WizardStep[] = ['welcome', 'identity', 'profile', 'backup', 'interface', 'audio', 'servers', 'connection'];
 
 interface ScannedCert {
   source: 'brmble' | 'mumble-1.5' | 'mumble-1.4' | 'mumble-1.3';
@@ -180,6 +181,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const [selectedServers, setSelectedServers] = useState<Set<number>>(new Set());
   const [serversImportBusy, setServersImportBusy] = useState(false);
   const [importedServers, setImportedServers] = useState<ImportedServer[]>([]);
+  const [importedIndices, setImportedIndices] = useState<Set<number>>(new Set());
 
   // Listen for bridge events
   useEffect(() => {
@@ -231,7 +233,13 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
     };
     const onServersImported = (data: unknown) => {
       const d = data as { servers?: Array<{ id: string; label: string }> } | undefined;
-      setImportedServers(d?.servers ?? []);
+      setImportedServers(prev => [...prev, ...(d?.servers ?? [])]);
+      setImportedIndices(prev => {
+        const next = new Set(prev);
+        pendingImportIndicesRef.current.forEach(i => next.add(i));
+        pendingImportIndicesRef.current.clear();
+        return next;
+      });
       setServersImportBusy(false);
       setStep('connection');
     };
@@ -324,6 +332,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const detectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingRenameRef = useRef<string | null>(null);
+  const pendingImportIndicesRef = useRef<Set<number>>(new Set());
 
   const handleGetStartedWithTimer = () => {
     setDetecting(true);
@@ -510,30 +519,19 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             <div className="onboarding-features">
               <div className="onboarding-feature">
                 <div className="onboarding-feature-icon">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                    <line x1="12" y1="19" x2="12" y2="23" />
-                    <line x1="8" y1="23" x2="16" y2="23" />
-                  </svg>
+                  <Icon name="mic" size={24} />
                 </div>
                 <span className="onboarding-feature-label">Voice</span>
               </div>
               <div className="onboarding-feature">
                 <div className="onboarding-feature-icon">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                  </svg>
+                  <Icon name="message-square" size={24} />
                 </div>
                 <span className="onboarding-feature-label">Chat</span>
               </div>
               <div className="onboarding-feature">
                 <div className="onboarding-feature-icon">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-                    <line x1="8" y1="21" x2="16" y2="21" />
-                    <line x1="12" y1="17" x2="12" y2="21" />
-                  </svg>
+                  <Icon name="monitor" size={24} />
                 </div>
                 <span className="onboarding-feature-label">Screen share</span>
               </div>
@@ -558,12 +556,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         {step === 'identity' && (
           <>
             <div className="onboarding-hero">
-              <div className="onboarding-step-icon">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                  <circle cx="12" cy="7" r="4" />
-                </svg>
-              </div>
+              <img src={brmbleLogo} alt="Brmble" className="onboarding-hero-logo" />
             </div>
             <h2 className="heading-title onboarding-title">Choose Your Profile</h2>
 
@@ -578,6 +571,12 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                 Create one to get started.
               </p>
             )}
+
+            <div className="onboarding-step-icon-row">
+              <div className="onboarding-step-icon">
+                <Icon name="user" size={28} />
+              </div>
+            </div>
 
             {detecting && (
               <div className="onboarding-detecting">
@@ -653,10 +652,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                 onClick={() => setSelectedIdentity({ kind: 'new' })}
               >
                 <span className="onboarding-identity-card-icon-svg">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="12" y1="5" x2="12" y2="19" />
-                    <line x1="5" y1="12" x2="19" y2="12" />
-                  </svg>
+                  <Icon name="plus" size={20} />
                 </span>
                 <div className="onboarding-identity-card-body">
                   <div className="onboarding-identity-card-name">Create a new profile</div>
@@ -687,12 +683,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         {step === 'profile' && (
           <>
             <div className="onboarding-hero">
-              <div className="onboarding-step-icon">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                  <circle cx="12" cy="7" r="4" />
-                </svg>
-              </div>
+              <img src={brmbleLogo} alt="Brmble" className="onboarding-hero-logo" />
             </div>
 
             <h2 className="heading-title onboarding-title">
@@ -706,6 +697,12 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                 ? "Your certificate doesn't have a personal name. Choose a name for your profile — this is how others will see you."
                 : 'Choose a name and set up your certificate. Your name will be embedded in the certificate.'}
             </p>
+
+            <div className="onboarding-step-icon-row">
+              <div className="onboarding-step-icon">
+                <Icon name="user" size={28} />
+              </div>
+            </div>
 
             {/* Profile name field */}
             <div className="onboarding-new-identity-form">
@@ -785,7 +782,9 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         {/* ── Step 4: Backup ── */}
         {step === 'backup' && (
           <>
-            <div className="onboarding-icon">💾</div>
+            <div className="onboarding-hero">
+              <img src={brmbleLogo} alt="Brmble" className="onboarding-hero-logo" />
+            </div>
             <h2 className="heading-title onboarding-title">Back Up Your Certificate</h2>
             <p className="onboarding-body">
               Your certificate is your identity on Brmble. If you lose it, you'll lose
@@ -793,6 +792,11 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               somewhere safe — for example in Google Drive, OneDrive, iCloud, Dropbox, or
               on a USB drive.
             </p>
+            <div className="onboarding-step-icon-row">
+              <div className="onboarding-step-icon">
+                <Icon name="save" size={28} />
+              </div>
+            </div>
             {fingerprint && (
               <div className="onboarding-fingerprint">{fingerprint}</div>
             )}
@@ -825,9 +829,16 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         {/* ── Step 5: Interface ── */}
         {step === 'interface' && (
           <>
-            <div className="onboarding-icon">🎨</div>
+            <div className="onboarding-hero">
+              <img src={brmbleLogo} alt="Brmble" className="onboarding-hero-logo" />
+            </div>
             <h2 className="heading-title onboarding-title">Interface</h2>
             <p className="onboarding-body">Customise how Brmble looks and feels.</p>
+            <div className="onboarding-step-icon-row">
+              <div className="onboarding-step-icon">
+                <Icon name="palette" size={28} />
+              </div>
+            </div>
 
             <div className="settings-section">
               <div className="settings-item">
@@ -864,11 +875,18 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         {/* ── Step 6: Audio ── */}
         {step === 'audio' && (
           <>
-            <div className="onboarding-icon">🎙️</div>
+            <div className="onboarding-hero">
+              <img src={brmbleLogo} alt="Brmble" className="onboarding-hero-logo" />
+            </div>
             <h2 className="heading-title onboarding-title">Audio</h2>
             <p className="onboarding-body">
               Configure your microphone and how your voice is transmitted.
             </p>
+            <div className="onboarding-step-icon-row">
+              <div className="onboarding-step-icon">
+                <Icon name="mic" size={28} />
+              </div>
+            </div>
 
             <div className="settings-section">
               <h3 className="heading-section settings-section-title">Devices</h3>
@@ -942,7 +960,9 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         {/* ── Step 7: Import Servers ── */}
         {step === 'servers' && (
           <>
-            <div className="onboarding-icon">🖥️</div>
+            <div className="onboarding-hero">
+              <img src={brmbleLogo} alt="Brmble" className="onboarding-hero-logo" />
+            </div>
             <h2 className="heading-title onboarding-title">Import Your Servers</h2>
 
             {mumbleServers.length === 0 ? (
@@ -950,6 +970,11 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                 <p className="onboarding-body">
                   No Mumble server favourites were found on this computer.
                 </p>
+                <div className="onboarding-step-icon-row">
+                  <div className="onboarding-step-icon">
+                    <Icon name="server" size={28} />
+                  </div>
+                </div>
                 <div className="onboarding-actions">
                   <button className="btn btn-ghost" onClick={() => setStep('audio')}>Back</button>
                   <button className="btn btn-primary" onClick={() => setStep('connection')}>
@@ -963,6 +988,11 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   We found your Mumble server favourites. Select the ones you want to add to
                   Brmble. Passwords are not imported.
                 </p>
+                <div className="onboarding-step-icon-row">
+                  <div className="onboarding-step-icon">
+                    <Icon name="server" size={28} />
+                  </div>
+                </div>
                 <div className="onboarding-identity-list">
                   {mumbleServers.map((srv, i) => (
                     <button
@@ -974,7 +1004,9 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                         return next;
                       })}
                     >
-                      <span className="onboarding-identity-card-icon">🖥️</span>
+                      <span className="onboarding-identity-card-icon">
+                        <Icon name="server" size={20} />
+                      </span>
                       <div className="onboarding-identity-card-body">
                         <div className="onboarding-identity-card-name">
                           {srv.label || srv.host}
@@ -984,11 +1016,13 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                           {srv.username ? ` · ${srv.username}` : ''}
                         </div>
                       </div>
-                      {srv.alreadySaved && !selectedServers.has(i)
-                        ? <span className="onboarding-identity-badge saved">Already saved</span>
-                        : selectedServers.has(i)
-                          ? <span className="onboarding-identity-badge brmble">Import</span>
-                          : null
+                      {importedIndices.has(i)
+                        ? <span className="onboarding-identity-badge saved">Imported</span>
+                        : srv.alreadySaved && !selectedServers.has(i)
+                          ? <span className="onboarding-identity-badge saved">Already saved</span>
+                          : selectedServers.has(i)
+                            ? <span className="onboarding-identity-badge brmble">Import</span>
+                            : null
                       }
                     </button>
                   ))}
@@ -998,21 +1032,26 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                     Skip
                   </button>
                   <button className="btn btn-ghost" onClick={() => setStep('audio')}>Back</button>
-                  <button
+                   <button
                     className="btn btn-primary"
                     disabled={serversImportBusy}
                     onClick={() => {
-                      if (selectedServers.size === 0) { setStep('connection'); return; }
+                      const newIndices = [...selectedServers].filter(i => !importedIndices.has(i));
+                      if (newIndices.length === 0) { setStep('connection'); return; }
                       setServersImportBusy(true);
-                      const toImport = [...selectedServers].map(i => mumbleServers[i]);
+                      pendingImportIndicesRef.current = new Set(newIndices);
+                      const toImport = newIndices.map(i => mumbleServers[i]);
                       bridge.send('mumble.importServers', { servers: toImport });
                     }}
                   >
                     {serversImportBusy
                       ? 'Importing…'
-                      : selectedServers.size === 0
-                        ? 'Next (skip import)'
-                        : `Import ${selectedServers.size} & continue`}
+                      : (() => {
+                          const newCount = [...selectedServers].filter(i => !importedIndices.has(i)).length;
+                          return newCount === 0
+                            ? 'Next'
+                            : `Import ${newCount} & continue`;
+                        })()}
                   </button>
                 </div>
               </>
@@ -1023,11 +1062,18 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         {/* ── Step 8: Connection ── */}
         {step === 'connection' && (
           <>
-            <div className="onboarding-icon">🌐</div>
+            <div className="onboarding-hero">
+              <img src={brmbleLogo} alt="Brmble" className="onboarding-hero-logo" />
+            </div>
             <h2 className="heading-title onboarding-title">Connection</h2>
             <p className="onboarding-body">
               Configure how Brmble connects and reconnects to servers.
             </p>
+            <div className="onboarding-step-icon-row">
+              <div className="onboarding-step-icon">
+                <Icon name="globe" size={28} />
+              </div>
+            </div>
 
             <div className="settings-section">
               <div className="settings-item settings-toggle">

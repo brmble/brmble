@@ -3,6 +3,7 @@ import { useServerlist } from '../../hooks/useServerlist';
 import type { ServerEntry } from '../../hooks/useServerlist';
 import { confirm } from '../../hooks/usePrompt';
 import { Tooltip } from '../Tooltip/Tooltip';
+import { Icon } from '../Icon/Icon';
 import { BrmbleLogo } from '../Header/BrmbleLogo';
 import './ServerList.css';
 
@@ -171,12 +172,7 @@ export function ServerList({ onConnect, connectionError, onClearError, activePro
           ) : (
             <div className="server-list-empty">
               <div className="server-list-empty-icon">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true" focusable="false">
-                  <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
-                  <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
-                  <line x1="6" y1="6" x2="6.01" y2="6" />
-                  <line x1="6" y1="18" x2="6.01" y2="18" />
-                </svg>
+                <Icon name="server" size={48} strokeWidth={1.5} />
               </div>
               <p>No servers saved yet</p>
               <p className="server-list-empty-hint">Add a server to get started</p>
@@ -232,16 +228,9 @@ export function ServerList({ onConnect, connectionError, onClearError, activePro
                       aria-pressed={showPassword}
                     >
                       {showPassword ? (
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
-                          <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
-                          <line x1="1" y1="1" x2="23" y2="23" />
-                        </svg>
+                        <Icon name="eye-off" size={18} />
                       ) : (
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                          <circle cx="12" cy="12" r="3" />
-                        </svg>
+                        <Icon name="eye" size={18} />
                       )}
                     </button>
                   )}
@@ -255,9 +244,7 @@ export function ServerList({ onConnect, connectionError, onClearError, activePro
                     value={editing.registeredName ?? ''}
                     disabled
                   />
-                  <svg className="server-list-registered-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-label="Registered">
-                    <polyline points="3.5 8 6.5 11 12.5 5" />
-                  </svg>
+                  <Icon name="check" size={16} className="server-list-registered-icon" />
                 </div>
                 </Tooltip>
                 )}
