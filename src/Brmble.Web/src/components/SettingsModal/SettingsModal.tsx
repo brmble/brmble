@@ -44,7 +44,6 @@ interface SettingsModalProps {
   initialTab?: 'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'admin';
   brmblegotchiEnabled?: boolean;
   setBrmblegotchiEnabled?: (enabled: boolean) => void;
-  onOpenWizard?: () => void;
 }
 
 interface AppSettings {
@@ -421,11 +420,6 @@ export function SettingsModal(props: SettingsModalProps) {
         </div>
 
         <div className="settings-footer">
-          {props.onOpenWizard && (
-            <button className="btn btn-ghost" style={{ marginRight: 'auto' }} onClick={() => { onClose(); props.onOpenWizard!(); }}>
-              Setup wizard
-            </button>
-          )}
           <button className="btn btn-primary" onClick={onClose}>
             Close
           </button>

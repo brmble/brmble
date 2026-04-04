@@ -156,7 +156,9 @@ function App() {
 
   // null = status not yet received, false = no cert, true = cert exists
   const [certExists, setCertExists] = useState<boolean | null>(null);
-  const [showPrefsWizard, setShowPrefsWizard] = useState(false);
+  // Stays true for the entire onboarding flow so the wizard isn't unmounted
+  // when certExists flips to true mid-wizard (e.g. after profile activation).
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [certFingerprint, setCertFingerprint] = useState('');
   const [activeProfileName, setActiveProfileName] = useState('');
 
@@ -1043,6 +1045,7 @@ function App() {
         setCertFingerprint(fp);
       } else {
         setCertExists(false);
+        setShowOnboarding(true);
       }
     };
     const onCertGenerated = (data: unknown) => {
@@ -2025,22 +2028,9 @@ const handleConnect = (serverData: SavedServer) => {
         />
       </div>
 
-      {certExists === false && (
-        <OnboardingWizard onComplete={(fp) => { setCertExists(true); setCertFingerprint(fp); }} />
+      {showOnboarding && (
+        <OnboardingWizard onComplete={(fp) => { setShowOnboarding(false); setCertExists(true); setCertFingerprint(fp); }} />
       )}
-
-      {showPrefsWizard && certExists === true && (
-        <OnboardingWizard
-          startAtPreferences
-          onComplete={() => setShowPrefsWizard(false)}
-        />
-      )}
-
-      <ConnectModal
-        isOpen={showConnectModal}
-        onClose={() => setShowConnectModal(false)}
-        onConnect={handleConnect}
-      />
 
       <SettingsModal
         isOpen={showSettings}
@@ -2053,7 +2043,12 @@ const handleConnect = (serverData: SavedServer) => {
         onRemoveAvatar={onRemoveAvatar}
         brmblegotchiEnabled={brmblegotchiEnabled}
         setBrmblegotchiEnabled={setBrmblegotchiEnabled}
-        onOpenWizard={() => setShowPrefsWizard(true)}
+      />
+
+      <ConnectModal
+        isOpen={showConnectModal}
+        onClose={() => setShowConnectModal(false)}
+        onConnect={handleConnect}
       />
 
       <AvatarEditorModal

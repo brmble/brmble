@@ -8,6 +8,7 @@ import { applyTheme } from '../../themes/theme-loader';
 import brmbleLogo from '../../assets/brmble-logo.svg';
 import { confirm } from '../../hooks/usePrompt';
 // mumble-seeklogo.svg removed — Mumble cards now use inline MumbleIcon SVG
+import '../SettingsModal/SettingsModal.css';
 import './OnboardingWizard.css';
 
 // ── Card avatar icons (inline SVGs matching Avatar.tsx for theme compat) ──
@@ -70,7 +71,6 @@ interface ScannedCert {
 
 interface OnboardingWizardProps {
   onComplete: (fingerprint: string) => void;
-  startAtPreferences?: boolean;
 }
 
 // ── Settings types (local copies to avoid SettingsModal coupling) ──
@@ -86,11 +86,11 @@ interface WizardSettings {
   outputDevice: string;
   transmissionMode: TransmissionMode;
   pushToTalkKey: string | null;
-  speechDenoiseMode: 'rnnoise' | 'disabled';
   // Connection
   reconnectEnabled: boolean;
   rememberLastChannel: boolean;
   autoConnectEnabled: boolean;
+  autoConnectServerId: string | null;
 }
 
 const SETTINGS_STORAGE_KEY = 'brmble-settings';
@@ -107,10 +107,10 @@ function loadInitialSettings(): WizardSettings {
         outputDevice: parsed.audio?.outputDevice ?? 'default',
         transmissionMode: parsed.audio?.transmissionMode ?? 'pushToTalk',
         pushToTalkKey: parsed.audio?.pushToTalkKey ?? null,
-        speechDenoiseMode: parsed.speechDenoise?.mode ?? 'rnnoise',
         reconnectEnabled: parsed.reconnectEnabled ?? true,
         rememberLastChannel: parsed.rememberLastChannel ?? true,
         autoConnectEnabled: parsed.autoConnectEnabled ?? false,
+        autoConnectServerId: parsed.autoConnectServerId ?? null,
       };
     }
   } catch { /* ignore */ }
@@ -121,10 +121,10 @@ function loadInitialSettings(): WizardSettings {
     outputDevice: 'default',
     transmissionMode: 'pushToTalk',
     pushToTalkKey: null,
-    speechDenoiseMode: 'rnnoise',
     reconnectEnabled: true,
     rememberLastChannel: true,
     autoConnectEnabled: false,
+    autoConnectServerId: null,
   };
 }
 
@@ -147,8 +147,8 @@ function triggerBlobDownload(base64: string, filename: string) {
 
 // ── Main component ────────────────────────────────────────────────
 
-export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingWizardProps) {
-  const [step, setStep] = useState<WizardStep>(startAtPreferences ? 'interface' : 'welcome');
+export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
+  const [step, setStep] = useState<WizardStep>('welcome');
   const stepIndex = STEPS.indexOf(step);
 
   // Detection state
@@ -175,9 +175,11 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
 
   // Server import step state
   interface MumbleServer { label: string; host: string; port: number; username: string; alreadySaved: boolean; }
+  interface ImportedServer { id: string; label: string; }
   const [mumbleServers, setMumbleServers] = useState<MumbleServer[]>([]);
   const [selectedServers, setSelectedServers] = useState<Set<number>>(new Set());
   const [serversImportBusy, setServersImportBusy] = useState(false);
+  const [importedServers, setImportedServers] = useState<ImportedServer[]>([]);
 
   // Listen for bridge events
   useEffect(() => {
@@ -227,9 +229,11 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
         return acc;
       }, [])));
     };
-    const onServersImported = () => {
+    const onServersImported = (data: unknown) => {
+      const d = data as { servers?: Array<{ id: string; label: string }> } | undefined;
+      setImportedServers(d?.servers ?? []);
       setServersImportBusy(false);
-      onComplete(fingerprint);
+      setStep('connection');
     };
     const onRenamed = () => {
       pendingRenameRef.current = null;
@@ -260,6 +264,11 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
 
   // When detectedCerts arrives, advance to identity
   const setCertsAndAdvance = useCallback((certs: ScannedCert[]) => {
+    // Clear the fallback timer so it doesn't bounce us back to 'identity' later
+    if (detectionTimerRef.current) {
+      clearTimeout(detectionTimerRef.current);
+      detectionTimerRef.current = null;
+    }
     setDiscoveredCerts(certs);
     setDetecting(false);
     setStep(certs.length > 0 ? 'identity' : 'profile');
@@ -291,10 +300,10 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
           transmissionMode: s.transmissionMode,
           pushToTalkKey: s.pushToTalkKey,
         },
-        speechDenoise: { mode: s.speechDenoiseMode },
         reconnectEnabled: s.reconnectEnabled,
         rememberLastChannel: s.rememberLastChannel,
         autoConnectEnabled: s.autoConnectEnabled,
+        autoConnectServerId: s.autoConnectServerId,
       };
       localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(merged));
       bridge.send('settings.set', merged);
@@ -820,20 +829,19 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
             <h2 className="heading-title onboarding-title">Interface</h2>
             <p className="onboarding-body">Customise how Brmble looks and feels.</p>
 
-            <div className="onboarding-pref-section">
-              <div className="onboarding-pref-item">
-                <label htmlFor="onboarding-theme">Theme</label>
+            <div className="settings-section">
+              <div className="settings-item">
+                <label>Theme</label>
                 <Select
                   value={settings.theme}
                   onChange={v => updateSettings({ theme: v })}
                   options={themes.map(t => ({ value: t.id, label: t.name }))}
                 />
               </div>
-              <div className="onboarding-pref-item">
-                <label htmlFor="onboarding-gotchi">Show Brmblegotchi</label>
+              <div className="settings-item settings-toggle">
+                <label>Show Brmblegotchi</label>
                 <label className="brmble-toggle">
                   <input
-                    id="onboarding-gotchi"
                     type="checkbox"
                     checked={settings.brmblegotchiEnabled}
                     onChange={e => updateSettings({ brmblegotchiEnabled: e.target.checked })}
@@ -841,15 +849,12 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
                   <span className="brmble-toggle-slider" />
                 </label>
               </div>
-              <p className="onboarding-pref-hint">
+              <p className="onboarding-hint">
                 Brmblegotchi is a small virtual companion that lives in your sidebar.
               </p>
             </div>
 
             <div className="onboarding-actions">
-              <button className="onboarding-skip-link" onClick={() => setStep('audio')}>
-                Skip
-              </button>
               <button className="btn btn-ghost" onClick={() => setStep('backup')}>Back</button>
               <button className="btn btn-primary" onClick={() => setStep('audio')}>Next</button>
             </div>
@@ -865,8 +870,9 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
               Configure your microphone and how your voice is transmitted.
             </p>
 
-            <div className="onboarding-pref-section">
-              <div className="onboarding-pref-item">
+            <div className="settings-section">
+              <h3 className="heading-section settings-section-title">Devices</h3>
+              <div className="settings-item">
                 <label>Input device</label>
                 <Select
                   value={settings.inputDevice}
@@ -874,7 +880,7 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
                   options={[{ value: 'default', label: 'Default' }]}
                 />
               </div>
-              <div className="onboarding-pref-item">
+              <div className="settings-item">
                 <label>Output device</label>
                 <Select
                   value={settings.outputDevice}
@@ -884,8 +890,8 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
               </div>
             </div>
 
-            <div className="onboarding-pref-section">
-              <h3 className="heading-section onboarding-pref-section-title">Transmission mode</h3>
+            <div className="settings-section">
+              <h3 className="heading-section settings-section-title">Transmission mode</h3>
               <div className="onboarding-tx-cards">
                 {(
                   [
@@ -908,7 +914,7 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
               </div>
 
               {settings.transmissionMode === 'pushToTalk' && (
-                <div className="onboarding-pref-item" style={{ marginTop: 'var(--space-md)' }}>
+                <div className="settings-item" style={{ marginTop: 'var(--space-md)' }}>
                   <label>Push to Talk key</label>
                   <PttKeyCapture
                     value={settings.pushToTalkKey}
@@ -918,83 +924,8 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
               )}
             </div>
 
-            <div className="onboarding-pref-section">
-              <div className="onboarding-pref-item">
-                <label>Noise suppression</label>
-                <Select
-                  value={settings.speechDenoiseMode}
-                  onChange={v => updateSettings({ speechDenoiseMode: v as 'rnnoise' | 'disabled' })}
-                  options={[
-                    { value: 'rnnoise', label: 'RNNoise' },
-                    { value: 'disabled', label: 'Disabled' },
-                  ]}
-                />
-              </div>
-            </div>
-
             <div className="onboarding-actions">
-              <button className="onboarding-skip-link" onClick={() => setStep('connection')}>
-                Skip
-              </button>
               <button className="btn btn-ghost" onClick={() => setStep('interface')}>Back</button>
-              <button className="btn btn-primary" onClick={() => setStep('connection')}>Next</button>
-            </div>
-          </>
-        )}
-
-        {/* ── Step 7: Connection ── */}
-        {step === 'connection' && (
-          <>
-            <div className="onboarding-icon">🌐</div>
-            <h2 className="heading-title onboarding-title">Connection</h2>
-            <p className="onboarding-body">
-              Configure how Brmble connects and reconnects to servers.
-            </p>
-
-            <div className="onboarding-pref-section">
-              <div className="onboarding-pref-item">
-                <label>Automatically reconnect when disconnected</label>
-                <label className="brmble-toggle">
-                  <input
-                    type="checkbox"
-                    checked={settings.reconnectEnabled}
-                    onChange={e => updateSettings({ reconnectEnabled: e.target.checked })}
-                  />
-                  <span className="brmble-toggle-slider" />
-                </label>
-              </div>
-              <div className="onboarding-pref-item">
-                <label>Rejoin last voice channel on connect</label>
-                <label className="brmble-toggle">
-                  <input
-                    type="checkbox"
-                    checked={settings.rememberLastChannel}
-                    onChange={e => updateSettings({ rememberLastChannel: e.target.checked })}
-                  />
-                  <span className="brmble-toggle-slider" />
-                </label>
-              </div>
-              <div className="onboarding-pref-item">
-                <label>Auto-connect on startup</label>
-                <label className="brmble-toggle">
-                  <input
-                    type="checkbox"
-                    checked={settings.autoConnectEnabled}
-                    onChange={e => updateSettings({ autoConnectEnabled: e.target.checked })}
-                  />
-                  <span className="brmble-toggle-slider" />
-                </label>
-              </div>
-              {settings.autoConnectEnabled && (
-                <p className="onboarding-pref-hint">
-                  Once you have added a server, Brmble can connect to it automatically when
-                  you launch the app. You can choose which server in Settings → Connection.
-                </p>
-              )}
-            </div>
-
-            <div className="onboarding-actions">
-              <button className="btn btn-ghost" onClick={() => setStep('audio')}>Back</button>
               <button
                 className="btn btn-primary"
                 onClick={() => {
@@ -1008,7 +939,7 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
           </>
         )}
 
-        {/* ── Step 8: Import Servers ── */}
+        {/* ── Step 7: Import Servers ── */}
         {step === 'servers' && (
           <>
             <div className="onboarding-icon">🖥️</div>
@@ -1020,9 +951,9 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
                   No Mumble server favourites were found on this computer.
                 </p>
                 <div className="onboarding-actions">
-                  <button className="btn btn-ghost" onClick={() => setStep('connection')}>Back</button>
-                  <button className="btn btn-primary" onClick={() => onComplete(fingerprint)}>
-                    Finish
+                  <button className="btn btn-ghost" onClick={() => setStep('audio')}>Back</button>
+                  <button className="btn btn-primary" onClick={() => setStep('connection')}>
+                    Next
                   </button>
                 </div>
               </>
@@ -1063,15 +994,15 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
                   ))}
                 </div>
                 <div className="onboarding-actions">
-                  <button className="onboarding-skip-link" onClick={() => onComplete(fingerprint)}>
+                  <button className="onboarding-skip-link" onClick={() => setStep('connection')}>
                     Skip
                   </button>
-                  <button className="btn btn-ghost" onClick={() => setStep('connection')}>Back</button>
+                  <button className="btn btn-ghost" onClick={() => setStep('audio')}>Back</button>
                   <button
                     className="btn btn-primary"
                     disabled={serversImportBusy}
                     onClick={() => {
-                      if (selectedServers.size === 0) { onComplete(fingerprint); return; }
+                      if (selectedServers.size === 0) { setStep('connection'); return; }
                       setServersImportBusy(true);
                       const toImport = [...selectedServers].map(i => mumbleServers[i]);
                       bridge.send('mumble.importServers', { servers: toImport });
@@ -1080,12 +1011,79 @@ export function OnboardingWizard({ onComplete, startAtPreferences }: OnboardingW
                     {serversImportBusy
                       ? 'Importing…'
                       : selectedServers.size === 0
-                        ? 'Finish (skip import)'
-                        : `Import ${selectedServers.size} server${selectedServers.size > 1 ? 's' : ''}`}
+                        ? 'Next (skip import)'
+                        : `Import ${selectedServers.size} & continue`}
                   </button>
                 </div>
               </>
             )}
+          </>
+        )}
+
+        {/* ── Step 8: Connection ── */}
+        {step === 'connection' && (
+          <>
+            <div className="onboarding-icon">🌐</div>
+            <h2 className="heading-title onboarding-title">Connection</h2>
+            <p className="onboarding-body">
+              Configure how Brmble connects and reconnects to servers.
+            </p>
+
+            <div className="settings-section">
+              <div className="settings-item settings-toggle">
+                <label>Automatically reconnect when disconnected</label>
+                <label className="brmble-toggle">
+                  <input
+                    type="checkbox"
+                    checked={settings.reconnectEnabled}
+                    onChange={e => updateSettings({ reconnectEnabled: e.target.checked })}
+                  />
+                  <span className="brmble-toggle-slider" />
+                </label>
+              </div>
+              <div className="settings-item settings-toggle">
+                <label>Rejoin last voice channel on connect</label>
+                <label className="brmble-toggle">
+                  <input
+                    type="checkbox"
+                    checked={settings.rememberLastChannel}
+                    onChange={e => updateSettings({ rememberLastChannel: e.target.checked })}
+                  />
+                  <span className="brmble-toggle-slider" />
+                </label>
+              </div>
+              <div className="settings-item settings-toggle">
+                <label>Auto-connect on startup</label>
+                <label className="brmble-toggle">
+                  <input
+                    type="checkbox"
+                    checked={settings.autoConnectEnabled}
+                    onChange={e => updateSettings({ autoConnectEnabled: e.target.checked })}
+                  />
+                  <span className="brmble-toggle-slider" />
+                </label>
+              </div>
+              {settings.autoConnectEnabled && (
+                <div className="settings-item">
+                  <label>Connect to</label>
+                  <Select
+                    value={settings.autoConnectServerId ?? ''}
+                    onChange={v => updateSettings({ autoConnectServerId: v === '' ? null : v })}
+                    options={[
+                      { value: '', label: 'Last connected server' },
+                      ...importedServers.map(s => ({ value: s.id, label: s.label })),
+                    ]}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="onboarding-actions">
+              <button className="btn btn-ghost" onClick={() => setStep('servers')}>Back</button>
+              <button className="btn btn-primary" onClick={() => onComplete(fingerprint)}>
+                Finish
+              </button>
+            </div>
           </>
         )}
 

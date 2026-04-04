@@ -494,6 +494,9 @@ $RECYCLE.BIN/
 # Claude Code local settings (machine-specific permissions)
 .claude/settings.local.json
 
+# Superpowers brainstorming sessions
+.superpowers/
+
 # Git worktrees
 .worktrees/
 src/Brmble.Server/generated/
