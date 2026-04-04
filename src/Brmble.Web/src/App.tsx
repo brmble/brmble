@@ -2029,7 +2029,19 @@ const handleConnect = (serverData: SavedServer) => {
       </div>
 
       {showOnboarding && (
-        <OnboardingWizard onComplete={(fp) => { setShowOnboarding(false); setCertExists(true); setCertFingerprint(fp); }} />
+        <OnboardingWizard onComplete={(fp) => {
+          setShowOnboarding(false);
+          setCertExists(true);
+          setCertFingerprint(fp);
+          // Re-read brmblegotchi setting — the wizard writes to localStorage
+          try {
+            const stored = localStorage.getItem('brmble-settings');
+            if (stored) {
+              const parsed = JSON.parse(stored);
+              setBrmblegotchiEnabledState(parsed.brmblegotchi?.enabled ?? false);
+            }
+          } catch { /* ignore */ }
+        }} />
       )}
 
       <SettingsModal

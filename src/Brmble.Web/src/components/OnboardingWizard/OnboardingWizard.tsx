@@ -170,6 +170,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   // Backup step state
   const [fingerprint, setFingerprint] = useState('');
   const [exportError, setExportError] = useState('');
+  const [certExported, setCertExported] = useState(false);
 
   // Preferences state
   const [settings, setSettings] = useState<WizardSettings>(loadInitialSettings);
@@ -810,20 +811,20 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             <div className="onboarding-actions">
               <button className="btn btn-ghost" onClick={() => setStep('profile')}>Back</button>
               <button
-                className="onboarding-skip-link"
-                onClick={() => setStep('interface')}
-              >
-                I'll do this later
-              </button>
-              <button
-                className="btn btn-primary"
+                className={certExported ? 'btn btn-ghost' : 'btn btn-primary'}
                 onClick={() => {
                   setExportError('');
                   bridge.send('cert.export');
-                  setStep('interface');
+                  setCertExported(true);
                 }}
               >
-                Export &amp; Continue
+                {certExported ? 'Export Again' : 'Export'}
+              </button>
+              <button
+                className={certExported ? 'btn btn-primary' : 'btn btn-ghost'}
+                onClick={() => setStep('interface')}
+              >
+                Continue
               </button>
             </div>
           </>
@@ -853,7 +854,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                 />
               </div>
               <div className="settings-item settings-toggle">
-                <label>Show Brmblegotchi</label>
+                <label>Enable Pet</label>
                 <label className="brmble-toggle">
                   <input
                     type="checkbox"
