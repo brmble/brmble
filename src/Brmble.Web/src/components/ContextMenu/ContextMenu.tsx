@@ -99,23 +99,27 @@ function CheckboxMenuItem({ item }: { item: { type: 'checkbox'; label: string; c
 
   return (
     <div className="context-menu-item-wrapper">
-      <button
+      <div
         className={`context-menu-item context-menu-checkbox${isDisabled ? ' context-menu-item--disabled' : ''}`}
+        role="menuitemcheckbox"
+        aria-checked={item.checked}
+        aria-disabled={isDisabled}
+        tabIndex={isDisabled ? -1 : 0}
         onClick={() => {
           if (isDisabled) return;
           item.onChange(!item.checked);
         }}
-        disabled={isDisabled}
+        onKeyDown={(e) => {
+          if (isDisabled) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            item.onChange(!item.checked);
+          }
+        }}
       >
         <span className="context-menu-label">{item.label}</span>
-        <input
-          type="checkbox"
-          checked={item.checked}
-          readOnly
-          onClick={(e) => e.stopPropagation()}
-          tabIndex={-1}
-        />
-      </button>
+        <span aria-hidden="true">{item.checked ? '☑' : '☐'}</span>
+      </div>
     </div>
   );
 }

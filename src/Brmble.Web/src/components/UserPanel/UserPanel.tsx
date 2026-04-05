@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Tooltip } from '../Tooltip/Tooltip';
 import Avatar from '../Avatar/Avatar';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
@@ -43,6 +43,41 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
   const [contextMenuInputVolume, setContextMenuInputVolume] = useState<number>(250);
   const [contextMenuOutputVolume, setContextMenuOutputVolume] = useState<number>(250);
   const activeBtn = hotkeyPressedBtn || pressedBtn;
+
+  const isAnyMenuOpen = voiceContextMenu !== null || deafenContextMenu !== null || screenShareContextMenu !== null;
+
+  useEffect(() => {
+    if (!isAnyMenuOpen) return;
+
+    const handleSettingsUpdated = (data: unknown) => {
+      const d = data as { settings?: { audio?: { transmissionMode?: string; inputVolume?: number; outputVolume?: number } } } } | undefined;
+      if (d?.settings?.audio) {
+        const audio = d.settings.audio;
+        if (audio.transmissionMode !== undefined) {
+          setContextMenuPushToTalk(audio.transmissionMode === 'pushToTalk');
+        }
+        if (audio.inputVolume !== undefined) {
+          setContextMenuInputVolume(audio.inputVolume);
+        }
+        if (audio.outputVolume !== undefined) {
+          setContextMenuOutputVolume(audio.outputVolume);
+        }
+      }
+    };
+
+    import('../../bridge').then(({ default: bridge }) => {
+      bridge.on('settings.updated', handleSettingsUpdated);
+      return () => {
+        bridge.off('settings.updated', handleSettingsUpdated);
+      };
+    }).catch((e) => console.error('Failed to load bridge:', e));
+
+    return () => {
+      import('../../bridge').then(({ default: bridge }) => {
+        bridge.off('settings.updated', handleSettingsUpdated);
+      }).catch(() => {});
+    };
+  }, [isAnyMenuOpen]);
 
   const handleMouseDown = (btn: string) => (e: React.MouseEvent) => {
     if (e.button !== 0) return;
@@ -96,31 +131,23 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
   const saveAudioSettings = (transmissionMode?: string, inputVolume?: number, outputVolume?: number) => {
     try {
       const stored = localStorage.getItem('brmble-settings');
-      const partialSettings = stored ? JSON.parse(stored) : {};
+      const existingSettings = stored ? JSON.parse(stored) : {};
+      const existingAudio = (existingSettings.audio as any) || {};
       const audioSettings = {
-        inputDevice: (partialSettings.audio as any)?.inputDevice || 'default',
-        outputDevice: (partialSettings.audio as any)?.outputDevice || 'default',
-        inputVolume: inputVolume ?? (partialSettings.audio as any)?.inputVolume ?? 250,
-        outputVolume: outputVolume ?? (partialSettings.audio as any)?.outputVolume ?? 250,
-        maxAmplification: (partialSettings.audio as any)?.maxAmplification || 100,
-        transmissionMode: transmissionMode ?? ((partialSettings.audio as any)?.transmissionMode || 'pushToTalk'),
-        pushToTalkKey: (partialSettings.audio as any)?.pushToTalkKey || null,
-        opusBitrate: (partialSettings.audio as any)?.opusBitrate || 72000,
-        opusFrameSize: (partialSettings.audio as any)?.opusFrameSize || 20,
-        captureApi: ((partialSettings.audio as any)?.captureApi || 'wasapi') as 'waveIn' | 'wasapi',
+        inputDevice: existingAudio.inputDevice || 'default',
+        outputDevice: existingAudio.outputDevice || 'default',
+        inputVolume: inputVolume ?? existingAudio.inputVolume ?? 250,
+        outputVolume: outputVolume ?? existingAudio.outputVolume ?? 250,
+        maxAmplification: existingAudio.maxAmplification || 100,
+        transmissionMode: transmissionMode ?? existingAudio.transmissionMode ?? 'pushToTalk',
+        pushToTalkKey: existingAudio.pushToTalkKey ?? null,
+        opusBitrate: existingAudio.opusBitrate || 72000,
+        opusFrameSize: existingAudio.opusFrameSize || 20,
+        captureApi: (existingAudio.captureApi || 'wasapi') as 'waveIn' | 'wasapi',
       };
       const settings = {
+        ...existingSettings,
         audio: audioSettings,
-        shortcuts: partialSettings.shortcuts || { toggleLeaveVoiceKey: null, toggleMuteDeafenKey: null, toggleMuteKey: null, toggleDMScreenKey: null, toggleScreenShareKey: null, toggleGameKey: null },
-        messages: partialSettings.messages || { showTimestamps: true, compactMode: false, wordWrap: true },
-        appearance: partialSettings.appearance || { theme: 'dark' },
-        overlay: partialSettings.overlay || { enabled: false, x: 100, y: 100 },
-        brmblegotchi: partialSettings.brmblegotchi || { enabled: false, petType: 'cat' },
-        speechDenoise: partialSettings.speechDenoise || { mode: 'rnnoise' },
-        reconnectEnabled: partialSettings.reconnectEnabled ?? true,
-        rememberLastChannel: partialSettings.rememberLastChannel ?? true,
-        autoConnectEnabled: partialSettings.autoConnectEnabled ?? false,
-        autoConnectServerId: partialSettings.autoConnectServerId ?? null,
       };
       localStorage.setItem('brmble-settings', JSON.stringify(settings));
       import('../../bridge').then(({ default: bridge }) => {
@@ -149,9 +176,9 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
       checked: contextMenuPushToTalk,
       onChange: (checked) => {
         const mode = checked ? 'pushToTalk' : 'voiceActivity';
-        const { inputVolume } = audioSettings;
+        const freshSettings = getAudioSettings();
         setContextMenuPushToTalk(checked);
-        saveAudioSettings(mode, inputVolume);
+        saveAudioSettings(mode, freshSettings.inputVolume);
       },
     },
     { type: 'divider' },
@@ -163,8 +190,8 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
       max: 250,
       onChange: (value) => {
         setContextMenuInputVolume(value);
-        const { transmissionMode } = audioSettings;
-        saveAudioSettings(transmissionMode, value);
+        const freshSettings = getAudioSettings();
+        saveAudioSettings(freshSettings.transmissionMode, value);
       },
     },
     { type: 'divider' },
@@ -273,7 +300,17 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
 
       {onToggleDeaf && (
         <Tooltip content={deafened ? 'Undeafen' : 'Deafen'} position="bottom" align="start">
-        <span className="tooltip-wrapper">
+        <span 
+          className="tooltip-wrapper"
+          onContextMenu={(e) => {
+            e.preventDefault();
+            const settings = getAudioSettings();
+            setContextMenuOutputVolume(settings.outputVolume);
+            setVoiceContextMenu(null);
+            setScreenShareContextMenu(null);
+            setDeafenContextMenu({ x: e.clientX, y: e.clientY });
+          }}
+        >
         <button 
           className={`btn btn-ghost btn-icon user-panel-btn deaf-btn ${(deafened || leftVoice) ? 'active' : ''} ${activeBtn === 'deaf' ? 'pressed' : ''} ${leftVoice || deafOnCooldown ? 'disabled' : ''}`}
           onMouseDown={handleMouseDown('deaf')}
@@ -281,12 +318,6 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
           onMouseLeave={handleMouseLeave}
           onKeyDown={handleKeyDown('deaf')}
           onKeyUp={handleKeyUp('deaf', onToggleDeaf)}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            const settings = getAudioSettings();
-            setContextMenuOutputVolume(settings.outputVolume);
-            setDeafenContextMenu({ x: e.clientX, y: e.clientY });
-          }}
           disabled={leftVoice || deafOnCooldown}
         >
           {(deafened || leftVoice) ? (
@@ -317,6 +348,8 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
             const settings = getAudioSettings();
             setContextMenuPushToTalk(settings.transmissionMode === 'pushToTalk');
             setContextMenuInputVolume(settings.inputVolume);
+            setDeafenContextMenu(null);
+            setScreenShareContextMenu(null);
             setVoiceContextMenu({ x: e.clientX, y: e.clientY });
           }}
         >
@@ -349,7 +382,22 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
 
       {onToggleScreenShare && (
         <Tooltip content={screenShareError ? `Screen share error: ${screenShareError}` : screenSharing ? 'Stop Sharing' : !canScreenShare ? 'Join a channel to share screen' : 'Share Screen'} position="bottom" align="start">
-        <span className="tooltip-wrapper">
+        <span 
+          className="tooltip-wrapper"
+          onClick={(e) => {
+            e.preventDefault();
+            const rect = e.currentTarget.getBoundingClientRect();
+            setVoiceContextMenu(null);
+            setDeafenContextMenu(null);
+            setScreenShareContextMenu({ x: rect.left, y: rect.bottom + 4 });
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setVoiceContextMenu(null);
+            setDeafenContextMenu(null);
+            setScreenShareContextMenu({ x: e.clientX, y: e.clientY });
+          }}
+        >
         <button
           className={`btn btn-ghost btn-icon user-panel-btn screen-share-btn ${(screenSharing || (!screenSharing && !canScreenShare)) ? 'active' : ''} ${activeBtn === 'screen' ? 'pressed' : ''} ${(!screenSharing && !canScreenShare) ? 'disabled' : ''}`}
           onMouseDown={handleMouseDown('screen')}
@@ -357,15 +405,6 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
           onMouseLeave={handleMouseLeave}
           onKeyDown={handleKeyDown('screen')}
           onKeyUp={handleKeyUp('screen', onToggleScreenShare)}
-          onClick={(e) => {
-            e.preventDefault();
-            const rect = e.currentTarget.getBoundingClientRect();
-            setScreenShareContextMenu({ x: rect.left, y: rect.bottom + 4 });
-          }}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            setScreenShareContextMenu({ x: e.clientX, y: e.clientY });
-          }}
           disabled={!screenSharing && !canScreenShare}
         >
           {(!screenSharing && !canScreenShare) ? (
