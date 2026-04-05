@@ -136,6 +136,7 @@ function SliderMenuItem({ item }: { item: { type: 'slider'; label: string; value
         value={item.value}
         onChange={(e) => item.onChange(parseInt(e.target.value, 10))}
         disabled={isDisabled}
+        aria-label={item.label}
       />
     </div>
   );

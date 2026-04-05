@@ -295,7 +295,7 @@ const saveAudioSettings = (transmissionMode: string, inputVolume: number) => {
     localStorage.setItem('brmble-settings', JSON.stringify(settings));
     // Notify backend via bridge
     import('../../bridge').then(({ default: bridge }) => {
-      bridge.send('settings.update', { settings });
+      bridge.send('settings.set', { settings });
     });
   } catch (e) {
     console.error('Failed to save audio settings:', e);

@@ -132,14 +132,14 @@ Need to expose audio settings state from SettingsModal context, or read from loc
 - Label: "Push to Talk"
 - Checked: `transmissionMode === 'pushToTalk'`
 - On change: Update `transmissionMode` to `'pushToTalk'` or `'voiceActivity'`
-- Saves to localStorage and sends `settings.update` via bridge
+- Saves to localStorage and sends `settings.set` via bridge
 
 ### Input Volume (slider)
 - Label: "Input Volume: {value}%"
 - Value: `inputVolume` (0-250)
 - Min: 0, Max: 250
 - On change: Update `inputVolume`
-- Saves to localStorage and sends `settings.update` via bridge
+- Saves to localStorage and sends `settings.set` via bridge
 
 ### Voice Settings (item)
 - Label: "Voice Settings"
@@ -205,4 +205,4 @@ Add styles for new item types in `ContextMenu.css`:
 
 - If localStorage read fails, use default values
 - If bridge send fails, show toast notification
-- Menu closes on any item interaction (matches existing behavior)
+- Menu closes for standard action items, but remains open for checkbox and slider interactions so users can adjust settings in place

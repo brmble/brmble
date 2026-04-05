@@ -37,6 +37,19 @@ interface UserPanelProps {
 export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, onAvatarClick, avatarUrl, matrixUserId, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, screenSharing, screenShareError, onToggleScreenShare, canScreenShare, speaking, pendingChannelAction, hotkeyPressedBtn, leaveVoiceOnCooldown, muteOnCooldown, deafOnCooldown, onOpenAudioSettings }: UserPanelProps) {
   const [pressedBtn, setPressedBtn] = useState<string | null>(null);
   const [voiceContextMenu, setVoiceContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [audioSettings, setAudioSettings] = useState<{ transmissionMode: string; inputVolume: number }>(() => {
+    try {
+      const stored = localStorage.getItem('brmble-settings');
+      if (stored) {
+        const settings = JSON.parse(stored);
+        return {
+          transmissionMode: settings?.audio?.transmissionMode || 'pushToTalk',
+          inputVolume: settings?.audio?.inputVolume ?? 250,
+        };
+      }
+    } catch {}
+    return { transmissionMode: 'pushToTalk', inputVolume: 250 };
+  });
   const activeBtn = hotkeyPressedBtn || pressedBtn;
 
   const handleMouseDown = (btn: string) => (e: React.MouseEvent) => {
@@ -73,20 +86,6 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
     }
   };
 
-  const getAudioSettings = (): { transmissionMode: string; inputVolume: number } => {
-    try {
-      const stored = localStorage.getItem('brmble-settings');
-      if (stored) {
-        const settings = JSON.parse(stored);
-        return {
-          transmissionMode: settings?.audio?.transmissionMode || 'pushToTalk',
-          inputVolume: settings?.audio?.inputVolume ?? 250,
-        };
-      }
-    } catch {}
-    return { transmissionMode: 'pushToTalk', inputVolume: 250 };
-  };
-
   const saveAudioSettings = (transmissionMode: string, inputVolume: number) => {
     try {
       const stored = localStorage.getItem('brmble-settings');
@@ -97,15 +96,14 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
         inputVolume,
       };
       localStorage.setItem('brmble-settings', JSON.stringify(settings));
+      setAudioSettings({ transmissionMode, inputVolume });
       import('../../bridge').then(({ default: bridge }) => {
-        bridge.send('settings.update', { settings });
+        bridge.send('settings.set', { settings });
       }).catch((e) => console.error('Failed to save audio settings:', e));
     } catch (e) {
       console.error('Failed to save audio settings:', e);
     }
   };
-
-  const audioSettings = getAudioSettings();
 
   const voiceContextMenuItems: ContextMenuItem[] = [
     {
@@ -203,7 +201,13 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
 
       {onToggleMute && (
         <Tooltip content={muted ? 'Unmute' : deafened ? 'Muted (deafened)' : 'Mute'} position="bottom" align="start">
-        <span className="tooltip-wrapper">
+        <span 
+          className="tooltip-wrapper"
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setVoiceContextMenu({ x: e.clientX, y: e.clientY });
+          }}
+        >
         <button 
           className={`btn btn-ghost btn-icon user-panel-btn mute-btn ${(muted || leftVoice || deafened) ? 'active' : ''} ${activeBtn === 'mute' ? 'pressed' : ''} ${(leftVoice || deafened || muteOnCooldown) ? 'disabled' : ''}`}
           onMouseDown={handleMouseDown('mute')}
@@ -211,10 +215,6 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
           onMouseLeave={handleMouseLeave}
           onKeyDown={handleKeyDown('mute')}
           onKeyUp={handleKeyUp('mute', onToggleMute)}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            setVoiceContextMenu({ x: e.clientX, y: e.clientY });
-          }}
           disabled={leftVoice || deafened || muteOnCooldown}
         >
           {(muted || leftVoice || deafened) ? (
