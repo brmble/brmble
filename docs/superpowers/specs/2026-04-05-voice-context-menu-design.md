@@ -37,7 +37,9 @@ type ContextMenuItem =
 
 ### Checkbox Item
 - Displays label with a checkbox indicator on the right
+- **Entire row is clickable** — not just the tiny checkbox box
 - Click toggles the checked state and calls `onChange`
+- Hover state highlights the entire row
 - Supports `disabled` state
 
 ### Slider Item
@@ -45,6 +47,7 @@ type ContextMenuItem =
 - Dragging updates the value in real-time and calls `onChange`
 - Value is displayed as percentage: `${value}%`
 - Min: 0, Max: 250 (matches AudioSettings inputVolume range)
+- **No hover highlight on the slider container** — only the thumb shows hover state to avoid visual confusion with clickable items
 
 ## UserPanel Changes
 
@@ -153,16 +156,25 @@ Add styles for new item types in `ContextMenu.css`:
   align-items: center;
   justify-content: space-between;
   padding: var(--space-xs) var(--space-sm);
+  cursor: pointer;
+}
+
+/* Entire row is clickable - use the button's hover styles */
+.context-menu-checkbox:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .context-menu-checkbox input[type="checkbox"] {
   width: 16px;
   height: 16px;
   accent-color: var(--accent-primary);
+  pointer-events: none; /* Click handled by parent */
 }
 
 .context-menu-slider {
   padding: var(--space-xs) var(--space-sm);
+  /* No hover highlight - avoids visual confusion with clickable items */
 }
 
 .context-menu-slider label {
@@ -174,6 +186,12 @@ Add styles for new item types in `ContextMenu.css`:
   width: 100%;
   height: 4px;
   accent-color: var(--accent-primary);
+  cursor: pointer;
+}
+
+/* Only the slider thumb shows hover state */
+.context-menu-slider input[type="range"]:hover {
+  accent-color: var(--accent-hover);
 }
 ```
 
