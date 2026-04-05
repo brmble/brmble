@@ -149,10 +149,12 @@ export function SettingsModal(props: SettingsModalProps) {
     };
 
     bridge.on('settings.current', handleCurrent);
+    bridge.on('settings.updated', handleCurrent);
     bridge.send('settings.get');
 
     return () => {
       bridge.off('settings.current', handleCurrent);
+      bridge.off('settings.updated', handleCurrent);
     };
   }, []);
 
