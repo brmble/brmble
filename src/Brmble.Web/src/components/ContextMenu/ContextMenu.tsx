@@ -96,7 +96,6 @@ function isMenuItem(item: ContextMenuItem): item is { type: 'item'; label: strin
 
 function CheckboxMenuItem({ item, onItemClick }: { item: { type: 'checkbox'; label: string; checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean }; onItemClick: () => void }) {
   const isDisabled = item.disabled;
-  const [isFocused, setIsFocused] = useState(false);
 
   return (
     <div className="context-menu-item-wrapper">
@@ -107,16 +106,14 @@ function CheckboxMenuItem({ item, onItemClick }: { item: { type: 'checkbox'; lab
           item.onChange(!item.checked);
           onItemClick();
         }}
-        onFocus={() => setIsFocused(true)}
-        onBlur={() => setIsFocused(false)}
         disabled={isDisabled}
       >
         <span className="context-menu-label">{item.label}</span>
         <input
           type="checkbox"
           checked={item.checked}
-          onChange={() => {}} // Controlled by parent
-          onClick={(e) => e.stopPropagation()} // Prevent double-toggle
+          readOnly
+          onClick={(e) => e.stopPropagation()}
           tabIndex={-1}
         />
       </button>
