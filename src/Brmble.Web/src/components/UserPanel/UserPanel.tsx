@@ -99,32 +99,34 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
       localStorage.setItem('brmble-settings', JSON.stringify(settings));
       import('../../bridge').then(({ default: bridge }) => {
         bridge.send('settings.update', { settings });
-      });
+      }).catch((e) => console.error('Failed to save audio settings:', e));
     } catch (e) {
       console.error('Failed to save audio settings:', e);
     }
   };
 
+  const audioSettings = getAudioSettings();
+
   const voiceContextMenuItems: ContextMenuItem[] = [
     {
       type: 'checkbox',
       label: 'Push to Talk',
-      checked: getAudioSettings().transmissionMode === 'pushToTalk',
+      checked: audioSettings.transmissionMode === 'pushToTalk',
       onChange: (checked) => {
         const mode = checked ? 'pushToTalk' : 'voiceActivity';
-        const { inputVolume } = getAudioSettings();
+        const { inputVolume } = audioSettings;
         saveAudioSettings(mode, inputVolume);
       },
     },
     { type: 'divider' },
     {
       type: 'slider',
-      label: `Input Volume: ${getAudioSettings().inputVolume}%`,
-      value: getAudioSettings().inputVolume,
+      label: `Input Volume: ${audioSettings.inputVolume}%`,
+      value: audioSettings.inputVolume,
       min: 0,
       max: 250,
       onChange: (value) => {
-        const { transmissionMode } = getAudioSettings();
+        const { transmissionMode } = audioSettings;
         saveAudioSettings(transmissionMode, value);
       },
     },
