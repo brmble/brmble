@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Tooltip } from '../Tooltip/Tooltip';
 import Avatar from '../Avatar/Avatar';
+import { ContextMenu } from '../ContextMenu/ContextMenu';
+import type { ContextMenuItem } from '../ContextMenu/ContextMenu';
 import './UserPanel.css';
 
 interface UserPanelProps {
@@ -29,10 +31,12 @@ interface UserPanelProps {
   leaveVoiceOnCooldown?: boolean;
   muteOnCooldown?: boolean;
   deafOnCooldown?: boolean;
+  onOpenAudioSettings?: () => void;
 }
 
-export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, onAvatarClick, avatarUrl, matrixUserId, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, screenSharing, screenShareError, onToggleScreenShare, canScreenShare, speaking, pendingChannelAction, hotkeyPressedBtn, leaveVoiceOnCooldown, muteOnCooldown, deafOnCooldown }: UserPanelProps) {
+export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, onAvatarClick, avatarUrl, matrixUserId, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, screenSharing, screenShareError, onToggleScreenShare, canScreenShare, speaking, pendingChannelAction, hotkeyPressedBtn, leaveVoiceOnCooldown, muteOnCooldown, deafOnCooldown, onOpenAudioSettings }: UserPanelProps) {
   const [pressedBtn, setPressedBtn] = useState<string | null>(null);
+  const [voiceContextMenu, setVoiceContextMenu] = useState<{ x: number; y: number } | null>(null);
   const activeBtn = hotkeyPressedBtn || pressedBtn;
 
   const handleMouseDown = (btn: string) => (e: React.MouseEvent) => {
@@ -68,6 +72,78 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
       setPressedBtn(null);
     }
   };
+
+  const getAudioSettings = (): { transmissionMode: string; inputVolume: number } => {
+    try {
+      const stored = localStorage.getItem('brmble-settings');
+      if (stored) {
+        const settings = JSON.parse(stored);
+        return {
+          transmissionMode: settings?.audio?.transmissionMode || 'pushToTalk',
+          inputVolume: settings?.audio?.inputVolume ?? 250,
+        };
+      }
+    } catch {}
+    return { transmissionMode: 'pushToTalk', inputVolume: 250 };
+  };
+
+  const saveAudioSettings = (transmissionMode: string, inputVolume: number) => {
+    try {
+      const stored = localStorage.getItem('brmble-settings');
+      const settings = stored ? JSON.parse(stored) : {};
+      settings.audio = {
+        ...settings.audio,
+        transmissionMode,
+        inputVolume,
+      };
+      localStorage.setItem('brmble-settings', JSON.stringify(settings));
+      import('../../bridge').then(({ default: bridge }) => {
+        bridge.send('settings.update', { settings });
+      });
+    } catch (e) {
+      console.error('Failed to save audio settings:', e);
+    }
+  };
+
+  const voiceContextMenuItems: ContextMenuItem[] = [
+    {
+      type: 'checkbox',
+      label: 'Push to Talk',
+      checked: getAudioSettings().transmissionMode === 'pushToTalk',
+      onChange: (checked) => {
+        const mode = checked ? 'pushToTalk' : 'voiceActivity';
+        const { inputVolume } = getAudioSettings();
+        saveAudioSettings(mode, inputVolume);
+      },
+    },
+    { type: 'divider' },
+    {
+      type: 'slider',
+      label: `Input Volume: ${getAudioSettings().inputVolume}%`,
+      value: getAudioSettings().inputVolume,
+      min: 0,
+      max: 250,
+      onChange: (value) => {
+        const { transmissionMode } = getAudioSettings();
+        saveAudioSettings(transmissionMode, value);
+      },
+    },
+    { type: 'divider' },
+    {
+      type: 'item',
+      label: 'Voice Settings',
+      icon: (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      ),
+      onClick: () => {
+        setVoiceContextMenu(null);
+        onOpenAudioSettings?.();
+      },
+    },
+  ];
 
   return (
     <div className="user-panel">
@@ -133,6 +209,10 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
           onMouseLeave={handleMouseLeave}
           onKeyDown={handleKeyDown('mute')}
           onKeyUp={handleKeyUp('mute', onToggleMute)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setVoiceContextMenu({ x: e.clientX, y: e.clientY });
+          }}
           disabled={leftVoice || deafened || muteOnCooldown}
         >
           {(muted || leftVoice || deafened) ? (
@@ -233,6 +313,14 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
         <Avatar user={{ name: username || '', matrixUserId: matrixUserId, avatarUrl: avatarUrl }} size={20} speaking={speaking} />
       </button>
       </Tooltip>
+      {voiceContextMenu && (
+        <ContextMenu
+          x={voiceContextMenu.x}
+          y={voiceContextMenu.y}
+          items={voiceContextMenuItems}
+          onClose={() => setVoiceContextMenu(null)}
+        />
+      )}
     </div>
   );
 }
