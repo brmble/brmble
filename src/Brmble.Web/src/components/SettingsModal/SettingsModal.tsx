@@ -125,34 +125,43 @@ export function SettingsModal(props: SettingsModalProps) {
   }), [settings.audio.pushToTalkKey, settings.shortcuts]);
 
   useEffect(() => {
+    let bridgeModule: { default: typeof import('../../bridge').default } | null = null;
+
     const handleCurrent = (data: unknown) => {
       const d = data as { settings?: AppSettings } | undefined;
       if (d?.settings) {
-        // Normalize speechDenoise mode to valid values
-        const normalizedDenoise = { ...DEFAULT_SPEECH_DENOISE, ...d.settings.speechDenoise };
-        const validModes = ['disabled', 'rnnoise', 'gtcrn'];
-        if (!validModes.includes(normalizedDenoise.mode)) {
-          normalizedDenoise.mode = 'rnnoise';
-        }
-        // Backend doesn't have brmblegotchi, so preserve existing/local value if missing
-        const mergedSettings = {
-          ...DEFAULT_SETTINGS,
-          ...d.settings,
-          brmblegotchi: d.settings.brmblegotchi ?? settings.brmblegotchi ?? DEFAULT_BRMBLEGOTCHI,
-          speechDenoise: normalizedDenoise,
-        };
-        setSettings(mergedSettings);
-        if (d.settings.appearance?.theme) {
-          applyTheme(d.settings.appearance.theme);
-        }
+        setSettings(prev => {
+          const normalizedDenoise = { ...DEFAULT_SPEECH_DENOISE, ...d.settings!.speechDenoise };
+          const validModes = ['disabled', 'rnnoise', 'gtcrn'];
+          if (!validModes.includes(normalizedDenoise.mode)) {
+            normalizedDenoise.mode = 'rnnoise';
+          }
+          const mergedSettings = {
+            ...DEFAULT_SETTINGS,
+            ...d.settings!,
+            brmblegotchi: d.settings!.brmblegotchi ?? prev.brmblegotchi ?? DEFAULT_BRMBLEGOTCHI,
+            speechDenoise: normalizedDenoise,
+          };
+          if (d.settings!.appearance?.theme) {
+            applyTheme(d.settings!.appearance.theme);
+          }
+          return mergedSettings;
+        });
       }
     };
 
-    bridge.on('settings.current', handleCurrent);
-    bridge.send('settings.get');
+    import('../../bridge').then(module => {
+      bridgeModule = module;
+      module.default.on('settings.current', handleCurrent);
+      module.default.on('settings.updated', handleCurrent);
+      module.default.send('settings.get');
+    });
 
     return () => {
-      bridge.off('settings.current', handleCurrent);
+      if (bridgeModule) {
+        bridgeModule.default.off('settings.current', handleCurrent);
+        bridgeModule.default.off('settings.updated', handleCurrent);
+      }
     };
   }, []);
 

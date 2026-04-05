@@ -5,7 +5,9 @@ const MOUSE_LEAVE_CLOSE_DELAY = 400;
 
 type ContextMenuItem =
   | { type: 'divider' }
-  | { type: 'item'; label: string; onClick?: () => void; icon?: React.ReactNode; disabled?: boolean; children?: ContextMenuItem[] };
+  | { type: 'item'; label: string; onClick?: () => void; icon?: React.ReactNode; disabled?: boolean; children?: ContextMenuItem[] }
+  | { type: 'checkbox'; label: string; checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean }
+  | { type: 'slider'; label: string; value: number; min: number; max: number; onChange: (value: number) => void; disabled?: boolean };
 
 function isDivider(item: ContextMenuItem): item is { type: 'divider' } {
   return item.type === 'divider';
@@ -92,11 +94,71 @@ function isMenuItem(item: ContextMenuItem): item is { type: 'item'; label: strin
   return item.type === 'item';
 }
 
+function CheckboxMenuItem({ item }: { item: { type: 'checkbox'; label: string; checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean } }) {
+  const isDisabled = item.disabled;
+
+  return (
+    <div className="context-menu-item-wrapper">
+      <div
+        className={`context-menu-item context-menu-checkbox${isDisabled ? ' context-menu-item--disabled' : ''}`}
+        role="menuitemcheckbox"
+        aria-checked={item.checked}
+        aria-disabled={isDisabled}
+        tabIndex={isDisabled ? -1 : 0}
+        onClick={() => {
+          if (isDisabled) return;
+          item.onChange(!item.checked);
+        }}
+        onKeyDown={(e) => {
+          if (isDisabled) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            item.onChange(!item.checked);
+          }
+        }}
+      >
+        <span className="context-menu-label">{item.label}</span>
+        <span aria-hidden="true">{item.checked ? '☑' : '☐'}</span>
+      </div>
+    </div>
+  );
+}
+
+function SliderMenuItem({ item }: { item: { type: 'slider'; label: string; value: number; min: number; max: number; onChange: (value: number) => void; disabled?: boolean } }) {
+  const isDisabled = item.disabled;
+
+  return (
+    <div className={`context-menu-item-wrapper context-menu-slider${isDisabled ? ' context-menu-item--disabled' : ''}`}>
+      <div className="context-menu-slider-label">
+        <span className="context-menu-label">{item.label}</span>
+      </div>
+      <input
+        type="range"
+        className="context-menu-slider-input"
+        min={item.min}
+        max={item.max}
+        value={item.value}
+        onChange={(e) => item.onChange(parseInt(e.target.value, 10))}
+        disabled={isDisabled}
+        aria-label={item.label}
+      />
+    </div>
+  );
+}
+
 function MenuItem({ item, depth, onItemClick }: MenuItemProps) {
   if (isDivider(item)) {
     return (
       <div className="context-menu-divider" role="separator" aria-orientation="horizontal" />
     );
+  }
+
+  if (item.type === 'checkbox') {
+    return <CheckboxMenuItem item={item} />;
+  }
+
+  if (item.type === 'slider') {
+    return <SliderMenuItem item={item} />;
   }
 
   if (!isMenuItem(item)) {
@@ -220,7 +282,10 @@ export function ContextMenu({ x, y, items, onClose, mouseLeaveDelay = MOUSE_LEAV
     if (isMenuItem(item) && item.onClick) {
       item.onClick();
     }
-    onClose();
+    // Don't close on checkbox or slider interactions — let user continue adjusting
+    if (item.type === 'item' || item.type === 'divider') {
+      onClose();
+    }
   };
 
   return (
