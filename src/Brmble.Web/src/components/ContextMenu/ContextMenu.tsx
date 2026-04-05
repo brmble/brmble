@@ -94,7 +94,7 @@ function isMenuItem(item: ContextMenuItem): item is { type: 'item'; label: strin
   return item.type === 'item';
 }
 
-function CheckboxMenuItem({ item, onItemClick }: { item: { type: 'checkbox'; label: string; checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean }; onItemClick: () => void }) {
+function CheckboxMenuItem({ item }: { item: { type: 'checkbox'; label: string; checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean } }) {
   const isDisabled = item.disabled;
 
   return (
@@ -104,7 +104,6 @@ function CheckboxMenuItem({ item, onItemClick }: { item: { type: 'checkbox'; lab
         onClick={() => {
           if (isDisabled) return;
           item.onChange(!item.checked);
-          onItemClick();
         }}
         disabled={isDisabled}
       >
@@ -150,7 +149,7 @@ function MenuItem({ item, depth, onItemClick }: MenuItemProps) {
   }
 
   if (item.type === 'checkbox') {
-    return <CheckboxMenuItem item={item} onItemClick={onItemClick} />;
+    return <CheckboxMenuItem item={item} />;
   }
 
   if (item.type === 'slider') {
