@@ -107,6 +107,7 @@ interface SavedServer {
   password?: string;
   registered?: boolean;
   registeredName?: string;
+  defaultProfileId?: string;
 }
 
 interface Channel {
@@ -158,7 +159,7 @@ function App() {
   const [certExists, setCertExists] = useState<boolean | null>(null);
   const [certFingerprint, setCertFingerprint] = useState('');
   const [activeProfileName, setActiveProfileName] = useState('');
-
+  const [profiles, setProfiles] = useState<Array<{ id: string; name: string }>>([]);
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
   const { statuses, updateStatus, resetStatuses } = useServiceStatus();
@@ -1078,6 +1079,7 @@ function App() {
 
     const onProfilesList = (data: unknown) => {
       const d = data as { profiles: Array<{ id: string; name: string }>; activeProfileId: string | null };
+      setProfiles(d.profiles ?? []);
       if (d.activeProfileId) {
         const active = d.profiles.find(p => p.id === d.activeProfileId);
         if (active) setActiveProfileName(active.name);
@@ -1085,17 +1087,27 @@ function App() {
     };
 
     const onAutoConnect = (data: unknown) => {
-      const server = data as { id: string; label: string; apiUrl?: string; host?: string; port?: number } | undefined;
+      const server = data as { id: string; label: string; apiUrl?: string; host?: string; port?: number; defaultProfileId?: string } | undefined;
       if (server) {
         setServerLabel(server.label || `${server.host}:${server.port}`);
+
+        // Apply per-server profile override on auto-connect
+        let effectiveName = activeProfileName;
+        if (server.defaultProfileId) {
+          const overrideProfile = profiles.find(p => p.id === server.defaultProfileId);
+          if (overrideProfile) effectiveName = overrideProfile.name;
+          bridge.send('profiles.setActive', { id: server.defaultProfileId });
+        }
+
         handleConnect({
           id: server.id,
           label: server.label,
           apiUrl: server.apiUrl,
           host: server.host || '',
           port: server.port || 0,
-          username: activeProfileName || 'Brmble User',
+          username: effectiveName || 'Brmble User',
           password: '',
+          defaultProfileId: server.defaultProfileId,
         });
       }
     };
@@ -1335,16 +1347,29 @@ const handleConnect = (serverData: SavedServer) => {
 
   const handleServerConnect = (server: ServerEntry) => {
     setServerLabel(server.label || `${server.host}:${server.port}`);
+
+    // Resolve the effective profile name synchronously before switching profiles.
+    // If the server has a defaultProfileId override, look it up in the profiles list
+    // rather than using activeProfileName (which would be stale until the async
+    // profiles.activeChanged event arrives).
+    let effectiveProfileName = activeProfileName;
+    if (server.defaultProfileId) {
+      const overrideProfile = profiles.find(p => p.id === server.defaultProfileId);
+      if (overrideProfile) effectiveProfileName = overrideProfile.name;
+      bridge.send('profiles.setActive', { id: server.defaultProfileId });
+    }
+
     handleConnect({
       id: server.id,
       label: server.label,
       apiUrl: server.apiUrl,
       host: server.host,
       port: server.port,
-      username: (server.registered ? server.registeredName : null) || activeProfileName || 'Brmble User',
+      username: (!server.defaultProfileId && server.registered ? server.registeredName : null) || effectiveProfileName || 'Brmble User',
       password: server.password || '',
       registered: server.registered,
       registeredName: server.registeredName,
+      defaultProfileId: server.defaultProfileId,
     });
   };
 

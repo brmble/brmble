@@ -10,6 +10,7 @@ export interface ServerEntry {
   password: string;
   registered?: boolean;
   registeredName?: string;
+  defaultProfileId?: string;
 }
 
 export function useServerlist() {
