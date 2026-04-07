@@ -689,11 +689,22 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.SetOpusFrameMs(settings.Audio.OpusFrameSize);
         _audioManager?.SetCaptureApi(settings.Audio.CaptureApi);
 
+        // Determine effective speech enhancement state.
+        // The SpeechDenoise dropdown can select GTCRN, which should activate the
+        // GTCRN speech enhancement model.  The separate SpeechEnhancement settings
+        // also control this, so we merge both: GTCRN denoise mode forces it on,
+        // otherwise we fall back to the explicit SpeechEnhancement setting.
+        var denoiseMode = settings.SpeechDenoise.Mode;
+        var gtcrnViaDenoise = denoiseMode == SpeechDenoiseMode.Gtcrn;
+
+        var seEnabled = gtcrnViaDenoise || settings.SpeechEnhancement.Enabled;
+        var seModel = gtcrnViaDenoise
+            ? "dns3"
+            : (settings.SpeechEnhancement.Model ?? "").Trim().ToLowerInvariant();
+
         // Only reinitialise speech enhancement when its settings actually change.
         // ConfigureSpeechEnhancement disposes and recreates the ONNX InferenceSession,
         // which causes a native crash if the mic callback is mid-inference at that moment.
-        var seEnabled = settings.SpeechEnhancement.Enabled;
-        var seModel = (settings.SpeechEnhancement.Model ?? "").Trim().ToLowerInvariant();
         if (seEnabled != _lastSpeechEnhancementEnabled || seModel != _lastSpeechEnhancementModel)
         {
             _lastSpeechEnhancementEnabled = seEnabled;
@@ -708,12 +719,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _audioManager?.ConfigureSpeechEnhancement(modelsPath, seEnabled, modelVariant);
         }
 
-        // Configure RNNoise denoising
-        var denoiseMode = settings.SpeechDenoise.Mode;
-        if (denoiseMode != _lastSpeechDenoiseMode)
+        // Configure RNNoise denoising.
+        // GTCRN and RNNoise are mutually exclusive — when GTCRN is active via the
+        // denoise dropdown, force RNNoise off so they don't both process audio.
+        var effectiveDenoiseMode = gtcrnViaDenoise ? SpeechDenoiseMode.Disabled : denoiseMode;
+        if (effectiveDenoiseMode != _lastSpeechDenoiseMode)
         {
-            _lastSpeechDenoiseMode = denoiseMode;
-            _audioManager?.ConfigureRnnoise(denoiseMode);
+            _lastSpeechDenoiseMode = effectiveDenoiseMode;
+            _audioManager?.ConfigureRnnoise(effectiveDenoiseMode);
         }
     }
 

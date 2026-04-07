@@ -31,7 +31,7 @@ export interface AudioSettings {
 }
 
 export interface SpeechDenoiseSettings {
-  mode: 'rnnoise' | 'disabled';
+  mode: 'rnnoise' | 'gtcrn' | 'disabled';
 }
 
 export const DEFAULT_SETTINGS: AudioSettings = {
@@ -230,7 +230,7 @@ export function AudioSettingsTab({ settings, speechDenoise, onChange, onSpeechDe
         <div className="settings-item">
           <label>
             Noise Suppression
-            <span className="tooltip-icon" data-tooltip="Lightweight noise suppression that runs efficiently on the CPU.">?</span>
+            <span className="tooltip-icon" data-tooltip="RNNoise: lightweight noise suppression that runs efficiently on the CPU. GTCRN: deep learning-based noise suppression for higher quality (requires more CPU).">?</span>
           </label>
           <Select
             value={speechDenoise.mode}
@@ -238,6 +238,7 @@ export function AudioSettingsTab({ settings, speechDenoise, onChange, onSpeechDe
             options={[
               { value: 'disabled', label: 'Disabled' },
               { value: 'rnnoise', label: 'RNNoise' },
+              { value: 'gtcrn', label: 'GTCRN' },
             ]}
           />
         </div>
