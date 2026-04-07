@@ -49,8 +49,10 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
   useEffect(() => {
     if (!isAnyMenuOpen) return;
 
+    let active = true;
     const handleSettingsUpdated = (data: unknown) => {
-      const d = data as { settings?: { audio?: { transmissionMode?: string; inputVolume?: number; outputVolume?: number } } } } | undefined;
+      if (!active) return;
+      const d = data as { settings?: { audio?: { transmissionMode?: string; inputVolume?: number; outputVolume?: number } } } | undefined;
       if (d?.settings?.audio) {
         const audio = d.settings.audio;
         if (audio.transmissionMode !== undefined) {
@@ -63,6 +65,18 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
           setContextMenuOutputVolume(audio.outputVolume);
         }
       }
+    };
+
+    import('../../bridge').then(({ default: bridge }) => {
+      if (!active) return;
+      bridge.on('settings.updated', handleSettingsUpdated);
+    }).catch((e) => console.error('Failed to load bridge:', e));
+
+    return () => {
+      active = false;
+      import('../../bridge').then(({ default: bridge }) => {
+        bridge.off('settings.updated', handleSettingsUpdated);
+      }).catch(() => {});
     };
 
     import('../../bridge').then(({ default: bridge }) => {

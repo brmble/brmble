@@ -694,6 +694,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         // ConfigureSpeechEnhancement disposes and recreates the ONNX InferenceSession,
         // which causes a native crash if the mic callback is mid-inference at that moment.
         var seEnabled = settings.SpeechEnhancement.Enabled;
+        var effectiveDenoiseMode = seEnabled ? SpeechDenoiseMode.Disabled : settings.SpeechDenoise.Mode;
         var seModel = (settings.SpeechEnhancement.Model ?? "").Trim().ToLowerInvariant();
         if (seEnabled != _lastSpeechEnhancementEnabled || seModel != _lastSpeechEnhancementModel)
         {
@@ -709,8 +710,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _audioManager?.ConfigureSpeechEnhancement(modelsPath, seEnabled, modelVariant);
         }
 
-        // Configure RNNoise denoising
-        var denoiseMode = settings.SpeechDenoise.Mode;
+        // Configure RNNoise denoising - always disabled when speech enhancement is active
+        // (they are mutually exclusive: GTCRN vs RNNoise, not both)
+        var denoiseMode = effectiveDenoiseMode;
         if (denoiseMode != _lastSpeechDenoiseMode)
         {
             _lastSpeechDenoiseMode = denoiseMode;
