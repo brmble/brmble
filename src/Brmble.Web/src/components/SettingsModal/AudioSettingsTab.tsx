@@ -231,7 +231,7 @@ export function AudioSettingsTab({ settings, speechDenoise, onChange, onSpeechDe
             <div className="settings-item settings-slider">
               <label>
                 Hold Time: {localSettings.voiceHoldMs}ms{localSettings.voiceHoldMs === 200 ? ' (default)' : ''}
-                <span className="tooltip-icon" data-tooltip="How long to keep the speaking indicator active after you stop talking. Higher values prevent the indicator from flickering during brief pauses.">?</span>
+                <span className="tooltip-icon" data-tooltip="How long to keep transmitting after you release Push to Talk. Higher values add a short silence tail to help avoid clipping words during brief pauses or at the end of speech.">?</span>
               </label>
               <input
                 type="range"

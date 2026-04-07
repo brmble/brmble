@@ -2,7 +2,7 @@
 
 ## Overview
 
-Add a "Hold Time" slider to the Audio Settings tab in the Transmission section. This setting controls how long the microphone keeps transmitting after speech stops, preventing cut-off when pausing between words.
+Add a "Hold Time" slider to the Audio Settings tab in the Transmission section. This setting controls how long the microphone keeps transmitting after the user releases **Push to Talk**, helping avoid clipping the end of a transmission.
 
 The setting only appears when **Push to Talk** mode is selected, placed below the "Push to Talk Key" binding.
 
@@ -73,15 +73,15 @@ Update `SetVoiceHoldMs(int ms)` method (add if not exists) to accept the value.
 
 ### 5. Bridge Communication
 
-**File:** `src/Brmble.Client/Services/Voice/VoiceService.cs`
+**File:** `src/Brmble.Client/Services/Voice/MumbleAdapter.cs`
 
-Route `voiceHoldMs` from settings to `AudioManager.SetVoiceHoldMs()`.
+Apply `voiceHoldMs` from settings in `MumbleAdapter.ApplySettings()` so it reaches `AudioManager.SetVoiceHoldMs()`.
 
 ## Files to Modify
 
 1. `src/Brmble.Web/src/components/SettingsModal/AudioSettingsTab.tsx` — add slider UI
 2. `src/Brmble.Web/src/components/SettingsModal/SettingsModal.tsx` — ensure persistence
-3. `src/Brmble.Client/Services/Voice/VoiceService.cs` — wire up setting
+3. `src/Brmble.Client/Services/Voice/MumbleAdapter.cs` — wire up setting in `ApplySettings()`
 4. `src/Brmble.Client/Services/Voice/AudioManager.cs` — implement configurable hold time
 
 ## Testing

@@ -1834,7 +1834,8 @@ private int _screenShareHotkeyId = -1;
             }
 
             // Check local user: if no audio submitted recently, mark as stopped speaking
-            if (_localUserId != 0 && _currentlySpeaking.Contains(_localUserId))
+            // Only apply hold time for PTT mode to avoid affecting VAD/continuous mode behavior
+            if (_localUserId != 0 && _currentlySpeaking.Contains(_localUserId) && _transmissionMode == TransmissionMode.PushToTalk)
             {
                 long elapsed = Environment.TickCount64 - _lastLocalAudioMs;
                 if (elapsed > _voiceHoldMs)
