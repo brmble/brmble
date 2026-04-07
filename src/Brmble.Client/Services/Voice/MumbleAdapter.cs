@@ -688,6 +688,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.SetOpusBitrate(settings.Audio.OpusBitrate);
         _audioManager?.SetOpusFrameMs(settings.Audio.OpusFrameSize);
         _audioManager?.SetCaptureApi(settings.Audio.CaptureApi);
+        _audioManager?.SetVoiceHoldMs(settings.Audio.VoiceHoldMs);
 
         // Only reinitialise speech enhancement when its settings actually change.
         // ConfigureSpeechEnhancement disposes and recreates the ONNX InferenceSession,

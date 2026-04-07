@@ -208,7 +208,7 @@ private int _screenShareHotkeyId = -1;
     private const int PttSilenceTailFrames = 4; // 4 × 20 ms = 80 ms tail
     private uint _localUserId = 0;
     private long _lastLocalAudioMs; // monotonic timestamp of last local audio submission
-    private const long LocalSpeakingTimeoutMs = 300; // 300ms silence → stop speaking
+    private int _voiceHoldMs = 200;
 
     // Volume controls
     private volatile float _inputVolume = 1.0f;
@@ -266,6 +266,7 @@ private int _screenShareHotkeyId = -1;
 
     public void SetInputVolume(int percentage) => _inputVolume = Math.Clamp(percentage, 0, 250) / 100f;
     public void SetMaxAmplification(int percentage) => _maxAmplification = Math.Clamp(percentage, 100, 400) / 100f;
+    public void SetVoiceHoldMs(int ms) => _voiceHoldMs = Math.Clamp(ms, 100, 2000);
 
     // Allowed Opus bitrates (bps). Must match the UI options in AudioSettingsTab.tsx.
     private static readonly int[] AllowedBitrates = { 24000, 40000, 56000, 72000, 96000, 128000 };
@@ -1792,7 +1793,7 @@ private int _screenShareHotkeyId = -1;
         {
             AudioLog.Write("[Audio] PTT released — scheduling silence tail");
             // Gate live mic immediately (OnMicData checks _pttActive), then
-            // fire the silence tail on a background thread right away (dueTime=0).
+            // fire the silence tail after the hold delay.
             _pttSilenceTailTimer?.Dispose();
             _pttSilenceTailTimer = null;
             int generation = Interlocked.Increment(ref _pttSilenceTailGeneration);
@@ -1804,7 +1805,7 @@ private int _screenShareHotkeyId = -1;
                     return;
                 if (_pttActive || _muted) return;
                 StopMicWithSilenceTail();
-            }, null, dueTime: 0, period: Timeout.Infinite);
+            }, null, dueTime: _voiceHoldMs, period: Timeout.Infinite);
         }
     }
 
@@ -1836,7 +1837,7 @@ private int _screenShareHotkeyId = -1;
             if (_localUserId != 0 && _currentlySpeaking.Contains(_localUserId))
             {
                 long elapsed = Environment.TickCount64 - _lastLocalAudioMs;
-                if (elapsed > LocalSpeakingTimeoutMs)
+                if (elapsed > _voiceHoldMs)
                 {
                     _currentlySpeaking.Remove(_localUserId);
                     (stopped ??= new()).Add(_localUserId);
