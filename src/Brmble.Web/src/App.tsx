@@ -1918,6 +1918,7 @@ const handleConnect = (serverData: SavedServer) => {
         dmActive={dmStore.appMode === 'dm'}
         unreadDMCount={totalDmUnreadCount}
         onOpenSettings={() => { setSettingsTab('profile'); setShowSettings(true); }}
+        onOpenAudioSettings={() => { setSettingsTab('audio'); setShowSettings(true); }}
         onAvatarClick={connected ? () => setShowAvatarEditor(true) : undefined}
         avatarUrl={currentUserAvatarUrl}
         matrixUserId={matrixCredentials?.userId}

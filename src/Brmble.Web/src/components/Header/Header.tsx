@@ -9,6 +9,7 @@ interface HeaderProps {
   dmActive?: boolean;
   unreadDMCount?: number;
   onOpenSettings: () => void;
+  onOpenAudioSettings?: () => void;
   onAvatarClick?: () => void;
   avatarUrl?: string;
   matrixUserId?: string;
@@ -32,7 +33,7 @@ interface HeaderProps {
   deafOnCooldown?: boolean;
 }
 
-export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, onAvatarClick, avatarUrl, matrixUserId, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, screenSharing, screenShareError, onToggleScreenShare, canScreenShare, speaking, pendingChannelAction, hotkeyPressedBtn, onToggleGame, leaveVoiceOnCooldown, muteOnCooldown, deafOnCooldown }: HeaderProps) {
+export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, onOpenAudioSettings, onAvatarClick, avatarUrl, matrixUserId, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, screenSharing, screenShareError, onToggleScreenShare, canScreenShare, speaking, pendingChannelAction, hotkeyPressedBtn, onToggleGame, leaveVoiceOnCooldown, muteOnCooldown, deafOnCooldown }: HeaderProps) {
   return (
     <header className="header">
       <div className="header-left">
@@ -47,6 +48,7 @@ export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSe
           dmActive={dmActive}
           unreadDMCount={unreadDMCount}
           onOpenSettings={onOpenSettings}
+          onOpenAudioSettings={onOpenAudioSettings}
           onAvatarClick={onAvatarClick}
           avatarUrl={avatarUrl}
           matrixUserId={matrixUserId}
