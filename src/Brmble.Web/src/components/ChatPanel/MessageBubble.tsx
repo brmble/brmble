@@ -31,6 +31,7 @@ interface MessageBubbleProps {
   pending?: boolean;
   error?: boolean;
   onDismiss?: (messageId: string) => void;
+  onOpenContextMenu?: (x: number, y: number, sender: string, senderMatrixUserId?: string) => void;
 }
 
 /** Highlight search matches within a plain-text string, returning React nodes. */
@@ -153,7 +154,12 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
   const firstUrl = (!isSystem && content) ? extractFirstUrl(content) : null;
 
   return (
-    <div ref={ref} className={classes.join(' ')} data-message-index={messageIndex} {...rest}>
+    <div ref={ref} className={classes.join(' ')} data-message-index={messageIndex} {...rest} onContextMenu={(e) => {
+  if (onOpenContextMenu) {
+    e.preventDefault();
+    onOpenContextMenu(e.clientX, e.clientY, sender, senderMatrixUserId);
+  }
+}}>
       {collapsed ? (
         <div className="message-gutter">
           <span className="message-hover-time">{formatTime(timestamp)}</span>
