@@ -7,7 +7,7 @@
 
 .message-bubble:hover,
 .message-bubble:focus-within {
-  background: var(--bg-hover);
+  background: rgba(128, 128, 128, 0.05);
 }
 
 .message-avatar {
