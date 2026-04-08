@@ -2005,6 +2005,7 @@ const handleConnect = (serverData: SavedServer) => {
                     screenSharerName={activeShare?.userName}
                     onCloseScreenShare={disconnectViewer}
                     users={users}
+                    onMessageContextMenu={handleStartDMFromContextMenu}
                   />
                   </ErrorBoundary>
                 </div>
@@ -2023,6 +2024,7 @@ const handleConnect = (serverData: SavedServer) => {
                     users={users}
                     disabled={dmStore.selectedContact?.isEphemeral === true && dmStore.selectedContact?.mumbleSessionId == null}
                     topNotice={dmStore.selectedContact?.isEphemeral ? 'This is a Mumble direct message. Chat history will be lost when you disconnect.' : undefined}
+                    onMessageContextMenu={handleStartDMFromContextMenu}
                   />
                   </ErrorBoundary>
                 </div>
