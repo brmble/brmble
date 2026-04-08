@@ -421,11 +421,18 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     };
   }, [credentials, roomIdToChannelId, updateStatus]);
 
-  const sendMessage = useCallback(async (channelId: string, text: string) => {
+  const sendMessage = useCallback(async (channelId: string, text: string, replyTo?: { sender: string; content: string } | null) => {
     if (!credentials || !clientRef.current) return;
     const roomId = credentials.roomMap[channelId];
     if (!roomId) return;
-    await clientRef.current.sendMessage(roomId, { msgtype: MsgType.Text, body: text });
+    
+    let body = text;
+    if (replyTo) {
+      const replyLine = replyTo.content.split('\n')[0].slice(0, 50);
+      body = `> ${replyTo.sender}: ${replyLine}\n> ...\n\n${text}`;
+    }
+    
+    await clientRef.current.sendMessage(roomId, { msgtype: MsgType.Text, body });
   }, [credentials]);
 
   const sendImageMessage = useCallback(async (channelId: string, file: File, mxcUrl: string) => {

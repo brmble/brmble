@@ -6,15 +6,16 @@ import { validateImageFile } from '../../utils/imageUpload';
 import './MessageInput.css';
 
 interface MessageInputProps {
-  onSend: (content: string, image?: File) => void;
+  onSend: (content: string, image?: File, replyTo?: { sender: string; content: string } | null) => void;
   placeholder?: string;
   mentionableUsers?: MentionableUser[];
   disabled?: boolean;
   replyTo?: { sender: string; content: string } | null;
   onCancelReply?: () => void;
+  onReplySent?: () => void;
 }
 
-export function MessageInput({ onSend, placeholder = 'Type a message...', mentionableUsers = [], disabled, replyTo, onCancelReply }: MessageInputProps) {
+export function MessageInput({ onSend, placeholder = 'Type a message...', mentionableUsers = [], disabled, replyTo, onCancelReply, onReplySent }: MessageInputProps) {
   const [message, setMessage] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -216,12 +217,15 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
 
   const handleSend = () => {
     if (message.trim() || pendingImage) {
-      onSend(message.trim(), pendingImage ?? undefined);
+      onSend(message.trim(), pendingImage ?? undefined, replyTo ?? undefined);
       setMessage('');
       setMentionActive(false);
       setPendingImage(null);
       if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
       setImagePreviewUrl(null);
+      if (replyTo && onReplySent) {
+        onReplySent();
+      }
     }
   };
 

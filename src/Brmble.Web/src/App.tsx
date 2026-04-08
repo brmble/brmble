@@ -1421,7 +1421,7 @@ const handleConnect = (serverData: SavedServer) => {
     dmStore.clearSelection();
   };
 
-  const handleSendMessage = (content: string, image?: File) => {
+  const handleSendMessage = (content: string, image?: File, replyTo?: { sender: string; content: string } | null) => {
     if (!username || (!content && !image)) return;
 
     const channelId = currentChannelId;
@@ -1433,7 +1433,7 @@ const handleConnect = (serverData: SavedServer) => {
     // Send text content (existing behavior)
     if (content) {
       if (!isMatrixChannel) {
-        addMessage(username, content);
+        addMessage(username, content, undefined, undefined, undefined, undefined, replyTo ?? undefined);
       }
 
       if (channelId === 'server-root') {
@@ -1441,7 +1441,7 @@ const handleConnect = (serverData: SavedServer) => {
       } else {
         bridge.send('voice.sendMessage', { message: content, channelId: Number(channelId) });
         if (isMatrixChannel) {
-          matrixClient.sendMessage(channelId, content).catch(console.error);
+          matrixClient.sendMessage(channelId, content, replyTo ?? undefined).catch(console.error);
         }
       }
     }

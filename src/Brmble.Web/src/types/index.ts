@@ -53,6 +53,10 @@ export interface ChatMessage {
   media?: MediaAttachment[];
   pending?: boolean;
   error?: boolean;
+  replyTo?: {
+    sender: string;
+    content: string;
+  };
 }
 
 export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed' | 'disconnected';

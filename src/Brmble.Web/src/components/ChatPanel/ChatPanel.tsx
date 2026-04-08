@@ -17,7 +17,7 @@ interface ChatPanelProps {
   channelName?: string;
   messages: ChatMessage[];
   currentUsername?: string;
-  onSendMessage: (content: string, image?: File) => void;
+  onSendMessage: (content: string, image?: File, replyTo?: { sender: string; content: string } | null) => void;
   onDismissMessage?: (messageId: string) => void;
   isDM?: boolean;
   matrixClient?: MatrixClient | null;
@@ -733,6 +733,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
                         setContextMenu({ x, y, sender: s, senderMatrixUserId: m, content: c });
                       }
                     } : undefined}
+                    replyTo={item.message.replyTo}
                   />
                 </Fragment>
                 );
@@ -794,6 +795,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
           disabled={disabled}
           replyTo={replyTo}
           onCancelReply={() => setReplyTo(null)}
+          onReplySent={() => setReplyTo(null)}
         />
       </div>
     </div>

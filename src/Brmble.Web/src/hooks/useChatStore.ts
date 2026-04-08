@@ -187,6 +187,7 @@ export function useChatStore(channelId: string) {
     html?: boolean,
     media?: MediaAttachment[],
     systemType?: string,
+    replyTo?: { sender: string; content: string },
   ) => {
     const newMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -197,6 +198,8 @@ export function useChatStore(channelId: string) {
       ...(type && { type }),
       ...(systemType && { systemType }),
       ...(html && { html }),
+      ...(media && { media }),
+      ...(replyTo && { replyTo }),
       ...(media && media.length > 0 && { media }),
     };
     setMessages(prev => {
