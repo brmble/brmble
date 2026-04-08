@@ -52,6 +52,7 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
   useEffect(() => {
     if (!isAnyMenuOpen) return;
 
+    let active = true;
     const handleSettingsUpdated = (data: unknown) => {
       type AudioSettings = { transmissionMode?: string; inputVolume?: number; outputVolume?: number };
       type SettingsData = { settings?: { audio?: AudioSettings } };

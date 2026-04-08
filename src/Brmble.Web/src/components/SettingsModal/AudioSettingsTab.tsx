@@ -27,6 +27,7 @@ export interface AudioSettings {
   pushToTalkKey: string | null;
   opusBitrate: number;
   opusFrameSize: number;
+  voiceHoldMs: number;
   captureApi: 'waveIn' | 'wasapi';
 }
 
@@ -44,6 +45,7 @@ export const DEFAULT_SETTINGS: AudioSettings = {
   pushToTalkKey: null,
   opusBitrate: 72000,
   opusFrameSize: 20,
+  voiceHoldMs: 200,
   captureApi: 'wasapi',
 };
 
@@ -216,15 +218,31 @@ export function AudioSettingsTab({ settings, speechDenoise, onChange, onSpeechDe
         </div>
 
         {localSettings.transmissionMode === 'pushToTalk' && (
-          <div className="settings-item">
-            <label>Push to Talk Key</label>
-            <button
-              className={`btn btn-secondary key-binding-btn ${recording ? 'recording' : ''}`}
-              onClick={() => setRecording(!recording)}
-            >
-              {recording ? 'Press any key...' : (localSettings.pushToTalkKey || 'Not bound')}
-            </button>
-          </div>
+          <>
+            <div className="settings-item">
+              <label>Push to Talk Key</label>
+              <button
+                className={`btn btn-secondary key-binding-btn ${recording ? 'recording' : ''}`}
+                onClick={() => setRecording(!recording)}
+              >
+                {recording ? 'Press any key...' : (localSettings.pushToTalkKey || 'Not bound')}
+              </button>
+            </div>
+            <div className="settings-item settings-slider">
+              <label>
+                Hold Time: {localSettings.voiceHoldMs}ms{localSettings.voiceHoldMs === 200 ? ' (default)' : ''}
+                <span className="tooltip-icon" data-tooltip="How long to keep transmitting after you release Push to Talk. Higher values add a short silence tail to help avoid clipping words during brief pauses or at the end of speech.">?</span>
+              </label>
+              <input
+                type="range"
+                min="100"
+                max="2000"
+                step="10"
+                value={localSettings.voiceHoldMs}
+                onChange={(e) => handleChange('voiceHoldMs', parseInt(e.target.value, 10))}
+              />
+            </div>
+          </>
         )}
 
         <div className="settings-item">

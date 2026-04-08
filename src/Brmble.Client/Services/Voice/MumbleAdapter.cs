@@ -688,6 +688,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.SetOpusBitrate(settings.Audio.OpusBitrate);
         _audioManager?.SetOpusFrameMs(settings.Audio.OpusFrameSize);
         _audioManager?.SetCaptureApi(settings.Audio.CaptureApi);
+        _audioManager?.SetVoiceHoldMs(settings.Audio.VoiceHoldMs);
 
         // Determine effective speech enhancement state.
         // The SpeechDenoise dropdown can select GTCRN, which should activate the
@@ -705,6 +706,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         // Only reinitialise speech enhancement when its settings actually change.
         // ConfigureSpeechEnhancement disposes and recreates the ONNX InferenceSession,
         // which causes a native crash if the mic callback is mid-inference at that moment.
+
         if (seEnabled != _lastSpeechEnhancementEnabled || seModel != _lastSpeechEnhancementModel)
         {
             _lastSpeechEnhancementEnabled = seEnabled;
