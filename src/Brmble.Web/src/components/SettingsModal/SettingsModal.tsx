@@ -132,6 +132,9 @@ export function SettingsModal(props: SettingsModalProps) {
       if (d?.settings) {
         setSettings(prev => {
           const normalizedDenoise = { ...DEFAULT_SPEECH_DENOISE, ...d.settings!.speechDenoise };
+          // C# JsonStringEnumConverter serializes PascalCase (e.g. "Gtcrn"),
+          // so normalise to lowercase before validating.
+          normalizedDenoise.mode = (normalizedDenoise.mode ?? '').toLowerCase() as typeof normalizedDenoise.mode;
           const validModes = ['disabled', 'rnnoise', 'gtcrn'];
           if (!validModes.includes(normalizedDenoise.mode)) {
             normalizedDenoise.mode = 'rnnoise';
