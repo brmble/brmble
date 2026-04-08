@@ -223,6 +223,7 @@ export function ContextMenu({ x, y, items, onClose, mouseLeaveDelay = MOUSE_LEAV
       
       menuRef.current.style.left = `${finalX}px`;
       menuRef.current.style.top = `${finalY}px`;
+      menuRef.current.style.visibility = 'visible';
     });
   }, [x, y, spaceCalculations]);
 
@@ -258,7 +259,6 @@ export function ContextMenu({ x, y, items, onClose, mouseLeaveDelay = MOUSE_LEAV
     <div
       ref={menuRef}
       className="context-menu"
-      style={{ left: x, top: y }}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
