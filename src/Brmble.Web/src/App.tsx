@@ -1698,6 +1698,12 @@ const handleConnect = (serverData: SavedServer) => {
     }
   }, [users, dmStore]);
 
+  const handleCopyToClipboard = useCallback((text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopyToast({ message: 'Copied to clipboard' });
+    setTimeout(() => setCopyToast(null), 2000);
+  }, []);
+
   const activeChannelId = currentChannelId && currentChannelId !== 'server-root'
     ? currentChannelId
     : undefined;
@@ -1717,6 +1723,7 @@ const handleConnect = (serverData: SavedServer) => {
     userName: string;
     roomName: string;
   } | null>(null);
+  const [copyToast, setCopyToast] = useState<{ message: string } | null>(null);
   const [updateInfo, setUpdateInfo] = useState<{ version: string } | null>(null);
   const [updateProgress, setUpdateProgress] = useState<number | null>(null);
 
@@ -2036,6 +2043,7 @@ const handleConnect = (serverData: SavedServer) => {
                     onCloseScreenShare={disconnectViewer}
                     users={users}
                     onMessageContextMenu={handleChatMessageContextMenu}
+                    onCopyToClipboard={handleCopyToClipboard}
                   />
                   </ErrorBoundary>
                 </div>
@@ -2055,6 +2063,7 @@ const handleConnect = (serverData: SavedServer) => {
                     disabled={dmStore.selectedContact?.isEphemeral === true && dmStore.selectedContact?.mumbleSessionId == null}
                     topNotice={dmStore.selectedContact?.isEphemeral ? 'This is a Mumble direct message. Chat history will be lost when you disconnect.' : undefined}
                     onMessageContextMenu={handleChatMessageContextMenu}
+                    onCopyToClipboard={handleCopyToClipboard}
                   />
                   </ErrorBoundary>
                 </div>
@@ -2148,6 +2157,13 @@ const handleConnect = (serverData: SavedServer) => {
             }, primary: true },
           ]}
           onDismiss={handleDismissToast}
+        />
+      )}
+
+      {copyToast && (
+        <Toast
+          message={copyToast.message}
+          onDismiss={() => setCopyToast(null)}
         />
       )}
 

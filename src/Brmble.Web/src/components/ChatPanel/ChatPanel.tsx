@@ -32,13 +32,14 @@ interface ChatPanelProps {
   /** Optional notice shown at the top of the message area (e.g. ephemeral chat warning). */
   topNotice?: string;
   onMessageContextMenu?: (x: number, y: number, sender: string, senderMatrixUserId?: string, content?: string) => void;
+  onCopyToClipboard?: (text: string) => void;
 }
 
 const SCROLL_THRESHOLD = 150;
 const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
 const DEFAULT_SPLIT = 50;
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, screenShareVideoEl, screenSharerName, onCloseScreenShare, users, disabled, topNotice, onMessageContextMenu }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, screenShareVideoEl, screenSharerName, onCloseScreenShare, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard }: ChatPanelProps) {
   // Build lookup maps from sender name and matrixUserId → avatar data for MessageBubble.
   // Name-based lookup works when Mumble name matches message sender.
   // MatrixUserId-based lookup handles cases where the user connected with a different
@@ -743,8 +744,8 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
             y={contextMenu.y}
             items={[
               { type: 'item', label: 'Copy', onClick: () => {
-                if (contextMenu.content) {
-                  navigator.clipboard.writeText(contextMenu.content);
+                if (contextMenu.content && onCopyToClipboard) {
+                  onCopyToClipboard(contextMenu.content);
                 }
                 setContextMenu(null);
               }},
