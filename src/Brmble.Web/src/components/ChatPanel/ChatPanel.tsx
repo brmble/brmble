@@ -8,7 +8,6 @@ import { formatDateSeparator, formatFullDate } from '../../utils/formatDateSepar
 import type { ChatMessage, MentionableUser } from '../../types';
 import { ScreenShareViewer } from '../ScreenShareViewer/ScreenShareViewer';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
-import type { ContextMenuItem } from '../ContextMenu/ContextMenu';
 import { Tooltip } from '../Tooltip/Tooltip';
 import Avatar from '../Avatar/Avatar';
 import './ChatPanel.css';
