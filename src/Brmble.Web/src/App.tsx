@@ -1668,6 +1668,36 @@ const handleConnect = (serverData: SavedServer) => {
     }
   }, [users, dmStore]);
 
+  const handleChatMessageContextMenu = useCallback((_x: number, _y: number, sender: string, senderMatrixUserId?: string) => {
+    // Look up user by matrixUserId first, then by name
+    let user = users.find(u => u.matrixUserId === senderMatrixUserId);
+    if (!user && sender) {
+      user = users.find(u => u.name === sender);
+    }
+    
+    if (user) {
+      if (user.isBrmbleClient && user.matrixUserId) {
+        dmStore.startDM(user.matrixUserId, sender, user.avatarUrl);
+      } else if (user.certHash) {
+        const existingMumbleContact = dmStore.contacts.find(c => c.isEphemeral && c.mumbleCertHash === user!.certHash);
+        if (existingMumbleContact) {
+          dmStore.selectContact(existingMumbleContact.id);
+        } else {
+          dmStore.startMumbleDM(user.certHash, user.session, sender);
+        }
+      } else {
+        console.warn('[DM] Cannot start DM: user has no certHash');
+      }
+    } else {
+      // Fallback: try starting DM by matrixUserId directly for users not in the users list
+      if (senderMatrixUserId) {
+        dmStore.startDM(senderMatrixUserId, sender, undefined);
+      } else {
+        console.warn('[DM] Cannot start DM: user not found');
+      }
+    }
+  }, [users, dmStore]);
+
   const activeChannelId = currentChannelId && currentChannelId !== 'server-root'
     ? currentChannelId
     : undefined;
@@ -2005,7 +2035,7 @@ const handleConnect = (serverData: SavedServer) => {
                     screenSharerName={activeShare?.userName}
                     onCloseScreenShare={disconnectViewer}
                     users={users}
-                    onMessageContextMenu={handleStartDMFromContextMenu}
+                    onMessageContextMenu={handleChatMessageContextMenu}
                   />
                   </ErrorBoundary>
                 </div>
@@ -2024,7 +2054,7 @@ const handleConnect = (serverData: SavedServer) => {
                     users={users}
                     disabled={dmStore.selectedContact?.isEphemeral === true && dmStore.selectedContact?.mumbleSessionId == null}
                     topNotice={dmStore.selectedContact?.isEphemeral ? 'This is a Mumble direct message. Chat history will be lost when you disconnect.' : undefined}
-                    onMessageContextMenu={handleStartDMFromContextMenu}
+                    onMessageContextMenu={handleChatMessageContextMenu}
                   />
                   </ErrorBoundary>
                 </div>
