@@ -179,8 +179,7 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
         )}
         {replyTo && (
           <div className="message-reply-preview">
-            <span className="message-reply-sender">Replying to {replyTo.sender}</span>
-            <span className="message-reply-content">{replyTo.content.slice(0, 60)}{replyTo.content.length > 60 ? '...' : ''}</span>
+            <span className="message-reply-text">↩ {replyTo.sender}: {replyTo.content}</span>
           </div>
         )}
         {content && (
