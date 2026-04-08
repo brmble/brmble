@@ -198,28 +198,32 @@ export function ContextMenu({ x, y, items, onClose, mouseLeaveDelay = MOUSE_LEAV
 
   useEffect(() => {
     if (!menuRef.current) return;
-    const rect = menuRef.current.getBoundingClientRect();
-    const menuWidth = rect.width;
-    const menuHeight = rect.height;
-    const { spaceBelow, spaceRight, spaceAbove, spaceLeft } = spaceCalculations;
     
-    let finalX: number = x;
-    let finalY: number = y;
-    
-    if (menuHeight > spaceBelow && menuHeight <= spaceAbove) {
-      finalY = y - menuHeight;
-    } else if (menuHeight > spaceBelow && menuHeight > spaceAbove) {
-      finalY = Math.max(8, window.innerHeight - menuHeight - 8);
-    }
-    
-    if (menuWidth > spaceRight && menuWidth <= spaceLeft) {
-      finalX = x - menuWidth;
-    } else if (menuWidth > spaceRight && menuWidth > spaceLeft) {
-      finalX = Math.max(8, window.innerWidth - menuWidth - 8);
-    }
-    
-    menuRef.current.style.left = `${finalX}px`;
-    menuRef.current.style.top = `${finalY}px`;
+    requestAnimationFrame(() => {
+      if (!menuRef.current) return;
+      const rect = menuRef.current.getBoundingClientRect();
+      const menuWidth = rect.width;
+      const menuHeight = rect.height;
+      const { spaceBelow, spaceRight, spaceAbove, spaceLeft } = spaceCalculations;
+      
+      let finalX: number = x;
+      let finalY: number = y;
+      
+      if (menuHeight > spaceBelow && menuHeight <= spaceAbove) {
+        finalY = y - menuHeight;
+      } else if (menuHeight > spaceBelow && menuHeight > spaceAbove) {
+        finalY = Math.max(8, window.innerHeight - menuHeight - 8);
+      }
+      
+      if (menuWidth > spaceRight && menuWidth <= spaceLeft) {
+        finalX = x - menuWidth;
+      } else if (menuWidth > spaceRight && menuWidth > spaceLeft) {
+        finalX = Math.max(8, window.innerWidth - menuWidth - 8);
+      }
+      
+      menuRef.current.style.left = `${finalX}px`;
+      menuRef.current.style.top = `${finalY}px`;
+    });
   }, [x, y, spaceCalculations]);
 
   const handleMouseEnter = (e: React.MouseEvent) => {
