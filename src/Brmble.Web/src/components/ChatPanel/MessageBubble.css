@@ -5,6 +5,10 @@
   border-radius: var(--radius-md);
 }
 
+.message-bubble:hover {
+  background: var(--bg-hover);
+}
+
 .message-avatar {
   width: 48px;
   min-width: 48px;
