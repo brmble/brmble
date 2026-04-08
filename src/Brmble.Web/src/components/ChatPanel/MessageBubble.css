@@ -5,7 +5,8 @@
   border-radius: var(--radius-md);
 }
 
-.message-bubble:hover {
+.message-bubble:hover,
+.message-bubble:focus-within {
   background: var(--bg-hover);
 }
 
