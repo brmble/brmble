@@ -31,7 +31,7 @@ interface ChatPanelProps {
   disabled?: boolean;
   /** Optional notice shown at the top of the message area (e.g. ephemeral chat warning). */
   topNotice?: string;
-  onMessageContextMenu?: (x: number, y: number, sender: string, senderMatrixUserId?: string) => void;
+  onMessageContextMenu?: (x: number, y: number, sender: string, senderMatrixUserId?: string, content?: string) => void;
 }
 
 const SCROLL_THRESHOLD = 150;
@@ -144,7 +144,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
   const messageObserverRef = useRef<IntersectionObserver | null>(null);
   const messageElMapRef = useRef<Map<string, HTMLDivElement>>(new Map());
   const hiddenSetRef = useRef<Set<string>>(new Set());
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; sender: string; senderMatrixUserId?: string } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; sender: string; senderMatrixUserId?: string; content?: string } | null>(null);
   const [splitPercent, setSplitPercent] = useState(() => {
     const stored = localStorage.getItem(SPLIT_STORAGE_KEY);
     return stored ? Number(stored) : DEFAULT_SPLIT;
@@ -725,9 +725,9 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
                     pending={item.message.pending}
                     error={item.message.error}
                     onDismiss={onDismissMessage}
-                    onOpenContextMenu={onMessageContextMenu ? (x, y, s, m) => {
+                    onOpenContextMenu={onMessageContextMenu ? (x, y, s, m, c) => {
                       if (s !== currentUsername) {
-                        setContextMenu({ x, y, sender: s, senderMatrixUserId: m });
+                        setContextMenu({ x, y, sender: s, senderMatrixUserId: m, content: c });
                       }
                     } : undefined}
                   />
@@ -742,6 +742,13 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
             x={contextMenu.x}
             y={contextMenu.y}
             items={[
+              { type: 'item', label: 'Copy', onClick: () => {
+                if (contextMenu.content) {
+                  navigator.clipboard.writeText(contextMenu.content);
+                }
+                setContextMenu(null);
+              }},
+              { type: 'divider' },
               { type: 'item', label: 'Send DM', onClick: () => {
                 if (onMessageContextMenu) {
                   onMessageContextMenu(contextMenu.x, contextMenu.y, contextMenu.sender, contextMenu.senderMatrixUserId);
