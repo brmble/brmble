@@ -7,6 +7,8 @@ import { groupMessages } from '../../utils/groupMessages';
 import { formatDateSeparator, formatFullDate } from '../../utils/formatDateSeparator';
 import type { ChatMessage, MentionableUser } from '../../types';
 import { ScreenShareViewer } from '../ScreenShareViewer/ScreenShareViewer';
+import { ContextMenu } from '../ContextMenu/ContextMenu';
+import type { ContextMenuItem } from '../ContextMenu/ContextMenu';
 import { Tooltip } from '../Tooltip/Tooltip';
 import Avatar from '../Avatar/Avatar';
 import './ChatPanel.css';
@@ -30,13 +32,14 @@ interface ChatPanelProps {
   disabled?: boolean;
   /** Optional notice shown at the top of the message area (e.g. ephemeral chat warning). */
   topNotice?: string;
+  onMessageContextMenu?: (x: number, y: number, sender: string, senderMatrixUserId?: string) => void;
 }
 
 const SCROLL_THRESHOLD = 150;
 const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
 const DEFAULT_SPLIT = 50;
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, screenShareVideoEl, screenSharerName, onCloseScreenShare, users, disabled, topNotice }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, screenShareVideoEl, screenSharerName, onCloseScreenShare, users, disabled, topNotice, onMessageContextMenu }: ChatPanelProps) {
   // Build lookup maps from sender name and matrixUserId → avatar data for MessageBubble.
   // Name-based lookup works when Mumble name matches message sender.
   // MatrixUserId-based lookup handles cases where the user connected with a different
@@ -142,6 +145,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
   const messageObserverRef = useRef<IntersectionObserver | null>(null);
   const messageElMapRef = useRef<Map<string, HTMLDivElement>>(new Map());
   const hiddenSetRef = useRef<Set<string>>(new Set());
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; sender: string; senderMatrixUserId?: string } | null>(null);
   const [splitPercent, setSplitPercent] = useState(() => {
     const stored = localStorage.getItem(SPLIT_STORAGE_KEY);
     return stored ? Number(stored) : DEFAULT_SPLIT;
@@ -722,12 +726,32 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
                     pending={item.message.pending}
                     error={item.message.error}
                     onDismiss={onDismissMessage}
+                    onOpenContextMenu={onMessageContextMenu ? (x, y, s, m) => {
+                      if (s !== currentUsername) {
+                        setContextMenu({ x, y, sender: s, senderMatrixUserId: m });
+                      }
+                    } : undefined}
                   />
                 </Fragment>
                 );
               })}
             </div>
           ))
+        )}
+        {contextMenu && (
+          <ContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            items={[
+              { type: 'item', label: 'Send DM', onClick: () => {
+                if (onMessageContextMenu) {
+                  onMessageContextMenu(contextMenu.x, contextMenu.y, contextMenu.sender, contextMenu.senderMatrixUserId);
+                }
+                setContextMenu(null);
+              }}
+            ]}
+            onClose={() => setContextMenu(null)}
+          />
         )}
         <div ref={messagesEndRef} />
       </div>
