@@ -37,7 +37,7 @@ function Submenu({ item, depth, onItemClick }: { item: { type: 'item'; children?
       const parentRect = submenuRef.current.parentElement?.getBoundingClientRect();
       const rect = submenuRef.current.getBoundingClientRect();
       
-      const x = parentRect?.left ?? 0;
+      const x = parentRect?.right ?? 0;
       const y = parentRect?.top ?? 0;
       
       const submenuWidth = rect.width;
