@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import './ContextMenu.css';
 
 const MOUSE_LEAVE_CLOSE_DELAY = 400;
@@ -255,7 +256,7 @@ export function ContextMenu({ x, y, items, onClose, mouseLeaveDelay = MOUSE_LEAV
     }
   };
 
-  return (
+  return createPortal(
     <div
       ref={menuRef}
       className="context-menu"
@@ -265,6 +266,7 @@ export function ContextMenu({ x, y, items, onClose, mouseLeaveDelay = MOUSE_LEAV
       {items.map((item, i) => (
         <MenuItem key={i} item={item} depth={1} onItemClick={handleItemClick} />
       ))}
-    </div>
+    </div>,
+    document.body
   );
 }
