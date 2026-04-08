@@ -10,9 +10,11 @@ interface MessageInputProps {
   placeholder?: string;
   mentionableUsers?: MentionableUser[];
   disabled?: boolean;
+  replyTo?: { sender: string; content: string } | null;
+  onCancelReply?: () => void;
 }
 
-export function MessageInput({ onSend, placeholder = 'Type a message...', mentionableUsers = [], disabled }: MessageInputProps) {
+export function MessageInput({ onSend, placeholder = 'Type a message...', mentionableUsers = [], disabled, replyTo, onCancelReply }: MessageInputProps) {
   const [message, setMessage] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -298,6 +300,20 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
             type="button"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+      )}
+      {replyTo && (
+        <div className="reply-preview">
+          <div className="reply-preview-info">
+            <span className="reply-preview-sender">Replying to {replyTo.sender}</span>
+            <span className="reply-preview-content">{replyTo.content.slice(0, 50)}{replyTo.content.length > 50 ? '...' : ''}</span>
+          </div>
+          <button className="reply-preview-cancel" onClick={onCancelReply} aria-label="Cancel reply" type="button">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>

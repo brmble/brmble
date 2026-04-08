@@ -2044,6 +2044,9 @@ const handleConnect = (serverData: SavedServer) => {
                     users={users}
                     onMessageContextMenu={handleChatMessageContextMenu}
                     onCopyToClipboard={handleCopyToClipboard}
+                    onReply={() => {
+                      // Reply is handled locally in ChatPanel
+                    }}
                   />
                   </ErrorBoundary>
                 </div>
@@ -2064,6 +2067,9 @@ const handleConnect = (serverData: SavedServer) => {
                     topNotice={dmStore.selectedContact?.isEphemeral ? 'This is a Mumble direct message. Chat history will be lost when you disconnect.' : undefined}
                     onMessageContextMenu={handleChatMessageContextMenu}
                     onCopyToClipboard={handleCopyToClipboard}
+                    onReply={() => {
+                      // Reply is handled locally in ChatPanel
+                    }}
                   />
                   </ErrorBoundary>
                 </div>

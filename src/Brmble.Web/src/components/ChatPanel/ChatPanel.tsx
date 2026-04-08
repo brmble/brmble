@@ -33,13 +33,14 @@ interface ChatPanelProps {
   topNotice?: string;
   onMessageContextMenu?: (x: number, y: number, sender: string, senderMatrixUserId?: string, content?: string) => void;
   onCopyToClipboard?: (text: string) => void;
+  onReply?: (sender: string, content: string) => void;
 }
 
 const SCROLL_THRESHOLD = 150;
 const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
 const DEFAULT_SPLIT = 50;
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, screenShareVideoEl, screenSharerName, onCloseScreenShare, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, screenShareVideoEl, screenSharerName, onCloseScreenShare, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard, onReply }: ChatPanelProps) {
   // Build lookup maps from sender name and matrixUserId → avatar data for MessageBubble.
   // Name-based lookup works when Mumble name matches message sender.
   // MatrixUserId-based lookup handles cases where the user connected with a different
@@ -146,6 +147,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
   const messageElMapRef = useRef<Map<string, HTMLDivElement>>(new Map());
   const hiddenSetRef = useRef<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; sender: string; senderMatrixUserId?: string; content?: string } | null>(null);
+  const [replyTo, setReplyTo] = useState<{ sender: string; content: string } | null>(null);
   const [splitPercent, setSplitPercent] = useState(() => {
     const stored = localStorage.getItem(SPLIT_STORAGE_KEY);
     return stored ? Number(stored) : DEFAULT_SPLIT;
@@ -749,6 +751,13 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
                 }
                 setContextMenu(null);
               }},
+              { type: 'item', label: 'Reply', onClick: () => {
+                if (contextMenu.content && onReply) {
+                  onReply(contextMenu.sender, contextMenu.content);
+                  setReplyTo({ sender: contextMenu.sender, content: contextMenu.content });
+                }
+                setContextMenu(null);
+              }},
               { type: 'divider' },
               { type: 'item', label: 'Send DM', onClick: () => {
                 if (onMessageContextMenu) {
@@ -778,7 +787,14 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
           </button>
           </Tooltip>
         )}
-        <MessageInput onSend={onSendMessage} placeholder={isDM ? `Message @${channelName}` : `Message #${channelName}`} mentionableUsers={mentionableUsers} disabled={disabled} />
+        <MessageInput 
+          onSend={onSendMessage} 
+          placeholder={isDM ? `Message @${channelName}` : `Message #${channelName}`} 
+          mentionableUsers={mentionableUsers} 
+          disabled={disabled}
+          replyTo={replyTo}
+          onCancelReply={() => setReplyTo(null)}
+        />
       </div>
     </div>
   );
