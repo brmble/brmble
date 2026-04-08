@@ -52,7 +52,10 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
   useEffect(() => {
     if (!isAnyMenuOpen) return;
 
+    let cancelled = false;
+
     const handleSettingsUpdated = (data: unknown) => {
+      if (cancelled) return;
       type AudioSettings = { transmissionMode?: string; inputVolume?: number; outputVolume?: number };
       type SettingsData = { settings?: { audio?: AudioSettings } };
       const d = data as (SettingsData | undefined);
@@ -71,11 +74,13 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
     };
 
     import('../../bridge').then(module => {
+      if (cancelled) return;
       bridgeRef.current = module;
       module.default.on('settings.updated', handleSettingsUpdated);
     }).catch((e) => console.error('Failed to load bridge:', e));
 
     return () => {
+      cancelled = true;
       if (bridgeRef.current) {
         bridgeRef.current.default.off('settings.updated', handleSettingsUpdated);
       }
