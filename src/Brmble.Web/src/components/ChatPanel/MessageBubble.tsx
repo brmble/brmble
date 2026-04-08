@@ -157,7 +157,7 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
     <div ref={ref} className={classes.join(' ')} data-message-index={messageIndex} {...rest} onContextMenu={(e) => {
   if (onOpenContextMenu) {
     e.preventDefault();
-    onOpenContextMenu(e.pageX, e.pageY, sender, senderMatrixUserId);
+    onOpenContextMenu(e.clientX, e.clientY, sender, senderMatrixUserId);
   }
 }}>
       {collapsed ? (
