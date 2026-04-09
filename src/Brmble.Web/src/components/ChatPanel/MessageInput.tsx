@@ -284,7 +284,7 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
 
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      handleSend().catch(error => console.error('Failed to send message:', error));
     }
   };
 
@@ -369,7 +369,7 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
         <Tooltip content="Send message">
         <button
           className="btn btn-primary btn-icon send-button"
-          onClick={handleSend}
+          onClick={() => handleSend().catch(error => console.error('Failed to send message:', error))}
           disabled={disabled || (!message.trim() && !pendingImage)}
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

@@ -84,6 +84,14 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
       ?? (senderMatrixId ? senderAvatarMap.byMatrixId.get(senderMatrixId) : undefined);
   }, [senderAvatarMap]);
 
+  /** Look up a message by event ID from the messages array. */
+  const lookupMessageById = useCallback((eventId: string): ChatMessage | undefined => {
+    for (const msg of messages) {
+      if (msg.id === eventId) return msg;
+    }
+    return undefined;
+  }, [messages]);
+
   const mentionableUsers = useMemo<MentionableUser[]>(() => {
     const result: MentionableUser[] = [];
     const seen = new Set<string>();
@@ -733,6 +741,9 @@ const [replyState, setReplyState] = useState<{
                     messageId={item.message.id}
                     pending={item.message.pending}
                     error={item.message.error}
+                    replyToEventId={item.message.replyToEventId}
+                    replyToSender={(item.message.replyToSender) || (item.message.replyToEventId ? lookupMessageById(item.message.replyToEventId)?.sender : undefined)}
+                    replyToContent={(item.message.replyToContent) || (item.message.replyToEventId ? lookupMessageById(item.message.replyToEventId)?.content : undefined)}
                     onDismiss={onDismissMessage}
                     onOpenContextMenu={onMessageContextMenu ? (x, y, s, m, c, msgId, msgType = 'm.text') => {
                       if (s !== currentUsername) {
@@ -798,7 +809,7 @@ const [replyState, setReplyState] = useState<{
           </button>
           </Tooltip>
         )}
-        <MessageInput onSend={onSendMessage} placeholder={isDM ? `Message @${channelName}` : `Message #${channelName}`} mentionableUsers={mentionableUsers} disabled={disabled} replyState={replyState} onClearReply={() => setReplyState(null)} />
+        <MessageInput onSend={onSendMessage} placeholder={isDM ? `Message @${channelName}` : `Message #${channelName}`} mentionableUsers={mentionableUsers} disabled={disabled} replyState={replyState} onClearReply={() => setReplyState(null)} matrixClient={matrixClient} matrixRoomId={matrixRoomId} />
       </div>
     </div>
   );

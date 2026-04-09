@@ -1698,10 +1698,16 @@ const handleConnect = (serverData: SavedServer) => {
     }
   }, [users, dmStore]);
 
-  const handleCopyToClipboard = useCallback((text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopyToast({ message: 'Copied to clipboard' });
-    setTimeout(() => setCopyToast(null), 2000);
+  const handleCopyToClipboard = useCallback(async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyToast({ message: 'Copied to clipboard' });
+      setTimeout(() => setCopyToast(null), 2000);
+    } catch (error) {
+      console.error('Failed to copy to clipboard:', error);
+      setCopyToast({ message: 'Failed to copy to clipboard' });
+      setTimeout(() => setCopyToast(null), 2000);
+    }
   }, []);
 
   const activeChannelId = currentChannelId && currentChannelId !== 'server-root'
