@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback, useId, type KeyboardEvent } from 'react';
 import type { MentionableUser } from '../../types';
+import type { MatrixClient } from 'matrix-js-sdk';
 import { MentionDropdown } from './MentionDropdown';
+import { ReplyHeader } from './ReplyHeader';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { validateImageFile } from '../../utils/imageUpload';
 import './MessageInput.css';
@@ -19,9 +21,11 @@ interface MessageInputProps {
     msgType: string;
   } | null;
   onClearReply?: () => void;
+  matrixClient?: MatrixClient | null;
+  matrixRoomId?: string | null;
 }
 
-export function MessageInput({ onSend, placeholder = 'Type a message...', mentionableUsers = [], disabled, replyState, onClearReply }: MessageInputProps) {
+export function MessageInput({ onSend, placeholder = 'Type a message...', mentionableUsers = [], disabled, replyState, onClearReply, matrixClient, matrixRoomId }: MessageInputProps) {
   const [message, setMessage] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -221,15 +225,29 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
     }
   }, [stageImage]);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (message.trim() || pendingImage) {
-      onSend(message.trim(), pendingImage ?? undefined);
+      // If there's a replyState, we need to send a Matrix reply
+      if (replyState && matrixClient && matrixRoomId) {
+        const { buildReplyContent } = await import('../../utils/replyHelpers');
+        const content = buildReplyContent(
+          matrixRoomId,
+          replyState.eventId,
+          replyState.sender,
+          replyState.senderMatrixUserId,
+          replyState.content,
+          message.trim()
+        );
+        await matrixClient.sendEvent(matrixRoomId, 'm.room.message', content);
+        if (onClearReply) onClearReply();
+      } else {
+        onSend(message.trim(), pendingImage ?? undefined);
+      }
       setMessage('');
       setMentionActive(false);
       setPendingImage(null);
       if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
       setImagePreviewUrl(null);
-      onClearReply?.();
     }
   };
 
@@ -291,19 +309,11 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
 
   return (
     <div className="message-input-container">
-      {replyState && (
-        <div className="reply-preview">
-          <div className="reply-preview-header">
-            <span>Replying to {replyState.sender}</span>
-            <button className="reply-preview-close" onClick={onClearReply} aria-label="Clear reply">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          </div>
-          <div className="reply-preview-content">{replyState.content}</div>
-        </div>
+      {replyState && onClearReply && (
+        <ReplyHeader 
+          replyState={replyState} 
+          onCancel={onClearReply}
+        />
       )}
       {pendingImage && imagePreviewUrl && (
         <div className="image-preview-strip">
