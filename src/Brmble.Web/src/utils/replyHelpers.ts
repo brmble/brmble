@@ -1,8 +1,7 @@
 // Utility functions for generating Matrix reply fallbacks
 
-/**
- * Strip existing reply fallbacks from a message body
- */
+import { MsgType } from 'matrix-js-sdk';
+
 export function stripReplyFallback(body: string): string {
   return body.split('\n').filter(line => !/^> ?/.test(line)).join('\n').trim();
 }
@@ -53,21 +52,11 @@ export function buildReplyContent(
   parentSenderMatrixId: string | undefined,
   parentBody: string,
   replyText: string
-): {
-  msgtype: string;
-  body: string;
-  format: string;
-  formatted_body: string;
-  'm.relates_to': {
-    'm.in_reply_to': {
-      event_id: string;
-    };
-  };
-} {
+) {
   const senderId = parentSenderMatrixId || `@${parentSender}:unknown`;
   
   return {
-    msgtype: 'm.text',
+    msgtype: MsgType.Text,
     body: makeReplyFallback({ sender: senderId, body: parentBody }, replyText),
     format: 'org.matrix.custom.html',
     formatted_body: makeReplyHtml(roomId, parentEventId, parentSender, senderId, parentBody) + replyText,
@@ -76,5 +65,5 @@ export function buildReplyContent(
         event_id: parentEventId,
       },
     },
-  };
+  } as const;
 }

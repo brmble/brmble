@@ -238,7 +238,7 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
           replyState.content,
           message.trim()
         );
-        await matrixClient.sendEvent(matrixRoomId, 'm.room.message', content);
+        await matrixClient.sendMessage(matrixRoomId, content);
         if (onClearReply) onClearReply();
       } else {
         onSend(message.trim(), pendingImage ?? undefined);
