@@ -31,7 +31,7 @@ interface MessageBubbleProps {
   pending?: boolean;
   error?: boolean;
   onDismiss?: (messageId: string) => void;
-  onOpenContextMenu?: (x: number, y: number, sender: string, senderMatrixUserId?: string, content?: string) => void;
+  onOpenContextMenu?: (x: number, y: number, sender: string, senderMatrixUserId?: string, content?: string, messageId?: string) => void;
 }
 
 /** Highlight search matches within a plain-text string, returning React nodes. */
@@ -157,7 +157,7 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
     <div ref={ref} className={classes.join(' ')} data-message-index={messageIndex} {...rest} onContextMenu={(e) => {
   if (onOpenContextMenu) {
     e.preventDefault();
-    onOpenContextMenu(e.clientX, e.clientY, sender, senderMatrixUserId, content);
+    onOpenContextMenu(e.clientX, e.clientY, sender, senderMatrixUserId, content, messageId);
   }
 }}>
       {collapsed ? (
