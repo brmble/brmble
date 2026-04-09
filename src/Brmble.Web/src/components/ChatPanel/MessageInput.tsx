@@ -10,9 +10,18 @@ interface MessageInputProps {
   placeholder?: string;
   mentionableUsers?: MentionableUser[];
   disabled?: boolean;
+  replyState?: {
+    eventId: string;
+    sender: string;
+    senderMatrixUserId?: string;
+    content: string;
+    html?: string;
+    msgType: string;
+  } | null;
+  onClearReply?: () => void;
 }
 
-export function MessageInput({ onSend, placeholder = 'Type a message...', mentionableUsers = [], disabled }: MessageInputProps) {
+export function MessageInput({ onSend, placeholder = 'Type a message...', mentionableUsers = [], disabled, replyState, onClearReply }: MessageInputProps) {
   const [message, setMessage] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -220,6 +229,7 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
       setPendingImage(null);
       if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
       setImagePreviewUrl(null);
+      onClearReply?.();
     }
   };
 
@@ -281,6 +291,20 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
 
   return (
     <div className="message-input-container">
+      {replyState && (
+        <div className="reply-preview">
+          <div className="reply-preview-header">
+            <span>Replying to {replyState.sender}</span>
+            <button className="reply-preview-close" onClick={onClearReply} aria-label="Clear reply">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+          <div className="reply-preview-content">{replyState.content}</div>
+        </div>
+      )}
       {pendingImage && imagePreviewUrl && (
         <div className="image-preview-strip">
           <img

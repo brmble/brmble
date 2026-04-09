@@ -31,7 +31,7 @@ interface ChatPanelProps {
   disabled?: boolean;
   /** Optional notice shown at the top of the message area (e.g. ephemeral chat warning). */
   topNotice?: string;
-  onMessageContextMenu?: (x: number, y: number, sender: string, senderMatrixUserId?: string, content?: string) => void;
+  onMessageContextMenu?: (x: number, y: number, sender: string, senderMatrixUserId?: string, content?: string, messageId?: string) => void;
   onCopyToClipboard?: (text: string) => void;
 }
 
@@ -145,7 +145,15 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
   const messageObserverRef = useRef<IntersectionObserver | null>(null);
   const messageElMapRef = useRef<Map<string, HTMLDivElement>>(new Map());
   const hiddenSetRef = useRef<Set<string>>(new Set());
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; sender: string; senderMatrixUserId?: string; content?: string } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; sender: string; senderMatrixUserId?: string; content?: string; messageId?: string; msgType?: string } | null>(null);
+const [replyState, setReplyState] = useState<{
+  eventId: string;
+  sender: string;
+  senderMatrixUserId?: string;
+  content: string;
+  html?: string;
+  msgType: string;
+} | null>(null);
   const [splitPercent, setSplitPercent] = useState(() => {
     const stored = localStorage.getItem(SPLIT_STORAGE_KEY);
     return stored ? Number(stored) : DEFAULT_SPLIT;
@@ -726,9 +734,9 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
                     pending={item.message.pending}
                     error={item.message.error}
                     onDismiss={onDismissMessage}
-                    onOpenContextMenu={onMessageContextMenu ? (x, y, s, m, c) => {
+                    onOpenContextMenu={onMessageContextMenu ? (x, y, s, m, c, msgId, msgType = 'm.text') => {
                       if (s !== currentUsername) {
-                        setContextMenu({ x, y, sender: s, senderMatrixUserId: m, content: c });
+                        setContextMenu({ x, y, sender: s, senderMatrixUserId: m, content: c, messageId: msgId, msgType });
                       }
                     } : undefined}
                   />
@@ -746,6 +754,18 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
               { type: 'item', label: 'Copy', onClick: () => {
                 if (contextMenu.content && onCopyToClipboard) {
                   onCopyToClipboard(contextMenu.content);
+                }
+                setContextMenu(null);
+              }},
+              { type: 'item', label: 'Reply', onClick: () => {
+                if (contextMenu.messageId && contextMenu.sender) {
+                  setReplyState({
+                    eventId: contextMenu.messageId,
+                    sender: contextMenu.sender,
+                    senderMatrixUserId: contextMenu.senderMatrixUserId,
+                    content: contextMenu.content || '',
+                    msgType: contextMenu.msgType || 'm.text',
+                  });
                 }
                 setContextMenu(null);
               }},
@@ -778,7 +798,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
           </button>
           </Tooltip>
         )}
-        <MessageInput onSend={onSendMessage} placeholder={isDM ? `Message @${channelName}` : `Message #${channelName}`} mentionableUsers={mentionableUsers} disabled={disabled} />
+        <MessageInput onSend={onSendMessage} placeholder={isDM ? `Message @${channelName}` : `Message #${channelName}`} mentionableUsers={mentionableUsers} disabled={disabled} replyState={replyState} onClearReply={() => setReplyState(null)} />
       </div>
     </div>
   );
