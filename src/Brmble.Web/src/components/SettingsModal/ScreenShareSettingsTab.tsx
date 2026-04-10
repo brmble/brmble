@@ -24,7 +24,7 @@ const FPS_OPTIONS = [
 
 const VIEWER_MODE_OPTIONS = [
   { value: 'in-app', label: 'In app (chat area)' },
-  { value: 'new-window', label: 'New window' },
+  { value: 'new-window', label: 'Full window' },
 ];
 
 export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettingsTabProps) {
