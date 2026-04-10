@@ -206,7 +206,7 @@ const [replyState, setReplyState] = useState<{
     if (hasNewWindowScreenShare && screenShareVideoEl) {
       const width = 800;
       const height = 600;
-      const newWindow = window.open('', 'Screen Share', `width=${width},height=${height}`);
+      const newWindow = window.open('about:blank', '_blank', `width=${width},height=${height},noopener,noreferrer`);
       if (newWindow && screenShareVideoEl.srcObject) {
         newWindow.document.write(`
           <html>
