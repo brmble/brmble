@@ -75,6 +75,13 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
           '4k': { width: 3840, height: 2160 },
         };
 
+        const bitrateMap: Record<string, number> = {
+          '720p': 2_000_000,
+          '1080p': 4_000_000,
+          '1440p': 8_000_000,
+          '4k': 15_000_000,
+        };
+
         captureOptions = {};
 
         if (screenShareSettings.captureAudio) {
@@ -86,13 +93,18 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
         }
 
         if (screenShareSettings.resolution || screenShareSettings.fps) {
+          const res = resolutionMap[screenShareSettings.resolution];
           captureOptions.resolution = {
-            ...resolutionMap[screenShareSettings.resolution],
+            ...res,
             frameRate: screenShareSettings.fps,
           };
+          captureOptions.videoEncoding = {
+            maxBitrate: bitrateMap[screenShareSettings.resolution],
+            maxFramerate: screenShareSettings.fps,
+          };
+          captureOptions.videoCodec = 'h264';
         }
 
-        // Remove empty options
         if (Object.keys(captureOptions).length === 0) {
           captureOptions = undefined;
         }
