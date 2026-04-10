@@ -11,6 +11,7 @@ export interface ActiveShare {
 export interface ScreenShareSettings {
   captureAudio: boolean;
   resolution: '720p' | '1080p' | '1440p' | '4k';
+  fps: 15 | 30 | 60;
   systemAudio: boolean;
 }
 
@@ -86,6 +87,10 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
 
         if (screenShareSettings.resolution) {
           captureOptions.resolution = resolutionMap[screenShareSettings.resolution];
+        }
+
+        if (screenShareSettings.fps) {
+          captureOptions.fps = screenShareSettings.fps;
         }
 
         // Remove empty options

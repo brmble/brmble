@@ -15,6 +15,12 @@ const RESOLUTION_OPTIONS = [
   { value: '4k', label: '4K (Ultra HD)' },
 ];
 
+const FPS_OPTIONS = [
+  { value: '15', label: '15 FPS' },
+  { value: '30', label: '30 FPS' },
+  { value: '60', label: '60 FPS' },
+];
+
 export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettingsTabProps) {
   const [localSettings, setLocalSettings] = useState<ScreenShareSettings>(settings);
 
@@ -51,6 +57,15 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
             value={localSettings.resolution}
             onChange={(value) => handleChange('resolution', value as ScreenShareSettings['resolution'])}
             options={RESOLUTION_OPTIONS}
+          />
+        </div>
+
+        <div className="settings-item">
+          <span className="settings-label">Frame Rate</span>
+          <Select
+            value={String(localSettings.fps)}
+            onChange={(value) => handleChange('fps', Number(value) as ScreenShareSettings['fps'])}
+            options={FPS_OPTIONS}
           />
         </div>
 
