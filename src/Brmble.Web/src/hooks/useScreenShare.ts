@@ -85,12 +85,11 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
           captureOptions.systemAudio = 'include';
         }
 
-        if (screenShareSettings.resolution) {
-          captureOptions.resolution = resolutionMap[screenShareSettings.resolution];
-        }
-
-        if (screenShareSettings.fps) {
-          captureOptions.fps = screenShareSettings.fps;
+        if (screenShareSettings.resolution || screenShareSettings.fps) {
+          captureOptions.resolution = {
+            ...resolutionMap[screenShareSettings.resolution],
+            frameRate: screenShareSettings.fps,
+          };
         }
 
         // Remove empty options
