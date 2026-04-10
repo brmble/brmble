@@ -24,8 +24,9 @@
   color: var(--text-muted);
   font-size: 10px;
   font-weight: 600;
-  cursor: help;
+  cursor: pointer;
   border: 1px solid var(--border-subtle);
+  padding: 0;
 }
 
 .screen-share-settings-tab .brmble-toggle {
@@ -52,7 +53,7 @@
 }
 
 .screen-share-settings-tab .settings-note {
-  font-size: var(--font-size-small);
+  font-size: var(--text-sm);
   color: var(--text-secondary);
   margin-top: 16px;
 }

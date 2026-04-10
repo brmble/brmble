@@ -49,7 +49,7 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
           <div className="settings-label-group">
             <span className="settings-label">Capture Audio</span>
             <Tooltip content="Capture microphone audio along with screen share" position="right" align="start">
-              <span className="settings-info-btn">?</span>
+              <button type="button" className="settings-info-btn" aria-label="More information about capture audio">?</button>
             </Tooltip>
           </div>
           <label className="brmble-toggle">
@@ -66,7 +66,7 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
           <div className="settings-label-group">
             <span className="settings-label">Resolution</span>
             <Tooltip content="Higher resolution uses more bandwidth" position="right" align="start">
-              <span className="settings-info-btn">?</span>
+              <button type="button" className="settings-info-btn" aria-label="More information about resolution">?</button>
             </Tooltip>
           </div>
           <Select
@@ -80,7 +80,7 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
           <div className="settings-label-group">
             <span className="settings-label">Frame Rate</span>
             <Tooltip content="Higher frame rate uses more bandwidth" position="right" align="start">
-              <span className="settings-info-btn">?</span>
+              <button type="button" className="settings-info-btn" aria-label="More information about frame rate">?</button>
             </Tooltip>
           </div>
           <Select
@@ -94,7 +94,7 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
           <div className="settings-label-group">
             <span className="settings-label">System Audio</span>
             <Tooltip content="Capture system audio (Windows/macOS only)" position="right" align="start">
-              <span className="settings-info-btn">?</span>
+              <button type="button" className="settings-info-btn" aria-label="More information about system audio">?</button>
             </Tooltip>
           </div>
           <label className="brmble-toggle">
@@ -111,7 +111,7 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
           <div className="settings-label-group">
             <span className="settings-label">Viewer Location</span>
             <Tooltip content="Where to show screen share when viewing others" position="right" align="start">
-              <span className="settings-info-btn">?</span>
+              <button type="button" className="settings-info-btn" aria-label="More information about viewer location">?</button>
             </Tooltip>
           </div>
           <Select

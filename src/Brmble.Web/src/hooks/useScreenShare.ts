@@ -88,7 +88,7 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
           captureOptions.audio = true;
         }
 
-        if (screenShareSettings.systemAudio) {
+        if (screenShareSettings.captureAudio && screenShareSettings.systemAudio) {
           captureOptions.systemAudio = 'include';
         }
 

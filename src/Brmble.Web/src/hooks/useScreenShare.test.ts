@@ -135,4 +135,60 @@ describe('useScreenShare', () => {
 
     expect(result.current.isSharing).toBe(false);
   });
+
+  it('passes correct capture options to setScreenShareEnabled', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+    });
+
+    const settings = {
+      captureAudio: true,
+      systemAudio: true,
+      resolution: '1080p' as const,
+      fps: 30 as const,
+    };
+
+    const { result } = renderHook(() => useScreenShare(undefined, settings));
+
+    await act(async () => {
+      const promise = result.current.startSharing('room-1');
+      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      await promise;
+    });
+
+    expect(mockRoom.localParticipant.setScreenShareEnabled).toHaveBeenCalledWith(true, expect.objectContaining({
+      audio: true,
+      systemAudio: 'include',
+      resolution: { width: 1920, height: 1080, frameRate: 30 },
+      videoEncoding: { maxBitrate: 4_000_000, maxFramerate: 30 },
+      videoCodec: 'h264',
+    }));
+  });
+
+  it('does not include systemAudio when captureAudio is false', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+    });
+
+    const settings = {
+      captureAudio: false,
+      systemAudio: true,
+      resolution: '1080p' as const,
+      fps: 30 as const,
+    };
+
+    const { result } = renderHook(() => useScreenShare(undefined, settings));
+
+    await act(async () => {
+      const promise = result.current.startSharing('room-1');
+      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      await promise;
+    });
+
+    const [[, options]] = mockRoom.localParticipant.setScreenShareEnabled.mock.calls;
+    expect(options.systemAudio).toBeUndefined();
+    expect('audio' in options).toBe(false);
+  });
 });

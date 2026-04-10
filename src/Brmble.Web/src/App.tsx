@@ -1723,21 +1723,57 @@ const handleConnect = (serverData: SavedServer) => {
   const [screenShareSettings, setScreenShareSettings] = useState<ScreenShareSettings>(DEFAULT_SCREEN_SHARE);
 
   useEffect(() => {
+    const applyScreenShareSettings = (value: unknown) => {
+      if (!value || typeof value !== 'object') return;
+
+      const candidate =
+        'screenShare' in value &&
+        value.screenShare &&
+        typeof value.screenShare === 'object'
+          ? value.screenShare
+          : value;
+
+      setScreenShareSettings((current) => ({
+        ...current,
+        ...DEFAULT_SCREEN_SHARE,
+        ...(candidate as Partial<ScreenShareSettings>),
+      }));
+    };
+
     const loadSettings = () => {
       try {
         const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
         if (stored) {
-          const settings = JSON.parse(stored);
-          if (settings.screenShare) {
-            setScreenShareSettings(settings.screenShare);
-          }
+          applyScreenShareSettings(JSON.parse(stored));
         }
       } catch {}
     };
+
+    type BridgeSettingsApi = {
+      on?: (event: string, listener: (settings: unknown) => void) => void;
+      off?: (event: string, listener: (settings: unknown) => void) => void;
+      emit?: (event: string) => void;
+    };
+
+    const bridgeApi = bridge as unknown as BridgeSettingsApi;
+    const handleBridgeSettings = (settings: unknown) => {
+      applyScreenShareSettings(settings);
+    };
+
     loadSettings();
+
+    bridgeApi.on?.('settings.current', handleBridgeSettings);
+    bridgeApi.on?.('settings.updated', handleBridgeSettings);
+    bridgeApi.emit?.('settings.current');
+
     const handleStorage = () => loadSettings();
     window.addEventListener('storage', handleStorage);
-    return () => window.removeEventListener('storage', handleStorage);
+
+    return () => {
+      bridgeApi.off?.('settings.current', handleBridgeSettings);
+      bridgeApi.off?.('settings.updated', handleBridgeSettings);
+      window.removeEventListener('storage', handleStorage);
+    };
   }, []);
 
   const { isSharing, startSharing, stopSharing, error: screenShareError, activeShare, remoteVideoEl, disconnectViewer, connectAsViewer } = useScreenShare(() => {

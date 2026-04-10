@@ -224,88 +224,135 @@ const [replyState, setReplyState] = useState<{
       };
       document.addEventListener('keydown', handleEsc);
       
-      overlay.innerHTML = `
-        <style>
-          #screenshare-new-window-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            background: #000;
-            z-index: 99999;
-            display: flex;
-            flex-direction: column;
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Tab') {
+          const focusable = overlay.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+          const first = focusable[0];
+          const last = focusable[focusable.length - 1];
+          if (e.shiftKey && document.activeElement === first) {
+            e.preventDefault();
+            last?.focus();
+          } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault();
+            first?.focus();
           }
-          #screenshare-new-window-overlay .header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 12px 20px;
-            background: #1a1a1a;
-            -webkit-app-region: drag;
-          }
-          #screenshare-new-window-overlay .title {
-            color: #fff;
-            font-size: 15px;
-            font-weight: 500;
-          }
-          #screenshare-new-window-overlay .buttons {
-            display: flex;
-            gap: 8px;
-            -webkit-app-region: no-drag;
-          }
-          #screenshare-new-window-overlay .btn {
-            background: #333;
-            border: none;
-            color: #fff;
-            padding: 6px 14px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 12px;
-          }
-          #screenshare-new-window-overlay .btn-close {
-            background: #d32f2f;
-          }
-          #screenshare-new-window-overlay .btn-close:hover {
-            background: #b71c1c;
-          }
-          #screenshare-new-window-overlay .video-container {
-            flex: 1;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #000;
-          }
-          #screenshare-new-window-overlay video {
-            max-width: 100%;
-            max-height: 100%;
-            object-fit: contain;
-          }
-        </style>
-        <div class="header">
-          <span class="title">Screen Share - ${screenSharerName}</span>
-          <div class="buttons">
-            <button class="btn btn-close" id="screenshare-close-btn">Close</button>
-          </div>
-        </div>
-        <div class="video-container">
-          <video autoplay playsinline></video>
-        </div>
+        }
+      };
+      overlay.addEventListener('keydown', handleKeyDown);
+      
+      overlay.id = 'screenshare-new-window-overlay';
+      overlay.setAttribute('role', 'dialog');
+      overlay.setAttribute('aria-modal', 'true');
+      overlay.setAttribute('aria-label', `Screen share from ${screenSharerName}`);
+      
+      const style = document.createElement('style');
+      style.textContent = `
+        #screenshare-new-window-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100vw;
+          height: 100vh;
+          background: #000;
+          z-index: 99999;
+          display: flex;
+          flex-direction: column;
+        }
+        #screenshare-new-window-overlay .header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 12px 20px;
+          background: #1a1a1a;
+          -webkit-app-region: drag;
+        }
+        #screenshare-new-window-overlay .title {
+          color: #fff;
+          font-size: 15px;
+          font-weight: 500;
+        }
+        #screenshare-new-window-overlay .buttons {
+          display: flex;
+          gap: 8px;
+          -webkit-app-region: no-drag;
+        }
+        #screenshare-new-window-overlay .btn {
+          background: #333;
+          border: none;
+          color: #fff;
+          padding: 6px 14px;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 12px;
+        }
+        #screenshare-new-window-overlay .btn-close {
+          background: #d32f2f;
+        }
+        #screenshare-new-window-overlay .btn-close:hover {
+          background: #b71c1c;
+        }
+        #screenshare-new-window-overlay .video-container {
+          flex: 1;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #000;
+        }
+        #screenshare-new-window-overlay video {
+          max-width: 100%;
+          max-height: 100%;
+          object-fit: contain;
+        }
       `;
+      
+      const header = document.createElement('div');
+      header.className = 'header';
+      
+      const title = document.createElement('span');
+      title.className = 'title';
+      title.textContent = `Screen Share - ${screenSharerName}`;
+      
+      const buttons = document.createElement('div');
+      buttons.className = 'buttons';
+      
+      const closeButton = document.createElement('button');
+      closeButton.className = 'btn btn-close';
+      closeButton.id = 'screenshare-close-btn';
+      closeButton.textContent = 'Close';
+      
+      const videoContainer = document.createElement('div');
+      videoContainer.className = 'video-container';
+      
+      const newVideo = document.createElement('video');
+      newVideo.autoplay = true;
+      newVideo.playsInline = true;
+      
+      buttons.appendChild(closeButton);
+      header.appendChild(title);
+      header.appendChild(buttons);
+      videoContainer.appendChild(newVideo);
+      overlay.appendChild(style);
+      overlay.appendChild(header);
+      overlay.appendChild(videoContainer);
       
       document.body.appendChild(overlay);
       
-      const newVideo = overlay.querySelector('video') as HTMLVideoElement;
-      if (newVideo && screenShareVideoEl.srcObject) {
+      if (screenShareVideoEl.srcObject) {
         newVideo.srcObject = screenShareVideoEl.srcObject;
       }
       
-      document.getElementById('screenshare-close-btn')?.addEventListener('click', closeOverlay);
+      closeButton.addEventListener('click', closeOverlay);
+      
+      const previousActiveElement = document.activeElement;
+      closeButton.focus();
       
       return () => {
         overlay.remove();
         document.removeEventListener('keydown', handleEsc);
+        overlay.removeEventListener('keydown', handleKeyDown);
+        if (previousActiveElement instanceof HTMLElement) {
+          previousActiveElement.focus();
+        }
       };
     }
   }, [hasNewWindowScreenShare, screenShareVideoEl, screenSharerName, onCloseScreenShare]);
