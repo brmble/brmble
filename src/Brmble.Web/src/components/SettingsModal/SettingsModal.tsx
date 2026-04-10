@@ -52,6 +52,7 @@ export interface ScreenShareSettings {
   resolution: '720p' | '1080p' | '1440p' | '4k';
   fps: 15 | 30 | 60;
   systemAudio: boolean;
+  viewerMode: 'in-app' | 'new-window';
 }
 
 export const DEFAULT_SCREEN_SHARE: ScreenShareSettings = {
@@ -59,6 +60,7 @@ export const DEFAULT_SCREEN_SHARE: ScreenShareSettings = {
   resolution: '1080p',
   fps: 30,
   systemAudio: false,
+  viewerMode: 'in-app',
 };
 
 interface AppSettings {

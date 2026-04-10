@@ -24,6 +24,7 @@ interface ChatPanelProps {
   readMarkerTs?: number | null;
   screenShareVideoEl?: HTMLVideoElement | null;
   screenSharerName?: string;
+  screenShareViewerMode?: 'in-app' | 'new-window';
   onCloseScreenShare?: () => void;
   /** Connected users for avatar lookup by sender name */
   users?: { name: string; matrixUserId?: string; avatarUrl?: string }[];
@@ -36,7 +37,7 @@ const SCROLL_THRESHOLD = 150;
 const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
 const DEFAULT_SPLIT = 50;
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, screenShareVideoEl, screenSharerName, onCloseScreenShare, users, disabled, topNotice }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, screenShareVideoEl, screenSharerName, screenShareViewerMode, onCloseScreenShare, users, disabled, topNotice }: ChatPanelProps) {
   // Build lookup maps from sender name and matrixUserId → avatar data for MessageBubble.
   // Name-based lookup works when Mumble name matches message sender.
   // MatrixUserId-based lookup handles cases where the user connected with a different
@@ -178,7 +179,37 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
     document.addEventListener('mouseup', onMouseUp);
   }, []);
 
-  const hasScreenShare = !!screenShareVideoEl && !!screenSharerName && !!onCloseScreenShare;
+  const hasScreenShare = screenShareViewerMode === 'in-app' && !!screenShareVideoEl && !!screenSharerName && !!onCloseScreenShare;
+  const hasNewWindowScreenShare = screenShareViewerMode === 'new-window' && !!screenShareVideoEl && !!screenSharerName && !!onCloseScreenShare;
+
+  useEffect(() => {
+    if (hasNewWindowScreenShare && screenShareVideoEl) {
+      const width = 800;
+      const height = 600;
+      const newWindow = window.open('', 'Screen Share', `width=${width},height=${height}`);
+      if (newWindow && screenShareVideoEl.srcObject) {
+        newWindow.document.write(`
+          <html>
+            <head>
+              <title>Screen Share - ${screenSharerName}</title>
+              <style>
+                body { margin: 0; background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; }
+                video { max-width: 100%; max-height: 100%; }
+              </style>
+            </head>
+            <body>
+              <video autoplay playsinline></video>
+            </body>
+          </html>
+        `);
+        const newVideo = newWindow.document.querySelector('video') as HTMLVideoElement;
+        if (newVideo && screenShareVideoEl.srcObject) {
+          newVideo.srcObject = screenShareVideoEl.srcObject;
+        }
+        newWindow.document.close();
+      }
+    }
+  }, [hasNewWindowScreenShare, screenShareVideoEl, screenSharerName]);
 
   const handleScroll = useCallback(() => {
     const container = messagesContainerRef.current;

@@ -22,6 +22,11 @@ const FPS_OPTIONS = [
   { value: '60', label: '60 FPS' },
 ];
 
+const VIEWER_MODE_OPTIONS = [
+  { value: 'in-app', label: 'In app (chat area)' },
+  { value: 'new-window', label: 'New window' },
+];
+
 export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettingsTabProps) {
   const [localSettings, setLocalSettings] = useState<ScreenShareSettings>(settings);
 
@@ -100,6 +105,20 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
             />
             <span className="brmble-toggle-slider"></span>
           </label>
+        </div>
+
+        <div className="settings-item">
+          <div className="settings-label-group">
+            <span className="settings-label">Viewer Location</span>
+            <Tooltip content="Where to show screen share when viewing others" position="right" align="start">
+              <span className="settings-info-btn">?</span>
+            </Tooltip>
+          </div>
+          <Select
+            value={localSettings.viewerMode}
+            onChange={(value) => handleChange('viewerMode', value as ScreenShareSettings['viewerMode'])}
+            options={VIEWER_MODE_OPTIONS}
+          />
         </div>
       </div>
 
