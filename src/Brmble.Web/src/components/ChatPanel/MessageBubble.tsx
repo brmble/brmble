@@ -31,6 +31,7 @@ interface MessageBubbleProps {
   pending?: boolean;
   error?: boolean;
   onDismiss?: (messageId: string) => void;
+  onOpenContextMenu?: (x: number, y: number, sender: string, senderMatrixUserId?: string, content?: string, messageId?: string) => void;
 }
 
 /** Highlight search matches within a plain-text string, returning React nodes. */
@@ -134,7 +135,7 @@ function processMessageContent(
   return mentionified;
 }
 
-export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & React.HTMLAttributes<HTMLDivElement>>(function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId, currentUsername, knownUsernames, messageId, pending, error, onDismiss, className, ...rest }, ref) {
+export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & React.HTMLAttributes<HTMLDivElement>>(function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId, currentUsername, knownUsernames, messageId, pending, error, onDismiss, onOpenContextMenu, className, ...rest }, ref) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const formatTime = (date: Date) => {
@@ -153,7 +154,12 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
   const firstUrl = (!isSystem && content) ? extractFirstUrl(content) : null;
 
   return (
-    <div ref={ref} className={classes.join(' ')} data-message-index={messageIndex} {...rest}>
+    <div ref={ref} className={classes.join(' ')} data-message-index={messageIndex} {...rest} onContextMenu={(e) => {
+  if (onOpenContextMenu) {
+    e.preventDefault();
+    onOpenContextMenu(e.clientX, e.clientY, sender, senderMatrixUserId, content, messageId);
+  }
+}}>
       {collapsed ? (
         <div className="message-gutter">
           <span className="message-hover-time">{formatTime(timestamp)}</span>

@@ -19,7 +19,7 @@ import { ConnectModal } from './components/ConnectModal/ConnectModal';
 import { ServerList } from './components/ServerList/ServerList';
 import { ConnectionState } from './components/ConnectionState/ConnectionState';
 import type { ServerEntry } from './hooks/useServerlist';
-import { SettingsModal } from './components/SettingsModal/SettingsModal';
+import { SettingsModal, DEFAULT_SCREEN_SHARE, type ScreenShareSettings } from './components/SettingsModal/SettingsModal';
 import { AvatarEditorModal } from './components/AvatarEditorModal/AvatarEditorModal';
 import { CloseDialog } from './components/CloseDialog/CloseDialog';
 import { OnboardingWizard } from './components/OnboardingWizard/OnboardingWizard';
@@ -1672,6 +1672,48 @@ const handleConnect = (serverData: SavedServer) => {
     }
   }, [users, dmStore]);
 
+  const handleChatMessageContextMenu = useCallback((_x: number, _y: number, sender: string, senderMatrixUserId?: string) => {
+    // Look up user by matrixUserId first, then by name
+    let user = users.find(u => u.matrixUserId === senderMatrixUserId);
+    if (!user && sender) {
+      user = users.find(u => u.name === sender);
+    }
+    
+    if (user) {
+      if (user.isBrmbleClient && user.matrixUserId) {
+        dmStore.startDM(user.matrixUserId, sender, user.avatarUrl);
+      } else if (user.certHash) {
+        const existingMumbleContact = dmStore.contacts.find(c => c.isEphemeral && c.mumbleCertHash === user!.certHash);
+        if (existingMumbleContact) {
+          dmStore.selectContact(existingMumbleContact.id);
+        } else {
+          dmStore.startMumbleDM(user.certHash, user.session, sender);
+        }
+      } else {
+        console.warn('[DM] Cannot start DM: user has no certHash');
+      }
+    } else {
+      // Fallback: try starting DM by matrixUserId directly for users not in the users list
+      if (senderMatrixUserId) {
+        dmStore.startDM(senderMatrixUserId, sender, undefined);
+      } else {
+        console.warn('[DM] Cannot start DM: user not found');
+      }
+    }
+  }, [users, dmStore]);
+
+  const handleCopyToClipboard = useCallback(async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyToast({ message: 'Copied to clipboard' });
+      setTimeout(() => setCopyToast(null), 2000);
+    } catch (error) {
+      console.error('Failed to copy to clipboard:', error);
+      setCopyToast({ message: 'Failed to copy to clipboard' });
+      setTimeout(() => setCopyToast(null), 2000);
+    }
+  }, []);
+
   const activeChannelId = currentChannelId && currentChannelId !== 'server-root'
     ? currentChannelId
     : undefined;
@@ -1682,15 +1724,72 @@ const handleConnect = (serverData: SavedServer) => {
 
   const { Prompt, PromptWithInput } = usePrompt();
 
+  const [screenShareSettings, setScreenShareSettings] = useState<ScreenShareSettings>(DEFAULT_SCREEN_SHARE);
+
+  useEffect(() => {
+    const applyScreenShareSettings = (value: unknown) => {
+      if (!value || typeof value !== 'object') return;
+
+      const candidate =
+        'screenShare' in value &&
+        value.screenShare &&
+        typeof value.screenShare === 'object'
+          ? value.screenShare
+          : value;
+
+      setScreenShareSettings((current) => ({
+        ...current,
+        ...DEFAULT_SCREEN_SHARE,
+        ...(candidate as Partial<ScreenShareSettings>),
+      }));
+    };
+
+    const loadSettings = () => {
+      try {
+        const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
+        if (stored) {
+          applyScreenShareSettings(JSON.parse(stored));
+        }
+      } catch {}
+    };
+
+    type BridgeSettingsApi = {
+      on?: (event: string, listener: (settings: unknown) => void) => void;
+      off?: (event: string, listener: (settings: unknown) => void) => void;
+      emit?: (event: string) => void;
+    };
+
+    const bridgeApi = bridge as unknown as BridgeSettingsApi;
+    const handleBridgeSettings = (settings: unknown) => {
+      applyScreenShareSettings(settings);
+    };
+
+    loadSettings();
+
+    bridgeApi.on?.('settings.current', handleBridgeSettings);
+    bridgeApi.on?.('settings.updated', handleBridgeSettings);
+    bridgeApi.emit?.('settings.current');
+
+    const handleStorage = () => loadSettings();
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      bridgeApi.off?.('settings.current', handleBridgeSettings);
+      bridgeApi.off?.('settings.updated', handleBridgeSettings);
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, []);
+
   const { isSharing, startSharing, stopSharing, error: screenShareError, activeShare, remoteVideoEl, disconnectViewer, connectAsViewer } = useScreenShare(() => {
     setSharingChannelId(undefined);
-  });
+  }, screenShareSettings);
   disconnectViewerRef.current = disconnectViewer;
   const [sharingChannelId, setSharingChannelId] = useState<string | undefined>();
   const [screenShareToast, setScreenShareToast] = useState<{
     userName: string;
     roomName: string;
   } | null>(null);
+  const [copyToast, setCopyToast] = useState<{ message: string } | null>(null);
   const [updateInfo, setUpdateInfo] = useState<{ version: string } | null>(null);
   const [updateProgress, setUpdateProgress] = useState<number | null>(null);
 
@@ -2007,8 +2106,11 @@ const handleConnect = (serverData: SavedServer) => {
                     readMarkerTs={channelDividerTs}
                     screenShareVideoEl={remoteVideoEl}
                     screenSharerName={activeShare?.userName}
+                    screenShareViewerMode={screenShareSettings.viewerMode}
                     onCloseScreenShare={disconnectViewer}
                     users={users}
+                    onMessageContextMenu={handleChatMessageContextMenu}
+                    onCopyToClipboard={handleCopyToClipboard}
                   />
                   </ErrorBoundary>
                 </div>
@@ -2027,6 +2129,8 @@ const handleConnect = (serverData: SavedServer) => {
                     users={users}
                     disabled={dmStore.selectedContact?.isEphemeral === true && dmStore.selectedContact?.mumbleSessionId == null}
                     topNotice={dmStore.selectedContact?.isEphemeral ? 'This is a Mumble direct message. Chat history will be lost when you disconnect.' : undefined}
+                    onMessageContextMenu={handleChatMessageContextMenu}
+                    onCopyToClipboard={handleCopyToClipboard}
                   />
                   </ErrorBoundary>
                 </div>
@@ -2132,6 +2236,13 @@ const handleConnect = (serverData: SavedServer) => {
             }, primary: true },
           ]}
           onDismiss={handleDismissToast}
+        />
+      )}
+
+      {copyToast && (
+        <Toast
+          message={copyToast.message}
+          onDismiss={() => setCopyToast(null)}
         />
       )}
 

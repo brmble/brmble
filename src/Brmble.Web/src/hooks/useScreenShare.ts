@@ -8,7 +8,14 @@ export interface ActiveShare {
   sessionId?: number;
 }
 
-export function useScreenShare(onDisconnected?: () => void) {
+export interface ScreenShareSettings {
+  captureAudio: boolean;
+  resolution: '720p' | '1080p' | '1440p' | '4k';
+  fps: 15 | 30 | 60;
+  systemAudio: boolean;
+}
+
+export function useScreenShare(onDisconnected?: () => void, screenShareSettings?: ScreenShareSettings) {
   const [isSharing, setIsSharing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeShare, setActiveShare] = useState<ActiveShare | null>(null);
@@ -58,7 +65,52 @@ export function useScreenShare(onDisconnected?: () => void) {
       });
 
       await room.connect(url, token);
-      await room.localParticipant.setScreenShareEnabled(true);
+
+      let captureOptions: Record<string, unknown> | undefined;
+      if (screenShareSettings) {
+        const resolutionMap: Record<string, { width: number; height: number }> = {
+          '720p': { width: 1280, height: 720 },
+          '1080p': { width: 1920, height: 1080 },
+          '1440p': { width: 2560, height: 1440 },
+          '4k': { width: 3840, height: 2160 },
+        };
+
+        const bitrateMap: Record<string, number> = {
+          '720p': 2_000_000,
+          '1080p': 4_000_000,
+          '1440p': 8_000_000,
+          '4k': 15_000_000,
+        };
+
+        captureOptions = {};
+
+        if (screenShareSettings.captureAudio) {
+          captureOptions.audio = true;
+        }
+
+        if (screenShareSettings.captureAudio && screenShareSettings.systemAudio) {
+          captureOptions.systemAudio = 'include';
+        }
+
+        if (screenShareSettings.resolution || screenShareSettings.fps) {
+          const res = resolutionMap[screenShareSettings.resolution];
+          captureOptions.resolution = {
+            ...res,
+            frameRate: screenShareSettings.fps,
+          };
+          captureOptions.videoEncoding = {
+            maxBitrate: bitrateMap[screenShareSettings.resolution],
+            maxFramerate: screenShareSettings.fps,
+          };
+          captureOptions.videoCodec = 'h264';
+        }
+
+        if (Object.keys(captureOptions).length === 0) {
+          captureOptions = undefined;
+        }
+      }
+
+      await room.localParticipant.setScreenShareEnabled(true, captureOptions);
 
       publishRoomRef.current = room;
       setIsSharing(true);
@@ -69,7 +121,7 @@ export function useScreenShare(onDisconnected?: () => void) {
       setError(err instanceof Error ? err.message : 'Screen share failed');
       setIsSharing(false);
     }
-  }, []);
+  }, [screenShareSettings]);
 
   const stopSharing = useCallback(async () => {
     const room = publishRoomRef.current;
@@ -162,7 +214,8 @@ export function useScreenShare(onDisconnected?: () => void) {
       viewerRoomRef.current = null;
     }
     setRemoteVideoEl(null);
-    setActiveShare(null);
+    // Don't clear activeShare here - it will be cleared by screenShareStopped event
+    // when the sharer actually stops sharing. This allows re-watching.
   }, []);
 
   // Listen for screen share events from bridge

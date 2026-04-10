@@ -10,6 +10,7 @@ import { type AppearanceSettings, type OverlaySettings, type BrmblegotchiSetting
 import { ConnectionSettingsTab, type ConnectionSettings } from './ConnectionSettingsTab';
 import { ProfileSettingsTab } from './ProfileSettingsTab';
 import { AdminSettingsTab } from './AdminSettingsTab';
+import { ScreenShareSettingsTab } from './ScreenShareSettingsTab';
 import { useServerlist } from '../../hooks/useServerlist';
 import { usePermissions, Permission } from '../../hooks/usePermissions';
 
@@ -46,6 +47,22 @@ interface SettingsModalProps {
   setBrmblegotchiEnabled?: (enabled: boolean) => void;
 }
 
+export interface ScreenShareSettings {
+  captureAudio: boolean;
+  resolution: '720p' | '1080p' | '1440p' | '4k';
+  fps: 15 | 30 | 60;
+  systemAudio: boolean;
+  viewerMode: 'in-app' | 'new-window';
+}
+
+export const DEFAULT_SCREEN_SHARE: ScreenShareSettings = {
+  captureAudio: false,
+  resolution: '1080p',
+  fps: 30,
+  systemAudio: false,
+  viewerMode: 'in-app',
+};
+
 interface AppSettings {
   audio: AudioSettings;
   shortcuts: ShortcutsSettings;
@@ -54,6 +71,7 @@ interface AppSettings {
   overlay: OverlaySettings;
   brmblegotchi: BrmblegotchiSettings;
   speechDenoise: SpeechDenoiseSettings;
+  screenShare: ScreenShareSettings;
   reconnectEnabled: boolean;
   rememberLastChannel: boolean;
   autoConnectEnabled: boolean;
@@ -68,6 +86,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   overlay: DEFAULT_OVERLAY,
   brmblegotchi: DEFAULT_BRMBLEGOTCHI,
   speechDenoise: DEFAULT_SPEECH_DENOISE,
+  screenShare: DEFAULT_SCREEN_SHARE,
   reconnectEnabled: true,
   rememberLastChannel: true,
   autoConnectEnabled: false,
@@ -76,7 +95,7 @@ const DEFAULT_SETTINGS: AppSettings = {
 
 export function SettingsModal(props: SettingsModalProps) {
   const { isOpen, onClose, initialTab } = props;
-  const [activeTab, setActiveTab] = useState<'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'admin'>(initialTab ?? 'profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'admin' | 'screenShare'>(initialTab ?? 'profile');
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const { servers } = useServerlist();
   const { hasPermission } = usePermissions();
@@ -143,6 +162,7 @@ export function SettingsModal(props: SettingsModalProps) {
             ...DEFAULT_SETTINGS,
             ...d.settings!,
             brmblegotchi: d.settings!.brmblegotchi ?? prev.brmblegotchi ?? DEFAULT_BRMBLEGOTCHI,
+            screenShare: d.settings!.screenShare ?? prev.screenShare ?? DEFAULT_SCREEN_SHARE,
             speechDenoise: normalizedDenoise,
           };
           if (d.settings!.appearance?.theme) {
@@ -319,6 +339,13 @@ export function SettingsModal(props: SettingsModalProps) {
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
   };
 
+  const handleScreenShareChange = (screenShare: ScreenShareSettings) => {
+    const newSettings = { ...settings, screenShare };
+    setSettings(newSettings);
+    bridge.send('settings.set', { settings: newSettings });
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
+  };
+
   const handleConnectionChange = (connection: ConnectionSettings) => {
     const newSettings = {
       ...settings,
@@ -379,6 +406,12 @@ export function SettingsModal(props: SettingsModalProps) {
           >
             Connection
           </button>
+          <button 
+            className={`settings-tab ${activeTab === 'screenShare' ? 'active' : ''}`}
+            onClick={() => setActiveTab('screenShare')}
+          >
+            Screen Share
+          </button>
           {hasAdminPermission && (
             <button
               className={`settings-tab ${activeTab === 'admin' ? 'active' : ''}`}
@@ -425,6 +458,12 @@ export function SettingsModal(props: SettingsModalProps) {
               }}
               onChange={handleConnectionChange}
               servers={servers.map(s => ({ id: s.id, label: s.label }))}
+            />
+          )}
+          {activeTab === 'screenShare' && (
+            <ScreenShareSettingsTab
+              settings={settings.screenShare}
+              onChange={handleScreenShareChange}
             />
           )}
           {activeTab === 'admin' && hasAdminPermission && <AdminSettingsTab />}

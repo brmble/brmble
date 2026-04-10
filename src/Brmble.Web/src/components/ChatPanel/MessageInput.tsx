@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback, useId, type KeyboardEvent } from 'react';
 import type { MentionableUser } from '../../types';
+import type { MatrixClient } from 'matrix-js-sdk';
 import { MentionDropdown } from './MentionDropdown';
+import { ReplyHeader } from './ReplyHeader';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { Icon } from '../Icon/Icon';
 import { validateImageFile } from '../../utils/imageUpload';
@@ -11,9 +13,20 @@ interface MessageInputProps {
   placeholder?: string;
   mentionableUsers?: MentionableUser[];
   disabled?: boolean;
+  replyState?: {
+    eventId: string;
+    sender: string;
+    senderMatrixUserId?: string;
+    content: string;
+    html?: string;
+    msgType: string;
+  } | null;
+  onClearReply?: () => void;
+  matrixClient?: MatrixClient | null;
+  matrixRoomId?: string | null;
 }
 
-export function MessageInput({ onSend, placeholder = 'Type a message...', mentionableUsers = [], disabled }: MessageInputProps) {
+export function MessageInput({ onSend, placeholder = 'Type a message...', mentionableUsers = [], disabled, replyState, onClearReply, matrixClient, matrixRoomId }: MessageInputProps) {
   const [message, setMessage] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -213,9 +226,24 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
     }
   }, [stageImage]);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (message.trim() || pendingImage) {
-      onSend(message.trim(), pendingImage ?? undefined);
+      // If there's a replyState, we need to send a Matrix reply
+      if (replyState && matrixClient && matrixRoomId) {
+        const { buildReplyContent } = await import('../../utils/replyHelpers');
+        const content = buildReplyContent(
+          matrixRoomId,
+          replyState.eventId,
+          replyState.sender,
+          replyState.senderMatrixUserId,
+          replyState.content,
+          message.trim()
+        );
+        await matrixClient.sendMessage(matrixRoomId, content);
+        if (onClearReply) onClearReply();
+      } else {
+        onSend(message.trim(), pendingImage ?? undefined);
+      }
       setMessage('');
       setMentionActive(false);
       setPendingImage(null);
@@ -257,7 +285,7 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
 
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      handleSend().catch(error => console.error('Failed to send message:', error));
     }
   };
 
@@ -282,6 +310,12 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
 
   return (
     <div className="message-input-container">
+      {replyState && onClearReply && (
+        <ReplyHeader 
+          replyState={replyState} 
+          onCancel={onClearReply}
+        />
+      )}
       {pendingImage && imagePreviewUrl && (
         <div className="image-preview-strip">
           <img
@@ -333,7 +367,7 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
         <Tooltip content="Send message">
         <button
           className="btn btn-primary btn-icon send-button"
-          onClick={handleSend}
+          onClick={() => handleSend().catch(error => console.error('Failed to send message:', error))}
           disabled={disabled || (!message.trim() && !pendingImage)}
         >
           <Icon name="send" size={20} />

@@ -8,6 +8,7 @@
   padding: var(--space-2xs);
   box-shadow: var(--shadow-elevated);
   animation: popIn var(--animation-fast) ease backwards;
+  visibility: hidden;
 }
 
 .context-menu-item {
