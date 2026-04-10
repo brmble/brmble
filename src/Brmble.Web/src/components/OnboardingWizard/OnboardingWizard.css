@@ -121,12 +121,29 @@
   text-align: center;
 }
 
+.onboarding-body.onboarding-body-divider {
+  padding-bottom: var(--space-xl);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
 .onboarding-actions {
   display: flex;
   gap: var(--space-sm);
   justify-content: flex-end;
   align-items: center;
   margin-top: var(--space-xl);
+  padding-top: var(--space-xl);
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* Back button stays left, pushes siblings right */
+.onboarding-actions .btn-back {
+  margin-right: auto;
+}
+
+.onboarding-actions.onboarding-actions-hero {
+  border-top: none;
+  padding-top: 0;
 }
 
 .onboarding-error {
@@ -265,10 +282,6 @@
 
 /* ── New identity inline form ────────────────────────────────────── */
 .onboarding-new-identity-form {
-  padding: var(--space-md) var(--space-lg);
-  background: var(--bg-glass);
-  border: 1px solid var(--accent-primary);
-  border-radius: var(--radius-md);
   margin-bottom: var(--space-md);
 }
 
@@ -288,20 +301,32 @@
 
 /* ── Step 4: Backup ──────────────────────────────────────────────── */
 .onboarding-fingerprint {
+  margin-bottom: var(--space-md);
+}
+
+.onboarding-fingerprint-label {
+  display: block;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--space-xs);
+}
+
+.onboarding-fingerprint-value {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--text-muted);
   word-break: break-all;
-  background: var(--bg-glass);
-  padding: var(--space-xs) var(--space-sm);
-  border-radius: var(--radius-sm);
-  margin-bottom: var(--space-md);
 }
 
 /* ── Steps 5–7: Preference sections ─────────────────────────────── */
 /* Settings sections/items use standard .settings-section / .settings-item
    classes from SettingsModal.css (imported in OnboardingWizard.tsx).
    Only wizard-specific overrides live here. */
+
+.onboarding-panel .settings-section {
+  border-bottom: none;
+}
 
 .onboarding-hint {
   font-size: var(--text-xs);
@@ -375,18 +400,13 @@
 /* ── Step 3: Profile actions ─────────────────────────────────────── */
 .onboarding-profile-actions {
   display: flex;
-  flex-direction: column;
   gap: var(--space-sm);
   margin-top: var(--space-xl);
+  padding-top: var(--space-xl);
+  border-top: 1px solid var(--border-subtle);
 }
 
 .onboarding-profile-actions .btn {
-  width: 100%;
+  flex: 1;
   justify-content: center;
-}
-
-.onboarding-new-identity-form input:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
-  background: var(--bg-subtle);
 }

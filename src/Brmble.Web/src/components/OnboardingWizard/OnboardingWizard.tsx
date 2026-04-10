@@ -32,7 +32,7 @@ function MumbleCardIcon() {
 function BrmbleCardIcon() {
   return (
     <span className="onboarding-identity-card-icon-svg brmble-card-icon">
-      <svg width="28" height="28" viewBox="108 118 820 820" aria-hidden="true">
+      <svg width="28" height="28" viewBox="0 0 1024 1024" aria-hidden="true">
         <path fill="currentColor" d="M485.187 326.648C504.701 325.902 526.761 326.778 546.825 326.529C554.663 331.202 585.925 365.575 593.576 374.068C593.661 385.237 592.933 396.151 593.243 407.337C593.572 419.237 593.361 431.105 593.713 443.037C591.843 445.975 589.836 448.323 587.374 450.777C574.198 463.912 561.815 478.001 548.349 490.833C538.744 491.419 524.637 490.753 514.653 490.896C507.038 491.005 491.665 491.337 484.69 490.676C480.208 487.2 473.4 479.237 469.205 474.93C459.732 465.203 450.167 454.79 440.021 445.76C439.839 442.937 439.949 440.051 440.015 437.22C440.515 415.791 439.496 394.255 440.096 372.839C442.671 369.336 446.956 365.174 450.063 361.962L470.122 341.612C473.534 338.141 481.726 328.993 485.187 326.648Z" />
         <path fill="currentColor" d="M468.403 507.856C470.293 509.378 472.682 512.248 474.365 514.127C484.481 514.504 494.511 514.1 504.624 514.517C508.925 529.579 513.634 549.16 517.275 564.583C519.752 558.004 522.309 545.963 524.063 538.8C525.668 532.248 528.997 520.059 529.769 513.74C537.433 513.088 549.309 513.5 557.594 513.326C559.499 511.573 561.454 509.875 563.455 508.233C570.976 512.614 587.778 531.257 593.913 538.257C593.233 561.442 593.193 584.641 593.794 607.828C591.352 610.686 587.811 614.192 585.157 616.978C573.849 627.692 559.462 644.891 548.204 654.379C543.764 655.219 490.236 655.357 485.268 654.323C480.341 650.542 467.022 636.046 462.057 630.974C456.885 625.689 443.315 612.775 439.986 607.697L440.076 536.732C449.592 527.189 458.911 517.261 468.403 507.856Z" />
         <path fill="currentColor" d="M629.689 465.743C631.134 465.784 633.125 465.968 634.469 466.519C661.238 477.491 688.902 486.067 715.63 497.193C718.569 498.416 720.755 499.295 723.544 500.838L724.138 501.16C731.063 514.35 733.58 548.577 738.886 563.751C739.521 565.567 742.731 572.867 742.59 575.362C724.634 595.899 704.442 615.762 685.867 635.911C683.942 637.998 681.297 639.905 679.922 640.888C675.201 640.211 665.206 636.62 660.167 634.999C652.822 632.698 645.43 630.549 637.995 628.556C633.912 627.423 614.472 622.961 612.133 621.713C612.397 619.638 614.552 618.585 616.243 617.519C615.677 601.905 616.011 584.83 616.034 569.103C625.699 567.896 640.531 565.857 649.97 565.352L652.839 564.913L652.945 564.511L650.959 563.743C645.541 561.275 638.058 559.173 632.213 557.156C627.641 555.578 621.573 553.207 617.1 551.89C616.818 544.516 617.332 535.568 616.548 528.637C610.099 520.264 596.724 509.626 592.127 503.171C601.496 493.524 612.086 484.674 621.306 474.787C623.632 472.294 627.836 468.401 629.689 465.743Z" />
@@ -44,10 +44,30 @@ function BrmbleCardIcon() {
         <path fill="currentColor" d="M516.267 142.323C518.579 144.477 525.623 177.433 526.992 182.766C535.029 184.301 543.045 187.172 550.975 188.874C561.453 191.123 565.34 195.33 571.544 203.686C574.349 207.463 576.985 210.632 579.375 214.744L573.96 218.079C568.333 229.795 564.212 254.919 558.393 266.071C545.472 266.019 532.773 265.478 519.625 265.514C509.705 265.317 487.05 266.481 478.625 264.777C473.387 249.086 468.034 233.433 462.566 217.82C460.369 217.159 456.688 216.391 455.078 215.088C455.311 211.843 469.203 194.234 472.452 191.461C485.633 189.197 493.761 185.669 506.1 182.894C510.025 169.116 512.655 156.136 516.267 142.323Z" />
         <path fill="currentColor" d="M309.303 261.536C314.651 261.068 350.41 275.974 357.431 277.67C364.978 279.494 367.954 283.776 372.31 289.754C366.158 291.352 358.042 294.384 351.835 296.447C336.446 301.563 321.637 306.811 305.881 310.842C302.387 320.695 298.943 334.17 295.63 344.615C285.716 344.044 270.596 341.015 259.844 339.71C268.94 346.065 280.515 353.522 289.055 360.215C286.752 372.711 279.126 393.13 275.299 405.934C276.019 407.893 276.521 408.905 276.691 410.958C275.718 412.55 275.86 412.1 273.813 413.037C268.547 415.13 258.333 417.019 252.544 418.232C243.959 397.422 232.305 376.968 224.09 356.149C226.085 351.376 228.904 347.76 231.587 343.266C223.075 337.719 202.424 322.991 195.853 315.869L196.26 315.912C208.38 317.249 227.996 321.8 239.918 324.806C243.049 316.51 254.037 293.655 254.555 286.57C257.409 285.005 259.967 284.249 263.01 283.166C279.125 277.432 293.95 268.845 309.303 261.536Z" />
         <path fill="currentColor" d="M726.649 261.011C735.253 262.548 771.932 283.235 781.817 287.224C783.864 288.05 797.242 319.832 799.425 324.788C809.489 322.385 835.31 315.614 844.323 315.315L843.65 316.055C838.395 321.884 815.745 338.489 808.463 343.741C810.352 348.57 812.234 353.294 815.055 357.657C809.31 365.703 790.526 415.06 785.986 418.561C780.737 419.795 772.446 416.526 767.504 414.496C765.414 413.861 762.977 413.588 762.018 411.597C762.636 409.8 764.097 408.897 765.588 407.668C765.16 406.549 764.738 405.432 764.551 404.247C763.503 397.642 760.81 391.254 758.664 384.874C755.991 377.004 753.457 369.088 751.062 361.129C758.869 355.949 773.089 343.177 780.534 339.445C768.432 341.826 756.475 342.549 745.035 344.694C741.371 333.387 737.599 322.114 733.721 310.878C710.882 304.912 687.563 295.499 664.399 288.712C665.261 286.838 666.242 284.896 667.146 283.03C675.973 278.051 691.816 273.954 701.834 270.241C709.344 267.458 719.305 263.226 726.649 261.011Z" />
+        <path fill="currentColor" d="M286.92 434.598C286.941 434.633 286.962 434.668 286.982 434.704C292.351 449.452 299.892 463.689 305.779 478.268C300.478 480.614 293.951 482.61 288.257 484.965C288.03 491.327 284.019 509.616 282.158 516.13C270.18 515.587 261.864 515.663 249.963 516.063C256.19 522.398 272.206 527.21 278.519 533.608C275.494 542.269 272.994 556.972 270.861 566.226C267.238 581.952 268.344 580.358 256.891 591.819C254.677 590.512 246.37 582.65 243.814 580.502L222.937 562.776C219.33 559.731 215.516 557.032 212.081 553.812C211.622 550.171 211.703 543.883 211.619 540.036C211.41 531.865 211.253 523.693 211.149 515.52C211.018 504.533 210.192 490.678 210.73 480.055C216.133 475.247 222.818 465.552 227.368 459.404C231.443 453.887 235.703 448.509 240.14 443.28C246.636 441.592 281.601 434.263 286.92 434.598Z" />
+        <path fill="currentColor" d="M747.19 433.877C759.006 435.977 770.805 438.174 782.585 440.468C784.264 440.796 790.763 442.01 792.008 443.201C802.668 453.431 811.441 467.283 820.954 478.662C824.648 483.08 822.456 512.997 822.186 519.758C821.809 529.196 822.637 545.436 820.802 553.594C809.837 564.775 797.557 574.874 785.765 585.183C783.055 587.553 779.994 590.36 776.979 592.241L773.17 587.995C770.707 585.548 766.784 581.441 765.797 578.225C761.93 565.633 758.901 548.975 756.109 536.04C766.866 530.502 782.461 522.534 792.445 516.187C780.439 515.404 764.112 515.909 751.763 516.03C750.221 508.813 745.072 490.7 744.579 484.729C740.223 482.731 731.847 479.822 727.023 477.936C728.206 472.335 732.084 467.771 734.664 462.581C739.325 453.203 743.109 443.522 747.19 433.877Z" />
         <path fill="currentColor" d="M752.125 597.795C756.604 602.666 763.934 619.001 767.721 625.603C770.667 630.74 773.067 634.56 776.417 639.618C773.489 647.691 771.514 656.027 769.138 664.268C766.873 672.125 764.336 679.903 762.085 687.765C760.472 693.397 759.224 699.317 757.159 704.797C756.543 706.432 755.813 707.973 754.519 709.182C750.198 713.216 731.759 724.605 725.983 726.684C722.393 727.976 683.682 732.553 678.263 732.491L677.408 731.466C676.87 727.271 673.079 722.028 676.27 719.429C677.751 718.539 677.9 718.463 679.242 717.237C679.641 712.31 678.865 704.873 678.661 699.698C678.202 688.029 677.195 675.692 677.425 664.047C682.373 664.702 683.14 664.515 687.76 666.166C692.586 660.857 697.46 655.591 702.38 650.369C710.998 654.449 724.122 664.093 734.567 669.584C732.593 663.551 719.651 643.425 715.583 635.857C724.105 626.934 732.853 618.27 741.304 609.301C744.945 605.437 748.306 601.527 752.125 597.795Z" />
         <path fill="currentColor" d="M535.255 774.363C537.989 777.469 540.205 802.278 542.781 808.505C544.788 809.974 546.613 811.579 548.514 813.181C560.017 822.872 571.794 832.059 584.287 840.429C583.841 841.758 580.793 850.432 579.746 851.326C571.574 858.306 554.054 868.66 544.993 873.895C542.831 875.143 528.675 873.362 525.101 875.501C523.745 878.256 523.627 881.687 522.919 884.704C520.77 893.868 518.93 903.08 517.182 912.327C516.939 913.617 516.64 914.465 515.556 915.144C513.016 912.658 507.716 881.515 505.936 875.483L505.265 875.44C501.626 875.103 492.48 875.568 489.605 874.66C480.062 871.647 453.852 855.265 448.81 847.715C448.876 845.495 449.322 842.418 449.583 840.147C465.289 827.554 480.621 816.361 495.722 802.579C502.069 814.195 506.408 825.845 513.253 837.782C513.758 827.686 514.414 817.596 514.889 807.497C515.178 801.348 515.011 795.159 515.491 789.053C521.605 783.952 528.786 779.277 535.255 774.363Z" />
         <path fill="currentColor" d="M280.581 596.262C297.168 615.075 315.111 634.434 333.467 651.473C330.597 664.769 326.159 678.831 323.025 692.729C325.942 689.851 329.515 686.362 331.925 683.132C336.219 677.379 338.895 672.581 344.077 667.42C347.984 666.548 352.449 665.912 356.452 665.964C355.794 670.683 355.901 677.087 355.49 682.075C354.098 698.967 353.947 715.703 352.38 732.584C343.799 732.47 332.392 730.213 323.497 729.333C320.353 728.999 311.065 727.935 308.365 726.876C299.891 723.553 290.942 718.1 282.473 714.412C276.874 711.973 274.9 705.487 273.079 700.204C267.663 702.217 257.423 704.386 251.723 705.655C243.649 707.441 235.612 709.392 227.617 711.509C234.979 706.31 242.779 699.553 249.901 693.907C255.145 689.751 261.948 684.76 266.759 680.363C267.524 677.673 258.026 647.256 256.73 641.602C259.67 635.376 264.257 627.626 267.638 621.458C272.177 613.177 276.493 604.775 280.581 596.262Z" />
-        <path fill="currentColor" d="M406.252 301.523C410.594 301.132 423.367 311.068 427.649 314.072C435.014 319.227 442.464 324.259 449.997 329.165C443.49 337.067 433.874 345.355 426.655 352.767C423.266 356.248 419.842 358.984 416.932 362.984C416.164 373.767 416.892 394.243 416.981 405.58C405.084 411.262 391.756 415.703 379.474 420.517C387.399 422.449 407.373 424.354 416.161 425.386L415.935 437.41C410.136 440.113 402.12 442.566 395.881 444.832C386.984 448.062 377.593 451.877 368.618 454.682C358.04 458.178 348.805 461.261 338.361 465.291C325.77 445.025 312.864 424.956 299.648 405.092C308.892 380.388 315.266 354.486 324.599 329.506C351.883 320.372 379.101 311.044 406.252 301.523Z" />
+        <path fill="currentColor" d="M657.279 739.377C658.827 740.939 662.986 752.362 663.873 754.983C677.363 753.674 691.169 751.844 704.74 750.429C704.109 755.314 696.965 791.273 697.018 791.225C692.317 795.567 660.242 829.165 657.62 828.816C653.606 828.282 604.349 829.917 599.408 829.236C593.514 824.079 591.639 821.242 584.257 815.726C582.244 814.308 580.559 812.664 578.463 811.261C572.165 807.044 567.052 803.936 561.432 798.818C561.715 793.587 559.078 783.112 557.846 777.671C571.804 776.089 587.04 776.83 601.062 776.995C607.653 777.072 614.509 776.635 621.101 776.284C625.227 772.819 628.76 768.788 632.414 764.828C635.82 767.466 638.893 770.95 641.994 773.992C647.932 779.819 653.744 785.775 659.899 791.377C657.904 784.403 655.295 775.479 652.579 768.795C649.834 762.038 647.207 756.989 644.712 749.899C647.57 747.044 654.088 741.648 657.279 739.377Z" />
+        <path fill="currentColor" d="M377.908 204.444C382.122 204.239 435.475 222.142 442.997 224.936C445.536 230.175 446.873 235.663 448.659 241.211C451.292 249.424 454.028 257.603 456.867 265.747C452.103 268.271 447.367 271.672 442.486 273.959C436.011 276.993 429.572 281.937 423.126 284.726C419.08 282.113 414.655 278.633 410.395 275.798L405.377 277.328C401.031 278.892 397.008 280.56 392.751 282.325C388.897 276.388 386.228 269.951 382.334 264.479C380.426 263.375 361.897 257.059 358.466 255.917C346.098 251.804 333.61 246.42 321.489 242.19C322.297 238.422 323.302 235.592 324.825 232.101C330.426 227.727 345.228 221.185 352.173 217.82C360.845 213.544 369.425 209.084 377.908 204.444Z" />
+        <path fill="currentColor" d="M658.632 204.553C662.814 204.648 679.231 214.683 684.244 216.847C689.654 219.339 695.726 222.532 701.119 224.841C712.487 229.709 712.888 230.321 717.979 240.918C708.351 245.893 701.7 246.822 692.56 250.462C679.841 255.528 665.625 259.767 653.24 264.857C650.787 268.406 646.434 276.843 644.174 280.968C641.055 280.134 638.435 279.264 635.379 278.223L628.136 275.423C624.857 278.702 619.607 282.815 615.278 284.471C609.391 281.488 585.054 269.283 581.723 266.246C581.511 260.102 591.002 240.569 591.997 233.027C592.219 231.346 594.252 225.563 595.011 223.805C604.259 220.948 613.912 218.573 623.157 215.683C634.873 212.022 646.761 207.587 658.632 204.553Z" />
+        <path fill="currentColor" d="M327.401 751.452C339.368 752.534 356.289 753.09 367.506 754.585C378.287 766.494 387.765 781.484 398.815 793.191C402.359 796.945 421.719 798.95 428.003 799.945C437.316 801.418 451.461 805.184 460.484 805.059C455.652 809.161 451.713 813.182 446.51 817.082C442.409 820.546 434.671 827.465 430.491 829.813C424.434 829.416 377.092 829.486 374.505 827.359C364.049 818.763 347.076 802.293 337.35 791.584C334.753 788.724 329.243 758.191 327.401 751.452Z" />
+        <path fill="currentColor" d="M853.985 425.277L855.149 425.056L855.641 425.545C853.055 429.126 824.723 445.919 819.509 448.642C817.646 446.542 816.513 444.987 814.899 442.742C812.038 438.212 808.236 434.469 805.938 429.691C820.257 428.338 840.321 425.829 853.985 425.277Z" />
+        <path fill="currentColor" d="M792.333 626.65C799.09 630.85 830.614 642.848 832.346 649.48L831.476 650.459C826.642 649.383 796.022 646.866 790.56 646.84C791.061 639.345 791.103 634.163 792.333 626.65Z" />
+        <path fill="currentColor" d="M725.503 740.15C726.784 741.011 733.236 748.607 733.888 749.702C736.806 754.607 759.409 774.68 759.424 778.465L757.786 778.371L721.884 762.755C723.208 755.223 724.113 747.773 725.503 740.15Z" />
+        <path fill="currentColor" d="M599.07 844.409C605.985 844.82 612.375 844.383 619.724 845.042C622.992 858.906 625.161 869.18 626.853 883.329C622.757 881.941 602.485 849.905 599.07 844.409Z" />
+        <path fill="currentColor" d="M307.467 744.864C309.577 746.67 311.826 760.437 312.487 763.833C304.382 768.287 287.087 774.321 277.862 778.03C276.586 778.729 275.488 779.581 274.12 779.448C275.666 776.546 303.745 748.071 307.467 744.864Z" />
+        <path fill="currentColor" d="M413.803 845.64C417.958 845.426 431.025 845.063 434.445 845.716L434.676 846.5C433.792 849.143 420.389 865.632 417.541 870.813L417.22 871.405C413.961 876.881 411.284 880.11 408.115 886.179C407.586 879.405 409.421 870.641 410.779 863.975C411.401 860.916 412.77 846.898 413.803 845.64Z" />
+        <path fill="currentColor" d="M182.229 424.959C185.624 425.124 190.339 425.795 193.922 426.1C205.582 427.091 217.673 427.933 229.294 429.073C227.41 432.437 225.061 435.937 222.959 439.207C221.147 441.925 220.552 442.949 218.082 445.223C210.668 443.107 189.333 429.918 182.229 424.959Z" />
+        <path fill="currentColor" d="M615.849 160.831L616.4 161.532C615.747 169.176 615.247 192.491 613.525 198.154C611.734 200.51 598.057 204.725 594.082 206.152L593.538 205.679C593.48 201.437 612.48 167.66 615.849 160.831Z" />
+        <path fill="currentColor" d="M419.006 161.774C420.716 163.188 439.88 203.336 441.19 207.638C436.969 205.898 422.837 199.968 419.426 199.24C419.659 187.028 418.932 174.215 419.006 161.774Z" />
+        <path fill="currentColor" d="M238.42 629.404C240.467 630.668 241.889 644.934 242.11 647.891C231.11 648.846 215.816 649.897 204.996 650.11L202.495 650.662L201.851 650.245C203.079 648.623 233.122 632.872 238.42 629.404Z" />
+        <path fill="currentColor" d="M760.344 205.412C761.993 208.476 753.061 240.949 751.749 245.609C748.451 244.461 745.554 243.327 742.319 242.003L736.638 239.459C739.301 232.924 755.262 211.358 760.344 205.412Z" />
+        <path fill="currentColor" d="M278.264 206.809C280.784 208.538 301.611 234.493 304.579 238.394L300.309 240.437C296.261 242.245 292.239 244.11 288.245 246.035C285.75 234.32 279.751 218.093 278.264 206.809Z" />
+        <path fill="currentColor" fillOpacity={0.019607844} d="M382.101 576.856C380.756 576.769 380.593 576.894 379.467 576.227C380.292 575.152 381.597 574.943 383.092 574.342L383.456 575.51C382.759 576.432 383.045 576.168 382.101 576.856Z" />
+        <path fill="currentColor" fillOpacity={0.023529412} d="M649.97 565.352L648.462 564.388L648.372 563.852L650.959 563.743L652.945 564.511L652.839 564.913L649.97 565.352Z" />
+        <path fill="currentColor" fillOpacity={0.72549021} d="M511.104 825.312L511.718 825.813C512.348 827.784 511.99 829.552 511.811 831.652C510.966 828.878 510.961 828.199 511.104 825.312Z" />
       </svg>
     </span>
   );
@@ -315,7 +335,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         autoConnectServerId: s.autoConnectServerId,
       };
       localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(merged));
-      bridge.send('settings.set', merged);
+      bridge.send('settings.set', { settings: merged });
     } catch { /* ignore */ }
   }, []);
 
@@ -347,6 +367,12 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const handleIdentityContinue = () => {
     if (!selectedIdentity) return;
     setIdentityError('');
+    // Always reset, then pre-fill only when an existing cert has a real name
+    setNewName(
+      selectedIdentity.kind !== 'new' && !isGenericCN(selectedIdentity.cert.name)
+        ? selectedIdentity.cert.name
+        : ''
+    );
     setStep('profile');
   };
 
@@ -354,16 +380,14 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
     if (!selectedIdentity || selectedIdentity.kind === 'new') return;
     setIdentityError('');
     const cert = selectedIdentity.cert;
+    const name = newName.trim();
 
-    // Validate name for generic-cn mode before submitting
-    if (isGenericCN(cert.name)) {
-      const name = newName.trim();
-      if (!name) return;
-      const nameError = validateProfileName(name);
-      if (nameError) {
-        setIdentityError(nameError);
-        return;
-      }
+    // Always validate the name — the field is always editable now
+    if (!name) return;
+    const nameError = validateProfileName(name);
+    if (nameError) {
+      setIdentityError(nameError);
+      return;
     }
 
     setBusy(true);
@@ -374,13 +398,13 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         setIdentityError('This certificate is missing a profile ID. Please select another or create a new profile.');
         return;
       }
-      if (isGenericCN(cert.name) && newName.trim()) {
-        pendingRenameRef.current = newName.trim();
+      // Queue a rename if the user changed the name from the cert's original
+      if (name !== cert.name) {
+        pendingRenameRef.current = name;
       }
       bridge.send('profiles.setActive', { id: cert.profileId });
     } else if (selectedIdentity.kind === 'mumble') {
-      const importName = isGenericCN(cert.name) ? newName.trim() : cert.name;
-      bridge.send('profiles.import', { name: importName, data: cert.data });
+      bridge.send('profiles.import', { name, data: cert.data });
     }
   };
 
@@ -389,10 +413,6 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
     const nameError = validateProfileName(name);
     if (nameError) {
       await confirm({ title: 'Invalid name', message: nameError, confirmLabel: 'OK' });
-      return 'aborted';
-    }
-    if (takenNames.includes(name.toLowerCase())) {
-      await confirm({ title: 'Duplicate name', message: `A profile named "${name}" already exists.`, confirmLabel: 'OK' });
       return 'aborted';
     }
     // Check for orphaned cert on disk (with timeout to avoid hanging forever)
@@ -467,17 +487,15 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   // Derived: cert groups and taken names (memoized to avoid repeated .filter() in JSX)
   const brmbleCerts = useMemo(() => discoveredCerts.filter(c => c.source === 'brmble'), [discoveredCerts]);
   const mumbleCerts = useMemo(() => discoveredCerts.filter(c => c.source.startsWith('mumble-')), [discoveredCerts]);
-  const takenNames = useMemo(() => discoveredCerts.map(c => c.name.toLowerCase()), [discoveredCerts]);
-
-  const newNameValidation = (() => {
-    if (!newName.trim()) return null;
-    const basic = validateProfileName(newName.trim());
-    if (basic) return basic;
-    if (takenNames.includes(newName.trim().toLowerCase())) {
-      return 'This name is already taken by an existing identity.';
-    }
-    return null;
-  })();
+  const takenNames = useMemo(() => {
+    // Exclude the currently selected cert's name — the user is allowed to keep it
+    const selectedName = selectedIdentity && selectedIdentity.kind !== 'new'
+      ? selectedIdentity.cert.name.toLowerCase()
+      : null;
+    return discoveredCerts
+      .map(c => c.name.toLowerCase())
+      .filter(n => n !== selectedName);
+  }, [discoveredCerts, selectedIdentity]);
 
   const canContinueIdentity = selectedIdentity !== null;
 
@@ -488,6 +506,17 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
     const cert = selectedIdentity.cert;
     return isGenericCN(cert.name) ? 'generic-cn' : 'real-cn';
   }, [selectedIdentity]);
+
+  const newNameValidation = (() => {
+    if (!newName.trim()) return null;
+    const basic = validateProfileName(newName.trim());
+    if (basic) return basic;
+    // Skip duplicate check for create-new — validateAndCheckCert handles it on submit
+    if (profileMode !== 'create-new' && takenNames.includes(newName.trim().toLowerCase())) {
+      return 'This name is already taken by an existing identity.';
+    }
+    return null;
+  })();
 
   // ── Render ─────────────────────────────────────────────────────
 
@@ -545,7 +574,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               existing one to get started!
             </p>
 
-            <div className="onboarding-actions">
+            <div className="onboarding-actions onboarding-actions-hero">
               <button className="btn btn-primary" onClick={handleGetStartedWithTimer}>
                 Get Started
               </button>
@@ -556,28 +585,24 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         {/* ── Step 2: Identity ── */}
         {step === 'identity' && (
           <>
-            <div className="onboarding-hero">
-              <img src={brmbleLogo} alt="Brmble" className="onboarding-hero-logo" />
-            </div>
-            <h2 className="heading-title onboarding-title">Choose Your Profile</h2>
-
-            {discoveredCerts.length > 0 ? (
-              <p className="onboarding-body">
-                We found existing certificates on this computer. Select one to use as your
-                profile, or create a new one.
-              </p>
-            ) : (
-              <p className="onboarding-body">
-                Your profile name is what other users see when you connect to a server.
-                Create one to get started.
-              </p>
-            )}
-
             <div className="onboarding-step-icon-row">
               <div className="onboarding-step-icon">
                 <Icon name="user" size={28} />
               </div>
             </div>
+            <h2 className="heading-title onboarding-title">Choose Your Profile</h2>
+
+            {discoveredCerts.length > 0 ? (
+              <p className="onboarding-body onboarding-body-divider">
+                We found existing certificates on this computer. Select one to use as your
+                profile, or create a new one.
+              </p>
+            ) : (
+              <p className="onboarding-body onboarding-body-divider">
+                Your profile name is what other users see when you connect to a server.
+                Create one to get started.
+              </p>
+            )}
 
             {detecting && (
               <div className="onboarding-detecting">
@@ -669,7 +694,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             )}
 
             <div className="onboarding-actions">
-              <button className="btn btn-ghost" onClick={() => setStep('welcome')}>Back</button>
+              <button className="btn btn-ghost btn-back" onClick={() => setStep('welcome')}>Back</button>
               <button
                 className="btn btn-primary"
                 disabled={!canContinueIdentity || busy}
@@ -684,27 +709,21 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         {/* ── Step 3: Profile ── */}
         {step === 'profile' && (
           <>
-            <div className="onboarding-hero">
-              <img src={brmbleLogo} alt="Brmble" className="onboarding-hero-logo" />
+            <div className="onboarding-step-icon-row">
+              <div className="onboarding-step-icon">
+                <Icon name="user" size={28} />
+              </div>
             </div>
 
             <h2 className="heading-title onboarding-title">
               {profileMode === 'create-new' ? 'Create Your Profile' : 'Your Profile'}
             </h2>
 
-            <p className="onboarding-body">
-              {profileMode === 'real-cn'
-                ? "This is the name from your certificate — it's likely the name you're registered with on servers."
-                : profileMode === 'generic-cn'
-                ? "Your certificate doesn't have a personal name. Choose a name for your profile — this is how others will see you."
-                : 'Choose a name and set up your certificate. Your name will be embedded in the certificate.'}
+            <p className="onboarding-body onboarding-body-divider">
+              {profileMode === 'create-new'
+                ? 'When you connect to a server, your profile name is registered and reserved, and linked to your certificate. Choose your name carefully\u2014it cannot be changed later.'
+                : 'When you connect to a server, your profile name is registered and reserved, and linked to your certificate. If this certificate has been used before, the server may have registered a different name and will use that instead.'}
             </p>
-
-            <div className="onboarding-step-icon-row">
-              <div className="onboarding-step-icon">
-                <Icon name="user" size={28} />
-              </div>
-            </div>
 
             {/* Profile name field */}
             <div className="onboarding-new-identity-form">
@@ -713,17 +732,12 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                 id="onboarding-profile-name"
                 className="brmble-input"
                 type="text"
-                value={profileMode === 'real-cn' && selectedIdentity && selectedIdentity.kind !== 'new'
-                  ? selectedIdentity.cert.name
-                  : newName}
+                value={newName}
                 onChange={e => setNewName(e.target.value)}
-                placeholder={profileMode === 'generic-cn' && selectedIdentity && selectedIdentity.kind !== 'new'
-                  ? selectedIdentity.cert.name || 'e.g. YourName'
-                  : 'e.g. YourName'}
-                disabled={profileMode === 'real-cn'}
+                placeholder="e.g. YourName"
                 autoFocus={profileMode !== 'real-cn'}
               />
-              {profileMode !== 'real-cn' && newName.trim() && newNameValidation && (
+              {newName.trim() && newNameValidation && (
                 <div className="onboarding-new-identity-error">{newNameValidation}</div>
               )}
             </div>
@@ -731,7 +745,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             {/* Fingerprint (for existing cert modes) */}
             {profileMode !== 'create-new' && selectedIdentity && selectedIdentity.kind !== 'new' && (
               <div className="onboarding-fingerprint">
-                {selectedIdentity.cert.fingerprint}
+                <span className="onboarding-fingerprint-label">Certificate fingerprint</span>
+                <span className="onboarding-fingerprint-value">{selectedIdentity.cert.fingerprint}</span>
               </div>
             )}
 
@@ -743,14 +758,6 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             {profileMode === 'create-new' ? (
               <>
                 <div className="onboarding-profile-actions">
-                  <button className="btn btn-ghost" onClick={() => setStep('identity')}>Back</button>
-                  <button
-                    className="btn btn-primary"
-                    disabled={!newName.trim() || !!newNameValidation || busy}
-                    onClick={handleProfileGenerate}
-                  >
-                    {busy ? 'Setting up…' : 'Generate New Certificate'}
-                  </button>
                   <button
                     className="btn btn-ghost"
                     disabled={!newName.trim() || !!newNameValidation || busy}
@@ -758,6 +765,16 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   >
                     Import Certificate
                   </button>
+                  <button
+                    className="btn btn-primary"
+                    disabled={!newName.trim() || !!newNameValidation || busy}
+                    onClick={handleProfileGenerate}
+                  >
+                    {busy ? 'Setting up…' : 'Generate New Certificate'}
+                  </button>
+                </div>
+                <div className="onboarding-actions" style={{ borderTop: 'none', paddingTop: 0, marginTop: 'var(--space-sm)' }}>
+                  <button className="btn btn-ghost btn-back" onClick={() => setStep('identity')}>Back</button>
                 </div>
                 <input
                   ref={fileInputRef}
@@ -769,10 +786,10 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               </>
             ) : (
               <div className="onboarding-actions">
-                <button className="btn btn-ghost" onClick={() => setStep('identity')}>Back</button>
+                <button className="btn btn-ghost btn-back" onClick={() => setStep('identity')}>Back</button>
                 <button
                   className="btn btn-primary"
-                  disabled={(profileMode === 'generic-cn' && (!newName.trim() || !!newNameValidation)) || busy}
+                  disabled={!newName.trim() || !!newNameValidation || busy}
                   onClick={handleProfileContinue}
                 >
                   {busy ? 'Setting up…' : 'Continue'}
@@ -785,23 +802,34 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         {/* ── Step 4: Backup ── */}
         {step === 'backup' && (
           <>
-            <div className="onboarding-hero">
-              <img src={brmbleLogo} alt="Brmble" className="onboarding-hero-logo" />
-            </div>
-            <h2 className="heading-title onboarding-title">Back Up Your Certificate</h2>
-            <p className="onboarding-body">
-              Your certificate is your identity on Brmble. If you lose it, you'll lose
-              access to any servers where you're registered. Export a backup and store it
-              somewhere safe — for example in Google Drive, OneDrive, iCloud, Dropbox, or
-              on a USB drive.
-            </p>
             <div className="onboarding-step-icon-row">
               <div className="onboarding-step-icon">
                 <Icon name="save" size={28} />
               </div>
             </div>
+            <h2 className="heading-title onboarding-title">Back Up Your Certificate</h2>
+            <p className="onboarding-body onboarding-body-divider">
+              Your certificate is your identity on Brmble. If you lose it, you'll lose
+              access to any servers where you're registered. Export a backup and store it
+              somewhere safe — for example in Google Drive, OneDrive, iCloud, Dropbox, or
+              on a USB drive.
+            </p>
+            <div className="onboarding-new-identity-form">
+              <label>Profile name</label>
+              <input
+                className="brmble-input"
+                type="text"
+                value={newName}
+                readOnly
+                tabIndex={-1}
+                style={{ pointerEvents: 'none', userSelect: 'none' }}
+              />
+            </div>
             {fingerprint && (
-              <div className="onboarding-fingerprint">{fingerprint}</div>
+              <div className="onboarding-fingerprint">
+                <span className="onboarding-fingerprint-label">Certificate fingerprint</span>
+                <span className="onboarding-fingerprint-value">{fingerprint}</span>
+              </div>
             )}
             {exportError && (
               <p style={{ color: 'var(--accent-danger-text)', fontSize: 'var(--text-sm)', marginBottom: 'var(--space-md)' }}>
@@ -809,12 +837,11 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               </p>
             )}
             <div className="onboarding-actions">
-              <button className="btn btn-ghost" onClick={() => setStep('profile')}>Back</button>
               <button
                 className={certExported ? 'btn btn-ghost' : 'btn btn-primary'}
                 onClick={() => {
                   setExportError('');
-                  bridge.send('cert.export');
+                  bridge.send('cert.export', {});
                   setCertExported(true);
                 }}
               >
@@ -833,16 +860,13 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         {/* ── Step 5: Interface ── */}
         {step === 'interface' && (
           <>
-            <div className="onboarding-hero">
-              <img src={brmbleLogo} alt="Brmble" className="onboarding-hero-logo" />
-            </div>
-            <h2 className="heading-title onboarding-title">Interface</h2>
-            <p className="onboarding-body">Customise how Brmble looks and feels.</p>
             <div className="onboarding-step-icon-row">
               <div className="onboarding-step-icon">
                 <Icon name="palette" size={28} />
               </div>
             </div>
+            <h2 className="heading-title onboarding-title">Interface</h2>
+            <p className="onboarding-body onboarding-body-divider">Choose a theme to change Brmble's look and feel—go ahead and stir it up!</p>
 
             <div className="settings-section">
               <div className="settings-item">
@@ -870,8 +894,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             </div>
 
             <div className="onboarding-actions">
-              <button className="btn btn-ghost" onClick={() => setStep('backup')}>Back</button>
-              <button className="btn btn-primary" onClick={() => setStep('audio')}>Next</button>
+              <button className="btn btn-ghost btn-back" onClick={() => setStep('backup')}>Back</button>
+              <button className="btn btn-primary" onClick={() => setStep('audio')}>Continue</button>
             </div>
           </>
         )}
@@ -879,21 +903,25 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         {/* ── Step 6: Audio ── */}
         {step === 'audio' && (
           <>
-            <div className="onboarding-hero">
-              <img src={brmbleLogo} alt="Brmble" className="onboarding-hero-logo" />
-            </div>
-            <h2 className="heading-title onboarding-title">Audio</h2>
-            <p className="onboarding-body">
-              Configure your microphone and how your voice is transmitted.
-            </p>
             <div className="onboarding-step-icon-row">
               <div className="onboarding-step-icon">
                 <Icon name="mic" size={28} />
               </div>
             </div>
+            <h2 className="heading-title onboarding-title">Audio</h2>
+            <p className="onboarding-body onboarding-body-divider">
+              Select your microphone and speaker devices, and choose how you want to talk.
+            </p>
 
             <div className="settings-section">
-              <h3 className="heading-section settings-section-title">Devices</h3>
+              <div className="settings-item">
+                <label>Output device</label>
+                <Select
+                  value={settings.outputDevice}
+                  onChange={v => updateSettings({ outputDevice: v })}
+                  options={[{ value: 'default', label: 'Default' }]}
+                />
+              </div>
               <div className="settings-item">
                 <label>Input device</label>
                 <Select
@@ -903,41 +931,20 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                 />
               </div>
               <div className="settings-item">
-                <label>Output device</label>
+                <label>Transmission Mode</label>
                 <Select
-                  value={settings.outputDevice}
-                  onChange={v => updateSettings({ outputDevice: v })}
-                  options={[{ value: 'default', label: 'Default' }]}
+                  value={settings.transmissionMode}
+                  onChange={v => updateSettings({ transmissionMode: v as TransmissionMode })}
+                  options={[
+                    { value: 'pushToTalk', label: 'Push to Talk' },
+                    { value: 'voiceActivity', label: 'Voice Activity' },
+                    { value: 'continuous', label: 'Continuous' },
+                  ]}
                 />
               </div>
-            </div>
-
-            <div className="settings-section">
-              <h3 className="heading-section settings-section-title">Transmission mode</h3>
-              <div className="onboarding-tx-cards">
-                {(
-                  [
-                    { value: 'pushToTalk', label: 'Push to Talk', desc: 'Hold a key to transmit. Recommended for most users.' },
-                    { value: 'voiceActivity', label: 'Voice Activity', desc: 'Transmit automatically when your mic detects speech.' },
-                    { value: 'continuous', label: 'Continuous', desc: 'Always transmit. Not recommended unless you have a dedicated mic setup.' },
-                  ] as { value: TransmissionMode; label: string; desc: string }[]
-                ).map(opt => (
-                  <button
-                    key={opt.value}
-                    className={`onboarding-tx-card${settings.transmissionMode === opt.value ? ' selected' : ''}`}
-                    onClick={() => updateSettings({ transmissionMode: opt.value })}
-                  >
-                    <div>
-                      <div className="onboarding-tx-card-label">{opt.label}</div>
-                      <div className="onboarding-tx-card-desc">{opt.desc}</div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-
               {settings.transmissionMode === 'pushToTalk' && (
-                <div className="settings-item" style={{ marginTop: 'var(--space-md)' }}>
-                  <label>Push to Talk key</label>
+                <div className="settings-item">
+                  <label>Push to Talk Key</label>
                   <PttKeyCapture
                     value={settings.pushToTalkKey}
                     onChange={v => updateSettings({ pushToTalkKey: v })}
@@ -947,7 +954,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             </div>
 
             <div className="onboarding-actions">
-              <button className="btn btn-ghost" onClick={() => setStep('interface')}>Back</button>
+              <button className="btn btn-ghost btn-back" onClick={() => setStep('interface')}>Back</button>
               <button
                 className="btn btn-primary"
                 onClick={() => {
@@ -955,7 +962,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   setStep('servers');
                 }}
               >
-                Next
+                Continue
               </button>
             </div>
           </>
@@ -964,39 +971,30 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         {/* ── Step 7: Import Servers ── */}
         {step === 'servers' && (
           <>
-            <div className="onboarding-hero">
-              <img src={brmbleLogo} alt="Brmble" className="onboarding-hero-logo" />
+            <div className="onboarding-step-icon-row">
+              <div className="onboarding-step-icon">
+                <Icon name="server" size={28} />
+              </div>
             </div>
             <h2 className="heading-title onboarding-title">Import Your Servers</h2>
 
             {mumbleServers.length === 0 ? (
               <>
-                <p className="onboarding-body">
+                <p className="onboarding-body onboarding-body-divider">
                   No Mumble server favourites were found on this computer.
                 </p>
-                <div className="onboarding-step-icon-row">
-                  <div className="onboarding-step-icon">
-                    <Icon name="server" size={28} />
-                  </div>
-                </div>
                 <div className="onboarding-actions">
-                  <button className="btn btn-ghost" onClick={() => setStep('audio')}>Back</button>
+                  <button className="btn btn-ghost btn-back" onClick={() => setStep('audio')}>Back</button>
                   <button className="btn btn-primary" onClick={() => setStep('connection')}>
-                    Next
+                    Continue
                   </button>
                 </div>
               </>
             ) : (
               <>
-                <p className="onboarding-body">
-                  We found your Mumble server favourites. Select the ones you want to add to
-                  Brmble. Passwords are not imported.
+                <p className="onboarding-body onboarding-body-divider">
+                  We found servers in your Mumble client. Select the ones you'd like to import into Brmble. Passwords aren't imported.
                 </p>
-                <div className="onboarding-step-icon-row">
-                  <div className="onboarding-step-icon">
-                    <Icon name="server" size={28} />
-                  </div>
-                </div>
                 <div className="onboarding-identity-list">
                   {mumbleServers.map((srv, i) => (
                     <button
@@ -1022,20 +1020,15 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                       </div>
                       {importedIndices.has(i)
                         ? <span className="onboarding-identity-badge saved">Imported</span>
-                        : srv.alreadySaved && !selectedServers.has(i)
-                          ? <span className="onboarding-identity-badge saved">Already saved</span>
-                          : selectedServers.has(i)
-                            ? <span className="onboarding-identity-badge brmble">Import</span>
-                            : null
+                        : selectedServers.has(i)
+                          ? <span className="onboarding-identity-badge brmble">Import</span>
+                          : null
                       }
                     </button>
                   ))}
                 </div>
                 <div className="onboarding-actions">
-                  <button className="onboarding-skip-link" onClick={() => setStep('connection')}>
-                    Skip
-                  </button>
-                  <button className="btn btn-ghost" onClick={() => setStep('audio')}>Back</button>
+                  <button className="btn btn-ghost btn-back" onClick={() => setStep('audio')}>Back</button>
                    <button
                     className="btn btn-primary"
                     disabled={serversImportBusy}
@@ -1053,7 +1046,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                       : (() => {
                           const newCount = [...selectedServers].filter(i => !importedIndices.has(i)).length;
                           return newCount === 0
-                            ? 'Next'
+                            ? 'Continue'
                             : `Import ${newCount} & continue`;
                         })()}
                   </button>
@@ -1066,18 +1059,15 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         {/* ── Step 8: Connection ── */}
         {step === 'connection' && (
           <>
-            <div className="onboarding-hero">
-              <img src={brmbleLogo} alt="Brmble" className="onboarding-hero-logo" />
-            </div>
-            <h2 className="heading-title onboarding-title">Connection</h2>
-            <p className="onboarding-body">
-              Configure how Brmble connects and reconnects to servers.
-            </p>
             <div className="onboarding-step-icon-row">
               <div className="onboarding-step-icon">
                 <Icon name="globe" size={28} />
               </div>
             </div>
+            <h2 className="heading-title onboarding-title">Connection</h2>
+            <p className="onboarding-body onboarding-body-divider">
+              Configure how Brmble connects and reconnects to servers.
+            </p>
 
             <div className="settings-section">
               <div className="settings-item settings-toggle">
@@ -1129,7 +1119,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             </div>
 
             <div className="onboarding-actions">
-              <button className="btn btn-ghost" onClick={() => setStep('servers')}>Back</button>
+              <button className="btn btn-ghost btn-back" onClick={() => setStep('servers')}>Back</button>
               <button className="btn btn-primary" onClick={() => onComplete(fingerprint)}>
                 Finish
               </button>
