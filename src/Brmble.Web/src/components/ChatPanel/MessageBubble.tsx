@@ -30,6 +30,9 @@ interface MessageBubbleProps {
   messageId?: string;
   pending?: boolean;
   error?: boolean;
+  replyToEventId?: string;
+  replyToSender?: string;
+  replyToContent?: string;
   onDismiss?: (messageId: string) => void;
   onOpenContextMenu?: (x: number, y: number, sender: string, senderMatrixUserId?: string, content?: string, messageId?: string) => void;
 }
@@ -135,7 +138,7 @@ function processMessageContent(
   return mentionified;
 }
 
-export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & React.HTMLAttributes<HTMLDivElement>>(function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId, currentUsername, knownUsernames, messageId, pending, error, onDismiss, onOpenContextMenu, className, ...rest }, ref) {
+export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & React.HTMLAttributes<HTMLDivElement>>(function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId, currentUsername, knownUsernames, messageId, pending, error, replyToEventId, replyToSender, replyToContent, onDismiss, onOpenContextMenu, className, ...rest }, ref) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const formatTime = (date: Date) => {
@@ -174,6 +177,12 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
           <div className="message-header">
             <span className="message-sender">{sender}</span>
             <span className="message-time">{formatTime(timestamp)}</span>
+          </div>
+        )}
+        {replyToEventId && (replyToSender || replyToContent) && (
+          <div className="message-reply-preview">
+            <span className="message-reply-sender">{replyToSender}</span>
+            <span className="message-reply-content">{replyToContent}</span>
           </div>
         )}
         {content && (
