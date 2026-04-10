@@ -2059,6 +2059,7 @@ const handleConnect = (serverData: SavedServer) => {
                     readMarkerTs={channelDividerTs}
                     screenShareVideoEl={remoteVideoEl}
                     screenSharerName={activeShare?.userName}
+                    screenShareViewerMode={screenShareSettings.viewerMode}
                     onCloseScreenShare={disconnectViewer}
                     users={users}
                     onMessageContextMenu={handleChatMessageContextMenu}
