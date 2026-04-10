@@ -19,7 +19,7 @@ import { ConnectModal } from './components/ConnectModal/ConnectModal';
 import { ServerList } from './components/ServerList/ServerList';
 import { ConnectionState } from './components/ConnectionState/ConnectionState';
 import type { ServerEntry } from './hooks/useServerlist';
-import { SettingsModal } from './components/SettingsModal/SettingsModal';
+import { SettingsModal, DEFAULT_SCREEN_SHARE, type ScreenShareSettings } from './components/SettingsModal/SettingsModal';
 import { AvatarEditorModal } from './components/AvatarEditorModal/AvatarEditorModal';
 import { CloseDialog } from './components/CloseDialog/CloseDialog';
 import { CertWizard } from './components/CertWizard/CertWizard';
@@ -1720,9 +1720,65 @@ const handleConnect = (serverData: SavedServer) => {
 
   const { Prompt, PromptWithInput } = usePrompt();
 
+  const [screenShareSettings, setScreenShareSettings] = useState<ScreenShareSettings>(DEFAULT_SCREEN_SHARE);
+
+  useEffect(() => {
+    const applyScreenShareSettings = (value: unknown) => {
+      if (!value || typeof value !== 'object') return;
+
+      const candidate =
+        'screenShare' in value &&
+        value.screenShare &&
+        typeof value.screenShare === 'object'
+          ? value.screenShare
+          : value;
+
+      setScreenShareSettings((current) => ({
+        ...current,
+        ...DEFAULT_SCREEN_SHARE,
+        ...(candidate as Partial<ScreenShareSettings>),
+      }));
+    };
+
+    const loadSettings = () => {
+      try {
+        const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
+        if (stored) {
+          applyScreenShareSettings(JSON.parse(stored));
+        }
+      } catch {}
+    };
+
+    type BridgeSettingsApi = {
+      on?: (event: string, listener: (settings: unknown) => void) => void;
+      off?: (event: string, listener: (settings: unknown) => void) => void;
+      emit?: (event: string) => void;
+    };
+
+    const bridgeApi = bridge as unknown as BridgeSettingsApi;
+    const handleBridgeSettings = (settings: unknown) => {
+      applyScreenShareSettings(settings);
+    };
+
+    loadSettings();
+
+    bridgeApi.on?.('settings.current', handleBridgeSettings);
+    bridgeApi.on?.('settings.updated', handleBridgeSettings);
+    bridgeApi.emit?.('settings.current');
+
+    const handleStorage = () => loadSettings();
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      bridgeApi.off?.('settings.current', handleBridgeSettings);
+      bridgeApi.off?.('settings.updated', handleBridgeSettings);
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, []);
+
   const { isSharing, startSharing, stopSharing, error: screenShareError, activeShare, remoteVideoEl, disconnectViewer, connectAsViewer } = useScreenShare(() => {
     setSharingChannelId(undefined);
-  });
+  }, screenShareSettings);
   disconnectViewerRef.current = disconnectViewer;
   const [sharingChannelId, setSharingChannelId] = useState<string | undefined>();
   const [screenShareToast, setScreenShareToast] = useState<{
@@ -2046,6 +2102,7 @@ const handleConnect = (serverData: SavedServer) => {
                     readMarkerTs={channelDividerTs}
                     screenShareVideoEl={remoteVideoEl}
                     screenSharerName={activeShare?.userName}
+                    screenShareViewerMode={screenShareSettings.viewerMode}
                     onCloseScreenShare={disconnectViewer}
                     users={users}
                     onMessageContextMenu={handleChatMessageContextMenu}

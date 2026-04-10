@@ -25,6 +25,7 @@ interface ChatPanelProps {
   readMarkerTs?: number | null;
   screenShareVideoEl?: HTMLVideoElement | null;
   screenSharerName?: string;
+  screenShareViewerMode?: 'in-app' | 'new-window';
   onCloseScreenShare?: () => void;
   /** Connected users for avatar lookup by sender name */
   users?: { name: string; matrixUserId?: string; avatarUrl?: string }[];
@@ -39,7 +40,7 @@ const SCROLL_THRESHOLD = 150;
 const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
 const DEFAULT_SPLIT = 50;
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, screenShareVideoEl, screenSharerName, onCloseScreenShare, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, screenShareVideoEl, screenSharerName, screenShareViewerMode, onCloseScreenShare, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard }: ChatPanelProps) {
   // Build lookup maps from sender name and matrixUserId → avatar data for MessageBubble.
   // Name-based lookup works when Mumble name matches message sender.
   // MatrixUserId-based lookup handles cases where the user connected with a different
@@ -198,7 +199,163 @@ const [replyState, setReplyState] = useState<{
     document.addEventListener('mouseup', onMouseUp);
   }, []);
 
-  const hasScreenShare = !!screenShareVideoEl && !!screenSharerName && !!onCloseScreenShare;
+  const hasScreenShare = screenShareViewerMode === 'in-app' && !!screenShareVideoEl && !!screenSharerName && !!onCloseScreenShare;
+  const hasNewWindowScreenShare = screenShareViewerMode === 'new-window' && !!screenShareVideoEl && !!screenSharerName && !!onCloseScreenShare;
+
+  useEffect(() => {
+    if (hasNewWindowScreenShare && screenShareVideoEl && screenSharerName) {
+      const existingOverlay = document.getElementById('screenshare-new-window-overlay');
+      if (existingOverlay) {
+        existingOverlay.remove();
+      }
+      
+      const overlay = document.createElement('div');
+      overlay.id = 'screenshare-new-window-overlay';
+      
+      const closeOverlay = () => {
+        overlay.remove();
+        onCloseScreenShare?.();
+      };
+      
+      const handleEsc = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          closeOverlay();
+        }
+      };
+      document.addEventListener('keydown', handleEsc);
+      
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Tab') {
+          const focusable = overlay.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+          const first = focusable[0];
+          const last = focusable[focusable.length - 1];
+          if (e.shiftKey && document.activeElement === first) {
+            e.preventDefault();
+            last?.focus();
+          } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault();
+            first?.focus();
+          }
+        }
+      };
+      overlay.addEventListener('keydown', handleKeyDown);
+      
+      overlay.id = 'screenshare-new-window-overlay';
+      overlay.setAttribute('role', 'dialog');
+      overlay.setAttribute('aria-modal', 'true');
+      overlay.setAttribute('aria-label', `Screen share from ${screenSharerName}`);
+      
+      const style = document.createElement('style');
+      style.textContent = `
+        #screenshare-new-window-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100vw;
+          height: 100vh;
+          background: #000;
+          z-index: 99999;
+          display: flex;
+          flex-direction: column;
+        }
+        #screenshare-new-window-overlay .header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 12px 20px;
+          background: #1a1a1a;
+          -webkit-app-region: drag;
+        }
+        #screenshare-new-window-overlay .title {
+          color: #fff;
+          font-size: 15px;
+          font-weight: 500;
+        }
+        #screenshare-new-window-overlay .buttons {
+          display: flex;
+          gap: 8px;
+          -webkit-app-region: no-drag;
+        }
+        #screenshare-new-window-overlay .btn {
+          background: #333;
+          border: none;
+          color: #fff;
+          padding: 6px 14px;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 12px;
+        }
+        #screenshare-new-window-overlay .btn-close {
+          background: #d32f2f;
+        }
+        #screenshare-new-window-overlay .btn-close:hover {
+          background: #b71c1c;
+        }
+        #screenshare-new-window-overlay .video-container {
+          flex: 1;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #000;
+        }
+        #screenshare-new-window-overlay video {
+          max-width: 100%;
+          max-height: 100%;
+          object-fit: contain;
+        }
+      `;
+      
+      const header = document.createElement('div');
+      header.className = 'header';
+      
+      const title = document.createElement('span');
+      title.className = 'title';
+      title.textContent = `Screen Share - ${screenSharerName}`;
+      
+      const buttons = document.createElement('div');
+      buttons.className = 'buttons';
+      
+      const closeButton = document.createElement('button');
+      closeButton.className = 'btn btn-close';
+      closeButton.id = 'screenshare-close-btn';
+      closeButton.textContent = 'Close';
+      
+      const videoContainer = document.createElement('div');
+      videoContainer.className = 'video-container';
+      
+      const newVideo = document.createElement('video');
+      newVideo.autoplay = true;
+      newVideo.playsInline = true;
+      
+      buttons.appendChild(closeButton);
+      header.appendChild(title);
+      header.appendChild(buttons);
+      videoContainer.appendChild(newVideo);
+      overlay.appendChild(style);
+      overlay.appendChild(header);
+      overlay.appendChild(videoContainer);
+      
+      document.body.appendChild(overlay);
+      
+      if (screenShareVideoEl.srcObject) {
+        newVideo.srcObject = screenShareVideoEl.srcObject;
+      }
+      
+      closeButton.addEventListener('click', closeOverlay);
+      
+      const previousActiveElement = document.activeElement;
+      closeButton.focus();
+      
+      return () => {
+        overlay.remove();
+        document.removeEventListener('keydown', handleEsc);
+        overlay.removeEventListener('keydown', handleKeyDown);
+        if (previousActiveElement instanceof HTMLElement) {
+          previousActiveElement.focus();
+        }
+      };
+    }
+  }, [hasNewWindowScreenShare, screenShareVideoEl, screenSharerName, onCloseScreenShare]);
 
   const handleScroll = useCallback(() => {
     const container = messagesContainerRef.current;
