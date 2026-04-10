@@ -1,10 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Icon } from '../Icon/Icon';
 import { Tooltip } from '../Tooltip/Tooltip';
 import Avatar from '../Avatar/Avatar';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
 import type { ContextMenuItem } from '../ContextMenu/ContextMenu';
 import './UserPanel.css';
+
+type BridgeModule = { default: { on: (event: string, handler: (data: unknown) => void) => void; off: (event: string, handler: (data: unknown) => void) => void } };
 
 interface UserPanelProps {
   username?: string;
@@ -43,6 +45,7 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
   const [contextMenuPushToTalk, setContextMenuPushToTalk] = useState<boolean>(true);
   const [contextMenuInputVolume, setContextMenuInputVolume] = useState<number>(250);
   const [contextMenuOutputVolume, setContextMenuOutputVolume] = useState<number>(250);
+  const bridgeRef = useRef<BridgeModule | null>(null);
   const activeBtn = hotkeyPressedBtn || pressedBtn;
 
   const isAnyMenuOpen = voiceContextMenu !== null || deafenContextMenu !== null || screenShareContextMenu !== null;
@@ -51,7 +54,9 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
     if (!isAnyMenuOpen) return;
 
     const handleSettingsUpdated = (data: unknown) => {
-      const d = data as { settings?: { audio?: { transmissionMode?: string; inputVolume?: number; outputVolume?: number } } } | undefined;
+      type AudioSettings = { transmissionMode?: string; inputVolume?: number; outputVolume?: number };
+      type SettingsData = { settings?: { audio?: AudioSettings } };
+      const d = data as (SettingsData | undefined);
       if (d?.settings?.audio) {
         const audio = d.settings.audio;
         if (audio.transmissionMode !== undefined) {
@@ -66,17 +71,15 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
       }
     };
 
-    import('../../bridge').then(({ default: bridge }) => {
-      bridge.on('settings.updated', handleSettingsUpdated);
-      return () => {
-        bridge.off('settings.updated', handleSettingsUpdated);
-      };
+    import('../../bridge').then(module => {
+      bridgeRef.current = module;
+      module.default.on('settings.updated', handleSettingsUpdated);
     }).catch((e) => console.error('Failed to load bridge:', e));
 
     return () => {
-      import('../../bridge').then(({ default: bridge }) => {
-        bridge.off('settings.updated', handleSettingsUpdated);
-      }).catch(() => {});
+      if (bridgeRef.current) {
+        bridgeRef.current.default.off('settings.updated', handleSettingsUpdated);
+      }
     };
   }, [isAnyMenuOpen]);
 
