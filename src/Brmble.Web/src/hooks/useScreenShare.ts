@@ -8,7 +8,13 @@ export interface ActiveShare {
   sessionId?: number;
 }
 
-export function useScreenShare(onDisconnected?: () => void) {
+export interface ScreenShareSettings {
+  captureAudio: boolean;
+  resolution: '720p' | '1080p' | '1440p' | '4k';
+  systemAudio: boolean;
+}
+
+export function useScreenShare(onDisconnected?: () => void, screenShareSettings?: ScreenShareSettings) {
   const [isSharing, setIsSharing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeShare, setActiveShare] = useState<ActiveShare | null>(null);
@@ -58,7 +64,37 @@ export function useScreenShare(onDisconnected?: () => void) {
       });
 
       await room.connect(url, token);
-      await room.localParticipant.setScreenShareEnabled(true);
+
+      let captureOptions: Record<string, unknown> | undefined;
+      if (screenShareSettings) {
+        const resolutionMap: Record<string, { width: number; height: number }> = {
+          '720p': { width: 1280, height: 720 },
+          '1080p': { width: 1920, height: 1080 },
+          '1440p': { width: 2560, height: 1440 },
+          '4k': { width: 3840, height: 2160 },
+        };
+
+        captureOptions = {};
+
+        if (screenShareSettings.captureAudio) {
+          captureOptions.audio = true;
+        }
+
+        if (screenShareSettings.systemAudio) {
+          captureOptions.systemAudio = 'include';
+        }
+
+        if (screenShareSettings.resolution) {
+          captureOptions.resolution = resolutionMap[screenShareSettings.resolution];
+        }
+
+        // Remove empty options
+        if (Object.keys(captureOptions).length === 0) {
+          captureOptions = undefined;
+        }
+      }
+
+      await room.localParticipant.setScreenShareEnabled(true, captureOptions);
 
       publishRoomRef.current = room;
       setIsSharing(true);

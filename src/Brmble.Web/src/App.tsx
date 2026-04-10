@@ -19,7 +19,7 @@ import { ConnectModal } from './components/ConnectModal/ConnectModal';
 import { ServerList } from './components/ServerList/ServerList';
 import { ConnectionState } from './components/ConnectionState/ConnectionState';
 import type { ServerEntry } from './hooks/useServerlist';
-import { SettingsModal } from './components/SettingsModal/SettingsModal';
+import { SettingsModal, DEFAULT_SCREEN_SHARE } from './components/SettingsModal/SettingsModal';
 import { AvatarEditorModal } from './components/AvatarEditorModal/AvatarEditorModal';
 import { CloseDialog } from './components/CloseDialog/CloseDialog';
 import { CertWizard } from './components/CertWizard/CertWizard';
@@ -1678,9 +1678,22 @@ const handleConnect = (serverData: SavedServer) => {
 
   const { Prompt, PromptWithInput } = usePrompt();
 
+  const screenShareSettings = (() => {
+    try {
+      const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
+      if (stored) {
+        const settings = JSON.parse(stored);
+        if (settings.screenShare) {
+          return settings.screenShare;
+        }
+      }
+    } catch {}
+    return DEFAULT_SCREEN_SHARE;
+  })();
+
   const { isSharing, startSharing, stopSharing, error: screenShareError, activeShare, remoteVideoEl, disconnectViewer, connectAsViewer } = useScreenShare(() => {
     setSharingChannelId(undefined);
-  });
+  }, screenShareSettings);
   disconnectViewerRef.current = disconnectViewer;
   const [sharingChannelId, setSharingChannelId] = useState<string | undefined>();
   const [screenShareToast, setScreenShareToast] = useState<{
