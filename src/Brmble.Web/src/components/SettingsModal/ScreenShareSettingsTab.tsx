@@ -41,9 +41,12 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
         <h3 className="heading-section settings-section-title">Screen Capture</h3>
         
         <div className="settings-item settings-toggle">
-          <Tooltip content="Capture microphone audio along with screen share" position="right" align="start">
+          <div className="settings-label-group">
             <span className="settings-label">Capture Audio</span>
-          </Tooltip>
+            <Tooltip content="Capture microphone audio along with screen share" position="right" align="start">
+              <span className="settings-info-btn">?</span>
+            </Tooltip>
+          </div>
           <label className="brmble-toggle">
             <input
               type="checkbox"
@@ -55,9 +58,12 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
         </div>
 
         <div className="settings-item">
-          <Tooltip content="Higher resolution uses more bandwidth" position="right" align="start">
+          <div className="settings-label-group">
             <span className="settings-label">Resolution</span>
-          </Tooltip>
+            <Tooltip content="Higher resolution uses more bandwidth" position="right" align="start">
+              <span className="settings-info-btn">?</span>
+            </Tooltip>
+          </div>
           <Select
             value={localSettings.resolution}
             onChange={(value) => handleChange('resolution', value as ScreenShareSettings['resolution'])}
@@ -66,9 +72,12 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
         </div>
 
         <div className="settings-item">
-          <Tooltip content="Higher frame rate uses more bandwidth" position="right" align="start">
+          <div className="settings-label-group">
             <span className="settings-label">Frame Rate</span>
-          </Tooltip>
+            <Tooltip content="Higher frame rate uses more bandwidth" position="right" align="start">
+              <span className="settings-info-btn">?</span>
+            </Tooltip>
+          </div>
           <Select
             value={String(localSettings.fps)}
             onChange={(value) => handleChange('fps', Number(value) as ScreenShareSettings['fps'])}
@@ -77,9 +86,12 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
         </div>
 
         <div className="settings-item settings-toggle">
-          <Tooltip content="Capture system audio (Windows/macOS only)" position="right" align="start">
+          <div className="settings-label-group">
             <span className="settings-label">System Audio</span>
-          </Tooltip>
+            <Tooltip content="Capture system audio (Windows/macOS only)" position="right" align="start">
+              <span className="settings-info-btn">?</span>
+            </Tooltip>
+          </div>
           <label className="brmble-toggle">
             <input
               type="checkbox"
