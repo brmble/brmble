@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Select } from '../Select';
+import { Tooltip } from '../Tooltip/Tooltip';
 import type { ScreenShareSettings } from './SettingsModal';
 import './ScreenShareSettingsTab.css';
 
@@ -40,7 +41,9 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
         <h3 className="heading-section settings-section-title">Screen Capture</h3>
         
         <div className="settings-item settings-toggle">
-          <span className="settings-label">Capture Audio</span>
+          <Tooltip content="Capture microphone audio along with screen share" position="right" align="start">
+            <span className="settings-label">Capture Audio</span>
+          </Tooltip>
           <label className="brmble-toggle">
             <input
               type="checkbox"
@@ -52,7 +55,9 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
         </div>
 
         <div className="settings-item">
-          <span className="settings-label">Resolution</span>
+          <Tooltip content="Higher resolution uses more bandwidth" position="right" align="start">
+            <span className="settings-label">Resolution</span>
+          </Tooltip>
           <Select
             value={localSettings.resolution}
             onChange={(value) => handleChange('resolution', value as ScreenShareSettings['resolution'])}
@@ -61,7 +66,9 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
         </div>
 
         <div className="settings-item">
-          <span className="settings-label">Frame Rate</span>
+          <Tooltip content="Higher frame rate uses more bandwidth" position="right" align="start">
+            <span className="settings-label">Frame Rate</span>
+          </Tooltip>
           <Select
             value={String(localSettings.fps)}
             onChange={(value) => handleChange('fps', Number(value) as ScreenShareSettings['fps'])}
@@ -70,7 +77,9 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
         </div>
 
         <div className="settings-item settings-toggle">
-          <span className="settings-label">System Audio</span>
+          <Tooltip content="Capture system audio (Windows/macOS only)" position="right" align="start">
+            <span className="settings-label">System Audio</span>
+          </Tooltip>
           <label className="brmble-toggle">
             <input
               type="checkbox"
