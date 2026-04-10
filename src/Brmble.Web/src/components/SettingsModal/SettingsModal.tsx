@@ -50,12 +50,14 @@ interface SettingsModalProps {
 export interface ScreenShareSettings {
   captureAudio: boolean;
   resolution: '720p' | '1080p' | '1440p' | '4k';
+  fps: 15 | 30 | 60;
   systemAudio: boolean;
 }
 
 export const DEFAULT_SCREEN_SHARE: ScreenShareSettings = {
   captureAudio: false,
   resolution: '1080p',
+  fps: 30,
   systemAudio: false,
 };
 
