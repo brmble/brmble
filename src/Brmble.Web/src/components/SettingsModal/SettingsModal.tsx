@@ -158,6 +158,7 @@ export function SettingsModal(props: SettingsModalProps) {
             ...DEFAULT_SETTINGS,
             ...d.settings!,
             brmblegotchi: d.settings!.brmblegotchi ?? prev.brmblegotchi ?? DEFAULT_BRMBLEGOTCHI,
+            screenShare: d.settings!.screenShare ?? prev.screenShare ?? DEFAULT_SCREEN_SHARE,
             speechDenoise: normalizedDenoise,
           };
           if (d.settings!.appearance?.theme) {
