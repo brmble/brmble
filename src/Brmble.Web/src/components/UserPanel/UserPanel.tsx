@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Icon } from '../Icon/Icon';
 import { Tooltip } from '../Tooltip/Tooltip';
 import Avatar from '../Avatar/Avatar';
+import { ContextMenu } from '../ContextMenu/ContextMenu';
+import type { ContextMenuItem } from '../ContextMenu/ContextMenu';
 import './UserPanel.css';
 
 interface UserPanelProps {
@@ -30,11 +32,53 @@ interface UserPanelProps {
   leaveVoiceOnCooldown?: boolean;
   muteOnCooldown?: boolean;
   deafOnCooldown?: boolean;
+  onOpenAudioSettings?: () => void;
 }
 
-export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, onAvatarClick, avatarUrl, matrixUserId, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, screenSharing, screenShareError, onToggleScreenShare, canScreenShare, speaking, pendingChannelAction, hotkeyPressedBtn, leaveVoiceOnCooldown, muteOnCooldown, deafOnCooldown }: UserPanelProps) {
+export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, onAvatarClick, avatarUrl, matrixUserId, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, screenSharing, screenShareError, onToggleScreenShare, canScreenShare, speaking, pendingChannelAction, hotkeyPressedBtn, leaveVoiceOnCooldown, muteOnCooldown, deafOnCooldown, onOpenAudioSettings }: UserPanelProps) {
   const [pressedBtn, setPressedBtn] = useState<string | null>(null);
+  const [voiceContextMenu, setVoiceContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [deafenContextMenu, setDeafenContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [screenShareContextMenu, setScreenShareContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [contextMenuPushToTalk, setContextMenuPushToTalk] = useState<boolean>(true);
+  const [contextMenuInputVolume, setContextMenuInputVolume] = useState<number>(250);
+  const [contextMenuOutputVolume, setContextMenuOutputVolume] = useState<number>(250);
   const activeBtn = hotkeyPressedBtn || pressedBtn;
+
+  const isAnyMenuOpen = voiceContextMenu !== null || deafenContextMenu !== null || screenShareContextMenu !== null;
+
+  useEffect(() => {
+    if (!isAnyMenuOpen) return;
+
+    const handleSettingsUpdated = (data: unknown) => {
+      const d = data as { settings?: { audio?: { transmissionMode?: string; inputVolume?: number; outputVolume?: number } } } | undefined;
+      if (d?.settings?.audio) {
+        const audio = d.settings.audio;
+        if (audio.transmissionMode !== undefined) {
+          setContextMenuPushToTalk(audio.transmissionMode === 'pushToTalk');
+        }
+        if (audio.inputVolume !== undefined) {
+          setContextMenuInputVolume(audio.inputVolume);
+        }
+        if (audio.outputVolume !== undefined) {
+          setContextMenuOutputVolume(audio.outputVolume);
+        }
+      }
+    };
+
+    import('../../bridge').then(({ default: bridge }) => {
+      bridge.on('settings.updated', handleSettingsUpdated);
+      return () => {
+        bridge.off('settings.updated', handleSettingsUpdated);
+      };
+    }).catch((e) => console.error('Failed to load bridge:', e));
+
+    return () => {
+      import('../../bridge').then(({ default: bridge }) => {
+        bridge.off('settings.updated', handleSettingsUpdated);
+      }).catch(() => {});
+    };
+  }, [isAnyMenuOpen]);
 
   const handleMouseDown = (btn: string) => (e: React.MouseEvent) => {
     if (e.button !== 0) return;
@@ -70,6 +114,166 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
     }
   };
 
+  const getAudioSettings = (): { transmissionMode: string; inputVolume: number; outputVolume: number } => {
+    try {
+      const stored = localStorage.getItem('brmble-settings');
+      if (stored) {
+        const settings = JSON.parse(stored);
+        return {
+          transmissionMode: settings?.audio?.transmissionMode || 'pushToTalk',
+          inputVolume: settings?.audio?.inputVolume ?? 250,
+          outputVolume: settings?.audio?.outputVolume ?? 250,
+        };
+      }
+    } catch {}
+    return { transmissionMode: 'pushToTalk', inputVolume: 250, outputVolume: 250 };
+  };
+
+  const saveAudioSettings = (transmissionMode?: string, inputVolume?: number, outputVolume?: number) => {
+    try {
+      const stored = localStorage.getItem('brmble-settings');
+      const existingSettings = stored ? JSON.parse(stored) : {};
+      const existingAudio = (existingSettings.audio as any) || {};
+      const audioSettings = {
+        inputDevice: existingAudio.inputDevice || 'default',
+        outputDevice: existingAudio.outputDevice || 'default',
+        inputVolume: inputVolume ?? existingAudio.inputVolume ?? 250,
+        outputVolume: outputVolume ?? existingAudio.outputVolume ?? 250,
+        maxAmplification: existingAudio.maxAmplification || 100,
+        transmissionMode: transmissionMode ?? existingAudio.transmissionMode ?? 'pushToTalk',
+        pushToTalkKey: existingAudio.pushToTalkKey ?? null,
+        opusBitrate: existingAudio.opusBitrate || 72000,
+        opusFrameSize: existingAudio.opusFrameSize || 20,
+        captureApi: (existingAudio.captureApi || 'wasapi') as 'waveIn' | 'wasapi',
+      };
+      const settings = {
+        ...existingSettings,
+        audio: audioSettings,
+      };
+      localStorage.setItem('brmble-settings', JSON.stringify(settings));
+      import('../../bridge').then(({ default: bridge }) => {
+        bridge.send('settings.set', { settings });
+      }).catch((e) => console.error('Failed to save audio settings:', e));
+    } catch (e) {
+      console.error('Failed to save audio settings:', e);
+    }
+  };
+
+  const voiceContextMenuItems: ContextMenuItem[] = [
+    {
+      type: 'checkbox',
+      label: 'Mute',
+      checked: muted || false,
+      onChange: () => {
+        onToggleMute?.();
+      },
+    },
+    { type: 'divider' },
+    {
+      type: 'checkbox',
+      label: 'Push to Talk',
+      checked: contextMenuPushToTalk,
+      onChange: (checked) => {
+        const mode = checked ? 'pushToTalk' : 'voiceActivity';
+        const freshSettings = getAudioSettings();
+        setContextMenuPushToTalk(checked);
+        saveAudioSettings(mode, freshSettings.inputVolume);
+      },
+    },
+    { type: 'divider' },
+    {
+      type: 'slider',
+      label: `Input Volume: ${contextMenuInputVolume}%`,
+      value: contextMenuInputVolume,
+      min: 0,
+      max: 250,
+      onChange: (value) => {
+        setContextMenuInputVolume(value);
+        const freshSettings = getAudioSettings();
+        saveAudioSettings(freshSettings.transmissionMode, value);
+      },
+    },
+    { type: 'divider' },
+    {
+      type: 'item',
+      label: 'Voice Settings',
+      icon: (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      ),
+      onClick: () => {
+        setVoiceContextMenu(null);
+        onOpenAudioSettings?.();
+      },
+    },
+  ];
+
+  const deafenContextMenuItems: ContextMenuItem[] = [
+    {
+      type: 'checkbox',
+      label: 'Deafen',
+      checked: deafened || false,
+      onChange: () => {
+        onToggleDeaf?.();
+      },
+    },
+    { type: 'divider' },
+    {
+      type: 'slider',
+      label: `Output Volume: ${contextMenuOutputVolume}%`,
+      value: contextMenuOutputVolume,
+      min: 0,
+      max: 250,
+      onChange: (value) => {
+        setContextMenuOutputVolume(value);
+        saveAudioSettings(undefined, undefined, value);
+      },
+    },
+    { type: 'divider' },
+    {
+      type: 'item',
+      label: 'Voice Settings',
+      icon: (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      ),
+      onClick: () => {
+        setDeafenContextMenu(null);
+        onOpenAudioSettings?.();
+      },
+    },
+  ];
+
+  const screenShareContextMenuItems: ContextMenuItem[] = [
+    {
+      type: 'item',
+      label: screenSharing ? 'Stop Screen Share' : 'Start Screen Share',
+      onClick: () => {
+        setScreenShareContextMenu(null);
+        onToggleScreenShare?.();
+      },
+    },
+    { type: 'divider' },
+    {
+      type: 'item',
+      label: 'Voice Settings',
+      icon: (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      ),
+      onClick: () => {
+        setScreenShareContextMenu(null);
+        onOpenAudioSettings?.();
+      },
+    },
+  ];
+
   return (
     <div className="user-panel">
       {onLeaveVoice && (
@@ -92,7 +296,17 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
 
       {onToggleDeaf && (
         <Tooltip content={deafened ? 'Undeafen' : 'Deafen'} position="bottom" align="start">
-        <span className="tooltip-wrapper">
+        <span 
+          className="tooltip-wrapper"
+          onContextMenu={(e) => {
+            e.preventDefault();
+            const settings = getAudioSettings();
+            setContextMenuOutputVolume(settings.outputVolume);
+            setVoiceContextMenu(null);
+            setScreenShareContextMenu(null);
+            setDeafenContextMenu({ x: e.clientX, y: e.clientY });
+          }}
+        >
         <button 
           className={`btn btn-ghost btn-icon user-panel-btn deaf-btn ${(deafened || leftVoice) ? 'active' : ''} ${activeBtn === 'deaf' ? 'pressed' : ''} ${leftVoice || deafOnCooldown ? 'disabled' : ''}`}
           onMouseDown={handleMouseDown('deaf')}
@@ -114,7 +328,18 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
 
       {onToggleMute && (
         <Tooltip content={muted ? 'Unmute' : deafened ? 'Muted (deafened)' : 'Mute'} position="bottom" align="start">
-        <span className="tooltip-wrapper">
+        <span 
+          className="tooltip-wrapper"
+          onContextMenu={(e) => {
+            e.preventDefault();
+            const settings = getAudioSettings();
+            setContextMenuPushToTalk(settings.transmissionMode === 'pushToTalk');
+            setContextMenuInputVolume(settings.inputVolume);
+            setDeafenContextMenu(null);
+            setScreenShareContextMenu(null);
+            setVoiceContextMenu({ x: e.clientX, y: e.clientY });
+          }}
+        >
         <button 
           className={`btn btn-ghost btn-icon user-panel-btn mute-btn ${(muted || leftVoice || deafened) ? 'active' : ''} ${activeBtn === 'mute' ? 'pressed' : ''} ${(leftVoice || deafened || muteOnCooldown) ? 'disabled' : ''}`}
           onMouseDown={handleMouseDown('mute')}
@@ -136,11 +361,26 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
 
       {onToggleScreenShare && (
         <Tooltip content={screenShareError ? `Screen share error: ${screenShareError}` : screenSharing ? 'Stop Sharing' : !canScreenShare ? 'Join a channel to share screen' : 'Share Screen'} position="bottom" align="start">
-        <span className="tooltip-wrapper">
+        <span 
+          className="tooltip-wrapper"
+          onClick={(e) => {
+            e.preventDefault();
+            const rect = e.currentTarget.getBoundingClientRect();
+            setVoiceContextMenu(null);
+            setDeafenContextMenu(null);
+            setScreenShareContextMenu({ x: rect.left, y: rect.bottom + 4 });
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setVoiceContextMenu(null);
+            setDeafenContextMenu(null);
+            setScreenShareContextMenu({ x: e.clientX, y: e.clientY });
+          }}
+        >
         <button
           className={`btn btn-ghost btn-icon user-panel-btn screen-share-btn ${(screenSharing || (!screenSharing && !canScreenShare)) ? 'active' : ''} ${activeBtn === 'screen' ? 'pressed' : ''} ${(!screenSharing && !canScreenShare) ? 'disabled' : ''}`}
           onMouseDown={handleMouseDown('screen')}
-          onMouseUp={handleMouseUp('screen', onToggleScreenShare)}
+          onMouseUp={handleMouseUp('screen')}
           onMouseLeave={handleMouseLeave}
           onKeyDown={handleKeyDown('screen')}
           onKeyUp={handleKeyUp('screen', onToggleScreenShare)}
@@ -200,6 +440,30 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
         <Avatar user={{ name: username || '', matrixUserId: matrixUserId, avatarUrl: avatarUrl }} size={20} speaking={speaking} />
       </button>
       </Tooltip>
+      {voiceContextMenu && (
+        <ContextMenu
+          x={voiceContextMenu.x}
+          y={voiceContextMenu.y}
+          items={voiceContextMenuItems}
+          onClose={() => setVoiceContextMenu(null)}
+        />
+      )}
+      {deafenContextMenu && (
+        <ContextMenu
+          x={deafenContextMenu.x}
+          y={deafenContextMenu.y}
+          items={deafenContextMenuItems}
+          onClose={() => setDeafenContextMenu(null)}
+        />
+      )}
+      {screenShareContextMenu && (
+        <ContextMenu
+          x={screenShareContextMenu.x}
+          y={screenShareContextMenu.y}
+          items={screenShareContextMenuItems}
+          onClose={() => setScreenShareContextMenu(null)}
+        />
+      )}
     </div>
   );
 }

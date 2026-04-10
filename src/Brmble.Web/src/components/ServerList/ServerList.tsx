@@ -5,6 +5,8 @@ import { confirm } from '../../hooks/usePrompt';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { Icon } from '../Icon/Icon';
 import { BrmbleLogo } from '../Header/BrmbleLogo';
+import { useProfiles } from '../../hooks/useProfiles';
+import { Select } from '../Select/Select';
 import './ServerList.css';
 
 interface ServerListProps {
@@ -16,9 +18,10 @@ interface ServerListProps {
 
 export function ServerList({ onConnect, connectionError, onClearError, activeProfileName }: ServerListProps) {
   const { servers, loading, addServer, updateServer, removeServer } = useServerlist();
+  const { profiles } = useProfiles();
   const [editing, setEditing] = useState<ServerEntry | null>(null);
   const [isAdding, setIsAdding] = useState(false);
-  const [form, setForm] = useState({ label: '', host: '', port: '64738', password: '' });
+  const [form, setForm] = useState({ label: '', host: '', port: '64738', password: '', defaultProfileId: '' });
   const [showPassword, setShowPassword] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
   const [toggleFocused, setToggleFocused] = useState(false);
@@ -27,7 +30,7 @@ export function ServerList({ onConnect, connectionError, onClearError, activePro
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const server = { ...form, port: parseInt(form.port) };
+    const server = { ...form, port: parseInt(form.port), defaultProfileId: form.defaultProfileId || undefined };
     if (editing) {
       updateServer({ ...server, id: editing.id, registered: editing.registered, registeredName: editing.registeredName });
       setEditing(null);
@@ -35,7 +38,7 @@ export function ServerList({ onConnect, connectionError, onClearError, activePro
       addServer(server);
       setIsAdding(false);
     }
-    setForm({ label: '', host: '', port: '64738', password: '' });
+    setForm({ label: '', host: '', port: '64738', password: '', defaultProfileId: '' });
     setShowPassword(false);
     setToggleFocused(false);
   };
@@ -46,7 +49,8 @@ export function ServerList({ onConnect, connectionError, onClearError, activePro
       label: server.label,
       host: server.host,
       port: String(server.port),
-      password: server.password || ''
+      password: server.password || '',
+      defaultProfileId: server.defaultProfileId || ''
     });
     setIsAdding(false);
     setShowPassword(false);
@@ -56,7 +60,7 @@ export function ServerList({ onConnect, connectionError, onClearError, activePro
   const handleCancel = () => {
     setEditing(null);
     setIsAdding(false);
-    setForm({ label: '', host: '', port: '64738', password: '' });
+    setForm({ label: '', host: '', port: '64738', password: '', defaultProfileId: '' });
     setShowPassword(false);
     setToggleFocused(false);
   };
@@ -78,7 +82,7 @@ export function ServerList({ onConnect, connectionError, onClearError, activePro
       if (e.key === 'Escape') {
         setEditing(null);
         setIsAdding(false);
-        setForm({ label: '', host: '', port: '64738', password: '' });
+        setForm({ label: '', host: '', port: '64738', password: '', defaultProfileId: '' });
         setShowPassword(false);
         setToggleFocused(false);
       }
@@ -113,7 +117,7 @@ export function ServerList({ onConnect, connectionError, onClearError, activePro
           <BrmbleLogo size={192} heartbeat />
         </div>
         <div className="server-list-header">
-          <h2 className="heading-title server-list-title">Choose a Server{activeProfileName ? `, ${activeProfileName}!` : ''}</h2>
+          <h2 className="heading-title server-list-title">Choose a Server{activeProfileName && profiles.length < 2 ? `, ${activeProfileName}!` : ''}</h2>
           <p className="server-list-subtitle">Select a server to start talking and chatting</p>
         </div>
 
@@ -144,6 +148,12 @@ export function ServerList({ onConnect, connectionError, onClearError, activePro
                     <span className="server-list-name">{server.label}</span>
                     <span className="server-list-address">{server.host}:{server.port}</span>
                   </div>
+                  {profiles.length >= 2 && server.defaultProfileId && (() => {
+                    const profile = profiles.find(p => p.id === server.defaultProfileId);
+                    return profile ? (
+                      <span className="server-list-profile-badge">{profile.name}</span>
+                    ) : null;
+                  })()}
                     <div className="server-list-actions">
                       <Tooltip content="Delete server">
                       <button
@@ -235,7 +245,7 @@ export function ServerList({ onConnect, connectionError, onClearError, activePro
                     </button>
                   )}
                 </div>
-                {editing?.registered && (
+                {editing?.registered && !form.defaultProfileId && (
                 <Tooltip content={`Registered as "${editing.registeredName}" on this server`}>
                 <div className="server-list-username-wrapper" tabIndex={0}>
                   <input
@@ -247,6 +257,19 @@ export function ServerList({ onConnect, connectionError, onClearError, activePro
                   <Icon name="check" size={16} className="server-list-registered-icon" />
                 </div>
                 </Tooltip>
+                )}
+                {profiles.length >= 2 && (
+                  <div className="server-list-profile-select">
+                    <label className="server-list-profile-label">Profile</label>
+                    <Select
+                      value={form.defaultProfileId}
+                      onChange={(val) => setForm(f => ({ ...f, defaultProfileId: val }))}
+                      options={[
+                        { value: '', label: 'Use active profile' },
+                        ...profiles.map(p => ({ value: p.id, label: p.name }))
+                      ]}
+                    />
+                  </div>
                 )}
               </div>
               <div className="server-list-form-actions">

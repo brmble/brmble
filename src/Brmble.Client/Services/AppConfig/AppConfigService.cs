@@ -335,6 +335,14 @@ internal sealed class AppConfigService : IAppConfigService
             _profileRegistrations.Remove(id);
             if (_activeProfileId == id)
                 _activeProfileId = _profiles.FirstOrDefault()?.Id;
+
+            // Clear stale DefaultProfileId references on server entries
+            for (int i = 0; i < _servers.Count; i++)
+            {
+                if (_servers[i].DefaultProfileId == id)
+                    _servers[i] = _servers[i] with { DefaultProfileId = null };
+            }
+
             Save();
         }
     }
@@ -481,6 +489,7 @@ internal sealed class AppConfigService : IAppConfigService
         var password = TryDecryptPassword(passwordRaw, passwordStorage);
         var registered = data.TryGetProperty("registered", out var regEl) && regEl.ValueKind == System.Text.Json.JsonValueKind.True;
         var registeredName = data.TryGetProperty("registeredName", out var rnEl) ? rnEl.GetString() : null;
+        var defaultProfileId = data.TryGetProperty("defaultProfileId", out var dpEl) ? dpEl.GetString() : null;
 
         return new ServerEntry(
             id!,
@@ -490,7 +499,8 @@ internal sealed class AppConfigService : IAppConfigService
             data.TryGetProperty("port", out var portEl) && portEl.ValueKind == System.Text.Json.JsonValueKind.Number ? portEl.GetInt32() : null,
             password,
             registered,
-            registeredName);
+            registeredName,
+            defaultProfileId);
     }
 
     private record ConfigData

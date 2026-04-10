@@ -436,6 +436,9 @@ internal sealed class CertificateService : IService
                 _config.RemoveProfile(id);
                 bridge.Send("profiles.removed", new { id });
 
+                // Refresh server list so frontend picks up cleared DefaultProfileId references
+                bridge.Send("servers.list", new { servers = _config.GetServers() });
+
                 if (wasActive)
                 {
                     var newActiveId = _config.GetActiveProfileId();
