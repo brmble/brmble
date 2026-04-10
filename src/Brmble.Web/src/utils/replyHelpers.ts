@@ -7,7 +7,10 @@ function escapeHtml(str: string): string {
 }
 
 export function stripReplyFallback(body: string): string {
-  return body.split('\n').filter(line => !/^> ?/.test(line)).join('\n').trim();
+  // Remove existing reply markers (> ) and any bridged sender prefixes ([Name]: )
+  const withoutReply = body.split('\n').filter(line => !/^> ?/.test(line)).join('\n').trim();
+  const withoutBridge = withoutReply.replace(/^\[.+?\]:\s*/, '');
+  return withoutBridge;
 }
 
 /**
@@ -16,9 +19,12 @@ export function stripReplyFallback(body: string): string {
  */
 export function makeReplyFallback(parent: { sender: string; body: string }, replyText: string): string {
   const cleanBody = stripReplyFallback(parent.body);
-  const lines = cleanBody.split('\n');
-  const firstLine = lines[0] || '(empty message)';
-  let fallback = `> <${parent.sender}> ${firstLine}`;
+  // Handle multiple lines - prefix each with >
+  const lines = cleanBody.split('\n').filter(l => l.trim());
+  if (lines.length === 0) {
+    return `> <${parent.sender}> (empty message)\n\n${replyText}`;
+  }
+  let fallback = `> <${parent.sender}> ${lines[0]}`;
   for (let i = 1; i < lines.length; ++i) {
     fallback += `\n> ${lines[i]}`;
   }
@@ -63,7 +69,7 @@ export function buildReplyContent(
   
   return {
     msgtype: MsgType.Text,
-    body: makeReplyFallback({ sender: senderId, body: parentBody }, replyText),
+    body: makeReplyFallback({ sender: parentSender, body: parentBody }, replyText),
     format: 'org.matrix.custom.html',
     formatted_body: makeReplyHtml(roomId, parentEventId, parentSender, senderId, parentBody) + escapedReplyText,
     'm.relates_to': {

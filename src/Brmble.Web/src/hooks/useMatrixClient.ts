@@ -97,6 +97,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
           msgtype?: string;
           url?: string;
           info?: { thumbnail_url?: string; w?: number; h?: number; mimetype?: string; size?: number };
+          'm.relates_to'?: { 'm.in_reply_to'?: { event_id: string } };
         };
 
         let media: MediaAttachment[] | undefined;
@@ -119,10 +120,17 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
         const isBridgeBotSender = /^@brmble[_-]?/.test(senderId);
         const bridgeMatch = isBridgeBotSender ? rawBody.match(/^\[(.+?)\]:\s*/) : null;
         const messageSender = bridgeMatch ? bridgeMatch[1] : displayName;
-        const messageContent = bridgeMatch ? rawBody.slice(bridgeMatch[0].length) : rawBody;
+        let messageContent = bridgeMatch ? rawBody.slice(bridgeMatch[0].length) : rawBody;
+
+        // Strip reply fallback from body (lines starting with > )
+        messageContent = messageContent.split('\n').filter(line => !/^> ?/.test(line)).join('\n').trim();
 
         // For image-only messages, body is just the filename — don't show it as text
         const displayContent = media ? '' : messageContent;
+
+        // Extract reply relation from Matrix event
+        const relatesTo = content['m.relates_to'] as { 'm.in_reply_to'?: { event_id: string } } | undefined;
+        const replyToEventId = relatesTo?.['m.in_reply_to']?.event_id;
 
         const message: ChatMessage = {
           id: event.getId() ?? crypto.randomUUID(),
@@ -132,6 +140,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
           content: displayContent,
           timestamp: new Date(event.getTs()),
           ...(media && { media }),
+          ...(replyToEventId && { replyToEventId }),
         };
 
         setMessages(prev => {
@@ -161,6 +170,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
         msgtype?: string;
         url?: string;
         info?: { thumbnail_url?: string; w?: number; h?: number; mimetype?: string; size?: number };
+        'm.relates_to'?: { 'm.in_reply_to'?: { event_id: string } };
       };
 
       let dmMedia: MediaAttachment[] | undefined;
@@ -183,10 +193,17 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       const isDmBridgeBotSender = /^@brmble[_-]?/.test(dmSenderId);
       const dmBridgeMatch = isDmBridgeBotSender ? dmRawBody.match(/^\[(.+?)\]:\s*/) : null;
       const dmSender = dmBridgeMatch ? dmBridgeMatch[1] : dmDisplayName;
-      const dmMessageContent = dmBridgeMatch ? dmRawBody.slice(dmBridgeMatch[0].length) : dmRawBody;
+      let dmMessageContent = dmBridgeMatch ? dmRawBody.slice(dmBridgeMatch[0].length) : dmRawBody;
+
+      // Strip reply fallback from body (lines starting with > )
+      dmMessageContent = dmMessageContent.split('\n').filter(line => !/^> ?/.test(line)).join('\n').trim();
 
       // For image-only messages, body is just the filename — don't show it as text
       const dmDisplayContent = dmMedia ? '' : dmMessageContent;
+
+      // Extract reply relation from Matrix event
+      const dmRelatesTo = dmContent['m.relates_to'] as { 'm.in_reply_to'?: { event_id: string } } | undefined;
+      const dmReplyToEventId = dmRelatesTo?.['m.in_reply_to']?.event_id;
 
       const dmMessage: ChatMessage = {
         id: event.getId() ?? crypto.randomUUID(),
@@ -196,6 +213,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
         content: dmDisplayContent,
         timestamp: new Date(event.getTs()),
         ...(dmMedia && { media: dmMedia }),
+        ...(dmReplyToEventId && { replyToEventId: dmReplyToEventId }),
       };
 
       setDmMessages(prev => {

@@ -182,3 +182,29 @@
   color: var(--text-primary);
   background: var(--bg-tertiary);
 }
+
+/* Reply preview in message bubble (Discord-style) */
+.message-reply-preview {
+  padding: var(--space-2xs) var(--space-xs);
+  margin-bottom: var(--space-2xs);
+  background: var(--bg-secondary);
+  border-left: 2px solid var(--accent-primary);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.message-reply-preview .message-reply-sender {
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+}
+
+.message-reply-preview .message-reply-content {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
