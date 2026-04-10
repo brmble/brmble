@@ -191,6 +191,19 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
       
       const overlay = document.createElement('div');
       overlay.id = 'screenshare-new-window-overlay';
+      
+      const closeOverlay = () => {
+        overlay.remove();
+        onCloseScreenShare?.();
+      };
+      
+      const handleEsc = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          closeOverlay();
+        }
+      };
+      document.addEventListener('keydown', handleEsc);
+      
       overlay.innerHTML = `
         <style>
           #screenshare-new-window-overlay {
@@ -199,58 +212,80 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
             left: 0;
             width: 100vw;
             height: 100vh;
-            background: rgba(0, 0, 0, 0.95);
+            background: #000;
             z-index: 99999;
             display: flex;
             flex-direction: column;
+          }
+          #screenshare-new-window-overlay .header {
+            display: flex;
             align-items: center;
-            justify-content: center;
-          }
-          #screenshare-new-window-overlay video {
-            max-width: 90%;
-            max-height: 85%;
-          }
-          #screenshare-new-window-overlay .close-btn {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            background: var(--bg-surface, #333);
-            border: 1px solid var(--border-subtle, #555);
-            color: var(--text-primary, #fff);
-            padding: 8px 16px;
-            cursor: pointer;
-            border-radius: 4px;
+            justify-content: space-between;
+            padding: 12px 20px;
+            background: #1a1a1a;
+            -webkit-app-region: drag;
           }
           #screenshare-new-window-overlay .title {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            color: var(--text-primary, #fff);
-            font-size: 16px;
+            color: #fff;
+            font-size: 15px;
+            font-weight: 500;
+          }
+          #screenshare-new-window-overlay .buttons {
+            display: flex;
+            gap: 8px;
+            -webkit-app-region: no-drag;
+          }
+          #screenshare-new-window-overlay .btn {
+            background: #333;
+            border: none;
+            color: #fff;
+            padding: 6px 14px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+          }
+          #screenshare-new-window-overlay .btn-close {
+            background: #d32f2f;
+          }
+          #screenshare-new-window-overlay .btn-close:hover {
+            background: #b71c1c;
+          }
+          #screenshare-new-window-overlay .video-container {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+          }
+          #screenshare-new-window-overlay video {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
           }
         </style>
-        <span class="title">Screen Share - ${screenSharerName}</span>
-        <button class="close-btn" id="screenshare-close-btn">Close</button>
+        <div class="header">
+          <span class="title">Screen Share - ${screenSharerName}</span>
+          <div class="buttons">
+            <button class="btn btn-close" id="screenshare-close-btn">Close</button>
+          </div>
+        </div>
+        <div class="video-container">
+          <video autoplay playsinline></video>
+        </div>
       `;
       
       document.body.appendChild(overlay);
       
-      const newVideo = document.createElement('video');
-      newVideo.autoplay = true;
-      newVideo.playsInline = true;
-      if (screenShareVideoEl.srcObject) {
+      const newVideo = overlay.querySelector('video') as HTMLVideoElement;
+      if (newVideo && screenShareVideoEl.srcObject) {
         newVideo.srcObject = screenShareVideoEl.srcObject;
       }
-      overlay.insertBefore(newVideo, overlay.querySelector('.close-btn'));
       
-      const closeBtn = document.getElementById('screenshare-close-btn');
-      closeBtn?.addEventListener('click', () => {
-        overlay.remove();
-        onCloseScreenShare?.();
-      });
+      document.getElementById('screenshare-close-btn')?.addEventListener('click', closeOverlay);
       
       return () => {
         overlay.remove();
+        document.removeEventListener('keydown', handleEsc);
       };
     }
   }, [hasNewWindowScreenShare, screenShareVideoEl, screenSharerName, onCloseScreenShare]);
