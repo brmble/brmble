@@ -9,6 +9,7 @@ import type { ChatMessage, MentionableUser } from '../../types';
 import { ScreenShareViewer } from '../ScreenShareViewer/ScreenShareViewer';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
 import { Tooltip } from '../Tooltip/Tooltip';
+import { Icon } from '../Icon/Icon';
 import Avatar from '../Avatar/Avatar';
 import './ChatPanel.css';
 
@@ -672,9 +673,7 @@ const [replyState, setReplyState] = useState<{
         <div className="chat-empty-state">
           {isDM ? (
             <div className="empty-icon">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true" focusable="false">
-                <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
-              </svg>
+              <Icon name="message-circle" size={48} strokeWidth={1.5} />
             </div>
           ) : (
             <div className="empty-logo">
@@ -703,10 +702,7 @@ const [replyState, setReplyState] = useState<{
         {searchOpen && (
           <div className="chat-search-inline">
             <div className="chat-search-input-wrapper">
-              <svg className="chat-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
+              <Icon name="search" size={14} className="chat-search-icon" />
               <input
                 ref={searchInputRef}
                 className="chat-search-input"
@@ -743,7 +739,7 @@ const [replyState, setReplyState] = useState<{
                   disabled={searchMatches.length === 0}
                   aria-label="Next match"
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="18 15 12 9 6 15" /></svg>
+                  <Icon name="chevron-up" size={14} />
                 </button>
               </Tooltip>
               <Tooltip content="Previous match (Shift+Enter)">
@@ -753,7 +749,7 @@ const [replyState, setReplyState] = useState<{
                   disabled={searchMatches.length === 0}
                   aria-label="Previous match"
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9" /></svg>
+                  <Icon name="chevron-down" size={14} />
                 </button>
               </Tooltip>
               <Tooltip content="Close search (Esc)">
@@ -762,7 +758,7 @@ const [replyState, setReplyState] = useState<{
                   onClick={() => { setSearchOpen(false); setSearchQuery(''); setCurrentMatchIndex(0); }}
                   aria-label="Close search"
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                  <Icon name="x" size={14} />
                 </button>
               </Tooltip>
             </div>
@@ -781,10 +777,7 @@ const [replyState, setReplyState] = useState<{
               }}
               aria-label={searchOpen ? 'Close search' : 'Search messages'}
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
+              <Icon name="search" size={18} />
             </button>
           </Tooltip>
         </div>
@@ -826,11 +819,7 @@ const [replyState, setReplyState] = useState<{
       <div className="chat-messages" ref={messagesContainerRef} onScroll={handleScroll}>
         {topNotice && (
           <div className="chat-top-notice">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-              <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="16" x2="12" y2="12" />
-              <line x1="12" y1="8" x2="12.01" y2="8" />
-            </svg>
+            <Icon name="info" size={14} />
             <span>{topNotice}</span>
           </div>
         )}
@@ -960,9 +949,7 @@ const [replyState, setReplyState] = useState<{
             onMouseDown={(e) => e.preventDefault()}
             aria-label="Scroll to latest messages"
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polyline points="6 9 12 15 18 9" />
-            </svg>
+            <Icon name="chevron-down" size={20} />
           </button>
           </Tooltip>
         )}

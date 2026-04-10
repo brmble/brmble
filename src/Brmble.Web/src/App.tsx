@@ -22,7 +22,7 @@ import type { ServerEntry } from './hooks/useServerlist';
 import { SettingsModal, DEFAULT_SCREEN_SHARE, type ScreenShareSettings } from './components/SettingsModal/SettingsModal';
 import { AvatarEditorModal } from './components/AvatarEditorModal/AvatarEditorModal';
 import { CloseDialog } from './components/CloseDialog/CloseDialog';
-import { CertWizard } from './components/CertWizard/CertWizard';
+import { OnboardingWizard } from './components/OnboardingWizard/OnboardingWizard';
 import { Version } from './components/Version/Version';
 import { ZoomIndicator } from './components/ZoomIndicator/ZoomIndicator';
 import { useChatStore, addMessageToStore, clearChatStorage, purgeEphemeralMessages } from './hooks/useChatStore';
@@ -157,6 +157,9 @@ function App() {
 
   // null = status not yet received, false = no cert, true = cert exists
   const [certExists, setCertExists] = useState<boolean | null>(null);
+  // Stays true for the entire onboarding flow so the wizard isn't unmounted
+  // when certExists flips to true mid-wizard (e.g. after profile activation).
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [certFingerprint, setCertFingerprint] = useState('');
   const [activeProfileName, setActiveProfileName] = useState('');
   const [profiles, setProfiles] = useState<Array<{ id: string; name: string }>>([]);
@@ -1043,6 +1046,7 @@ function App() {
         setCertFingerprint(fp);
       } else {
         setCertExists(false);
+        setShowOnboarding(true);
       }
     };
     const onCertGenerated = (data: unknown) => {
@@ -2154,15 +2158,21 @@ const handleConnect = (serverData: SavedServer) => {
         />
       </div>
 
-      {certExists === false && (
-        <CertWizard onComplete={(fp) => { setCertExists(true); setCertFingerprint(fp); }} />
+      {showOnboarding && (
+        <OnboardingWizard onComplete={(fp) => {
+          setShowOnboarding(false);
+          setCertExists(true);
+          setCertFingerprint(fp);
+          // Re-read brmblegotchi setting — the wizard writes to localStorage
+          try {
+            const stored = localStorage.getItem('brmble-settings');
+            if (stored) {
+              const parsed = JSON.parse(stored);
+              setBrmblegotchiEnabledState(parsed.brmblegotchi?.enabled ?? false);
+            }
+          } catch { /* ignore */ }
+        }} />
       )}
-
-      <ConnectModal
-        isOpen={showConnectModal}
-        onClose={() => setShowConnectModal(false)}
-        onConnect={handleConnect}
-      />
 
       <SettingsModal
         isOpen={showSettings}
@@ -2175,6 +2185,12 @@ const handleConnect = (serverData: SavedServer) => {
         onRemoveAvatar={onRemoveAvatar}
         brmblegotchiEnabled={brmblegotchiEnabled}
         setBrmblegotchiEnabled={setBrmblegotchiEnabled}
+      />
+
+      <ConnectModal
+        isOpen={showConnectModal}
+        onClose={() => setShowConnectModal(false)}
+        onConnect={handleConnect}
       />
 
       <AvatarEditorModal

@@ -118,6 +118,21 @@ Before building or modifying any UI component, read `docs/UI_GUIDE.md`. It cover
 - Typography tokens (`--font-display`, `--font-body`, `--font-mono`)
 - Interaction states (hover, active, focus)
 - Spacing and border radius scales
+- The centralized Icon system (`<Icon>` component)
+
+### Icon System
+
+All UI icons use the centralized `<Icon>` component in `src/Brmble.Web/src/components/Icon/Icon.tsx`.
+
+**Rules:**
+- **Never use emoji characters for icons in the UI** — always use `<Icon name="..." />`
+- Icons follow Feather/Lucide conventions: stroke-based, `currentColor`, strokeWidth 2, round caps/joins, 24x24 viewBox
+- Use a flat name API: `<Icon name="mic" />`, `<Icon name="mic-off" />`
+- Pair toggleable icons with `-off` suffix (`mic` / `mic-off`)
+- Brmblegotchi icons are prefixed `gotchi-` (e.g. `gotchi-food`, `gotchi-play`)
+- Complex brand logos (`BrmbleLogo`, `MumbleIcon`, `BrmbleIcon`) stay as dedicated components — too complex for the icon map
+
+See `docs/UI_GUIDE.md` section 11 for full icon list, adding new icons, and conventions.
 
 ## Running Docker (local dev)
 

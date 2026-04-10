@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useProfiles } from '../../hooks/useProfiles';
 import { confirm } from '../../hooks/usePrompt';
 import { Tooltip } from '../Tooltip/Tooltip';
+import { Icon } from '../Icon/Icon';
 import './ProfilesSettingsTab.css';
 
 interface ProfilesSettingsTabProps {
@@ -210,10 +211,7 @@ export function ProfilesSettingsTab({ connected }: ProfilesSettingsTabProps) {
       ) : (
         <div className="profiles-empty">
           <div className="profiles-empty-icon">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true" focusable="false">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-              <circle cx="12" cy="7" r="4" />
-            </svg>
+            <Icon name="user" size={48} strokeWidth={1.5} />
           </div>
           <p>No profiles yet</p>
           <p className="profiles-empty-hint">Create a profile to manage multiple identities</p>

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
 import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
 import { Tooltip } from '../Tooltip/Tooltip';
+import { Icon } from '../Icon/Icon';
 import Avatar from '../Avatar/Avatar';
 import type { DMContact } from '../../hooks/useDMStore';
 import './DMContactList.css';
@@ -44,10 +45,7 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
       </div>
 
       <div className="dm-contact-search">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <circle cx="11" cy="11" r="8" />
-          <line x1="21" y1="21" x2="16.65" y2="16.65" />
-        </svg>
+        <Icon name="search" size={14} />
         <input
           type="text"
           placeholder="Search conversations..."
@@ -108,9 +106,7 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
               type: 'item' as const,
               label: 'Send Direct Message',
               icon: (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                </svg>
+                <Icon name="message-square" size={14} />
               ),
               onClick: () => { onSelectContact(contextMenu.id, contextMenu.displayName); setContextMenu(null); },
             },
@@ -118,11 +114,7 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
               type: 'item' as const,
               label: 'User Information',
               icon: (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="12" cy="12" r="10" />
-                  <circle cx="12" cy="8" r="1" fill="currentColor" stroke="none" />
-                  <line x1="12" y1="12" x2="12" y2="16" />
-                </svg>
+                <Icon name="info-filled" size={14} />
               ),
               disabled: !onlineUserIds.includes(contextMenu.id),
               onClick: () => { setInfoDialogUser({ id: contextMenu.id, displayName: contextMenu.displayName }); setContextMenu(null); },
@@ -132,10 +124,7 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
               type: 'item' as const,
               label: 'Close Conversation',
               icon: (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
+                <Icon name="x" size={14} />
               ),
               onClick: () => { onCloseConversation(contextMenu.id); setContextMenu(null); },
             }] : []),

@@ -4,6 +4,7 @@ import type { MatrixClient } from 'matrix-js-sdk';
 import { MentionDropdown } from './MentionDropdown';
 import { ReplyHeader } from './ReplyHeader';
 import { Tooltip } from '../Tooltip/Tooltip';
+import { Icon } from '../Icon/Icon';
 import { validateImageFile } from '../../utils/imageUpload';
 import './MessageInput.css';
 
@@ -331,10 +332,7 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
             aria-label="Remove image"
             type="button"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
+            <Icon name="x" size={16} />
           </button>
         </div>
       )}
@@ -372,10 +370,7 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
           onClick={() => handleSend().catch(error => console.error('Failed to send message:', error))}
           disabled={disabled || (!message.trim() && !pendingImage)}
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <line x1="22" y1="2" x2="11" y2="13"></line>
-            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-          </svg>
+          <Icon name="send" size={20} />
         </button>
         </Tooltip>
       </div>

@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Brmble.Client.Bridge;
 using Brmble.Client.Services.Security;
 using Brmble.Client.Services.Serverlist;
+using Microsoft.Data.Sqlite;
 
 namespace Brmble.Client.Services.AppConfig;
 
@@ -30,8 +31,10 @@ internal sealed class AppConfigService : IAppConfigService
     private readonly string _certsDir;
     private readonly object _lock = new();
     private readonly ISecurePasswordStorage _passwordStorage;
+    private bool _isFirstLaunch;
 
     public string ServiceName => "appConfig";
+    public bool IsFirstLaunch => _isFirstLaunch;
 
     /// <summary>Optional callback invoked after settings are updated via SetSettings.</summary>
     public Action<AppSettings>? OnSettingsChanged { get; set; }
@@ -124,6 +127,60 @@ internal sealed class AppConfigService : IAppConfigService
                     bridge.Send("settings.updated", new { settings = GetSettings() });
                 }
             }
+            await Task.CompletedTask;
+        });
+
+        // Mumble server import handlers
+        bridge.RegisterHandler("mumble.detectServers", async _ =>
+        {
+            var detected = DetectMumbleServers();
+            var saved    = GetServers();
+
+            var savedKeys = new HashSet<string>(
+                saved
+                    .Where(s => s.Host != null && s.Port != null)
+                    .Select(s => $"{s.Host!.ToLowerInvariant()}:{s.Port}"),
+                StringComparer.Ordinal
+            );
+
+            var enriched = detected.Select(d => new
+            {
+                label        = d.Label,
+                host         = d.Host,
+                port         = d.Port,
+                username     = d.Username,
+                alreadySaved = savedKeys.Contains($"{d.Host.ToLowerInvariant()}:{d.Port}"),
+            }).ToList();
+
+            bridge.Send("mumble.detectedServers", new { servers = enriched });
+            await Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("mumble.importServers", async data =>
+        {
+            if (!data.TryGetProperty("servers", out var serversEl)) return;
+            var added = new List<ServerEntry>();
+            foreach (var s in serversEl.EnumerateArray())
+            {
+                var label = s.TryGetProperty("label", out var lEl) ? lEl.GetString() ?? "" : "";
+                var host  = s.TryGetProperty("host",  out var hEl) ? hEl.GetString() ?? "" : "";
+                var port  = s.TryGetProperty("port",  out var pEl) && pEl.ValueKind == JsonValueKind.Number
+                            ? (int?)pEl.GetInt32() : null;
+                if (string.IsNullOrWhiteSpace(host)) continue;
+                var entry = new ServerEntry(
+                    Guid.NewGuid().ToString(),
+                    string.IsNullOrEmpty(label) ? host : label,
+                    null,
+                    host,
+                    port,
+                    ""    // password intentionally omitted for security
+                );
+                AddServer(entry);
+                added.Add(entry);
+                // Notify the server list hook so already-mounted ServerList updates
+                bridge.Send("servers.added", new { server = entry });
+            }
+            bridge.Send("mumble.serversImported", new { servers = added });
             await Task.CompletedTask;
         });
     }
@@ -275,6 +332,7 @@ internal sealed class AppConfigService : IAppConfigService
         lock (_lock)
         {
             _profiles.RemoveAll(p => p.Id == id);
+            _profileRegistrations.Remove(id);
             if (_activeProfileId == id)
                 _activeProfileId = _profiles.FirstOrDefault()?.Id;
 
@@ -336,6 +394,7 @@ internal sealed class AppConfigService : IAppConfigService
                 _profiles = data?.Profiles ?? new List<ProfileEntry>();
                 _activeProfileId = data?.ActiveProfileId;
                 _profileRegistrations = data?.ProfileRegistrations ?? new();
+                _isFirstLaunch = false;
                 MigrateIdentityPfx();
                 return;
             }
@@ -349,6 +408,7 @@ internal sealed class AppConfigService : IAppConfigService
                     .Select(s => s with { Password = TryDecryptPassword(s.Password, _passwordStorage) })
                     .ToList();
                 Save(); // write config.json immediately
+                _isFirstLaunch = true;
                 MigrateIdentityPfx();
                 return;
             }
@@ -364,8 +424,10 @@ internal sealed class AppConfigService : IAppConfigService
             _profiles = new List<ProfileEntry>();
             _activeProfileId = null;
             _profileRegistrations = new();
+            _isFirstLaunch = true;
         }
 
+        _isFirstLaunch = true;
         MigrateIdentityPfx();
     }
 
@@ -519,5 +581,113 @@ internal sealed class AppConfigService : IAppConfigService
         var result = sb.ToString().Trim('_');
         if (result.Length > 50) result = result[..50].TrimEnd('_');
         return result.Length == 0 ? "profile" : result;
+    }
+
+    // --- Mumble server-list detection ---
+
+    private record DetectedMumbleServer(string Label, string Host, int Port, string Username);
+
+    /// <summary>
+    /// Locates the Mumble SQLite database and reads the <c>servers</c> table.
+    /// Searches multiple known paths:
+    ///   1. Custom path from Mumble 1.5 settings JSON (misc.database_location)
+    ///   2. %APPDATA%\Mumble\Mumble\mumble.sqlite   (Mumble 1.5 default / Roaming)
+    ///   3. %LOCALAPPDATA%\Mumble\Mumble\mumble.sqlite  (legacy / pre-1.5)
+    /// </summary>
+    private List<DetectedMumbleServer> DetectMumbleServers()
+    {
+        var dbPath = FindMumbleDatabase();
+        if (dbPath == null) return new List<DetectedMumbleServer>();
+
+        var result = new List<DetectedMumbleServer>();
+        try
+        {
+            var connStr = new SqliteConnectionStringBuilder
+            {
+                DataSource = dbPath,
+                Mode = SqliteOpenMode.ReadOnly,
+            }.ToString();
+
+            using var conn = new SqliteConnection(connStr);
+            conn.Open();
+
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT name, hostname, port, username FROM servers ORDER BY name";
+
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                result.Add(new DetectedMumbleServer(
+                    Label:    reader.IsDBNull(0) ? "" : reader.GetString(0),
+                    Host:     reader.IsDBNull(1) ? "" : reader.GetString(1),
+                    Port:     reader.IsDBNull(2) ? 64738 : reader.GetInt32(2),
+                    Username: reader.IsDBNull(3) ? "" : reader.GetString(3)
+                ));
+            }
+        }
+        catch { /* db locked, missing, corrupt, or schema mismatch — return empty */ }
+        return result;
+    }
+
+    /// <summary>
+    /// Finds the Mumble SQLite database by checking multiple known locations.
+    /// </summary>
+    private static string? FindMumbleDatabase()
+    {
+        // 1. Check Mumble 1.5 settings JSON for a custom database_location
+        var customPath = GetMumbleSettingsDatabasePath();
+        if (customPath != null && File.Exists(customPath))
+            return customPath;
+
+        // 2. Roaming AppData (Mumble 1.5 default)
+        var roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        var roamingPath = Path.Combine(roaming, "Mumble", "Mumble", "mumble.sqlite");
+        if (File.Exists(roamingPath))
+            return roamingPath;
+
+        // 3. Local AppData (legacy / pre-1.5)
+        var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var localPath = Path.Combine(local, "Mumble", "Mumble", "mumble.sqlite");
+        if (File.Exists(localPath))
+            return localPath;
+
+        return null;
+    }
+
+    /// <summary>
+    /// Reads the Mumble 1.5 settings JSON to find a custom database location.
+    /// Checks both %LOCALAPPDATA% and %APPDATA% for mumble_settings.json.
+    /// </summary>
+    private static string? GetMumbleSettingsDatabasePath()
+    {
+        var candidates = new[]
+        {
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Mumble", "Mumble", "mumble_settings.json"),
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "Mumble", "Mumble", "mumble_settings.json"),
+        };
+
+        foreach (var settingsPath in candidates)
+        {
+            try
+            {
+                if (!File.Exists(settingsPath)) continue;
+                var json = File.ReadAllText(settingsPath);
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("misc", out var misc)
+                    && misc.TryGetProperty("database_location", out var dbLoc))
+                {
+                    var path = dbLoc.GetString();
+                    if (!string.IsNullOrEmpty(path))
+                        return path;
+                }
+            }
+            catch { /* malformed JSON or access error — skip */ }
+        }
+
+        return null;
     }
 }

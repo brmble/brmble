@@ -1,3 +1,4 @@
+import { Icon } from '../Icon/Icon';
 import { UserPanel } from '../UserPanel/UserPanel';
 import { BrmbleLogo } from './BrmbleLogo';
 import bridge from '../../bridge';
@@ -74,13 +75,13 @@ export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSe
 
       <div className="window-controls">
         <button className="window-btn window-btn-minimize" onClick={() => bridge.send('window.minimize')} aria-label="Minimize">
-          <svg width="10" height="1" viewBox="0 0 10 1"><rect width="10" height="1" fill="currentColor"/></svg>
+          <Icon name="window-minimize" size={10} />
         </button>
         <button className="window-btn window-btn-maximize" onClick={() => bridge.send('window.maximize')} aria-label="Maximize">
-          <svg width="10" height="10" viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="1"/></svg>
+          <Icon name="window-maximize" size={10} />
         </button>
         <button className="window-btn window-btn-close" onClick={() => bridge.send('window.close')} aria-label="Close">
-          <svg width="10" height="10" viewBox="0 0 10 10"><line x1="0" y1="0" x2="10" y2="10" stroke="currentColor" strokeWidth="1.2"/><line x1="10" y1="0" x2="0" y2="10" stroke="currentColor" strokeWidth="1.2"/></svg>
+          <Icon name="window-close" size={10} />
         </button>
       </div>
     </header>
