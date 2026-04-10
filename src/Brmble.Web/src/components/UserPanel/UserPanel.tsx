@@ -52,7 +52,7 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
   useEffect(() => {
     if (!isAnyMenuOpen) return;
 
-    let cancelled = false;
+let cancelled = false;
 
     const handleSettingsUpdated = (data: unknown) => {
       if (cancelled) return;

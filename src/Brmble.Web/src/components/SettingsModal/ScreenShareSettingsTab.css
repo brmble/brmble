@@ -1,0 +1,9 @@
+.screen-share-settings-tab {
+  padding: 16px;
+}
+
+.settings-note {
+  font-size: var(--font-size-small);
+  color: var(--text-secondary);
+  margin-top: 16px;
+}
