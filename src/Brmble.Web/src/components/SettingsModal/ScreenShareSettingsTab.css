@@ -2,13 +2,6 @@
   padding: 16px;
 }
 
-.screen-share-settings-tab .settings-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-sm) 0;
-}
-
 .screen-share-settings-tab .settings-label-group {
   display: flex;
   align-items: center;
@@ -58,7 +51,7 @@
   cursor: pointer;
 }
 
-.settings-note {
+.screen-share-settings-tab .settings-note {
   font-size: var(--font-size-small);
   color: var(--text-secondary);
   margin-top: 16px;
