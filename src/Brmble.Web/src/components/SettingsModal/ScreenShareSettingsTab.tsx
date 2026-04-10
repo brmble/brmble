@@ -35,14 +35,14 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
         
         <div className="settings-item settings-toggle">
           <label>Capture Audio</label>
-          <button
-            className={`toggle-switch ${localSettings.captureAudio ? 'active' : ''}`}
-            onClick={() => handleChange('captureAudio', !localSettings.captureAudio)}
-            role="switch"
-            aria-checked={localSettings.captureAudio}
-          >
-            <span className="toggle-slider" />
-          </button>
+          <label className="brmble-toggle">
+            <input
+              type="checkbox"
+              checked={localSettings.captureAudio}
+              onChange={(e) => handleChange('captureAudio', e.target.checked)}
+            />
+            <span className="brmble-toggle-slider"></span>
+          </label>
         </div>
 
         <div className="settings-item">
@@ -56,14 +56,14 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
 
         <div className="settings-item settings-toggle">
           <label>System Audio</label>
-          <button
-            className={`toggle-switch ${localSettings.systemAudio ? 'active' : ''}`}
-            onClick={() => handleChange('systemAudio', !localSettings.systemAudio)}
-            role="switch"
-            aria-checked={localSettings.systemAudio}
-          >
-            <span className="toggle-slider" />
-          </button>
+          <label className="brmble-toggle">
+            <input
+              type="checkbox"
+              checked={localSettings.systemAudio}
+              onChange={(e) => handleChange('systemAudio', e.target.checked)}
+            />
+            <span className="brmble-toggle-slider"></span>
+          </label>
         </div>
       </div>
 
