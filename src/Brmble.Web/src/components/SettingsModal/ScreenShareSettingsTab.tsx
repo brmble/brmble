@@ -34,7 +34,7 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
         <h3 className="heading-section settings-section-title">Screen Capture</h3>
         
         <div className="settings-item settings-toggle">
-          <label>Capture Audio</label>
+          <span className="settings-label">Capture Audio</span>
           <label className="brmble-toggle">
             <input
               type="checkbox"
@@ -46,7 +46,7 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
         </div>
 
         <div className="settings-item">
-          <label>Resolution</label>
+          <span className="settings-label">Resolution</span>
           <Select
             value={localSettings.resolution}
             onChange={(value) => handleChange('resolution', value as ScreenShareSettings['resolution'])}
@@ -55,7 +55,7 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
         </div>
 
         <div className="settings-item settings-toggle">
-          <label>System Audio</label>
+          <span className="settings-label">System Audio</span>
           <label className="brmble-toggle">
             <input
               type="checkbox"
