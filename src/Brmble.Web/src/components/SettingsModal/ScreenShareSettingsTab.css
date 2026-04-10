@@ -9,9 +9,30 @@
   padding: var(--space-sm) 0;
 }
 
+.screen-share-settings-tab .settings-label-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
 .screen-share-settings-tab .settings-label {
   font-size: var(--text-sm);
   color: var(--text-secondary);
+}
+
+.screen-share-settings-tab .settings-info-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: help;
+  border: 1px solid var(--border-subtle);
 }
 
 .screen-share-settings-tab .brmble-toggle {
