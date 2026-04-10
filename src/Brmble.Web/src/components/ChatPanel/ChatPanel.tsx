@@ -7,6 +7,7 @@ import { groupMessages } from '../../utils/groupMessages';
 import { formatDateSeparator, formatFullDate } from '../../utils/formatDateSeparator';
 import type { ChatMessage, MentionableUser } from '../../types';
 import { ScreenShareViewer } from '../ScreenShareViewer/ScreenShareViewer';
+import { ContextMenu } from '../ContextMenu/ContextMenu';
 import { Tooltip } from '../Tooltip/Tooltip';
 import Avatar from '../Avatar/Avatar';
 import './ChatPanel.css';
@@ -30,13 +31,15 @@ interface ChatPanelProps {
   disabled?: boolean;
   /** Optional notice shown at the top of the message area (e.g. ephemeral chat warning). */
   topNotice?: string;
+  onMessageContextMenu?: (x: number, y: number, sender: string, senderMatrixUserId?: string, content?: string, messageId?: string) => void;
+  onCopyToClipboard?: (text: string) => void;
 }
 
 const SCROLL_THRESHOLD = 150;
 const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
 const DEFAULT_SPLIT = 50;
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, screenShareVideoEl, screenSharerName, onCloseScreenShare, users, disabled, topNotice }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, screenShareVideoEl, screenSharerName, onCloseScreenShare, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard }: ChatPanelProps) {
   // Build lookup maps from sender name and matrixUserId → avatar data for MessageBubble.
   // Name-based lookup works when Mumble name matches message sender.
   // MatrixUserId-based lookup handles cases where the user connected with a different
@@ -80,6 +83,14 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
     return senderAvatarMap.byName.get(senderName)
       ?? (senderMatrixId ? senderAvatarMap.byMatrixId.get(senderMatrixId) : undefined);
   }, [senderAvatarMap]);
+
+  /** Look up a message by event ID from the messages array. */
+  const lookupMessageById = useCallback((eventId: string): ChatMessage | undefined => {
+    for (const msg of messages) {
+      if (msg.id === eventId) return msg;
+    }
+    return undefined;
+  }, [messages]);
 
   const mentionableUsers = useMemo<MentionableUser[]>(() => {
     const result: MentionableUser[] = [];
@@ -142,6 +153,15 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
   const messageObserverRef = useRef<IntersectionObserver | null>(null);
   const messageElMapRef = useRef<Map<string, HTMLDivElement>>(new Map());
   const hiddenSetRef = useRef<Set<string>>(new Set());
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; sender: string; senderMatrixUserId?: string; content?: string; messageId?: string; msgType?: string } | null>(null);
+const [replyState, setReplyState] = useState<{
+  eventId: string;
+  sender: string;
+  senderMatrixUserId?: string;
+  content: string;
+  html?: string;
+  msgType: string;
+} | null>(null);
   const [splitPercent, setSplitPercent] = useState(() => {
     const stored = localStorage.getItem(SPLIT_STORAGE_KEY);
     return stored ? Number(stored) : DEFAULT_SPLIT;
@@ -721,13 +741,55 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
                     messageId={item.message.id}
                     pending={item.message.pending}
                     error={item.message.error}
+                    replyToEventId={item.message.replyToEventId}
+                    replyToSender={(item.message.replyToSender) || (item.message.replyToEventId ? lookupMessageById(item.message.replyToEventId)?.sender : undefined)}
+                    replyToContent={(item.message.replyToContent) || (item.message.replyToEventId ? lookupMessageById(item.message.replyToEventId)?.content : undefined)}
                     onDismiss={onDismissMessage}
+                    onOpenContextMenu={onMessageContextMenu ? (x, y, s, m, c, msgId, msgType = 'm.text') => {
+                      if (s !== currentUsername) {
+                        setContextMenu({ x, y, sender: s, senderMatrixUserId: m, content: c, messageId: msgId, msgType });
+                      }
+                    } : undefined}
                   />
                 </Fragment>
                 );
               })}
             </div>
           ))
+        )}
+        {contextMenu && (
+          <ContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            items={[
+              { type: 'item', label: 'Copy', onClick: () => {
+                if (contextMenu.content && onCopyToClipboard) {
+                  onCopyToClipboard(contextMenu.content);
+                }
+                setContextMenu(null);
+              }},
+              { type: 'item', label: 'Reply', onClick: () => {
+                if (contextMenu.messageId && contextMenu.sender) {
+                  setReplyState({
+                    eventId: contextMenu.messageId,
+                    sender: contextMenu.sender,
+                    senderMatrixUserId: contextMenu.senderMatrixUserId,
+                    content: contextMenu.content || '',
+                    msgType: contextMenu.msgType || 'm.text',
+                  });
+                }
+                setContextMenu(null);
+              }},
+              { type: 'divider' },
+              { type: 'item', label: 'Send DM', onClick: () => {
+                if (onMessageContextMenu) {
+                  onMessageContextMenu(contextMenu.x, contextMenu.y, contextMenu.sender, contextMenu.senderMatrixUserId);
+                }
+                setContextMenu(null);
+              }}
+            ]}
+            onClose={() => setContextMenu(null)}
+          />
         )}
         <div ref={messagesEndRef} />
       </div>
@@ -747,7 +809,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
           </button>
           </Tooltip>
         )}
-        <MessageInput onSend={onSendMessage} placeholder={isDM ? `Message @${channelName}` : `Message #${channelName}`} mentionableUsers={mentionableUsers} disabled={disabled} />
+        <MessageInput onSend={onSendMessage} placeholder={isDM ? `Message @${channelName}` : `Message #${channelName}`} mentionableUsers={mentionableUsers} disabled={disabled} replyState={replyState} onClearReply={() => setReplyState(null)} matrixClient={matrixClient} matrixRoomId={matrixRoomId} />
       </div>
     </div>
   );

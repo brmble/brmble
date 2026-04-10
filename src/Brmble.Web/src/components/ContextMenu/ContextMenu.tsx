@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import './ContextMenu.css';
 
 const MOUSE_LEAVE_CLOSE_DELAY = 400;
@@ -33,52 +34,14 @@ function Submenu({ item, depth, onItemClick }: { item: { type: 'item'; children?
   const submenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (submenuRef.current) {
-      const parentRect = submenuRef.current.parentElement?.getBoundingClientRect();
-      const rect = submenuRef.current.getBoundingClientRect();
-      
-      const x = parentRect?.left ?? 0;
-      const y = parentRect?.top ?? 0;
-      
-      const submenuWidth = rect.width;
-      const submenuHeight = rect.height;
-      
-      const spaceRight = window.innerWidth - x - 8;
-      const spaceLeft = x - 8;
-      const spaceBelow = window.innerHeight - y - 8;
-      const spaceAbove = y - 8;
-      
-      let newLeft: number | undefined;
-      let newTop: number | undefined;
-
-      if (submenuWidth > spaceRight && submenuWidth <= spaceLeft) {
-        newLeft = x - submenuWidth;
-      } else if (submenuWidth > spaceRight && submenuWidth > spaceLeft) {
-        newLeft = Math.max(8, window.innerWidth - submenuWidth - 8);
-      }
-      
-      if (submenuHeight > spaceBelow && submenuHeight <= spaceAbove) {
-        newTop = y - submenuHeight;
-      } else if (submenuHeight > spaceBelow && submenuHeight > spaceAbove) {
-        newTop = Math.max(8, spaceAbove);
-      }
-
-      if (newLeft !== undefined) {
-        submenuRef.current.style.left = `${newLeft}px`;
-      }
-      if (newTop !== undefined) {
-        submenuRef.current.style.top = `${newTop}px`;
-      }
-
-      const adjustedRect = submenuRef.current.getBoundingClientRect();
-      if (adjustedRect.right > window.innerWidth - 8) {
-        submenuRef.current.classList.add('context-submenu--off-right');
-      }
-
-      if (adjustedRect.bottom > window.innerHeight - 8) {
-        submenuRef.current.classList.add('context-submenu--off-bottom');
-      }
-    }
+    if (!submenuRef.current) return;
+    
+    const rect = submenuRef.current.getBoundingClientRect();
+    const offRight = rect.right > window.innerWidth - 8;
+    const offBottom = rect.bottom > window.innerHeight - 8;
+    
+    submenuRef.current.classList.toggle('context-submenu--off-right', offRight);
+    submenuRef.current.classList.toggle('context-submenu--off-bottom', offBottom);
   }, []);
 
   return (
@@ -236,28 +199,33 @@ export function ContextMenu({ x, y, items, onClose, mouseLeaveDelay = MOUSE_LEAV
 
   useEffect(() => {
     if (!menuRef.current) return;
-    const rect = menuRef.current.getBoundingClientRect();
-    const menuWidth = rect.width;
-    const menuHeight = rect.height;
-    const { spaceBelow, spaceRight, spaceAbove, spaceLeft } = spaceCalculations;
     
-    let finalX: number = x;
-    let finalY: number = y;
-    
-    if (menuHeight > spaceBelow && menuHeight <= spaceAbove) {
-      finalY = y - menuHeight;
-    } else if (menuHeight > spaceBelow && menuHeight > spaceAbove) {
-      finalY = Math.max(8, window.innerHeight - menuHeight - 8);
-    }
-    
-    if (menuWidth > spaceRight && menuWidth <= spaceLeft) {
-      finalX = x - menuWidth;
-    } else if (menuWidth > spaceRight && menuWidth > spaceLeft) {
-      finalX = Math.max(8, window.innerWidth - menuWidth - 8);
-    }
-    
-    menuRef.current.style.left = `${finalX}px`;
-    menuRef.current.style.top = `${finalY}px`;
+    requestAnimationFrame(() => {
+      if (!menuRef.current) return;
+      const rect = menuRef.current.getBoundingClientRect();
+      const menuWidth = rect.width;
+      const menuHeight = rect.height;
+      const { spaceBelow, spaceRight, spaceAbove, spaceLeft } = spaceCalculations;
+      
+      let finalX: number = x;
+      let finalY: number = y;
+      
+      if (menuHeight > spaceBelow && menuHeight <= spaceAbove) {
+        finalY = y - menuHeight;
+      } else if (menuHeight > spaceBelow && menuHeight > spaceAbove) {
+        finalY = Math.max(8, window.innerHeight - menuHeight - 8);
+      }
+      
+      if (menuWidth > spaceRight && menuWidth <= spaceLeft) {
+        finalX = x - menuWidth;
+      } else if (menuWidth > spaceRight && menuWidth > spaceLeft) {
+        finalX = Math.max(8, window.innerWidth - menuWidth - 8);
+      }
+      
+      menuRef.current.style.left = `${finalX}px`;
+      menuRef.current.style.top = `${finalY}px`;
+      menuRef.current.style.visibility = 'visible';
+    });
   }, [x, y, spaceCalculations]);
 
   const handleMouseEnter = (e: React.MouseEvent) => {
@@ -288,17 +256,17 @@ export function ContextMenu({ x, y, items, onClose, mouseLeaveDelay = MOUSE_LEAV
     }
   };
 
-  return (
+  return createPortal(
     <div
       ref={menuRef}
       className="context-menu"
-      style={{ left: x, top: y }}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
       {items.map((item, i) => (
         <MenuItem key={i} item={item} depth={1} onItemClick={handleItemClick} />
       ))}
-    </div>
+    </div>,
+    document.body
   );
 }
