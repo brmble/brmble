@@ -183,33 +183,77 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
   const hasNewWindowScreenShare = screenShareViewerMode === 'new-window' && !!screenShareVideoEl && !!screenSharerName && !!onCloseScreenShare;
 
   useEffect(() => {
-    if (hasNewWindowScreenShare && screenShareVideoEl) {
-      const width = 800;
-      const height = 600;
-      const newWindow = window.open('about:blank', '_blank', `width=${width},height=${height},noopener,noreferrer`);
-      if (newWindow && screenShareVideoEl.srcObject) {
-        newWindow.document.write(`
-          <html>
-            <head>
-              <title>Screen Share - ${screenSharerName}</title>
-              <style>
-                body { margin: 0; background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; }
-                video { max-width: 100%; max-height: 100%; }
-              </style>
-            </head>
-            <body>
-              <video autoplay playsinline></video>
-            </body>
-          </html>
-        `);
-        const newVideo = newWindow.document.querySelector('video') as HTMLVideoElement;
-        if (newVideo && screenShareVideoEl.srcObject) {
-          newVideo.srcObject = screenShareVideoEl.srcObject;
-        }
-        newWindow.document.close();
+    if (hasNewWindowScreenShare && screenShareVideoEl && screenSharerName) {
+      const existingOverlay = document.getElementById('screenshare-new-window-overlay');
+      if (existingOverlay) {
+        existingOverlay.remove();
       }
+      
+      const overlay = document.createElement('div');
+      overlay.id = 'screenshare-new-window-overlay';
+      overlay.innerHTML = `
+        <style>
+          #screenshare-new-window-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.95);
+            z-index: 99999;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+          }
+          #screenshare-new-window-overlay video {
+            max-width: 90%;
+            max-height: 85%;
+          }
+          #screenshare-new-window-overlay .close-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: var(--bg-surface, #333);
+            border: 1px solid var(--border-subtle, #555);
+            color: var(--text-primary, #fff);
+            padding: 8px 16px;
+            cursor: pointer;
+            border-radius: 4px;
+          }
+          #screenshare-new-window-overlay .title {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: var(--text-primary, #fff);
+            font-size: 16px;
+          }
+        </style>
+        <span class="title">Screen Share - ${screenSharerName}</span>
+        <button class="close-btn" id="screenshare-close-btn">Close</button>
+      `;
+      
+      document.body.appendChild(overlay);
+      
+      const newVideo = document.createElement('video');
+      newVideo.autoplay = true;
+      newVideo.playsInline = true;
+      if (screenShareVideoEl.srcObject) {
+        newVideo.srcObject = screenShareVideoEl.srcObject;
+      }
+      overlay.insertBefore(newVideo, overlay.querySelector('.close-btn'));
+      
+      const closeBtn = document.getElementById('screenshare-close-btn');
+      closeBtn?.addEventListener('click', () => {
+        overlay.remove();
+        onCloseScreenShare?.();
+      });
+      
+      return () => {
+        overlay.remove();
+      };
     }
-  }, [hasNewWindowScreenShare, screenShareVideoEl, screenSharerName]);
+  }, [hasNewWindowScreenShare, screenShareVideoEl, screenSharerName, onCloseScreenShare]);
 
   const handleScroll = useCallback(() => {
     const container = messagesContainerRef.current;
