@@ -110,7 +110,7 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
       setError(err instanceof Error ? err.message : 'Screen share failed');
       setIsSharing(false);
     }
-  }, []);
+  }, [screenShareSettings]);
 
   const stopSharing = useCallback(async () => {
     const room = publishRoomRef.current;
