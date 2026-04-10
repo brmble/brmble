@@ -202,7 +202,8 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
       viewerRoomRef.current = null;
     }
     setRemoteVideoEl(null);
-    setActiveShare(null);
+    // Don't clear activeShare here - it will be cleared by screenShareStopped event
+    // when the sharer actually stops sharing. This allows re-watching.
   }, []);
 
   // Listen for screen share events from bridge
