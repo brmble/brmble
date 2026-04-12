@@ -663,8 +663,9 @@ Brmblegotchi icons are prefixed `gotchi-` and shared across all pet themes (`ori
 
 ### Adding a New Icon
 
-1. Open `src/Brmble.Web/src/components/Icon/Icon.tsx`
-2. Add an entry to the `iconPaths` map in the appropriate group:
+1. **Find the icon** on [Lucide Icons](https://lucide.dev/icons). Search by name or keyword, click the icon, and copy the SVG markup.
+2. **Strip the outer `<svg>` wrapper.** Lucide gives you a full `<svg>` tag with attributes like `xmlns`, `width`, `height`, `viewBox`, `fill`, `stroke`, `stroke-width`, `stroke-linecap`, `stroke-linejoin`. Remove the outer `<svg>…</svg>` and keep only the inner elements (`<path>`, `<circle>`, `<line>`, `<polyline>`, `<rect>`, `<polygon>`). Also strip any `stroke`, `fill`, `stroke-width`, `stroke-linecap`, `stroke-linejoin` attributes from the inner elements — the `<Icon>` component applies these globally.
+3. **Open `src/Brmble.Web/src/components/Icon/Icon.tsx`** and add an entry to the `iconPaths` map in the appropriate category group:
    ```tsx
    'my-icon': {
      paths: (
@@ -675,7 +676,8 @@ Brmblegotchi icons are prefixed `gotchi-` and shared across all pet themes (`ori
      ),
    },
    ```
-3. Use it: `<Icon name="my-icon" size={20} />`
+4. **Use it:** `<Icon name="my-icon" size={20} />`
+5. **Update the icon table** in this guide (section 11 → "Available Icons (by category)") so the new icon appears in the correct category row.
 
 #### Icon Conventions
 
@@ -684,8 +686,10 @@ Brmblegotchi icons are prefixed `gotchi-` and shared across all pet themes (`ori
 | ViewBox | `0 0 24 24` (omit `viewBox` field — it's the default). Only set for non-standard icons (e.g. `check` uses `0 0 16 16`) |
 | Style | Feather/Lucide conventions: stroke-based, `currentColor`, strokeWidth 2, round caps/joins |
 | Fill icons | Set `fill: true` on the definition (e.g. `triangle-right`). Stroke attributes are omitted automatically |
+| Hybrid stroke+fill | Some icons mix stroke outlines with filled sub-elements. Keep the definition as stroke-based (no `fill: true` at the top level) and add `fill="currentColor" stroke="none"` on the specific element that needs filling (e.g. `gotchi-play` has a stroked `<circle>` with a filled `<polygon>`, and `info-filled` has a filled `<circle>` dot). |
 | Naming | Use Lucide names. Pair toggleable icons with `-off` suffix (`mic` / `mic-off`) |
 | Grouping | Place related icons adjacent in the map with a comment header (`/* ── Mic ── */`) |
+| Category banners | Major sections use a 3-line box comment. Format: `// ╔══…══╗` / `// ║  CATEGORY NAME  ║` / `// ╚══…══╝` with optional description lines between the name and bottom border. See existing banners in Icon.tsx (VOICE, MEDIA, CHAT, etc.) |
 | No emoji | Never use emoji characters for icons in the UI. Always use `<Icon>` |
 
 ### When NOT to Use `<Icon>`
