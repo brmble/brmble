@@ -723,3 +723,100 @@ Brmblegotchi icons are prefixed `gotchi-` and shared across all pet themes (`ori
    }
    ```
 4. **`overflow: visible`** must be set on SVGs with hover/animation effects that translate elements outside the viewBox.
+
+---
+
+## 13. Notification Pattern
+
+### Base Component
+
+All notifications use the shared `<Notification>` base component (`src/Brmble.Web/src/components/Notification/`). Never create standalone notification components with their own positioning/animation/styling — always wrap with `<Notification>`.
+
+### Status Types
+
+The `status` prop drives icon, color, ARIA role, and auto-dismiss behavior:
+
+| Status | Icon | Color tokens | ARIA role | Auto-dismiss |
+|---|---|---|---|---|
+| `info` | `info` | `--accent-info-*` | `role="status"` | 5s |
+| `success` | `check-circle` | `--accent-success-*` | `role="status"` | 5s |
+| `warning` | `alert-triangle` | `--accent-warning-*` | `role="status"` | No (persist) |
+| `error` | `alert-circle` | `--accent-danger-*` | `role="alert"` | No (persist) |
+
+### Decision Checklist (answer all before building a notification)
+
+1. **What status applies?** `info` = supplemental, `success` = action confirmed, `warning` = needs attention, `error` = something failed
+2. **What position?** `top-right` for system/background events, `bottom-center` for direct action feedback
+3. **Should it auto-dismiss?** Default from status, but can override with `duration` prop
+4. **Does it need a dismiss button?** Persistent notifications: yes. Blocking with no fallback: no dismiss.
+5. **What actions does it need?** Max 1 primary action. Action must be reachable elsewhere in UI since notifications can be missed.
+6. **What message text?** Short, no jargon. State what happened and what the user can do.
+
+### Props
+
+```tsx
+interface NotificationProps {
+  status: 'info' | 'success' | 'warning' | 'error';
+  position: 'top-right' | 'bottom-center';
+  children: React.ReactNode;
+  visible: boolean;
+  duration?: number | null;     // null = never. Defaults: info/success = 5000, warning/error = null
+  onDismiss?: () => void;       // When provided, close button (x) renders
+  onExited?: () => void;        // After exit animation completes
+  pauseOnHover?: boolean;       // Default: true. Pauses auto-dismiss on hover (WCAG 2.2.1)
+  className?: string;           // For consumer-specific styling
+}
+```
+
+### Behavioral Rules
+
+- **Auto-dismiss:** `info`/`success` auto-dismiss at 5s; `warning`/`error` persist. Timer pauses on hover.
+- **Errors and actionable notifications must never auto-dismiss.**
+- **Max 3** visible top-right notifications. Excess queued. Identical notifications (same status + message) deduplicated.
+- **Action buttons:** Max 1 primary per notification. Close button is separate from action button.
+- Top-right notifications render inside a `.notification-stack` container in `App.tsx`.
+- Bottom-center notifications (`Toast`) position themselves independently.
+
+### Accessibility
+
+- **ARIA:** `info`/`success`/`warning` use `role="status"` (`aria-live="polite"`); `error` uses `role="alert"` (`aria-live="assertive"`)
+- **Icons:** Status icon always rendered — never rely on color alone (WCAG 1.4.1)
+- **Keyboard:** Close button is keyboard accessible. `Esc` dismisses focused notification.
+- **Motion:** `prefers-reduced-motion: reduce` disables slide animation, keeps opacity fade only.
+
+### When NOT to Use Notification
+
+- **Blocking decisions** requiring immediate response → use `confirm()` modal
+- **Form validation errors** → use inline error text near the field (`.profiles-form-error` pattern)
+- **Passive status indicators** → use inline badges/dots, not notifications
+
+### Token Reference
+
+All four semantic accent families must be defined in every theme:
+
+| Family | Variants |
+|---|---|
+| `--accent-info-*` | base, `-text`, `-subtle`, `-border`, `-bg` |
+| `--accent-success-*` | base, `-text`, `-subtle`, `-border`, `-bg`, `-glow` |
+| `--accent-warning-*` | base, `-text`, `-subtle`, `-border`, `-bg` |
+| `--accent-danger-*` | base, `-text`, `-subtle`, `-border`, `-bg`, `-strong` |
+
+See `src/Brmble.Web/src/themes/_template.css` for guidance values per token.
+
+### Example: Adding a New Notification
+
+```tsx
+// A "server unreachable" error notification
+<Notification status="error" position="top-right" onDismiss={handleDismiss}>
+  <p>Could not reach server. <strong>Check your connection.</strong></p>
+  <button className="btn btn-sm btn-primary" onClick={handleRetry}>Retry</button>
+</Notification>
+```
+
+### Existing Notifications
+
+| Component | Status | Position | Auto-dismiss |
+|---|---|---|---|
+| `Toast` | `info` | `bottom-center` | 8s |
+| `UpdateNotification` | `info` | `top-right` | No |
+| `BrokenCertNotification` | `warning` | `top-right` | No |
