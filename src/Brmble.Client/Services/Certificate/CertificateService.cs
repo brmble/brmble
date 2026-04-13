@@ -516,6 +516,70 @@ internal sealed class CertificateService : IService
             return Task.CompletedTask;
         });
 
+        bridge.RegisterHandler("profiles.recover", data =>
+        {
+            try
+            {
+                var id = data.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+                var base64Data = data.TryGetProperty("data", out var d) ? d.GetString() : null;
+
+                if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(base64Data))
+                {
+                    bridge.Send("profiles.error", new { message = "Missing profile ID or certificate data." });
+                    return Task.CompletedTask;
+                }
+
+                var profile = _config.GetProfiles().FirstOrDefault(p => p.Id == id);
+                if (profile == null)
+                {
+                    bridge.Send("profiles.error", new { message = "Profile not found." });
+                    return Task.CompletedTask;
+                }
+
+                var certBytes = Convert.FromBase64String(base64Data);
+
+                // Validate the .pfx is loadable
+                string fingerprint;
+                try
+                {
+                    using var cert = X509CertificateLoader.LoadPkcs12(certBytes, password: null,
+                        keyStorageFlags: X509KeyStorageFlags.DefaultKeySet);
+                    fingerprint = cert.Thumbprint;
+                }
+                catch (Exception ex)
+                {
+                    bridge.Send("profiles.error", new { message = $"Invalid certificate file: {ex.Message}" });
+                    return Task.CompletedTask;
+                }
+
+                // Write to the expected cert path
+                var certPath = GetCertPath(profile.Id, profile.Name);
+                var certDir = Path.GetDirectoryName(certPath);
+                if (certDir != null) Directory.CreateDirectory(certDir);
+                File.WriteAllBytes(certPath, certBytes);
+
+                // Reload active cert if this is the active profile
+                if (_config.GetActiveProfileId() == id)
+                {
+                    lock (_certLock) { LoadActiveCertificate(); }
+                    SendStatus();
+                }
+
+                bridge.Send("profiles.recovered", new
+                {
+                    id = profile.Id,
+                    name = profile.Name,
+                    fingerprint,
+                    certValid = true,
+                });
+            }
+            catch (Exception ex)
+            {
+                bridge.Send("profiles.error", new { message = $"Failed to recover certificate: {ex.Message}" });
+            }
+            return Task.CompletedTask;
+        });
+
         // Rename profile AND swap its cert to an existing cert file matching the new name
         bridge.RegisterHandler("profiles.renameSwapCert", data =>
         {
