@@ -162,7 +162,6 @@ describe('useScreenShare', () => {
       systemAudio: 'include',
       resolution: { width: 1920, height: 1080, frameRate: 30 },
       videoEncoding: { maxBitrate: 4_000_000, maxFramerate: 30 },
-      videoCodec: 'h264',
     }));
   });
 
