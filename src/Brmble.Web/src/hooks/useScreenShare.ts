@@ -102,7 +102,6 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
             maxBitrate: bitrateMap[screenShareSettings.resolution],
             maxFramerate: screenShareSettings.fps,
           };
-          captureOptions.videoCodec = 'h264';
         }
 
         if (Object.keys(captureOptions).length === 0) {
