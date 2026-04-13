@@ -1083,16 +1083,20 @@ function App() {
     };
 
     const onProfilesList = (data: unknown) => {
-      const d = data as { profiles: Array<{ id: string; name: string }>; activeProfileId: string | null; brokenProfiles?: Array<{ id: string; name: string }>; autoSwitchedTo?: { id: string; name: string } | null };
+      const d = data as { profiles: Array<{ id: string; name: string }>; activeProfileId: string | null; brokenProfiles?: Array<{ id: string; name: string }>; autoSwitchedTo?: { id: string; name: string } | null; switchedFromId?: string | null };
       setProfiles(d.profiles ?? []);
       if (d.activeProfileId) {
         const active = d.profiles.find(p => p.id === d.activeProfileId);
         if (active) setActiveProfileName(active.name);
       }
       if (d.brokenProfiles && d.brokenProfiles.length > 0) {
+        const brokenIds = new Set(d.brokenProfiles.map(p => p.id));
+        const hasHealthyFallback = (d.profiles ?? []).some(p => !brokenIds.has(p.id));
         setBrokenCertInfo({
           brokenProfiles: d.brokenProfiles,
           switchedTo: d.autoSwitchedTo ?? null,
+          switchedFromId: d.switchedFromId ?? null,
+          hasHealthyFallback,
         });
       }
     };
@@ -1822,6 +1826,8 @@ const handleConnect = (serverData: SavedServer) => {
   const [brokenCertInfo, setBrokenCertInfo] = useState<{
     brokenProfiles: Array<{ id: string; name: string }>;
     switchedTo: { id: string; name: string } | null;
+    switchedFromId: string | null;
+    hasHealthyFallback: boolean;
   } | null>(null);
 
   const { isOnCooldown: leaveVoiceOnCooldown, trigger: triggerLeaveVoiceCooldown } = useLeaveVoiceCooldown(1000);
@@ -2290,10 +2296,10 @@ const handleConnect = (serverData: SavedServer) => {
           <BrokenCertNotification
             key={bp.id}
             profile={bp}
-            switchedTo={brokenCertInfo.switchedTo}
+            switchedTo={bp.id === brokenCertInfo.switchedFromId ? brokenCertInfo.switchedTo : null}
             onImport={handleBrokenCertImport}
             onOpenSettings={handleBrokenCertOpenSettings}
-            onDismiss={() => handleBrokenCertDismiss(bp.id)}
+            onDismiss={brokenCertInfo.hasHealthyFallback ? () => handleBrokenCertDismiss(bp.id) : undefined}
           />
         ))}
       </div>

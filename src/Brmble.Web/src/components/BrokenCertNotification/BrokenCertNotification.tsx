@@ -7,7 +7,7 @@ interface BrokenCertNotificationProps {
   switchedTo: { id: string; name: string } | null;
   onImport: (profileId: string) => void;
   onOpenSettings: () => void;
-  onDismiss: () => void;
+  onDismiss?: () => void;
 }
 
 export function BrokenCertNotification({
@@ -29,7 +29,7 @@ export function BrokenCertNotification({
       position="top-right"
       visible={visible}
       duration={null}
-      onDismiss={handleDismiss}
+      onDismiss={onDismiss ? handleDismiss : undefined}
       onExited={onDismiss}
     >
       <div>
@@ -38,11 +38,16 @@ export function BrokenCertNotification({
           {switchedTo && (
             <> Switched to <strong>"{switchedTo.name}"</strong>.</>
           )}
+          {!switchedTo && !onDismiss && (
+            <> Import a certificate or create a new profile to connect.</>
+          )}
         </p>
         <div className="broken-cert-notification__actions">
-          <button className="btn btn-sm btn-ghost" onClick={handleDismiss}>
-            Dismiss
-          </button>
+          {onDismiss && (
+            <button className="btn btn-sm btn-ghost" onClick={handleDismiss}>
+              Dismiss
+            </button>
+          )}
           <button className="btn btn-sm btn-secondary" onClick={onOpenSettings}>
             Settings
           </button>

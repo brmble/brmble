@@ -310,6 +310,7 @@ internal sealed class CertificateService : IService
 
             var activeProfileId = _config.GetActiveProfileId();
             object? autoSwitchedTo = null;
+            string? switchedFromId = null;
 
             // Collect all broken profiles
             var brokenProfiles = profiles
@@ -324,6 +325,7 @@ internal sealed class CertificateService : IService
                 var healthyProfile = profiles.FirstOrDefault(p => p.certValid);
                 if (healthyProfile != null)
                 {
+                    switchedFromId = activeProfile.id;
                     _config.SetActiveProfileId(healthyProfile.id);
                     lock (_certLock) { LoadActiveCertificate(); }
                     activeProfileId = healthyProfile.id;
@@ -331,7 +333,7 @@ internal sealed class CertificateService : IService
                 }
             }
 
-            bridge.Send("profiles.list", new { profiles, activeProfileId, brokenProfiles, autoSwitchedTo });
+            bridge.Send("profiles.list", new { profiles, activeProfileId, brokenProfiles, autoSwitchedTo, switchedFromId });
             return Task.CompletedTask;
         });
 
