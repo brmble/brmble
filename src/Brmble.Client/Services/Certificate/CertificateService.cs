@@ -307,7 +307,29 @@ internal sealed class CertificateService : IService
                 }
                 return new { id = p.Id, name = p.Name, fingerprint, certValid };
             }).ToList();
-            bridge.Send("profiles.list", new { profiles, activeProfileId = _config.GetActiveProfileId() });
+
+            var activeProfileId = _config.GetActiveProfileId();
+            object? brokenActiveProfile = null;
+            object? autoSwitchedTo = null;
+
+            // Check if active profile has a broken cert
+            var activeProfile = profiles.FirstOrDefault(p => p.id == activeProfileId);
+            if (activeProfile != null && !activeProfile.certValid)
+            {
+                brokenActiveProfile = new { id = activeProfile.id, name = activeProfile.name };
+
+                // Try to auto-switch to the first healthy profile
+                var healthyProfile = profiles.FirstOrDefault(p => p.certValid);
+                if (healthyProfile != null)
+                {
+                    _config.SetActiveProfileId(healthyProfile.id);
+                    lock (_certLock) { LoadActiveCertificate(); }
+                    activeProfileId = healthyProfile.id;
+                    autoSwitchedTo = new { id = healthyProfile.id, name = healthyProfile.name };
+                }
+            }
+
+            bridge.Send("profiles.list", new { profiles, activeProfileId, brokenActiveProfile, autoSwitchedTo });
             return Task.CompletedTask;
         });
 
