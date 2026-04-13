@@ -35,6 +35,7 @@ import { GameUI } from './components/Game/GameUI';
 import { Brmblegotchi } from './components/Brmblegotchi/Brmblegotchi';
 import { ProfileProvider } from './contexts/ProfileContext';
 import { UpdateNotification } from './components/UpdateNotification/UpdateNotification';
+import { BrokenCertNotification } from './components/BrokenCertNotification/BrokenCertNotification';
 import { migrateLocalStorage } from './utils/migrateLocalStorage';
 import './App.css';
 
@@ -1082,11 +1083,17 @@ function App() {
     };
 
     const onProfilesList = (data: unknown) => {
-      const d = data as { profiles: Array<{ id: string; name: string }>; activeProfileId: string | null };
+      const d = data as { profiles: Array<{ id: string; name: string }>; activeProfileId: string | null; brokenActiveProfile?: { id: string; name: string }; autoSwitchedTo?: { id: string; name: string } | null };
       setProfiles(d.profiles ?? []);
       if (d.activeProfileId) {
         const active = d.profiles.find(p => p.id === d.activeProfileId);
         if (active) setActiveProfileName(active.name);
+      }
+      if (d.brokenActiveProfile) {
+        setBrokenCertInfo({
+          brokenProfile: d.brokenActiveProfile,
+          switchedTo: d.autoSwitchedTo ?? null,
+        });
       }
     };
 
@@ -1239,6 +1246,15 @@ function App() {
     bridge.on('cert.imported', onCertImported);
     bridge.on('profiles.activeChanged', onProfilesActiveChanged);
     bridge.on('profiles.list', onProfilesList);
+    const onProfilesRecovered = () => {
+      setBrokenCertInfo(null);
+    };
+    bridge.on('profiles.recovered', onProfilesRecovered);
+    const onProfilesRemoved = (data: unknown) => {
+      const d = data as { id: string };
+      setBrokenCertInfo(prev => prev && prev.brokenProfile.id === d.id ? null : prev);
+    };
+    bridge.on('profiles.removed', onProfilesRemoved);
     bridge.on('voice.autoConnect', onAutoConnect);
     bridge.on('voice.reconnecting', onVoiceReconnecting);
     bridge.on('voice.reconnectFailed', onVoiceReconnectFailed);
@@ -1289,6 +1305,8 @@ function App() {
       bridge.off('cert.imported', onCertImported);
       bridge.off('profiles.activeChanged', onProfilesActiveChanged);
       bridge.off('profiles.list', onProfilesList);
+      bridge.off('profiles.recovered', onProfilesRecovered);
+      bridge.off('profiles.removed', onProfilesRemoved);
       bridge.off('voice.autoConnect', onAutoConnect);
       bridge.off('voice.reconnecting', onVoiceReconnecting);
       bridge.off('voice.reconnectFailed', onVoiceReconnectFailed);
@@ -1792,6 +1810,10 @@ const handleConnect = (serverData: SavedServer) => {
   const [copyToast, setCopyToast] = useState<{ message: string } | null>(null);
   const [updateInfo, setUpdateInfo] = useState<{ version: string } | null>(null);
   const [updateProgress, setUpdateProgress] = useState<number | null>(null);
+  const [brokenCertInfo, setBrokenCertInfo] = useState<{
+    brokenProfile: { id: string; name: string };
+    switchedTo: { id: string; name: string } | null;
+  } | null>(null);
 
   const { isOnCooldown: leaveVoiceOnCooldown, trigger: triggerLeaveVoiceCooldown } = useLeaveVoiceCooldown(1000);
   const { isOnCooldown: muteOnCooldown, trigger: triggerMuteCooldown } = useLeaveVoiceCooldown(1000);
@@ -1807,6 +1829,32 @@ const handleConnect = (serverData: SavedServer) => {
     setUpdateInfo(null);
     setUpdateProgress(null);
     bridge.send('app.dismissUpdate');
+  }, []);
+
+  const handleBrokenCertImport = useCallback(() => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.pfx,.p12';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file || !brokenCertInfo) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = (reader.result as string).split(',')[1];
+        bridge.send('profiles.recover', { id: brokenCertInfo.brokenProfile.id, data: base64 });
+      };
+      reader.readAsDataURL(file);
+    };
+    input.click();
+  }, [brokenCertInfo]);
+
+  const handleBrokenCertOpenSettings = useCallback(() => {
+    setShowSettings(true);
+    setSettingsTab('profile');
+  }, []);
+
+  const handleBrokenCertDismiss = useCallback(() => {
+    setBrokenCertInfo(null);
   }, []);
 
   const channelUnreads = useMemo(() => {
@@ -2223,6 +2271,15 @@ const handleConnect = (serverData: SavedServer) => {
             onUpdate={handleApplyUpdate}
             onDismiss={handleDismissUpdate}
             progress={updateProgress}
+          />
+        )}
+        {brokenCertInfo && (
+          <BrokenCertNotification
+            brokenProfile={brokenCertInfo.brokenProfile}
+            switchedTo={brokenCertInfo.switchedTo}
+            onImport={handleBrokenCertImport}
+            onOpenSettings={handleBrokenCertOpenSettings}
+            onDismiss={brokenCertInfo.switchedTo ? handleBrokenCertDismiss : undefined}
           />
         )}
       </div>
