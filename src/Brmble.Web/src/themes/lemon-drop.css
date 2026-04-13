@@ -61,13 +61,36 @@
   --accent-secondary-glow:   rgba(212, 206, 191, 0.30);
   --accent-secondary-subtle: rgba(212, 206, 191, 0.15);
 
-  /* ── Success Accent — Spring Green (3 tokens)
+  /* ── Success Accent — Spring Green (6 tokens)
      hsl(140, 55%, 55%) ≈ #50c878
      Distinct from the gold primary — a fresh green.
      ──────────────────────────────────────────────── */
   --accent-success:        #50c878;
   --accent-success-glow:   rgba(80, 200, 120, 0.30);
   --accent-success-subtle: rgba(80, 200, 120, 0.14);
+  --accent-success-text:   #62d48a;
+  --accent-success-border: rgba(80, 200, 120, 0.4);
+  --accent-success-bg:     rgba(80, 200, 120, 0.25);
+
+  /* ── Warning Accent — Tangerine Orange (5 tokens)
+     hsl(25, 85%, 58%) — shifted toward orange to be
+     clearly distinct from the gold/yellow primary accent.
+     ──────────────────────────────────────────────── */
+  --accent-warning:        #e88030;
+  --accent-warning-text:   #f09048;
+  --accent-warning-subtle: rgba(232, 128, 48, 0.12);
+  --accent-warning-border: rgba(232, 128, 48, 0.42);
+  --accent-warning-bg:     rgba(232, 128, 48, 0.25);
+
+  /* ── Info Accent — Slate Blue (5 tokens)
+     hsl(215, 55%, 55%) — cool blue, complementary
+     contrast against the warm gold palette
+     ──────────────────────────────────────────────── */
+  --accent-info:        #4878c0;
+  --accent-info-text:   #5a88cc;
+  --accent-info-subtle: rgba(72, 120, 192, 0.12);
+  --accent-info-border: rgba(72, 120, 192, 0.42);
+  --accent-info-bg:     rgba(72, 120, 192, 0.25);
 
   /* ── Decorative Accent — Amber Dark (4 tokens)
      hsl(35, 60%, 30%) ≈ #7a5a1f

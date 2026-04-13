@@ -62,13 +62,36 @@
   --accent-secondary-glow:   rgba(255, 176, 0, 0.35);
   --accent-secondary-subtle: rgba(255, 176, 0, 0.15);
 
-  /* ── Success Accent — Bright Green (3 tokens)
+  /* ── Success Accent — Bright Green (6 tokens)
      #00ff41 — slightly different hue from primary
      to remain distinguishable as a status indicator.
      ──────────────────────────────────────────────── */
   --accent-success:        #00ff41;
   --accent-success-glow:   rgba(0, 255, 65, 0.35);
   --accent-success-subtle: rgba(0, 255, 65, 0.12);
+  --accent-success-text:   #33ff66;
+  --accent-success-border: rgba(0, 255, 65, 0.45);
+  --accent-success-bg:     rgba(0, 255, 65, 0.22);
+
+  /* ── Warning Accent — Terminal Amber (5 tokens)
+     #ffbb00 — bright CRT amber warning.
+     Distinct from secondary amber (#ffb000) by being
+     slightly warmer and used for alert states.
+     ──────────────────────────────────────────────── */
+  --accent-warning:        #ffbb00;
+  --accent-warning-text:   #ffcc33;
+  --accent-warning-subtle: rgba(255, 187, 0, 0.14);
+  --accent-warning-border: rgba(255, 187, 0, 0.45);
+  --accent-warning-bg:     rgba(255, 187, 0, 0.22);
+
+  /* ── Info Accent — Bright Cyan (5 tokens)
+     #00ccff — CRT cyan, crisp and electric.
+     ──────────────────────────────────────────────── */
+  --accent-info:        #00ccff;
+  --accent-info-text:   #33ddff;
+  --accent-info-subtle: rgba(0, 204, 255, 0.14);
+  --accent-info-border: rgba(0, 204, 255, 0.45);
+  --accent-info-bg:     rgba(0, 204, 255, 0.22);
 
   /* ── Decorative Accent — Dark Green (4 tokens)
      #0a4a0a — deep phosphor shadow.
