@@ -3,15 +3,15 @@ import { Notification } from '../Notification/Notification';
 import './BrokenCertNotification.css';
 
 interface BrokenCertNotificationProps {
-  brokenProfile: { id: string; name: string };
+  profile: { id: string; name: string };
   switchedTo: { id: string; name: string } | null;
-  onImport: () => void;
+  onImport: (profileId: string) => void;
   onOpenSettings: () => void;
-  onDismiss?: () => void;
+  onDismiss: () => void;
 }
 
 export function BrokenCertNotification({
-  brokenProfile,
+  profile,
   switchedTo,
   onImport,
   onOpenSettings,
@@ -29,34 +29,25 @@ export function BrokenCertNotification({
       position="top-right"
       visible={visible}
       duration={null}
-      onDismiss={onDismiss ? handleDismiss : undefined}
+      onDismiss={handleDismiss}
       onExited={onDismiss}
     >
       <div>
         <p className="broken-cert-notification__message">
-          {switchedTo ? (
-            <>
-              Profile <strong>"{brokenProfile.name}"</strong> has no certificate file.
-              Switched to <strong>"{switchedTo.name}"</strong>.
-            </>
-          ) : (
-            <>
-              Profile <strong>"{brokenProfile.name}"</strong> has no certificate.
-              Import a certificate or create a new profile to connect.
-            </>
+          Profile <strong>"{profile.name}"</strong> has no certificate file.
+          {switchedTo && (
+            <> Switched to <strong>"{switchedTo.name}"</strong>.</>
           )}
         </p>
         <div className="broken-cert-notification__actions">
-          {onDismiss && (
-            <button className="btn btn-sm btn-ghost" onClick={handleDismiss}>
-              Dismiss
-            </button>
-          )}
-          <button className="btn btn-sm btn-secondary" onClick={onOpenSettings}>
-            Open Settings
+          <button className="btn btn-sm btn-ghost" onClick={handleDismiss}>
+            Dismiss
           </button>
-          <button className="btn btn-sm btn-primary" onClick={onImport}>
-            Import Certificate
+          <button className="btn btn-sm btn-secondary" onClick={onOpenSettings}>
+            Settings
+          </button>
+          <button className="btn btn-sm btn-primary" onClick={() => onImport(profile.id)}>
+            Import
           </button>
         </div>
       </div>

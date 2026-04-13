@@ -1083,15 +1083,15 @@ function App() {
     };
 
     const onProfilesList = (data: unknown) => {
-      const d = data as { profiles: Array<{ id: string; name: string }>; activeProfileId: string | null; brokenActiveProfile?: { id: string; name: string }; autoSwitchedTo?: { id: string; name: string } | null };
+      const d = data as { profiles: Array<{ id: string; name: string }>; activeProfileId: string | null; brokenProfiles?: Array<{ id: string; name: string }>; autoSwitchedTo?: { id: string; name: string } | null };
       setProfiles(d.profiles ?? []);
       if (d.activeProfileId) {
         const active = d.profiles.find(p => p.id === d.activeProfileId);
         if (active) setActiveProfileName(active.name);
       }
-      if (d.brokenActiveProfile) {
+      if (d.brokenProfiles && d.brokenProfiles.length > 0) {
         setBrokenCertInfo({
-          brokenProfile: d.brokenActiveProfile,
+          brokenProfiles: d.brokenProfiles,
           switchedTo: d.autoSwitchedTo ?? null,
         });
       }
@@ -1246,13 +1246,22 @@ function App() {
     bridge.on('cert.imported', onCertImported);
     bridge.on('profiles.activeChanged', onProfilesActiveChanged);
     bridge.on('profiles.list', onProfilesList);
-    const onProfilesRecovered = () => {
-      setBrokenCertInfo(null);
+    const onProfilesRecovered = (data: unknown) => {
+      const d = data as { id: string };
+      setBrokenCertInfo(prev => {
+        if (!prev) return null;
+        const remaining = prev.brokenProfiles.filter(p => p.id !== d.id);
+        return remaining.length > 0 ? { ...prev, brokenProfiles: remaining } : null;
+      });
     };
     bridge.on('profiles.recovered', onProfilesRecovered);
     const onProfilesRemoved = (data: unknown) => {
       const d = data as { id: string };
-      setBrokenCertInfo(prev => prev && prev.brokenProfile.id === d.id ? null : prev);
+      setBrokenCertInfo(prev => {
+        if (!prev) return null;
+        const remaining = prev.brokenProfiles.filter(p => p.id !== d.id);
+        return remaining.length > 0 ? { ...prev, brokenProfiles: remaining } : null;
+      });
     };
     bridge.on('profiles.removed', onProfilesRemoved);
     bridge.on('voice.autoConnect', onAutoConnect);
@@ -1811,7 +1820,7 @@ const handleConnect = (serverData: SavedServer) => {
   const [updateInfo, setUpdateInfo] = useState<{ version: string } | null>(null);
   const [updateProgress, setUpdateProgress] = useState<number | null>(null);
   const [brokenCertInfo, setBrokenCertInfo] = useState<{
-    brokenProfile: { id: string; name: string };
+    brokenProfiles: Array<{ id: string; name: string }>;
     switchedTo: { id: string; name: string } | null;
   } | null>(null);
 
@@ -1831,30 +1840,34 @@ const handleConnect = (serverData: SavedServer) => {
     bridge.send('app.dismissUpdate');
   }, []);
 
-  const handleBrokenCertImport = useCallback(() => {
+  const handleBrokenCertImport = useCallback((profileId: string) => {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.pfx,.p12';
     input.onchange = async () => {
       const file = input.files?.[0];
-      if (!file || !brokenCertInfo) return;
+      if (!file) return;
       const reader = new FileReader();
       reader.onload = () => {
         const base64 = (reader.result as string).split(',')[1];
-        bridge.send('profiles.recover', { id: brokenCertInfo.brokenProfile.id, data: base64 });
+        bridge.send('profiles.recover', { id: profileId, data: base64 });
       };
       reader.readAsDataURL(file);
     };
     input.click();
-  }, [brokenCertInfo]);
+  }, []);
 
   const handleBrokenCertOpenSettings = useCallback(() => {
     setShowSettings(true);
     setSettingsTab('profile');
   }, []);
 
-  const handleBrokenCertDismiss = useCallback(() => {
-    setBrokenCertInfo(null);
+  const handleBrokenCertDismiss = useCallback((profileId: string) => {
+    setBrokenCertInfo(prev => {
+      if (!prev) return null;
+      const remaining = prev.brokenProfiles.filter(p => p.id !== profileId);
+      return remaining.length > 0 ? { ...prev, brokenProfiles: remaining } : null;
+    });
   }, []);
 
   const channelUnreads = useMemo(() => {
@@ -2273,15 +2286,16 @@ const handleConnect = (serverData: SavedServer) => {
             progress={updateProgress}
           />
         )}
-        {brokenCertInfo && (
+        {brokenCertInfo && brokenCertInfo.brokenProfiles.map(bp => (
           <BrokenCertNotification
-            brokenProfile={brokenCertInfo.brokenProfile}
+            key={bp.id}
+            profile={bp}
             switchedTo={brokenCertInfo.switchedTo}
             onImport={handleBrokenCertImport}
             onOpenSettings={handleBrokenCertOpenSettings}
-            onDismiss={brokenCertInfo.switchedTo ? handleBrokenCertDismiss : undefined}
+            onDismiss={() => handleBrokenCertDismiss(bp.id)}
           />
-        )}
+        ))}
       </div>
 
       {screenShareToast && (
