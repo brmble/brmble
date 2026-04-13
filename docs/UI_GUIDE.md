@@ -815,8 +815,8 @@ See `src/Brmble.Web/src/themes/_template.css` for guidance values per token.
 
 ### Existing Notifications
 
-| Component | Status | Position | Auto-dismiss |
-|---|---|---|---|
-| `Toast` | `info` | `bottom-center` | 8s |
-| `UpdateNotification` | `info` | `top-right` | No |
-| `BrokenCertNotification` | `warning` | `top-right` | No |
+| Component | Status | Position | Auto-dismiss | Notes |
+|---|---|---|---|---|
+| `Toast` | `info` | `bottom-center` | 8s | |
+| `UpdateNotification` | `info` | `top-right` | No | |
+| `BrokenCertNotification` | `warning` | `top-right` | No | One per broken profile; each independently dismissible |

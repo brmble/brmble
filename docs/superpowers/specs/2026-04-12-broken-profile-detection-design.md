@@ -14,23 +14,18 @@ When a Brmble profile exists in `config.json` but its backing `.pfx` certificate
 
 ### 1. Detection & Notification Flow
 
-**When:** At app startup, `profiles.list` already computes `certValid` per profile. After receiving the response, the frontend checks if the active profile has `certValid === false`.
+**When:** At app startup, `profiles.list` already computes `certValid` per profile. The backend collects **all** profiles with `certValid === false` into a `brokenProfiles` array and sends it in the response.
 
-**Auto-switch:** If the active profile is broken and other healthy profiles exist, the backend auto-switches to the first healthy profile (in config list order) and reports this in the `profiles.list` response.
+**Auto-switch:** If the active profile is broken and other healthy profiles exist, the backend auto-switches to the first healthy profile (in config list order) and reports this via `autoSwitchedTo` in the `profiles.list` response.
 
-**Notification:** A `BrokenCertNotification` component renders fixed top-right with a warning status (warning icon and warning color scheme).
+**Notification:** The frontend renders **one `BrokenCertNotification` per broken profile**, each fixed top-right in the `.notification-stack` container with a warning status (warning icon and warning color scheme).
 
-Two scenarios with different behavior:
-
-**Scenario A — has healthy fallback:**
-- Message: `Profile "X" has no certificate file. Switched to "Y".`
-- Buttons: Dismiss / Open Settings / Import Certificate
-- Dismiss hides for this session only; reappears on next launch if still broken
-
-**Scenario B — only profile, no fallback:**
-- Message: `Profile "X" has no certificate. Import a certificate or create a new profile to connect.`
-- Buttons: Open Settings / Import Certificate (no Dismiss — notification is persistent until resolved)
-- Server list is visible but connecting will fail gracefully
+Each notification shows:
+- Message: `Profile "X" has no certificate file.` (plus `Switched to "Y".` on the first notification if auto-switch occurred)
+- Buttons: Dismiss / Settings / Import
+- Dismiss hides that single notification for this session; reappears on next launch if still broken
+- Import triggers a file picker scoped to that specific profile
+- Recovering or dismissing one notification does not affect others
 
 ### 2. Backend Changes
 
@@ -45,10 +40,11 @@ Two scenarios with different behavior:
 
 #### Auto-switch logic (in `profiles.list` handler)
 
-After computing all profiles, if the active profile has `certValid === false`:
-1. Find the first profile with `certValid === true`
-2. If found: call `SetActiveProfileId` + `LoadActiveCertificate`
-3. Include in response: `brokenActiveProfile: { id, name } | null` and `autoSwitchedTo: { id, name } | null`
+After computing all profiles:
+1. Collect all profiles with `certValid === false` into a `brokenProfiles` array
+2. If the active profile has `certValid === false`, find the first profile with `certValid === true`
+3. If found: call `SetActiveProfileId` + `LoadActiveCertificate`
+4. Include in response: `brokenProfiles: Array<{ id, name }>` and `autoSwitchedTo: { id, name } | null`
 
 If no healthy profile exists, `autoSwitchedTo` is null and the active profile remains the broken one.
 
@@ -110,10 +106,10 @@ Identical notifications (same status + same message) are deduplicated.
 #### New `BrokenCertNotification` component
 
 - Renders a `<Notification status="warning" position="top-right" duration={null}>` wrapper
-- Props: `brokenProfile: { id, name }`, `switchedTo: { id, name } | null`, `onImport: () => void`, `onOpenSettings: () => void`, `onDismiss?: () => void`
-- `onDismiss` only provided in Scenario A (has fallback); when absent, no Dismiss button and no close `x`
+- Props: `profile: { id, name }`, `switchedTo: { id, name } | null`, `onImport: (profileId: string) => void`, `onOpenSettings: () => void`, `onDismiss: () => void`
+- Each notification is independently dismissible
 - The `warning` status automatically provides the `alert-triangle` icon and `--accent-warning-*` color tokens
-- Action buttons: max 1 primary action (Import Certificate) + secondary actions (Open Settings, Dismiss). Follows the convention of 1 primary action per notification.
+- Action buttons: Import (primary), Settings (secondary), Dismiss (ghost)
 
 #### New theme tokens
 
@@ -182,14 +178,16 @@ Add a new "Notification Pattern" section. This section must be complete enough t
 
 #### App.tsx wiring
 
-- New state: `brokenCertInfo: { brokenProfile: { id, name }, switchedTo: { id, name } | null } | null`
-- On `profiles.list` response: check `brokenActiveProfile` field, set `brokenCertInfo` if present
+- New state: `brokenCertInfo: { brokenProfiles: Array<{ id: string; name: string }>; switchedTo: { id: string; name: string } | null } | null`
+- On `profiles.list` response: check `brokenProfiles` array, set `brokenCertInfo` if non-empty
 - Top-right notifications rendered inside a `.notification-stack` container (replaces individual fixed positioning for `UpdateNotification` and `BrokenCertNotification`)
 - `<Toast>` remains independently positioned at bottom-center (not part of the stack)
-- `onImport`: trigger file picker, read as base64, send `profiles.recover`
+- Renders **one `BrokenCertNotification` per broken profile** via `.map()` with `key={bp.id}`
+- `onImport(profileId)`: trigger file picker, read as base64, send `profiles.recover` with the specific profile ID
 - `onOpenSettings`: `setShowSettings(true)` + `setSettingsTab('profile')`
-- `onDismiss`: set `brokenCertInfo` to null (session-only)
-- On `profiles.recovered`: clear `brokenCertInfo`, profile list refreshes via existing reactive events
+- `onDismiss(profileId)`: filters that profile out of `brokenCertInfo.brokenProfiles`; clears state entirely when array becomes empty
+- On `profiles.recovered`: filters the recovered profile out of `brokenCertInfo.brokenProfiles`
+- On `profiles.removed`: filters the removed profile out of `brokenCertInfo.brokenProfiles`
 
 #### ProfileSettingsTab.tsx changes
 
@@ -222,7 +220,7 @@ Both render inside the `.notification-stack` container in App.tsx. They stack ve
 Creating a new profile auto-sets it as active (existing behavior). `profiles.added` + `profiles.activeChanged` fire → frontend detects healthy active profile → clears `brokenCertInfo`.
 
 **Multiple broken profiles:**
-Notification only surfaces the active (or previously-active) broken profile. Other broken profiles are visible only in Settings with the warning indicator.
+Each broken profile gets its own notification in the `.notification-stack`. Recovering, dismissing, or deleting a profile removes only that profile's notification. The `switchedTo` info is shown on the first notification (when the active profile was broken and auto-switched), providing context for the switch.
 
 ## New Bridge Messages
 
@@ -235,7 +233,7 @@ Notification only surfaces the active (or previously-active) broken profile. Oth
 
 | Message | Change |
 |---------|--------|
-| `profiles.list` response | Add `brokenActiveProfile: { id, name } \| null` and `autoSwitchedTo: { id, name } \| null` fields |
+| `profiles.list` response | Add `brokenProfiles: Array<{ id, name }>` and `autoSwitchedTo: { id, name } \| null` fields |
 
 ## Files Changed
 
