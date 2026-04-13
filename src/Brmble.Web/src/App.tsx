@@ -2216,14 +2216,16 @@ const handleConnect = (serverData: SavedServer) => {
       <Prompt />
       <PromptWithInput />
 
-      {updateInfo && (
-        <UpdateNotification
-          version={updateInfo.version}
-          onUpdate={handleApplyUpdate}
-          onDismiss={handleDismissUpdate}
-          progress={updateProgress}
-        />
-      )}
+      <div className="notification-stack">
+        {updateInfo && (
+          <UpdateNotification
+            version={updateInfo.version}
+            onUpdate={handleApplyUpdate}
+            onDismiss={handleDismissUpdate}
+            progress={updateProgress}
+          />
+        )}
+      </div>
 
       {screenShareToast && (
         <Toast

@@ -1,4 +1,5 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useState, useCallback } from 'react';
+import { Notification } from '../Notification/Notification';
 import './UpdateNotification.css';
 
 interface UpdateNotificationProps {
@@ -9,25 +10,23 @@ interface UpdateNotificationProps {
 }
 
 export function UpdateNotification({ version, onUpdate, onDismiss, progress }: UpdateNotificationProps) {
-  const [visible, setVisible] = useState(false);
-  const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    requestAnimationFrame(() => setVisible(true));
-    return () => {
-      if (dismissTimer.current) clearTimeout(dismissTimer.current);
-    };
-  }, []);
+  const [visible, setVisible] = useState(true);
 
   const handleDismiss = useCallback(() => {
     setVisible(false);
-    dismissTimer.current = setTimeout(onDismiss, 200);
-  }, [onDismiss]);
+  }, []);
 
   const isApplying = progress !== null;
 
   return (
-    <div className={`update-notification ${visible ? 'update-notification--visible' : ''}`} role="status" aria-live="polite">
+    <Notification
+      status="info"
+      position="top-right"
+      visible={visible}
+      duration={null}
+      onDismiss={isApplying ? undefined : handleDismiss}
+      onExited={onDismiss}
+    >
       {isApplying ? (
         <>
           <span className="update-notification__message">Updating to v{version}...</span>
@@ -44,6 +43,6 @@ export function UpdateNotification({ version, onUpdate, onDismiss, progress }: U
           </div>
         </>
       )}
-    </div>
+    </Notification>
   );
 }
