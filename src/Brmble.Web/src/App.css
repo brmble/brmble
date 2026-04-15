@@ -34,6 +34,10 @@
   align-items: center;
 }
 
+.app--onboarding .sidebar {
+  overflow: hidden;
+}
+
 .sidebar-placeholder {
   text-align: center;
   padding: 2rem;
