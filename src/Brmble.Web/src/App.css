@@ -38,6 +38,10 @@
   overflow: hidden;
 }
 
+.app--onboarding .sidebar-resize-handle {
+  display: none;
+}
+
 .app--maximized {
   padding: 6px;
 }
