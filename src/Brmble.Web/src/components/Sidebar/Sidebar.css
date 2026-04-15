@@ -299,12 +299,12 @@
   right: 0;
   bottom: 0;
   width: 2px;
-  background: transparent;
+  background: var(--border-subtle);
   transition: background var(--transition-fast);
 }
 
 .sidebar-resize-handle:hover::after {
-  background: var(--border-subtle);
+  background: var(--accent-primary);
 }
 
 .sidebar-resize-handle--active::after {
