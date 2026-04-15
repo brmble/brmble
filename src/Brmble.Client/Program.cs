@@ -28,6 +28,7 @@ static class Program
     private static volatile bool _muted;
     private static volatile bool _deafened;
     private static volatile string? _closeAction; // null = ask, "minimize", "quit"
+    private static IntPtr _currentBgBrush;
     private static System.Threading.Timer? _zoomSaveTimer;
     private const int ResizeBorderWidth = 6;
 
@@ -388,6 +389,19 @@ static class Program
                 TrayIcon.SetTheme(theme);
                 TaskbarBadge.SetTheme(theme);
                 Win32Window.SetWindowIcon(_hwnd, theme);
+
+                // Update the native resize border brush to match the theme
+                var (r, g, b) = ThemeColors.GetBgDeep(theme);
+                uint colorRef = (uint)(b << 16 | g << 8 | r);
+                var newBrush = Win32Window.CreateBackgroundBrush(colorRef);
+                var oldBrush = Win32Window.SetClassLongPtr(
+                    _hwnd, Win32Window.GCL_HBRBACKGROUND, newBrush);
+                if (oldBrush != IntPtr.Zero && oldBrush != _currentBgBrush)
+                    Win32Window.DeleteObject(oldBrush);
+                if (_currentBgBrush != IntPtr.Zero && _currentBgBrush != oldBrush)
+                    Win32Window.DeleteObject(_currentBgBrush);
+                _currentBgBrush = newBrush;
+                Win32Window.InvalidateRect(_hwnd, IntPtr.Zero, true);
             }
             return Task.CompletedTask;
         });
