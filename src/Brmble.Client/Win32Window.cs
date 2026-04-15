@@ -243,6 +243,32 @@ internal static class Win32Window
     [DllImport("gdi32.dll")]
     private static extern IntPtr CreateSolidBrush(uint crColor);
 
+    [DllImport("gdi32.dll")]
+    public static extern bool DeleteObject(IntPtr hObject);
+
+    [DllImport("user32.dll")]
+    public static extern bool InvalidateRect(IntPtr hWnd, IntPtr lpRect, bool bErase);
+
+    [DllImport("user32.dll", EntryPoint = "SetClassLongPtrW")]
+    private static extern IntPtr SetClassLongPtr64(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+    [DllImport("user32.dll", EntryPoint = "SetClassLongW")]
+    private static extern IntPtr SetClassLongPtr32(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+    public static IntPtr SetClassLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong)
+    {
+        return IntPtr.Size == 8
+            ? SetClassLongPtr64(hWnd, nIndex, dwNewLong)
+            : SetClassLongPtr32(hWnd, nIndex, dwNewLong);
+    }
+
+    public const int GCL_HBRBACKGROUND = -10;
+
+    public static IntPtr CreateBackgroundBrush(uint colorRef)
+    {
+        return CreateSolidBrush(colorRef);
+    }
+
     [DllImport("kernel32.dll")]
     public static extern bool AllocConsole();
 
