@@ -222,8 +222,8 @@ function App() {
   }, [connected]);
 
   useEffect(() => {
-    const handleWindowState = (data: { maximized?: boolean }) => {
-      setIsMaximized(data.maximized === true);
+    const handleWindowState = (data: unknown) => {
+      setIsMaximized((data as { maximized?: boolean }).maximized === true);
     };
     bridge.on('window.stateChanged', handleWindowState);
     return () => bridge.off('window.stateChanged', handleWindowState);
@@ -2170,6 +2170,7 @@ const handleConnect = (serverData: SavedServer) => {
         muteOnCooldown={muteOnCooldown}
         deafOnCooldown={deafOnCooldown}
         onToggleGame={() => setShowGame(prev => !prev)}
+        isMaximized={isMaximized}
       />
       </ErrorBoundary>
       

@@ -32,9 +32,10 @@ interface HeaderProps {
   leaveVoiceOnCooldown?: boolean;
   muteOnCooldown?: boolean;
   deafOnCooldown?: boolean;
+  isMaximized?: boolean;
 }
 
-export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, onOpenAudioSettings, onAvatarClick, avatarUrl, matrixUserId, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, screenSharing, screenShareError, onToggleScreenShare, canScreenShare, speaking, pendingChannelAction, hotkeyPressedBtn, onToggleGame, leaveVoiceOnCooldown, muteOnCooldown, deafOnCooldown }: HeaderProps) {
+export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, onOpenAudioSettings, onAvatarClick, avatarUrl, matrixUserId, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, screenSharing, screenShareError, onToggleScreenShare, canScreenShare, speaking, pendingChannelAction, hotkeyPressedBtn, onToggleGame, leaveVoiceOnCooldown, muteOnCooldown, deafOnCooldown, isMaximized }: HeaderProps) {
   return (
     <header className="header">
       <div className="header-left">
@@ -77,8 +78,8 @@ export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSe
         <button className="window-btn window-btn-minimize" onClick={() => bridge.send('window.minimize')} aria-label="Minimize">
           <Icon name="window-minimize" size={10} />
         </button>
-        <button className="window-btn window-btn-maximize" onClick={() => bridge.send('window.maximize')} aria-label="Maximize">
-          <Icon name="window-maximize" size={10} />
+        <button className="window-btn window-btn-maximize" onClick={() => bridge.send('window.maximize')} aria-label={isMaximized ? 'Restore' : 'Maximize'}>
+          <Icon name={isMaximized ? 'window-restore' : 'window-maximize'} size={10} />
         </button>
         <button className="window-btn window-btn-close" onClick={() => bridge.send('window.close')} aria-label="Close">
           <Icon name="window-close" size={10} />
