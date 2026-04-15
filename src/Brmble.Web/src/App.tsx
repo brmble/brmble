@@ -169,6 +169,8 @@ function App() {
   const [certFingerprint, setCertFingerprint] = useState('');
   const [activeProfileName, setActiveProfileName] = useState('');
   const [profiles, setProfiles] = useState<Array<{ id: string; name: string }>>([]);
+  const profilesRef = useRef(profiles);
+  profilesRef.current = profiles;
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
   const { statuses, updateStatus, resetStatuses } = useServiceStatus();
@@ -1264,10 +1266,15 @@ function App() {
     bridge.on('profiles.recovered', onProfilesRecovered);
     const onProfilesRemoved = (data: unknown) => {
       const d = data as { id: string };
+      const updatedProfiles = profilesRef.current.filter(p => p.id !== d.id);
+      setProfiles(updatedProfiles);
       setBrokenCertInfo(prev => {
         if (!prev) return null;
         const remaining = prev.brokenProfiles.filter(p => p.id !== d.id);
-        return remaining.length > 0 ? { ...prev, brokenProfiles: remaining } : null;
+        if (remaining.length === 0) return null;
+        const brokenIds = new Set(remaining.map(p => p.id));
+        const hasHealthyFallback = updatedProfiles.some(p => !brokenIds.has(p.id));
+        return { ...prev, brokenProfiles: remaining, hasHealthyFallback };
       });
     };
     bridge.on('profiles.removed', onProfilesRemoved);
@@ -2179,7 +2186,7 @@ const handleConnect = (serverData: SavedServer) => {
         <main className="main-content">
           {connectionStatus === 'idle' ? (
             certExists === true ? (
-              <ServerList onConnect={handleServerConnect} connectionError={connectionError} onClearError={() => setConnectionError(null)} activeProfileName={activeProfileName} />
+              <ServerList onConnect={handleServerConnect} connectDisabled={brokenCertInfo != null && !brokenCertInfo.hasHealthyFallback} connectionError={connectionError} onClearError={() => setConnectionError(null)} activeProfileName={activeProfileName} />
             ) : (
               <div className="connection-state">
                 <div className="connection-state-content">
@@ -2335,7 +2342,7 @@ const handleConnect = (serverData: SavedServer) => {
               profile={bp}
               onImport={handleBrokenCertImport}
               onOpenSettings={handleBrokenCertOpenSettings}
-              onDismiss={brokenCertInfo.hasHealthyFallback ? () => { handleBrokenCertDismiss(bp.id); notifQueue.unregister(`cert-${bp.id}`); } : undefined}
+              onDismiss={() => { handleBrokenCertDismiss(bp.id); notifQueue.unregister(`cert-${bp.id}`); }}
             />
           ) : null
         ))}
