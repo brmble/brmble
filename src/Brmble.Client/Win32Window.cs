@@ -264,6 +264,9 @@ internal static class Win32Window
 
     public const int GCL_HBRBACKGROUND = -10;
 
+    public const int SIZE_RESTORED = 0;
+    public const int SIZE_MAXIMIZED = 2;
+
     public static IntPtr CreateBackgroundBrush(uint colorRef)
     {
         return CreateSolidBrush(colorRef);

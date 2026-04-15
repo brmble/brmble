@@ -482,6 +482,12 @@ static class Program
                 {
                     _controller.Bounds = GetWebViewBounds(hwnd);
                 }
+                var sizeType = (int)(wParam.ToInt64() & 0xFFFF);
+                if (sizeType == Win32Window.SIZE_MAXIMIZED || sizeType == Win32Window.SIZE_RESTORED)
+                {
+                    _bridge?.Send("window.stateChanged", new { maximized = Win32Window.IsZoomed(hwnd) });
+                    _bridge?.NotifyUiThread();
+                }
                 return IntPtr.Zero;
 
             case Win32Window.WM_CLOSE:
