@@ -1096,13 +1096,16 @@ function App() {
         const active = d.profiles.find(p => p.id === d.activeProfileId);
         if (active) setActiveProfileName(active.name);
       }
-      if (d.brokenProfiles && d.brokenProfiles.length > 0) {
-        const brokenIds = new Set(d.brokenProfiles.map(p => p.id));
+      const brokenProfiles = d.brokenProfiles ?? [];
+      if (brokenProfiles.length > 0) {
+        const brokenIds = new Set(brokenProfiles.map(p => p.id));
         const hasHealthyFallback = (d.profiles ?? []).some(p => !brokenIds.has(p.id));
         setBrokenCertInfo({
-          brokenProfiles: d.brokenProfiles,
+          brokenProfiles,
           hasHealthyFallback,
         });
+      } else {
+        setBrokenCertInfo(null);
       }
     };
 
@@ -1260,7 +1263,10 @@ function App() {
       setBrokenCertInfo(prev => {
         if (!prev) return null;
         const remaining = prev.brokenProfiles.filter(p => p.id !== d.id);
-        return remaining.length > 0 ? { ...prev, brokenProfiles: remaining } : null;
+        if (remaining.length === 0) return null;
+        const brokenIds = new Set(remaining.map(p => p.id));
+        const hasHealthyFallback = profilesRef.current.some(p => !brokenIds.has(p.id));
+        return { ...prev, brokenProfiles: remaining, hasHealthyFallback };
       });
     };
     bridge.on('profiles.recovered', onProfilesRecovered);
@@ -1839,11 +1845,12 @@ const handleConnect = (serverData: SavedServer) => {
   } | null>(null);
 
   // Server import notifications (from onboarding wizard) — one per server
-  interface ServerImportToast { id: string; label: string; }
+  interface ServerImportToast { id: string; label: string; visible: boolean; }
   const [serverImportToasts, setServerImportToasts] = useState<ServerImportToast[]>([]);
+  const nextServerImportToastIdRef = useRef(0);
 
   const handleServersImported = useCallback((labels: string[]) => {
-    const toasts = labels.map((label, i) => ({ id: `srv-${Date.now()}-${i}`, label }));
+    const toasts = labels.map((label) => ({ id: `srv-${nextServerImportToastIdRef.current++}`, label, visible: true }));
     setServerImportToasts(toasts);
     toasts.forEach(t => notifQueue.register(t.id, 'info'));
   }, [notifQueue]);
@@ -2352,13 +2359,12 @@ const handleConnect = (serverData: SavedServer) => {
               key={toast.id}
               status="info"
               position="top-right"
-              visible={true}
+              visible={toast.visible}
               duration={5000}
               title="Server imported"
               detail={toast.label}
               onDismiss={() => {
-                setServerImportToasts(prev => prev.filter(t => t.id !== toast.id));
-                notifQueue.unregister(toast.id);
+                setServerImportToasts(prev => prev.map(t => t.id === toast.id ? { ...t, visible: false } : t));
               }}
               onExited={() => {
                 setServerImportToasts(prev => prev.filter(t => t.id !== toast.id));

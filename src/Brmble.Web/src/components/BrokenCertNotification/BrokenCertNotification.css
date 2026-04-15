@@ -1,3 +1,1 @@
-.broken-cert-notification__detail strong {
-  color: var(--text-primary);
-}
+/* BrokenCertNotification — no component-specific styles needed; uses Notification base */

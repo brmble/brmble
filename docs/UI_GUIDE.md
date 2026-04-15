@@ -790,7 +790,7 @@ The status icon aligns vertically with the title line.
 
 - **Auto-dismiss:** `info`/`success` auto-dismiss at 5s; `warning`/`error` persist. Timer pauses on hover.
 - **Errors and actionable notifications must never auto-dismiss.**
-- **Max 3** visible top-right notifications. Excess queued. Identical notifications (same status + message) deduplicated.
+- **Max 3** visible top-right notifications. Excess queued. Notifications are deduplicated by `id`; matching status/message alone does not deduplicate them.
 - **Action buttons:** Max 1 primary per notification. Every labeled button must perform a distinct action (e.g. "Update", "Import", "Settings"). Close button is separate from action buttons.
 - **Dismissal is `×` only.** Never add a text button ("Dismiss", "Later", "Close") that duplicates the `×` close button. The `×` is the universal dismiss affordance — text buttons are reserved for meaningful actions. This keeps the UI clean and avoids redundancy.
 - Top-right notifications render inside a `.notification-stack` container in `App.tsx`.

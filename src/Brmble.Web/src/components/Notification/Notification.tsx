@@ -80,13 +80,16 @@ export function Notification({
 
   // Enter animation
   useEffect(() => {
+    let animationFrameId: number | null = null;
+
     if (visible) {
-      requestAnimationFrame(() => setIsVisible(true));
+      animationFrameId = requestAnimationFrame(() => setIsVisible(true));
     } else {
       setIsVisible(false);
       exitTimerRef.current = setTimeout(() => onExitedRef.current?.(), 250);
     }
     return () => {
+      if (animationFrameId !== null) cancelAnimationFrame(animationFrameId);
       if (exitTimerRef.current) clearTimeout(exitTimerRef.current);
     };
   }, [visible]);
