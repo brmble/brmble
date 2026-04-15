@@ -663,8 +663,9 @@ Brmblegotchi icons are prefixed `gotchi-` and shared across all pet themes (`ori
 
 ### Adding a New Icon
 
-1. Open `src/Brmble.Web/src/components/Icon/Icon.tsx`
-2. Add an entry to the `iconPaths` map in the appropriate group:
+1. **Find the icon** on [Lucide Icons](https://lucide.dev/icons). Search by name or keyword, click the icon, and copy the SVG markup.
+2. **Strip the outer `<svg>` wrapper.** Lucide gives you a full `<svg>` tag with attributes like `xmlns`, `width`, `height`, `viewBox`, `fill`, `stroke`, `stroke-width`, `stroke-linecap`, `stroke-linejoin`. Remove the outer `<svg>…</svg>` and keep only the inner elements (`<path>`, `<circle>`, `<line>`, `<polyline>`, `<rect>`, `<polygon>`). Also strip any `stroke`, `fill`, `stroke-width`, `stroke-linecap`, `stroke-linejoin` attributes from the inner elements — the `<Icon>` component applies these globally.
+3. **Open `src/Brmble.Web/src/components/Icon/Icon.tsx`** and add an entry to the `iconPaths` map in the appropriate category group:
    ```tsx
    'my-icon': {
      paths: (
@@ -675,7 +676,8 @@ Brmblegotchi icons are prefixed `gotchi-` and shared across all pet themes (`ori
      ),
    },
    ```
-3. Use it: `<Icon name="my-icon" size={20} />`
+4. **Use it:** `<Icon name="my-icon" size={20} />`
+5. **Update the icon table** in this guide (section 11 → "Available Icons (by category)") so the new icon appears in the correct category row.
 
 #### Icon Conventions
 
@@ -684,8 +686,10 @@ Brmblegotchi icons are prefixed `gotchi-` and shared across all pet themes (`ori
 | ViewBox | `0 0 24 24` (omit `viewBox` field — it's the default). Only set for non-standard icons (e.g. `check` uses `0 0 16 16`) |
 | Style | Feather/Lucide conventions: stroke-based, `currentColor`, strokeWidth 2, round caps/joins |
 | Fill icons | Set `fill: true` on the definition (e.g. `triangle-right`). Stroke attributes are omitted automatically |
+| Hybrid stroke+fill | Some icons mix stroke outlines with filled sub-elements. Keep the definition as stroke-based (no `fill: true` at the top level) and add `fill="currentColor" stroke="none"` on the specific element that needs filling (e.g. `gotchi-play` has a stroked `<circle>` with a filled `<polygon>`, and `info-filled` has a filled `<circle>` dot). |
 | Naming | Use Lucide names. Pair toggleable icons with `-off` suffix (`mic` / `mic-off`) |
 | Grouping | Place related icons adjacent in the map with a comment header (`/* ── Mic ── */`) |
+| Category banners | Major sections use a 3-line box comment. Format: `// ╔══…══╗` / `// ║  CATEGORY NAME  ║` / `// ╚══…══╝` with optional description lines between the name and bottom border. See existing banners in Icon.tsx (VOICE, MEDIA, CHAT, etc.) |
 | No emoji | Never use emoji characters for icons in the UI. Always use `<Icon>` |
 
 ### When NOT to Use `<Icon>`
@@ -719,3 +723,167 @@ Brmblegotchi icons are prefixed `gotchi-` and shared across all pet themes (`ori
    }
    ```
 4. **`overflow: visible`** must be set on SVGs with hover/animation effects that translate elements outside the viewBox.
+
+---
+
+## 13. Notification Pattern
+
+### Base Component
+
+All notifications use the shared `<Notification>` base component (`src/Brmble.Web/src/components/Notification/`). Never create standalone notification components with their own positioning/animation/styling — always wrap with `<Notification>`.
+
+### Status Types
+
+The `status` prop drives icon, color, ARIA role, and auto-dismiss behavior:
+
+| Status | Icon | Color tokens | ARIA role | Auto-dismiss |
+|---|---|---|---|---|
+| `info` | `info` | `--accent-info-*` | `role="status"` | 5s |
+| `success` | `check-circle` | `--accent-success-*` | `role="status"` | 5s |
+| `warning` | `alert-triangle` | `--accent-warning-*` | `role="status"` | No (persist) |
+| `error` | `alert-circle` | `--accent-danger-*` | `role="alert"` | No (persist) |
+
+### Decision Checklist (answer all before building a notification)
+
+1. **What status applies?** `info` = supplemental, `success` = action confirmed, `warning` = needs attention, `error` = something failed
+2. **What position?** `top-right` for system/background events, `bottom-center` for direct action feedback
+3. **Should it auto-dismiss?** Default from status, but can override with `duration` prop
+4. **Does it need a dismiss button?** Persistent notifications: yes. Blocking with no fallback: no dismiss.
+5. **What actions does it need?** Max 1 primary action. Action must be reachable elsewhere in UI since notifications can be missed.
+6. **What title + detail?** Title = what happened (short, one line). Detail = context or next step (optional).
+
+### Props
+
+```tsx
+interface NotificationProps {
+  status: 'info' | 'success' | 'warning' | 'error';
+  position: 'top-right' | 'bottom-center';
+  title: React.ReactNode;         // Bold headline — what happened. Keep to one line.
+  detail?: React.ReactNode;       // Secondary text — context, next step, or explanation.
+  actions?: React.ReactNode;      // Action buttons rendered below the message.
+  visible: boolean;
+  duration?: number | null;       // null = never. Defaults: info/success = 5000, warning/error = null
+  onDismiss?: () => void;         // When provided, close button (×) renders
+  onExited?: () => void;          // After exit animation completes
+  pauseOnHover?: boolean;         // Default: true. Pauses auto-dismiss on hover (WCAG 2.2.1)
+  className?: string;             // For consumer-specific styling
+}
+```
+
+### Content Structure
+
+Every notification uses a **title + detail** pattern:
+
+- **Title** = what happened. Short, scannable, fits one line. Bold weight.
+- **Detail** = context or next step. Smaller, secondary color. Optional — omit if the title says it all.
+
+The status icon aligns vertically with the title line.
+
+| When writing… | Do | Don't |
+|---|---|---|
+| Title | `Certificate missing` | `Profile "X" has no certificate file` |
+| Title | `Update available` | `Update available: v1.2.3` |
+| Detail | `Profile "X" has no certificate.` | (cram everything into one line) |
+| Detail | `Press Update to install v1.2.3.` | (repeat info from title) |
+
+### Behavioral Rules
+
+- **Auto-dismiss:** `info`/`success` auto-dismiss at 5s; `warning`/`error` persist. Timer pauses on hover.
+- **Errors and actionable notifications must never auto-dismiss.**
+- **Max 3** visible top-right notifications. Excess queued. Notifications are deduplicated by `id`; matching status/message alone does not deduplicate them.
+- **Action buttons:** Max 1 primary per notification. Every labeled button must perform a distinct action (e.g. "Update", "Import", "Settings"). Close button is separate from action buttons.
+- **Dismissal is `×` only.** Never add a text button ("Dismiss", "Later", "Close") that duplicates the `×` close button. The `×` is the universal dismiss affordance — text buttons are reserved for meaningful actions. This keeps the UI clean and avoids redundancy.
+- Top-right notifications render inside a `.notification-stack` container in `App.tsx`.
+- Bottom-center notifications (`Toast`) position themselves independently.
+
+### Queue & Priority (`useNotificationQueue`)
+
+Top-right notifications are managed by the `useNotificationQueue` hook (`src/Brmble.Web/src/hooks/useNotificationQueue.ts`). This keeps the stack readable by limiting visible notifications and ensuring critical ones are always shown.
+
+**Priority order** (highest first):
+
+| Priority | Status | Numeric |
+|---|---|---|
+| Highest | `error` | 3 |
+| | `warning` | 2 |
+| | `info` | 1 |
+| Lowest | `success` | 0 |
+
+**Rules:**
+- Max **3** notifications visible simultaneously. Excess entries are queued.
+- Within the same priority, **arrival order** wins (first registered shows first).
+- When a higher-priority notification registers, it **preempts** the lowest-priority visible one.
+- When a notification is dismissed or exits, the next queued entry **re-appears** automatically.
+- `register(id, status)` — call when notification data exists (e.g. broken profile detected, update available, server imported).
+- `unregister(id)` — call from `onExited` (after exit animation), not from `onDismiss`. This ensures the exit animation completes before the slot is freed.
+- `isVisible(id)` — pass as the `visible` prop to `<Notification>`.
+- Bottom-center notifications (`Toast`) bypass the queue — they position independently.
+
+**Integration pattern in App.tsx:**
+```tsx
+const q = useNotificationQueue();
+
+// Register when data arrives
+useEffect(() => {
+  if (hasBrokenCert) q.register('broken-cert', 'warning');
+  else q.unregister('broken-cert');
+}, [hasBrokenCert]);
+
+// Render
+<Notification
+  visible={q.isVisible('broken-cert')}
+  onExited={() => q.unregister('broken-cert')}
+  ...
+/>
+```
+
+### Accessibility
+
+- **ARIA:** `info`/`success`/`warning` use `role="status"` (`aria-live="polite"`); `error` uses `role="alert"` (`aria-live="assertive"`)
+- **Icons:** Status icon always rendered — never rely on color alone (WCAG 1.4.1)
+- **Keyboard:** Close button is keyboard accessible. `Esc` dismisses focused notification.
+- **Motion:** `prefers-reduced-motion: reduce` disables slide animation, keeps opacity fade only.
+
+### When NOT to Use Notification
+
+- **Blocking decisions** requiring immediate response → use `confirm()` modal
+- **Form validation errors** → use inline error text near the field (`.profiles-form-error` pattern)
+- **Passive status indicators** → use inline badges/dots, not notifications
+
+### Token Reference
+
+All four semantic accent families must be defined in every theme:
+
+| Family | Variants |
+|---|---|
+| `--accent-info-*` | base, `-text`, `-subtle`, `-border`, `-bg` |
+| `--accent-success-*` | base, `-text`, `-subtle`, `-border`, `-bg`, `-glow` |
+| `--accent-warning-*` | base, `-text`, `-subtle`, `-border`, `-bg` |
+| `--accent-danger-*` | base, `-text`, `-subtle`, `-border`, `-bg`, `-strong` |
+
+See `src/Brmble.Web/src/themes/_template.css` for guidance values per token.
+
+### Example: Adding a New Notification
+
+```tsx
+// A "server unreachable" error notification
+<Notification
+  status="error"
+  position="top-right"
+  visible={visible}
+  onDismiss={handleDismiss}
+  title="Server unreachable"
+  detail="Could not reach the server. Check your connection."
+  actions={
+    <button className="btn btn-sm btn-primary" onClick={handleRetry}>Retry</button>
+  }
+/>
+```
+
+### Existing Notifications
+
+| Component | Status | Position | Auto-dismiss | Title | Detail |
+|---|---|---|---|---|---|
+| `Toast` | `info` | `bottom-center` | 8s | message string | (none) |
+| `UpdateNotification` | `info` | `top-right` | No | `Update available` | `Press Update to install v{version}.` |
+| `BrokenCertNotification` | `warning` | `top-right` | No | `Certificate missing` | Profile name, switched-to info, recovery instructions |

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Avatar from '../Avatar/Avatar';
 import AvatarUpload from '../AvatarUpload/AvatarUpload';
 import bridge from '../../bridge';
@@ -44,7 +44,7 @@ function triggerBlobDownload(base64: string, filename: string) {
 
 export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar, connected, registeredName }: ProfileSettingsTabProps) {
   const [showUpload, setShowUpload] = useState(false);
-  const { profiles, activeProfileId, loading, addProfile, importProfile, removeProfile, renameProfile, setActive, exportCert, checkExistingCert, addFromExisting, renameSwapCert } = useProfiles();
+  const { profiles, activeProfileId, loading, addProfile, importProfile, removeProfile, renameProfile, setActive, exportCert, checkExistingCert, addFromExisting, renameSwapCert, recoverProfile } = useProfiles();
 
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -220,10 +220,13 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
     setIsAdding(false);
   };
 
-  const handleDelete = async (profile: { id: string; name: string }) => {
+  const handleDelete = async (profile: { id: string; name: string; certValid: boolean }) => {
+    const message = profile.certValid
+      ? `Remove "${profile.name}"? The certificate file will remain on disk and can be re-imported later.`
+      : `Remove "${profile.name}"? This profile has no certificate — it can only be restored by importing a new one.`;
     const confirmed = await confirm({
       title: 'Delete profile',
-      message: `Remove "${profile.name}"? The certificate file will remain on disk and can be re-imported later.`,
+      message,
       confirmLabel: 'Delete',
       cancelLabel: 'Cancel',
     });
@@ -236,6 +239,23 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
     setAddName('');
     setEditName('');
   };
+
+  const handleRecoverCert = useCallback((profile: { id: string; name: string }) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.pfx,.p12';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = (reader.result as string).split(',')[1];
+        recoverProfile(profile.id, base64);
+      };
+      reader.readAsDataURL(file);
+    };
+    input.click();
+  }, [recoverProfile]);
 
   return (
     <div className="profile-settings-tab">
@@ -344,9 +364,15 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
                     {getInitial(profile.name)}
                   </div>
                   <div className="profiles-info">
-                    <span className="profiles-name">{profile.name}</span>
-                    <span className="profiles-fingerprint">{formatFingerprint(profile.fingerprint)}</span>
-
+                    <span className="profiles-name">
+                      {profile.name}
+                      {!profile.certValid && (
+                        <Icon name="alert-triangle" size={14} className="profiles-warning-icon" />
+                      )}
+                    </span>
+                    <span className={`profiles-fingerprint${!profile.certValid ? ' profiles-fingerprint--broken' : ''}`}>
+                      {profile.certValid ? formatFingerprint(profile.fingerprint) : 'Certificate missing'}
+                    </span>
                   </div>
                   <div className="profiles-actions">
                     <Tooltip content={connected && isActive ? 'Disconnect to delete this profile' : 'Delete profile'}>
@@ -371,14 +397,25 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
                         </button>
                       </span>
                     </Tooltip>
-                    <Tooltip content="Export certificate">
-                      <button
-                        className="btn btn-primary profiles-action-btn"
-                        onClick={() => exportCert(profile.id)}
-                      >
-                        Export
-                      </button>
-                    </Tooltip>
+                    {profile.certValid ? (
+                      <Tooltip content="Export certificate">
+                        <button
+                          className="btn btn-primary profiles-action-btn"
+                          onClick={() => exportCert(profile.id)}
+                        >
+                          Export
+                        </button>
+                      </Tooltip>
+                    ) : (
+                      <Tooltip content="Import certificate to restore this profile">
+                        <button
+                          className="btn btn-primary profiles-action-btn"
+                          onClick={() => handleRecoverCert(profile)}
+                        >
+                          Import
+                        </button>
+                      </Tooltip>
+                    )}
                   </div>
                 </div>
               );

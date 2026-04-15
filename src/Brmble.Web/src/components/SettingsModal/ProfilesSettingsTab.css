@@ -200,3 +200,13 @@
   color: var(--accent-danger-text);
   margin-top: var(--space-xs);
 }
+
+.profiles-warning-icon {
+  color: var(--accent-warning);
+  margin-left: var(--space-xs);
+  vertical-align: middle;
+}
+
+.profiles-fingerprint--broken {
+  color: var(--accent-warning-text);
+}

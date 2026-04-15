@@ -48,6 +48,23 @@
   --accent-success: #50c878;
   --accent-success-glow: rgba(80, 200, 120, 0.3);
   --accent-success-subtle: rgba(80, 200, 120, 0.15);
+  --accent-success-text: #60d888;
+  --accent-success-border: rgba(80, 200, 120, 0.4);
+  --accent-success-bg: rgba(80, 200, 120, 0.25);
+
+  /* Warning Accent (Amber) */
+  --accent-warning: #f0a030;
+  --accent-warning-text: #f0b050;
+  --accent-warning-subtle: rgba(240, 160, 48, 0.12);
+  --accent-warning-border: rgba(240, 160, 48, 0.4);
+  --accent-warning-bg: rgba(240, 160, 48, 0.25);
+
+  /* Info Accent (Blue) */
+  --accent-info: #5b9bd5;
+  --accent-info-text: #6baae0;
+  --accent-info-subtle: rgba(91, 155, 213, 0.12);
+  --accent-info-border: rgba(91, 155, 213, 0.4);
+  --accent-info-bg: rgba(91, 155, 213, 0.25);
 
   /* Decorative Accent (Purple) */
   --accent-decorative: #7b4dff;

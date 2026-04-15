@@ -59,12 +59,34 @@
   --accent-secondary-glow:   rgba(217, 149, 106, 0.3);
   --accent-secondary-subtle: rgba(217, 149, 106, 0.14);
 
-  /* ── Success Accent — Lime (3 tokens)
+  /* ── Success Accent — Lime (6 tokens)
      hsl(120, 50%, 55%) ≈ #55c855
      ──────────────────────────────────────────────── */
   --accent-success:        #55c855;
   --accent-success-glow:   rgba(85, 200, 85, 0.3);
   --accent-success-subtle: rgba(85, 200, 85, 0.14);
+  --accent-success-text:   #68d468;
+  --accent-success-border: rgba(85, 200, 85, 0.4);
+  --accent-success-bg:     rgba(85, 200, 85, 0.25);
+
+  /* ── Warning Accent — Warm Gold (5 tokens)
+     hsl(42, 85%, 60%) — distinct amber, separated from
+     the orange-red danger accent
+     ──────────────────────────────────────────────── */
+  --accent-warning:        #e8a830;
+  --accent-warning-text:   #f0b848;
+  --accent-warning-subtle: rgba(232, 168, 48, 0.12);
+  --accent-warning-border: rgba(232, 168, 48, 0.4);
+  --accent-warning-bg:     rgba(232, 168, 48, 0.22);
+
+  /* ── Info Accent — Dusty Blue (5 tokens)
+     hsl(215, 55%, 58%) — cool counterpoint to warm palette
+     ──────────────────────────────────────────────── */
+  --accent-info:        #5580c0;
+  --accent-info-text:   #6890cc;
+  --accent-info-subtle: rgba(85, 128, 192, 0.12);
+  --accent-info-border: rgba(85, 128, 192, 0.4);
+  --accent-info-bg:     rgba(85, 128, 192, 0.22);
 
   /* ── Decorative Accent — Deep Rose (4 tokens)
      hsl(330, 50%, 35%) ≈ #8c2d6a

@@ -11,12 +11,13 @@ import './ServerList.css';
 
 interface ServerListProps {
   onConnect: (server: ServerEntry) => void;
+  connectDisabled?: boolean;
   connectionError?: string | null;
   onClearError?: () => void;
   activeProfileName?: string;
 }
 
-export function ServerList({ onConnect, connectionError, onClearError, activeProfileName }: ServerListProps) {
+export function ServerList({ onConnect, connectDisabled, connectionError, onClearError, activeProfileName }: ServerListProps) {
   const { servers, loading, addServer, updateServer, removeServer } = useServerlist();
   const { profiles } = useProfiles();
   const [editing, setEditing] = useState<ServerEntry | null>(null);
@@ -172,6 +173,7 @@ export function ServerList({ onConnect, connectionError, onClearError, activePro
                       <button 
                         className="btn btn-primary server-list-connect-btn"
                         onClick={() => onConnect(server)}
+                        disabled={connectDisabled}
                       >
                         Connect
                       </button>
