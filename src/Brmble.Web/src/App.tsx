@@ -166,6 +166,7 @@ function App() {
   // Stays true for the entire onboarding flow so the wizard isn't unmounted
   // when certExists flips to true mid-wizard (e.g. after profile activation).
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
   const [certFingerprint, setCertFingerprint] = useState('');
   const [activeProfileName, setActiveProfileName] = useState('');
   const [profiles, setProfiles] = useState<Array<{ id: string; name: string }>>([]);
@@ -219,6 +220,15 @@ function App() {
   useEffect(() => {
     if (!connected) setShowAvatarEditor(false);
   }, [connected]);
+
+  useEffect(() => {
+    const handleWindowState = (data: { maximized?: boolean }) => {
+      setIsMaximized(data.maximized === true);
+    };
+    bridge.on('window.stateChanged', handleWindowState);
+    return () => bridge.off('window.stateChanged', handleWindowState);
+  }, []);
+
   const [showCloseDialog, setShowCloseDialog] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [hasPendingInvite] = useState(false);
@@ -2129,7 +2139,7 @@ const handleConnect = (serverData: SavedServer) => {
   }, [dmStore.selectedContact, unreadTracker.roomUnreads, matrixClient.client, unreadTracker, matrixClient?.dmRoomMap]);
 
   return (
-    <div className={`app${showOnboarding ? ' app--onboarding' : ''}`}>
+    <div className={`app${showOnboarding ? ' app--onboarding' : ''}${isMaximized ? ' app--maximized' : ''}`}>
       <ProfileProvider value={certFingerprint}>
       <ErrorBoundary label="Header">
       <Header
