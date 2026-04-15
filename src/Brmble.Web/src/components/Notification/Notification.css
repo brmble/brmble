@@ -3,14 +3,17 @@
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
   padding: var(--space-sm) var(--space-md);
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-rows: auto auto;
+  column-gap: var(--space-md);
+  row-gap: var(--space-sm);
   z-index: 1100;
   opacity: 0;
   transition: opacity var(--transition-fast), transform var(--transition-fast);
   box-shadow: var(--shadow-elevated);
-  max-width: 420px;
+  max-width: 480px;
+  min-width: 320px;
 }
 
 /* Position variants */
@@ -37,33 +40,40 @@
   transform: translateX(-50%) translateY(0);
 }
 
-/* Status icon */
+/* Grid placement: row 1 = icon | message | close */
 .notification__icon {
-  flex-shrink: 0;
+  grid-column: 1;
+  grid-row: 1;
+  align-self: start;
   display: flex;
   align-items: center;
+  padding-top: var(--space-xs);
 }
 
-.notification--info .notification__icon { color: var(--accent-info); }
-.notification--success .notification__icon { color: var(--accent-success); }
-.notification--warning .notification__icon { color: var(--accent-warning); }
-.notification--error .notification__icon { color: var(--accent-danger); }
-
-/* Status left border accent */
-.notification--info { border-left: 3px solid var(--accent-info); }
-.notification--success { border-left: 3px solid var(--accent-success); }
-.notification--warning { border-left: 3px solid var(--accent-warning); }
-.notification--error { border-left: 3px solid var(--accent-danger); }
-
-/* Content area */
-.notification__content {
-  flex: 1;
+.notification__message {
+  grid-column: 2;
+  grid-row: 1;
   min-width: 0;
+  padding-top: var(--space-xs);
 }
 
-/* Close button */
+.notification__title {
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.notification__detail {
+  font-size: 0.85em;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+
 .notification__close {
-  flex-shrink: 0;
+  grid-column: 3;
+  grid-row: 1;
+  align-self: start;
   background: none;
   border: none;
   color: var(--text-muted);
@@ -80,10 +90,56 @@
   background: var(--bg-hover);
 }
 
+/* Grid placement: row 2 = actions spanning message + close columns */
+.notification__actions {
+  grid-column: 2 / -1;
+  grid-row: 2;
+  display: flex;
+  gap: var(--space-xs);
+  justify-content: flex-end;
+}
+
+/* Status icon colors */
+.notification--info .notification__icon { color: var(--accent-info); }
+.notification--success .notification__icon { color: var(--accent-success); }
+.notification--warning .notification__icon { color: var(--accent-warning); }
+.notification--error .notification__icon { color: var(--accent-danger); }
+
+/* Status left border accent */
+.notification--info { border-left: 3px solid var(--accent-info); }
+.notification--success { border-left: 3px solid var(--accent-success); }
+.notification--warning { border-left: 3px solid var(--accent-warning); }
+.notification--error { border-left: 3px solid var(--accent-danger); }
+
+/* Auto-dismiss timer bar */
+@keyframes notification-timer {
+  from { transform: scaleX(1); }
+  to   { transform: scaleX(0); }
+}
+
+.notification__timer {
+  grid-column: 1 / -1;
+  grid-row: -1;
+  height: 2px;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  transform-origin: right center;
+  animation: notification-timer linear forwards;
+  margin: var(--space-xs) calc(-1 * var(--space-md)) calc(-1 * var(--space-sm));
+}
+
+.notification__timer--paused {
+  animation-play-state: paused;
+}
+
+.notification--info .notification__timer    { background: var(--accent-info); }
+.notification--success .notification__timer { background: var(--accent-success); }
+.notification--warning .notification__timer { background: var(--accent-warning); }
+.notification--error .notification__timer   { background: var(--accent-danger); }
+
 /* Stacking container */
 .notification-stack {
   position: fixed;
-  top: var(--space-lg);
+  top: calc(var(--header-height) + var(--space-sm));
   right: var(--space-lg);
   display: flex;
   flex-direction: column;
@@ -102,5 +158,9 @@
   }
   .notification--visible.notification--bottom-center {
     transform: translateX(-50%) !important;
+  }
+  .notification__timer {
+    animation: none;
+    transform: scaleX(1);
   }
 }

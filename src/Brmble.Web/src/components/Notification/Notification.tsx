@@ -7,7 +7,10 @@ export type NotificationStatus = 'info' | 'success' | 'warning' | 'error';
 interface NotificationProps {
   status: NotificationStatus;
   position: 'top-right' | 'bottom-center';
-  children: React.ReactNode;
+  title: React.ReactNode;
+  detail?: React.ReactNode;
+  actions?: React.ReactNode;
+  children?: React.ReactNode;
   visible: boolean;
   duration?: number | null;
   onDismiss?: () => void;
@@ -47,6 +50,9 @@ const DEFAULT_DURATIONS: Record<NotificationStatus, number | null> = {
 export function Notification({
   status,
   position,
+  title,
+  detail,
+  actions,
   children,
   visible,
   duration,
@@ -56,12 +62,21 @@ export function Notification({
   className,
 }: NotificationProps) {
   const [isVisible, setIsVisible] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const remainingRef = useRef<number | null>(null);
   const startTimeRef = useRef<number | null>(null);
   const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onDismissRef = useRef(onDismiss);
+  const onExitedRef = useRef(onExited);
 
   const effectiveDuration = duration !== undefined ? duration : DEFAULT_DURATIONS[status];
+
+  // Keep callback refs current without triggering timer/animation resets
+  useEffect(() => {
+    onDismissRef.current = onDismiss;
+    onExitedRef.current = onExited;
+  });
 
   // Enter animation
   useEffect(() => {
@@ -69,12 +84,12 @@ export function Notification({
       requestAnimationFrame(() => setIsVisible(true));
     } else {
       setIsVisible(false);
-      exitTimerRef.current = setTimeout(() => onExited?.(), 250);
+      exitTimerRef.current = setTimeout(() => onExitedRef.current?.(), 250);
     }
     return () => {
       if (exitTimerRef.current) clearTimeout(exitTimerRef.current);
     };
-  }, [visible, onExited]);
+  }, [visible]);
 
   // Auto-dismiss timer
   const startTimer = useCallback((ms: number) => {
@@ -82,9 +97,9 @@ export function Notification({
     remainingRef.current = ms;
     startTimeRef.current = Date.now();
     timerRef.current = setTimeout(() => {
-      onDismiss?.();
+      onDismissRef.current?.();
     }, ms);
-  }, [onDismiss]);
+  }, []);
 
   const pauseTimer = useCallback(() => {
     if (timerRef.current && startTimeRef.current !== null && remainingRef.current !== null) {
@@ -111,11 +126,17 @@ export function Notification({
   }, [visible, effectiveDuration, startTimer]);
 
   const handleMouseEnter = useCallback(() => {
-    if (pauseOnHover && effectiveDuration !== null) pauseTimer();
+    if (pauseOnHover && effectiveDuration !== null) {
+      pauseTimer();
+      setIsPaused(true);
+    }
   }, [pauseOnHover, effectiveDuration, pauseTimer]);
 
   const handleMouseLeave = useCallback(() => {
-    if (pauseOnHover && effectiveDuration !== null) resumeTimer();
+    if (pauseOnHover && effectiveDuration !== null) {
+      resumeTimer();
+      setIsPaused(false);
+    }
   }, [pauseOnHover, effectiveDuration, resumeTimer]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -142,10 +163,11 @@ export function Notification({
       onKeyDown={handleKeyDown}
     >
       <div className="notification__icon">
-        <Icon name={STATUS_ICONS[status]} size={18} />
+        <Icon name={STATUS_ICONS[status]} size={22} />
       </div>
-      <div className="notification__content">
-        {children}
+      <div className="notification__message">
+        <div className="notification__title">{title ?? children}</div>
+        {detail && <div className="notification__detail">{detail}</div>}
       </div>
       {onDismiss && (
         <button
@@ -153,8 +175,19 @@ export function Notification({
           onClick={onDismiss}
           aria-label="Dismiss notification"
         >
-          <Icon name="x" size={16} />
+          <Icon name="x" size={18} />
         </button>
+      )}
+      {actions && (
+        <div className="notification__actions">
+          {actions}
+        </div>
+      )}
+      {effectiveDuration !== null && effectiveDuration > 0 && isVisible && (
+        <div
+          className={`notification__timer${isPaused ? ' notification__timer--paused' : ''}`}
+          style={{ animationDuration: `${effectiveDuration}ms` }}
+        />
       )}
     </div>
   );

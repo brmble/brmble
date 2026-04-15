@@ -750,7 +750,7 @@ The `status` prop drives icon, color, ARIA role, and auto-dismiss behavior:
 3. **Should it auto-dismiss?** Default from status, but can override with `duration` prop
 4. **Does it need a dismiss button?** Persistent notifications: yes. Blocking with no fallback: no dismiss.
 5. **What actions does it need?** Max 1 primary action. Action must be reachable elsewhere in UI since notifications can be missed.
-6. **What message text?** Short, no jargon. State what happened and what the user can do.
+6. **What title + detail?** Title = what happened (short, one line). Detail = context or next step (optional).
 
 ### Props
 
@@ -758,24 +758,84 @@ The `status` prop drives icon, color, ARIA role, and auto-dismiss behavior:
 interface NotificationProps {
   status: 'info' | 'success' | 'warning' | 'error';
   position: 'top-right' | 'bottom-center';
-  children: React.ReactNode;
+  title: React.ReactNode;         // Bold headline — what happened. Keep to one line.
+  detail?: React.ReactNode;       // Secondary text — context, next step, or explanation.
+  actions?: React.ReactNode;      // Action buttons rendered below the message.
   visible: boolean;
-  duration?: number | null;     // null = never. Defaults: info/success = 5000, warning/error = null
-  onDismiss?: () => void;       // When provided, close button (x) renders
-  onExited?: () => void;        // After exit animation completes
-  pauseOnHover?: boolean;       // Default: true. Pauses auto-dismiss on hover (WCAG 2.2.1)
-  className?: string;           // For consumer-specific styling
+  duration?: number | null;       // null = never. Defaults: info/success = 5000, warning/error = null
+  onDismiss?: () => void;         // When provided, close button (×) renders
+  onExited?: () => void;          // After exit animation completes
+  pauseOnHover?: boolean;         // Default: true. Pauses auto-dismiss on hover (WCAG 2.2.1)
+  className?: string;             // For consumer-specific styling
 }
 ```
+
+### Content Structure
+
+Every notification uses a **title + detail** pattern:
+
+- **Title** = what happened. Short, scannable, fits one line. Bold weight.
+- **Detail** = context or next step. Smaller, secondary color. Optional — omit if the title says it all.
+
+The status icon aligns vertically with the title line.
+
+| When writing… | Do | Don't |
+|---|---|---|
+| Title | `Certificate missing` | `Profile "X" has no certificate file` |
+| Title | `Update available` | `Update available: v1.2.3` |
+| Detail | `Profile "X" has no certificate.` | (cram everything into one line) |
+| Detail | `Press Update to install v1.2.3.` | (repeat info from title) |
 
 ### Behavioral Rules
 
 - **Auto-dismiss:** `info`/`success` auto-dismiss at 5s; `warning`/`error` persist. Timer pauses on hover.
 - **Errors and actionable notifications must never auto-dismiss.**
 - **Max 3** visible top-right notifications. Excess queued. Identical notifications (same status + message) deduplicated.
-- **Action buttons:** Max 1 primary per notification. Close button is separate from action button.
+- **Action buttons:** Max 1 primary per notification. Every labeled button must perform a distinct action (e.g. "Update", "Import", "Settings"). Close button is separate from action buttons.
+- **Dismissal is `×` only.** Never add a text button ("Dismiss", "Later", "Close") that duplicates the `×` close button. The `×` is the universal dismiss affordance — text buttons are reserved for meaningful actions. This keeps the UI clean and avoids redundancy.
 - Top-right notifications render inside a `.notification-stack` container in `App.tsx`.
 - Bottom-center notifications (`Toast`) position themselves independently.
+
+### Queue & Priority (`useNotificationQueue`)
+
+Top-right notifications are managed by the `useNotificationQueue` hook (`src/Brmble.Web/src/hooks/useNotificationQueue.ts`). This keeps the stack readable by limiting visible notifications and ensuring critical ones are always shown.
+
+**Priority order** (highest first):
+
+| Priority | Status | Numeric |
+|---|---|---|
+| Highest | `error` | 3 |
+| | `warning` | 2 |
+| | `info` | 1 |
+| Lowest | `success` | 0 |
+
+**Rules:**
+- Max **3** notifications visible simultaneously. Excess entries are queued.
+- Within the same priority, **arrival order** wins (first registered shows first).
+- When a higher-priority notification registers, it **preempts** the lowest-priority visible one.
+- When a notification is dismissed or exits, the next queued entry **re-appears** automatically.
+- `register(id, status)` — call when notification data exists (e.g. broken profile detected, update available, server imported).
+- `unregister(id)` — call from `onExited` (after exit animation), not from `onDismiss`. This ensures the exit animation completes before the slot is freed.
+- `isVisible(id)` — pass as the `visible` prop to `<Notification>`.
+- Bottom-center notifications (`Toast`) bypass the queue — they position independently.
+
+**Integration pattern in App.tsx:**
+```tsx
+const q = useNotificationQueue();
+
+// Register when data arrives
+useEffect(() => {
+  if (hasBrokenCert) q.register('broken-cert', 'warning');
+  else q.unregister('broken-cert');
+}, [hasBrokenCert]);
+
+// Render
+<Notification
+  visible={q.isVisible('broken-cert')}
+  onExited={() => q.unregister('broken-cert')}
+  ...
+/>
+```
 
 ### Accessibility
 
@@ -807,16 +867,23 @@ See `src/Brmble.Web/src/themes/_template.css` for guidance values per token.
 
 ```tsx
 // A "server unreachable" error notification
-<Notification status="error" position="top-right" onDismiss={handleDismiss}>
-  <p>Could not reach server. <strong>Check your connection.</strong></p>
-  <button className="btn btn-sm btn-primary" onClick={handleRetry}>Retry</button>
-</Notification>
+<Notification
+  status="error"
+  position="top-right"
+  visible={visible}
+  onDismiss={handleDismiss}
+  title="Server unreachable"
+  detail="Could not reach the server. Check your connection."
+  actions={
+    <button className="btn btn-sm btn-primary" onClick={handleRetry}>Retry</button>
+  }
+/>
 ```
 
 ### Existing Notifications
 
-| Component | Status | Position | Auto-dismiss | Notes |
-|---|---|---|---|---|
-| `Toast` | `info` | `bottom-center` | 8s | |
-| `UpdateNotification` | `info` | `top-right` | No | |
-| `BrokenCertNotification` | `warning` | `top-right` | No | One per broken profile; each independently dismissible |
+| Component | Status | Position | Auto-dismiss | Title | Detail |
+|---|---|---|---|---|---|
+| `Toast` | `info` | `bottom-center` | 8s | message string | (none) |
+| `UpdateNotification` | `info` | `top-right` | No | `Update available` | `Press Update to install v{version}.` |
+| `BrokenCertNotification` | `warning` | `top-right` | No | `Certificate missing` | Profile name, switched-to info, recovery instructions |

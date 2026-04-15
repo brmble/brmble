@@ -1,14 +1,3 @@
-.update-notification__message {
-  font-size: var(--text-sm);
-  color: var(--text-primary);
-  white-space: nowrap;
-}
-
-.update-notification__actions {
-  display: flex;
-  gap: var(--space-xs);
-}
-
 .update-notification__progress {
   width: 120px;
   height: 4px;

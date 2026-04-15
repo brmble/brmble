@@ -26,23 +26,19 @@ export function UpdateNotification({ version, onUpdate, onDismiss, progress }: U
       duration={null}
       onDismiss={isApplying ? undefined : handleDismiss}
       onExited={onDismiss}
-    >
-      {isApplying ? (
-        <>
-          <span className="update-notification__message">Updating to v{version}...</span>
-          <div className="update-notification__progress">
-            <div className="update-notification__progress-bar" style={{ width: `${progress}%` }} />
-          </div>
-        </>
+      title={isApplying ? 'Updating...' : 'Update available'}
+      detail={
+        <span className="update-notification__detail">
+          {isApplying ? `Installing v${version}` : `Press Update to install v${version}.`}
+        </span>
+      }
+      actions={isApplying ? (
+        <div className="update-notification__progress">
+          <div className="update-notification__progress-bar" style={{ width: `${progress}%` }} />
+        </div>
       ) : (
-        <>
-          <span className="update-notification__message">Update available: v{version}</span>
-          <div className="update-notification__actions">
-            <button className="btn btn-sm btn-ghost" onClick={handleDismiss}>Later</button>
-            <button className="btn btn-sm btn-primary" onClick={onUpdate}>Update</button>
-          </div>
-        </>
+        <button className="btn btn-sm btn-primary" onClick={onUpdate}>Update</button>
       )}
-    </Notification>
+    />
   );
 }

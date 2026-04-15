@@ -1,16 +1,3 @@
-.broken-cert-notification__message {
-  font-size: var(--text-sm);
+.broken-cert-notification__detail strong {
   color: var(--text-primary);
-  line-height: 1.4;
-  margin-bottom: var(--space-sm);
-}
-
-.broken-cert-notification__message strong {
-  color: var(--text-primary);
-}
-
-.broken-cert-notification__actions {
-  display: flex;
-  gap: var(--space-xs);
-  justify-content: flex-end;
 }

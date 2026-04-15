@@ -35,10 +35,9 @@ export function Toast({ message, actions, duration = 8000, onDismiss }: ToastPro
       duration={duration}
       onDismiss={handleDismiss}
       onExited={onDismiss}
-    >
-      <span className="toast-message">{message}</span>
-      {actions && (
-        <div className="toast-actions">
+      title={<span className="toast-title">{message}</span>}
+      actions={actions ? (
+        <>
           {actions.map((action, i) => (
             <button
               key={i}
@@ -48,8 +47,8 @@ export function Toast({ message, actions, duration = 8000, onDismiss }: ToastPro
               {action.label}
             </button>
           ))}
-        </div>
-      )}
-    </Notification>
+        </>
+      ) : undefined}
+    />
   );
 }

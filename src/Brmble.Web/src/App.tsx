@@ -6,6 +6,7 @@ import { useMatrixClient } from './hooks/useMatrixClient';
 import type { MatrixCredentials } from './hooks/useMatrixClient';
 import { useScreenShare } from './hooks/useScreenShare';
 import { useLeaveVoiceCooldown } from './hooks/useLeaveVoiceCooldown';
+import { useNotificationQueue } from './hooks/useNotificationQueue';
 import { useUnreadTracker, resetMarkersCache } from './hooks/useUnreadTracker';
 import { useServiceStatus } from './hooks/useServiceStatus';
 import { useServerHealth } from './hooks/useServerHealth';
@@ -36,6 +37,7 @@ import { Brmblegotchi } from './components/Brmblegotchi/Brmblegotchi';
 import { ProfileProvider } from './contexts/ProfileContext';
 import { UpdateNotification } from './components/UpdateNotification/UpdateNotification';
 import { BrokenCertNotification } from './components/BrokenCertNotification/BrokenCertNotification';
+import { Notification } from './components/Notification/Notification';
 import { migrateLocalStorage } from './utils/migrateLocalStorage';
 import './App.css';
 
@@ -133,6 +135,9 @@ interface User {
 
 
 function App() {
+  // --- Notification queue (max 3 visible, priority-based) ---
+  const notifQueue = useNotificationQueue();
+
   // --- Brmblegotchi settings state ---
   const [brmblegotchiEnabled, setBrmblegotchiEnabledState] = useState<boolean>(() => {
     try {
@@ -1083,7 +1088,7 @@ function App() {
     };
 
     const onProfilesList = (data: unknown) => {
-      const d = data as { profiles: Array<{ id: string; name: string }>; activeProfileId: string | null; brokenProfiles?: Array<{ id: string; name: string }>; autoSwitchedTo?: { id: string; name: string } | null; switchedFromId?: string | null };
+      const d = data as { profiles: Array<{ id: string; name: string }>; activeProfileId: string | null; brokenProfiles?: Array<{ id: string; name: string }> };
       setProfiles(d.profiles ?? []);
       if (d.activeProfileId) {
         const active = d.profiles.find(p => p.id === d.activeProfileId);
@@ -1094,8 +1099,6 @@ function App() {
         const hasHealthyFallback = (d.profiles ?? []).some(p => !brokenIds.has(p.id));
         setBrokenCertInfo({
           brokenProfiles: d.brokenProfiles,
-          switchedTo: d.autoSwitchedTo ?? null,
-          switchedFromId: d.switchedFromId ?? null,
           hasHealthyFallback,
         });
       }
@@ -1825,10 +1828,43 @@ const handleConnect = (serverData: SavedServer) => {
   const [updateProgress, setUpdateProgress] = useState<number | null>(null);
   const [brokenCertInfo, setBrokenCertInfo] = useState<{
     brokenProfiles: Array<{ id: string; name: string }>;
-    switchedTo: { id: string; name: string } | null;
-    switchedFromId: string | null;
     hasHealthyFallback: boolean;
   } | null>(null);
+
+  // Server import notifications (from onboarding wizard) — one per server
+  interface ServerImportToast { id: string; label: string; }
+  const [serverImportToasts, setServerImportToasts] = useState<ServerImportToast[]>([]);
+
+  const handleServersImported = useCallback((labels: string[]) => {
+    const toasts = labels.map((label, i) => ({ id: `srv-${Date.now()}-${i}`, label }));
+    setServerImportToasts(toasts);
+    toasts.forEach(t => notifQueue.register(t.id, 'info'));
+  }, [notifQueue]);
+
+  // Register/unregister update notification with queue
+  useEffect(() => {
+    if (updateInfo) notifQueue.register('update', 'info');
+    else notifQueue.unregister('update');
+  }, [updateInfo, notifQueue]);
+
+  // Register/unregister broken cert notifications with queue
+  const prevBrokenIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const currentIds = new Set<string>();
+    if (brokenCertInfo) {
+      brokenCertInfo.brokenProfiles.forEach(bp => {
+        currentIds.add(`cert-${bp.id}`);
+        notifQueue.register(`cert-${bp.id}`, 'warning');
+      });
+    }
+    // Unregister any that were previously registered but are now gone
+    for (const id of prevBrokenIdsRef.current) {
+      if (!currentIds.has(id)) {
+        notifQueue.unregister(id);
+      }
+    }
+    prevBrokenIdsRef.current = currentIds;
+  }, [brokenCertInfo, notifQueue]);
 
   const { isOnCooldown: leaveVoiceOnCooldown, trigger: triggerLeaveVoiceCooldown } = useLeaveVoiceCooldown(1000);
   const { isOnCooldown: muteOnCooldown, trigger: triggerMuteCooldown } = useLeaveVoiceCooldown(1000);
@@ -2238,7 +2274,7 @@ const handleConnect = (serverData: SavedServer) => {
               setBrmblegotchiEnabledState(parsed.brmblegotchi?.enabled ?? false);
             }
           } catch { /* ignore */ }
-        }} />
+        }} onServersImported={handleServersImported} />
       )}
 
       <SettingsModal
@@ -2284,23 +2320,45 @@ const handleConnect = (serverData: SavedServer) => {
       <PromptWithInput />
 
       <div className="notification-stack">
-        {updateInfo && (
+        {updateInfo && notifQueue.isVisible('update') && (
           <UpdateNotification
             version={updateInfo.version}
             onUpdate={handleApplyUpdate}
-            onDismiss={handleDismissUpdate}
+            onDismiss={() => { handleDismissUpdate(); notifQueue.unregister('update'); }}
             progress={updateProgress}
           />
         )}
         {brokenCertInfo && brokenCertInfo.brokenProfiles.map(bp => (
-          <BrokenCertNotification
-            key={bp.id}
-            profile={bp}
-            switchedTo={bp.id === brokenCertInfo.switchedFromId ? brokenCertInfo.switchedTo : null}
-            onImport={handleBrokenCertImport}
-            onOpenSettings={handleBrokenCertOpenSettings}
-            onDismiss={brokenCertInfo.hasHealthyFallback ? () => handleBrokenCertDismiss(bp.id) : undefined}
-          />
+          notifQueue.isVisible(`cert-${bp.id}`) ? (
+            <BrokenCertNotification
+              key={bp.id}
+              profile={bp}
+              onImport={handleBrokenCertImport}
+              onOpenSettings={handleBrokenCertOpenSettings}
+              onDismiss={brokenCertInfo.hasHealthyFallback ? () => { handleBrokenCertDismiss(bp.id); notifQueue.unregister(`cert-${bp.id}`); } : undefined}
+            />
+          ) : null
+        ))}
+        {serverImportToasts.map(toast => (
+          notifQueue.isVisible(toast.id) ? (
+            <Notification
+              key={toast.id}
+              status="info"
+              position="top-right"
+              visible={true}
+              duration={5000}
+              title="Server imported"
+              detail={toast.label}
+              onDismiss={() => {
+                setServerImportToasts(prev => prev.filter(t => t.id !== toast.id));
+                notifQueue.unregister(toast.id);
+              }}
+              onExited={() => {
+                setServerImportToasts(prev => prev.filter(t => t.id !== toast.id));
+                notifQueue.unregister(toast.id);
+              }}
+            />
+          ) : null
         ))}
       </div>
 

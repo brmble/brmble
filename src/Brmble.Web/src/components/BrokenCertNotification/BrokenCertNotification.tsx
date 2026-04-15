@@ -4,7 +4,6 @@ import './BrokenCertNotification.css';
 
 interface BrokenCertNotificationProps {
   profile: { id: string; name: string };
-  switchedTo: { id: string; name: string } | null;
   onImport: (profileId: string) => void;
   onOpenSettings: () => void;
   onDismiss?: () => void;
@@ -12,7 +11,6 @@ interface BrokenCertNotificationProps {
 
 export function BrokenCertNotification({
   profile,
-  switchedTo,
   onImport,
   onOpenSettings,
   onDismiss,
@@ -31,31 +29,18 @@ export function BrokenCertNotification({
       duration={null}
       onDismiss={onDismiss ? handleDismiss : undefined}
       onExited={onDismiss}
-    >
-      <div>
-        <p className="broken-cert-notification__message">
-          Profile <strong>"{profile.name}"</strong> has no certificate file.
-          {switchedTo && (
-            <> Switched to <strong>"{switchedTo.name}"</strong>.</>
-          )}
-          {!switchedTo && !onDismiss && (
-            <> Import a certificate or create a new profile to connect.</>
-          )}
-        </p>
-        <div className="broken-cert-notification__actions">
-          {onDismiss && (
-            <button className="btn btn-sm btn-ghost" onClick={handleDismiss}>
-              Dismiss
-            </button>
-          )}
+      title={<>Certificate missing from "<strong>{profile.name}</strong>"</>}
+      detail="Choose Import to recover it, or delete the profile in Settings."
+      actions={
+        <>
           <button className="btn btn-sm btn-secondary" onClick={onOpenSettings}>
             Settings
           </button>
           <button className="btn btn-sm btn-primary" onClick={() => onImport(profile.id)}>
             Import
           </button>
-        </div>
-      </div>
-    </Notification>
+        </>
+      }
+    />
   );
 }

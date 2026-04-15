@@ -220,10 +220,13 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
     setIsAdding(false);
   };
 
-  const handleDelete = async (profile: { id: string; name: string }) => {
+  const handleDelete = async (profile: { id: string; name: string; certValid: boolean }) => {
+    const message = profile.certValid
+      ? `Remove "${profile.name}"? The certificate file will remain on disk and can be re-imported later.`
+      : `Remove "${profile.name}"? This profile has no certificate — it can only be restored by importing a new one.`;
     const confirmed = await confirm({
       title: 'Delete profile',
-      message: `Remove "${profile.name}"? The certificate file will remain on disk and can be re-imported later.`,
+      message,
       confirmLabel: 'Delete',
       cancelLabel: 'Cancel',
     });
