@@ -105,10 +105,21 @@ export function SettingsModal(props: SettingsModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
-    if (!isOpen || !tabsRef.current || !modalRef.current) return;
-    const tabsWidth = tabsRef.current.scrollWidth;
-    const modalWidth = Math.min(Math.max(tabsWidth, 600), window.innerWidth * 0.9);
-    modalRef.current.style.width = `${modalWidth}px`;
+    if (!isOpen) return;
+
+    const updateModalWidth = () => {
+      if (!tabsRef.current || !modalRef.current) return;
+      const tabsWidth = tabsRef.current.scrollWidth;
+      const modalWidth = Math.min(Math.max(tabsWidth, 600), window.innerWidth * 0.9);
+      modalRef.current.style.width = `${modalWidth}px`;
+    };
+
+    updateModalWidth();
+    window.addEventListener('resize', updateModalWidth);
+
+    return () => {
+      window.removeEventListener('resize', updateModalWidth);
+    };
   }, [isOpen, hasAdminPermission]);
 
   useEffect(() => {

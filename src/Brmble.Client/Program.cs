@@ -33,9 +33,9 @@ static class Program
     private const int ResizeBorderWidth = 6;
 
     /// <summary>
-    /// Calculates the WebView2 bounds, inset from the client rect by the
-    /// resize border width when the window is not maximized. When maximized
-    /// there is no resize border, so WebView2 fills the full client area.
+    /// Calculates the WebView2 bounds, always inset from the client rect
+    /// by the resize border width so the native background shows through
+    /// on all edges in both normal and maximized states.
     /// </summary>
     private static Rectangle GetWebViewBounds(IntPtr hwnd)
     {
@@ -393,10 +393,8 @@ static class Program
                 var newBrush = Win32Window.CreateBackgroundBrush(colorRef);
                 var oldBrush = Win32Window.SetClassLongPtr(
                     _hwnd, Win32Window.GCL_HBRBACKGROUND, newBrush);
-                if (oldBrush != IntPtr.Zero && oldBrush != _currentBgBrush)
+                if (oldBrush != IntPtr.Zero && oldBrush != newBrush)
                     Win32Window.DeleteObject(oldBrush);
-                if (_currentBgBrush != IntPtr.Zero && _currentBgBrush != oldBrush)
-                    Win32Window.DeleteObject(_currentBgBrush);
                 _currentBgBrush = newBrush;
                 Win32Window.InvalidateRect(_hwnd, IntPtr.Zero, true);
             }

@@ -63,30 +63,32 @@ Add P/Invoke declarations for `SetClassLongPtr`, `InvalidateRect`, and `DeleteOb
 
 ## Fix 4: Consistent Spacing When Maximized
 
-**Files:** `src/Brmble.Client/Program.cs`, `src/Brmble.Web/src/App.tsx`, `src/Brmble.Web/src/App.css`, `src/Brmble.Web/src/components/Header/Header.tsx`
+**Files:** `src/Brmble.Client/Program.cs`, `src/Brmble.Web/src/App.tsx`, `src/Brmble.Web/src/components/Header/Header.tsx`
+
+### Native inset
+
+Keep the native 6px inset in `Program.cs` consistent across restored and maximized states instead of compensating in the web layer. The goal is for the same chrome-owned spacing to remain visible when the window is maximized, so content never sits flush against the screen edges.
+
+### Frontend state
+
+No frontend maximize-state plumbing is required for this behavior. `App.tsx` does not need to listen for a window-state event or toggle an `.app--maximized` class.
+
+### CSS compensation
+
+No maximized-only CSS padding is needed. Spacing is provided by the native window inset rather than by adding padding in the app root.
+
+This keeps the responsibility for edge spacing in the native chrome layer, avoids web/native duplication, and ensures maximized and restored windows use the same 6px inset behavior.
 
 ### Bridge message: `window.stateChanged`
 
-In the `WM_SIZE` handler in `Program.cs` (which already handles WebView2 bounds updates), detect maximize/restore transitions. When `wParam` is `SIZE_MAXIMIZED` or `SIZE_RESTORED`, send:
+In the `WM_SIZE` handler in `Program.cs`, detect maximize/restore transitions. When `wParam` is `SIZE_MAXIMIZED` or `SIZE_RESTORED`, send:
 
 ```csharp
 bridge.Send("window.stateChanged", new { maximized = IsZoomed(hwnd) });
 bridge.NotifyUiThread();
 ```
 
-### Frontend state
-
-In `App.tsx`, listen for `window.stateChanged` and store `isMaximized` in state. Add class `.app--maximized` to the root `.app` element when true.
-
-### CSS compensation
-
-```css
-.app--maximized {
-  padding: 6px;
-}
-```
-
-Since `.app` is `height: 100vh` with `display: flex; flex-direction: column` and `background: var(--bg-deep)`, the 6px padding fills the same role as the native border inset. The `--bg-deep` background shows through the padding, visually matching the border strip in normal mode.
+This message is used by the frontend to toggle the maximize/restore icon in the Header, not for spacing.
 
 ### Maximize button icon toggle (polish)
 
@@ -97,5 +99,5 @@ Pass `isMaximized` as a prop to `Header.tsx`. The window control button currentl
 - **Sidebar handle:** Hover and drag the sidebar resize handle. It should show a subtle `--border-subtle` line at rest, and highlight to `--accent-primary` on hover and drag. Compare visually with the chat split divider -- they should look the same.
 - **Onboarding scrollbar:** Run through the onboarding wizard. No sidebar scrollbar should be visible at any step.
 - **Border theme color:** Switch between all 8 themes while the window is in normal (restored) mode. The 6px border strip should match the theme's background color without a visible seam.
-- **Maximized spacing:** Maximize the window. Content should not be flush with screen edges -- 6px of `--bg-deep` padding should be visible on all sides. Restore the window and verify the double-padding issue does not occur (native 6px inset + no extra CSS padding).
+- **Maximized spacing:** Maximize the window. Content should not be flush with screen edges -- the same 6px native inset should remain visible rather than collapsing to 0px. Restore the window and verify spacing remains consistent without any extra web-layer padding being applied.
 - **Maximize button:** The header button should show a restore icon when maximized, and a maximize icon when restored.
