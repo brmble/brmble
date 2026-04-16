@@ -350,6 +350,7 @@ private int _screenShareHotkeyId = -1;
                 frameSize: 48000 / 1000 * _opusFrameMs,
                 dtx: _dtxEnabled,
                 initialSequence: seq);
+            _encodePipeline.SetVolume(_inputVolume);
         }
     }
 

@@ -1,5 +1,6 @@
 namespace MumbleVoiceEngine.Pipeline;
 
+using System.Buffers;
 using System.Runtime.InteropServices;
 using MumbleVoiceEngine.Codec;
 using MumbleVoiceEngine.Protocol;
@@ -93,20 +94,38 @@ public class EncodePipeline : IDisposable
 
     private void EncodeAndEmit()
     {
+        byte[] scaled;
+
         if (_volume != 1.0f)
         {
-            var scaled = new byte[_accumulatorPos];
-            int sampleCount = _accumulatorPos / sizeof(short);
-            for (int i = 0; i < sampleCount; i++)
+            scaled = ArrayPool<byte>.Shared.Rent(_accumulatorPos);
+            try
             {
-                int offset = i * sizeof(short);
-                short original = (short)(_accumulator[offset] | (_accumulator[offset + 1] << 8));
-                float scaledSample = original * _volume;
-                short clamped = (short)Math.Clamp(scaledSample, short.MinValue, short.MaxValue);
-                scaled[offset] = (byte)(clamped & 0xFF);
-                scaled[offset + 1] = (byte)((clamped >> 8) & 0xFF);
-            }
+                var samples = MemoryMarshal.Cast<byte, short>(
+                    _accumulator.AsSpan(0, _accumulatorPos));
+                var scaledSamples = MemoryMarshal.Cast<byte, short>(
+                    scaled.AsSpan(0, _accumulatorPos));
 
+                for (int i = 0; i < samples.Length; i++)
+                {
+                    float scaledSample = samples[i] * _volume;
+                    scaledSamples[i] = (short)Math.Clamp(
+                        scaledSample, short.MinValue, short.MaxValue);
+                }
+            }
+            catch
+            {
+                ArrayPool<byte>.Shared.Return(scaled);
+                throw;
+            }
+        }
+        else
+        {
+            scaled = _accumulator;
+        }
+
+        try
+        {
             var encoded = new byte[MaxOpusPacketBytes];
             int encodedLen = _encoder.Encode(scaled, 0, encoded, 0, _frameSize);
 
@@ -118,18 +137,12 @@ public class EncodePipeline : IDisposable
 
             _onPacketReady(packet);
         }
-        else
+        finally
         {
-            var encoded = new byte[MaxOpusPacketBytes];
-            int encodedLen = _encoder.Encode(_accumulator, 0, encoded, 0, _frameSize);
-
-            var opusData = new byte[encodedLen];
-            Array.Copy(encoded, opusData, encodedLen);
-
-            byte[] packet = VoicePacketBuilder.Build(opusData, _sequenceNumber, _target);
-            _sequenceNumber++;
-
-            _onPacketReady(packet);
+            if (_volume != 1.0f)
+            {
+                ArrayPool<byte>.Shared.Return(scaled);
+            }
         }
     }
 

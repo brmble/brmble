@@ -28,7 +28,10 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
     private readonly Queue<byte[]> _pcmQueue = new();
     private long _lastSequence = -1;
     private int _lostPackets;
-    private int _totalExpected;
+    private int _receivedPackets;
+
+    // Track last decoded frame size for PLC generation
+    private int _lastDecodedSamples = PlcFrameSamples;
     private byte[]? _currentFrame;
     private int _currentFrameOffset;
 
@@ -71,22 +74,33 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
 
     private long CalculateGap(long current, long last)
     {
-        long gap = current - last - 1;
-        if (gap < -1000000)
-            gap += int.MaxValue;
-        return Math.Max(0, gap);
+        if (current <= last)
+            return 0;
+        return current - last - 1;
     }
 
-    private void GeneratePLC(int frames)
+    private void GeneratePLC(int frames, int sampleCount)
     {
         int count = Math.Min(frames, MaxPlcFrames);
+        int plcBufferLen = sampleCount * _bytesPerSample;
+
+        if (plcBufferLen > _plcBuffer.Length)
+        {
+            plcBufferLen = _plcBuffer.Length;
+            sampleCount = plcBufferLen / _bytesPerSample;
+        }
+
         for (int i = 0; i < count; i++)
         {
-            Array.Clear(_plcBuffer, 0, _plcBuffer.Length);
+            Array.Clear(_plcBuffer, 0, plcBufferLen);
             _decoder.Decode(null, 0, 0, _plcBuffer, 0);
+
+            var copy = new byte[plcBufferLen];
+            Array.Copy(_plcBuffer, 0, copy, 0, plcBufferLen);
+
             lock (_lock)
             {
-                _pcmQueue.Enqueue(_plcBuffer.ToArray());
+                _pcmQueue.Enqueue(copy);
             }
         }
     }
@@ -102,10 +116,10 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
             long gap = CalculateGap(sequence, _lastSequence);
             if (gap > 0)
             {
-                _lostPackets += (int)gap;
+                Interlocked.Add(ref _lostPackets, (int)gap);
                 if (gap <= MaxGapFrames)
                 {
-                    GeneratePLC((int)gap);
+                    GeneratePLC((int)gap, _lastDecodedSamples);
                 }
             }
         }
@@ -113,6 +127,7 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
 
         var samples = OpusDecoder.GetSamples(opusData, 0, opusData.Length, _sampleRate);
         if (samples <= 0) return;
+        _lastDecodedSamples = samples;
 
         var decoded = new byte[samples * _bytesPerSample];
         _decoder.Decode(opusData, 0, opusData.Length, decoded, 0);
@@ -120,7 +135,7 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
         lock (_lock)
         {
             _pcmQueue.Enqueue(decoded);
-            _totalExpected++;
+            _receivedPackets++;
         }
     }
 
@@ -132,10 +147,11 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
     {
         lock (_lock)
         {
-            if (_totalExpected == 0) return 0;
-            int loss = (int)(_lostPackets / (float)_totalExpected * 100);
-            _lostPackets = 0;
-            _totalExpected = 0;
+            int received = _receivedPackets;
+            if (received == 0) return 0;
+            int lost = Interlocked.Exchange(ref _lostPackets, 0);
+            int loss = (int)(lost / (float)(received + lost) * 100);
+            _receivedPackets = 0;
             return loss;
         }
     }
