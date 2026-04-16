@@ -43,9 +43,6 @@ static class Program
         int w = rect.Right - rect.Left;
         int h = rect.Bottom - rect.Top;
 
-        if (Win32Window.IsZoomed(hwnd))
-            return new Rectangle(0, 0, w, h);
-
         int b = ResizeBorderWidth;
         return new Rectangle(b, b, Math.Max(0, w - 2 * b), Math.Max(0, h - 2 * b));
     }

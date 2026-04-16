@@ -42,10 +42,6 @@
   display: none;
 }
 
-.app--maximized {
-  padding: 6px;
-}
-
 .sidebar-placeholder {
   text-align: center;
   padding: 2rem;

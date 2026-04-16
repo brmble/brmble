@@ -2139,7 +2139,7 @@ const handleConnect = (serverData: SavedServer) => {
   }, [dmStore.selectedContact, unreadTracker.roomUnreads, matrixClient.client, unreadTracker, matrixClient?.dmRoomMap]);
 
   return (
-    <div className={`app${showOnboarding ? ' app--onboarding' : ''}${isMaximized ? ' app--maximized' : ''}`}>
+    <div className={`app${showOnboarding ? ' app--onboarding' : ''}`}>
       <ProfileProvider value={certFingerprint}>
       <ErrorBoundary label="Header">
       <Header
