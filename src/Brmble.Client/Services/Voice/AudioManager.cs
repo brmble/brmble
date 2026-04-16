@@ -223,6 +223,10 @@ private int _screenShareHotkeyId = -1;
     private int _opusFrameMs = 20;
     private bool _dtxEnabled;
 
+    // Virtual mic (testing). Not persisted across restarts.
+    private string? _virtualMicPath;
+    private volatile bool _virtualMicActive;
+
     // Speech enhancement
     // Capture-side processor (swappable). Default = Legacy stack.
     private IAudioCapturePostProcessor? _processor;
@@ -398,6 +402,23 @@ private int _screenShareHotkeyId = -1;
         }
     }
 
+    public void SetVirtualMic(string? wavPath)
+    {
+        lock (_lock)
+        {
+            _virtualMicPath = string.IsNullOrWhiteSpace(wavPath) ? null : wavPath;
+            _virtualMicActive = _virtualMicPath != null;
+            AudioLog.Write($"[Audio] Virtual mic {(_virtualMicActive ? $"enabled: {_virtualMicPath}" : "disabled")}");
+
+            // If mic is currently running, restart it so StartMicLocked picks the right source.
+            if (_micStarted)
+            {
+                StopMicLocked();
+                StartMicLocked();
+            }
+        }
+    }
+
     public void SetProcessingStack(ProcessingStack stack)
     {
         lock (_lock)
@@ -551,84 +572,104 @@ private int _screenShareHotkeyId = -1;
     {
         lock (_lock)
         {
+            StartMicLocked();
+        }
+    }
+
+    /// <summary>
+    /// Inner mic-start logic. Caller must hold <see cref="_lock"/>.
+    /// May temporarily release and reacquire the lock for WASAPI stop-wait.
+    /// </summary>
+    private void StartMicLocked()
+    {
+        if (_micStarted || _muted) return;
+
+        _micStarted = true;
+        if (_encodePipeline == null)
+            RecreateEncodePipelineLocked();
+
+        // Virtual mic branch: use fixture replay instead of real hardware.
+        if (_virtualMicActive && _virtualMicPath != null)
+        {
+            _waveIn?.Dispose();
+            _waveIn = new FixtureWaveProvider(_virtualMicPath, frameMs: 20, loop: true);
+            _waveIn.DataAvailable += OnMicData;
+            _waveIn.StartRecording();
+            AudioLog.Write("[Audio] Mic started (virtual — fixture replay)");
+            return;
+        }
+
+        if (_waveIn == null)
+        {
+            if (_captureApi == "wasapi")
+            {
+                using var enumerator = new MMDeviceEnumerator();
+                using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Communications);
+                var wasapi = new WasapiCapture(device, true, 60)
+                {
+                    ShareMode = AudioClientShareMode.Shared
+                };
+                AudioLog.Write($"[Audio] WASAPI capture format: {wasapi.WaveFormat.SampleRate}Hz, {wasapi.WaveFormat.BitsPerSample}bit, {wasapi.WaveFormat.Channels}ch");
+                wasapi.RecordingStopped += (s, e) =>
+                {
+                    if (e.Exception != null)
+                    {
+                        AudioLog.Write($"[Audio] WASAPI recording stopped with error: {e.Exception.Message}");
+                    }
+                };
+                _waveIn = wasapi;
+            }
+            else
+            {
+                _waveIn = new WaveInEvent
+                {
+                    DeviceNumber = -1,
+                    BufferMilliseconds = 20,
+                    WaveFormat = new WaveFormat(48000, 16, 1)
+                };
+            }
+            _waveIn.DataAvailable += OnMicData;
+        }
+
+        // WasapiCapture.StopRecording() only signals the capture thread to
+        // stop; it doesn't wait for it to exit.  If we call StartRecording()
+        // before the thread has fully stopped, WasapiCapture throws
+        // InvalidOperationException ("Previous recording still in progress").
+        // Wait outside the lock so other threads aren't blocked, then
+        // re-validate state before proceeding.
+        if (_waveIn is WasapiCapture wasapiWait &&
+            wasapiWait.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped)
+        {
+            var localCapture = wasapiWait;
+            Monitor.Exit(_lock);
+            try
+            {
+                const int maxWaitMs = 300;
+                int waited = 0;
+                while (localCapture.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped && waited < maxWaitMs)
+                {
+                    Thread.Sleep(10);
+                    waited += 10;
+                }
+            }
+            finally
+            {
+                Monitor.Enter(_lock);
+            }
+
+            // State may have changed while we were unlocked — re-validate.
             if (_micStarted || _muted) return;
 
-            _micStarted = true;
-            if (_encodePipeline == null)
-                RecreateEncodePipelineLocked();
-
-            if (_waveIn == null)
+            if (_waveIn is WasapiCapture recheck &&
+                recheck.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped)
             {
-                if (_captureApi == "wasapi")
-                {
-                    using var enumerator = new MMDeviceEnumerator();
-                    using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Communications);
-                    var wasapi = new WasapiCapture(device, true, 60)
-                    {
-                        ShareMode = AudioClientShareMode.Shared
-                    };
-                    AudioLog.Write($"[Audio] WASAPI capture format: {wasapi.WaveFormat.SampleRate}Hz, {wasapi.WaveFormat.BitsPerSample}bit, {wasapi.WaveFormat.Channels}ch");
-                    wasapi.RecordingStopped += (s, e) =>
-                    {
-                        if (e.Exception != null)
-                        {
-                            AudioLog.Write($"[Audio] WASAPI recording stopped with error: {e.Exception.Message}");
-                        }
-                    };
-                    _waveIn = wasapi;
-                }
-                else
-                {
-                    _waveIn = new WaveInEvent
-                    {
-                        DeviceNumber = -1,
-                        BufferMilliseconds = 20,
-                        WaveFormat = new WaveFormat(48000, 16, 1)
-                    };
-                }
-                _waveIn.DataAvailable += OnMicData;
+                AudioLog.Write($"[Audio] WASAPI capture still stopping after wait, skipping StartRecording");
+                return;
             }
-
-            // WasapiCapture.StopRecording() only signals the capture thread to
-            // stop; it doesn't wait for it to exit.  If we call StartRecording()
-            // before the thread has fully stopped, WasapiCapture throws
-            // InvalidOperationException ("Previous recording still in progress").
-            // Wait outside the lock so other threads aren't blocked, then
-            // re-validate state before proceeding.
-            if (_waveIn is WasapiCapture wasapiWait &&
-                wasapiWait.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped)
-            {
-                var localCapture = wasapiWait;
-                Monitor.Exit(_lock);
-                try
-                {
-                    const int maxWaitMs = 300;
-                    int waited = 0;
-                    while (localCapture.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped && waited < maxWaitMs)
-                    {
-                        Thread.Sleep(10);
-                        waited += 10;
-                    }
-                }
-                finally
-                {
-                    Monitor.Enter(_lock);
-                }
-
-                // State may have changed while we were unlocked — re-validate.
-                if (_micStarted || _muted) return;
-
-                if (_waveIn is WasapiCapture recheck &&
-                    recheck.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped)
-                {
-                    AudioLog.Write($"[Audio] WASAPI capture still stopping after wait, skipping StartRecording");
-                    return;
-                }
-            }
-
-            _waveIn.StartRecording();
-            AudioLog.Write("[Audio] Mic started");
         }
+
+        _waveIn.StartRecording();
+        AudioLog.Write("[Audio] Mic started");
     }
 
     /// <summary>Stop mic capture and dispose encode pipeline. No-op if not started.</summary>
@@ -638,20 +679,30 @@ private int _screenShareHotkeyId = -1;
         uint capturedUserId = 0;
         lock (_lock)
         {
-            if (!_micStarted) return;
-
-            _waveIn?.StopRecording();
-            _encodePipeline?.Dispose();
-            _encodePipeline = null;
-            _deviceResampler?.Dispose();
-            _deviceResampler = null;
-            _micStarted = false;
-            capturedUserId = _localUserId;
-            wasSpeaking = capturedUserId != 0 && _currentlySpeaking.Remove(capturedUserId);
-            AudioLog.Write("[Audio] Mic stopped");
+            (wasSpeaking, capturedUserId) = StopMicLocked();
         }
         if (wasSpeaking)
             UserStoppedSpeaking?.Invoke(capturedUserId);
+    }
+
+    /// <summary>
+    /// Inner mic-stop logic. Caller must hold <see cref="_lock"/>.
+    /// Returns (wasSpeaking, capturedUserId) so the caller can fire events outside the lock.
+    /// </summary>
+    private (bool wasSpeaking, uint capturedUserId) StopMicLocked()
+    {
+        if (!_micStarted) return (false, 0);
+
+        _waveIn?.StopRecording();
+        _encodePipeline?.Dispose();
+        _encodePipeline = null;
+        _deviceResampler?.Dispose();
+        _deviceResampler = null;
+        _micStarted = false;
+        uint capturedUserId = _localUserId;
+        bool wasSpeaking = capturedUserId != 0 && _currentlySpeaking.Remove(capturedUserId);
+        AudioLog.Write("[Audio] Mic stopped");
+        return (wasSpeaking, capturedUserId);
     }
 
     /// <summary>
@@ -797,8 +848,9 @@ private int _screenShareHotkeyId = -1;
             processedBytes = requiredInt16Bytes;
         }
 
+        bool virtualMic = _virtualMicActive;
         if (_muted) return;
-        if (_transmissionMode == TransmissionMode.PushToTalk && !_pttActive) return;
+        if (!virtualMic && _transmissionMode == TransmissionMode.PushToTalk && !_pttActive) return;
 
         // Capture-side processor (swappable).
         IAudioCapturePostProcessor? processor;
@@ -881,7 +933,7 @@ private int _screenShareHotkeyId = -1;
         }
 
         // Voice activity check on processed signal
-        if (_transmissionMode == TransmissionMode.VoiceActivity && !IsAboveThreshold(processedBuffer, processedBytes)) return;
+        if (!virtualMic && _transmissionMode == TransmissionMode.VoiceActivity && !IsAboveThreshold(processedBuffer, processedBytes)) return;
 
         // Snapshot the pipeline reference and update speaking state under lock.
         // This prevents a race where RecreateEncodePipelineLocked disposes _encodePipeline
