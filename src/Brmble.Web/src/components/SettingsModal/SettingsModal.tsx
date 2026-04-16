@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, useLayoutEffect } from 'react';
 import './SettingsModal.css';
 import bridge from '../../bridge';
 import { applyTheme } from '../../themes/theme-loader';
@@ -100,6 +100,16 @@ export function SettingsModal(props: SettingsModalProps) {
   const { servers } = useServerlist();
   const { hasPermission } = usePermissions();
   const hasAdminPermission = hasPermission(0, Permission.Ban) || hasPermission(0, Permission.Kick);
+
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (!isOpen || !tabsRef.current || !modalRef.current) return;
+    const tabsWidth = tabsRef.current.scrollWidth;
+    const modalWidth = Math.min(Math.max(tabsWidth, 600), window.innerWidth * 0.9);
+    modalRef.current.style.width = `${modalWidth}px`;
+  }, [isOpen, hasAdminPermission]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -363,13 +373,13 @@ export function SettingsModal(props: SettingsModalProps) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="settings-modal glass-panel animate-slide-up" onClick={(e) => e.stopPropagation()}>
+      <div ref={modalRef} className="settings-modal glass-panel animate-slide-up" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 className="heading-title modal-title">Settings</h2>
           <p className="modal-subtitle">Configure your preferences</p>
         </div>
 
-        <div className="settings-tabs">
+        <div ref={tabsRef} className="settings-tabs">
           <button
             className={`settings-tab ${activeTab === 'profile' ? 'active' : ''}`}
             onClick={() => setActiveTab('profile')}

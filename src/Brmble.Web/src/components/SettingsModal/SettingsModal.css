@@ -1,6 +1,6 @@
 .settings-modal {
-  width: 100%;
-  max-width: 600px;
+  min-width: 600px;
+  max-width: 90vw;
   height: 80vh;
   display: flex;
   flex-direction: column;
@@ -17,6 +17,13 @@
   gap: var(--space-2xs);
   padding: 0 var(--space-lg);
   border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.settings-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .settings-tab {
@@ -50,7 +57,10 @@
 .settings-content {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 0 var(--space-lg);
+  overflow-wrap: break-word;
+  min-width: 0;
 }
 
 /* Shared entrance animation for all tab pages */
