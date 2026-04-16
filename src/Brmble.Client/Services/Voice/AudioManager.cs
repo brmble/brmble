@@ -3,6 +3,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Buffers;
 using Brmble.Audio.Codecs;
+using Brmble.Audio.Processing;
 using Brmble.Audio.NetEQ;
 using Brmble.Audio.NetEQ.Models;
 using Brmble.Client.Services.AppConfig;
@@ -223,6 +224,11 @@ private int _screenShareHotkeyId = -1;
     private bool _dtxEnabled;
 
     // Speech enhancement
+    // WebRTC APM (spike): AGC2 + NS + HPF, runs before legacy AGC/RNNoise.
+    private WebRtcApmProcessor? _apmProcessor;
+    private bool _apmInitAttempted;
+    [ThreadStatic] private static byte[]? _apmOutputScratch;
+
     private SpeechEnhancementService? _speechEnhancement;
     private AudioResampler? _to16kResampler;
     private AudioResampler? _to48kResampler;
@@ -751,19 +757,56 @@ private int _screenShareHotkeyId = -1;
         if (_muted) return;
         if (_transmissionMode == TransmissionMode.PushToTalk && !_pttActive) return;
 
-        // Apply AGC first (boost quiet audio, compress loud before user gain)
-        if (_maxAmplification != 1.0f)
+        // WebRTC APM (spike): AGC2 + NS + HPF. Runs before legacy processing so
+        // downstream stages see the cleaned/leveled signal.
+        if (!_apmInitAttempted)
+        {
+            _apmInitAttempted = true;
+            try
+            {
+                _apmProcessor = new WebRtcApmProcessor();
+                AudioLog.Write("[Audio] WebRTC APM initialized (AGC2 + NS=High + HPF, AEC off)");
+            }
+            catch (Exception ex)
+            {
+                _apmProcessor = null;
+                AudioLog.Write($"[Audio] WebRTC APM init failed, skipping: {ex.Message}");
+            }
+        }
+
+        if (_apmProcessor != null)
+        {
+            int apmOutCap = processedBytes + WebRtcApmProcessor.FrameBytes;
+            if (_apmOutputScratch == null || _apmOutputScratch.Length < apmOutCap)
+                _apmOutputScratch = new byte[apmOutCap];
+
+            int apmWritten = _apmProcessor.Process(
+                new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes),
+                _apmOutputScratch.AsSpan());
+
+            processedBuffer = _apmOutputScratch;
+            processedBytes = apmWritten;
+
+            // APM buffers leftover < 10 ms; if we produced nothing this tick, skip
+            // the downstream stages (they'd just process zero bytes anyway).
+            if (processedBytes == 0) return;
+        }
+
+        // Apply AGC first (boost quiet audio, compress loud before user gain).
+        // Skipped when WebRTC APM is active — it handles AGC2 itself.
+        if (_apmProcessor == null && _maxAmplification != 1.0f)
             ApplyAGC(processedBuffer, processedBytes);
 
         // Apply input volume (after AGC to avoid clipping on boost)
         if (_inputVolume != 1.0f)
             ApplyInputVolume(processedBuffer, processedBytes);
 
-        // Apply RNNoise denoising if enabled (processes 48kHz float samples in-place)
+        // Apply RNNoise denoising if enabled (processes 48kHz float samples in-place).
+        // Skipped when WebRTC APM is active — its NS replaces RNNoise.
         RnnoiseService? rnnoise;
         lock (_lock)
         {
-            rnnoise = _rnnoise;
+            rnnoise = _apmProcessor == null ? _rnnoise : null;
         }
         if (rnnoise?.IsEnabled == true)
         {
@@ -1865,6 +1908,8 @@ private int _screenShareHotkeyId = -1;
     {
         _deviceResampler?.Dispose();
         _deviceResampler = null;
+        _apmProcessor?.Dispose();
+        _apmProcessor = null;
         _rnnoise?.Dispose();
         _rnnoiseRemainder = null;
         _speechEnhancement?.Dispose();
