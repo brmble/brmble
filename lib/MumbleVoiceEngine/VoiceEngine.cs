@@ -68,7 +68,11 @@ public class VoiceEngine : IDisposable
             return;
 
         var p = parsed.Value;
-        var pipeline = _users.GetOrAdd(p.Session, _ => new UserAudioPipeline());
+        var pipeline = _users.GetOrAdd(p.Session, session => {
+            var newPipeline = new UserAudioPipeline();
+            OnUserPipelineCreated(newPipeline);
+            return newPipeline;
+        });
         pipeline.FeedEncodedPacket(p.OpusData, p.Sequence);
     }
 
@@ -95,6 +99,35 @@ public class VoiceEngine : IDisposable
     public void SubmitMicAudio(ReadOnlySpan<byte> pcm)
     {
         _encodePipeline?.SubmitPcm(pcm);
+    }
+
+    public void SetUserVolume(uint sessionId, float volume)
+    {
+        if (_users.TryGetValue(sessionId, out var pipeline))
+        {
+            pipeline.Volume = volume;
+        }
+    }
+
+    public void SetInputVolume(float volume)
+    {
+        _encodePipeline?.SetVolume(volume);
+    }
+
+    public void SetLossFeedback(Action<int> onLossReport)
+    {
+        _onLossReport = onLossReport;
+    }
+
+    private Action<int>? _onLossReport;
+
+    private void OnUserPipelineCreated(UserAudioPipeline pipeline)
+    {
+        pipeline.SetLossCallback(lossPercent =>
+        {
+            _onLossReport?.Invoke(lossPercent);
+            _encodePipeline?.UpdatePacketLoss(lossPercent);
+        });
     }
 
     public void Dispose()

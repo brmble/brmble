@@ -1,5 +1,6 @@
 namespace MumbleVoiceEngine.Pipeline;
 
+using System.Runtime.InteropServices;
 using MumbleVoiceEngine.Codec;
 using MumbleVoiceEngine.Protocol;
 
@@ -16,6 +17,7 @@ public class EncodePipeline : IDisposable
     private int _accumulatorPos;
     private long _sequenceNumber;
     private readonly Action<ReadOnlyMemory<byte>> _onPacketReady;
+    private float _volume = 1.0f;
     private int _target;
 
     public EncodePipeline(int sampleRate, int channels, int bitrate,
@@ -50,7 +52,15 @@ public class EncodePipeline : IDisposable
 
     public void SetTarget(int target) => _target = target;
 
+    public void SetVolume(float volume) => _volume = Math.Clamp(volume, 0f, 2.5f);
+
     public long CurrentSequence => _sequenceNumber;
+
+    public void UpdatePacketLoss(int observedLossPercent)
+    {
+        int clamped = Math.Clamp(observedLossPercent + 5, 5, 25);
+        _encoder.PacketLossPercentage = clamped;
+    }
 
     /// <summary>
     /// Submit raw PCM audio. Voice packets are emitted via onPacketReady
@@ -83,16 +93,44 @@ public class EncodePipeline : IDisposable
 
     private void EncodeAndEmit()
     {
-        var encoded = new byte[MaxOpusPacketBytes];
-        int encodedLen = _encoder.Encode(_accumulator, 0, encoded, 0, _frameSize);
+        if (_volume != 1.0f)
+        {
+            var scaled = new byte[_accumulatorPos];
+            int sampleCount = _accumulatorPos / sizeof(short);
+            for (int i = 0; i < sampleCount; i++)
+            {
+                int offset = i * sizeof(short);
+                short original = (short)(_accumulator[offset] | (_accumulator[offset + 1] << 8));
+                float scaledSample = original * _volume;
+                short clamped = (short)Math.Clamp(scaledSample, short.MinValue, short.MaxValue);
+                scaled[offset] = (byte)(clamped & 0xFF);
+                scaled[offset + 1] = (byte)((clamped >> 8) & 0xFF);
+            }
 
-        var opusData = new byte[encodedLen];
-        Array.Copy(encoded, opusData, encodedLen);
+            var encoded = new byte[MaxOpusPacketBytes];
+            int encodedLen = _encoder.Encode(scaled, 0, encoded, 0, _frameSize);
 
-        byte[] packet = VoicePacketBuilder.Build(opusData, _sequenceNumber, _target);
-        _sequenceNumber++;
+            var opusData = new byte[encodedLen];
+            Array.Copy(encoded, opusData, encodedLen);
 
-        _onPacketReady(packet);
+            byte[] packet = VoicePacketBuilder.Build(opusData, _sequenceNumber, _target);
+            _sequenceNumber++;
+
+            _onPacketReady(packet);
+        }
+        else
+        {
+            var encoded = new byte[MaxOpusPacketBytes];
+            int encodedLen = _encoder.Encode(_accumulator, 0, encoded, 0, _frameSize);
+
+            var opusData = new byte[encodedLen];
+            Array.Copy(encoded, opusData, encodedLen);
+
+            byte[] packet = VoicePacketBuilder.Build(opusData, _sequenceNumber, _target);
+            _sequenceNumber++;
+
+            _onPacketReady(packet);
+        }
     }
 
     public void Dispose()
