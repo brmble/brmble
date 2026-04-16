@@ -16,4 +16,7 @@
     <Project Path="tests/Brmble.Server.Tests/Brmble.Server.Tests.csproj" />
     <Project Path="tests/MumbleVoiceEngine.Tests/MumbleVoiceEngine.Tests.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/ApmBench/ApmBench.csproj" />
+  </Folder>
 </Solution>
