@@ -34,6 +34,14 @@
   align-items: center;
 }
 
+.app--onboarding .sidebar {
+  overflow: hidden;
+}
+
+.app--onboarding .sidebar-resize-handle {
+  display: none;
+}
+
 .sidebar-placeholder {
   text-align: center;
   padding: 2rem;

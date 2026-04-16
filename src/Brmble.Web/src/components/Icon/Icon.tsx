@@ -364,6 +364,15 @@ const iconPaths: Record<string, IconDef> = {
     viewBox: '0 0 10 10',
     paths: <rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="1" />,
   },
+  'window-restore': {
+    viewBox: '0 0 10 10',
+    paths: (
+      <>
+        <rect x="2.5" y="0.5" width="7" height="7" fill="none" stroke="currentColor" strokeWidth="1" />
+        <rect x="0.5" y="2.5" width="7" height="7" fill="var(--bg-deep, #0f0a14)" stroke="currentColor" strokeWidth="1" />
+      </>
+    ),
+  },
   'window-close': {
     viewBox: '0 0 10 10',
     paths: (

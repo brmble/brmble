@@ -28,22 +28,20 @@ static class Program
     private static volatile bool _muted;
     private static volatile bool _deafened;
     private static volatile string? _closeAction; // null = ask, "minimize", "quit"
+    private static IntPtr _currentBgBrush;
     private static System.Threading.Timer? _zoomSaveTimer;
     private const int ResizeBorderWidth = 6;
 
     /// <summary>
-    /// Calculates the WebView2 bounds, inset from the client rect by the
-    /// resize border width when the window is not maximized. When maximized
-    /// there is no resize border, so WebView2 fills the full client area.
+    /// Calculates the WebView2 bounds, always inset from the client rect
+    /// by the resize border width so the native background shows through
+    /// on all edges in both normal and maximized states.
     /// </summary>
     private static Rectangle GetWebViewBounds(IntPtr hwnd)
     {
         Win32Window.GetClientRect(hwnd, out var rect);
         int w = rect.Right - rect.Left;
         int h = rect.Bottom - rect.Top;
-
-        if (Win32Window.IsZoomed(hwnd))
-            return new Rectangle(0, 0, w, h);
 
         int b = ResizeBorderWidth;
         return new Rectangle(b, b, Math.Max(0, w - 2 * b), Math.Max(0, h - 2 * b));
@@ -388,6 +386,17 @@ static class Program
                 TrayIcon.SetTheme(theme);
                 TaskbarBadge.SetTheme(theme);
                 Win32Window.SetWindowIcon(_hwnd, theme);
+
+                // Update the native resize border brush to match the theme
+                var (r, g, b) = ThemeColors.GetBgDeep(theme);
+                uint colorRef = (uint)(b << 16 | g << 8 | r);
+                var newBrush = Win32Window.CreateBackgroundBrush(colorRef);
+                var oldBrush = Win32Window.SetClassLongPtr(
+                    _hwnd, Win32Window.GCL_HBRBACKGROUND, newBrush);
+                if (oldBrush != IntPtr.Zero && oldBrush != newBrush)
+                    Win32Window.DeleteObject(oldBrush);
+                _currentBgBrush = newBrush;
+                Win32Window.InvalidateRect(_hwnd, IntPtr.Zero, true);
             }
             return Task.CompletedTask;
         });
@@ -467,6 +476,12 @@ static class Program
                 if (_controller != null)
                 {
                     _controller.Bounds = GetWebViewBounds(hwnd);
+                }
+                var sizeType = (int)(wParam.ToInt64() & 0xFFFF);
+                if (sizeType == Win32Window.SIZE_MAXIMIZED || sizeType == Win32Window.SIZE_RESTORED)
+                {
+                    _bridge?.Send("window.stateChanged", new { maximized = Win32Window.IsZoomed(hwnd) });
+                    _bridge?.NotifyUiThread();
                 }
                 return IntPtr.Zero;
 

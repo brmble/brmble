@@ -166,6 +166,7 @@ function App() {
   // Stays true for the entire onboarding flow so the wizard isn't unmounted
   // when certExists flips to true mid-wizard (e.g. after profile activation).
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
   const [certFingerprint, setCertFingerprint] = useState('');
   const [activeProfileName, setActiveProfileName] = useState('');
   const [profiles, setProfiles] = useState<Array<{ id: string; name: string }>>([]);
@@ -219,6 +220,15 @@ function App() {
   useEffect(() => {
     if (!connected) setShowAvatarEditor(false);
   }, [connected]);
+
+  useEffect(() => {
+    const handleWindowState = (data: unknown) => {
+      setIsMaximized((data as { maximized?: boolean }).maximized === true);
+    };
+    bridge.on('window.stateChanged', handleWindowState);
+    return () => bridge.off('window.stateChanged', handleWindowState);
+  }, []);
+
   const [showCloseDialog, setShowCloseDialog] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [hasPendingInvite] = useState(false);
@@ -2129,7 +2139,7 @@ const handleConnect = (serverData: SavedServer) => {
   }, [dmStore.selectedContact, unreadTracker.roomUnreads, matrixClient.client, unreadTracker, matrixClient?.dmRoomMap]);
 
   return (
-    <div className="app">
+    <div className={`app${showOnboarding ? ' app--onboarding' : ''}`}>
       <ProfileProvider value={certFingerprint}>
       <ErrorBoundary label="Header">
       <Header
@@ -2160,6 +2170,7 @@ const handleConnect = (serverData: SavedServer) => {
         muteOnCooldown={muteOnCooldown}
         deafOnCooldown={deafOnCooldown}
         onToggleGame={() => setShowGame(prev => !prev)}
+        isMaximized={isMaximized}
       />
       </ErrorBoundary>
       
@@ -2288,7 +2299,7 @@ const handleConnect = (serverData: SavedServer) => {
               setBrmblegotchiEnabledState(parsed.brmblegotchi?.enabled ?? false);
             }
           } catch { /* ignore */ }
-        }} onServersImported={handleServersImported} />
+        }} onServersImported={handleServersImported} isMaximized={isMaximized} />
       )}
 
       <SettingsModal
