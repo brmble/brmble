@@ -8,7 +8,7 @@ namespace Brmble.Audio.Processing;
 /// Samples that don't align to a 10 ms boundary are buffered until the next call.
 /// Not thread-safe — must be driven from a single thread (the WASAPI capture thread).
 /// </summary>
-public sealed class WebRtcApmProcessor : IDisposable
+public sealed class WebRtcApmProcessor : IAudioCapturePostProcessor
 {
     public const int SampleRate = 48000;
     public const int Channels = 1;
