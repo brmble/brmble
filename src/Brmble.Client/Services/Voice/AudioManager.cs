@@ -224,10 +224,10 @@ private int _screenShareHotkeyId = -1;
     private bool _dtxEnabled;
 
     // Speech enhancement
-    // WebRTC APM (spike): AGC2 + NS + HPF, runs before legacy AGC/RNNoise.
-    private WebRtcApmProcessor? _apmProcessor;
-    private bool _apmInitAttempted;
-    [ThreadStatic] private static byte[]? _apmOutputScratch;
+    // Capture-side processor (swappable). Default = Legacy stack.
+    private IAudioCapturePostProcessor? _processor;
+    private ProcessingStack _processingStack = ProcessingStack.Legacy;
+    [ThreadStatic] private static byte[]? _processorOutputScratch;
 
     private SpeechEnhancementService? _speechEnhancement;
     private AudioResampler? _to16kResampler;
@@ -388,6 +388,49 @@ private int _screenShareHotkeyId = -1;
             _rnnoise?.Dispose();
             _rnnoise = mode == SpeechDenoiseMode.Rnnoise ? new RnnoiseService(mode) : null;
             _rnnoiseRemainder = null;
+
+            // If we're on the Legacy stack, rebuild it so its RnnoiseProcess hook picks up the new service.
+            if (_processingStack == ProcessingStack.Legacy)
+            {
+                _processor?.Dispose();
+                _processor = CreateProcessorLocked(ProcessingStack.Legacy);
+            }
+        }
+    }
+
+    public void SetProcessingStack(ProcessingStack stack)
+    {
+        lock (_lock)
+        {
+            if (_processingStack == stack && _processor != null) return;
+            _processingStack = stack;
+            _processor?.Dispose();
+            _processor = CreateProcessorLocked(stack);
+            AudioLog.Write($"[Audio] Processing stack set to {stack}");
+        }
+    }
+
+    private IAudioCapturePostProcessor? CreateProcessorLocked(ProcessingStack stack)
+    {
+        try
+        {
+            return stack switch
+            {
+                ProcessingStack.None => new PassthroughProcessor(),
+                ProcessingStack.Legacy => new LegacyAudioProcessor
+                {
+                    MaxAmplification = _maxAmplification,
+                    RnnoiseEnabled = _rnnoise?.IsEnabled == true,
+                    RnnoiseProcess = frame => _rnnoise?.Process(frame),
+                },
+                ProcessingStack.WebRtcApm => new WebRtcApmProcessor(),
+                _ => throw new ArgumentOutOfRangeException(nameof(stack)),
+            };
+        }
+        catch (Exception ex)
+        {
+            AudioLog.Write($"[Audio] Failed to create processor for {stack}: {ex.Message}");
+            return null;
         }
     }
 
@@ -757,120 +800,33 @@ private int _screenShareHotkeyId = -1;
         if (_muted) return;
         if (_transmissionMode == TransmissionMode.PushToTalk && !_pttActive) return;
 
-        // WebRTC APM (spike): AGC2 + NS + HPF. Runs before legacy processing so
-        // downstream stages see the cleaned/leveled signal.
-        if (!_apmInitAttempted)
+        // Capture-side processor (swappable).
+        IAudioCapturePostProcessor? processor;
+        lock (_lock)
         {
-            _apmInitAttempted = true;
-            try
-            {
-                _apmProcessor = new WebRtcApmProcessor();
-                AudioLog.Write("[Audio] WebRTC APM initialized (AGC2 + NS=High + HPF, AEC off)");
-            }
-            catch (Exception ex)
-            {
-                _apmProcessor = null;
-                AudioLog.Write($"[Audio] WebRTC APM init failed, skipping: {ex.Message}");
-            }
+            if (_processor == null) _processor = CreateProcessorLocked(_processingStack);
+            processor = _processor;
         }
 
-        if (_apmProcessor != null)
+        if (processor != null)
         {
-            int apmOutCap = processedBytes + WebRtcApmProcessor.FrameBytes;
-            if (_apmOutputScratch == null || _apmOutputScratch.Length < apmOutCap)
-                _apmOutputScratch = new byte[apmOutCap];
+            int needed = processedBytes + WebRtcApmProcessor.FrameBytes;
+            if (_processorOutputScratch == null || _processorOutputScratch.Length < needed)
+                _processorOutputScratch = new byte[needed];
 
-            int apmWritten = _apmProcessor.Process(
+            int written = processor.Process(
                 new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes),
-                _apmOutputScratch.AsSpan());
+                _processorOutputScratch.AsSpan());
 
-            processedBuffer = _apmOutputScratch;
-            processedBytes = apmWritten;
+            processedBuffer = _processorOutputScratch;
+            processedBytes = written;
 
-            // APM buffers leftover < 10 ms; if we produced nothing this tick, skip
-            // the downstream stages (they'd just process zero bytes anyway).
             if (processedBytes == 0) return;
         }
 
-        // Apply AGC first (boost quiet audio, compress loud before user gain).
-        // Skipped when WebRTC APM is active — it handles AGC2 itself.
-        if (_apmProcessor == null && _maxAmplification != 1.0f)
-            ApplyAGC(processedBuffer, processedBytes);
-
-        // Apply input volume (after AGC to avoid clipping on boost)
+        // Apply input volume (after processor to avoid clipping on boost)
         if (_inputVolume != 1.0f)
             ApplyInputVolume(processedBuffer, processedBytes);
-
-        // Apply RNNoise denoising if enabled (processes 48kHz float samples in-place).
-        // Skipped when WebRTC APM is active — its NS replaces RNNoise.
-        RnnoiseService? rnnoise;
-        lock (_lock)
-        {
-            rnnoise = _apmProcessor == null ? _rnnoise : null;
-        }
-        if (rnnoise?.IsEnabled == true)
-        {
-            var sampleCount = processedBytes / 2;
-            var totalSamples = sampleCount;
-
-            if (_rnnoiseRemainder != null)
-            {
-                totalSamples += _rnnoiseRemainder.Length;
-            }
-
-            var combinedSamples = totalSamples;
-            var scratchBuffer = ArrayPool<float>.Shared.Rent(RnnoiseService.FrameSize * 2);
-            try
-            {
-                int combinedIndex = 0;
-
-                if (_rnnoiseRemainder != null)
-                {
-                    Array.Copy(_rnnoiseRemainder, 0, scratchBuffer, 0, _rnnoiseRemainder.Length);
-                    combinedIndex = _rnnoiseRemainder.Length;
-                    ArrayPool<float>.Shared.Return(_rnnoiseRemainder);
-                    _rnnoiseRemainder = null;
-                }
-
-                for (int i = 0; i < sampleCount; i++)
-                {
-                    short s = (short)(processedBuffer[i * 2] | (processedBuffer[i * 2 + 1] << 8));
-                    scratchBuffer[combinedIndex + i] = s / 32768f;
-                }
-
-                var offset = 0;
-                while (offset + RnnoiseService.FrameSize <= combinedIndex + sampleCount)
-                {
-                    var frame = scratchBuffer.AsSpan(offset, RnnoiseService.FrameSize);
-                    var frameCopy = new float[RnnoiseService.FrameSize];
-                    frame.CopyTo(frameCopy);
-
-                    var denoised = rnnoise.Process(frameCopy);
-                    if (denoised != null)
-                    {
-                        for (int i = 0; i < RnnoiseService.FrameSize; i++)
-                        {
-                            var sample = (short)Math.Clamp(denoised[i] * 32768f, short.MinValue, short.MaxValue);
-                            processedBuffer[(offset + i) * 2] = (byte)(sample & 0xFF);
-                            processedBuffer[(offset + i) * 2 + 1] = (byte)((sample >> 8) & 0xFF);
-                        }
-                    }
-
-                    offset += RnnoiseService.FrameSize;
-                }
-
-                var remaining = (combinedIndex + sampleCount) - offset;
-                if (remaining > 0)
-                {
-                    _rnnoiseRemainder = new float[remaining];
-                    Array.Copy(scratchBuffer, offset, _rnnoiseRemainder, 0, remaining);
-                }
-            }
-            finally
-            {
-                ArrayPool<float>.Shared.Return(scratchBuffer);
-            }
-        }
 
         // Apply speech enhancement if enabled
         if (_speechEnhancement?.IsEnabled == true && _to16kResampler != null && _to48kResampler != null)
@@ -1908,8 +1864,8 @@ private int _screenShareHotkeyId = -1;
     {
         _deviceResampler?.Dispose();
         _deviceResampler = null;
-        _apmProcessor?.Dispose();
-        _apmProcessor = null;
+        _processor?.Dispose();
+        _processor = null;
         _rnnoise?.Dispose();
         _rnnoiseRemainder = null;
         _speechEnhancement?.Dispose();
