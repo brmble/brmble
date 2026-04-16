@@ -93,10 +93,11 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
         for (int i = 0; i < count; i++)
         {
             Array.Clear(_plcBuffer, 0, plcBufferLen);
-            _decoder.Decode(null, 0, 0, _plcBuffer, 0);
+            int decodedSamples = _decoder.Decode(null, 0, 0, _plcBuffer, 0);
+            int decodedBytes = decodedSamples * _bytesPerSample;
 
-            var copy = new byte[plcBufferLen];
-            Array.Copy(_plcBuffer, 0, copy, 0, plcBufferLen);
+            var copy = new byte[decodedBytes];
+            Array.Copy(_plcBuffer, 0, copy, 0, decodedBytes);
 
             lock (_lock)
             {
