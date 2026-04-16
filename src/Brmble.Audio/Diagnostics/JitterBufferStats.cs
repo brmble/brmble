@@ -9,6 +9,8 @@ public class JitterBufferStats
     public long ExpandFrames { get; set; }
     public long AccelerateFrames { get; set; }
     public long DecelerateFrames { get; set; }
+    public long MergeFrames { get; set; }
+    public long Underflows { get; set; }
     public long LatePackets { get; set; }
     public long DuplicatePackets { get; set; }
 
@@ -23,6 +25,8 @@ public class JitterBufferStats
             ExpandFrames = ExpandFrames,
             AccelerateFrames = AccelerateFrames,
             DecelerateFrames = DecelerateFrames,
+            MergeFrames = MergeFrames,
+            Underflows = Underflows,
             LatePackets = LatePackets,
             DuplicatePackets = DuplicatePackets,
         };

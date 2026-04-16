@@ -75,4 +75,35 @@ public class DelayManagerTest
         dm.Reset();
         Assert.AreEqual(1, dm.TargetLevel);
     }
+
+    [TestMethod]
+    public void Constructor_WithCustomPercentile_UsesIt()
+    {
+        // Low percentile (0.80) should converge to an equal-or-lower target than
+        // high percentile (0.99) under the same jittery arrival pattern.
+        var dm = new DelayManager(targetPercentile: 0.80);
+        var dmHigh = new DelayManager(targetPercentile: 0.99);
+
+        var rng = new Random(11);
+        long ts = 0, arrival = 0;
+        for (int i = 0; i < 500; i++)
+        {
+            ts += FrameSize;  // 960 samples = 20 ms at 48 kHz
+            arrival += rng.NextDouble() < 0.10 ? 200 : 20;
+            dm.Update(ts, arrival);
+        }
+
+        rng = new Random(11);
+        ts = 0; arrival = 0;
+        for (int i = 0; i < 500; i++)
+        {
+            ts += FrameSize;
+            arrival += rng.NextDouble() < 0.10 ? 200 : 20;
+            dmHigh.Update(ts, arrival);
+        }
+
+        Assert.IsTrue(
+            dm.TargetLevel <= dmHigh.TargetLevel,
+            $"Expected low-percentile target ({dm.TargetLevel}) <= high-percentile target ({dmHigh.TargetLevel})");
+    }
 }

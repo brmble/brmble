@@ -28,6 +28,12 @@ internal sealed class AppConfigService : IAppConfigService
     private List<ProfileEntry> _profiles = new();
     private string? _activeProfileId;
     private Dictionary<string, Dictionary<string, RegistrationInfo>> _profileRegistrations = new();
+    private JitterConfig _jitter = new();
+    private const double JitterPercentileMin = 0.50;
+    private const double JitterPercentileMax = 0.995;
+    private const int JitterMinDelayMinMs = 0;
+    private const int JitterMinDelayMaxMs = 200;
+
     private readonly string _certsDir;
     private readonly object _lock = new();
     private readonly ISecurePasswordStorage _passwordStorage;
@@ -375,6 +381,34 @@ internal sealed class AppConfigService : IAppConfigService
         }
     }
 
+    public double GetJitterTargetPercentile()
+    {
+        lock (_lock) return Math.Clamp(_jitter.TargetPercentile, JitterPercentileMin, JitterPercentileMax);
+    }
+
+    public void SetJitterTargetPercentile(double value)
+    {
+        lock (_lock)
+        {
+            _jitter = _jitter with { TargetPercentile = Math.Clamp(value, JitterPercentileMin, JitterPercentileMax) };
+            Save();
+        }
+    }
+
+    public int GetJitterMinDelayMs()
+    {
+        lock (_lock) return Math.Clamp(_jitter.MinDelayMs, JitterMinDelayMinMs, JitterMinDelayMaxMs);
+    }
+
+    public void SetJitterMinDelayMs(int value)
+    {
+        lock (_lock)
+        {
+            _jitter = _jitter with { MinDelayMs = Math.Clamp(value, JitterMinDelayMinMs, JitterMinDelayMaxMs) };
+            Save();
+        }
+    }
+
     private void Load()
     {
         try
@@ -394,6 +428,7 @@ internal sealed class AppConfigService : IAppConfigService
                 _profiles = data?.Profiles ?? new List<ProfileEntry>();
                 _activeProfileId = data?.ActiveProfileId;
                 _profileRegistrations = data?.ProfileRegistrations ?? new();
+                _jitter = data?.Jitter ?? new JitterConfig();
                 _isFirstLaunch = false;
                 MigrateIdentityPfx();
                 return;
@@ -424,6 +459,7 @@ internal sealed class AppConfigService : IAppConfigService
             _profiles = new List<ProfileEntry>();
             _activeProfileId = null;
             _profileRegistrations = new();
+            _jitter = new JitterConfig();
             _isFirstLaunch = true;
         }
 
@@ -444,7 +480,7 @@ internal sealed class AppConfigService : IAppConfigService
             Servers = encryptedServers, Settings = _settings, Window = _windowState,
             ClosePreference = _closePreference, LastConnectedServerId = _lastConnectedServerId,
             ZoomFactor = _zoomFactor, Profiles = _profiles, ActiveProfileId = _activeProfileId,
-            ProfileRegistrations = _profileRegistrations
+            ProfileRegistrations = _profileRegistrations, Jitter = _jitter
         };
         File.WriteAllText(_configPath, JsonSerializer.Serialize(data, _jsonOptions));
     }
@@ -514,6 +550,7 @@ internal sealed class AppConfigService : IAppConfigService
         public List<ProfileEntry> Profiles { get; init; } = [];
         public string? ActiveProfileId { get; init; } = null;
         public Dictionary<string, Dictionary<string, RegistrationInfo>> ProfileRegistrations { get; init; } = new();
+        public JitterConfig Jitter { get; init; } = new();
     }
 
     private void MigrateIdentityPfx()

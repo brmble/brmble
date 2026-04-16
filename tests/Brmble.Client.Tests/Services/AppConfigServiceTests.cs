@@ -391,5 +391,63 @@ public class AppConfigServiceTests
         Assert.AreEqual("profile-123", server.DefaultProfileId);
     }
 
+    [TestMethod]
+    public void DefaultJitterTargetPercentile_Is090()
+    {
+        var svc = new AppConfigService(_tempDir, null);
+        Assert.AreEqual(0.90, svc.GetJitterTargetPercentile(), 1e-9);
+    }
+
+    [TestMethod]
+    public void DefaultJitterMinDelayMs_Is20()
+    {
+        var svc = new AppConfigService(_tempDir, null);
+        Assert.AreEqual(20, svc.GetJitterMinDelayMs());
+    }
+
+    [TestMethod]
+    public void SavesAndReloads_JitterKnobs()
+    {
+        var svc = new AppConfigService(_tempDir, null);
+        svc.SetJitterTargetPercentile(0.85);
+        svc.SetJitterMinDelayMs(40);
+
+        var svc2 = new AppConfigService(_tempDir, null);
+        Assert.AreEqual(0.85, svc2.GetJitterTargetPercentile(), 1e-9);
+        Assert.AreEqual(40, svc2.GetJitterMinDelayMs());
+    }
+
+    [TestMethod]
+    public void LoadsDefaultJitterKnobs_WhenConfigHasNoJitterSection()
+    {
+        // Simulate an older config.json from before Task 13: valid JSON, no "jitter" key.
+        // Must load cleanly and produce the default jitter values, not crash or zero them.
+        var configPath = Path.Combine(_tempDir, "config.json");
+        File.WriteAllText(configPath, "{\"servers\":[],\"profiles\":[]}");
+
+        var svc = new AppConfigService(_tempDir, null);
+
+        Assert.AreEqual(0.90, svc.GetJitterTargetPercentile(), 1e-9);
+        Assert.AreEqual(20, svc.GetJitterMinDelayMs());
+    }
+
+    [TestMethod]
+    public void SetJitterKnobs_ClampsOutOfRangeInput()
+    {
+        var svc = new AppConfigService(_tempDir, null);
+
+        svc.SetJitterTargetPercentile(1.5);     // above max 0.995
+        Assert.AreEqual(0.995, svc.GetJitterTargetPercentile(), 1e-9);
+
+        svc.SetJitterTargetPercentile(0.1);     // below min 0.50
+        Assert.AreEqual(0.50, svc.GetJitterTargetPercentile(), 1e-9);
+
+        svc.SetJitterMinDelayMs(500);           // above max 200
+        Assert.AreEqual(200, svc.GetJitterMinDelayMs());
+
+        svc.SetJitterMinDelayMs(-5);            // below min 0
+        Assert.AreEqual(0, svc.GetJitterMinDelayMs());
+    }
+
     private AppConfigService CreateService() => new AppConfigService(_tempDir, null);
 }

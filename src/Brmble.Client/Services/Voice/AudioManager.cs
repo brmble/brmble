@@ -198,6 +198,9 @@ private int _screenShareHotkeyId = -1;
     private readonly Dictionary<int, string> _heldShortcuts = new(); // hotkeyId → action name
     private System.Threading.Timer? _shortcutReleaseTimer;
     private System.Threading.Timer? _pttSilenceTailTimer;
+    private System.Threading.Timer? _jitterStatsTimer;
+    private int _jitterStatsSampling; // 0 = idle, 1 = sampling; CAS-guarded
+    private static readonly TimeSpan JitterStatsInterval = TimeSpan.FromSeconds(1);
     private int _pttSilenceTailGeneration; // incremented each time the timer is cancelled/replaced
     private string? _heldMouseAction; // action name for mouse shortcut currently held
     private int _shortcutMouseVk; // VK code for the mouse button bound to a toggle shortcut
@@ -205,6 +208,7 @@ private int _screenShareHotkeyId = -1;
     // Speaking detection (polls per-user JitterBuffer.IsSpeaking directly)
     private readonly HashSet<uint> _currentlySpeaking = new();
     private readonly Timer _speakingTimer;
+    private readonly IAppConfigService? _appConfig;
     private const int PttSilenceTailFrames = 4; // 4 × 20 ms = 80 ms tail
     private uint _localUserId = 0;
     private long _lastLocalAudioMs; // monotonic timestamp of last local audio submission
@@ -451,9 +455,10 @@ private int _screenShareHotkeyId = -1;
         }
     }
 
-    public AudioManager(IntPtr hwnd = default)
+    public AudioManager(IntPtr hwnd = default, IAppConfigService? appConfig = null)
     {
         _hwnd = hwnd;
+        _appConfig = appConfig;
         _speakingTimer = new Timer(CheckSpeakingState, null, 100, 100);
     }
 
@@ -990,7 +995,18 @@ private int _screenShareHotkeyId = -1;
             {
                 // First packet from this user — create JitterBuffer + WaveOutEvent
                 var decoder = new MumbleOpusDecoder(sampleRate: 48000, channels: 1);
-                jb = new JitterBuffer(decoder);
+                // When _appConfig is null (e.g. unit-test contexts), fall back to
+                // DelayManager's own legacy defaults (0.95 / 20 ms). Production paths
+                // always have _appConfig wired via MumbleAdapter, so the 0.90 product
+                // default from AppConfigService takes effect in real use.
+                double targetPercentile = _appConfig?.GetJitterTargetPercentile() ?? 0.95;
+                int minDelayMs = _appConfig?.GetJitterMinDelayMs() ?? 20;
+                int minLevel = Math.Max(1, minDelayMs / 20);
+                jb = new JitterBuffer(decoder,
+                                      initialBufferFrames: 3,
+                                      minLevel: minLevel,
+                                      maxLevel: 15,
+                                      targetPercentile: targetPercentile);
 
                 if (_userVolumes.TryGetValue(userId, out var vol))
                     jb.Volume = vol;
@@ -998,6 +1014,7 @@ private int _screenShareHotkeyId = -1;
                     jb.Volume = _outputVolume;
 
                 _jitterBuffers[userId] = jb;
+                EnsureJitterStatsTimerStarted();
 
                 var player = new WaveOutEvent
                 {
@@ -1861,6 +1878,54 @@ private int _screenShareHotkeyId = -1;
                 UserStoppedSpeaking?.Invoke(userId);
     }
 
+    private void EnsureJitterStatsTimerStarted()
+    {
+        if (_jitterStatsTimer != null) return;
+        _jitterStatsTimer = new System.Threading.Timer(
+            callback: _ => SampleJitterStats(),
+            state: null,
+            dueTime: JitterStatsInterval,
+            period: JitterStatsInterval);
+    }
+
+    private void SampleJitterStats()
+    {
+        if (Interlocked.CompareExchange(ref _jitterStatsSampling, 1, 0) != 0)
+            return; // previous tick still running; skip this one
+
+        try
+        {
+            try
+            {
+                // Snapshot inside the lock; write to AudioLog outside.
+                var snapshots = new List<(uint userId, Brmble.Audio.Diagnostics.JitterBufferStats stats)>();
+                lock (_lock)
+                {
+                    foreach (var kv in _jitterBuffers)
+                        snapshots.Add((kv.Key, kv.Value.GetStats()));
+                }
+
+                foreach (var (userId, s) in snapshots)
+                {
+                    AudioLog.Write(
+                        $"[JB] user={userId} " +
+                        $"buf={s.BufferLevel} tgt={s.TargetLevel} " +
+                        $"N={s.NormalFrames} X={s.ExpandFrames} A={s.AccelerateFrames} " +
+                        $"D={s.DecelerateFrames} M={s.MergeFrames} under={s.Underflows} " +
+                        $"late={s.LatePackets} dup={s.DuplicatePackets}");
+                }
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                AudioLog.Write($"[JB] sampler error: {ex.Message}");
+            }
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _jitterStatsSampling, 0);
+        }
+    }
+
     public void Dispose()
     {
         _deviceResampler?.Dispose();
@@ -1877,6 +1942,13 @@ private int _screenShareHotkeyId = -1;
         _pttSilenceTailTimer?.Dispose();
         _pttSilenceTailTimer = null;
         Interlocked.Increment(ref _pttSilenceTailGeneration);
+        if (_jitterStatsTimer != null)
+        {
+            using var waitHandle = new System.Threading.ManualResetEvent(false);
+            _jitterStatsTimer.Dispose(waitHandle);
+            waitHandle.WaitOne(JitterStatsInterval);
+            _jitterStatsTimer = null;
+        }
         _heldShortcuts.Clear();
         _heldMouseAction = null;
         lock (_shortcutKeyboardLock)
