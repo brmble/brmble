@@ -3,6 +3,7 @@ import bridge from '../../bridge';
 import { type AllBindings, BINDING_LABELS } from './SettingsModal';
 import { confirm } from '../../hooks/usePrompt';
 import { Select } from '../Select';
+import { VirtualMicControls } from './VirtualMicControls';
 import './AudioSettingsTab.css';
 import './ShortcutsSettingsTab.css';
 
@@ -281,6 +282,10 @@ export function AudioSettingsTab({ settings, speechDenoise, onChange, onSpeechDe
           />
         </div>
       </div>
+
+      <VirtualMicControls
+        onChange={(path) => bridge.send('voice.setVirtualMic', { path })}
+      />
 
       {/* Encoding Section */}
       {(() => {

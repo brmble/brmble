@@ -2346,6 +2346,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             return Task.CompletedTask;
         });
 
+        bridge.RegisterHandler("voice.setVirtualMic", data =>
+        {
+            string? path = data.TryGetProperty("path", out var p) ? p.GetString() : null;
+            _audioManager?.SetVirtualMic(path);
+            return Task.CompletedTask;
+        });
+
         bridge.RegisterHandler("dm.getOrCreateRoom", async data =>
         {
             var targetMatrixUserId = data.ValueKind == System.Text.Json.JsonValueKind.Object
