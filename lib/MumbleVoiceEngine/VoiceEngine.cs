@@ -140,9 +140,9 @@ public class VoiceEngine : IDisposable
     {
         pipeline.SetLossCallback(lossPercent =>
         {
-            _onLossReport?.Invoke(lossPercent);
             Interlocked.Exchange(ref _pendingLossPercent, lossPercent);
             Interlocked.Exchange(ref _hasPendingLoss, 1);
+            _onLossReport?.Invoke(lossPercent);
         });
     }
 

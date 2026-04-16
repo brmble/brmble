@@ -904,19 +904,6 @@ private int _screenShareHotkeyId = -1;
         pipeline?.SubmitPcm(new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes));
     }
 
-    private void ApplyInputVolume(byte[] buffer, int bytesRecorded)
-    {
-        for (int i = 0; i < bytesRecorded - 1; i += 2)
-        {
-            short sample = (short)(buffer[i] | (buffer[i + 1] << 8));
-            float adjusted = sample * _inputVolume;
-            adjusted = Math.Clamp(adjusted, short.MinValue, short.MaxValue);
-            short clampedSample = (short)adjusted;
-            buffer[i] = (byte)(clampedSample & 0xFF);
-            buffer[i + 1] = (byte)((clampedSample >> 8) & 0xFF);
-        }
-    }
-
     private void ApplyAGC(byte[] buffer, int bytesRecorded)
     {
         // Calculate RMS of the chunk
