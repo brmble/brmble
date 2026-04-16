@@ -93,6 +93,7 @@ interface ScannedCert {
 interface OnboardingWizardProps {
   onComplete: (fingerprint: string) => void;
   onServersImported?: (labels: string[]) => void;
+  isMaximized?: boolean;
 }
 
 // ── Settings types (local copies to avoid SettingsModal coupling) ──
@@ -169,7 +170,7 @@ function triggerBlobDownload(base64: string, filename: string) {
 
 // ── Main component ────────────────────────────────────────────────
 
-export function OnboardingWizard({ onComplete, onServersImported }: OnboardingWizardProps) {
+export function OnboardingWizard({ onComplete, onServersImported, isMaximized }: OnboardingWizardProps) {
   const [step, setStep] = useState<WizardStep>('welcome');
   const stepIndex = STEPS.indexOf(step);
 
@@ -538,8 +539,8 @@ export function OnboardingWizard({ onComplete, onServersImported }: OnboardingWi
           <button className="window-btn window-btn-minimize" onClick={() => bridge.send('window.minimize')} aria-label="Minimize">
             <Icon name="window-minimize" size={10} />
           </button>
-          <button className="window-btn window-btn-maximize" onClick={() => bridge.send('window.maximize')} aria-label="Maximize">
-            <Icon name="window-maximize" size={10} />
+          <button className="window-btn window-btn-maximize" onClick={() => bridge.send('window.maximize')} aria-label={isMaximized ? 'Restore' : 'Maximize'}>
+            <Icon name={isMaximized ? 'window-restore' : 'window-maximize'} size={10} />
           </button>
           <button className="window-btn window-btn-close" onClick={() => bridge.send('window.quit')} aria-label="Close">
             <Icon name="window-close" size={10} />

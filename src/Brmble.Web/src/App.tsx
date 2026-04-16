@@ -2299,7 +2299,7 @@ const handleConnect = (serverData: SavedServer) => {
               setBrmblegotchiEnabledState(parsed.brmblegotchi?.enabled ?? false);
             }
           } catch { /* ignore */ }
-        }} onServersImported={handleServersImported} />
+        }} onServersImported={handleServersImported} isMaximized={isMaximized} />
       )}
 
       <SettingsModal
