@@ -15,4 +15,10 @@
     <ProjectReference Include="..\..\src\Brmble.Audio\Brmble.Audio.csproj" />
     <ProjectReference Include="..\..\tools\ApmBench\ApmBench.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="fixtures/**/*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+  </ItemGroup>
 </Project>
