@@ -11,6 +11,7 @@ using MumbleSharp.Audio.Codecs;
 using MumbleSharp.Model;
 using MumbleProto;
 using PacketType = MumbleSharp.Packets.PacketType;
+using Brmble.Audio.Processing;
 using Brmble.Client.Bridge;
 using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.Certificate;
@@ -2334,6 +2335,15 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 _bridge?.Send("livekit.activeShareResult", new { roomName, active = false });
                 _bridge?.NotifyUiThread();
             }
+        });
+
+        bridge.RegisterHandler("voice.setProcessingStack", data =>
+        {
+            var stackStr = data.TryGetProperty("stack", out var stack) ? stack.GetString() ?? "Legacy" : "Legacy";
+            if (!Enum.TryParse<ProcessingStack>(stackStr, ignoreCase: true, out var processingStack))
+                processingStack = ProcessingStack.Legacy;
+            _audioManager?.SetProcessingStack(processingStack);
+            return Task.CompletedTask;
         });
 
         bridge.RegisterHandler("dm.getOrCreateRoom", async data =>
