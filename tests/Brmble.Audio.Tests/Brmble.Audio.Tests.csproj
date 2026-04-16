@@ -13,5 +13,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Brmble.Audio\Brmble.Audio.csproj" />
+    <ProjectReference Include="..\..\tools\ApmBench\ApmBench.csproj" />
   </ItemGroup>
 </Project>
