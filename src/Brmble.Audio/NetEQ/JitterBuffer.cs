@@ -229,7 +229,11 @@ public class JitterBuffer : IDisposable
                     }
                     else
                     {
-                        // Warmup or non-operational: fall back to CrossFade.
+                        // Warmup or non-operational: fall back to CrossFade. Reset the stretcher
+                        // so partial output it produced (and that we can't use) doesn't leak into
+                        // the next stretching attempt — otherwise the next successful Process call
+                        // would emit already-played audio.
+                        _timeStretcher.Reset();
                         CrossFade(output, _frameBuffer.AsSpan(0, FrameSize), _secondFrameBuffer.AsSpan(0, FrameSize));
                     }
                 }
@@ -260,9 +264,15 @@ public class JitterBuffer : IDisposable
                     : 0;
 
                 if (produced >= FrameSize)
+                {
                     _stretchScratch.AsSpan(0, FrameSize).CopyTo(output[..FrameSize]);
+                }
                 else
+                {
+                    // Reset the stretcher on fallback — see Accelerate branch for rationale.
+                    _timeStretcher.Reset();
                     CrossFade(output, _lastDecodedFrame.AsSpan(), _frameBuffer.AsSpan(0, FrameSize));
+                }
 
                 output[..FrameSize].CopyTo(_lastDecodedFrame);
                 _stats.DecelerateFrames++;

@@ -1001,7 +1001,9 @@ private int _screenShareHotkeyId = -1;
                 // default from AppConfigService takes effect in real use.
                 double targetPercentile = _appConfig?.GetJitterTargetPercentile() ?? 0.95;
                 int minDelayMs = _appConfig?.GetJitterMinDelayMs() ?? 20;
-                int minLevel = Math.Max(1, minDelayMs / 20);
+                // Ceiling division: a 30 ms floor should map to 2 frames (40 ms), not
+                // 1 frame (20 ms). The Max(1, …) still guarantees at least one frame.
+                int minLevel = Math.Max(1, (minDelayMs + 19) / 20);
                 jb = new JitterBuffer(decoder,
                                       initialBufferFrames: 3,
                                       minLevel: minLevel,

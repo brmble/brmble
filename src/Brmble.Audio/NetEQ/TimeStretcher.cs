@@ -57,30 +57,38 @@ public sealed class TimeStretcher : IDisposable
         if (!_initOk || _processor is null)
             return 0;
 
+        int len = input.Length;
+        if (len > _floatInScratch.Length)
+            throw new ArgumentException(
+                $"Input length {len} exceeds configured maximum frame size {_floatInScratch.Length}.",
+                nameof(input));
+
         _processor.Tempo = tempo;
 
-        int len = input.Length;
         for (int i = 0; i < len; i++)
             _floatInScratch[i] = input[i] / 32768.0f;
 
         _processor.PutSamples(_floatInScratch.AsSpan(0, len), len);
 
-        int available = _processor.ReceiveSamples(_floatOutScratch, _floatOutScratch.Length);
-        int toCopy = Math.Min(available, output.Length);
-        for (int i = 0; i < toCopy; i++)
+        // Pull only what the caller can consume; remainder stays in SoundTouch's
+        // internal queue and is returned on subsequent calls. This avoids the
+        // over-produce-then-discard hazard under large tempo stretches.
+        int request = Math.Min(output.Length, _floatOutScratch.Length);
+        int received = _processor.ReceiveSamples(_floatOutScratch, request);
+        for (int i = 0; i < received; i++)
             output[i] = FloatToShort(_floatOutScratch[i]);
-        return toCopy;
+        return received;
     }
 
     public int Flush(Span<short> output)
     {
         if (!_initOk || _processor is null) return 0;
         _processor.Flush();
-        int available = _processor.ReceiveSamples(_floatOutScratch, _floatOutScratch.Length);
-        int toCopy = Math.Min(available, output.Length);
-        for (int i = 0; i < toCopy; i++)
+        int request = Math.Min(output.Length, _floatOutScratch.Length);
+        int received = _processor.ReceiveSamples(_floatOutScratch, request);
+        for (int i = 0; i < received; i++)
             output[i] = FloatToShort(_floatOutScratch[i]);
-        return toCopy;
+        return received;
     }
 
     public void Reset()
