@@ -168,6 +168,12 @@ export function SettingsModal(props: SettingsModalProps) {
           if (d.settings!.appearance?.theme) {
             applyTheme(d.settings!.appearance.theme);
           }
+
+          // Push the persisted processing stack to the bridge so the client
+          // honours the saved choice without waiting for a manual change.
+          const stack = mergedSettings.audio?.processingStack ?? 'Legacy';
+          bridge.send('voice.setProcessingStack', { stack });
+
           return mergedSettings;
         });
       }
@@ -239,7 +245,13 @@ export function SettingsModal(props: SettingsModalProps) {
       // ApplySettings on the backend which already calls SetTransmissionMode.
       // Sending both caused a double-call race that crashed WASAPI capture when
       // the user's recorded PTT key was still physically held down.
-      
+
+      // ApplySettings does not call SetProcessingStack, so send it explicitly
+      // whenever the value changes.
+      if (audio.processingStack !== prev.audio.processingStack) {
+        bridge.send('voice.setProcessingStack', { stack: audio.processingStack });
+      }
+
       return newSettings;
     });
   };
