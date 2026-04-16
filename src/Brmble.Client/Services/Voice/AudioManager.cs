@@ -264,7 +264,11 @@ private int _screenShareHotkeyId = -1;
     public bool IsDeafened => _deafened;
     public TransmissionMode TransmissionMode => _transmissionMode;
 
-    public void SetInputVolume(int percentage) => _inputVolume = Math.Clamp(percentage, 0, 250) / 100f;
+    public void SetInputVolume(int percentage)
+    {
+        _inputVolume = Math.Clamp(percentage, 0, 250) / 100f;
+        _encodePipeline?.SetVolume(_inputVolume);
+    }
     public void SetMaxAmplification(int percentage) => _maxAmplification = Math.Clamp(percentage, 100, 400) / 100f;
     public void SetVoiceHoldMs(int ms) => _voiceHoldMs = Math.Clamp(ms, 100, 2000);
 
@@ -346,6 +350,7 @@ private int _screenShareHotkeyId = -1;
                 frameSize: 48000 / 1000 * _opusFrameMs,
                 dtx: _dtxEnabled,
                 initialSequence: seq);
+            _encodePipeline.SetVolume(_inputVolume);
         }
     }
 
@@ -755,9 +760,7 @@ private int _screenShareHotkeyId = -1;
         if (_maxAmplification != 1.0f)
             ApplyAGC(processedBuffer, processedBytes);
 
-        // Apply input volume (after AGC to avoid clipping on boost)
-        if (_inputVolume != 1.0f)
-            ApplyInputVolume(processedBuffer, processedBytes);
+        // Input volume is now applied in EncodePipeline
 
         // Apply RNNoise denoising if enabled (processes 48kHz float samples in-place)
         RnnoiseService? rnnoise;
@@ -899,19 +902,6 @@ private int _screenShareHotkeyId = -1;
         }
 
         pipeline?.SubmitPcm(new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes));
-    }
-
-    private void ApplyInputVolume(byte[] buffer, int bytesRecorded)
-    {
-        for (int i = 0; i < bytesRecorded - 1; i += 2)
-        {
-            short sample = (short)(buffer[i] | (buffer[i + 1] << 8));
-            float adjusted = sample * _inputVolume;
-            adjusted = Math.Clamp(adjusted, short.MinValue, short.MaxValue);
-            short clampedSample = (short)adjusted;
-            buffer[i] = (byte)(clampedSample & 0xFF);
-            buffer[i + 1] = (byte)((clampedSample >> 8) & 0xFF);
-        }
     }
 
     private void ApplyAGC(byte[] buffer, int bytesRecorded)

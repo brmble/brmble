@@ -1,5 +1,7 @@
 namespace MumbleVoiceEngine.Pipeline;
 
+using System.Buffers;
+using System.Runtime.InteropServices;
 using MumbleVoiceEngine.Codec;
 using MumbleVoiceEngine.Protocol;
 
@@ -16,6 +18,7 @@ public class EncodePipeline : IDisposable
     private int _accumulatorPos;
     private long _sequenceNumber;
     private readonly Action<ReadOnlyMemory<byte>> _onPacketReady;
+    private float _volume = 1.0f;
     private int _target;
 
     public EncodePipeline(int sampleRate, int channels, int bitrate,
@@ -50,7 +53,15 @@ public class EncodePipeline : IDisposable
 
     public void SetTarget(int target) => _target = target;
 
+    public void SetVolume(float volume) => _volume = Math.Clamp(volume, 0f, 2.5f);
+
     public long CurrentSequence => _sequenceNumber;
+
+    public void UpdatePacketLoss(int observedLossPercent)
+    {
+        int clamped = Math.Clamp(observedLossPercent + 5, 5, 25);
+        _encoder.PacketLossPercentage = clamped;
+    }
 
     /// <summary>
     /// Submit raw PCM audio. Voice packets are emitted via onPacketReady
@@ -83,16 +94,56 @@ public class EncodePipeline : IDisposable
 
     private void EncodeAndEmit()
     {
-        var encoded = new byte[MaxOpusPacketBytes];
-        int encodedLen = _encoder.Encode(_accumulator, 0, encoded, 0, _frameSize);
+        byte[] scaled;
 
-        var opusData = new byte[encodedLen];
-        Array.Copy(encoded, opusData, encodedLen);
+        if (_volume != 1.0f)
+        {
+            scaled = ArrayPool<byte>.Shared.Rent(_accumulatorPos);
+            try
+            {
+                var samples = MemoryMarshal.Cast<byte, short>(
+                    _accumulator.AsSpan(0, _accumulatorPos));
+                var scaledSamples = MemoryMarshal.Cast<byte, short>(
+                    scaled.AsSpan(0, _accumulatorPos));
 
-        byte[] packet = VoicePacketBuilder.Build(opusData, _sequenceNumber, _target);
-        _sequenceNumber++;
+                for (int i = 0; i < samples.Length; i++)
+                {
+                    float scaledSample = samples[i] * _volume;
+                    scaledSamples[i] = (short)Math.Clamp(
+                        scaledSample, short.MinValue, short.MaxValue);
+                }
+            }
+            catch
+            {
+                ArrayPool<byte>.Shared.Return(scaled);
+                throw;
+            }
+        }
+        else
+        {
+            scaled = _accumulator;
+        }
 
-        _onPacketReady(packet);
+        try
+        {
+            var encoded = new byte[MaxOpusPacketBytes];
+            int encodedLen = _encoder.Encode(scaled, 0, encoded, 0, _frameSize);
+
+            var opusData = new byte[encodedLen];
+            Array.Copy(encoded, opusData, encodedLen);
+
+            byte[] packet = VoicePacketBuilder.Build(opusData, _sequenceNumber, _target);
+            _sequenceNumber++;
+
+            _onPacketReady(packet);
+        }
+        finally
+        {
+            if (_volume != 1.0f)
+            {
+                ArrayPool<byte>.Shared.Return(scaled);
+            }
+        }
     }
 
     public void Dispose()
