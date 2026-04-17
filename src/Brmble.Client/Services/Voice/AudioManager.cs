@@ -270,6 +270,7 @@ private int _screenShareHotkeyId = -1;
     private const int MinPttToggleThresholdMs = 100; // debounce to prevent WASAPI stress
     private string? _heldMouseAction; // action name for mouse shortcut currently held
     private int _shortcutMouseVk; // VK code for the mouse button bound to a toggle shortcut
+    private int _suspendCount; // count of active suspend requests (for nested calls)
 
     // Speaking detection (polls per-user JitterBuffer.IsSpeaking directly)
     private readonly HashSet<uint> _currentlySpeaking = new();
@@ -1564,9 +1565,14 @@ private int _screenShareHotkeyId = -1;
     /// <summary>
     /// Temporarily stops shortcut polling so the JS shortcut recorder
     /// can record keypresses without application shortcuts firing.
+    /// Supports nested calls - only actually suspends on first call, and only
+    /// resumes when the count reaches zero.
     /// </summary>
     public void SuspendHotkeys()
     {
+        if (_suspendCount++ > 0)
+            return; // Already suspended
+
         AudioLog.Write("[Audio] SuspendHotkeys");
 
         StopShortcutKeyboardPolling();
@@ -1583,9 +1589,16 @@ private int _screenShareHotkeyId = -1;
 
     /// <summary>
     /// Re-starts shortcut polling after the JS shortcut recorder is done.
+    /// Only actually resumes when all outstanding suspend requests have been released.
     /// </summary>
     public void ResumeHotkeys()
     {
+        if (--_suspendCount > 0)
+            return; // Still have pending suspends
+
+        if (_suspendCount < 0)
+            _suspendCount = 0; // Defensive: prevent negative
+
         AudioLog.Write("[Audio] ResumeHotkeys");
 
         if (_muteKeyName != null)
