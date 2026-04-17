@@ -1837,7 +1837,7 @@ const handleConnect = (serverData: SavedServer) => {
     };
   }, []);
 
-  const { isSharing, startSharing, stopSharing, error: screenShareError, activeShare, remoteVideoEl, disconnectViewer, connectAsViewer } = useScreenShare(() => {
+  const { isSharing, startSharing, stopSharing, error: screenShareError, activeShare, activeShares, watchingShare, remoteVideoEl, disconnectViewer, connectAsViewer } = useScreenShare(() => {
     setSharingChannelId(undefined);
   }, screenShareSettings);
   disconnectViewerRef.current = disconnectViewer;
@@ -1845,6 +1845,7 @@ const handleConnect = (serverData: SavedServer) => {
   const [screenShareToast, setScreenShareToast] = useState<{
     userName: string;
     roomName: string;
+    userId?: number;
   } | null>(null);
   const [copyToast, setCopyToast] = useState<{ message: string } | null>(null);
   const [updateInfo, setUpdateInfo] = useState<{ version: string } | null>(null);
@@ -1971,11 +1972,11 @@ const handleConnect = (serverData: SavedServer) => {
   // Show toast notification when someone starts sharing in the user's voice channel
   useEffect(() => {
     const onRemoteShareStarted = (data: unknown) => {
-      const d = data as { roomName: string; userName: string; sessionId?: number };
+      const d = data as { roomName: string; userName: string; userId?: number; sessionId?: number };
       const selfUser = usersRef.current.find(u => u.self);
       const voiceChannelId = selfUser?.channelId;
       if (voiceChannelId != null && d.roomName === `channel-${voiceChannelId}` && !isSharing) {
-        setScreenShareToast({ userName: d.userName, roomName: d.roomName });
+        setScreenShareToast({ userName: d.userName, roomName: d.roomName, userId: d.userId });
       }
     };
 
@@ -2020,8 +2021,10 @@ const handleConnect = (serverData: SavedServer) => {
   }, [isSharing, startSharing, stopSharing, selfLeftVoice, updateStatus]);
   handleToggleScreenShareRef.current = handleToggleScreenShare;
 
-  const handleWatchScreenShare = useCallback((roomName: string) => {
-    connectAsViewer(roomName);
+  const handleWatchScreenShare = useCallback((roomName: string, userId?: number) => {
+    if (userId != null) {
+      connectAsViewer(roomName, userId);
+    }
   }, [connectAsViewer]);
 
   // Track which channel/DM was last opened so we only snapshot + mark-read on actual switches.
@@ -2194,8 +2197,10 @@ const handleConnect = (serverData: SavedServer) => {
           onCancelReconnect={handleCancelReconnect}
           pendingChannelAction={pendingChannelAction}
           channelUnreads={channelUnreads}
-          sharingChannelId={sharingChannelId ? Number(sharingChannelId) : (activeShare?.roomName ? Number(activeShare.roomName.replace('channel-', '')) : undefined)}
+          sharingChannelId={sharingChannelId ? Number(sharingChannelId) : (activeShares.length > 0 ? Number(activeShares[0].roomName.replace('channel-', '')) : undefined)}
           sharingUserSession={isSharing ? selfSession : activeShare?.sessionId}
+          activeShares={activeShares}
+          watchingShare={watchingShare}
           onWatchScreenShare={handleWatchScreenShare}
           onEditAvatar={connected ? () => setShowAvatarEditor(true) : undefined}
         />
@@ -2233,7 +2238,7 @@ const handleConnect = (serverData: SavedServer) => {
                     matrixRoomId={channelMatrixRoomId}
                     readMarkerTs={channelDividerTs}
                     screenShareVideoEl={remoteVideoEl}
-                    screenSharerName={activeShare?.userName}
+                    screenSharerName={watchingShare?.userName ?? activeShare?.userName}
                     screenShareViewerMode={screenShareSettings.viewerMode}
                     onCloseScreenShare={disconnectViewer}
                     users={users}
@@ -2392,7 +2397,7 @@ const handleConnect = (serverData: SavedServer) => {
           actions={[
             { label: 'Dismiss', onClick: () => setScreenShareToast(null) },
             { label: 'Watch', onClick: () => {
-              connectAsViewer(screenShareToast.roomName);
+              connectAsViewer(screenShareToast.roomName, screenShareToast.userId!);
               setScreenShareToast(null);
             }, primary: true },
           ]}

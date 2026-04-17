@@ -8,6 +8,7 @@ import { Tooltip } from '../Tooltip/Tooltip';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useServiceStatus } from '../../hooks/useServiceStatus';
 import { useResizable } from '../../hooks/useResizable';
+import type { ShareInfo } from '../../hooks/useScreenShare';
 import { useProfileFingerprint } from '../../contexts/ProfileContext';
 import { prompt } from '../../hooks/usePrompt';
 import bridge from '../../bridge';
@@ -38,7 +39,9 @@ interface SidebarProps {
   channelUnreads?: Map<string, { notificationCount: number; highlightCount: number }>;
   sharingChannelId?: number;
   sharingUserSession?: number;
-  onWatchScreenShare?: (roomName: string) => void;
+  onWatchScreenShare?: (roomName: string, userId?: number) => void;
+  activeShares?: ShareInfo[];
+  watchingShare?: ShareInfo | null;
   onEditAvatar?: () => void;
 }
 
@@ -63,6 +66,8 @@ export function Sidebar({
   sharingChannelId,
   sharingUserSession,
   onWatchScreenShare,
+  activeShares,
+  watchingShare,
   onEditAvatar
 }: SidebarProps) {
   const fingerprint = useProfileFingerprint();
@@ -259,13 +264,16 @@ export function Sidebar({
                   e.preventDefault();
                   setContextMenu({ x: e.clientX, y: e.clientY, userId: String(user.session), userName: user.name, isSelf: !!user.self });
                 }}
-                onDoubleClick={user.session === sharingUserSession
-                  ? () => onWatchScreenShare?.(`channel-${rootChannel?.id ?? 0}`)
-                  : undefined}
+                onDoubleClick={(() => {
+                  const share = activeShares?.find(s => s.sessionId === user.session);
+                  if (share) return () => onWatchScreenShare?.(`channel-${rootChannel?.id ?? 0}`, share.userId);
+                  if (user.session === sharingUserSession) return () => onWatchScreenShare?.(`channel-${rootChannel?.id ?? 0}`);
+                  return undefined;
+                })()}
               >
                 <span className="user-status-area">
-                  {user.session === sharingUserSession ? (
-                    <Icon name="monitor" size={11} className="user-status-icon user-status-icon--sharing" stroke="var(--accent-primary)" strokeWidth="2.5" />
+                  {(activeShares?.some(s => s.sessionId === user.session) || user.session === sharingUserSession) ? (
+                    <Icon name="monitor" size={11} className={`user-status-icon user-status-icon--sharing${watchingShare?.sessionId === user.session ? ' user-status-icon--watching' : ''}`} stroke="var(--accent-primary)" strokeWidth="2.5" />
                   ) : (
                     <>
                       {user.deafened && (
@@ -280,7 +288,7 @@ export function Sidebar({
                 <Avatar user={{ name: user.name, matrixUserId: user.matrixUserId, avatarUrl: user.avatarUrl }} size={20} isMumbleOnly={!user.self && !user.isBrmbleClient} />
                 <span className="root-user-name">{user.name}</span>
                 {user.self && <span className="root-self-badge">you</span>}
-                {user.session === sharingUserSession && (
+                {(activeShares?.some(s => s.sessionId === user.session) || user.session === sharingUserSession) && (
                   <span className="sharing-badge">Sharing</span>
                 )}
               </div>
@@ -316,6 +324,8 @@ export function Sidebar({
           sharingChannelId={sharingChannelId}
           sharingUserSession={sharingUserSession}
           onWatchScreenShare={onWatchScreenShare}
+          activeShares={activeShares}
+          watchingShare={watchingShare}
           onEditAvatar={onEditAvatar}
           onMoveUser={(session, channelId) => bridge.send('voice.move', { session, channelId })}
         />

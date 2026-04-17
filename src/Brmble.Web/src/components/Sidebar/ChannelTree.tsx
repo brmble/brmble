@@ -8,6 +8,7 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { prompt } from '../../hooks/usePrompt';
 import bridge from '../../bridge';
 import Avatar from '../Avatar/Avatar';
+import type { ShareInfo } from '../../hooks/useScreenShare';
 import { EditChannelDialog } from '../EditChannelDialog/EditChannelDialog';
 import { RenameConfirmDialog } from '../RenameConfirmDialog/RenameConfirmDialog';
 import { Icon } from '../Icon/Icon';
@@ -51,12 +52,14 @@ interface ChannelTreeProps {
   channelUnreads?: Map<string, { notificationCount: number; highlightCount: number }>;
   sharingChannelId?: number;
   sharingUserSession?: number;
-  onWatchScreenShare?: (roomName: string) => void;
+  onWatchScreenShare?: (roomName: string, userId?: number) => void;
+  activeShares?: ShareInfo[];
+  watchingShare?: ShareInfo | null;
   onEditAvatar?: () => void;
   onMoveUser?: (session: number, channelId: number) => void;
 }
 
-export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, speakingUsers, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, onEditAvatar, onMoveUser }: ChannelTreeProps) {
+export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, speakingUsers, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, activeShares, watchingShare, onEditAvatar, onMoveUser }: ChannelTreeProps) {
   const [sortByNamePerChannel, setSortByNamePerChannel] = useState<Record<number, boolean>>({});
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string; isSelf: boolean; channelId?: number } | null>(null);
   const [channelContextMenu, setChannelContextMenu] = useState<{ x: number; y: number; channelId: number; channelName: string } | null>(null);
@@ -326,13 +329,16 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                   e.preventDefault();
                   setContextMenu({ x: e.clientX, y: e.clientY, userId: String(user.session), userName: user.name, isSelf: !!user.self, channelId: channel.id });
                 }}
-                onDoubleClick={user.session === sharingUserSession
-                  ? () => onWatchScreenShare?.(`channel-${channel.id}`)
-                  : undefined}
+                onDoubleClick={(() => {
+                  const share = activeShares?.find(s => s.sessionId === user.session);
+                  if (share) return () => onWatchScreenShare?.(`channel-${channel.id}`, share.userId);
+                  if (user.session === sharingUserSession) return () => onWatchScreenShare?.(`channel-${channel.id}`);
+                  return undefined;
+                })()}
               >
                 <span className="user-status-area">
-                  {user.session === sharingUserSession ? (
-                    <Icon name="monitor" size={11} className="user-status-icon user-status-icon--sharing" stroke="var(--accent-primary)" strokeWidth={2.5} />
+                  {(activeShares?.some(s => s.sessionId === user.session) || user.session === sharingUserSession) ? (
+                    <Icon name="monitor" size={11} className={`user-status-icon user-status-icon--sharing${watchingShare?.sessionId === user.session ? ' user-status-icon--watching' : ''}`} stroke="var(--accent-primary)" strokeWidth={2.5} />
                   ) : (
                     <>
                       {user.deafened && (
@@ -348,7 +354,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                 <span className="user-name">{user.name}</span>
                 {user.self && <span className="self-badge">(you)</span>}
                 {user.isBrmbleClient && <Tooltip content="Brmble user"><span className="brmble-badge" /></Tooltip>}
-                {user.session === sharingUserSession && (
+                {(activeShares?.some(s => s.sessionId === user.session) || user.session === sharingUserSession) && (
                   <span className="sharing-badge">Sharing</span>
                 )}
               </div>
@@ -421,7 +427,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
           x={contextMenu.x}
           y={contextMenu.y}
           items={[
-            ...(contextMenu.userId === String(sharingUserSession) && onWatchScreenShare ? [{
+            ...((activeShares?.some(s => s.sessionId === Number(contextMenu.userId)) || contextMenu.userId === String(sharingUserSession)) && onWatchScreenShare ? [{
               type: 'item' as const,
               label: 'Watch Stream',
               icon: (
@@ -429,7 +435,8 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
               ),
 onClick: () => {
                 const channelId = contextMenu.channelId ?? currentChannelId;
-                onWatchScreenShare?.(`channel-${channelId}`);
+                const share = activeShares?.find(s => s.sessionId === Number(contextMenu.userId));
+                onWatchScreenShare?.(`channel-${channelId}`, share?.userId);
               },
             }] : []),
             ...(!contextMenu.isSelf && onStartDM ? [{
