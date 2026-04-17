@@ -145,15 +145,15 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
 
     public async Task DispatchUserDisconnected(MumbleUser user)
     {
-        // Check if user was sharing and stop it before removing session
+        // Check if user was sharing and stop all shares before removing session
         var snapshot = _sessionMapping.GetSnapshot();
         if (snapshot.TryGetValue(user.SessionId, out var mapping))
         {
-            var shareRoom = _screenShareTracker.GetActiveByUserId(mapping.UserId);
-            if (shareRoom is not null)
+            var stoppedRooms = _screenShareTracker.GetSharesByUserId(mapping.UserId);
+            _screenShareTracker.StopAllByUserId(mapping.UserId);
+            foreach (var roomName in stoppedRooms)
             {
-                _screenShareTracker.Stop(shareRoom);
-                await _eventBus.BroadcastAsync(new { type = "screenShare.stopped", roomName = shareRoom });
+                await _eventBus.BroadcastAsync(new { type = "screenShare.stopped", roomName, userId = mapping.UserId });
             }
         }
 
@@ -170,11 +170,15 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         var snapshot = _sessionMapping.GetSnapshot();
         if (snapshot.TryGetValue(user.SessionId, out var mapping))
         {
-            var shareRoom = _screenShareTracker.GetActiveByUserId(mapping.UserId);
-            if (shareRoom is not null && shareRoom != $"channel-{channelId}")
+            var currentRoom = $"channel-{channelId}";
+            var shareRooms = _screenShareTracker.GetSharesByUserId(mapping.UserId);
+            foreach (var roomName in shareRooms)
             {
-                _screenShareTracker.Stop(shareRoom);
-                await _eventBus.BroadcastAsync(new { type = "screenShare.stopped", roomName = shareRoom });
+                if (roomName != currentRoom)
+                {
+                    _screenShareTracker.StopByUserId(roomName, mapping.UserId);
+                    await _eventBus.BroadcastAsync(new { type = "screenShare.stopped", roomName, userId = mapping.UserId });
+                }
             }
         }
     }
