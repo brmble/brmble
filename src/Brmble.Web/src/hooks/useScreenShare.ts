@@ -2,6 +2,14 @@ import { useCallback, useRef, useState, useEffect } from 'react';
 import { Room, RoomEvent, Track, RemoteTrackPublication, RemoteParticipant } from 'livekit-client';
 import bridge from '../bridge';
 
+export interface ShareInfo {
+  roomName: string;
+  userName: string;
+  userId: number;
+  sessionId?: number;
+}
+
+/** @deprecated Use ShareInfo instead */
 export interface ActiveShare {
   roomName: string;
   userName: string;
@@ -18,12 +26,39 @@ export interface ScreenShareSettings {
 export function useScreenShare(onDisconnected?: () => void, screenShareSettings?: ScreenShareSettings) {
   const [isSharing, setIsSharing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeShare, setActiveShare] = useState<ActiveShare | null>(null);
+  const [activeShares, setActiveShares] = useState<ShareInfo[]>([]);
+  const [watchingShare, setWatchingShare] = useState<ShareInfo | null>(null);
   const [remoteVideoEl, setRemoteVideoEl] = useState<HTMLVideoElement | null>(null);
   const publishRoomRef = useRef<Room | null>(null);
   const viewerRoomRef = useRef<Room | null>(null);
   const onDisconnectedRef = useRef(onDisconnected);
   onDisconnectedRef.current = onDisconnected;
+
+  // Helper: request a LiveKit token via bridge
+  const requestToken = useCallback((roomName: string) => {
+    return new Promise<{ token: string; url: string }>((resolve, reject) => {
+      const cleanup = () => {
+        bridge.off('livekit.token', onToken);
+        bridge.off('livekit.tokenError', onError);
+        clearTimeout(timer);
+      };
+      const onToken = (data: unknown) => {
+        cleanup();
+        resolve(data as { token: string; url: string });
+      };
+      const onError = (data: unknown) => {
+        cleanup();
+        reject(new Error((data as { error: string }).error));
+      };
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error('Token request timed out'));
+      }, 20000);
+      bridge.on('livekit.token', onToken);
+      bridge.on('livekit.tokenError', onError);
+      bridge.send('livekit.requestToken', { roomName });
+    });
+  }, []);
 
   const startSharing = useCallback(async (roomName: string) => {
     setError(null);
@@ -34,28 +69,7 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
     }
 
     try {
-      const { token, url } = await new Promise<{ token: string; url: string }>((resolve, reject) => {
-        const cleanup = () => {
-          bridge.off('livekit.token', onToken);
-          bridge.off('livekit.tokenError', onError);
-          clearTimeout(timer);
-        };
-        const onToken = (data: unknown) => {
-          cleanup();
-          resolve(data as { token: string; url: string });
-        };
-        const onError = (data: unknown) => {
-          cleanup();
-          reject(new Error((data as { error: string }).error));
-        };
-        const timer = setTimeout(() => {
-          cleanup();
-          reject(new Error('Token request timed out'));
-        }, 20000);
-        bridge.on('livekit.token', onToken);
-        bridge.on('livekit.tokenError', onError);
-        bridge.send('livekit.requestToken', { roomName });
-      });
+      const { token, url } = await requestToken(roomName);
 
       const room = new Room();
       room.on(RoomEvent.Disconnected, () => {
@@ -114,13 +128,12 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
       publishRoomRef.current = room;
       setIsSharing(true);
 
-      // Notify server that sharing has started
       bridge.send('livekit.shareStarted', { roomName });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Screen share failed');
       setIsSharing(false);
     }
-  }, [screenShareSettings]);
+  }, [screenShareSettings, requestToken]);
 
   const stopSharing = useCallback(async () => {
     const room = publishRoomRef.current;
@@ -138,47 +151,55 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
 
   // --- Viewer logic ---
 
-  const connectAsViewer = useCallback(async (roomName: string) => {
+  const connectAsViewer = useCallback(async (roomName: string, targetUserId: number) => {
+    // Find the share info for this user
+    const shareInfo = activeShares.find(s => s.userId === targetUserId && s.roomName === roomName);
+
+    // If already connected to this room (sharing or viewing), just subscribe to the track
+    const existingRoom = viewerRoomRef.current ?? publishRoomRef.current;
+    if (existingRoom?.name === roomName && (existingRoom as Room & { state?: string })?.state === 'connected') {
+      // Already in the room, just find and subscribe to the target's track
+      const participant = existingRoom.remoteParticipants.get(String(targetUserId));
+      if (participant) {
+        participant.trackPublications.forEach((pub: RemoteTrackPublication) => {
+          if (pub.track && pub.track.kind === Track.Kind.Video && pub.source === Track.Source.ScreenShare) {
+            const el = pub.track.attach() as HTMLVideoElement;
+            setRemoteVideoEl(el);
+          }
+        });
+      }
+      setWatchingShare(shareInfo ?? { roomName, userName: '', userId: targetUserId });
+      return;
+    }
+
+    // Disconnect existing viewer connection if switching rooms
     if (viewerRoomRef.current) {
       try { await viewerRoomRef.current.disconnect(); } catch { /* ignore */ }
       viewerRoomRef.current = null;
     }
 
     try {
-      const { token, url } = await new Promise<{ token: string; url: string }>((resolve, reject) => {
-        const cleanup = () => {
-          bridge.off('livekit.token', onToken);
-          bridge.off('livekit.tokenError', onError);
-          clearTimeout(timer);
-        };
-        const onToken = (data: unknown) => {
-          cleanup();
-          resolve(data as { token: string; url: string });
-        };
-        const onError = (data: unknown) => {
-          cleanup();
-          reject(new Error((data as { error: string }).error));
-        };
-        const timer = setTimeout(() => {
-          cleanup();
-          reject(new Error('Token request timed out'));
-        }, 20000);
-        bridge.on('livekit.token', onToken);
-        bridge.on('livekit.tokenError', onError);
-        bridge.send('livekit.requestToken', { roomName });
-      });
+      const { token, url } = await requestToken(roomName);
 
       const room = new Room();
 
-      room.on(RoomEvent.TrackSubscribed, (track, _pub, _participant) => {
-        if (track.kind === Track.Kind.Video && track.source === Track.Source.ScreenShare) {
+      room.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
+        if (
+          track.kind === Track.Kind.Video &&
+          track.source === Track.Source.ScreenShare &&
+          participant.identity === String(targetUserId)
+        ) {
           const el = track.attach() as HTMLVideoElement;
           setRemoteVideoEl(el);
         }
       });
 
-      room.on(RoomEvent.TrackUnsubscribed, (track) => {
-        if (track.kind === Track.Kind.Video && track.source === Track.Source.ScreenShare) {
+      room.on(RoomEvent.TrackUnsubscribed, (track, _pub, participant) => {
+        if (
+          track.kind === Track.Kind.Video &&
+          track.source === Track.Source.ScreenShare &&
+          participant.identity === String(targetUserId)
+        ) {
           track.detach();
           setRemoteVideoEl(null);
         }
@@ -192,55 +213,76 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
       await room.connect(url, token);
       viewerRoomRef.current = room;
 
-      // Check for already-published screen share tracks
+      // Check for already-published screen share tracks from target user
       room.remoteParticipants.forEach((participant: RemoteParticipant) => {
-        participant.trackPublications.forEach((pub: RemoteTrackPublication) => {
-          if (pub.track && pub.track.kind === Track.Kind.Video && pub.source === Track.Source.ScreenShare) {
-            const el = pub.track.attach() as HTMLVideoElement;
-            setRemoteVideoEl(el);
-          }
-        });
+        if (participant.identity === String(targetUserId)) {
+          participant.trackPublications.forEach((pub: RemoteTrackPublication) => {
+            if (pub.track && pub.track.kind === Track.Kind.Video && pub.source === Track.Source.ScreenShare) {
+              const el = pub.track.attach() as HTMLVideoElement;
+              setRemoteVideoEl(el);
+            }
+          });
+        }
       });
+
+      setWatchingShare(shareInfo ?? { roomName, userName: '', userId: targetUserId });
     } catch (err) {
       console.error('Failed to connect as viewer:', err);
     }
-  }, []);
+  }, [activeShares, requestToken]);
 
   const disconnectViewer = useCallback(async () => {
     const room = viewerRoomRef.current;
     if (room) {
-      try { await room.disconnect(); } catch { /* ignore */ }
+      // Only disconnect if we're not also sharing in this room
+      if (publishRoomRef.current?.name !== room.name) {
+        try { await room.disconnect(); } catch { /* ignore */ }
+      }
       viewerRoomRef.current = null;
     }
     setRemoteVideoEl(null);
-    // Don't clear activeShare here - it will be cleared by screenShareStopped event
-    // when the sharer actually stops sharing. This allows re-watching.
+    setWatchingShare(null);
   }, []);
 
   // Listen for screen share events from bridge
   useEffect(() => {
     const onShareStarted = (data: unknown) => {
-      const d = data as { roomName: string; userName: string; sessionId?: number };
-      setActiveShare({ roomName: d.roomName, userName: d.userName, sessionId: d.sessionId });
+      const d = data as { roomName: string; userName: string; userId: number; sessionId?: number };
+      setActiveShares(prev => {
+        // Don't add duplicates
+        if (prev.some(s => s.userId === d.userId && s.roomName === d.roomName)) return prev;
+        return [...prev, { roomName: d.roomName, userName: d.userName, userId: d.userId, sessionId: d.sessionId }];
+      });
     };
 
     const onShareStopped = (data: unknown) => {
-      const d = data as { roomName: string };
-      setActiveShare(prev => {
-        if (prev?.roomName !== d.roomName) return prev;
-        return null;
+      const d = data as { roomName: string; userId: number };
+      setActiveShares(prev => prev.filter(s => !(s.roomName === d.roomName && s.userId === d.userId)));
+      setWatchingShare(prev => {
+        if (prev && prev.roomName === d.roomName && prev.userId === d.userId) {
+          // The share we were watching stopped
+          if (viewerRoomRef.current) {
+            viewerRoomRef.current.disconnect().catch(() => {});
+            viewerRoomRef.current = null;
+          }
+          setRemoteVideoEl(null);
+          return null;
+        }
+        return prev;
       });
-      if (viewerRoomRef.current) {
-        viewerRoomRef.current.disconnect().catch(() => {});
-        viewerRoomRef.current = null;
-      }
-      setRemoteVideoEl(null);
     };
 
     const onActiveShareResult = (data: unknown) => {
-      const d = data as { roomName: string; active: boolean; userName?: string; sessionId?: number };
-      if (d.active && d.userName) {
-        setActiveShare({ roomName: d.roomName, userName: d.userName, sessionId: d.sessionId });
+      const d = data as { roomName: string; shares: Array<{ userId: number; userName: string; sessionId?: number }> };
+      if (d.shares && d.shares.length > 0) {
+        setActiveShares(d.shares.map(s => ({
+          roomName: d.roomName,
+          userName: s.userName,
+          userId: s.userId,
+          sessionId: s.sessionId,
+        })));
+      } else {
+        setActiveShares([]);
       }
     };
 
@@ -255,12 +297,19 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
     };
   }, []);
 
+  // Backward compat: expose first active share as activeShare
+  const activeShare: ActiveShare | null = activeShares.length > 0
+    ? { roomName: activeShares[0].roomName, userName: activeShares[0].userName, sessionId: activeShares[0].sessionId }
+    : null;
+
   return {
     isSharing,
     startSharing,
     stopSharing,
     error,
-    activeShare,
+    activeShare,       // backward compat
+    activeShares,      // new: all active shares
+    watchingShare,     // new: which share you're viewing
     remoteVideoEl,
     disconnectViewer,
     connectAsViewer,
