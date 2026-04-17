@@ -5,7 +5,7 @@ using Microsoft.Extensions.Options;
 
 namespace Brmble.Server.LiveKit;
 
-public class LiveKitService
+public class LiveKitService : ILiveKitRoomQuery
 {
     private static readonly TimeSpan DefaultTokenTtl = TimeSpan.FromHours(6);
 
@@ -68,6 +68,29 @@ public class LiveKitService
         {
             // Idempotent: if room/participant doesn't exist, that's fine
             _logger.LogDebug(ex, "Could not remove participant {Identity} from room {Room} (may not exist)", participantIdentity, roomName);
+        }
+    }
+
+    public async Task<IReadOnlyList<string>> ListParticipantIdentities(string roomName)
+    {
+        try
+        {
+            var roomService = new RoomServiceClient(
+                _settings.ServerUrl,
+                _settings.ApiKey,
+                _settings.ApiSecret);
+
+            var response = await roomService.ListParticipants(new Livekit.Server.Sdk.Dotnet.ListParticipantsRequest
+            {
+                Room = roomName
+            });
+
+            return response.Participants.Select(p => p.Identity).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not list participants in room {Room}", roomName);
+            return Array.Empty<string>();
         }
     }
 }

@@ -7,7 +7,10 @@ public static class LiveKitExtensions
         services.AddOptions<LiveKitSettings>()
             .BindConfiguration("LiveKit");
         services.AddSingleton<LiveKitService>();
+        services.AddSingleton<ILiveKitRoomQuery>(sp => sp.GetRequiredService<LiveKitService>());
         services.AddSingleton<ScreenShareTracker>();
+        services.AddSingleton<IUserIdMapper, SessionMappingUserIdMapper>();
+        services.AddHostedService<ScreenShareReconciliationService>();
         return services;
     }
 }
