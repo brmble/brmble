@@ -1800,12 +1800,19 @@ private int _screenShareHotkeyId = -1;
     /// <summary>Start or stop mic for PTT.</summary>
     private void SetPttActive(bool active)
     {
+        bool startMic = false;
+        bool scheduleSilenceTail = false;
+        int silenceTailGeneration = 0;
+        int holdMs = 200;
+
         lock (_lock)
         {
             long now = Environment.TickCount64;
 
-            // Debounce: Ignore rapid toggles to prevent WASAPI stress and socket buffer exhaustion
-            if (now - _pttLastToggleMs < MinPttToggleThresholdMs)
+            // Debounce: Ignore rapid activations to prevent WASAPI stress and socket buffer exhaustion,
+            // but never drop a deactivation. Releasing PTT must always clear _pttActive and
+            // schedule the silence tail so the mic cannot be left running.
+            if (active && now - _pttLastToggleMs < MinPttToggleThresholdMs)
                 return;
 
             // Coalesce: If state hasn't changed, do nothing
@@ -1823,7 +1830,7 @@ private int _screenShareHotkeyId = -1;
                 _pttSilenceTailTimer = null;
                 Interlocked.Increment(ref _pttSilenceTailGeneration);
                 AudioLog.Write("[Audio] Starting mic for PTT");
-                StartMic();
+                startMic = true;
             }
             else
             {
@@ -1832,17 +1839,30 @@ private int _screenShareHotkeyId = -1;
                 // fire the silence tail after the hold delay.
                 _pttSilenceTailTimer?.Dispose();
                 _pttSilenceTailTimer = null;
-                int generation = Interlocked.Increment(ref _pttSilenceTailGeneration);
-                _pttSilenceTailTimer = new System.Threading.Timer(_ =>
-                {
-                    // Guard against the timer callback running after cancel/dispose.
-                    // If generation has advanced, a newer cancel/restart supersedes this callback.
-                    if (Interlocked.CompareExchange(ref _pttSilenceTailGeneration, generation, generation) != generation)
-                        return;
-                    if (_pttActive || _muted) return;
-                    StopMicWithSilenceTail();
-                }, null, dueTime: _voiceHoldMs, period: Timeout.Infinite);
+                silenceTailGeneration = Interlocked.Increment(ref _pttSilenceTailGeneration);
+                scheduleSilenceTail = true;
+                holdMs = _voiceHoldMs;
             }
+        }
+
+        // Call StartMic outside the lock to avoid re-entrancy issues with
+        // WASAPI's internal locking and wait logic.
+        if (startMic)
+            StartMic();
+
+        // Schedule silence tail outside the lock
+        if (scheduleSilenceTail)
+        {
+            int generation = silenceTailGeneration;
+            _pttSilenceTailTimer = new System.Threading.Timer(_ =>
+            {
+                // Guard against the timer callback running after cancel/dispose.
+                // If generation has advanced, a newer cancel/restart supersedes this callback.
+                if (Interlocked.CompareExchange(ref _pttSilenceTailGeneration, generation, generation) != generation)
+                    return;
+                if (_pttActive || _muted) return;
+                StopMicWithSilenceTail();
+            }, null, dueTime: holdMs, period: Timeout.Infinite);
         }
     }
 
