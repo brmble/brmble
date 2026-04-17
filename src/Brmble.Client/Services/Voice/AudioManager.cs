@@ -266,7 +266,7 @@ private int _screenShareHotkeyId = -1;
         _inputVolume = Math.Clamp(percentage, 0, 250) / 100f;
         _encodePipeline?.SetVolume(_inputVolume);
     }
-        public void SetVoiceHoldMs(int ms) => _voiceHoldMs = Math.Clamp(ms, 100, 2000);
+    public void SetVoiceHoldMs(int ms) => _voiceHoldMs = Math.Clamp(ms, 100, 2000);
 
     // Allowed Opus bitrates (bps). Must match the UI options in AudioSettingsTab.tsx.
     private static readonly int[] AllowedBitrates = { 24000, 40000, 56000, 72000, 96000, 128000 };
@@ -900,6 +900,8 @@ private int _screenShareHotkeyId = -1;
 
     
 
+    private const double VoiceActivityRmsThreshold = 300;
+
     /// <summary>RMS check: returns true if the audio chunk is loud enough to transmit.</summary>
     private static bool IsAboveThreshold(byte[] buffer, int bytesRecorded)
     {
@@ -912,8 +914,7 @@ private int _screenShareHotkeyId = -1;
         }
         if (samples == 0) return false;
         var rms = Math.Sqrt(sumSq / (double)samples);
-        return rms >= 300; // Inline previous constant value
-
+        return rms >= VoiceActivityRmsThreshold;
     }
 
     /// <summary>
