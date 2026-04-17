@@ -1525,39 +1525,42 @@ private int _screenShareHotkeyId = -1;
             RegisterMouseHookForShortcut(action, key);
             return;
         }
-        
+
+        bool isSuspended = _suspendCount > 0;
+
         switch (action)
         {
             case "pushToTalk":
-                // PTT registration is handled by SetTransmissionMode (keyboard
-                // polling or mouse hook).  Only register a mouse hook here when
-                // the key is actually a mouse button (the isMouseButton early-return
-                // above already covers that), so this is intentionally a no-op for
-                // keyboard keys to avoid clobbering the shared mouse hook.
                 break;
             case "toggleMute":
                 _muteKeyName = key;
-                RegisterSingleHotkey(ref _muteHotkeyId, MuteHotkeyId, key, _hwnd);
+                if (!isSuspended)
+                    RegisterSingleHotkey(ref _muteHotkeyId, MuteHotkeyId, key, _hwnd);
                 break;
             case "toggleMuteDeafen":
                 _muteDeafenKeyName = key;
-                RegisterSingleHotkey(ref _muteDeafenHotkeyId, MuteDeafenHotkeyId, key, _hwnd);
+                if (!isSuspended)
+                    RegisterSingleHotkey(ref _muteDeafenHotkeyId, MuteDeafenHotkeyId, key, _hwnd);
                 break;
             case "continuousTransmission":
                 _continuousKeyName = key;
-                RegisterSingleHotkey(ref _continuousHotkeyId, ContinuousHotkeyId, key, _hwnd);
+                if (!isSuspended)
+                    RegisterSingleHotkey(ref _continuousHotkeyId, ContinuousHotkeyId, key, _hwnd);
                 break;
             case "toggleLeaveVoice":
                 _leaveVoiceKeyName = key;
-                RegisterSingleHotkey(ref _leaveVoiceHotkeyId, LeaveVoiceHotkeyId, key, _hwnd);
+                if (!isSuspended)
+                    RegisterSingleHotkey(ref _leaveVoiceHotkeyId, LeaveVoiceHotkeyId, key, _hwnd);
                 break;
             case "toggleDmScreen":
                 _dmScreenKeyName = key;
-                RegisterSingleHotkey(ref _dmScreenHotkeyId, DmScreenHotkeyId, key, _hwnd);
+                if (!isSuspended)
+                    RegisterSingleHotkey(ref _dmScreenHotkeyId, DmScreenHotkeyId, key, _hwnd);
                 break;
             case "toggleScreenShare":
                 _screenShareKeyName = key;
-                RegisterSingleHotkey(ref _screenShareHotkeyId, ScreenShareHotkeyId, key, _hwnd);
+                if (!isSuspended)
+                    RegisterSingleHotkey(ref _screenShareHotkeyId, ScreenShareHotkeyId, key, _hwnd);
                 break;
         }
     }
@@ -1593,11 +1596,14 @@ private int _screenShareHotkeyId = -1;
     /// </summary>
     public void ResumeHotkeys()
     {
+        if (_suspendCount <= 0)
+        {
+            AudioLog.Write("[Audio] ResumeHotkeys: not suspended, skipping");
+            return; // Nothing to resume
+        }
+
         if (--_suspendCount > 0)
             return; // Still have pending suspends
-
-        if (_suspendCount < 0)
-            _suspendCount = 0; // Defensive: prevent negative
 
         AudioLog.Write("[Audio] ResumeHotkeys");
 
