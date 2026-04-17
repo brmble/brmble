@@ -3,8 +3,11 @@ import bridge from '../../bridge';
 import { type AllBindings, BINDING_LABELS } from './SettingsModal';
 import { confirm } from '../../hooks/usePrompt';
 import { Select } from '../Select';
+import { VirtualMicControls } from './VirtualMicControls';
 import './AudioSettingsTab.css';
 import './ShortcutsSettingsTab.css';
+
+export type ProcessingStack = 'None' | 'Legacy' | 'WebRtcApm';
 
 interface AudioSettingsTabProps {
   settings: AudioSettings;
@@ -29,6 +32,7 @@ export interface AudioSettings {
   opusFrameSize: number;
   voiceHoldMs: number;
   captureApi: 'waveIn' | 'wasapi';
+  processingStack: ProcessingStack;
 }
 
 export interface SpeechDenoiseSettings {
@@ -47,6 +51,7 @@ export const DEFAULT_SETTINGS: AudioSettings = {
   opusFrameSize: 20,
   voiceHoldMs: 200,
   captureApi: 'wasapi',
+  processingStack: 'Legacy',
 };
 
 export const DEFAULT_SPEECH_DENOISE: SpeechDenoiseSettings = {
@@ -260,7 +265,27 @@ export function AudioSettingsTab({ settings, speechDenoise, onChange, onSpeechDe
             ]}
           />
         </div>
+
+        <div className="settings-item">
+          <label>
+            Processing Stack
+            <span className="tooltip-icon" data-tooltip="None: raw passthrough — no processing. Legacy: amplitude AGC + RNNoise (default). WebRTC APM: AGC2 + noise suppression + high-pass filter (experimental).">?</span>
+          </label>
+          <Select
+            value={localSettings.processingStack}
+            onChange={(v) => handleChange('processingStack', v as ProcessingStack)}
+            options={[
+              { value: 'None', label: 'None' },
+              { value: 'Legacy', label: 'Legacy (default)' },
+              { value: 'WebRtcApm', label: 'WebRTC APM (experimental)' },
+            ]}
+          />
+        </div>
       </div>
+
+      <VirtualMicControls
+        onChange={(path) => bridge.send('voice.setVirtualMic', { path })}
+      />
 
       {/* Encoding Section */}
       {(() => {

@@ -3,6 +3,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Buffers;
 using Brmble.Audio.Codecs;
+using Brmble.Audio.Processing;
 using Brmble.Audio.NetEQ;
 using Brmble.Audio.NetEQ.Models;
 using Brmble.Client.Services.AppConfig;
@@ -287,7 +288,16 @@ private int _screenShareHotkeyId = -1;
     private int _opusFrameMs = 20;
     private bool _dtxEnabled;
 
+    // Virtual mic (testing). Not persisted across restarts.
+    private string? _virtualMicPath;
+    private volatile bool _virtualMicActive;
+
     // Speech enhancement
+    // Capture-side processor (swappable). Default = Legacy stack.
+    private IAudioCapturePostProcessor? _processor;
+    private ProcessingStack _processingStack = ProcessingStack.Legacy;
+    [ThreadStatic] private static byte[]? _processorOutputScratch;
+
     private SpeechEnhancementService? _speechEnhancement;
     private AudioResampler? _to16kResampler;
     private AudioResampler? _to48kResampler;
@@ -451,6 +461,86 @@ private int _screenShareHotkeyId = -1;
             _rnnoise?.Dispose();
             _rnnoise = mode == SpeechDenoiseMode.Rnnoise ? new RnnoiseService(mode) : null;
             _rnnoiseRemainder = null;
+
+            // If we're on the Legacy stack, rebuild it so its RnnoiseProcess hook picks up the new service.
+            if (_processingStack == ProcessingStack.Legacy)
+            {
+                _processor?.Dispose();
+                _processor = CreateProcessorLocked(ProcessingStack.Legacy);
+            }
+        }
+    }
+
+    public void SetVirtualMic(string? wavPath)
+    {
+        lock (_lock)
+        {
+            if (string.IsNullOrWhiteSpace(wavPath))
+            {
+                _virtualMicPath = null;
+                _virtualMicActive = false;
+            }
+            else
+            {
+                // Relative paths come from the frontend as e.g. "fixtures/apm/near_speech.wav".
+                // Resolve against the binary's directory, where the MSBuild <None Link> rule
+                // copies the WAVs — not against the .NET process CWD.
+                _virtualMicPath = Path.IsPathRooted(wavPath)
+                    ? wavPath
+                    : Path.Combine(AppContext.BaseDirectory, wavPath);
+                _virtualMicActive = true;
+            }
+            AudioLog.Write($"[Audio] Virtual mic {(_virtualMicActive ? $"enabled: {_virtualMicPath}" : "disabled")}");
+
+            // If mic is currently running, restart it so StartMicLocked picks the right source.
+            // StopMicLocked only stops recording — it doesn't null _waveIn. Dispose it here so
+            // StartMicLocked creates a fresh IWaveIn matching the new _virtualMicActive state
+            // (otherwise a stale FixtureWaveProvider would get StartRecording()'d again).
+            if (_micStarted)
+            {
+                StopMicLocked();
+                _waveIn?.Dispose();
+                _waveIn = null;
+                StartMicLocked();
+            }
+        }
+    }
+
+    public void SetProcessingStack(ProcessingStack stack)
+    {
+        lock (_lock)
+        {
+            if (_processingStack == stack && _processor != null) return;
+            _processingStack = stack;
+            _processor?.Dispose();
+            _processor = CreateProcessorLocked(stack);
+            AudioLog.Write($"[Audio] Processing stack set to {stack}");
+        }
+    }
+
+    private IAudioCapturePostProcessor? CreateProcessorLocked(ProcessingStack stack)
+    {
+        try
+        {
+            return stack switch
+            {
+                ProcessingStack.None => new PassthroughProcessor(),
+                ProcessingStack.Legacy => new LegacyAudioProcessor
+                {
+                    // MaxAmplification was dropped from AudioManager on main in favour of
+                    // EncodePipeline-based volume. Legacy AGC now only compresses loud audio.
+                    MaxAmplification = 1.0f,
+                    RnnoiseEnabled = _rnnoise?.IsEnabled == true,
+                    RnnoiseProcess = frame => _rnnoise?.Process(frame),
+                },
+                ProcessingStack.WebRtcApm => new WebRtcApmProcessor(),
+                _ => throw new ArgumentOutOfRangeException(nameof(stack)),
+            };
+        }
+        catch (Exception ex)
+        {
+            AudioLog.Write($"[Audio] Failed to create processor for {stack}: {ex.Message}");
+            return null;
         }
     }
 
@@ -571,84 +661,116 @@ private int _screenShareHotkeyId = -1;
     {
         lock (_lock)
         {
-            if (_micStarted || _muted) return;
-
-            _micStarted = true;
-            if (_encodePipeline == null)
-                RecreateEncodePipelineLocked();
-
-            if (_waveIn == null)
-            {
-                if (_captureApi == "wasapi")
-                {
-                    using var enumerator = new MMDeviceEnumerator();
-                    using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Communications);
-                    var wasapi = new WasapiCapture(device, true, 20)
-                    {
-                        ShareMode = AudioClientShareMode.Shared
-                    };
-                    AudioLog.Write($"[Audio] WASAPI capture format: {wasapi.WaveFormat.SampleRate}Hz, {wasapi.WaveFormat.BitsPerSample}bit, {wasapi.WaveFormat.Channels}ch");
-                    wasapi.RecordingStopped += (s, e) =>
-                    {
-                        if (e.Exception != null)
-                        {
-                            AudioLog.Write($"[Audio] WASAPI recording stopped with error: {e.Exception.Message}");
-                        }
-                    };
-                    _waveIn = wasapi;
-                }
-                else
-                {
-                    _waveIn = new WaveInEvent
-                    {
-                        DeviceNumber = -1,
-                        BufferMilliseconds = 20,
-                        WaveFormat = new WaveFormat(48000, 16, 1)
-                    };
-                }
-                _waveIn.DataAvailable += OnMicData;
-            }
-
-            // WasapiCapture.StopRecording() only signals the capture thread to
-            // stop; it doesn't wait for it to exit.  If we call StartRecording()
-            // before the thread has fully stopped, WasapiCapture throws
-            // InvalidOperationException ("Previous recording still in progress").
-            // Wait outside the lock so other threads aren't blocked, then
-            // re-validate state before proceeding.
-            if (_waveIn is WasapiCapture wasapiWait &&
-                wasapiWait.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped)
-            {
-                var localCapture = wasapiWait;
-                Monitor.Exit(_lock);
-                try
-                {
-                    const int maxWaitMs = 300;
-                    int waited = 0;
-                    while (localCapture.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped && waited < maxWaitMs)
-                    {
-                        Thread.Sleep(10);
-                        waited += 10;
-                    }
-                }
-                finally
-                {
-                    Monitor.Enter(_lock);
-                }
-
-                // State may have changed while we were unlocked — re-validate.
-                if (_micStarted || _muted) return;
-
-                if (_waveIn is WasapiCapture recheck &&
-                    recheck.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped)
-                {
-                    AudioLog.Write($"[Audio] WASAPI capture still stopping after wait, skipping StartRecording");
-                    return;
-                }
-            }
-
-            _waveIn.StartRecording();
-            AudioLog.Write("[Audio] Mic started");
+            StartMicLocked();
         }
+    }
+
+    /// <summary>
+    /// Inner mic-start logic. Caller must hold <see cref="_lock"/>.
+    /// May temporarily release and reacquire the lock for WASAPI stop-wait.
+    /// </summary>
+    private void StartMicLocked()
+    {
+        if (_micStarted || _muted) return;
+
+        _micStarted = true;
+        if (_encodePipeline == null)
+            RecreateEncodePipelineLocked();
+
+        // Virtual mic branch: use fixture replay instead of real hardware.
+        if (_virtualMicActive && _virtualMicPath != null)
+        {
+            try
+            {
+                _waveIn?.Dispose();
+                _waveIn = new FixtureWaveProvider(_virtualMicPath, frameMs: 20, loop: true);
+                _waveIn.DataAvailable += OnMicData;
+                _waveIn.StartRecording();
+                AudioLog.Write("[Audio] Mic started (virtual — fixture replay)");
+                return;
+            }
+            catch (Exception ex)
+            {
+                AudioLog.Write($"[Audio] Virtual mic failed ({_virtualMicPath}): {ex.Message} — falling back to real microphone.");
+                _waveIn?.Dispose();
+                _waveIn = null;
+                _virtualMicActive = false;
+                _virtualMicPath = null;
+                // Fall through to the live-mic branch below.
+            }
+        }
+
+        if (_waveIn == null)
+        {
+            if (_captureApi == "wasapi")
+            {
+                using var enumerator = new MMDeviceEnumerator();
+                using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Communications);
+                var wasapi = new WasapiCapture(device, true, 20)
+                {
+                    ShareMode = AudioClientShareMode.Shared
+                };
+                AudioLog.Write($"[Audio] WASAPI capture format: {wasapi.WaveFormat.SampleRate}Hz, {wasapi.WaveFormat.BitsPerSample}bit, {wasapi.WaveFormat.Channels}ch");
+                wasapi.RecordingStopped += (s, e) =>
+                {
+                    if (e.Exception != null)
+                    {
+                        AudioLog.Write($"[Audio] WASAPI recording stopped with error: {e.Exception.Message}");
+                    }
+                };
+                _waveIn = wasapi;
+            }
+            else
+            {
+                _waveIn = new WaveInEvent
+                {
+                    DeviceNumber = -1,
+                    BufferMilliseconds = 20,
+                    WaveFormat = new WaveFormat(48000, 16, 1)
+                };
+            }
+            _waveIn.DataAvailable += OnMicData;
+        }
+
+        // WasapiCapture.StopRecording() only signals the capture thread to
+        // stop; it doesn't wait for it to exit.  If we call StartRecording()
+        // before the thread has fully stopped, WasapiCapture throws
+        // InvalidOperationException ("Previous recording still in progress").
+        // Wait outside the lock so other threads aren't blocked, then
+        // re-validate state before proceeding.
+        if (_waveIn is WasapiCapture wasapiWait &&
+            wasapiWait.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped)
+        {
+            var localCapture = wasapiWait;
+            Monitor.Exit(_lock);
+            try
+            {
+                const int maxWaitMs = 300;
+                int waited = 0;
+                while (localCapture.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped && waited < maxWaitMs)
+                {
+                    Thread.Sleep(10);
+                    waited += 10;
+                }
+            }
+            finally
+            {
+                Monitor.Enter(_lock);
+            }
+
+            // State may have changed while we were unlocked — re-validate.
+            if (!_micStarted || _muted) return;
+
+            if (_waveIn is WasapiCapture recheck &&
+                recheck.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped)
+            {
+                AudioLog.Write($"[Audio] WASAPI capture still stopping after wait, skipping StartRecording");
+                return;
+            }
+        }
+
+        _waveIn.StartRecording();
+        AudioLog.Write("[Audio] Mic started");
     }
 
     /// <summary>Stop mic capture and dispose encode pipeline. No-op if not started.</summary>
@@ -658,20 +780,30 @@ private int _screenShareHotkeyId = -1;
         uint capturedUserId = 0;
         lock (_lock)
         {
-            if (!_micStarted) return;
-
-            _waveIn?.StopRecording();
-            _encodePipeline?.Dispose();
-            _encodePipeline = null;
-            _deviceResampler?.Dispose();
-            _deviceResampler = null;
-            _micStarted = false;
-            capturedUserId = _localUserId;
-            wasSpeaking = capturedUserId != 0 && _currentlySpeaking.Remove(capturedUserId);
-            AudioLog.Write("[Audio] Mic stopped");
+            (wasSpeaking, capturedUserId) = StopMicLocked();
         }
         if (wasSpeaking)
             UserStoppedSpeaking?.Invoke(capturedUserId);
+    }
+
+    /// <summary>
+    /// Inner mic-stop logic. Caller must hold <see cref="_lock"/>.
+    /// Returns (wasSpeaking, capturedUserId) so the caller can fire events outside the lock.
+    /// </summary>
+    private (bool wasSpeaking, uint capturedUserId) StopMicLocked()
+    {
+        if (!_micStarted) return (false, 0);
+
+        _waveIn?.StopRecording();
+        _encodePipeline?.Dispose();
+        _encodePipeline = null;
+        _deviceResampler?.Dispose();
+        _deviceResampler = null;
+        _micStarted = false;
+        uint capturedUserId = _localUserId;
+        bool wasSpeaking = capturedUserId != 0 && _currentlySpeaking.Remove(capturedUserId);
+        AudioLog.Write("[Audio] Mic stopped");
+        return (wasSpeaking, capturedUserId);
     }
 
     /// <summary>
@@ -826,82 +958,42 @@ private int _screenShareHotkeyId = -1;
             processedBytes = requiredInt16Bytes;
         }
 
+        bool virtualMic = _virtualMicActive;
         if (_muted) return;
-        if (_transmissionMode == TransmissionMode.PushToTalk && !_pttActive) return;
+        if (!virtualMic && _transmissionMode == TransmissionMode.PushToTalk && !_pttActive) return;
 
-
-
-        // Input volume is now applied in EncodePipeline
-
-        // Apply RNNoise denoising if enabled (processes 48kHz float samples in-place)
-        RnnoiseService? rnnoise;
+        // Capture-side processor (swappable).
+        IAudioCapturePostProcessor? processor;
         lock (_lock)
         {
-            rnnoise = _rnnoise;
+            if (_processor == null) _processor = CreateProcessorLocked(_processingStack);
+            processor = _processor;
         }
-        if (rnnoise?.IsEnabled == true)
+
+        if (processor != null)
         {
-            var sampleCount = processedBytes / 2;
-            var totalSamples = sampleCount;
+            int needed = processedBytes + WebRtcApmProcessor.FrameBytes;
+            if (_processorOutputScratch == null || _processorOutputScratch.Length < needed)
+                _processorOutputScratch = new byte[needed];
 
-            if (_rnnoiseRemainder != null)
-            {
-                totalSamples += _rnnoiseRemainder.Length;
-            }
-
-            var combinedSamples = totalSamples;
-            var scratchBuffer = ArrayPool<float>.Shared.Rent(RnnoiseService.FrameSize * 2);
             try
             {
-                int combinedIndex = 0;
+                int written = processor.Process(
+                    new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes),
+                    _processorOutputScratch.AsSpan());
 
-                if (_rnnoiseRemainder != null)
-                {
-                    Array.Copy(_rnnoiseRemainder, 0, scratchBuffer, 0, _rnnoiseRemainder.Length);
-                    combinedIndex = _rnnoiseRemainder.Length;
-                    ArrayPool<float>.Shared.Return(_rnnoiseRemainder);
-                    _rnnoiseRemainder = null;
-                }
-
-                for (int i = 0; i < sampleCount; i++)
-                {
-                    short s = (short)(processedBuffer[i * 2] | (processedBuffer[i * 2 + 1] << 8));
-                    scratchBuffer[combinedIndex + i] = s / 32768f;
-                }
-
-                var offset = 0;
-                while (offset + RnnoiseService.FrameSize <= combinedIndex + sampleCount)
-                {
-                    var frame = scratchBuffer.AsSpan(offset, RnnoiseService.FrameSize);
-                    var frameCopy = new float[RnnoiseService.FrameSize];
-                    frame.CopyTo(frameCopy);
-
-                    var denoised = rnnoise.Process(frameCopy);
-                    if (denoised != null)
-                    {
-                        for (int i = 0; i < RnnoiseService.FrameSize; i++)
-                        {
-                            var sample = (short)Math.Clamp(denoised[i] * 32768f, short.MinValue, short.MaxValue);
-                            processedBuffer[(offset + i) * 2] = (byte)(sample & 0xFF);
-                            processedBuffer[(offset + i) * 2 + 1] = (byte)((sample >> 8) & 0xFF);
-                        }
-                    }
-
-                    offset += RnnoiseService.FrameSize;
-                }
-
-                var remaining = (combinedIndex + sampleCount) - offset;
-                if (remaining > 0)
-                {
-                    _rnnoiseRemainder = new float[remaining];
-                    Array.Copy(scratchBuffer, offset, _rnnoiseRemainder, 0, remaining);
-                }
+                processedBuffer = _processorOutputScratch;
+                processedBytes = written;
             }
-            finally
+            catch (ObjectDisposedException)
             {
-                ArrayPool<float>.Shared.Return(scratchBuffer);
+                return;
             }
+
+            if (processedBytes == 0) return;
         }
+
+        // Input volume is applied inside EncodePipeline (see SetInputVolume → _encodePipeline.SetVolume).
 
         // Apply speech enhancement if enabled
         if (_speechEnhancement?.IsEnabled == true && _to16kResampler != null && _to48kResampler != null)
@@ -956,7 +1048,7 @@ private int _screenShareHotkeyId = -1;
         }
 
         // Voice activity check on processed signal
-        if (_transmissionMode == TransmissionMode.VoiceActivity && !IsAboveThreshold(processedBuffer, processedBytes)) return;
+        if (!virtualMic && _transmissionMode == TransmissionMode.VoiceActivity && !IsAboveThreshold(processedBuffer, processedBytes)) return;
 
         // Snapshot the pipeline reference and update speaking state under lock.
         // This prevents a race where RecreateEncodePipelineLocked disposes _encodePipeline
@@ -1886,6 +1978,8 @@ private int _screenShareHotkeyId = -1;
     {
         _deviceResampler?.Dispose();
         _deviceResampler = null;
+        _processor?.Dispose();
+        _processor = null;
         _rnnoise?.Dispose();
         _rnnoiseRemainder = null;
         _speechEnhancement?.Dispose();
