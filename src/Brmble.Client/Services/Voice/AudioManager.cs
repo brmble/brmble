@@ -265,6 +265,8 @@ private int _screenShareHotkeyId = -1;
     private System.Threading.Timer? _shortcutReleaseTimer;
     private System.Threading.Timer? _pttSilenceTailTimer;
     private int _pttSilenceTailGeneration; // incremented each time the timer is cancelled/replaced
+    private long _pttLastToggleMs;
+    private const int MinPttToggleThresholdMs = 100; // debounce to prevent WASAPI stress
     private string? _heldMouseAction; // action name for mouse shortcut currently held
     private int _shortcutMouseVk; // VK code for the mouse button bound to a toggle shortcut
 
@@ -1798,35 +1800,49 @@ private int _screenShareHotkeyId = -1;
     /// <summary>Start or stop mic for PTT.</summary>
     private void SetPttActive(bool active)
     {
-        AudioLog.Write($"[Audio] SetPttActive: active={active}, _pttActive={_pttActive}, muted={_muted}");
-        _pttActive = active;
+        lock (_lock)
+        {
+            long now = Environment.TickCount64;
 
-        if (active && !_muted)
-        {
-            // Cancel any pending silence tail — PTT was re-pressed before the tail completed
-            _pttSilenceTailTimer?.Dispose();
-            _pttSilenceTailTimer = null;
-            Interlocked.Increment(ref _pttSilenceTailGeneration);
-            AudioLog.Write("[Audio] Starting mic for PTT");
-            StartMic();
-        }
-        else
-        {
-            AudioLog.Write("[Audio] PTT released — scheduling silence tail");
-            // Gate live mic immediately (OnMicData checks _pttActive), then
-            // fire the silence tail after the hold delay.
-            _pttSilenceTailTimer?.Dispose();
-            _pttSilenceTailTimer = null;
-            int generation = Interlocked.Increment(ref _pttSilenceTailGeneration);
-            _pttSilenceTailTimer = new System.Threading.Timer(_ =>
+            // Debounce: Ignore rapid toggles to prevent WASAPI stress and socket buffer exhaustion
+            if (now - _pttLastToggleMs < MinPttToggleThresholdMs)
+                return;
+
+            // Coalesce: If state hasn't changed, do nothing
+            if (_pttActive == active)
+                return;
+
+            AudioLog.Write($"[Audio] SetPttActive: active={active}, muted={_muted}");
+            _pttLastToggleMs = now;
+            _pttActive = active;
+
+            if (active && !_muted)
             {
-                // Guard against the timer callback running after cancel/dispose.
-                // If generation has advanced, a newer cancel/restart supersedes this callback.
-                if (Interlocked.CompareExchange(ref _pttSilenceTailGeneration, generation, generation) != generation)
-                    return;
-                if (_pttActive || _muted) return;
-                StopMicWithSilenceTail();
-            }, null, dueTime: _voiceHoldMs, period: Timeout.Infinite);
+                // Cancel any pending silence tail — PTT was re-pressed before the tail completed
+                _pttSilenceTailTimer?.Dispose();
+                _pttSilenceTailTimer = null;
+                Interlocked.Increment(ref _pttSilenceTailGeneration);
+                AudioLog.Write("[Audio] Starting mic for PTT");
+                StartMic();
+            }
+            else
+            {
+                AudioLog.Write("[Audio] PTT released — scheduling silence tail");
+                // Gate live mic immediately (OnMicData checks _pttActive), then
+                // fire the silence tail after the hold delay.
+                _pttSilenceTailTimer?.Dispose();
+                _pttSilenceTailTimer = null;
+                int generation = Interlocked.Increment(ref _pttSilenceTailGeneration);
+                _pttSilenceTailTimer = new System.Threading.Timer(_ =>
+                {
+                    // Guard against the timer callback running after cancel/dispose.
+                    // If generation has advanced, a newer cancel/restart supersedes this callback.
+                    if (Interlocked.CompareExchange(ref _pttSilenceTailGeneration, generation, generation) != generation)
+                        return;
+                    if (_pttActive || _muted) return;
+                    StopMicWithSilenceTail();
+                }, null, dueTime: _voiceHoldMs, period: Timeout.Infinite);
+            }
         }
     }
 
