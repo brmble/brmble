@@ -25,6 +25,9 @@ public class DelayManager
 
     public DelayManager(int minLevel = 1, int maxLevel = 15, double targetPercentile = 0.95)
     {
+        if (targetPercentile is <= 0.0 or > 1.0)
+            throw new ArgumentOutOfRangeException(nameof(targetPercentile),
+                targetPercentile, "Must be in the range (0.0, 1.0].");
         _minLevel = minLevel;
         _maxLevel = maxLevel;
         _targetPercentile = targetPercentile;

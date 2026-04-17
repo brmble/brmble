@@ -207,6 +207,10 @@ public class JitterBuffer : IDisposable
                             _syncBuffer.Write(_secondFrameBuffer.AsSpan(FrameSize, decoded2 - FrameSize));
                         secondFrameAvailable = true;
                     }
+                    else
+                    {
+                        InsertPacket(nextPkt);
+                    }
                 }
 
                 if (secondFrameAvailable)
