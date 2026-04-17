@@ -1,4 +1,5 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
+import { Notification } from '../Notification/Notification';
 import './Toast.css';
 
 interface ToastAction {
@@ -15,28 +16,28 @@ interface ToastProps {
 }
 
 export function Toast({ message, actions, duration = 8000, onDismiss }: ToastProps) {
-  const [visible, setVisible] = useState(false);
+  const [visible, setVisible] = useState(true);
 
-  useEffect(() => {
-    requestAnimationFrame(() => setVisible(true));
-    const timer = setTimeout(() => {
-      setVisible(false);
-      setTimeout(onDismiss, 200);
-    }, duration);
-    return () => clearTimeout(timer);
-  }, [duration, onDismiss]);
+  const handleDismiss = useCallback(() => {
+    setVisible(false);
+  }, []);
 
   const handleAction = useCallback((action: ToastAction) => {
     action.onClick();
     setVisible(false);
-    setTimeout(onDismiss, 200);
-  }, [onDismiss]);
+  }, []);
 
   return (
-    <div className={`toast ${visible ? 'toast--visible' : ''}`} role="status" aria-live="polite">
-      <span className="toast-message">{message}</span>
-      {actions && (
-        <div className="toast-actions">
+    <Notification
+      status="info"
+      position="bottom-center"
+      visible={visible}
+      duration={duration}
+      onDismiss={handleDismiss}
+      onExited={onDismiss}
+      title={<span className="toast-title">{message}</span>}
+      actions={actions ? (
+        <>
           {actions.map((action, i) => (
             <button
               key={i}
@@ -46,8 +47,8 @@ export function Toast({ message, actions, duration = 8000, onDismiss }: ToastPro
               {action.label}
             </button>
           ))}
-        </div>
-      )}
-    </div>
+        </>
+      ) : undefined}
+    />
   );
 }

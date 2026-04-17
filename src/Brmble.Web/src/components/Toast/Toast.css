@@ -1,33 +1,3 @@
-.toast {
-  position: fixed;
-  bottom: var(--space-lg);
-  left: 50%;
-  transform: translateX(-50%) translateY(20px);
-  opacity: 0;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  padding: var(--space-sm) var(--space-md);
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  z-index: 1100;
-  transition: opacity var(--transition-fast), transform var(--transition-fast);
-  box-shadow: var(--shadow-elevated);
-}
-
-.toast--visible {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
-}
-
-.toast-message {
-  font-size: var(--text-sm);
-  color: var(--text-primary);
+.toast-title {
   white-space: nowrap;
-}
-
-.toast-actions {
-  display: flex;
-  gap: var(--space-xs);
 }

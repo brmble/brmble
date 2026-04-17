@@ -685,7 +685,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.SetShortcut("toggleGame", settings.Shortcuts.ToggleGameKey);
         _audioManager?.SetInputVolume(settings.Audio.InputVolume);
         _audioManager?.SetOutputVolume(settings.Audio.OutputVolume);
-        _audioManager?.SetMaxAmplification(settings.Audio.MaxAmplification);
+
         _audioManager?.SetOpusBitrate(settings.Audio.OpusBitrate);
         _audioManager?.SetOpusFrameMs(settings.Audio.OpusFrameSize);
         _audioManager?.SetCaptureApi(settings.Audio.CaptureApi);

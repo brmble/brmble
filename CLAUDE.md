@@ -132,6 +132,8 @@ All UI icons use the centralized `<Icon>` component in `src/Brmble.Web/src/compo
 - Brmblegotchi icons are prefixed `gotchi-` (e.g. `gotchi-food`, `gotchi-play`)
 - Complex brand logos (`BrmbleLogo`, `MumbleIcon`, `BrmbleIcon`) stay as dedicated components — too complex for the icon map
 
+**Adding icons:** Source SVG paths from [lucide.dev/icons](https://lucide.dev/icons). Strip the outer `<svg>` wrapper and all stroke/fill/viewBox attributes from inner elements — the `<Icon>` component applies these. After adding an icon to Icon.tsx, update the icon table in `docs/UI_GUIDE.md` section 11.
+
 See `docs/UI_GUIDE.md` section 11 for full icon list, adding new icons, and conventions.
 
 ## Running Docker (local dev)

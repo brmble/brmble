@@ -9,7 +9,7 @@
    THE 3 DECISIONS
    ───────────────
    Every Brmble theme derives from exactly 3 starting choices. Once these
-    are locked, all 73 tokens can be mechanically produced.
+    are locked, all 86 tokens can be mechanically produced.
    
    ┌──────────────────┬──────────────────────────────────────────────────────┐
    │ 1. BASE HUE      │ An HSL degree (0-360) that tints backgrounds,      │
@@ -224,7 +224,7 @@
 
 
   /* ─────────────────────────────────────────────────────────────────────────
-     SUCCESS ACCENT (3 tokens)
+     SUCCESS ACCENT (6 tokens)
      ─────────────────────────────────────────────────────────────────────────
      Used for connection status, success messages, online indicators.
      Typically a green in the 120-160° hue range. Should be distinct from
@@ -248,6 +248,46 @@
   --accent-success:        /* hsl(140-160, 50-70%, 50-60%) */;
   --accent-success-glow:   /* rgba(R, G, B, 0.25-0.35) */;
   --accent-success-subtle: /* rgba(R, G, B, 0.10-0.20) */;
+  --accent-success-text:   /* hsl(140-160, 50-70%, 55-65%) */;
+  --accent-success-border: /* rgba(R, G, B, 0.30-0.50) */;
+  --accent-success-bg:     /* rgba(R, G, B, 0.20-0.30) */;
+
+
+  /*
+    ── Warning Accent ──────────────────────────────────────────────
+    Amber / yellow tones for attention-needed states.
+    Hue range: 35-50 (amber-yellow).
+
+       Token                       Target
+       --accent-warning:           hsl(35-50, 80-100%, 60-70%)    — base
+       --accent-warning-text:      hsl(35-50, 80-100%, 65-75%)    — readable on dark bg
+       --accent-warning-subtle:    rgba(base, 0.08-0.15)          — faint bg tint
+       --accent-warning-border:    rgba(base, 0.30-0.50)          — visible border
+       --accent-warning-bg:        rgba(base, 0.20-0.30)          — warning panel bg
+  */
+  --accent-warning:        /* hsl(35-50, 80-100%, 60-70%) */;
+  --accent-warning-text:   /* hsl(35-50, 80-100%, 65-75%) */;
+  --accent-warning-subtle: /* rgba(R, G, B, 0.08-0.15) */;
+  --accent-warning-border: /* rgba(R, G, B, 0.30-0.50) */;
+  --accent-warning-bg:     /* rgba(R, G, B, 0.20-0.30) */;
+
+  /*
+    ── Info Accent ─────────────────────────────────────────────────
+    Blue tones for supplemental / informational states.
+    Hue range: 200-220 (blue).
+
+       Token                       Target
+       --accent-info:              hsl(200-220, 60-80%, 55-65%)   — base
+       --accent-info-text:         hsl(200-220, 60-80%, 62-72%)   — readable on dark bg
+       --accent-info-subtle:       rgba(base, 0.08-0.15)          — faint bg tint
+       --accent-info-border:       rgba(base, 0.30-0.50)          — visible border
+       --accent-info-bg:           rgba(base, 0.20-0.30)          — info panel bg
+  */
+  --accent-info:        /* hsl(200-220, 60-80%, 55-65%) */;
+  --accent-info-text:   /* hsl(200-220, 60-80%, 62-72%) */;
+  --accent-info-subtle: /* rgba(R, G, B, 0.08-0.15) */;
+  --accent-info-border: /* rgba(R, G, B, 0.30-0.50) */;
+  --accent-info-bg:     /* rgba(R, G, B, 0.20-0.30) */;
 
 
   /* ─────────────────────────────────────────────────────────────────────────
@@ -747,7 +787,7 @@
    
    Before shipping your theme, verify:
    
-     □  All 73 tokens are defined (no remaining placeholder comments)
+     □  All 86 tokens are defined (no remaining placeholder comments)
    □  Replace THEME_SLUG with your theme's ID (lowercase, hyphenated)
    □  Replace THEME_NAME with the display name
    □  Update the cocktail name and vibe description in the header
@@ -771,7 +811,9 @@
      Backgrounds .......... 12
      Primary Accent ........ 7
      Secondary Accent ...... 3
-     Success Accent ........ 3
+      Success Accent ........ 6
+      Warning Accent ........ 5
+      Info Accent ........... 5
      Decorative Accent ..... 4
      Danger Accent ......... 6
      Status ................ 1
@@ -784,7 +826,7 @@
       Typography ............ 3
       Heading Scale ......... 6
        Theme Features ........ 4  (+3 noise-texture, noise-opacity, noise-scale)
-                              ──
-       Total                  73
+                               ──
+       Total                  86
    
    ═══════════════════════════════════════════════════════════════════════════ */

@@ -19,24 +19,92 @@ public enum TransmissionMode { Continuous, VoiceActivity, PushToTalk }
 
 internal static class AudioLog
 {
+    private const int MaxQueueSize = 10000;
+
     private static readonly string LogPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Brmble", "audio.log");
+
+    private static readonly System.Collections.Concurrent.ConcurrentQueue<string> _queue = new();
+    private static readonly Thread _flushThread;
+    private static readonly ManualResetEvent _signal = new(false);
+    private static volatile bool _shutdown;
 
     static AudioLog()
     {
         var dir = Path.GetDirectoryName(LogPath);
         if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
             Directory.CreateDirectory(dir);
+
+        _flushThread = new Thread(FlushLoop)
+        {
+            IsBackground = true,
+            Name = "AudioLog-Flush",
+            Priority = ThreadPriority.BelowNormal
+        };
+        _flushThread.Start();
     }
 
     public static void Write(string msg)
     {
-        try
+        if (_queue.Count >= MaxQueueSize) return;
+        _queue.Enqueue($"[{DateTime.Now:HH:mm:ss.fff}] {msg}");
+        _signal.Set();
+    }
+
+    public static void Flush()
+    {
+        _shutdown = true;
+        _signal.Set();
+        _flushThread.Join(1000);
+        _shutdown = false;
+    }
+
+    private static void FlushLoop()
+    {
+        var sb = new System.Text.StringBuilder();
+        while (!_shutdown || _queue.Count > 0)
         {
-            File.AppendAllText(LogPath, $"[{DateTime.Now:HH:mm:ss.fff}] {msg}\n");
+            _signal.WaitOne();
+            if (_shutdown)
+            {
+                DrainQueue(sb);
+                break;
+            }
+            _signal.Reset();
+
+            sb.Clear();
+            while (_queue.TryDequeue(out var line))
+            {
+                sb.AppendLine(line);
+            }
+
+            if (sb.Length > 0)
+            {
+                try
+                {
+                    File.AppendAllText(LogPath, sb.ToString());
+                }
+                catch { }
+            }
         }
-        catch { }
+    }
+
+    private static void DrainQueue(System.Text.StringBuilder sb)
+    {
+        sb.Clear();
+        while (_queue.TryDequeue(out var line))
+        {
+            sb.AppendLine(line);
+        }
+        if (sb.Length > 0)
+        {
+            try
+            {
+                File.AppendAllText(LogPath, sb.ToString());
+            }
+            catch { }
+        }
     }
 }
 
@@ -177,9 +245,7 @@ private int _screenShareHotkeyId = -1;
     private string? _dmScreenKeyName;
     private string? _screenShareKeyName;
     private IntPtr _hwnd;
-    private const int RmsThreshold = 300; // ~1% of 16-bit max (32767)
-    private const float TargetRms = 1500f;  // Target RMS for AGC (quiet boost target)
-    private const float LoudRms = 8000f;     // Threshold for compression
+
 
     // Raw Input for PTT key detection (non-blocking)
     private int _pttVk;
@@ -216,8 +282,7 @@ private int _screenShareHotkeyId = -1;
     private volatile float _outputVolume = 1.0f;
     private readonly Dictionary<uint, float> _userVolumes = new();
     private readonly HashSet<uint> _localMutes = new();
-    private volatile float _maxAmplification = 1.0f;
-
+    
     // Encoder settings
     private int _opusBitrate = 72000;
     private int _opusFrameMs = 20;
@@ -274,8 +339,11 @@ private int _screenShareHotkeyId = -1;
     public bool IsDeafened => _deafened;
     public TransmissionMode TransmissionMode => _transmissionMode;
 
-    public void SetInputVolume(int percentage) => _inputVolume = Math.Clamp(percentage, 0, 250) / 100f;
-    public void SetMaxAmplification(int percentage) => _maxAmplification = Math.Clamp(percentage, 100, 400) / 100f;
+    public void SetInputVolume(int percentage)
+    {
+        _inputVolume = Math.Clamp(percentage, 0, 250) / 100f;
+        _encodePipeline?.SetVolume(_inputVolume);
+    }
     public void SetVoiceHoldMs(int ms) => _voiceHoldMs = Math.Clamp(ms, 100, 2000);
 
     // Allowed Opus bitrates (bps). Must match the UI options in AudioSettingsTab.tsx.
@@ -356,6 +424,7 @@ private int _screenShareHotkeyId = -1;
                 frameSize: 48000 / 1000 * _opusFrameMs,
                 dtx: _dtxEnabled,
                 initialSequence: seq);
+            _encodePipeline.SetVolume(_inputVolume);
         }
     }
 
@@ -458,7 +527,9 @@ private int _screenShareHotkeyId = -1;
                 ProcessingStack.None => new PassthroughProcessor(),
                 ProcessingStack.Legacy => new LegacyAudioProcessor
                 {
-                    MaxAmplification = _maxAmplification,
+                    // MaxAmplification was dropped from AudioManager on main in favour of
+                    // EncodePipeline-based volume. Legacy AGC now only compresses loud audio.
+                    MaxAmplification = 1.0f,
                     RnnoiseEnabled = _rnnoise?.IsEnabled == true,
                     RnnoiseProcess = frame => _rnnoise?.Process(frame),
                 },
@@ -635,7 +706,7 @@ private int _screenShareHotkeyId = -1;
             {
                 using var enumerator = new MMDeviceEnumerator();
                 using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Communications);
-                var wasapi = new WasapiCapture(device, true, 60)
+                var wasapi = new WasapiCapture(device, true, 20)
                 {
                     ShareMode = AudioClientShareMode.Shared
                 };
@@ -789,9 +860,18 @@ private int _screenShareHotkeyId = -1;
     [ThreadStatic] private static float[]? _wasapiMonoScratch;
     [ThreadStatic] private static byte[]? _wasapiInt16Scratch;
     [ThreadStatic] private static double[]? _resampleDoubleScratch;
+    [ThreadStatic] private static bool _threadPriorityBoosted;
 
     private void OnMicData(object? sender, WaveInEventArgs e)
     {
+        // Boost audio capture thread priority on first callback
+        if (!_threadPriorityBoosted)
+        {
+            _threadPriorityBoosted = true;
+            try { Thread.CurrentThread.Priority = ThreadPriority.Highest; }
+            catch { }
+        }
+
         byte[] processedBuffer = e.Buffer;
         int processedBytes = e.BytesRecorded;
         
@@ -913,9 +993,7 @@ private int _screenShareHotkeyId = -1;
             if (processedBytes == 0) return;
         }
 
-        // Apply input volume (after processor to avoid clipping on boost)
-        if (_inputVolume != 1.0f)
-            ApplyInputVolume(processedBuffer, processedBytes);
+        // Input volume is applied inside EncodePipeline (see SetInputVolume → _encodePipeline.SetVolume).
 
         // Apply speech enhancement if enabled
         if (_speechEnhancement?.IsEnabled == true && _to16kResampler != null && _to48kResampler != null)
@@ -989,62 +1067,9 @@ private int _screenShareHotkeyId = -1;
         pipeline?.SubmitPcm(new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes));
     }
 
-    private void ApplyInputVolume(byte[] buffer, int bytesRecorded)
-    {
-        for (int i = 0; i < bytesRecorded - 1; i += 2)
-        {
-            short sample = (short)(buffer[i] | (buffer[i + 1] << 8));
-            float adjusted = sample * _inputVolume;
-            adjusted = Math.Clamp(adjusted, short.MinValue, short.MaxValue);
-            short clampedSample = (short)adjusted;
-            buffer[i] = (byte)(clampedSample & 0xFF);
-            buffer[i + 1] = (byte)((clampedSample >> 8) & 0xFF);
-        }
-    }
+    
 
-    private void ApplyAGC(byte[] buffer, int bytesRecorded)
-    {
-        // Calculate RMS of the chunk
-        long sumSq = 0;
-        int samples = bytesRecorded / 2;
-        for (int i = 0; i < bytesRecorded - 1; i += 2)
-        {
-            short sample = (short)(buffer[i] | (buffer[i + 1] << 8));
-            sumSq += (long)sample * sample;
-        }
-        if (samples == 0) return;
-        float rms = (float)Math.Sqrt(sumSq / (double)samples);
-
-        float gain = 1.0f;
-
-        if (rms < TargetRms && rms > 0)
-        {
-            // Quiet audio: apply boost up to maxAmplification
-            float neededBoost = TargetRms / rms;
-            gain = Math.Min(neededBoost, _maxAmplification);
-        }
-        else if (rms > LoudRms)
-        {
-            // Loud audio: gentle compression
-            gain = LoudRms / rms;
-            // Soft knee: blend between 1 and gain
-            float excess = (rms - LoudRms) / LoudRms;
-            gain = 1.0f - (1.0f - gain) * Math.Min(excess * 2, 1.0f);
-        }
-
-        if (gain != 1.0f)
-        {
-            for (int i = 0; i < bytesRecorded - 1; i += 2)
-            {
-                short sample = (short)(buffer[i] | (buffer[i + 1] << 8));
-                float adjusted = sample * gain;
-                adjusted = Math.Clamp(adjusted, short.MinValue, short.MaxValue);
-                short clampedSample = (short)adjusted;
-                buffer[i] = (byte)(clampedSample & 0xFF);
-                buffer[i + 1] = (byte)((clampedSample >> 8) & 0xFF);
-            }
-        }
-    }
+    private const double VoiceActivityRmsThreshold = 300;
 
     /// <summary>RMS check: returns true if the audio chunk is loud enough to transmit.</summary>
     private static bool IsAboveThreshold(byte[] buffer, int bytesRecorded)
@@ -1058,7 +1083,7 @@ private int _screenShareHotkeyId = -1;
         }
         if (samples == 0) return false;
         var rms = Math.Sqrt(sumSq / (double)samples);
-        return rms >= RmsThreshold;
+        return rms >= VoiceActivityRmsThreshold;
     }
 
     /// <summary>

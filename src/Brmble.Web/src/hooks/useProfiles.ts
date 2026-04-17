@@ -47,6 +47,11 @@ export function useProfiles() {
       setActiveProfileId(d.id);
     };
 
+    const onRecovered = (data: unknown) => {
+      const d = data as { id: string; name: string; fingerprint: string; certValid: boolean };
+      setProfiles(prev => prev.map(p => p.id === d.id ? { ...p, fingerprint: d.fingerprint, certValid: d.certValid } : p));
+    };
+
     const onError = (data: unknown) => {
       const d = data as { message?: string };
       if (d.message) {
@@ -59,6 +64,7 @@ export function useProfiles() {
     bridge.on('profiles.removed', onRemoved);
     bridge.on('profiles.renamed', onRenamed);
     bridge.on('profiles.activeChanged', onActiveChanged);
+    bridge.on('profiles.recovered', onRecovered);
     bridge.on('profiles.error', onError);
     bridge.send('profiles.list');
 
@@ -68,6 +74,7 @@ export function useProfiles() {
       bridge.off('profiles.removed', onRemoved);
       bridge.off('profiles.renamed', onRenamed);
       bridge.off('profiles.activeChanged', onActiveChanged);
+      bridge.off('profiles.recovered', onRecovered);
       bridge.off('profiles.error', onError);
     };
   }, []);
@@ -116,5 +123,9 @@ export function useProfiles() {
     bridge.send('profiles.renameSwapCert', { id, name });
   }, []);
 
-  return { profiles, activeProfileId, loading, addProfile, importProfile, removeProfile, renameProfile, setActive, exportCert, checkExistingCert, addFromExisting, renameSwapCert };
+  const recoverProfile = useCallback((id: string, data: string) => {
+    bridge.send('profiles.recover', { id, data });
+  }, []);
+
+  return { profiles, activeProfileId, loading, addProfile, importProfile, removeProfile, renameProfile, setActive, exportCert, checkExistingCert, addFromExisting, renameSwapCert, recoverProfile };
 }
