@@ -519,7 +519,7 @@ private int _screenShareHotkeyId = -1;
                 {
                     using var enumerator = new MMDeviceEnumerator();
                     using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Communications);
-                    var wasapi = new WasapiCapture(device, true, 60)
+                    var wasapi = new WasapiCapture(device, true, 20)
                     {
                         ShareMode = AudioClientShareMode.Shared
                     };
