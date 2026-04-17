@@ -31,7 +31,6 @@ import { parseMessageMedia } from './utils/parseMessageMedia';
 import { useDMStore } from './hooks/useDMStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
 import { usePrompt, confirm } from './hooks/usePrompt';
-import { Toast } from './components/Toast/Toast';
 import { GameUI } from './components/Game/GameUI';
 import { Brmblegotchi } from './components/Brmblegotchi/Brmblegotchi';
 import { ProfileProvider } from './contexts/ProfileContext';
@@ -1763,13 +1762,13 @@ const handleConnect = (serverData: SavedServer) => {
     try {
       await navigator.clipboard.writeText(text);
       setCopyToast({ message: 'Copied to clipboard' });
-      setTimeout(() => setCopyToast(null), 2000);
+      notifQueue.register('copy', 'success');
     } catch (error) {
       console.error('Failed to copy to clipboard:', error);
       setCopyToast({ message: 'Failed to copy to clipboard' });
-      setTimeout(() => setCopyToast(null), 2000);
+      notifQueue.register('copy', 'error');
     }
-  }, []);
+  }, [notifQueue]);
 
   const activeChannelId = currentChannelId && currentChannelId !== 'server-root'
     ? currentChannelId
@@ -1843,9 +1842,7 @@ const handleConnect = (serverData: SavedServer) => {
   disconnectViewerRef.current = disconnectViewer;
   const [sharingChannelId, setSharingChannelId] = useState<string | undefined>();
   const [screenShareToast, setScreenShareToast] = useState<{
-    userName: string;
-    roomName: string;
-    userId?: number;
+    userName: string; roomName: string; userId?: number; matrixUserId?: string;
   } | null>(null);
   const [copyToast, setCopyToast] = useState<{ message: string } | null>(null);
   const [updateInfo, setUpdateInfo] = useState<{ version: string } | null>(null);
@@ -1895,7 +1892,6 @@ const handleConnect = (serverData: SavedServer) => {
   const { isOnCooldown: muteOnCooldown, trigger: triggerMuteCooldown } = useLeaveVoiceCooldown(1000);
   const { isOnCooldown: deafOnCooldown, trigger: triggerDeafCooldown } = useLeaveVoiceCooldown(1000);
 
-  const handleDismissToast = useCallback(() => setScreenShareToast(null), []);
 
   const handleApplyUpdate = useCallback(() => {
     bridge.send('app.applyUpdate', {});
@@ -1972,11 +1968,13 @@ const handleConnect = (serverData: SavedServer) => {
   // Show toast notification when someone starts sharing in the user's voice channel
   useEffect(() => {
     const onRemoteShareStarted = (data: unknown) => {
-      const d = data as { roomName: string; userName: string; userId?: number; sessionId?: number };
+      const d = data as { roomName: string; userName: string; userId?: number; matrixUserId?: string; sessionId?: number };
       const selfUser = usersRef.current.find(u => u.self);
       const voiceChannelId = selfUser?.channelId;
-      if (voiceChannelId != null && d.roomName === `channel-${voiceChannelId}` && !isSharing) {
-        setScreenShareToast({ userName: d.userName, roomName: d.roomName, userId: d.userId });
+      // Only show notification for other users' shares in our channel
+      if (voiceChannelId != null && d.roomName === `channel-${voiceChannelId}` && d.sessionId !== selfUser?.session) {
+        setScreenShareToast({ userName: d.userName, roomName: d.roomName, userId: d.userId, matrixUserId: d.matrixUserId });
+        notifQueue.register('screen-share', 'info');
       }
     };
 
@@ -1990,7 +1988,7 @@ const handleConnect = (serverData: SavedServer) => {
       bridge.off('livekit.screenShareStarted', onRemoteShareStarted);
       bridge.off('livekit.screenShareStopped', onRemoteShareStopped);
     };
-  }, [isSharing]);
+  }, [notifQueue]);
 
   // Check for active screen shares when switching channels
   useEffect(() => {
@@ -2021,9 +2019,9 @@ const handleConnect = (serverData: SavedServer) => {
   }, [isSharing, startSharing, stopSharing, selfLeftVoice, updateStatus]);
   handleToggleScreenShareRef.current = handleToggleScreenShare;
 
-  const handleWatchScreenShare = useCallback((roomName: string, userId?: number) => {
+  const handleWatchScreenShare = useCallback((roomName: string, userId?: number, matrixUserId?: string) => {
     if (userId != null) {
-      connectAsViewer(roomName, userId);
+      connectAsViewer(roomName, userId, matrixUserId);
     }
   }, [connectAsViewer]);
 
@@ -2389,28 +2387,51 @@ const handleConnect = (serverData: SavedServer) => {
             />
           ) : null
         ))}
+        {screenShareToast && notifQueue.isVisible('screen-share') && (
+          <Notification
+            status="info"
+            position="top-right"
+            visible={!!screenShareToast}
+            duration={8000}
+            title={`${screenShareToast.userName} started sharing their screen`}
+            actions={
+              <button
+                className="btn btn-sm btn-primary"
+                onClick={() => {
+                  connectAsViewer(screenShareToast.roomName, screenShareToast.userId!, screenShareToast.matrixUserId);
+                  setScreenShareToast(null);
+                  notifQueue.unregister('screen-share');
+                }}
+              >
+                Watch
+              </button>
+            }
+            onDismiss={() => {
+              setScreenShareToast(null);
+            }}
+            onExited={() => {
+              notifQueue.unregister('screen-share');
+            }}
+          />
+        )}
+        {copyToast && notifQueue.isVisible('copy') && (
+          <Notification
+            status={copyToast.message.includes('Failed') ? 'error' : 'success'}
+            position="top-right"
+            visible={!!copyToast}
+            duration={2000}
+            title={copyToast.message}
+            onDismiss={() => {
+              setCopyToast(null);
+            }}
+            onExited={() => {
+              notifQueue.unregister('copy');
+            }}
+          />
+        )}
       </div>
 
-      {screenShareToast && (
-        <Toast
-          message={`${screenShareToast.userName} started sharing their screen`}
-          actions={[
-            { label: 'Dismiss', onClick: () => setScreenShareToast(null) },
-            { label: 'Watch', onClick: () => {
-              connectAsViewer(screenShareToast.roomName, screenShareToast.userId!);
-              setScreenShareToast(null);
-            }, primary: true },
-          ]}
-          onDismiss={handleDismissToast}
-        />
-      )}
 
-      {copyToast && (
-        <Toast
-          message={copyToast.message}
-          onDismiss={() => setCopyToast(null)}
-        />
-      )}
 
       <ZoomIndicator />
       <Version />

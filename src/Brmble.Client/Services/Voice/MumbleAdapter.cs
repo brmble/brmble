@@ -1707,11 +1707,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     var startUser = root.TryGetProperty("userName", out var startUserProp) ? startUserProp.GetString() : null;
                     var startUserId = root.TryGetProperty("userId", out var startUserIdProp) && startUserIdProp.ValueKind == System.Text.Json.JsonValueKind.Number
                         ? startUserIdProp.GetInt64() : (long?)null;
+                    var startMatrixUserId = root.TryGetProperty("matrixUserId", out var startMatrixProp) ? startMatrixProp.GetString() : null;
                     var startSession = root.TryGetProperty("sessionId", out var startSessionProp) && startSessionProp.ValueKind == System.Text.Json.JsonValueKind.Number
                         ? startSessionProp.GetInt32() : (int?)null;
                     if (startRoom is not null)
                     {
-                        _bridge?.Send("livekit.screenShareStarted", new { roomName = startRoom, userName = startUser, userId = startUserId, sessionId = startSession });
+                        _bridge?.Send("livekit.screenShareStarted", new { roomName = startRoom, userName = startUser, userId = startUserId, matrixUserId = startMatrixUserId, sessionId = startSession });
                         _bridge?.NotifyUiThread();
                     }
                     break;
@@ -2330,9 +2331,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                             var sUserName = s.TryGetProperty("userName", out var un) ? un.GetString() : null;
                             var sUserId = s.TryGetProperty("userId", out var uid) && uid.ValueKind == System.Text.Json.JsonValueKind.Number
                                 ? uid.GetInt64() : (long?)null;
+                            var sMatrixUserId = s.TryGetProperty("matrixUserId", out var muid) ? muid.GetString() : null;
                             var sSessionId = s.TryGetProperty("sessionId", out var sid) && sid.ValueKind == System.Text.Json.JsonValueKind.Number
                                 ? sid.GetInt32() : (int?)null;
-                            shares.Add(new { userName = sUserName, userId = sUserId, sessionId = sSessionId });
+                            shares.Add(new { userName = sUserName, userId = sUserId, matrixUserId = sMatrixUserId, sessionId = sSessionId });
                         }
                     }
                     _bridge?.Send("livekit.activeShareResult", new { roomName, shares });

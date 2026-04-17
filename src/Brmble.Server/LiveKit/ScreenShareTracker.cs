@@ -6,10 +6,10 @@ public class ScreenShareTracker
 {
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<long, ScreenShareInfo>> _shares = new();
 
-    public bool Start(string roomName, string userName, long userId)
+    public bool Start(string roomName, string userName, long userId, string? matrixUserId = null)
     {
         var room = _shares.GetOrAdd(roomName, _ => new ConcurrentDictionary<long, ScreenShareInfo>());
-        return room.TryAdd(userId, new ScreenShareInfo(userName, userId));
+        return room.TryAdd(userId, new ScreenShareInfo(userName, userId, matrixUserId));
     }
 
     public void Stop(string roomName)
@@ -52,4 +52,4 @@ public class ScreenShareTracker
         => _shares.Keys.ToList();
 }
 
-public record ScreenShareInfo(string UserName, long UserId);
+public record ScreenShareInfo(string UserName, long UserId, string? MatrixUserId = null);

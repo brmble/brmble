@@ -6,6 +6,7 @@ export interface ShareInfo {
   roomName: string;
   userName: string;
   userId: number;
+  matrixUserId?: string;
   sessionId?: number;
 }
 
@@ -151,15 +152,17 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
 
   // --- Viewer logic ---
 
-  const connectAsViewer = useCallback(async (roomName: string, targetUserId: number) => {
+  const connectAsViewer = useCallback(async (roomName: string, targetUserId: number, matrixUserId?: string) => {
     // Find the share info for this user
     const shareInfo = activeShares.find(s => s.userId === targetUserId && s.roomName === roomName);
+    // Use matrixUserId as the LiveKit participant identity (falls back to shareInfo or numeric userId)
+    const participantIdentity = matrixUserId ?? shareInfo?.matrixUserId ?? String(targetUserId);
 
     // If already connected to this room (sharing or viewing), just subscribe to the track
     const existingRoom = viewerRoomRef.current ?? publishRoomRef.current;
     if (existingRoom?.name === roomName && (existingRoom as Room & { state?: string })?.state === 'connected') {
       // Already in the room, just find and subscribe to the target's track
-      const participant = existingRoom.remoteParticipants.get(String(targetUserId));
+      const participant = existingRoom.remoteParticipants.get(participantIdentity);
       if (participant) {
         participant.trackPublications.forEach((pub: RemoteTrackPublication) => {
           if (pub.track && pub.track.kind === Track.Kind.Video && pub.source === Track.Source.ScreenShare) {
@@ -168,7 +171,7 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
           }
         });
       }
-      setWatchingShare(shareInfo ?? { roomName, userName: '', userId: targetUserId });
+      setWatchingShare(shareInfo ?? { roomName, userName: '', userId: targetUserId, matrixUserId });
       return;
     }
 
@@ -187,7 +190,7 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
         if (
           track.kind === Track.Kind.Video &&
           track.source === Track.Source.ScreenShare &&
-          participant.identity === String(targetUserId)
+          participant.identity === participantIdentity
         ) {
           const el = track.attach() as HTMLVideoElement;
           setRemoteVideoEl(el);
@@ -198,7 +201,7 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
         if (
           track.kind === Track.Kind.Video &&
           track.source === Track.Source.ScreenShare &&
-          participant.identity === String(targetUserId)
+          participant.identity === participantIdentity
         ) {
           track.detach();
           setRemoteVideoEl(null);
@@ -215,7 +218,7 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
 
       // Check for already-published screen share tracks from target user
       room.remoteParticipants.forEach((participant: RemoteParticipant) => {
-        if (participant.identity === String(targetUserId)) {
+        if (participant.identity === participantIdentity) {
           participant.trackPublications.forEach((pub: RemoteTrackPublication) => {
             if (pub.track && pub.track.kind === Track.Kind.Video && pub.source === Track.Source.ScreenShare) {
               const el = pub.track.attach() as HTMLVideoElement;
@@ -225,7 +228,7 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
         }
       });
 
-      setWatchingShare(shareInfo ?? { roomName, userName: '', userId: targetUserId });
+      setWatchingShare(shareInfo ?? { roomName, userName: '', userId: targetUserId, matrixUserId });
     } catch (err) {
       console.error('Failed to connect as viewer:', err);
     }
@@ -247,11 +250,11 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
   // Listen for screen share events from bridge
   useEffect(() => {
     const onShareStarted = (data: unknown) => {
-      const d = data as { roomName: string; userName: string; userId: number; sessionId?: number };
+      const d = data as { roomName: string; userName: string; userId: number; matrixUserId?: string; sessionId?: number };
       setActiveShares(prev => {
         // Don't add duplicates
         if (prev.some(s => s.userId === d.userId && s.roomName === d.roomName)) return prev;
-        return [...prev, { roomName: d.roomName, userName: d.userName, userId: d.userId, sessionId: d.sessionId }];
+        return [...prev, { roomName: d.roomName, userName: d.userName, userId: d.userId, matrixUserId: d.matrixUserId, sessionId: d.sessionId }];
       });
     };
 
@@ -273,12 +276,13 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
     };
 
     const onActiveShareResult = (data: unknown) => {
-      const d = data as { roomName: string; shares: Array<{ userId: number; userName: string; sessionId?: number }> };
+      const d = data as { roomName: string; shares: Array<{ userId: number; userName: string; matrixUserId?: string; sessionId?: number }> };
       if (d.shares && d.shares.length > 0) {
         setActiveShares(d.shares.map(s => ({
           roomName: d.roomName,
           userName: s.userName,
           userId: s.userId,
+          matrixUserId: s.matrixUserId,
           sessionId: s.sessionId,
         })));
       } else {

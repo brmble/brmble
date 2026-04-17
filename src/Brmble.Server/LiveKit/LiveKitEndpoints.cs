@@ -75,7 +75,7 @@ public static class LiveKitEndpoints
             if (!roomName.StartsWith("channel-") || !int.TryParse(roomName.AsSpan("channel-".Length), out _))
                 return Results.BadRequest(new { error = "invalid roomName format" });
 
-            if (!tracker.Start(roomName, user.DisplayName, user.Id))
+            if (!tracker.Start(roomName, user.DisplayName, user.Id, user.MatrixUserId))
                 return Results.Conflict(new { error = "user is already sharing in this room" });
 
             var hasSession = sessionMapping.TryGetSessionByUserId(user.Id, out var sessionId);
@@ -85,6 +85,7 @@ public static class LiveKitEndpoints
                 roomName,
                 userName = user.DisplayName,
                 userId = user.Id,
+                matrixUserId = user.MatrixUserId,
                 sessionId = hasSession ? sessionId : (int?)null
             });
             return Results.Ok();
@@ -141,7 +142,7 @@ public static class LiveKitEndpoints
             var result = shares.Select(s =>
             {
                 var hasSession = sessionMapping.TryGetSessionByUserId(s.UserId, out var sessionId);
-                return new { s.UserName, s.UserId, sessionId = hasSession ? sessionId : (int?)null };
+                return new { s.UserName, s.UserId, s.MatrixUserId, sessionId = hasSession ? sessionId : (int?)null };
             }).ToArray();
             return Results.Ok(new { shares = result });
         });

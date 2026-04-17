@@ -52,7 +52,7 @@ interface ChannelTreeProps {
   channelUnreads?: Map<string, { notificationCount: number; highlightCount: number }>;
   sharingChannelId?: number;
   sharingUserSession?: number;
-  onWatchScreenShare?: (roomName: string, userId?: number) => void;
+  onWatchScreenShare?: (roomName: string, userId?: number, matrixUserId?: string) => void;
   activeShares?: ShareInfo[];
   watchingShare?: ShareInfo | null;
   onEditAvatar?: () => void;
@@ -331,7 +331,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                 }}
                 onDoubleClick={(() => {
                   const share = activeShares?.find(s => s.sessionId === user.session);
-                  if (share) return () => onWatchScreenShare?.(`channel-${channel.id}`, share.userId);
+                  if (share) return () => onWatchScreenShare?.(`channel-${channel.id}`, share.userId, share.matrixUserId);
                   if (user.session === sharingUserSession) return () => onWatchScreenShare?.(`channel-${channel.id}`);
                   return undefined;
                 })()}
@@ -436,7 +436,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
 onClick: () => {
                 const channelId = contextMenu.channelId ?? currentChannelId;
                 const share = activeShares?.find(s => s.sessionId === Number(contextMenu.userId));
-                onWatchScreenShare?.(`channel-${channelId}`, share?.userId);
+                onWatchScreenShare?.(`channel-${channelId}`, share?.userId, share?.matrixUserId);
               },
             }] : []),
             ...(!contextMenu.isSelf && onStartDM ? [{
