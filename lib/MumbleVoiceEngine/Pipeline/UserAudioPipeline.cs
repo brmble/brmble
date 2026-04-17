@@ -1,5 +1,6 @@
 namespace MumbleVoiceEngine.Pipeline;
 
+using System;
 using System.Threading;
 using NAudio.Wave;
 using MumbleVoiceEngine.Codec;
@@ -16,13 +17,28 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
     private readonly int _channels;
     private readonly int _bytesPerSample;
 
+    private const int PlcFrameSamples = 960;
+    private const int MaxPlcFrames = 4;
+    private const int MaxGapFrames = 10;
+    private const int LossReportIntervalMs = 5000;
+
+    private readonly byte[] _plcBuffer;
+
     // Decoded PCM queue — written by network thread, read by audio thread
     private readonly Queue<byte[]> _pcmQueue = new();
+    private long _lastSequence = -1;
+    private int _lostPackets;
+    private int _receivedPackets;
+
+    // Track last decoded frame size for PLC generation
+    private int _lastDecodedSamples = PlcFrameSamples;
     private byte[]? _currentFrame;
     private int _currentFrameOffset;
 
     private readonly object _lock = new();
     private float _volume = 1.0f;
+    private Action<int>? _onLossReport;
+    private Timer? _lossTimer;
 
     public WaveFormat WaveFormat { get; }
 
@@ -39,6 +55,54 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
         _bytesPerSample = sizeof(short) * channels;
         WaveFormat = new WaveFormat(sampleRate, 16, channels);
         _decoder = new OpusDecoder(sampleRate, channels);
+        _plcBuffer = new byte[PlcFrameSamples * _bytesPerSample];
+
+        _lossTimer = new Timer(_ => {
+            try
+            {
+                int loss = GetAndResetLossPercent();
+                _onLossReport?.Invoke(loss);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Loss callback error: {ex.Message}");
+            }
+        }, null, LossReportIntervalMs, LossReportIntervalMs);
+    }
+
+    public void SetLossCallback(Action<int> callback) => _onLossReport = callback;
+
+    private long CalculateGap(long current, long last)
+    {
+        if (current <= last)
+            return 0;
+        return current - last - 1;
+    }
+
+    private void GeneratePLC(int frames, int sampleCount)
+    {
+        int count = Math.Min(frames, MaxPlcFrames);
+        int plcBufferLen = sampleCount * _bytesPerSample;
+
+        if (plcBufferLen > _plcBuffer.Length)
+        {
+            plcBufferLen = _plcBuffer.Length;
+            sampleCount = plcBufferLen / _bytesPerSample;
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            Array.Clear(_plcBuffer, 0, plcBufferLen);
+            int decodedBytes = _decoder.Decode(null, 0, 0, _plcBuffer, 0);
+
+            var copy = new byte[decodedBytes];
+            Array.Copy(_plcBuffer, 0, copy, 0, decodedBytes);
+
+            lock (_lock)
+            {
+                _pcmQueue.Enqueue(copy);
+            }
+        }
     }
 
     /// <summary>
@@ -47,10 +111,23 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
     /// </summary>
     public void FeedEncodedPacket(byte[] opusData, long sequence)
     {
-        // Query actual sample count — Mumble 1.5+ clients may send multi-frame
-        // or larger-frame packets that exceed the default 960-sample (20ms) size.
+        if (_lastSequence >= 0)
+        {
+            long gap = CalculateGap(sequence, _lastSequence);
+            if (gap > 0)
+            {
+                Interlocked.Add(ref _lostPackets, (int)gap);
+                if (gap <= MaxGapFrames)
+                {
+                    GeneratePLC((int)gap, _lastDecodedSamples);
+                }
+            }
+        }
+        _lastSequence = sequence;
+
         var samples = OpusDecoder.GetSamples(opusData, 0, opusData.Length, _sampleRate);
         if (samples <= 0) return;
+        _lastDecodedSamples = samples;
 
         var decoded = new byte[samples * _bytesPerSample];
         _decoder.Decode(opusData, 0, opusData.Length, decoded, 0);
@@ -58,6 +135,7 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
         lock (_lock)
         {
             _pcmQueue.Enqueue(decoded);
+            _receivedPackets++;
         }
     }
 
@@ -65,6 +143,19 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
     /// IWaveProvider.Read — called by NAudio playback device on its audio thread.
     /// Pulls decoded PCM from the queue, returns silence if empty. Applies volume.
     /// </summary>
+    public int GetAndResetLossPercent()
+    {
+        lock (_lock)
+        {
+            int received = _receivedPackets;
+            if (received == 0) return 0;
+            int lost = Interlocked.Exchange(ref _lostPackets, 0);
+            int loss = (int)(lost / (float)(received + lost) * 100);
+            _receivedPackets = 0;
+            return loss;
+        }
+    }
+
     public int Read(byte[] buffer, int offset, int count)
     {
         float volume;
@@ -141,6 +232,7 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
 
     public void Dispose()
     {
+        _lossTimer?.Dispose();
         _decoder.Dispose();
     }
 }

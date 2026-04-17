@@ -59,7 +59,7 @@
   --accent-secondary-glow:   rgba(45, 184, 168, 0.32);
   --accent-secondary-subtle: rgba(45, 184, 168, 0.15);
 
-  /* ── Success Accent — Bright Lime (3 tokens)
+  /* ── Success Accent — Bright Lime (6 tokens)
      hsl(80, 70%, 55%) ≈ #a3d942
      IMPORTANT: Lime hue 80° is visually distinct from
      primary green hue 145° — yellow-green vs blue-green.
@@ -67,6 +67,29 @@
   --accent-success:        #a3d942;
   --accent-success-glow:   rgba(163, 217, 66, 0.30);
   --accent-success-subtle: rgba(163, 217, 66, 0.14);
+  --accent-success-text:   #b0e258;
+  --accent-success-border: rgba(163, 217, 66, 0.4);
+  --accent-success-bg:     rgba(163, 217, 66, 0.25);
+
+  /* ── Warning Accent — Neon Amber (5 tokens)
+     hsl(40, 90%, 60%) — bright amber, high contrast
+     against the green-dominant palette
+     ──────────────────────────────────────────────── */
+  --accent-warning:        #f0a820;
+  --accent-warning-text:   #f5b840;
+  --accent-warning-subtle: rgba(240, 168, 32, 0.12);
+  --accent-warning-border: rgba(240, 168, 32, 0.42);
+  --accent-warning-bg:     rgba(240, 168, 32, 0.25);
+
+  /* ── Info Accent — Electric Blue (5 tokens)
+     hsl(210, 75%, 58%) — cool blue, strong contrast
+     against green backgrounds
+     ──────────────────────────────────────────────── */
+  --accent-info:        #3d8ce8;
+  --accent-info-text:   #529cf0;
+  --accent-info-subtle: rgba(61, 140, 232, 0.12);
+  --accent-info-border: rgba(61, 140, 232, 0.42);
+  --accent-info-bg:     rgba(61, 140, 232, 0.25);
 
   /* ── Decorative Accent — Deep Teal (4 tokens)
      hsl(180, 55%, 30%) ≈ #226e6e

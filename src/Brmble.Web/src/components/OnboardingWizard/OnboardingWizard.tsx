@@ -92,6 +92,8 @@ interface ScannedCert {
 
 interface OnboardingWizardProps {
   onComplete: (fingerprint: string) => void;
+  onServersImported?: (labels: string[]) => void;
+  isMaximized?: boolean;
 }
 
 // ── Settings types (local copies to avoid SettingsModal coupling) ──
@@ -168,9 +170,13 @@ function triggerBlobDownload(base64: string, filename: string) {
 
 // ── Main component ────────────────────────────────────────────────
 
-export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
+export function OnboardingWizard({ onComplete, onServersImported, isMaximized }: OnboardingWizardProps) {
   const [step, setStep] = useState<WizardStep>('welcome');
   const stepIndex = STEPS.indexOf(step);
+
+  // Stable ref for onServersImported to avoid re-registering bridge handlers
+  const onServersImportedRef = useRef(onServersImported);
+  onServersImportedRef.current = onServersImported;
 
   // Detection state
   const [detecting, setDetecting] = useState(false);
@@ -254,7 +260,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
     };
     const onServersImported = (data: unknown) => {
       const d = data as { servers?: Array<{ id: string; label: string }> } | undefined;
-      setImportedServers(prev => [...prev, ...(d?.servers ?? [])]);
+      const servers = d?.servers ?? [];
+      setImportedServers(prev => [...prev, ...servers]);
       setImportedIndices(prev => {
         const next = new Set(prev);
         pendingImportIndicesRef.current.forEach(i => next.add(i));
@@ -262,6 +269,10 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         return next;
       });
       setServersImportBusy(false);
+      // Notify parent to show server import notification
+      if (servers.length > 0) {
+        onServersImportedRef.current?.(servers.map(s => s.label));
+      }
       setStep('connection');
     };
     const onRenamed = () => {
@@ -522,6 +533,21 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
   return (
     <div className="onboarding-overlay">
+      {/* Minimal titlebar — window controls only, no close-to-tray prompt */}
+      <div className="onboarding-titlebar">
+        <div className="window-controls">
+          <button className="window-btn window-btn-minimize" onClick={() => bridge.send('window.minimize')} aria-label="Minimize">
+            <Icon name="window-minimize" size={10} />
+          </button>
+          <button className="window-btn window-btn-maximize" onClick={() => bridge.send('window.maximize')} aria-label={isMaximized ? 'Restore' : 'Maximize'}>
+            <Icon name={isMaximized ? 'window-restore' : 'window-maximize'} size={10} />
+          </button>
+          <button className="window-btn window-btn-close" onClick={() => bridge.send('window.quit')} aria-label="Close">
+            <Icon name="window-close" size={10} />
+          </button>
+        </div>
+      </div>
+
       <div className="onboarding-panel glass-panel">
 
         {/* Progress dots */}

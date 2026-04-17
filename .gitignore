@@ -502,3 +502,6 @@ $RECYCLE.BIN/
 src/Brmble.Server/generated/
 src/.github/
 .github/pr-version.json
+
+# Playwright MCP session artifacts (generated on every browser run)
+.playwright-mcp/

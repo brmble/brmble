@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, useLayoutEffect } from 'react';
 import './SettingsModal.css';
 import bridge from '../../bridge';
 import { applyTheme } from '../../themes/theme-loader';
@@ -101,6 +101,27 @@ export function SettingsModal(props: SettingsModalProps) {
   const { hasPermission } = usePermissions();
   const hasAdminPermission = hasPermission(0, Permission.Ban) || hasPermission(0, Permission.Kick);
 
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (!isOpen) return;
+
+    const updateModalWidth = () => {
+      if (!tabsRef.current || !modalRef.current) return;
+      const tabsWidth = tabsRef.current.scrollWidth;
+      const modalWidth = Math.min(Math.max(tabsWidth, 600), window.innerWidth * 0.9);
+      modalRef.current.style.width = `${modalWidth}px`;
+    };
+
+    updateModalWidth();
+    window.addEventListener('resize', updateModalWidth);
+
+    return () => {
+      window.removeEventListener('resize', updateModalWidth);
+    };
+  }, [isOpen, hasAdminPermission]);
+
   useEffect(() => {
     if (!isOpen) return;
     const effectiveTab = (initialTab === 'admin' && !hasAdminPermission) ? 'profile' : (initialTab ?? 'profile');
@@ -161,6 +182,7 @@ export function SettingsModal(props: SettingsModalProps) {
           const mergedSettings = {
             ...DEFAULT_SETTINGS,
             ...d.settings!,
+            audio: { ...DEFAULT_SETTINGS.audio, ...(d.settings!.audio ?? {}) },
             brmblegotchi: d.settings!.brmblegotchi ?? prev.brmblegotchi ?? DEFAULT_BRMBLEGOTCHI,
             screenShare: d.settings!.screenShare ?? prev.screenShare ?? DEFAULT_SCREEN_SHARE,
             speechDenoise: normalizedDenoise,
@@ -168,6 +190,12 @@ export function SettingsModal(props: SettingsModalProps) {
           if (d.settings!.appearance?.theme) {
             applyTheme(d.settings!.appearance.theme);
           }
+
+          // Push the persisted processing stack to the bridge so the client
+          // honours the saved choice without waiting for a manual change.
+          const stack = mergedSettings.audio?.processingStack ?? 'Legacy';
+          bridge.send('voice.setProcessingStack', { stack });
+
           return mergedSettings;
         });
       }
@@ -239,7 +267,13 @@ export function SettingsModal(props: SettingsModalProps) {
       // ApplySettings on the backend which already calls SetTransmissionMode.
       // Sending both caused a double-call race that crashed WASAPI capture when
       // the user's recorded PTT key was still physically held down.
-      
+
+      // ApplySettings does not call SetProcessingStack, so send it explicitly
+      // whenever the value changes.
+      if (audio.processingStack !== prev.audio.processingStack) {
+        bridge.send('voice.setProcessingStack', { stack: audio.processingStack });
+      }
+
       return newSettings;
     });
   };
@@ -363,13 +397,13 @@ export function SettingsModal(props: SettingsModalProps) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="settings-modal glass-panel animate-slide-up" onClick={(e) => e.stopPropagation()}>
+      <div ref={modalRef} className="settings-modal glass-panel animate-slide-up" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 className="heading-title modal-title">Settings</h2>
           <p className="modal-subtitle">Configure your preferences</p>
         </div>
 
-        <div className="settings-tabs">
+        <div ref={tabsRef} className="settings-tabs">
           <button
             className={`settings-tab ${activeTab === 'profile' ? 'active' : ''}`}
             onClick={() => setActiveTab('profile')}

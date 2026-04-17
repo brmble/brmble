@@ -58,12 +58,33 @@
   --accent-secondary-glow:   rgba(232, 112, 64, 0.3);
   --accent-secondary-subtle: rgba(232, 112, 64, 0.15);
 
-  /* ── Success Accent — Seafoam (3 tokens)
+  /* ── Success Accent — Seafoam (6 tokens)
      hsl(160, 50%, 55%) ≈ #5cc9a5
      ──────────────────────────────────────────────── */
   --accent-success:        #5cc9a5;
   --accent-success-glow:   rgba(92, 201, 165, 0.3);
   --accent-success-subtle: rgba(92, 201, 165, 0.15);
+  --accent-success-text:   #6ed4b2;
+  --accent-success-border: rgba(92, 201, 165, 0.4);
+  --accent-success-bg:     rgba(92, 201, 165, 0.25);
+
+  /* ── Warning Accent — Warm Amber (5 tokens)
+     hsl(40, 85%, 62%) — distinct from coral secondary
+     ──────────────────────────────────────────────── */
+  --accent-warning:        #e8a830;
+  --accent-warning-text:   #f0b848;
+  --accent-warning-subtle: rgba(232, 168, 48, 0.12);
+  --accent-warning-border: rgba(232, 168, 48, 0.4);
+  --accent-warning-bg:     rgba(232, 168, 48, 0.25);
+
+  /* ── Info Accent — Sky Blue (5 tokens)
+     hsl(210, 70%, 60%) — distinguishable from cyan primary
+     ──────────────────────────────────────────────── */
+  --accent-info:        #4a8ad4;
+  --accent-info-text:   #5e9ae0;
+  --accent-info-subtle: rgba(74, 138, 212, 0.12);
+  --accent-info-border: rgba(74, 138, 212, 0.4);
+  --accent-info-bg:     rgba(74, 138, 212, 0.25);
 
   /* ── Decorative Accent — Deep Navy (4 tokens)
      hsl(220, 60%, 45%) ≈ #2e52b3

@@ -68,7 +68,19 @@ public class VoiceEngine : IDisposable
             return;
 
         var p = parsed.Value;
-        var pipeline = _users.GetOrAdd(p.Session, _ => new UserAudioPipeline());
+        UserAudioPipeline pipeline;
+        if (!_users.TryGetValue(p.Session, out pipeline))
+        {
+            pipeline = new UserAudioPipeline();
+            OnUserPipelineCreated(pipeline);
+
+            if (!_users.TryAdd(p.Session, pipeline))
+            {
+                pipeline.Dispose();
+                if (!_users.TryGetValue(p.Session, out pipeline))
+                    return;
+            }
+        }
         pipeline.FeedEncodedPacket(p.OpusData, p.Sequence);
     }
 
@@ -94,7 +106,44 @@ public class VoiceEngine : IDisposable
     /// </summary>
     public void SubmitMicAudio(ReadOnlySpan<byte> pcm)
     {
+        if (Interlocked.Exchange(ref _hasPendingLoss, 0) == 1)
+        {
+            int loss = Interlocked.Exchange(ref _pendingLossPercent, 0);
+            _encodePipeline?.UpdatePacketLoss(loss);
+        }
         _encodePipeline?.SubmitPcm(pcm);
+    }
+
+    public void SetUserVolume(uint sessionId, float volume)
+    {
+        if (_users.TryGetValue(sessionId, out var pipeline))
+        {
+            pipeline.Volume = volume;
+        }
+    }
+
+    public void SetInputVolume(float volume)
+    {
+        _encodePipeline?.SetVolume(volume);
+    }
+
+    public void SetLossFeedback(Action<int> onLossReport)
+    {
+        _onLossReport = onLossReport;
+    }
+
+    private Action<int>? _onLossReport;
+    private int _pendingLossPercent;
+    private int _hasPendingLoss;
+
+    private void OnUserPipelineCreated(UserAudioPipeline pipeline)
+    {
+        pipeline.SetLossCallback(lossPercent =>
+        {
+            Interlocked.Exchange(ref _pendingLossPercent, lossPercent);
+            Interlocked.Exchange(ref _hasPendingLoss, 1);
+            _onLossReport?.Invoke(lossPercent);
+        });
     }
 
     public void Dispose()

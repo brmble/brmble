@@ -4,14 +4,14 @@ public record AudioSettings(
     string InputDevice = "default",
     string OutputDevice = "default",
     int InputVolume = 250,
-    int MaxAmplification = 100,
     int OutputVolume = 250,
     string TransmissionMode = "voiceActivity",
     string? PushToTalkKey = null,
     int OpusBitrate = 72000,
     int OpusFrameSize = 20,
     string CaptureApi = "wasapi",
-    int VoiceHoldMs = 200
+    int VoiceHoldMs = 200,
+    string ProcessingStack = "Legacy"
 );
 
 public record ShortcutsSettings(

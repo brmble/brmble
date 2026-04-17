@@ -3,6 +3,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Buffers;
 using Brmble.Audio.Codecs;
+using Brmble.Audio.Processing;
 using Brmble.Audio.NetEQ;
 using Brmble.Audio.NetEQ.Models;
 using Brmble.Client.Services.AppConfig;
@@ -18,24 +19,92 @@ public enum TransmissionMode { Continuous, VoiceActivity, PushToTalk }
 
 internal static class AudioLog
 {
+    private const int MaxQueueSize = 10000;
+
     private static readonly string LogPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Brmble", "audio.log");
+
+    private static readonly System.Collections.Concurrent.ConcurrentQueue<string> _queue = new();
+    private static readonly Thread _flushThread;
+    private static readonly ManualResetEvent _signal = new(false);
+    private static volatile bool _shutdown;
 
     static AudioLog()
     {
         var dir = Path.GetDirectoryName(LogPath);
         if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
             Directory.CreateDirectory(dir);
+
+        _flushThread = new Thread(FlushLoop)
+        {
+            IsBackground = true,
+            Name = "AudioLog-Flush",
+            Priority = ThreadPriority.BelowNormal
+        };
+        _flushThread.Start();
     }
 
     public static void Write(string msg)
     {
-        try
+        if (_queue.Count >= MaxQueueSize) return;
+        _queue.Enqueue($"[{DateTime.Now:HH:mm:ss.fff}] {msg}");
+        _signal.Set();
+    }
+
+    public static void Flush()
+    {
+        _shutdown = true;
+        _signal.Set();
+        _flushThread.Join(1000);
+        _shutdown = false;
+    }
+
+    private static void FlushLoop()
+    {
+        var sb = new System.Text.StringBuilder();
+        while (!_shutdown || _queue.Count > 0)
         {
-            File.AppendAllText(LogPath, $"[{DateTime.Now:HH:mm:ss.fff}] {msg}\n");
+            _signal.WaitOne();
+            if (_shutdown)
+            {
+                DrainQueue(sb);
+                break;
+            }
+            _signal.Reset();
+
+            sb.Clear();
+            while (_queue.TryDequeue(out var line))
+            {
+                sb.AppendLine(line);
+            }
+
+            if (sb.Length > 0)
+            {
+                try
+                {
+                    File.AppendAllText(LogPath, sb.ToString());
+                }
+                catch { }
+            }
         }
-        catch { }
+    }
+
+    private static void DrainQueue(System.Text.StringBuilder sb)
+    {
+        sb.Clear();
+        while (_queue.TryDequeue(out var line))
+        {
+            sb.AppendLine(line);
+        }
+        if (sb.Length > 0)
+        {
+            try
+            {
+                File.AppendAllText(LogPath, sb.ToString());
+            }
+            catch { }
+        }
     }
 }
 
@@ -176,9 +245,7 @@ private int _screenShareHotkeyId = -1;
     private string? _dmScreenKeyName;
     private string? _screenShareKeyName;
     private IntPtr _hwnd;
-    private const int RmsThreshold = 300; // ~1% of 16-bit max (32767)
-    private const float TargetRms = 1500f;  // Target RMS for AGC (quiet boost target)
-    private const float LoudRms = 8000f;     // Threshold for compression
+
 
     // Raw Input for PTT key detection (non-blocking)
     private int _pttVk;
@@ -202,6 +269,8 @@ private int _screenShareHotkeyId = -1;
     private int _jitterStatsSampling; // 0 = idle, 1 = sampling; CAS-guarded
     private static readonly TimeSpan JitterStatsInterval = TimeSpan.FromSeconds(1);
     private int _pttSilenceTailGeneration; // incremented each time the timer is cancelled/replaced
+    private long _pttLastToggleMs;
+    private const int MinPttToggleThresholdMs = 100; // debounce to prevent WASAPI stress
     private string? _heldMouseAction; // action name for mouse shortcut currently held
     private int _shortcutMouseVk; // VK code for the mouse button bound to a toggle shortcut
 
@@ -219,14 +288,22 @@ private int _screenShareHotkeyId = -1;
     private volatile float _outputVolume = 1.0f;
     private readonly Dictionary<uint, float> _userVolumes = new();
     private readonly HashSet<uint> _localMutes = new();
-    private volatile float _maxAmplification = 1.0f;
-
+    
     // Encoder settings
     private int _opusBitrate = 72000;
     private int _opusFrameMs = 20;
     private bool _dtxEnabled;
 
+    // Virtual mic (testing). Not persisted across restarts.
+    private string? _virtualMicPath;
+    private volatile bool _virtualMicActive;
+
     // Speech enhancement
+    // Capture-side processor (swappable). Default = Legacy stack.
+    private IAudioCapturePostProcessor? _processor;
+    private ProcessingStack _processingStack = ProcessingStack.Legacy;
+    [ThreadStatic] private static byte[]? _processorOutputScratch;
+
     private SpeechEnhancementService? _speechEnhancement;
     private AudioResampler? _to16kResampler;
     private AudioResampler? _to48kResampler;
@@ -268,8 +345,11 @@ private int _screenShareHotkeyId = -1;
     public bool IsDeafened => _deafened;
     public TransmissionMode TransmissionMode => _transmissionMode;
 
-    public void SetInputVolume(int percentage) => _inputVolume = Math.Clamp(percentage, 0, 250) / 100f;
-    public void SetMaxAmplification(int percentage) => _maxAmplification = Math.Clamp(percentage, 100, 400) / 100f;
+    public void SetInputVolume(int percentage)
+    {
+        _inputVolume = Math.Clamp(percentage, 0, 250) / 100f;
+        _encodePipeline?.SetVolume(_inputVolume);
+    }
     public void SetVoiceHoldMs(int ms) => _voiceHoldMs = Math.Clamp(ms, 100, 2000);
 
     // Allowed Opus bitrates (bps). Must match the UI options in AudioSettingsTab.tsx.
@@ -350,6 +430,7 @@ private int _screenShareHotkeyId = -1;
                 frameSize: 48000 / 1000 * _opusFrameMs,
                 dtx: _dtxEnabled,
                 initialSequence: seq);
+            _encodePipeline.SetVolume(_inputVolume);
         }
     }
 
@@ -386,6 +467,86 @@ private int _screenShareHotkeyId = -1;
             _rnnoise?.Dispose();
             _rnnoise = mode == SpeechDenoiseMode.Rnnoise ? new RnnoiseService(mode) : null;
             _rnnoiseRemainder = null;
+
+            // If we're on the Legacy stack, rebuild it so its RnnoiseProcess hook picks up the new service.
+            if (_processingStack == ProcessingStack.Legacy)
+            {
+                _processor?.Dispose();
+                _processor = CreateProcessorLocked(ProcessingStack.Legacy);
+            }
+        }
+    }
+
+    public void SetVirtualMic(string? wavPath)
+    {
+        lock (_lock)
+        {
+            if (string.IsNullOrWhiteSpace(wavPath))
+            {
+                _virtualMicPath = null;
+                _virtualMicActive = false;
+            }
+            else
+            {
+                // Relative paths come from the frontend as e.g. "fixtures/apm/near_speech.wav".
+                // Resolve against the binary's directory, where the MSBuild <None Link> rule
+                // copies the WAVs — not against the .NET process CWD.
+                _virtualMicPath = Path.IsPathRooted(wavPath)
+                    ? wavPath
+                    : Path.Combine(AppContext.BaseDirectory, wavPath);
+                _virtualMicActive = true;
+            }
+            AudioLog.Write($"[Audio] Virtual mic {(_virtualMicActive ? $"enabled: {_virtualMicPath}" : "disabled")}");
+
+            // If mic is currently running, restart it so StartMicLocked picks the right source.
+            // StopMicLocked only stops recording — it doesn't null _waveIn. Dispose it here so
+            // StartMicLocked creates a fresh IWaveIn matching the new _virtualMicActive state
+            // (otherwise a stale FixtureWaveProvider would get StartRecording()'d again).
+            if (_micStarted)
+            {
+                StopMicLocked();
+                _waveIn?.Dispose();
+                _waveIn = null;
+                StartMicLocked();
+            }
+        }
+    }
+
+    public void SetProcessingStack(ProcessingStack stack)
+    {
+        lock (_lock)
+        {
+            if (_processingStack == stack && _processor != null) return;
+            _processingStack = stack;
+            _processor?.Dispose();
+            _processor = CreateProcessorLocked(stack);
+            AudioLog.Write($"[Audio] Processing stack set to {stack}");
+        }
+    }
+
+    private IAudioCapturePostProcessor? CreateProcessorLocked(ProcessingStack stack)
+    {
+        try
+        {
+            return stack switch
+            {
+                ProcessingStack.None => new PassthroughProcessor(),
+                ProcessingStack.Legacy => new LegacyAudioProcessor
+                {
+                    // MaxAmplification was dropped from AudioManager on main in favour of
+                    // EncodePipeline-based volume. Legacy AGC now only compresses loud audio.
+                    MaxAmplification = 1.0f,
+                    RnnoiseEnabled = _rnnoise?.IsEnabled == true,
+                    RnnoiseProcess = frame => _rnnoise?.Process(frame),
+                },
+                ProcessingStack.WebRtcApm => new WebRtcApmProcessor(),
+                _ => throw new ArgumentOutOfRangeException(nameof(stack)),
+            };
+        }
+        catch (Exception ex)
+        {
+            AudioLog.Write($"[Audio] Failed to create processor for {stack}: {ex.Message}");
+            return null;
         }
     }
 
@@ -507,84 +668,116 @@ private int _screenShareHotkeyId = -1;
     {
         lock (_lock)
         {
-            if (_micStarted || _muted) return;
-
-            _micStarted = true;
-            if (_encodePipeline == null)
-                RecreateEncodePipelineLocked();
-
-            if (_waveIn == null)
-            {
-                if (_captureApi == "wasapi")
-                {
-                    using var enumerator = new MMDeviceEnumerator();
-                    using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Communications);
-                    var wasapi = new WasapiCapture(device, true, 60)
-                    {
-                        ShareMode = AudioClientShareMode.Shared
-                    };
-                    AudioLog.Write($"[Audio] WASAPI capture format: {wasapi.WaveFormat.SampleRate}Hz, {wasapi.WaveFormat.BitsPerSample}bit, {wasapi.WaveFormat.Channels}ch");
-                    wasapi.RecordingStopped += (s, e) =>
-                    {
-                        if (e.Exception != null)
-                        {
-                            AudioLog.Write($"[Audio] WASAPI recording stopped with error: {e.Exception.Message}");
-                        }
-                    };
-                    _waveIn = wasapi;
-                }
-                else
-                {
-                    _waveIn = new WaveInEvent
-                    {
-                        DeviceNumber = -1,
-                        BufferMilliseconds = 20,
-                        WaveFormat = new WaveFormat(48000, 16, 1)
-                    };
-                }
-                _waveIn.DataAvailable += OnMicData;
-            }
-
-            // WasapiCapture.StopRecording() only signals the capture thread to
-            // stop; it doesn't wait for it to exit.  If we call StartRecording()
-            // before the thread has fully stopped, WasapiCapture throws
-            // InvalidOperationException ("Previous recording still in progress").
-            // Wait outside the lock so other threads aren't blocked, then
-            // re-validate state before proceeding.
-            if (_waveIn is WasapiCapture wasapiWait &&
-                wasapiWait.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped)
-            {
-                var localCapture = wasapiWait;
-                Monitor.Exit(_lock);
-                try
-                {
-                    const int maxWaitMs = 300;
-                    int waited = 0;
-                    while (localCapture.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped && waited < maxWaitMs)
-                    {
-                        Thread.Sleep(10);
-                        waited += 10;
-                    }
-                }
-                finally
-                {
-                    Monitor.Enter(_lock);
-                }
-
-                // State may have changed while we were unlocked — re-validate.
-                if (_micStarted || _muted) return;
-
-                if (_waveIn is WasapiCapture recheck &&
-                    recheck.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped)
-                {
-                    AudioLog.Write($"[Audio] WASAPI capture still stopping after wait, skipping StartRecording");
-                    return;
-                }
-            }
-
-            _waveIn.StartRecording();
-            AudioLog.Write("[Audio] Mic started");
+            StartMicLocked();
         }
+    }
+
+    /// <summary>
+    /// Inner mic-start logic. Caller must hold <see cref="_lock"/>.
+    /// May temporarily release and reacquire the lock for WASAPI stop-wait.
+    /// </summary>
+    private void StartMicLocked()
+    {
+        if (_micStarted || _muted) return;
+
+        _micStarted = true;
+        if (_encodePipeline == null)
+            RecreateEncodePipelineLocked();
+
+        // Virtual mic branch: use fixture replay instead of real hardware.
+        if (_virtualMicActive && _virtualMicPath != null)
+        {
+            try
+            {
+                _waveIn?.Dispose();
+                _waveIn = new FixtureWaveProvider(_virtualMicPath, frameMs: 20, loop: true);
+                _waveIn.DataAvailable += OnMicData;
+                _waveIn.StartRecording();
+                AudioLog.Write("[Audio] Mic started (virtual — fixture replay)");
+                return;
+            }
+            catch (Exception ex)
+            {
+                AudioLog.Write($"[Audio] Virtual mic failed ({_virtualMicPath}): {ex.Message} — falling back to real microphone.");
+                _waveIn?.Dispose();
+                _waveIn = null;
+                _virtualMicActive = false;
+                _virtualMicPath = null;
+                // Fall through to the live-mic branch below.
+            }
+        }
+
+        if (_waveIn == null)
+        {
+            if (_captureApi == "wasapi")
+            {
+                using var enumerator = new MMDeviceEnumerator();
+                using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Communications);
+                var wasapi = new WasapiCapture(device, true, 20)
+                {
+                    ShareMode = AudioClientShareMode.Shared
+                };
+                AudioLog.Write($"[Audio] WASAPI capture format: {wasapi.WaveFormat.SampleRate}Hz, {wasapi.WaveFormat.BitsPerSample}bit, {wasapi.WaveFormat.Channels}ch");
+                wasapi.RecordingStopped += (s, e) =>
+                {
+                    if (e.Exception != null)
+                    {
+                        AudioLog.Write($"[Audio] WASAPI recording stopped with error: {e.Exception.Message}");
+                    }
+                };
+                _waveIn = wasapi;
+            }
+            else
+            {
+                _waveIn = new WaveInEvent
+                {
+                    DeviceNumber = -1,
+                    BufferMilliseconds = 20,
+                    WaveFormat = new WaveFormat(48000, 16, 1)
+                };
+            }
+            _waveIn.DataAvailable += OnMicData;
+        }
+
+        // WasapiCapture.StopRecording() only signals the capture thread to
+        // stop; it doesn't wait for it to exit.  If we call StartRecording()
+        // before the thread has fully stopped, WasapiCapture throws
+        // InvalidOperationException ("Previous recording still in progress").
+        // Wait outside the lock so other threads aren't blocked, then
+        // re-validate state before proceeding.
+        if (_waveIn is WasapiCapture wasapiWait &&
+            wasapiWait.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped)
+        {
+            var localCapture = wasapiWait;
+            Monitor.Exit(_lock);
+            try
+            {
+                const int maxWaitMs = 300;
+                int waited = 0;
+                while (localCapture.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped && waited < maxWaitMs)
+                {
+                    Thread.Sleep(10);
+                    waited += 10;
+                }
+            }
+            finally
+            {
+                Monitor.Enter(_lock);
+            }
+
+            // State may have changed while we were unlocked — re-validate.
+            if (!_micStarted || _muted) return;
+
+            if (_waveIn is WasapiCapture recheck &&
+                recheck.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped)
+            {
+                AudioLog.Write($"[Audio] WASAPI capture still stopping after wait, skipping StartRecording");
+                return;
+            }
+        }
+
+        _waveIn.StartRecording();
+        AudioLog.Write("[Audio] Mic started");
     }
 
     /// <summary>Stop mic capture and dispose encode pipeline. No-op if not started.</summary>
@@ -594,20 +787,30 @@ private int _screenShareHotkeyId = -1;
         uint capturedUserId = 0;
         lock (_lock)
         {
-            if (!_micStarted) return;
-
-            _waveIn?.StopRecording();
-            _encodePipeline?.Dispose();
-            _encodePipeline = null;
-            _deviceResampler?.Dispose();
-            _deviceResampler = null;
-            _micStarted = false;
-            capturedUserId = _localUserId;
-            wasSpeaking = capturedUserId != 0 && _currentlySpeaking.Remove(capturedUserId);
-            AudioLog.Write("[Audio] Mic stopped");
+            (wasSpeaking, capturedUserId) = StopMicLocked();
         }
         if (wasSpeaking)
             UserStoppedSpeaking?.Invoke(capturedUserId);
+    }
+
+    /// <summary>
+    /// Inner mic-stop logic. Caller must hold <see cref="_lock"/>.
+    /// Returns (wasSpeaking, capturedUserId) so the caller can fire events outside the lock.
+    /// </summary>
+    private (bool wasSpeaking, uint capturedUserId) StopMicLocked()
+    {
+        if (!_micStarted) return (false, 0);
+
+        _waveIn?.StopRecording();
+        _encodePipeline?.Dispose();
+        _encodePipeline = null;
+        _deviceResampler?.Dispose();
+        _deviceResampler = null;
+        _micStarted = false;
+        uint capturedUserId = _localUserId;
+        bool wasSpeaking = capturedUserId != 0 && _currentlySpeaking.Remove(capturedUserId);
+        AudioLog.Write("[Audio] Mic stopped");
+        return (wasSpeaking, capturedUserId);
     }
 
     /// <summary>
@@ -664,9 +867,18 @@ private int _screenShareHotkeyId = -1;
     [ThreadStatic] private static float[]? _wasapiMonoScratch;
     [ThreadStatic] private static byte[]? _wasapiInt16Scratch;
     [ThreadStatic] private static double[]? _resampleDoubleScratch;
+    [ThreadStatic] private static bool _threadPriorityBoosted;
 
     private void OnMicData(object? sender, WaveInEventArgs e)
     {
+        // Boost audio capture thread priority on first callback
+        if (!_threadPriorityBoosted)
+        {
+            _threadPriorityBoosted = true;
+            try { Thread.CurrentThread.Priority = ThreadPriority.Highest; }
+            catch { }
+        }
+
         byte[] processedBuffer = e.Buffer;
         int processedBytes = e.BytesRecorded;
         
@@ -753,86 +965,42 @@ private int _screenShareHotkeyId = -1;
             processedBytes = requiredInt16Bytes;
         }
 
+        bool virtualMic = _virtualMicActive;
         if (_muted) return;
-        if (_transmissionMode == TransmissionMode.PushToTalk && !_pttActive) return;
+        if (!virtualMic && _transmissionMode == TransmissionMode.PushToTalk && !_pttActive) return;
 
-        // Apply AGC first (boost quiet audio, compress loud before user gain)
-        if (_maxAmplification != 1.0f)
-            ApplyAGC(processedBuffer, processedBytes);
-
-        // Apply input volume (after AGC to avoid clipping on boost)
-        if (_inputVolume != 1.0f)
-            ApplyInputVolume(processedBuffer, processedBytes);
-
-        // Apply RNNoise denoising if enabled (processes 48kHz float samples in-place)
-        RnnoiseService? rnnoise;
+        // Capture-side processor (swappable).
+        IAudioCapturePostProcessor? processor;
         lock (_lock)
         {
-            rnnoise = _rnnoise;
+            if (_processor == null) _processor = CreateProcessorLocked(_processingStack);
+            processor = _processor;
         }
-        if (rnnoise?.IsEnabled == true)
+
+        if (processor != null)
         {
-            var sampleCount = processedBytes / 2;
-            var totalSamples = sampleCount;
+            int needed = processedBytes + WebRtcApmProcessor.FrameBytes;
+            if (_processorOutputScratch == null || _processorOutputScratch.Length < needed)
+                _processorOutputScratch = new byte[needed];
 
-            if (_rnnoiseRemainder != null)
-            {
-                totalSamples += _rnnoiseRemainder.Length;
-            }
-
-            var combinedSamples = totalSamples;
-            var scratchBuffer = ArrayPool<float>.Shared.Rent(RnnoiseService.FrameSize * 2);
             try
             {
-                int combinedIndex = 0;
+                int written = processor.Process(
+                    new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes),
+                    _processorOutputScratch.AsSpan());
 
-                if (_rnnoiseRemainder != null)
-                {
-                    Array.Copy(_rnnoiseRemainder, 0, scratchBuffer, 0, _rnnoiseRemainder.Length);
-                    combinedIndex = _rnnoiseRemainder.Length;
-                    ArrayPool<float>.Shared.Return(_rnnoiseRemainder);
-                    _rnnoiseRemainder = null;
-                }
-
-                for (int i = 0; i < sampleCount; i++)
-                {
-                    short s = (short)(processedBuffer[i * 2] | (processedBuffer[i * 2 + 1] << 8));
-                    scratchBuffer[combinedIndex + i] = s / 32768f;
-                }
-
-                var offset = 0;
-                while (offset + RnnoiseService.FrameSize <= combinedIndex + sampleCount)
-                {
-                    var frame = scratchBuffer.AsSpan(offset, RnnoiseService.FrameSize);
-                    var frameCopy = new float[RnnoiseService.FrameSize];
-                    frame.CopyTo(frameCopy);
-
-                    var denoised = rnnoise.Process(frameCopy);
-                    if (denoised != null)
-                    {
-                        for (int i = 0; i < RnnoiseService.FrameSize; i++)
-                        {
-                            var sample = (short)Math.Clamp(denoised[i] * 32768f, short.MinValue, short.MaxValue);
-                            processedBuffer[(offset + i) * 2] = (byte)(sample & 0xFF);
-                            processedBuffer[(offset + i) * 2 + 1] = (byte)((sample >> 8) & 0xFF);
-                        }
-                    }
-
-                    offset += RnnoiseService.FrameSize;
-                }
-
-                var remaining = (combinedIndex + sampleCount) - offset;
-                if (remaining > 0)
-                {
-                    _rnnoiseRemainder = new float[remaining];
-                    Array.Copy(scratchBuffer, offset, _rnnoiseRemainder, 0, remaining);
-                }
+                processedBuffer = _processorOutputScratch;
+                processedBytes = written;
             }
-            finally
+            catch (ObjectDisposedException)
             {
-                ArrayPool<float>.Shared.Return(scratchBuffer);
+                return;
             }
+
+            if (processedBytes == 0) return;
         }
+
+        // Input volume is applied inside EncodePipeline (see SetInputVolume → _encodePipeline.SetVolume).
 
         // Apply speech enhancement if enabled
         if (_speechEnhancement?.IsEnabled == true && _to16kResampler != null && _to48kResampler != null)
@@ -887,7 +1055,7 @@ private int _screenShareHotkeyId = -1;
         }
 
         // Voice activity check on processed signal
-        if (_transmissionMode == TransmissionMode.VoiceActivity && !IsAboveThreshold(processedBuffer, processedBytes)) return;
+        if (!virtualMic && _transmissionMode == TransmissionMode.VoiceActivity && !IsAboveThreshold(processedBuffer, processedBytes)) return;
 
         // Snapshot the pipeline reference and update speaking state under lock.
         // This prevents a race where RecreateEncodePipelineLocked disposes _encodePipeline
@@ -906,62 +1074,9 @@ private int _screenShareHotkeyId = -1;
         pipeline?.SubmitPcm(new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes));
     }
 
-    private void ApplyInputVolume(byte[] buffer, int bytesRecorded)
-    {
-        for (int i = 0; i < bytesRecorded - 1; i += 2)
-        {
-            short sample = (short)(buffer[i] | (buffer[i + 1] << 8));
-            float adjusted = sample * _inputVolume;
-            adjusted = Math.Clamp(adjusted, short.MinValue, short.MaxValue);
-            short clampedSample = (short)adjusted;
-            buffer[i] = (byte)(clampedSample & 0xFF);
-            buffer[i + 1] = (byte)((clampedSample >> 8) & 0xFF);
-        }
-    }
+    
 
-    private void ApplyAGC(byte[] buffer, int bytesRecorded)
-    {
-        // Calculate RMS of the chunk
-        long sumSq = 0;
-        int samples = bytesRecorded / 2;
-        for (int i = 0; i < bytesRecorded - 1; i += 2)
-        {
-            short sample = (short)(buffer[i] | (buffer[i + 1] << 8));
-            sumSq += (long)sample * sample;
-        }
-        if (samples == 0) return;
-        float rms = (float)Math.Sqrt(sumSq / (double)samples);
-
-        float gain = 1.0f;
-
-        if (rms < TargetRms && rms > 0)
-        {
-            // Quiet audio: apply boost up to maxAmplification
-            float neededBoost = TargetRms / rms;
-            gain = Math.Min(neededBoost, _maxAmplification);
-        }
-        else if (rms > LoudRms)
-        {
-            // Loud audio: gentle compression
-            gain = LoudRms / rms;
-            // Soft knee: blend between 1 and gain
-            float excess = (rms - LoudRms) / LoudRms;
-            gain = 1.0f - (1.0f - gain) * Math.Min(excess * 2, 1.0f);
-        }
-
-        if (gain != 1.0f)
-        {
-            for (int i = 0; i < bytesRecorded - 1; i += 2)
-            {
-                short sample = (short)(buffer[i] | (buffer[i + 1] << 8));
-                float adjusted = sample * gain;
-                adjusted = Math.Clamp(adjusted, short.MinValue, short.MaxValue);
-                short clampedSample = (short)adjusted;
-                buffer[i] = (byte)(clampedSample & 0xFF);
-                buffer[i + 1] = (byte)((clampedSample >> 8) & 0xFF);
-            }
-        }
-    }
+    private const double VoiceActivityRmsThreshold = 300;
 
     /// <summary>RMS check: returns true if the audio chunk is loud enough to transmit.</summary>
     private static bool IsAboveThreshold(byte[] buffer, int bytesRecorded)
@@ -975,7 +1090,7 @@ private int _screenShareHotkeyId = -1;
         }
         if (samples == 0) return false;
         var rms = Math.Sqrt(sumSq / (double)samples);
-        return rms >= RmsThreshold;
+        return rms >= VoiceActivityRmsThreshold;
     }
 
     /// <summary>
@@ -1796,26 +1911,60 @@ private int _screenShareHotkeyId = -1;
     /// <summary>Start or stop mic for PTT.</summary>
     private void SetPttActive(bool active)
     {
-        AudioLog.Write($"[Audio] SetPttActive: active={active}, _pttActive={_pttActive}, muted={_muted}");
-        _pttActive = active;
+        bool startMic = false;
+        bool scheduleSilenceTail = false;
+        int silenceTailGeneration = 0;
+        int holdMs = 200;
 
-        if (active && !_muted)
+        lock (_lock)
         {
-            // Cancel any pending silence tail — PTT was re-pressed before the tail completed
-            _pttSilenceTailTimer?.Dispose();
-            _pttSilenceTailTimer = null;
-            Interlocked.Increment(ref _pttSilenceTailGeneration);
-            AudioLog.Write("[Audio] Starting mic for PTT");
-            StartMic();
+            long now = Environment.TickCount64;
+
+            // Debounce: Ignore rapid activations to prevent WASAPI stress and socket buffer exhaustion,
+            // but never drop a deactivation. Releasing PTT must always clear _pttActive and
+            // schedule the silence tail so the mic cannot be left running.
+            if (active && now - _pttLastToggleMs < MinPttToggleThresholdMs)
+                return;
+
+            // Coalesce: If state hasn't changed, do nothing
+            if (_pttActive == active)
+                return;
+
+            AudioLog.Write($"[Audio] SetPttActive: active={active}, muted={_muted}");
+            _pttLastToggleMs = now;
+            _pttActive = active;
+
+            if (active && !_muted)
+            {
+                // Cancel any pending silence tail — PTT was re-pressed before the tail completed
+                _pttSilenceTailTimer?.Dispose();
+                _pttSilenceTailTimer = null;
+                Interlocked.Increment(ref _pttSilenceTailGeneration);
+                AudioLog.Write("[Audio] Starting mic for PTT");
+                startMic = true;
+            }
+            else
+            {
+                AudioLog.Write("[Audio] PTT released — scheduling silence tail");
+                // Gate live mic immediately (OnMicData checks _pttActive), then
+                // fire the silence tail after the hold delay.
+                _pttSilenceTailTimer?.Dispose();
+                _pttSilenceTailTimer = null;
+                silenceTailGeneration = Interlocked.Increment(ref _pttSilenceTailGeneration);
+                scheduleSilenceTail = true;
+                holdMs = _voiceHoldMs;
+            }
         }
-        else
+
+        // Call StartMic outside the lock to avoid re-entrancy issues with
+        // WASAPI's internal locking and wait logic.
+        if (startMic)
+            StartMic();
+
+        // Schedule silence tail outside the lock
+        if (scheduleSilenceTail)
         {
-            AudioLog.Write("[Audio] PTT released — scheduling silence tail");
-            // Gate live mic immediately (OnMicData checks _pttActive), then
-            // fire the silence tail after the hold delay.
-            _pttSilenceTailTimer?.Dispose();
-            _pttSilenceTailTimer = null;
-            int generation = Interlocked.Increment(ref _pttSilenceTailGeneration);
+            int generation = silenceTailGeneration;
             _pttSilenceTailTimer = new System.Threading.Timer(_ =>
             {
                 // Guard against the timer callback running after cancel/dispose.
@@ -1824,7 +1973,7 @@ private int _screenShareHotkeyId = -1;
                     return;
                 if (_pttActive || _muted) return;
                 StopMicWithSilenceTail();
-            }, null, dueTime: _voiceHoldMs, period: Timeout.Infinite);
+            }, null, dueTime: holdMs, period: Timeout.Infinite);
         }
     }
 
@@ -1932,6 +2081,8 @@ private int _screenShareHotkeyId = -1;
     {
         _deviceResampler?.Dispose();
         _deviceResampler = null;
+        _processor?.Dispose();
+        _processor = null;
         _rnnoise?.Dispose();
         _rnnoiseRemainder = null;
         _speechEnhancement?.Dispose();

@@ -59,12 +59,33 @@
   --accent-secondary-glow:   rgba(217, 165, 50, 0.32);
   --accent-secondary-subtle: rgba(217, 165, 50, 0.15);
 
-  /* ── Success Accent — Olive Green (3 tokens)
+  /* ── Success Accent — Olive Green (6 tokens)
      hsl(90, 40%, 50%) ≈ #7ab34d
      ──────────────────────────────────────────────── */
   --accent-success:        #7ab34d;
   --accent-success-glow:   rgba(122, 179, 77, 0.30);
   --accent-success-subtle: rgba(122, 179, 77, 0.14);
+  --accent-success-text:   #8cc260;
+  --accent-success-border: rgba(122, 179, 77, 0.4);
+  --accent-success-bg:     rgba(122, 179, 77, 0.25);
+
+  /* ── Warning Accent — Deep Gold (5 tokens)
+     hsl(48, 80%, 55%) — distinguishable from orange primary
+     ──────────────────────────────────────────────── */
+  --accent-warning:        #d4a020;
+  --accent-warning-text:   #e0b040;
+  --accent-warning-subtle: rgba(212, 160, 32, 0.12);
+  --accent-warning-border: rgba(212, 160, 32, 0.42);
+  --accent-warning-bg:     rgba(212, 160, 32, 0.25);
+
+  /* ── Info Accent — Steel Blue (5 tokens)
+     hsl(212, 60%, 58%) — cool contrast against warm theme
+     ──────────────────────────────────────────────── */
+  --accent-info:        #5088c4;
+  --accent-info-text:   #6498d0;
+  --accent-info-subtle: rgba(80, 136, 196, 0.12);
+  --accent-info-border: rgba(80, 136, 196, 0.4);
+  --accent-info-bg:     rgba(80, 136, 196, 0.25);
 
   /* ── Decorative Accent — Terracotta (4 tokens)
      hsl(15, 50%, 40%) ≈ #994d33

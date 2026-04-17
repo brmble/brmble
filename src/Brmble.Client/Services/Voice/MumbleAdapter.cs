@@ -11,6 +11,7 @@ using MumbleSharp.Audio.Codecs;
 using MumbleSharp.Model;
 using MumbleProto;
 using PacketType = MumbleSharp.Packets.PacketType;
+using Brmble.Audio.Processing;
 using Brmble.Client.Bridge;
 using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.Certificate;
@@ -684,7 +685,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.SetShortcut("toggleGame", settings.Shortcuts.ToggleGameKey);
         _audioManager?.SetInputVolume(settings.Audio.InputVolume);
         _audioManager?.SetOutputVolume(settings.Audio.OutputVolume);
-        _audioManager?.SetMaxAmplification(settings.Audio.MaxAmplification);
+
         _audioManager?.SetOpusBitrate(settings.Audio.OpusBitrate);
         _audioManager?.SetOpusFrameMs(settings.Audio.OpusFrameSize);
         _audioManager?.SetCaptureApi(settings.Audio.CaptureApi);
@@ -2334,6 +2335,22 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 _bridge?.Send("livekit.activeShareResult", new { roomName, active = false });
                 _bridge?.NotifyUiThread();
             }
+        });
+
+        bridge.RegisterHandler("voice.setProcessingStack", data =>
+        {
+            var stackStr = data.TryGetProperty("stack", out var stack) ? stack.GetString() ?? "Legacy" : "Legacy";
+            if (!Enum.TryParse<ProcessingStack>(stackStr, ignoreCase: true, out var processingStack))
+                processingStack = ProcessingStack.Legacy;
+            _audioManager?.SetProcessingStack(processingStack);
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.setVirtualMic", data =>
+        {
+            string? path = data.TryGetProperty("path", out var p) ? p.GetString() : null;
+            _audioManager?.SetVirtualMic(path);
+            return Task.CompletedTask;
         });
 
         bridge.RegisterHandler("dm.getOrCreateRoom", async data =>
