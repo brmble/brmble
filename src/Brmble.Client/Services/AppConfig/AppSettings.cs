@@ -11,7 +11,8 @@ public record AudioSettings(
     int OpusBitrate = 72000,
     int OpusFrameSize = 20,
     string CaptureApi = "wasapi",
-    int VoiceHoldMs = 200
+    int VoiceHoldMs = 200,
+    string ProcessingStack = "Legacy"
 );
 
 public record ShortcutsSettings(

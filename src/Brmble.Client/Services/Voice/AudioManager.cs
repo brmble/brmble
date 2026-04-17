@@ -406,14 +406,32 @@ private int _screenShareHotkeyId = -1;
     {
         lock (_lock)
         {
-            _virtualMicPath = string.IsNullOrWhiteSpace(wavPath) ? null : wavPath;
-            _virtualMicActive = _virtualMicPath != null;
+            if (string.IsNullOrWhiteSpace(wavPath))
+            {
+                _virtualMicPath = null;
+                _virtualMicActive = false;
+            }
+            else
+            {
+                // Relative paths come from the frontend as e.g. "fixtures/apm/near_speech.wav".
+                // Resolve against the binary's directory, where the MSBuild <None Link> rule
+                // copies the WAVs — not against the .NET process CWD.
+                _virtualMicPath = Path.IsPathRooted(wavPath)
+                    ? wavPath
+                    : Path.Combine(AppContext.BaseDirectory, wavPath);
+                _virtualMicActive = true;
+            }
             AudioLog.Write($"[Audio] Virtual mic {(_virtualMicActive ? $"enabled: {_virtualMicPath}" : "disabled")}");
 
             // If mic is currently running, restart it so StartMicLocked picks the right source.
+            // StopMicLocked only stops recording — it doesn't null _waveIn. Dispose it here so
+            // StartMicLocked creates a fresh IWaveIn matching the new _virtualMicActive state
+            // (otherwise a stale FixtureWaveProvider would get StartRecording()'d again).
             if (_micStarted)
             {
                 StopMicLocked();
+                _waveIn?.Dispose();
+                _waveIn = null;
                 StartMicLocked();
             }
         }
@@ -591,12 +609,24 @@ private int _screenShareHotkeyId = -1;
         // Virtual mic branch: use fixture replay instead of real hardware.
         if (_virtualMicActive && _virtualMicPath != null)
         {
-            _waveIn?.Dispose();
-            _waveIn = new FixtureWaveProvider(_virtualMicPath, frameMs: 20, loop: true);
-            _waveIn.DataAvailable += OnMicData;
-            _waveIn.StartRecording();
-            AudioLog.Write("[Audio] Mic started (virtual — fixture replay)");
-            return;
+            try
+            {
+                _waveIn?.Dispose();
+                _waveIn = new FixtureWaveProvider(_virtualMicPath, frameMs: 20, loop: true);
+                _waveIn.DataAvailable += OnMicData;
+                _waveIn.StartRecording();
+                AudioLog.Write("[Audio] Mic started (virtual — fixture replay)");
+                return;
+            }
+            catch (Exception ex)
+            {
+                AudioLog.Write($"[Audio] Virtual mic failed ({_virtualMicPath}): {ex.Message} — falling back to real microphone.");
+                _waveIn?.Dispose();
+                _waveIn = null;
+                _virtualMicActive = false;
+                _virtualMicPath = null;
+                // Fall through to the live-mic branch below.
+            }
         }
 
         if (_waveIn == null)

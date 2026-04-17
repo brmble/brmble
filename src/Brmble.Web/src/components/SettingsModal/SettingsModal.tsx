@@ -161,6 +161,7 @@ export function SettingsModal(props: SettingsModalProps) {
           const mergedSettings = {
             ...DEFAULT_SETTINGS,
             ...d.settings!,
+            audio: { ...DEFAULT_SETTINGS.audio, ...(d.settings!.audio ?? {}) },
             brmblegotchi: d.settings!.brmblegotchi ?? prev.brmblegotchi ?? DEFAULT_BRMBLEGOTCHI,
             screenShare: d.settings!.screenShare ?? prev.screenShare ?? DEFAULT_SCREEN_SHARE,
             speechDenoise: normalizedDenoise,
