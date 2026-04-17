@@ -18,13 +18,16 @@ public enum TransmissionMode { Continuous, VoiceActivity, PushToTalk }
 
 internal static class AudioLog
 {
+    private const int MaxQueueSize = 10000;
+
     private static readonly string LogPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Brmble", "audio.log");
 
     private static readonly System.Collections.Concurrent.ConcurrentQueue<string> _queue = new();
     private static readonly Thread _flushThread;
-    private static readonly System.Threading.ManualResetEventSlim _signal = new(false);
+    private static readonly ManualResetEvent _signal = new(false);
+    private static volatile bool _shutdown;
 
     static AudioLog()
     {
@@ -43,19 +46,32 @@ internal static class AudioLog
 
     public static void Write(string msg)
     {
+        if (_queue.Count >= MaxQueueSize) return;
         _queue.Enqueue($"[{DateTime.Now:HH:mm:ss.fff}] {msg}");
         _signal.Set();
+    }
+
+    public static void Flush()
+    {
+        _shutdown = true;
+        _signal.Set();
+        _flushThread.Join(1000);
+        _shutdown = false;
     }
 
     private static void FlushLoop()
     {
         var sb = new System.Text.StringBuilder();
-        while (true)
+        while (!_shutdown || _queue.Count > 0)
         {
-            _signal.Wait();
+            _signal.WaitOne();
+            if (_shutdown)
+            {
+                DrainQueue(sb);
+                break;
+            }
             _signal.Reset();
 
-            // Drain the queue into a single batch write
             sb.Clear();
             while (_queue.TryDequeue(out var line))
             {
@@ -70,6 +86,23 @@ internal static class AudioLog
                 }
                 catch { }
             }
+        }
+    }
+
+    private static void DrainQueue(System.Text.StringBuilder sb)
+    {
+        sb.Clear();
+        while (_queue.TryDequeue(out var line))
+        {
+            sb.AppendLine(line);
+        }
+        if (sb.Length > 0)
+        {
+            try
+            {
+                File.AppendAllText(LogPath, sb.ToString());
+            }
+            catch { }
         }
     }
 }
