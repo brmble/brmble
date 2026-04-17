@@ -22,6 +22,7 @@ public class MumbleIceServiceTests
             new Mock<IBrmbleEventBus>().Object,
             new Mock<IChannelMembershipService>().Object,
             new ScreenShareTracker(),
+            new LiveKitService(Options.Create(new LiveKitSettings()), new Mock<UserRepository>(new Mock<Database>("Data Source=:memory:").Object, Options.Create(new MatrixSettings { ServerDomain = "test.local" })).Object, NullLogger<LiveKitService>.Instance),
             NullLogger<MumbleServerCallback>.Instance);
 
         var iceSettings = Options.Create(new IceSettings { Host = host, Port = port, Secret = "test-secret" });

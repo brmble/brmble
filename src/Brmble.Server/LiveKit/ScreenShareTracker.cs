@@ -21,10 +21,19 @@ public class ScreenShareTracker
             room.TryRemove(userId, out _);
     }
 
-    public void StopAllByUserId(long userId)
+    public IReadOnlyList<string> StopAllByUserId(long userId)
     {
+        var stoppedRooms = new List<string>();
         foreach (var kvp in _shares)
-            kvp.Value.TryRemove(userId, out _);
+        {
+            if (kvp.Value.TryRemove(userId, out _))
+            {
+                stoppedRooms.Add(kvp.Key);
+                if (kvp.Value.IsEmpty)
+                    _shares.TryRemove(kvp.Key, out _);
+            }
+        }
+        return stoppedRooms;
     }
 
     public List<ScreenShareInfo> GetActiveShares(string roomName)

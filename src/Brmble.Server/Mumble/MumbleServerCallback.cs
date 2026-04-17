@@ -11,6 +11,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     private readonly IBrmbleEventBus _eventBus;
     private readonly IChannelMembershipService _channelMembership;
     private readonly ScreenShareTracker _screenShareTracker;
+    private readonly LiveKitService _liveKitService;
     private readonly ILogger<MumbleServerCallback> _logger;
     private MumbleServer.ServerPrx? _serverProxy;
 
@@ -20,6 +21,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         IBrmbleEventBus eventBus,
         IChannelMembershipService channelMembership,
         ScreenShareTracker screenShareTracker,
+        LiveKitService liveKitService,
         ILogger<MumbleServerCallback> logger)
     {
         _handlers = handlers;
@@ -27,6 +29,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         _eventBus = eventBus;
         _channelMembership = channelMembership;
         _screenShareTracker = screenShareTracker;
+        _liveKitService = liveKitService;
         _logger = logger;
     }
 
@@ -149,11 +152,11 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         var snapshot = _sessionMapping.GetSnapshot();
         if (snapshot.TryGetValue(user.SessionId, out var mapping))
         {
-            var stoppedRooms = _screenShareTracker.GetSharesByUserId(mapping.UserId);
-            _screenShareTracker.StopAllByUserId(mapping.UserId);
+            var stoppedRooms = _screenShareTracker.StopAllByUserId(mapping.UserId);
             foreach (var roomName in stoppedRooms)
             {
                 await _eventBus.BroadcastAsync(new { type = "screenShare.stopped", roomName, userId = mapping.UserId });
+                await _liveKitService.RemoveParticipant(roomName, mapping.MatrixUserId);
             }
         }
 
@@ -178,6 +181,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
                 {
                     _screenShareTracker.StopByUserId(roomName, mapping.UserId);
                     await _eventBus.BroadcastAsync(new { type = "screenShare.stopped", roomName, userId = mapping.UserId });
+                    await _liveKitService.RemoveParticipant(roomName, mapping.MatrixUserId);
                 }
             }
         }
