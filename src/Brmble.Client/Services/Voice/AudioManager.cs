@@ -176,9 +176,7 @@ private int _screenShareHotkeyId = -1;
     private string? _dmScreenKeyName;
     private string? _screenShareKeyName;
     private IntPtr _hwnd;
-    private const int RmsThreshold = 300; // ~1% of 16-bit max (32767)
-    private const float TargetRms = 1500f;  // Target RMS for AGC (quiet boost target)
-    private const float LoudRms = 8000f;     // Threshold for compression
+
 
     // Raw Input for PTT key detection (non-blocking)
     private int _pttVk;
@@ -215,8 +213,7 @@ private int _screenShareHotkeyId = -1;
     private volatile float _outputVolume = 1.0f;
     private readonly Dictionary<uint, float> _userVolumes = new();
     private readonly HashSet<uint> _localMutes = new();
-    private volatile float _maxAmplification = 1.0f;
-
+    
     // Encoder settings
     private int _opusBitrate = 72000;
     private int _opusFrameMs = 20;
@@ -269,8 +266,7 @@ private int _screenShareHotkeyId = -1;
         _inputVolume = Math.Clamp(percentage, 0, 250) / 100f;
         _encodePipeline?.SetVolume(_inputVolume);
     }
-    public void SetMaxAmplification(int percentage) => _maxAmplification = Math.Clamp(percentage, 100, 400) / 100f;
-    public void SetVoiceHoldMs(int ms) => _voiceHoldMs = Math.Clamp(ms, 100, 2000);
+        public void SetVoiceHoldMs(int ms) => _voiceHoldMs = Math.Clamp(ms, 100, 2000);
 
     // Allowed Opus bitrates (bps). Must match the UI options in AudioSettingsTab.tsx.
     private static readonly int[] AllowedBitrates = { 24000, 40000, 56000, 72000, 96000, 128000 };
@@ -756,9 +752,7 @@ private int _screenShareHotkeyId = -1;
         if (_muted) return;
         if (_transmissionMode == TransmissionMode.PushToTalk && !_pttActive) return;
 
-        // Apply AGC first (boost quiet audio, compress loud before user gain)
-        if (_maxAmplification != 1.0f)
-            ApplyAGC(processedBuffer, processedBytes);
+
 
         // Input volume is now applied in EncodePipeline
 
@@ -904,49 +898,7 @@ private int _screenShareHotkeyId = -1;
         pipeline?.SubmitPcm(new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes));
     }
 
-    private void ApplyAGC(byte[] buffer, int bytesRecorded)
-    {
-        // Calculate RMS of the chunk
-        long sumSq = 0;
-        int samples = bytesRecorded / 2;
-        for (int i = 0; i < bytesRecorded - 1; i += 2)
-        {
-            short sample = (short)(buffer[i] | (buffer[i + 1] << 8));
-            sumSq += (long)sample * sample;
-        }
-        if (samples == 0) return;
-        float rms = (float)Math.Sqrt(sumSq / (double)samples);
-
-        float gain = 1.0f;
-
-        if (rms < TargetRms && rms > 0)
-        {
-            // Quiet audio: apply boost up to maxAmplification
-            float neededBoost = TargetRms / rms;
-            gain = Math.Min(neededBoost, _maxAmplification);
-        }
-        else if (rms > LoudRms)
-        {
-            // Loud audio: gentle compression
-            gain = LoudRms / rms;
-            // Soft knee: blend between 1 and gain
-            float excess = (rms - LoudRms) / LoudRms;
-            gain = 1.0f - (1.0f - gain) * Math.Min(excess * 2, 1.0f);
-        }
-
-        if (gain != 1.0f)
-        {
-            for (int i = 0; i < bytesRecorded - 1; i += 2)
-            {
-                short sample = (short)(buffer[i] | (buffer[i + 1] << 8));
-                float adjusted = sample * gain;
-                adjusted = Math.Clamp(adjusted, short.MinValue, short.MaxValue);
-                short clampedSample = (short)adjusted;
-                buffer[i] = (byte)(clampedSample & 0xFF);
-                buffer[i + 1] = (byte)((clampedSample >> 8) & 0xFF);
-            }
-        }
-    }
+    
 
     /// <summary>RMS check: returns true if the audio chunk is loud enough to transmit.</summary>
     private static bool IsAboveThreshold(byte[] buffer, int bytesRecorded)
@@ -960,7 +912,8 @@ private int _screenShareHotkeyId = -1;
         }
         if (samples == 0) return false;
         var rms = Math.Sqrt(sumSq / (double)samples);
-        return rms >= RmsThreshold;
+        return rms >= 300; // Inline previous constant value
+
     }
 
     /// <summary>
