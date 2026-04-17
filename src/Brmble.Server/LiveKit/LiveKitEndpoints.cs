@@ -75,7 +75,9 @@ public static class LiveKitEndpoints
             if (!roomName.StartsWith("channel-") || !int.TryParse(roomName.AsSpan("channel-".Length), out _))
                 return Results.BadRequest(new { error = "invalid roomName format" });
 
-            tracker.Start(roomName, user.DisplayName, user.Id);
+            if (!tracker.Start(roomName, user.DisplayName, user.Id))
+                return Results.Conflict(new { error = "user is already sharing in this room" });
+
             var hasSession = sessionMapping.TryGetSessionByUserId(user.Id, out var sessionId);
             await eventBus.BroadcastAsync(new
             {
@@ -118,15 +120,8 @@ public static class LiveKitEndpoints
             if (!roomName.StartsWith("channel-") || !int.TryParse(roomName.AsSpan("channel-".Length), out _))
                 return Results.BadRequest(new { error = "invalid roomName format" });
 
-            var activeShare = tracker.GetActive(roomName);
-            if (activeShare is null)
-                return Results.BadRequest(new { error = "no active screen share for room" });
-
-            if (activeShare.UserId != user.Id)
-                return Results.Forbid();
-
-            tracker.Stop(roomName);
-            await eventBus.BroadcastAsync(new { type = "screenShare.stopped", roomName });
+            tracker.StopByUserId(roomName, user.Id);
+            await eventBus.BroadcastAsync(new { type = "screenShare.stopped", roomName, userId = user.Id });
             return Results.Ok();
         });
 
@@ -142,12 +137,13 @@ public static class LiveKitEndpoints
             if (!roomName.StartsWith("channel-") || !int.TryParse(roomName.AsSpan("channel-".Length), out _))
                 return Results.BadRequest(new { error = "invalid roomName format" });
 
-            var info = tracker.GetActive(roomName);
-            if (info is null)
-                return Results.NotFound();
-
-            var hasSession = sessionMapping.TryGetSessionByUserId(info.UserId, out var sessionId);
-            return Results.Ok(new { info.UserName, info.UserId, sessionId = hasSession ? sessionId : (int?)null });
+            var shares = tracker.GetActiveShares(roomName);
+            var result = shares.Select(s =>
+            {
+                var hasSession = sessionMapping.TryGetSessionByUserId(s.UserId, out var sessionId);
+                return new { s.UserName, s.UserId, sessionId = hasSession ? sessionId : (int?)null };
+            }).ToArray();
+            return Results.Ok(new { shares = result });
         });
 
         return app;
