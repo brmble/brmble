@@ -14,12 +14,15 @@ public record Args(string Input, string Output, ProcessingStack Stack, bool Metr
             switch (argv[i])
             {
                 case "--in":
+                    if (i + 1 >= argv.Length) throw new ArgumentException("--in requires a value");
                     input = argv[++i];
                     break;
                 case "--out":
+                    if (i + 1 >= argv.Length) throw new ArgumentException("--out requires a value");
                     output = argv[++i];
                     break;
                 case "--stack":
+                    if (i + 1 >= argv.Length) throw new ArgumentException("--stack requires a value");
                     stackStr = argv[++i];
                     break;
                 case "--metrics":

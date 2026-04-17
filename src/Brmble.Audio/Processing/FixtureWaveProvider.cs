@@ -29,11 +29,12 @@ public sealed class FixtureWaveProvider : IWaveIn
         _frameMs = frameMs;
         _loop = loop;
         using var reader = new WaveFileReader(wavPath);
-        if (reader.WaveFormat.SampleRate != 48000 ||
+        if (reader.WaveFormat.Encoding != WaveFormatEncoding.Pcm ||
+            reader.WaveFormat.SampleRate != 48000 ||
             reader.WaveFormat.Channels != 1 ||
             reader.WaveFormat.BitsPerSample != 16)
         {
-            throw new InvalidDataException($"fixture must be 48 kHz mono 16-bit; got {reader.WaveFormat}");
+            throw new InvalidDataException($"fixture must be 48 kHz mono 16-bit PCM; got {reader.WaveFormat}");
         }
         WaveFormat = reader.WaveFormat;
         using var ms = new MemoryStream();

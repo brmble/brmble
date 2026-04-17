@@ -121,8 +121,7 @@ public sealed class LegacyAudioProcessor : IAudioCapturePostProcessor
         var sampleCount = bytesWritten / 2;
         var totalSamples = sampleCount + (_rnnoiseRemainder?.Length ?? 0);
 
-        // Rent FrameSize * 2 floats — same sizing as AudioManager
-        var scratchBuffer = ArrayPool<float>.Shared.Rent(RnnoiseFrameSamples * 2);
+        var scratchBuffer = ArrayPool<float>.Shared.Rent(totalSamples);
         try
         {
             int combinedIndex = 0;

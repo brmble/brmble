@@ -688,7 +688,7 @@ private int _screenShareHotkeyId = -1;
             }
 
             // State may have changed while we were unlocked — re-validate.
-            if (_micStarted || _muted) return;
+            if (!_micStarted || _muted) return;
 
             if (_waveIn is WasapiCapture recheck &&
                 recheck.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped)
@@ -896,12 +896,19 @@ private int _screenShareHotkeyId = -1;
             if (_processorOutputScratch == null || _processorOutputScratch.Length < needed)
                 _processorOutputScratch = new byte[needed];
 
-            int written = processor.Process(
-                new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes),
-                _processorOutputScratch.AsSpan());
+            try
+            {
+                int written = processor.Process(
+                    new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes),
+                    _processorOutputScratch.AsSpan());
 
-            processedBuffer = _processorOutputScratch;
-            processedBytes = written;
+                processedBuffer = _processorOutputScratch;
+                processedBytes = written;
+            }
+            catch (ObjectDisposedException)
+            {
+                return;
+            }
 
             if (processedBytes == 0) return;
         }

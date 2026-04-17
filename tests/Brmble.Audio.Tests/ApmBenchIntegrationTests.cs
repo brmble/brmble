@@ -22,24 +22,31 @@ public class ApmBenchIntegrationTests
     public void RunStackAgainstFixture_ProducesValidOutput(string fixture, ProcessingStack stack)
     {
         string inPath = Path.Combine(FixturesDir, fixture);
-        string outPath = Path.Combine(Path.GetTempPath(), $"{Path.GetFileNameWithoutExtension(fixture)}-{stack}.wav");
+        string outPath = Path.Combine(Path.GetTempPath(), $"{Path.GetFileNameWithoutExtension(fixture)}-{stack}-{Guid.NewGuid():N}.wav");
 
-        int exit = Program.Main(new[] { "--in", inPath, "--out", outPath, "--stack", StackArg(stack) });
-        Assert.AreEqual(0, exit, $"{fixture} stack={stack}: ApmBench.Main returned non-zero exit code");
+        try
+        {
+            int exit = Program.Main(new[] { "--in", inPath, "--out", outPath, "--stack", StackArg(stack) });
+            Assert.AreEqual(0, exit, $"{fixture} stack={stack}: ApmBench.Main returned non-zero exit code");
 
-        using var reader = new WaveFileReader(outPath);
-        Assert.AreEqual(48000, reader.WaveFormat.SampleRate, $"{fixture} stack={stack}: output sample rate must be 48000");
-        Assert.AreEqual(1, reader.WaveFormat.Channels, $"{fixture} stack={stack}: output must be mono");
-        Assert.AreEqual(16, reader.WaveFormat.BitsPerSample, $"{fixture} stack={stack}: output must be 16-bit");
-        Assert.IsTrue(reader.Length > 0, $"{fixture} stack={stack}: output must not be empty");
+            using var reader = new WaveFileReader(outPath);
+            Assert.AreEqual(48000, reader.WaveFormat.SampleRate, $"{fixture} stack={stack}: output sample rate must be 48000");
+            Assert.AreEqual(1, reader.WaveFormat.Channels, $"{fixture} stack={stack}: output must be mono");
+            Assert.AreEqual(16, reader.WaveFormat.BitsPerSample, $"{fixture} stack={stack}: output must be 16-bit");
+            Assert.IsTrue(reader.Length > 0, $"{fixture} stack={stack}: output must not be empty");
 
-        // Sanity: output RMS is within a broad range of the input.
-        var inStats = ReadStats(inPath);
-        var outStats = ReadStats(outPath);
-        double low = inStats.RmsDbfs - 15;
-        double high = inStats.RmsDbfs + 15;
-        Assert.IsTrue(outStats.RmsDbfs >= low && outStats.RmsDbfs <= high,
-            $"{fixture} stack={stack}: input RMS {inStats.RmsDbfs:F1} dBFS vs output {outStats.RmsDbfs:F1} dBFS — outside ±15 dB range");
+            // Sanity: output RMS is within a broad range of the input.
+            var inStats = ReadStats(inPath);
+            var outStats = ReadStats(outPath);
+            double low = inStats.RmsDbfs - 15;
+            double high = inStats.RmsDbfs + 15;
+            Assert.IsTrue(outStats.RmsDbfs >= low && outStats.RmsDbfs <= high,
+                $"{fixture} stack={stack}: input RMS {inStats.RmsDbfs:F1} dBFS vs output {outStats.RmsDbfs:F1} dBFS — outside ±15 dB range");
+        }
+        finally
+        {
+            try { File.Delete(outPath); } catch { }
+        }
     }
 
     private static AudioStats ReadStats(string path)
