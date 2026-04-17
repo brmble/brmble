@@ -54,6 +54,10 @@
   word-wrap: break-word;
 }
 
+p.message-text {
+  white-space: pre-wrap;
+}
+
 .message-text a {
   color: var(--accent-primary);
   text-decoration: underline;
