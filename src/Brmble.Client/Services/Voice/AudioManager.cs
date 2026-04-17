@@ -22,20 +22,55 @@ internal static class AudioLog
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Brmble", "audio.log");
 
+    private static readonly System.Collections.Concurrent.ConcurrentQueue<string> _queue = new();
+    private static readonly Thread _flushThread;
+    private static readonly System.Threading.ManualResetEventSlim _signal = new(false);
+
     static AudioLog()
     {
         var dir = Path.GetDirectoryName(LogPath);
         if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
             Directory.CreateDirectory(dir);
+
+        _flushThread = new Thread(FlushLoop)
+        {
+            IsBackground = true,
+            Name = "AudioLog-Flush",
+            Priority = ThreadPriority.BelowNormal
+        };
+        _flushThread.Start();
     }
 
     public static void Write(string msg)
     {
-        try
+        _queue.Enqueue($"[{DateTime.Now:HH:mm:ss.fff}] {msg}");
+        _signal.Set();
+    }
+
+    private static void FlushLoop()
+    {
+        var sb = new System.Text.StringBuilder();
+        while (true)
         {
-            File.AppendAllText(LogPath, $"[{DateTime.Now:HH:mm:ss.fff}] {msg}\n");
+            _signal.Wait();
+            _signal.Reset();
+
+            // Drain the queue into a single batch write
+            sb.Clear();
+            while (_queue.TryDequeue(out var line))
+            {
+                sb.AppendLine(line);
+            }
+
+            if (sb.Length > 0)
+            {
+                try
+                {
+                    File.AppendAllText(LogPath, sb.ToString());
+                }
+                catch { }
+            }
         }
-        catch { }
     }
 }
 
@@ -664,9 +699,18 @@ private int _screenShareHotkeyId = -1;
     [ThreadStatic] private static float[]? _wasapiMonoScratch;
     [ThreadStatic] private static byte[]? _wasapiInt16Scratch;
     [ThreadStatic] private static double[]? _resampleDoubleScratch;
+    [ThreadStatic] private static bool _threadPriorityBoosted;
 
     private void OnMicData(object? sender, WaveInEventArgs e)
     {
+        // Boost audio capture thread priority on first callback
+        if (!_threadPriorityBoosted)
+        {
+            _threadPriorityBoosted = true;
+            try { Thread.CurrentThread.Priority = ThreadPriority.Highest; }
+            catch { }
+        }
+
         byte[] processedBuffer = e.Buffer;
         int processedBytes = e.BytesRecorded;
         
