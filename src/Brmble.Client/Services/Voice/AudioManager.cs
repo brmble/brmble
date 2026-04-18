@@ -1192,8 +1192,8 @@ private int _screenShareHotkeyId = -1;
                 ArrivalTimeMs: (long)Stopwatch.GetElapsedTime(_startTimestamp).TotalMilliseconds
             );
 
-            // Diagnostic logging — first 50 packets per user + every 100th
-            if (sequence < 50 || sequence % 100 == 0)
+            // Diagnostic logging — first 50 packets + every 50th after (~1 second intervals)
+            if (sequence < 50 || sequence % 50 == 0)
                 AudioLog.Write($"[JB] user={userId} seq={sequence} ts={packet.Timestamp} bufCount={jb.GetStats().BufferLevel} payloadLen={opusData.Length}");
 
             jb.InsertPacket(packet);
