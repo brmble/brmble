@@ -1304,6 +1304,10 @@ function App() {
     bridge.on('voice.brmbleClientActivated', onBrmbleClientActivated);
     bridge.on('voice.brmbleClientDeactivated', onBrmbleClientDeactivated);
     bridge.on('voice.registrationStatus', onRegistrationStatus);
+    bridge.on('voice.loss', (data: unknown) => {
+      const { loss } = data as { loss: number };
+      updateStatus('voice', { loss });
+    });
 
     const onUpdateAvailable = (data: unknown) => {
       setUpdateInfo(data as { version: string });

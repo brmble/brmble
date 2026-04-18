@@ -301,6 +301,20 @@ private int _screenShareHotkeyId = -1;
     private ProcessingStack _processingStack = ProcessingStack.Legacy;
     [ThreadStatic] private static byte[]? _processorOutputScratch;
 
+    // Packet loss tracking per user (EMA smoothing to prevent UI jitter)
+    private double _smoothedLoss = -1; // -1 means 'no data'
+    private readonly Dictionary<uint, PerUserLoss> _userLossTrackers = new();
+    private int _totalReceived;
+    private int _totalLost;
+    public event Action<int?>? OnLossReport;
+
+    private class PerUserLoss
+    {
+        public long LastSequence = -1;
+        public int Received;
+        public int Lost;
+    }
+
     private SpeechEnhancementService? _speechEnhancement;
     private AudioResampler? _to16kResampler;
     private AudioResampler? _to48kResampler;
@@ -348,6 +362,19 @@ private int _screenShareHotkeyId = -1;
         _encodePipeline?.SetVolume(_inputVolume);
     }
     public void SetVoiceHoldMs(int ms) => _voiceHoldMs = Math.Clamp(ms, 100, 2000);
+
+    public void ReportLoss(int rawLoss)
+    {
+        int clamped = Math.Clamp(rawLoss, 0, 100);
+        _smoothedLoss = _smoothedLoss < 0 ? clamped : (_smoothedLoss * 0.8) + (clamped * 0.2);
+        OnLossReport?.Invoke((int)Math.Round(_smoothedLoss));
+    }
+
+    public void ResetLossStats()
+    {
+        _smoothedLoss = -1;
+        OnLossReport?.Invoke(null);
+    }
 
     // Allowed Opus bitrates (bps). Must match the UI options in AudioSettingsTab.tsx.
     private static readonly int[] AllowedBitrates = { 24000, 40000, 56000, 72000, 96000, 128000 };
@@ -1102,6 +1129,37 @@ private int _screenShareHotkeyId = -1;
         {
             if (_localMutes.Contains(userId)) return;
 
+            if (!_userLossTrackers.TryGetValue(userId, out var loss))
+            {
+                loss = new PerUserLoss();
+                _userLossTrackers[userId] = loss;
+            }
+            if (sequence < loss.LastSequence)
+            {
+                loss.LastSequence = -1;
+                loss.Received = 0;
+                loss.Lost = 0;
+            }
+            if (loss.LastSequence >= 0 && sequence > loss.LastSequence)
+            {
+                long gap = sequence - loss.LastSequence - 2;
+                if (gap > 50)
+                {
+                    AudioLog.Write($"[Loss] Large gap ({gap}), treating as new stream for user {userId}");
+                    loss.LastSequence = -1;
+                    loss.Received = 0;
+                    loss.Lost = 0;
+                }
+                else if (gap > 0)
+                {
+                    loss.Lost += (int)gap;
+                    _totalLost += (int)gap;
+                }
+            }
+            loss.LastSequence = sequence;
+            loss.Received++;
+            _totalReceived++;
+
             if (!_jitterBuffers.TryGetValue(userId, out var jb))
             {
                 // First packet from this user — create JitterBuffer + WaveOutEvent
@@ -1134,11 +1192,20 @@ private int _screenShareHotkeyId = -1;
                 ArrivalTimeMs: (long)Stopwatch.GetElapsedTime(_startTimestamp).TotalMilliseconds
             );
 
-            // Diagnostic logging — first 30 packets per user + every 100th
-            if (sequence < 30 || sequence % 100 == 0)
+            // Diagnostic logging — first 50 packets per user + every 100th
+            if (sequence < 50 || sequence % 100 == 0)
                 AudioLog.Write($"[JB] user={userId} seq={sequence} ts={packet.Timestamp} bufCount={jb.GetStats().BufferLevel} payloadLen={opusData.Length}");
 
             jb.InsertPacket(packet);
+        }
+
+        // Report packet loss roughly every 50 packets (~1 second of audio)
+        if (_totalReceived > 0 && _totalReceived % 50 == 0)
+        {
+            int total = _totalReceived + _totalLost;
+            int loss = total > 0 ? (int)((double)_totalLost / total * 100) : 0;
+            AudioLog.Write($"[Loss] reporting: lost={_totalLost}, received={_totalReceived}, total={total}, loss={loss}%");
+            ReportLoss(loss);
         }
     }
 
