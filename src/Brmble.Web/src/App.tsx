@@ -1304,10 +1304,12 @@ function App() {
     bridge.on('voice.brmbleClientActivated', onBrmbleClientActivated);
     bridge.on('voice.brmbleClientDeactivated', onBrmbleClientDeactivated);
     bridge.on('voice.registrationStatus', onRegistrationStatus);
-    bridge.on('voice.loss', (data: unknown) => {
-      const { loss } = data as { loss: number };
+    const onVoiceLoss = (data: unknown) => {
+      const payload = data as { loss?: number } | null;
+      const loss = typeof payload?.loss === 'number' ? payload.loss : undefined;
       updateStatus('voice', { loss });
-    });
+    };
+    bridge.on('voice.loss', onVoiceLoss);
 
     const onUpdateAvailable = (data: unknown) => {
       setUpdateInfo(data as { version: string });
@@ -1337,6 +1339,7 @@ function App() {
       bridge.off('voice.userSpeaking', onVoiceUserSpeaking);
       bridge.off('voice.userSilent', onVoiceUserSilent);
       bridge.off('voice.userCommentChanged', onVoiceUserCommentChanged);
+      bridge.off('voice.loss', onVoiceLoss);
       bridge.off('voice.shortcutPressed', onShortcutPressed);
       bridge.off('voice.shortcutReleased', onShortcutReleased);
       bridge.off('voice.toggleDmScreen', onToggleDmScreen);

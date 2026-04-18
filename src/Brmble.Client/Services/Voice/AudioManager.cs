@@ -311,8 +311,8 @@ private int _screenShareHotkeyId = -1;
     private class PerUserLoss
     {
         public long LastSequence = -1;
-        public int Received;
-        public int Lost;
+        public int ReceivedUnits;
+        public int LostUnits;
     }
 
     private SpeechEnhancementService? _speechEnhancement;
@@ -1137,8 +1137,8 @@ private int _screenShareHotkeyId = -1;
             if (sequence < loss.LastSequence)
             {
                 loss.LastSequence = -1;
-                loss.Received = 0;
-                loss.Lost = 0;
+                loss.ReceivedUnits = 0;
+                loss.LostUnits = 0;
             }
             if (loss.LastSequence >= 0 && sequence > loss.LastSequence)
             {
@@ -1147,18 +1147,18 @@ private int _screenShareHotkeyId = -1;
                 {
                     AudioLog.Write($"[Loss] Large gap ({gap}), treating as new stream for user {userId}");
                     loss.LastSequence = -1;
-                    loss.Received = 0;
-                    loss.Lost = 0;
+                    loss.ReceivedUnits = 0;
+                    loss.LostUnits = 0;
                 }
                 else if (gap > 0)
                 {
-                    loss.Lost += (int)gap;
+                    loss.LostUnits += (int)gap;
                     _totalLost += (int)gap;
                 }
             }
             loss.LastSequence = sequence;
-            loss.Received++;
-            _totalReceived++;
+            loss.ReceivedUnits += 2;
+            _totalReceived += 2;
 
             if (!_jitterBuffers.TryGetValue(userId, out var jb))
             {
@@ -1222,6 +1222,7 @@ private int _screenShareHotkeyId = -1;
             }
             if (_jitterBuffers.Remove(userId, out var jb))
                 jb.Dispose();
+            _userLossTrackers.Remove(userId);
             wasSpeaking = _currentlySpeaking.Remove(userId);
         }
         if (wasSpeaking)
@@ -2134,6 +2135,10 @@ private int _screenShareHotkeyId = -1;
                 jb.Dispose();
             _players.Clear();
             _jitterBuffers.Clear();
+            _userLossTrackers.Clear();
+            _totalReceived = 0;
+            _totalLost = 0;
+            _smoothedLoss = -1;
         }
     }
 

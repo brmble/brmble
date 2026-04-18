@@ -219,6 +219,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 var pttKey = newMode == TransmissionMode.PushToTalk ? _currentPttKey : null;
                 _audioManager.SetTransmissionMode(newMode, pttKey, _hwnd);
             };
+            _audioManager.OnLossReport += loss => {
+                _bridge?.Send("voice.loss", new { loss });
+            };
         }
 
         try
