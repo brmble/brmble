@@ -197,6 +197,8 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
       setError(err instanceof Error ? err.message : 'Screen share failed');
       setIsSharing(false);
       isSharingRef.current = false;
+      // Disconnect room if we're not watching anyone either
+      await maybeDisconnectRoom();
     }
   }, [screenShareSettings, ensureRoom]);
 

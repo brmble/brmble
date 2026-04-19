@@ -17,8 +17,11 @@ public class ScreenShareTracker
 
     public void StopByUserId(string roomName, long userId)
     {
-        if (_shares.TryGetValue(roomName, out var room))
-            room.TryRemove(userId, out _);
+        if (_shares.TryGetValue(roomName, out var room) && room.TryRemove(userId, out _))
+        {
+            if (room.IsEmpty)
+                _shares.TryRemove(roomName, out _);
+        }
     }
 
     public IReadOnlyList<string> StopAllByUserId(long userId)

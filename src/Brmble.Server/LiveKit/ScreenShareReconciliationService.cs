@@ -90,7 +90,7 @@ public class ScreenShareReconciliationService : BackgroundService
 
                 foreach (var share in shares)
                 {
-                    var matrixId = _userIdMapper.GetMatrixUserId(share.UserId);
+                    var matrixId = share.MatrixUserId ?? _userIdMapper.GetMatrixUserId(share.UserId);
                     if (matrixId is null || !participantSet.Contains(matrixId))
                     {
                         _logger.LogInformation("Removing stale share for user {UserId} in room {Room}", share.UserId, roomName);
