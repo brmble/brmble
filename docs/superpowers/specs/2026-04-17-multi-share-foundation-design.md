@@ -142,11 +142,20 @@ LiveKit auto-cleans empty rooms (configurable timeout)
 
 Users do NOT automatically connect to the LiveKit room when someone starts sharing. Share notifications travel through the existing WebSocket event bus.
 
+**Single connection per user per channel:** LiveKit enforces that a participant identity can only have one active connection to a room at a time. A second connection with the same identity kicks the first. Therefore, the frontend uses a **single `Room` object** (`roomRef`) for both publishing (sharing) and subscribing (watching). This avoids reconnects when transitioning between sharing and watching.
+
 | User state | In LiveKit room? | Example |
 |------------|-----------------|---------|
 | Not involved | No | Bob -- sees the icon, hasn't clicked Watch, isn't sharing |
-| Sharing | Yes (publishing) | Alice -- publishing her screen track |
-| Watching | Yes (subscribing) | Charlie -- subscribed to Alice's track |
+| Sharing only | Yes (publishing) | Alice -- publishing her screen track |
+| Watching only | Yes (subscribing) | Charlie -- subscribed to Alice's track |
+| Sharing + Watching | Yes (publishing + subscribing) | Dave -- publishing his screen AND subscribed to Alice's track |
+
+**Transitions (zero hiccup):**
+- **Watch → Share:** `setScreenShareEnabled(true)` on the existing room. No reconnect. Viewer stays connected.
+- **Share → Stop sharing (still watching):** `setScreenShareEnabled(false)`. Room stays connected for viewing. No hiccup.
+- **Share + Watch → Stop watching:** Detach remote track. Room stays connected for sharing.
+- **Stop everything:** Room disconnects only when not sharing AND not watching.
 
 ### Connection Latency
 
@@ -160,8 +169,14 @@ Track subscribe + first frame            ~100-350ms
 
 **Switching shares (already in room):** ~100-300ms
 ```
-Unsubscribe from current track           ~instant
+Detach current track                     ~instant
 Subscribe to new track + first frame     ~100-300ms
+```
+
+**Starting/stopping share while watching (already in room):** ~instant
+```
+setScreenShareEnabled(true/false)        ~instant (no reconnect)
+Viewer subscription unaffected           ~0ms
 ```
 
 ## Data Model
@@ -172,7 +187,7 @@ Changes from single-share-per-room to multi-share-per-room:
 
 - Key: `roomName` (channel name)
 - Value: `List<ScreenShareInfo>` (one entry per active sharer)
-- Each `ScreenShareInfo` contains: `UserId`, `UserName`, `SessionId`, `StartedAt`
+- Each `ScreenShareInfo` contains: `UserId`, `UserName`, `MatrixUserId` (optional, used as LiveKit participant identity)
 - Constraint: max one share per `UserId` per room (enforced on `share-started`)
 
 ### Server: LiveKitService
@@ -219,8 +234,9 @@ Data model designed so `watchingShares: ScreenShareInfo[]` is a future drop-in r
 
 | Message | Direction | Change |
 |---------|-----------|--------|
-| `livekit.activeShareResult` | C# -> JS | From `{ roomName, active, userName?, sessionId? }` to `{ roomName, shares: [{ userId, userName, sessionId }] }` |
+| `livekit.activeShareResult` | C# -> JS | From `{ roomName, active, userName?, sessionId? }` to `{ roomName, shares: [{ userId, userName, matrixUserId, sessionId }] }` |
 | `livekit.screenShareStopped` | C# -> JS | Adds `userId`: `{ roomName, userId }` |
+| `livekit.screenShareStarted` | C# -> JS | Adds `userId`, `matrixUserId`, `sessionId`: `{ roomName, userName, userId, matrixUserId, sessionId }` |
 
 **Unchanged messages:**
 
@@ -229,7 +245,6 @@ Data model designed so `watchingShares: ScreenShareInfo[]` is a future drop-in r
 | `livekit.requestToken` | One token per room, works for multi-share |
 | `livekit.shareStarted` | Reports that this user started sharing |
 | `livekit.shareStopped` | Reports that this user stopped sharing |
-| `livekit.screenShareStarted` | Includes `userName` and `userId`, frontend adds to list |
 | `livekit.token` / `livekit.tokenError` | Token is room-scoped, not share-scoped |
 
 ### Channel Leave/Kick Integration
@@ -245,16 +260,21 @@ Data model designed so `watchingShares: ScreenShareInfo[]` is a future drop-in r
 
 ### useScreenShare Hook Behavioral Changes
 
+**Single-connection architecture:** The hook uses one `roomRef` (a single `Room` object) for both publishing and subscribing. This avoids LiveKit's identity-uniqueness constraint (one connection per identity per room) and eliminates reconnect hiccups during state transitions.
+
 | Action | Current | New |
 |--------|---------|-----|
 | Someone starts sharing | Sets single `activeShare` | Appends to `activeShares[]` |
-| Someone stops sharing | Clears `activeShare` | Removes from `activeShares[]` by `userId`. If it was the one you were watching, clears `watchingShare` |
-| You click Watch on a user | Connects to room, subscribes to the only track | Connects to room (if not already connected), subscribes to that user's screen share track specifically |
-| You switch to a different sharer | N/A (only one share) | Unsubscribe from current track, subscribe to new user's track. Room connection stays alive |
-| You stop watching | Disconnect from room | Unsubscribe from track. If also not sharing, disconnect from room |
+| Someone stops sharing | Clears `activeShare` | Removes from `activeShares[]` by `userId`. If it was the one you were watching, clears `watchingShare` and detaches track |
+| You click Watch on a user | Connects to room, subscribes to the only track | `ensureRoom()` connects if needed (reuses existing), subscribes to that user's screen share track by `participant.identity` (matrixUserId) |
+| You switch to a different sharer | N/A (only one share) | Detach current track, subscribe to new user's track. Room connection stays alive. ~100-300ms |
+| You start sharing while watching | N/A | `ensureRoom()` reuses existing connection, `setScreenShareEnabled(true)`. Viewer subscription unaffected. Zero hiccup |
+| You stop sharing while watching | N/A | `setScreenShareEnabled(false)`. Room stays connected for viewing. Zero hiccup |
+| You stop watching while sharing | N/A | Detach remote track, clear `watchingShare`. Room stays connected for sharing |
+| You stop watching (not sharing) | Disconnect from room | Detach track, disconnect room via `maybeDisconnectRoom()` |
 | Channel switch | Disconnect everything | Disconnect from LiveKit room, clear all state |
 
-Track identification: when multiple users publish screen share tracks in the same room, LiveKit identifies them by `participant.identity` (the Matrix user ID). To watch a specific user's share, subscribe to tracks where `participant.identity === targetUserId` and `track.source === Track.Source.ScreenShare`.
+**Participant identity:** LiveKit tokens use `matrixUserId` as the participant identity (e.g. `@alice:brmble.local`). The `connectAsViewer` function looks up participants by this identity, not the numeric database userId. The `matrixUserId` is threaded through: server broadcast → bridge → frontend `ShareInfo`.
 
 ### Channel User List
 
@@ -269,11 +289,13 @@ Track identification: when multiple users publish screen share tracks in the sam
 - If the sharer you're watching stops, the panel closes with a toast
 - No auto-switch to another share -- user opts in manually
 
-### Toast Notifications
+### Notifications
 
-- Each new share triggers its own toast with "Watch" / "Dismiss"
-- Toasts stack if multiple people start sharing rapidly
-- Clicking "Watch" on a toast while already watching someone switches the viewer
+- Each new share triggers a top-right `<Notification>` (info status) with a "Watch" button and X close
+- Notifications use the `notifQueue` system (max 3 visible, priority-sorted)
+- Clicking "Watch" on a notification while already watching someone switches the viewer
+- Notifications auto-dismiss after 8 seconds
+- The notification filters by `sessionId !== selfUser.session` to avoid notifying you about your own share
 
 ### Service Status (App.tsx)
 
@@ -297,9 +319,11 @@ Transitions:
 |-------|-------------------|---------------------|-------------------|
 | Channel switch | Yes, full reset | Yes | Yes |
 | Kicked from channel | Yes, full reset | Yes | Yes (server also removes you) |
-| Sharer you're watching stops | No, remove them from list | Yes (if it was them) | Only if not sharing and no other watch |
-| You stop sharing | No | No | Only if also not watching |
-| You stop watching | No | Yes | Only if also not sharing |
+| Sharer you're watching stops | No, remove them from list | Yes (if it was them) | Only if not sharing (`maybeDisconnectRoom`) |
+| You stop sharing | No | No | Only if also not watching (`maybeDisconnectRoom`) |
+| You stop watching | No | Yes | Only if also not sharing (`maybeDisconnectRoom`) |
+| You start sharing while watching | No | No (keep watching) | No (reuses same room connection) |
+| You stop sharing while watching | No | No (keep watching) | No (room stays connected for viewing) |
 | LiveKit connection drops | Keep list (from WS events) | Yes | Already disconnected, trigger reconnect |
 
 ## Error Handling
@@ -358,14 +382,15 @@ Transitions:
 |------|-------------|
 | Receives multiple screenShareStarted events | `activeShares` list grows correctly |
 | Receives screenShareStopped for specific user | Only that user removed from list |
-| Watch a share subscribes to correct track | Track matched by `participant.identity` |
-| Switch from one share to another | Unsubscribes old, subscribes new, video element updates |
+| Watch a share subscribes to correct track | Track matched by `participant.identity` (matrixUserId) |
+| Switch from one share to another | Detaches old track, subscribes new, video element updates |
 | Stop watching while still sharing | Room stays connected, only viewer state clears |
-| Stop sharing while still watching | Room stays connected, only share state clears |
-| Stop both disconnects from room | Room disconnected, status goes to `idle` |
+| Stop sharing while still watching | Room stays connected via `maybeDisconnectRoom`, only share state clears. Zero hiccup |
+| Start sharing while watching | `setScreenShareEnabled(true)` on same room, viewer unaffected. Zero hiccup |
+| Stop both disconnects from room | Room disconnected via `maybeDisconnectRoom`, status goes to `idle` |
 | Channel switch clears all state | `activeShares` empty, `watchingShare` null, room disconnected |
-| Toast per new share | Each `screenShareStarted` triggers a toast |
-| Click Watch on toast while watching another | Switches viewer to new share |
+| Toast per new share | Each `screenShareStarted` triggers a notification (top-right, not bottom toast) |
+| Click Watch on notification while watching another | Switches viewer to new share |
 
 ### Integration / E2E Scenarios (manual test scripts)
 

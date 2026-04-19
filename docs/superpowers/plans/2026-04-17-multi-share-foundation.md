@@ -1,5 +1,9 @@
 # Multi-Share Foundation Implementation Plan
 
+> **Status: COMPLETED** — All 9 tasks implemented and merged.
+>
+> **Post-implementation update:** The `useScreenShare` hook was refactored from a dual-room model (`publishRoomRef` + `viewerRoomRef`) to a single-connection model (one `roomRef` per channel). This eliminates reconnect hiccups when transitioning between sharing and watching, since LiveKit enforces one connection per identity per room. The inline code samples in Tasks 5-6 below reflect the original implementation, not the current single-connection architecture. See the design spec for the current model.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Allow multiple users to share screens simultaneously within a channel, with viewers able to switch between active shares.
