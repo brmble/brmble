@@ -1,9 +1,13 @@
 using System.Text.Json;
+using Brmble.Server.Auth;
+using Brmble.Server.Data;
 using Brmble.Server.Events;
 using Brmble.Server.LiveKit;
+using Brmble.Server.Matrix;
 using Brmble.Server.Mumble;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
 
@@ -18,6 +22,7 @@ public class MumbleServerCallbackTests
         IBrmbleEventBus? bus = null,
         IChannelMembershipService? channelMembership = null,
         ScreenShareTracker? screenShareTracker = null,
+        LiveKitService? liveKitService = null,
         ILogger<MumbleServerCallback>? logger = null)
     {
         if (mapping is null)
@@ -33,6 +38,7 @@ public class MumbleServerCallbackTests
             bus ?? new Mock<IBrmbleEventBus>().Object,
             channelMembership ?? new Mock<IChannelMembershipService>().Object,
             screenShareTracker ?? new ScreenShareTracker(),
+            liveKitService ?? new LiveKitService(Options.Create(new LiveKitSettings()), new Mock<UserRepository>(new Mock<Database>("Data Source=:memory:").Object, Options.Create(new MatrixSettings { ServerDomain = "test.local" })).Object, NullLogger<LiveKitService>.Instance),
             logger ?? NullLogger<MumbleServerCallback>.Instance);
     }
 

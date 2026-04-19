@@ -27,6 +27,7 @@
   opacity: 1;
 }
 
+/* Name label and close button are always visible */
 .screen-share-overlay--name {
   bottom: var(--space-sm);
   left: var(--space-sm);
@@ -35,11 +36,20 @@
   border-radius: var(--radius-sm);
   font-size: var(--text-sm);
   color: var(--text-primary);
+  opacity: 1;
 }
 
-.screen-share-overlay--controls {
+.screen-share-overlay--close {
   top: var(--space-sm);
   right: var(--space-sm);
+  pointer-events: auto;
+  opacity: 1;
+}
+
+/* Fullscreen button only shows on hover */
+.screen-share-overlay--controls {
+  top: var(--space-sm);
+  right: calc(var(--space-sm) + 32px + var(--space-xs));
   display: flex;
   gap: var(--space-xs);
   pointer-events: auto;

@@ -90,11 +90,13 @@ export function ScreenShareViewer({ videoEl, sharerName, onClose }: ScreenShareV
           )}
         </button>
         </Tooltip>
-        <Tooltip content="Close viewer">
+      </div>
+      <div className="screen-share-overlay screen-share-overlay--close">
+        <Tooltip content="Stop watching">
         <button
           className="btn btn-ghost btn-icon screen-share-control-btn"
           onClick={onClose}
-          aria-label="Close screen share viewer"
+          aria-label="Stop watching screen share"
         >
           <Icon name="x" size={16} />
         </button>

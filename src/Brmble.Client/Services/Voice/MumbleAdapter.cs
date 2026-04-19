@@ -1712,20 +1712,25 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 case "screenShare.started":
                     var startRoom = root.TryGetProperty("roomName", out var startRoomProp) ? startRoomProp.GetString() : null;
                     var startUser = root.TryGetProperty("userName", out var startUserProp) ? startUserProp.GetString() : null;
+                    var startUserId = root.TryGetProperty("userId", out var startUserIdProp) && startUserIdProp.ValueKind == System.Text.Json.JsonValueKind.Number
+                        ? startUserIdProp.GetInt64() : (long?)null;
+                    var startMatrixUserId = root.TryGetProperty("matrixUserId", out var startMatrixProp) ? startMatrixProp.GetString() : null;
                     var startSession = root.TryGetProperty("sessionId", out var startSessionProp) && startSessionProp.ValueKind == System.Text.Json.JsonValueKind.Number
                         ? startSessionProp.GetInt32() : (int?)null;
                     if (startRoom is not null)
                     {
-                        _bridge?.Send("livekit.screenShareStarted", new { roomName = startRoom, userName = startUser, sessionId = startSession });
+                        _bridge?.Send("livekit.screenShareStarted", new { roomName = startRoom, userName = startUser, userId = startUserId, matrixUserId = startMatrixUserId, sessionId = startSession });
                         _bridge?.NotifyUiThread();
                     }
                     break;
 
                 case "screenShare.stopped":
                     var stopRoom = root.TryGetProperty("roomName", out var stopRoomProp) ? stopRoomProp.GetString() : null;
+                    var stopUserId = root.TryGetProperty("userId", out var stopUserIdProp) && stopUserIdProp.ValueKind == System.Text.Json.JsonValueKind.Number
+                        ? stopUserIdProp.GetInt64() : (long?)null;
                     if (stopRoom is not null)
                     {
-                        _bridge?.Send("livekit.screenShareStopped", new { roomName = stopRoom });
+                        _bridge?.Send("livekit.screenShareStopped", new { roomName = stopRoom, userId = stopUserId });
                         _bridge?.NotifyUiThread();
                     }
                     break;
@@ -2325,20 +2330,31 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 if (result.Success && result.Body is not null)
                 {
                     using var doc = System.Text.Json.JsonDocument.Parse(result.Body);
-                    var userName = doc.RootElement.TryGetProperty("userName", out var un) ? un.GetString() : null;
-                    var activeSessionId = doc.RootElement.TryGetProperty("sessionId", out var asProp) && asProp.ValueKind == System.Text.Json.JsonValueKind.Number
-                        ? asProp.GetInt32() : (int?)null;
-                    _bridge?.Send("livekit.activeShareResult", new { roomName, active = true, userName, sessionId = activeSessionId });
+                    var shares = new System.Collections.Generic.List<object>();
+                    if (doc.RootElement.TryGetProperty("shares", out var sharesArr) && sharesArr.ValueKind == System.Text.Json.JsonValueKind.Array)
+                    {
+                        foreach (var s in sharesArr.EnumerateArray())
+                        {
+                            var sUserName = s.TryGetProperty("userName", out var un) ? un.GetString() : null;
+                            var sUserId = s.TryGetProperty("userId", out var uid) && uid.ValueKind == System.Text.Json.JsonValueKind.Number
+                                ? uid.GetInt64() : (long?)null;
+                            var sMatrixUserId = s.TryGetProperty("matrixUserId", out var muid) ? muid.GetString() : null;
+                            var sSessionId = s.TryGetProperty("sessionId", out var sid) && sid.ValueKind == System.Text.Json.JsonValueKind.Number
+                                ? sid.GetInt32() : (int?)null;
+                            shares.Add(new { userName = sUserName, userId = sUserId, matrixUserId = sMatrixUserId, sessionId = sSessionId });
+                        }
+                    }
+                    _bridge?.Send("livekit.activeShareResult", new { roomName, shares });
                 }
                 else
                 {
-                    _bridge?.Send("livekit.activeShareResult", new { roomName, active = false });
+                    _bridge?.Send("livekit.activeShareResult", new { roomName, shares = Array.Empty<object>() });
                 }
                 _bridge?.NotifyUiThread();
             }
             catch
             {
-                _bridge?.Send("livekit.activeShareResult", new { roomName, active = false });
+                _bridge?.Send("livekit.activeShareResult", new { roomName, shares = Array.Empty<object>() });
                 _bridge?.NotifyUiThread();
             }
         });
