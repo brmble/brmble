@@ -68,6 +68,7 @@ export interface ServiceStatus {
   state: ServiceState;
   error?: string;
   label?: string;
+  loss?: number;
 }
 
 export type ServiceStatusMap = Record<ServiceName, ServiceStatus>;

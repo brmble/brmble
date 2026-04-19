@@ -101,6 +101,10 @@ export function Sidebar({
     const name = SERVICE_DISPLAY_NAMES[svc];
     const state = stateLabel(statuses[svc].state);
     const error = statuses[svc].error;
+    if (svc === 'voice' && statuses[svc].state === 'connected' && typeof statuses[svc].loss === 'number') {
+      const quality = statuses[svc].loss < 2 ? ' (good)' : statuses[svc].loss < 10 ? ' (fair)' : ' (poor)';
+      return `${name}: ${state}\nPacket loss: ${statuses[svc].loss}%${quality}`;
+    }
     return error ? `${name}: ${state} — ${error}` : `${name}: ${state}`;
   };
 
