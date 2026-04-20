@@ -1338,9 +1338,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 var res = await _healthHttpClient.GetAsync(url);
                 if (Interlocked.Read(ref _healthGeneration) != gen) return;
                 if (res.IsSuccessStatusCode)
-                    _bridge?.Send("server.healthStatus", new { state = "connected", label = apiUrl });
+                {
+                    var version = await TryReadVersionAsync(res);
+                    _bridge?.Send("server.healthStatus", new { state = "connected", label = apiUrl, version });
+                }
                 else
+                {
                     _bridge?.Send("server.healthStatus", new { state = "disconnected", error = $"Health check returned {(int)res.StatusCode}" });
+                }
             }
             catch (Exception ex)
             {
@@ -1356,6 +1361,26 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         Interlocked.Increment(ref _healthGeneration);
         _healthTimer?.Dispose();
         _healthTimer = null;
+    }
+
+    private static async Task<string?> TryReadVersionAsync(HttpResponseMessage res)
+    {
+        try
+        {
+            var body = await res.Content.ReadAsStringAsync();
+            using var doc = System.Text.Json.JsonDocument.Parse(body);
+            if (doc.RootElement.TryGetProperty("version", out var prop) &&
+                prop.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                var v = prop.GetString();
+                return string.IsNullOrWhiteSpace(v) ? null : v;
+            }
+        }
+        catch
+        {
+            // Non-JSON, missing field, or transient parse failure — fall back to no version.
+        }
+        return null;
     }
 
     private void StartWebSocketConnection(string apiUrl)
