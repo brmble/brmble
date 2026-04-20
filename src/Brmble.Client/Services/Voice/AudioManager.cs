@@ -1067,7 +1067,12 @@ private int _screenShareHotkeyId = -1;
             pipeline = _encodePipeline;
         }
 
-        pipeline?.SubmitPcm(new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes));
+        // Software gate: voor PTT+ stuur audio alleen naar server als PTT actief
+        if (_transmissionMode != TransmissionMode.PushToTalkPlus || _pttActive)
+        {
+            pipeline?.SubmitPcm(new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes));
+        }
+        // else: encoded audio wordt genegeerd (encoder draait door)
     }
 
     
