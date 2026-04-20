@@ -1357,7 +1357,7 @@ private int _screenShareHotkeyId = -1;
     {
         try
         {
-            if (_pttVk == 0 || _transmissionMode != TransmissionMode.PushToTalk)
+            if (_pttVk == 0 || (_transmissionMode != TransmissionMode.PushToTalk && _transmissionMode != TransmissionMode.PushToTalkPlus))
                 return;
 
             // GetAsyncKeyState returns negative if key is currently pressed
