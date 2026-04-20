@@ -1057,9 +1057,21 @@ private int _screenShareHotkeyId = -1;
         // This prevents a race where RecreateEncodePipelineLocked disposes _encodePipeline
         // while SubmitPcm is executing on the mic thread.
         EncodePipeline? pipeline;
+        
+        // Determine if we should be considered "speaking" based on transmission mode
+        bool shouldBeSpeaking = _transmissionMode switch
+        {
+            TransmissionMode.Continuous => true,
+            TransmissionMode.VoiceActivity => true, // VAD filtering happens before OnMicData
+            TransmissionMode.PushToTalk => _pttActive,
+            TransmissionMode.PushToTalkPlus => _pttActive,
+            _ => false
+        };
+        
         lock (_lock)
         {
-            if (_currentlySpeaking.Add(_localUserId))
+            // Only trigger speaking events if we should be speaking based on transmission mode
+            if (shouldBeSpeaking && _currentlySpeaking.Add(_localUserId))
             {
                 UserStartedSpeaking?.Invoke(_localUserId);
             }
@@ -1916,6 +1928,8 @@ private int _screenShareHotkeyId = -1;
         bool scheduleSilenceTail = false;
         int silenceTailGeneration = 0;
         int holdMs = 200;
+        bool fireSpeakingEvent = false;
+        bool fireSilentEvent = false;
 
         lock (_lock)
         {
@@ -1937,16 +1951,30 @@ private int _screenShareHotkeyId = -1;
 
             if (active && !_muted && _transmissionMode != TransmissionMode.PushToTalkPlus)
             {
-                // Cancel any pending silence tail — PTT was re-pressed before the tail completed
+                // Cancel any pending silence tail - PTT was re-pressed before the tail completed
                 _pttSilenceTailTimer?.Dispose();
                 _pttSilenceTailTimer = null;
                 Interlocked.Increment(ref _pttSilenceTailGeneration);
                 AudioLog.Write("[Audio] Starting mic for PTT");
                 startMic = true;
             }
-            else
+            else if (active && !_muted && _transmissionMode == TransmissionMode.PushToTalkPlus)
             {
-                AudioLog.Write("[Audio] PTT released — scheduling silence tail");
+                // PTT+ mode: mic is already running, just cancel any pending silence tail
+                _pttSilenceTailTimer?.Dispose();
+                _pttSilenceTailTimer = null;
+                Interlocked.Increment(ref _pttSilenceTailGeneration);
+                AudioLog.Write("[Audio] PTT+ activated (mic already running)");
+                
+                // For PTT+, manually fire the speaking event since the mic never stops
+                if (_currentlySpeaking.Add(_localUserId))
+                {
+                    fireSpeakingEvent = true;
+                }
+            }
+            else if (!active)
+            {
+                AudioLog.Write("[Audio] PTT released - scheduling silence tail");
                 // Gate live mic immediately (OnMicData checks _pttActive), then
                 // fire the silence tail after the hold delay.
                 _pttSilenceTailTimer?.Dispose();
@@ -1954,13 +1982,35 @@ private int _screenShareHotkeyId = -1;
                 silenceTailGeneration = Interlocked.Increment(ref _pttSilenceTailGeneration);
                 scheduleSilenceTail = true;
                 holdMs = _voiceHoldMs;
+                
+                // For PTT+, manually fire the silent event since the mic never stops
+                if (_transmissionMode == TransmissionMode.PushToTalkPlus)
+                {
+                    if (_currentlySpeaking.Remove(_localUserId))
+                    {
+                        fireSilentEvent = true;
+                    }
+                }
             }
+            // else: active but muted - do nothing
         }
 
         // Call StartMic outside the lock to avoid re-entrancy issues with
         // WASAPI's internal locking and wait logic.
         if (startMic)
             StartMic();
+
+        // Fire speaking/silent events outside the lock
+        if (fireSpeakingEvent)
+        {
+            AudioLog.Write($"[Audio] PTT+ speaking event fired for local user");
+            UserStartedSpeaking?.Invoke(_localUserId);
+        }
+        if (fireSilentEvent)
+        {
+            AudioLog.Write($"[Audio] PTT+ silent event fired for local user");
+            UserStoppedSpeaking?.Invoke(_localUserId);
+        }
 
         // Schedule silence tail outside the lock
         if (scheduleSilenceTail)
