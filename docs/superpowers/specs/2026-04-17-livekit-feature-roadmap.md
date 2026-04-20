@@ -10,6 +10,7 @@ This is the master feature list for all planned LiveKit and screen sharing work.
 | ID | Name | Status | Spec |
 |----|------|--------|------|
 | A | Multi-Share Foundation | Designed | `2026-04-17-multi-share-foundation-design.md` |
+| A2 | Multi-Share Layouts | Implemented | `2026-04-20-multi-share-layouts-design.md` |
 | B | Broadcaster Controls | Not started | -- |
 | C | Viewing Experience | Not started | -- |
 | D | Game Overlay | Not started | -- |
@@ -26,10 +27,10 @@ This is the master feature list for all planned LiveKit and screen sharing work.
 
 1. Simultaneous shares in the same channel
 2. Share switcher via channel user list monitor icons (clickable)
-3. Grid/mosaic view (2-4 shares side by side) -- future, after one-at-a-time works
-4. Primary + thumbnail layout -- future, after one-at-a-time works
+3. ~~Grid/mosaic view~~ → moved to A2 (implemented)
+4. ~~Primary + thumbnail layout~~ → moved to A2 (implemented)
 5. Auto-switch on activity (optional) -- future
-6. Share pinning -- future
+6. ~~Share pinning~~ → deferred (not in A2 scope)
 
 **Key decisions:** One LiveKit room per channel, lazy room creation, one share per user, manual opt-in viewing, one active view at a time (data model supports multi-view later).
 
@@ -174,14 +175,15 @@ These items were discussed and explicitly parked:
 The sub-projects have dependencies. Recommended sequence:
 
 1. **A. Multi-Share Foundation** -- everything else builds on this
-2. **E. Token & Security** -- fixes existing security issues, needed before scaling
-3. **F. Connection & Reliability** -- robust foundation before adding features
-4. **C. Viewing Experience** -- pop-out, PiP, fullscreen (needed before overlay)
-5. **B. Broadcaster Controls** -- window picker, audio, quality presets
-6. **D. Game Overlay** -- depends on C (PiP/pop-out patterns) and voice system
-7. **G. UI/UX Polish** -- refinements across all features
-8. **I. Performance & Quality** -- optimization pass
-9. **H. Clips & Screenshots** -- capture features
-10. **J. Viewer Interaction** -- social features last
+2. **A2. Multi-Share Layouts** -- grid/focus views on top of A (implemented)
+3. **E. Token & Security** -- fixes existing security issues, needed before scaling
+4. **F. Connection & Reliability** -- robust foundation before adding features
+5. **C. Viewing Experience** -- pop-out, PiP, fullscreen (needed before overlay)
+6. **B. Broadcaster Controls** -- window picker, audio, quality presets
+7. **D. Game Overlay** -- depends on C (PiP/pop-out patterns) and voice system
+8. **G. UI/UX Polish** -- refinements across all features
+9. **I. Performance & Quality** -- optimization pass
+10. **H. Clips & Screenshots** -- capture features
+11. **J. Viewer Interaction** -- social features last
 
 This order is a suggestion. Sub-projects E and F could be done in parallel with A since they address existing issues. The overlay (D) is the most architecturally novel and may warrant earlier exploration if it's a priority.

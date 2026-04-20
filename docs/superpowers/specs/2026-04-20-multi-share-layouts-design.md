@@ -1,7 +1,7 @@
 # Multi-Share Layouts (Sub-project A2) — Design Spec
 
 **Date:** 2026-04-20
-**Status:** Designed
+**Status:** Implemented
 **Depends on:** Sub-project A (Multi-Share Foundation) — completed
 **Branch:** TBD (will branch from `docs/livekit-feature-roadmap` after merge, or from `main`)
 
