@@ -1335,7 +1335,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             if (Interlocked.Read(ref _healthGeneration) != gen) return;
             try
             {
-                var res = await _healthHttpClient.GetAsync(url);
+                using var res = await _healthHttpClient.GetAsync(url);
                 if (Interlocked.Read(ref _healthGeneration) != gen) return;
                 if (res.IsSuccessStatusCode)
                 {

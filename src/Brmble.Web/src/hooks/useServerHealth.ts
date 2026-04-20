@@ -23,7 +23,7 @@ export function useServerHealth() {
         state: d.state,
         error: d.error,
         label: d.label,
-        version: d.version,
+        version: d.version ?? undefined,
       });
     };
 
