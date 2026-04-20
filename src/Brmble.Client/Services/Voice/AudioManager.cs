@@ -1293,12 +1293,12 @@ private int _screenShareHotkeyId = -1;
         UnregisterRawInputKeyboard();
 
         // Stop polling when not in PTT mode
-        if (mode != TransmissionMode.PushToTalk)
+        if (mode != TransmissionMode.PushToTalk && mode != TransmissionMode.PushToTalkPlus)
         {
             StopPttPolling();
         }
 
-        if (mode == TransmissionMode.PushToTalk && key != null && hwnd != IntPtr.Zero)
+        if ((mode == TransmissionMode.PushToTalk || mode == TransmissionMode.PushToTalkPlus) && key != null && hwnd != IntPtr.Zero)
         {
             var vk = KeyNameToVirtualKey(key);
             AudioLog.Write($"[Audio] SetTransmissionMode PTT: key={key}, vk=0x{vk:X2}, hwnd={hwnd}");
@@ -1334,6 +1334,8 @@ private int _screenShareHotkeyId = -1;
         // For PTT, start with mic off until key pressed
         if (mode == TransmissionMode.PushToTalk)
             StopMic();
+        else if (mode == TransmissionMode.PushToTalkPlus)
+            StartMic(); // Always-on: keep mic running
         else if (!_muted)
             StartMic();
     }
