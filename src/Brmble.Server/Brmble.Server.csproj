@@ -1,8 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Dapper" Version="2.1.66" />
     <PackageReference Include="Livekit.Server.Sdk.Dotnet" Version="1.2.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.3" />
+    <PackageReference Include="MinVer" Version="5.0.0" PrivateAssets="all" />
     <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
     <PackageReference Include="ZeroC.Ice" Version="3.8.0" />
     <PackageReference Include="ZeroC.Ice.Slice.Tools" Version="3.8.0">
