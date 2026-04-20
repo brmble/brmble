@@ -15,7 +15,7 @@ using NAudio.CoreAudioApi;
 
 namespace Brmble.Client.Services.Voice;
 
-public enum TransmissionMode { Continuous, VoiceActivity, PushToTalk }
+public enum TransmissionMode { Continuous, VoiceActivity, PushToTalk, PushToTalkPlus }
 
 internal static class AudioLog
 {
