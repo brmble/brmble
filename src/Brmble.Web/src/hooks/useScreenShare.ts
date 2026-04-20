@@ -413,6 +413,8 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
     setFocusedShare,   // new
     remoteVideoEl,     // backward compat
     remoteVideoEls,    // new
+    addWatchingShare,      // new
+    removeWatchingShare,   // new
     disconnectViewer,
     connectAsViewer,
   };
