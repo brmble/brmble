@@ -28,8 +28,6 @@ export function ScreenShareTile({ videoEl, sharerName, isFocused, isThumbnail, o
     container.appendChild(videoEl);
 
     return () => {
-      videoEl.pause();
-      videoEl.srcObject = null;
       if (container.contains(videoEl)) {
         container.removeChild(videoEl);
       }

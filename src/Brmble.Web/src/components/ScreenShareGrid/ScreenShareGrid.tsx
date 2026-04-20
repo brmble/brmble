@@ -19,6 +19,13 @@ function getLayout(count: number, hasFocus: boolean): string {
 }
 
 export function ScreenShareGrid({ watchingShares, focusedShare, videoElements, onFocus, onClose }: ScreenShareGridProps) {
+  // Clear focus when only one stream remains (revert to single-stream view)
+  useEffect(() => {
+    if (watchingShares.length <= 1 && focusedShare) {
+      onFocus(null);
+    }
+  }, [watchingShares.length, focusedShare, onFocus]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && focusedShare) {
