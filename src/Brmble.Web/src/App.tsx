@@ -1964,13 +1964,13 @@ const handleConnect = (serverData: SavedServer) => {
 
   // Track screenshare connection state for service status indicator
   useEffect(() => {
-    if (isSharing) {
+    if (isSharing || watchingShares.length > 0) {
       updateStatus('livekit', { state: 'connected', error: undefined });
     } else if (!screenShareError) {
       // Only reset to idle if there's no active error (error case handled above)
       updateStatus('livekit', { state: 'idle', error: undefined });
     }
-  }, [isSharing, screenShareError, updateStatus]);
+  }, [isSharing, watchingShares.length, screenShareError, updateStatus]);
 
   // Show toast notification when someone starts sharing in the user's voice channel
   useEffect(() => {
@@ -2028,9 +2028,10 @@ const handleConnect = (serverData: SavedServer) => {
 
   const handleWatchScreenShare = useCallback((roomName: string, userId?: number, matrixUserId?: string) => {
     if (userId != null) {
+      updateStatus('livekit', { state: 'connecting', error: undefined });
       connectAsViewer(roomName, userId, matrixUserId);
     }
-  }, [connectAsViewer]);
+  }, [connectAsViewer, updateStatus]);
 
   // Track which channel/DM was last opened so we only snapshot + mark-read on actual switches.
   const prevChannelIdRef = useRef<string | undefined>(undefined);
