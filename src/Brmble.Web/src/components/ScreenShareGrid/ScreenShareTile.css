@@ -12,7 +12,7 @@
 }
 
 .screen-share-tile:hover {
-  border-color: var(--border-hover);
+  border-color: var(--border-subtle);
 }
 
 .screen-share-tile--focused {
