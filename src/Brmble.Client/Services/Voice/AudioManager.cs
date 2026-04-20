@@ -15,7 +15,7 @@ using NAudio.CoreAudioApi;
 
 namespace Brmble.Client.Services.Voice;
 
-public enum TransmissionMode { Continuous, VoiceActivity, PushToTalk }
+public enum TransmissionMode { Continuous, VoiceActivity, PushToTalk, PushToTalkPlus }
 
 internal static class AudioLog
 {
@@ -1031,42 +1031,50 @@ private int _screenShareHotkeyId = -1;
             try
             {
                 // Convert byte buffer to normalized float samples (48kHz, range [-1, 1])
+                // Use ArrayPool to avoid per-frame allocations (important for PTT+ continuous processing)
                 var sampleCount = processedBytes / 2;
-                var samples48k = new float[sampleCount];
-                for (int i = 0; i < sampleCount; i++)
+                var samples48k = ArrayPool<float>.Shared.Rent(sampleCount);
+                try
                 {
-                    samples48k[i] = (short)(processedBuffer[i * 2] | (processedBuffer[i * 2 + 1] << 8)) / 32768f;
-                }
-
-                // Resample to 16kHz
-                var samples16k = _to16kResampler.Resample(samples48k);
-
-                // Enhance
-                var enhanced16k = _speechEnhancement.Enhance(samples16k);
-
-                if (enhanced16k != null)
-                {
-                    // Resample back to 48kHz
-                    var enhanced48k = _to48kResampler.Resample(enhanced16k);
-
-                    // Convert normalized floats back to int16 bytes
-                    int samplesToCopy = Math.Min(enhanced48k.Length, sampleCount);
-                    for (int i = 0; i < samplesToCopy; i++)
+                    for (int i = 0; i < sampleCount; i++)
                     {
-                        var sample = (short)Math.Clamp(enhanced48k[i] * 32768f, short.MinValue, short.MaxValue);
-                        processedBuffer[i * 2] = (byte)(sample & 0xFF);
-                        processedBuffer[i * 2 + 1] = (byte)((sample >> 8) & 0xFF);
+                        samples48k[i] = (short)(processedBuffer[i * 2] | (processedBuffer[i * 2 + 1] << 8)) / 32768f;
                     }
 
-                    // If the enhanced buffer is shorter than the original, zero-fill the remainder
-                    if (samplesToCopy < sampleCount)
+                    // Resample to 16kHz
+                    var samples16k = _to16kResampler.Resample(samples48k.AsSpan(0, sampleCount));
+
+                    // Enhance
+                    var enhanced16k = _speechEnhancement.Enhance(samples16k);
+
+                    if (enhanced16k != null)
                     {
-                        for (int i = samplesToCopy; i < sampleCount; i++)
+                        // Resample back to 48kHz
+                        var enhanced48k = _to48kResampler.Resample(enhanced16k);
+
+                        // Convert normalized floats back to int16 bytes
+                        int samplesToCopy = Math.Min(enhanced48k.Length, sampleCount);
+                        for (int i = 0; i < samplesToCopy; i++)
                         {
-                            processedBuffer[i * 2] = 0;
-                            processedBuffer[i * 2 + 1] = 0;
+                            var sample = (short)Math.Clamp(enhanced48k[i] * 32768f, short.MinValue, short.MaxValue);
+                            processedBuffer[i * 2] = (byte)(sample & 0xFF);
+                            processedBuffer[i * 2 + 1] = (byte)((sample >> 8) & 0xFF);
+                        }
+
+                        // If the enhanced buffer is shorter than the original, zero-fill the remainder
+                        if (samplesToCopy < sampleCount)
+                        {
+                            for (int i = samplesToCopy; i < sampleCount; i++)
+                            {
+                                processedBuffer[i * 2] = 0;
+                                processedBuffer[i * 2 + 1] = 0;
+                            }
                         }
                     }
+                }
+                finally
+                {
+                    ArrayPool<float>.Shared.Return(samples48k);
                 }
             }
             catch (Exception ex)
@@ -1084,9 +1092,30 @@ private int _screenShareHotkeyId = -1;
         // This prevents a race where RecreateEncodePipelineLocked disposes _encodePipeline
         // while SubmitPcm is executing on the mic thread.
         EncodePipeline? pipeline;
+        bool shouldBeSpeaking;
+        bool shouldSubmitPcm;
+        
         lock (_lock)
         {
-            if (_currentlySpeaking.Add(_localUserId))
+            // Capture transmission mode and PTT state under lock for consistent decision-making
+            var mode = _transmissionMode;
+            var pttActive = _pttActive;
+            
+            // Determine if we should be considered "speaking" based on transmission mode
+            shouldBeSpeaking = mode switch
+            {
+                TransmissionMode.Continuous => true,
+                TransmissionMode.VoiceActivity => true, // VAD filtering already happened above, before speaking-state update / submission
+                TransmissionMode.PushToTalk => pttActive,
+                TransmissionMode.PushToTalkPlus => pttActive,
+                _ => false
+            };
+            
+            // For PTT+, only submit audio when PTT is active (software gate)
+            shouldSubmitPcm = mode != TransmissionMode.PushToTalkPlus || pttActive;
+            
+            // Only trigger speaking events if we should be speaking based on transmission mode
+            if (shouldBeSpeaking && _currentlySpeaking.Add(_localUserId))
             {
                 UserStartedSpeaking?.Invoke(_localUserId);
             }
@@ -1094,7 +1123,12 @@ private int _screenShareHotkeyId = -1;
             pipeline = _encodePipeline;
         }
 
-        pipeline?.SubmitPcm(new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes));
+        // Software gate: for PTT+, send audio to the server only when PTT is active
+        if (shouldSubmitPcm)
+        {
+            pipeline?.SubmitPcm(new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes));
+        }
+        // else: encoded audio is ignored (the encoder keeps running)
     }
 
     
@@ -1356,15 +1390,15 @@ private int _screenShareHotkeyId = -1;
         UnregisterRawInputKeyboard();
 
         // Stop polling when not in PTT mode
-        if (mode != TransmissionMode.PushToTalk)
+        if (mode != TransmissionMode.PushToTalk && mode != TransmissionMode.PushToTalkPlus)
         {
             StopPttPolling();
         }
 
-        if (mode == TransmissionMode.PushToTalk && key != null && hwnd != IntPtr.Zero)
+        if ((mode == TransmissionMode.PushToTalk || mode == TransmissionMode.PushToTalkPlus) && key != null && hwnd != IntPtr.Zero)
         {
             var vk = KeyNameToVirtualKey(key);
-            AudioLog.Write($"[Audio] SetTransmissionMode PTT: key={key}, vk=0x{vk:X2}, hwnd={hwnd}");
+            AudioLog.Write($"[Audio] SetTransmissionMode: mode={mode}, key={key}, vk=0x{vk:X2}, hwnd={hwnd}");
 
             bool isMouseButton = key is "XButton1" or "XButton2" or "MouseLeft" or "MouseRight" or "MouseMiddle";
 
@@ -1397,6 +1431,8 @@ private int _screenShareHotkeyId = -1;
         // For PTT, start with mic off until key pressed
         if (mode == TransmissionMode.PushToTalk)
             StopMic();
+        else if (mode == TransmissionMode.PushToTalkPlus)
+            StartMic(); // Always-on: keep mic running
         else if (!_muted)
             StartMic();
     }
@@ -1418,7 +1454,7 @@ private int _screenShareHotkeyId = -1;
     {
         try
         {
-            if (_pttVk == 0 || _transmissionMode != TransmissionMode.PushToTalk)
+            if (_pttVk == 0 || (_transmissionMode != TransmissionMode.PushToTalk && _transmissionMode != TransmissionMode.PushToTalkPlus))
                 return;
 
             // GetAsyncKeyState returns negative if key is currently pressed
@@ -1799,7 +1835,7 @@ private int _screenShareHotkeyId = -1;
 
                     if (_shortcutActionForMouse == "pushToTalk")
                     {
-                        if (_transmissionMode == TransmissionMode.PushToTalk)
+                        if (_transmissionMode == TransmissionMode.PushToTalk || _transmissionMode == TransmissionMode.PushToTalkPlus)
                             SetPttActive(true);
                     }
                     else if (_shortcutActionForMouse != null)
@@ -1821,7 +1857,7 @@ private int _screenShareHotkeyId = -1;
                 {
                     if (_shortcutActionForMouse == "pushToTalk")
                     {
-                        if (_transmissionMode == TransmissionMode.PushToTalk)
+                        if (_transmissionMode == TransmissionMode.PushToTalk || _transmissionMode == TransmissionMode.PushToTalkPlus)
                             SetPttActive(false);
                     }
                     else if (_heldMouseAction != null)
@@ -1970,7 +2006,7 @@ private int _screenShareHotkeyId = -1;
     public void HandlePttKeyFromJs(bool pressed)
     {
         AudioLog.Write($"[Audio] HandlePttKeyFromJs: pressed={pressed}, mode={_transmissionMode}");
-        if (_transmissionMode == TransmissionMode.PushToTalk)
+        if (_transmissionMode == TransmissionMode.PushToTalk || _transmissionMode == TransmissionMode.PushToTalkPlus)
         {
             SetPttActive(pressed);
         }
@@ -1983,6 +2019,8 @@ private int _screenShareHotkeyId = -1;
         bool scheduleSilenceTail = false;
         int silenceTailGeneration = 0;
         int holdMs = 200;
+        bool fireSpeakingEvent = false;
+        bool fireSilentEvent = false;
 
         lock (_lock)
         {
@@ -2002,32 +2040,73 @@ private int _screenShareHotkeyId = -1;
             _pttLastToggleMs = now;
             _pttActive = active;
 
-            if (active && !_muted)
+            if (active && !_muted && _transmissionMode != TransmissionMode.PushToTalkPlus)
             {
-                // Cancel any pending silence tail — PTT was re-pressed before the tail completed
+                // Cancel any pending silence tail - PTT was re-pressed before the tail completed
                 _pttSilenceTailTimer?.Dispose();
                 _pttSilenceTailTimer = null;
                 Interlocked.Increment(ref _pttSilenceTailGeneration);
                 AudioLog.Write("[Audio] Starting mic for PTT");
                 startMic = true;
             }
-            else
+            else if (active && !_muted && _transmissionMode == TransmissionMode.PushToTalkPlus)
             {
-                AudioLog.Write("[Audio] PTT released — scheduling silence tail");
+                // PTT+ mode: mic is already running, just cancel any pending silence tail
+                _pttSilenceTailTimer?.Dispose();
+                _pttSilenceTailTimer = null;
+                Interlocked.Increment(ref _pttSilenceTailGeneration);
+                AudioLog.Write("[Audio] PTT+ activated (mic already running)");
+                
+                // For PTT+, manually fire the speaking event since the mic never stops
+                if (_currentlySpeaking.Add(_localUserId))
+                {
+                    fireSpeakingEvent = true;
+                }
+            }
+            else if (!active)
+            {
+                AudioLog.Write("[Audio] PTT released - scheduling silence tail");
                 // Gate live mic immediately (OnMicData checks _pttActive), then
                 // fire the silence tail after the hold delay.
                 _pttSilenceTailTimer?.Dispose();
                 _pttSilenceTailTimer = null;
-                silenceTailGeneration = Interlocked.Increment(ref _pttSilenceTailGeneration);
-                scheduleSilenceTail = true;
-                holdMs = _voiceHoldMs;
+                
+                // For PTT+, manually fire the silent event since the mic never stops
+                // and there's no silence tail (the encoder stays warm)
+                if (_transmissionMode == TransmissionMode.PushToTalkPlus)
+                {
+                    if (_currentlySpeaking.Remove(_localUserId))
+                    {
+                        fireSilentEvent = true;
+                    }
+                }
+                else
+                {
+                    // For regular PTT, schedule the silence tail after the hold delay
+                    silenceTailGeneration = Interlocked.Increment(ref _pttSilenceTailGeneration);
+                    scheduleSilenceTail = true;
+                    holdMs = _voiceHoldMs;
+                }
             }
+            // else: active but muted - do nothing
         }
 
         // Call StartMic outside the lock to avoid re-entrancy issues with
         // WASAPI's internal locking and wait logic.
         if (startMic)
             StartMic();
+
+        // Fire speaking/silent events outside the lock
+        if (fireSpeakingEvent)
+        {
+            AudioLog.Write($"[Audio] PTT+ speaking event fired for local user");
+            UserStartedSpeaking?.Invoke(_localUserId);
+        }
+        if (fireSilentEvent)
+        {
+            AudioLog.Write($"[Audio] PTT+ silent event fired for local user");
+            UserStoppedSpeaking?.Invoke(_localUserId);
+        }
 
         // Schedule silence tail outside the lock
         if (scheduleSilenceTail)

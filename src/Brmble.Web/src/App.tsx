@@ -540,12 +540,12 @@ function App() {
     const updatePttKeyFromSettings = (settings: any) => {
       const newMode = settings?.audio?.transmissionMode;
       const newKey: string | null =
-        newMode === 'pushToTalk' ? (settings?.audio?.pushToTalkKey ?? null) : null;
+        (newMode === 'pushToTalk' || newMode === 'pushToTalkPlus') ? (settings?.audio?.pushToTalkKey ?? null) : null;
 
       if (
         pttPressed &&
         (
-          newMode !== 'pushToTalk' ||
+          (newMode !== 'pushToTalk' && newMode !== 'pushToTalkPlus') ||
           !newKey ||
           newKey !== pttKey
         )
@@ -1403,7 +1403,7 @@ const handleConnect = (serverData: SavedServer) => {
         if (settings.audio?.transmissionMode) {
           bridge.send('voice.setTransmissionMode', {
             mode: settings.audio.transmissionMode,
-            key: settings.audio.transmissionMode === 'pushToTalk' ? settings.audio.pushToTalkKey : null,
+            key: (settings.audio.transmissionMode === 'pushToTalk' || settings.audio.transmissionMode === 'pushToTalkPlus') ? settings.audio.pushToTalkKey : null,
           });
         }
       }
