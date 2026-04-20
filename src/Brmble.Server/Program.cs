@@ -37,6 +37,7 @@ builder.Services.AddMatrix();
 builder.Services.AddLiveKit();
 builder.Services.AddOptions<ServerInfoSettings>()
     .BindConfiguration("ServerInfo");
+builder.Services.AddSingleton<IServerVersionProvider, ServerVersionProvider>();
 builder.Services.AddReverseProxy()
     .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
 
@@ -45,7 +46,8 @@ var app = builder.Build();
 app.UseWebSockets();
 app.UseMiddleware<ConnectionLoggingMiddleware>();
 
-app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
+app.MapGet("/health", (IServerVersionProvider version) =>
+    Results.Ok(new { status = "healthy", version = version.Version }));
 app.MapAuthEndpoints();
 app.MapDmEndpoints();
 app.Map("/ws", BrmbleWebSocketHandler.HandleAsync);
