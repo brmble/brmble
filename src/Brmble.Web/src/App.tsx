@@ -1843,7 +1843,7 @@ const handleConnect = (serverData: SavedServer) => {
     };
   }, []);
 
-  const { isSharing, startSharing, stopSharing, error: screenShareError, activeShare, activeShares, watchingShare, remoteVideoEl, disconnectViewer, connectAsViewer } = useScreenShare(() => {
+  const { isSharing, startSharing, stopSharing, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, remoteVideoEls, disconnectViewer, connectAsViewer } = useScreenShare(() => {
     setSharingChannelId(undefined);
   }, screenShareSettings);
   disconnectViewerRef.current = disconnectViewer;
@@ -1964,13 +1964,13 @@ const handleConnect = (serverData: SavedServer) => {
 
   // Track screenshare connection state for service status indicator
   useEffect(() => {
-    if (isSharing) {
+    if (isSharing || watchingShares.length > 0) {
       updateStatus('livekit', { state: 'connected', error: undefined });
     } else if (!screenShareError) {
       // Only reset to idle if there's no active error (error case handled above)
       updateStatus('livekit', { state: 'idle', error: undefined });
     }
-  }, [isSharing, screenShareError, updateStatus]);
+  }, [isSharing, watchingShares.length, screenShareError, updateStatus]);
 
   // Show toast notification when someone starts sharing in the user's voice channel
   useEffect(() => {
@@ -2028,9 +2028,10 @@ const handleConnect = (serverData: SavedServer) => {
 
   const handleWatchScreenShare = useCallback((roomName: string, userId?: number, matrixUserId?: string) => {
     if (userId != null) {
+      updateStatus('livekit', { state: 'connecting', error: undefined });
       connectAsViewer(roomName, userId, matrixUserId);
     }
-  }, [connectAsViewer]);
+  }, [connectAsViewer, updateStatus]);
 
   // Track which channel/DM was last opened so we only snapshot + mark-read on actual switches.
   const prevChannelIdRef = useRef<string | undefined>(undefined);
@@ -2205,8 +2206,9 @@ const handleConnect = (serverData: SavedServer) => {
           sharingChannelId={sharingChannelId ? Number(sharingChannelId) : (activeShares.length > 0 ? Number(activeShares[0].roomName.replace('channel-', '')) : undefined)}
           sharingUserSession={isSharing ? selfSession : activeShare?.sessionId}
           activeShares={activeShares}
-          watchingShare={watchingShare}
+           watchingShares={watchingShares}
           onWatchScreenShare={handleWatchScreenShare}
+          onStopWatching={(userId) => disconnectViewer(userId)}
           onEditAvatar={connected ? () => setShowAvatarEditor(true) : undefined}
         />
         </ErrorBoundary>
@@ -2242,10 +2244,12 @@ const handleConnect = (serverData: SavedServer) => {
                     matrixClient={matrixClient.client}
                     matrixRoomId={channelMatrixRoomId}
                     readMarkerTs={channelDividerTs}
-                    screenShareVideoEl={remoteVideoEl}
-                    screenSharerName={watchingShare?.userName ?? activeShare?.userName}
+                    watchingShares={watchingShares}
+                    focusedShare={focusedShare}
+                    remoteVideoEls={remoteVideoEls}
+                    onFocusShare={setFocusedShare}
+                    onCloseShare={(share) => disconnectViewer(share.userId)}
                     screenShareViewerMode={screenShareSettings.viewerMode}
-                    onCloseScreenShare={disconnectViewer}
                     users={users}
                     onMessageContextMenu={handleChatMessageContextMenu}
                     onCopyToClipboard={handleCopyToClipboard}

@@ -41,14 +41,13 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
   const [pressedBtn, setPressedBtn] = useState<string | null>(null);
   const [voiceContextMenu, setVoiceContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [deafenContextMenu, setDeafenContextMenu] = useState<{ x: number; y: number } | null>(null);
-  const [screenShareContextMenu, setScreenShareContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [contextMenuPushToTalk, setContextMenuPushToTalk] = useState<boolean>(true);
   const [contextMenuInputVolume, setContextMenuInputVolume] = useState<number>(250);
   const [contextMenuOutputVolume, setContextMenuOutputVolume] = useState<number>(250);
   const bridgeRef = useRef<BridgeModule | null>(null);
   const activeBtn = hotkeyPressedBtn || pressedBtn;
 
-  const isAnyMenuOpen = voiceContextMenu !== null || deafenContextMenu !== null || screenShareContextMenu !== null;
+  const isAnyMenuOpen = voiceContextMenu !== null || deafenContextMenu !== null;
 
   useEffect(() => {
     if (!isAnyMenuOpen) return;
@@ -246,26 +245,6 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
     },
   ];
 
-  const screenShareContextMenuItems: ContextMenuItem[] = [
-    {
-      type: 'item',
-      label: screenSharing ? 'Stop Screen Share' : 'Start Screen Share',
-      onClick: () => {
-        setScreenShareContextMenu(null);
-        onToggleScreenShare?.();
-      },
-    },
-    { type: 'divider' },
-    {
-      type: 'item',
-      label: 'Voice Settings',
-      icon: <Icon name="settings" size={14} />,
-      onClick: () => {
-        setScreenShareContextMenu(null);
-        onOpenAudioSettings?.();
-      },
-    },
-  ];
 
   return (
     <div className="user-panel">
@@ -296,7 +275,6 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
             const settings = getAudioSettings();
             setContextMenuOutputVolume(settings.outputVolume);
             setVoiceContextMenu(null);
-            setScreenShareContextMenu(null);
             setDeafenContextMenu({ x: e.clientX, y: e.clientY });
           }}
         >
@@ -329,7 +307,6 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
             setContextMenuPushToTalk(settings.transmissionMode === 'pushToTalk');
             setContextMenuInputVolume(settings.inputVolume);
             setDeafenContextMenu(null);
-            setScreenShareContextMenu(null);
             setVoiceContextMenu({ x: e.clientX, y: e.clientY });
           }}
         >
@@ -354,26 +331,11 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
 
       {onToggleScreenShare && (
         <Tooltip content={screenShareError ? `Screen share error: ${screenShareError}` : screenSharing ? 'Stop Sharing' : !canScreenShare ? 'Join a channel to share screen' : 'Share Screen'} position="bottom" align="start">
-        <span 
-          className="tooltip-wrapper"
-          onClick={(e) => {
-            e.preventDefault();
-            const rect = e.currentTarget.getBoundingClientRect();
-            setVoiceContextMenu(null);
-            setDeafenContextMenu(null);
-            setScreenShareContextMenu({ x: rect.left, y: rect.bottom + 4 });
-          }}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            setVoiceContextMenu(null);
-            setDeafenContextMenu(null);
-            setScreenShareContextMenu({ x: e.clientX, y: e.clientY });
-          }}
-        >
+        <span className="tooltip-wrapper">
         <button
           className={`btn btn-ghost btn-icon user-panel-btn screen-share-btn ${(screenSharing || (!screenSharing && !canScreenShare)) ? 'active' : ''} ${activeBtn === 'screen' ? 'pressed' : ''} ${(!screenSharing && !canScreenShare) ? 'disabled' : ''}`}
           onMouseDown={handleMouseDown('screen')}
-          onMouseUp={handleMouseUp('screen')}
+          onMouseUp={handleMouseUp('screen', onToggleScreenShare)}
           onMouseLeave={handleMouseLeave}
           onKeyDown={handleKeyDown('screen')}
           onKeyUp={handleKeyUp('screen', onToggleScreenShare)}
@@ -447,14 +409,6 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
           y={deafenContextMenu.y}
           items={deafenContextMenuItems}
           onClose={() => setDeafenContextMenu(null)}
-        />
-      )}
-      {screenShareContextMenu && (
-        <ContextMenu
-          x={screenShareContextMenu.x}
-          y={screenShareContextMenu.y}
-          items={screenShareContextMenuItems}
-          onClose={() => setScreenShareContextMenu(null)}
         />
       )}
     </div>

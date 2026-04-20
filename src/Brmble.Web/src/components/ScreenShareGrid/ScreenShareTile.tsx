@@ -1,15 +1,18 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { Icon } from '../Icon/Icon';
 import { Tooltip } from '../Tooltip/Tooltip';
-import './ScreenShareViewer.css';
+import './ScreenShareTile.css';
 
-interface ScreenShareViewerProps {
+interface ScreenShareTileProps {
   videoEl: HTMLVideoElement;
   sharerName: string;
+  isFocused: boolean;
+  isThumbnail: boolean;
+  onClick: () => void;
   onClose: () => void;
 }
 
-export function ScreenShareViewer({ videoEl, sharerName, onClose }: ScreenShareViewerProps) {
+export function ScreenShareTile({ videoEl, sharerName, isFocused, isThumbnail, onClick, onClose }: ScreenShareTileProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(false);
@@ -19,14 +22,12 @@ export function ScreenShareViewer({ videoEl, sharerName, onClose }: ScreenShareV
     const container = containerRef.current;
     if (!container) return;
 
-    videoEl.className = 'screen-share-video';
+    videoEl.className = 'screen-share-tile-video';
     videoEl.autoplay = true;
     videoEl.playsInline = true;
     container.appendChild(videoEl);
 
     return () => {
-      videoEl.pause();
-      videoEl.srcObject = null;
       if (container.contains(videoEl)) {
         container.removeChild(videoEl);
       }
@@ -39,7 +40,8 @@ export function ScreenShareViewer({ videoEl, sharerName, onClose }: ScreenShareV
     return () => document.removeEventListener('fullscreenchange', onChange);
   }, []);
 
-  const toggleFullscreen = useCallback(() => {
+  const toggleFullscreen = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
     const el = containerRef.current;
     if (!el) return;
     if (document.fullscreenElement) {
@@ -66,42 +68,58 @@ export function ScreenShareViewer({ videoEl, sharerName, onClose }: ScreenShareV
     };
   }, []);
 
+  const handleClose = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    onClose();
+  }, [onClose]);
+
+  const className = [
+    'screen-share-tile',
+    isFocused ? 'screen-share-tile--focused' : '',
+    isThumbnail ? 'screen-share-tile--thumbnail' : '',
+    showControls ? 'show-controls' : '',
+  ].filter(Boolean).join(' ');
+
   return (
     <div
-      className={`screen-share-viewer ${showControls ? 'show-controls' : ''}`}
+      className={className}
       ref={containerRef}
+      data-testid="screen-share-tile"
+      onClick={onClick}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
     >
-      <div className="screen-share-overlay screen-share-overlay--name">
+      <div className="screen-share-tile-overlay screen-share-tile-overlay--name">
         {sharerName}'s screen
       </div>
-      <div className="screen-share-overlay screen-share-overlay--controls">
-        <Tooltip content={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
-        <button
-          className="btn btn-ghost btn-icon screen-share-control-btn"
-          onClick={toggleFullscreen}
-          aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-        >
-          {isFullscreen ? (
-            <Icon name="minimize-2" size={16} />
-          ) : (
-            <Icon name="maximize-2" size={16} />
-          )}
-        </button>
-        </Tooltip>
-      </div>
-      <div className="screen-share-overlay screen-share-overlay--close">
+      <div className="screen-share-tile-overlay screen-share-tile-overlay--close">
         <Tooltip content="Stop watching">
-        <button
-          className="btn btn-ghost btn-icon screen-share-control-btn"
-          onClick={onClose}
-          aria-label="Stop watching screen share"
-        >
-          <Icon name="x" size={16} />
-        </button>
+          <button
+            className="btn btn-ghost btn-icon screen-share-tile-control-btn"
+            onClick={handleClose}
+            aria-label="Stop watching"
+          >
+            <Icon name="x" size={16} />
+          </button>
         </Tooltip>
       </div>
+      {!isThumbnail && (
+        <div className="screen-share-tile-overlay screen-share-tile-overlay--controls">
+          <Tooltip content={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
+            <button
+              className="btn btn-ghost btn-icon screen-share-tile-control-btn"
+              onClick={toggleFullscreen}
+              aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+            >
+              {isFullscreen ? (
+                <Icon name="minimize-2" size={16} />
+              ) : (
+                <Icon name="maximize-2" size={16} />
+              )}
+            </button>
+          </Tooltip>
+        </div>
+      )}
     </div>
   );
 }
