@@ -1935,7 +1935,7 @@ private int _screenShareHotkeyId = -1;
             _pttLastToggleMs = now;
             _pttActive = active;
 
-            if (active && !_muted)
+            if (active && !_muted && _transmissionMode != TransmissionMode.PushToTalkPlus)
             {
                 // Cancel any pending silence tail — PTT was re-pressed before the tail completed
                 _pttSilenceTailTimer?.Dispose();
@@ -1972,7 +1972,7 @@ private int _screenShareHotkeyId = -1;
                 // If generation has advanced, a newer cancel/restart supersedes this callback.
                 if (Interlocked.CompareExchange(ref _pttSilenceTailGeneration, generation, generation) != generation)
                     return;
-                if (_pttActive || _muted) return;
+                if (_pttActive || _muted || _transmissionMode == TransmissionMode.PushToTalkPlus) return;
                 StopMicWithSilenceTail();
             }, null, dueTime: holdMs, period: Timeout.Infinite);
         }
