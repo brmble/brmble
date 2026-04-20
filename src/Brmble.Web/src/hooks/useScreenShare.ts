@@ -29,15 +29,24 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
   const [error, setError] = useState<string | null>(null);
   const [activeShares, setActiveShares] = useState<ShareInfo[]>([]);
   const [watchingShares, setWatchingShares] = useState<ShareInfo[]>([]);
-  const [focusedShare, setFocusedShare] = useState<ShareInfo | null>(null);
+  const [focusedShare, _setFocusedShare] = useState<ShareInfo | null>(null);
   const [remoteVideoEls, setRemoteVideoEls] = useState<Map<number, HTMLVideoElement>>(new Map());
 
   // Single room connection per channel — used for both publishing and subscribing
   const roomRef = useRef<Room | null>(null);
   const watchingSharesRef = useRef<ShareInfo[]>([]);
   const isSharingRef = useRef(false);
+  const focusedShareRef = useRef<ShareInfo | null>(null);
   const onDisconnectedRef = useRef(onDisconnected);
   onDisconnectedRef.current = onDisconnected;
+
+  const setFocusedShare: typeof _setFocusedShare = useCallback((action) => {
+    _setFocusedShare(prev => {
+      const next = typeof action === 'function' ? action(prev) : action;
+      focusedShareRef.current = next;
+      return next;
+    });
+  }, []);
 
   const updateWatchingShares = useCallback((shares: ShareInfo[]) => {
     watchingSharesRef.current = shares;
@@ -47,10 +56,29 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
   const addWatchingShare = useCallback((share: ShareInfo) => {
     setWatchingShares(prev => {
       if (prev.some(s => s.userId === share.userId)) return prev;
-      const next = prev.length >= 4
-        ? [...prev.slice(1), share]  // drop oldest if at max 4
-        : [...prev, share];
+      let evictedUserId: number | undefined;
+      let next: ShareInfo[];
+      if (prev.length >= 4) {
+        // Evict oldest non-focused share; fall back to oldest if all focused
+        const focusId = focusedShareRef.current?.userId;
+        const evictIndex = prev.findIndex(s => s.userId !== focusId) ?? 0;
+        evictedUserId = prev[evictIndex].userId;
+        next = [...prev.slice(0, evictIndex), ...prev.slice(evictIndex + 1), share];
+      } else {
+        next = [...prev, share];
+      }
       watchingSharesRef.current = next;
+
+      // Clean up evicted share state
+      if (evictedUserId != null) {
+        const evicted = evictedUserId;
+        setFocusedShare(p => p?.userId === evicted ? null : p);
+        setRemoteVideoEls(p => {
+          const m = new Map(p);
+          m.delete(evicted);
+          return m;
+        });
+      }
       return next;
     });
   }, []);
@@ -306,6 +334,8 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
       // If track not yet available, TrackSubscribed event will pick it up
     } catch (err) {
       console.error('Failed to connect as viewer:', err);
+      setError(err instanceof Error ? err.message : 'Failed to connect as viewer');
+      throw err;
     }
   }, [activeShares, ensureRoom, addWatchingShare, removeWatchingShare, maybeDisconnectRoom]);
 

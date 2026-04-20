@@ -355,7 +355,8 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                           onWatchScreenShare?.(`channel-${channel.id}`);
                         }
                       }}
-                      aria-label={`${watchingShares?.some(s => s.sessionId === user.session) ? 'Watching' : 'Watch'} screen share from ${user.name}`}
+                      aria-label={`${(watchingShares?.some(s => s.sessionId === user.session) || user.session === sharingUserSession) ? 'Watching' : 'Watch'} screen share from ${user.name}`}
+                      aria-pressed={!!(watchingShares?.some(s => s.sessionId === user.session) || user.session === sharingUserSession)}
                     >
                       <Icon name="monitor" size={11} className={`user-status-icon user-status-icon--sharing${watchingShares?.some(s => s.sessionId === user.session) ? ' user-status-icon--watching' : ''}`} stroke="var(--accent-primary)" strokeWidth={2.5} />
                     </button>

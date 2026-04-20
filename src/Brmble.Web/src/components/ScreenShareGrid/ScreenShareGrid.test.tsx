@@ -136,4 +136,61 @@ describe('ScreenShareGrid', () => {
     );
     expect(container.querySelector('.screen-share-grid')).toBeNull();
   });
+
+  it('calls onFocus(null) when Escape is pressed while focused', () => {
+    const onFocus = vi.fn();
+    const shares = [makeShare(1, 'Alice'), makeShare(2, 'Bob')];
+    render(
+      <ScreenShareGrid
+        watchingShares={shares}
+        focusedShare={shares[0]}
+        videoElements={makeVideoMap([1, 2])}
+        onFocus={onFocus}
+        onClose={vi.fn()}
+      />
+    );
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onFocus).toHaveBeenCalledWith(null);
+  });
+
+  it('does not call onFocus on Escape when no share is focused', () => {
+    const onFocus = vi.fn();
+    const shares = [makeShare(1, 'Alice'), makeShare(2, 'Bob')];
+    render(
+      <ScreenShareGrid
+        watchingShares={shares}
+        focusedShare={null}
+        videoElements={makeVideoMap([1, 2])}
+        onFocus={onFocus}
+        onClose={vi.fn()}
+      />
+    );
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onFocus).not.toHaveBeenCalled();
+  });
+
+  it('auto-clears focus when watchingShares drops to 1', () => {
+    const onFocus = vi.fn();
+    const shares = [makeShare(1, 'Alice'), makeShare(2, 'Bob')];
+    const { rerender } = render(
+      <ScreenShareGrid
+        watchingShares={shares}
+        focusedShare={shares[0]}
+        videoElements={makeVideoMap([1, 2])}
+        onFocus={onFocus}
+        onClose={vi.fn()}
+      />
+    );
+    // Simulate one sharer leaving — now only 1 stream
+    rerender(
+      <ScreenShareGrid
+        watchingShares={[shares[0]]}
+        focusedShare={shares[0]}
+        videoElements={makeVideoMap([1])}
+        onFocus={onFocus}
+        onClose={vi.fn()}
+      />
+    );
+    expect(onFocus).toHaveBeenCalledWith(null);
+  });
 });
