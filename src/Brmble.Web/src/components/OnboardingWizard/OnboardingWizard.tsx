@@ -98,7 +98,7 @@ interface OnboardingWizardProps {
 
 // ── Settings types (local copies to avoid SettingsModal coupling) ──
 
-type TransmissionMode = 'pushToTalk' | 'voiceActivity' | 'continuous';
+type TransmissionMode = 'pushToTalk' | 'voiceActivity' | 'continuous' | 'pushToTalkPlus';
 
 interface WizardSettings {
   // Interface
@@ -962,13 +962,14 @@ export function OnboardingWizard({ onComplete, onServersImported, isMaximized }:
                   value={settings.transmissionMode}
                   onChange={v => updateSettings({ transmissionMode: v as TransmissionMode })}
                   options={[
+                    { value: 'pushToTalkPlus', label: 'PTT+' },
                     { value: 'pushToTalk', label: 'Push to Talk' },
                     { value: 'voiceActivity', label: 'Voice Activity' },
                     { value: 'continuous', label: 'Continuous' },
                   ]}
                 />
               </div>
-              {settings.transmissionMode === 'pushToTalk' && (
+              {(settings.transmissionMode === 'pushToTalk' || settings.transmissionMode === 'pushToTalkPlus') && (
                 <div className="settings-item">
                   <label>Push to Talk Key</label>
                   <PttKeyCapture
