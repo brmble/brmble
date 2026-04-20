@@ -213,7 +213,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 var newMode = current == TransmissionMode.Continuous ? _previousMode : TransmissionMode.Continuous;
                 if (current != TransmissionMode.Continuous)
                     _previousMode = current;
-            var pttKey = (newMode == TransmissionMode.PushToTalk || newMode == TransmissionMode.PushToTalkPlus) ? _currentPttKey : null;
+                var pttKey = (newMode == TransmissionMode.PushToTalk || newMode == TransmissionMode.PushToTalkPlus) ? _currentPttKey : null;
                 _audioManager.SetTransmissionMode(newMode, pttKey, _hwnd);
             };
         }

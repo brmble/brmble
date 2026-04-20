@@ -1057,19 +1057,28 @@ private int _screenShareHotkeyId = -1;
         // This prevents a race where RecreateEncodePipelineLocked disposes _encodePipeline
         // while SubmitPcm is executing on the mic thread.
         EncodePipeline? pipeline;
-        
-        // Determine if we should be considered "speaking" based on transmission mode
-        bool shouldBeSpeaking = _transmissionMode switch
-        {
-            TransmissionMode.Continuous => true,
-            TransmissionMode.VoiceActivity => true, // VAD filtering happens before OnMicData
-            TransmissionMode.PushToTalk => _pttActive,
-            TransmissionMode.PushToTalkPlus => _pttActive,
-            _ => false
-        };
+        bool shouldBeSpeaking;
+        bool shouldSubmitPcm;
         
         lock (_lock)
         {
+            // Capture transmission mode and PTT state under lock for consistent decision-making
+            var mode = _transmissionMode;
+            var pttActive = _pttActive;
+            
+            // Determine if we should be considered "speaking" based on transmission mode
+            shouldBeSpeaking = mode switch
+            {
+                TransmissionMode.Continuous => true,
+                TransmissionMode.VoiceActivity => true, // VAD filtering already happened above, before speaking-state update / submission
+                TransmissionMode.PushToTalk => pttActive,
+                TransmissionMode.PushToTalkPlus => pttActive,
+                _ => false
+            };
+            
+            // For PTT+, only submit audio when PTT is active (software gate)
+            shouldSubmitPcm = mode != TransmissionMode.PushToTalkPlus || pttActive;
+            
             // Only trigger speaking events if we should be speaking based on transmission mode
             if (shouldBeSpeaking && _currentlySpeaking.Add(_localUserId))
             {
@@ -1079,12 +1088,12 @@ private int _screenShareHotkeyId = -1;
             pipeline = _encodePipeline;
         }
 
-        // Software gate: voor PTT+ stuur audio alleen naar server als PTT actief
-        if (_transmissionMode != TransmissionMode.PushToTalkPlus || _pttActive)
+        // Software gate: for PTT+, send audio to the server only when PTT is active
+        if (shouldSubmitPcm)
         {
             pipeline?.SubmitPcm(new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes));
         }
-        // else: encoded audio wordt genegeerd (encoder draait door)
+        // else: encoded audio is ignored (the encoder keeps running)
     }
 
     
@@ -1313,7 +1322,7 @@ private int _screenShareHotkeyId = -1;
         if ((mode == TransmissionMode.PushToTalk || mode == TransmissionMode.PushToTalkPlus) && key != null && hwnd != IntPtr.Zero)
         {
             var vk = KeyNameToVirtualKey(key);
-            AudioLog.Write($"[Audio] SetTransmissionMode PTT: key={key}, vk=0x{vk:X2}, hwnd={hwnd}");
+            AudioLog.Write($"[Audio] SetTransmissionMode: mode={mode}, key={key}, vk=0x{vk:X2}, hwnd={hwnd}");
 
             bool isMouseButton = key is "XButton1" or "XButton2" or "MouseLeft" or "MouseRight" or "MouseMiddle";
 
@@ -1979,17 +1988,22 @@ private int _screenShareHotkeyId = -1;
                 // fire the silence tail after the hold delay.
                 _pttSilenceTailTimer?.Dispose();
                 _pttSilenceTailTimer = null;
-                silenceTailGeneration = Interlocked.Increment(ref _pttSilenceTailGeneration);
-                scheduleSilenceTail = true;
-                holdMs = _voiceHoldMs;
                 
                 // For PTT+, manually fire the silent event since the mic never stops
+                // and there's no silence tail (the encoder stays warm)
                 if (_transmissionMode == TransmissionMode.PushToTalkPlus)
                 {
                     if (_currentlySpeaking.Remove(_localUserId))
                     {
                         fireSilentEvent = true;
                     }
+                }
+                else
+                {
+                    // For regular PTT, schedule the silence tail after the hold delay
+                    silenceTailGeneration = Interlocked.Increment(ref _pttSilenceTailGeneration);
+                    scheduleSilenceTail = true;
+                    holdMs = _voiceHoldMs;
                 }
             }
             // else: active but muted - do nothing
@@ -2022,7 +2036,7 @@ private int _screenShareHotkeyId = -1;
                 // If generation has advanced, a newer cancel/restart supersedes this callback.
                 if (Interlocked.CompareExchange(ref _pttSilenceTailGeneration, generation, generation) != generation)
                     return;
-                if (_pttActive || _muted || _transmissionMode == TransmissionMode.PushToTalkPlus) return;
+                if (_pttActive || _muted) return;
                 StopMicWithSilenceTail();
             }, null, dueTime: holdMs, period: Timeout.Infinite);
         }
