@@ -55,26 +55,32 @@ git commit -m "feat: add PushToTalkPlus enum value"
 **Files:**
 - Modify: `src/Brmble.Client/Services/Voice/AudioManager.cs:966`
 
-- [ ] **Step 1: Find the existing gate logic**
+- [ ] **Step 1: Find the submit location**
 
-Read line 966 in AudioManager.cs - this is where PTT gate is checked:
+Read line 1070 in AudioManager.cs - this is where encoded audio is sent:
 ```csharp
-if (!virtualMic && _transmissionMode == TransmissionMode.PushToTalk && !_pttActive) return;
+pipeline?.SubmitPcm(new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes));
 ```
 
-- [ ] **Step 2: Add PTT+ gate logic**
+- [ ] **Step 2: Add PTT+ gate logic (CORRECT LOCATION)**
 
-**NOTE:** Dit is de software gate. Audio loopt door APM en encoder, maar wordt NIET verstuurd naar server als PTT niet actief. Geen silence tail nodig - de mic blijft aan.
+**CRITICAL:** De gate moet NA de encoder (regel 1070), NIET ervoor (regel 966)!
 
-Change line 966 from:
+De encoder moet altijd draaien, alleen het versturen wordt geblokkeerd.
+
+Change line 1070:
 ```csharp
-if (!virtualMic && _transmissionMode == TransmissionMode.PushToTalk && !_pttActive) return;
+pipeline?.SubmitPcm(new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes));
 ```
 
 To:
 ```csharp
-if (!virtualMic && _transmissionMode == TransmissionMode.PushToTalk && !_pttActive) return;
-if (!virtualMic && _transmissionMode == TransmissionMode.PushToTalkPlus && !_pttActive) return;
+// Software gate: voor PTT+ stuur audio alleen naar server als PTT actief
+if (_transmissionMode != TransmissionMode.PushToTalkPlus || _pttActive)
+{
+    pipeline?.SubmitPcm(new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes));
+}
+// else: encoded audio wordt genegeerd (encoder draait door)
 ```
 
 - [ ] **Step 3: Run build to verify**
