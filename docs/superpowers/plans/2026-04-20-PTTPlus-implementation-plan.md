@@ -13,7 +13,6 @@
 ## File Structure
 
 - **Modify:** `src/Brmble.Client/Services/Voice/AudioManager.cs` (enum, OnMicData gate)
-- **Modify:** `src/Brmble.Client/Services/Voice/VoiceService.cs` (interface doc)
 - **Modify:** `src/Brmble.Client/Services/Voice/MumbleAdapter.cs` (mode handling)
 - **Modify:** `src/Brmble.Client/Services/AppConfig/AppSettings.cs` (default)
 - **Modify:** `src/Brmble.Web/src/components/SettingsModal/AudioSettingsTab.tsx` (UI)
@@ -186,7 +185,7 @@ git commit -m "fix: skip mic start/stop in SetPttActive for PTT+ mode"
 
 ---
 
-## Task 4: Update MumbleAdapter Mode Handling
+## Task 4: Update MumbleAdapter
 
 **Files:**
 - Modify: `src/Brmble.Client/Services/Voice/MumbleAdapter.cs:657-670`
@@ -216,24 +215,37 @@ git commit -m "feat: add PTT+ mode parsing in MumbleAdapter"
 
 ---
 
-## Task 5: Update AppSettings Defaults
+## Task 5: Update AudioSettingsTab
 
 **Files:**
-- Modify: `src/Brmble.Client/Services/AppConfig/AppSettings.cs:8`
+- Modify: `src/Brmble.Client/Services/Voice/MumbleAdapter.cs:657-670`
 
-- [ ] **Step 1: Find default transmission mode**
+- [ ] **Step 1: Find SetTransmissionMode parser**
 
-Line 8 has `string TransmissionMode = "voiceActivity",`
+Read lines 657-670 - maps string to enum.
 
-- [ ] **Step 2: No change needed**
+- [ ] **Step 2: Add PTT+ parsing**
 
-Default stays as-is. PTT+ is a user choice, not default.
+Add at line 659:
+```csharp
+"pushToTalkPlus" => TransmissionMode.PushToTalkPlus,
+```
 
-- [ ] **Step 3: Commit (no-op, skip this task)**
+- [ ] **Step 3: Run build to verify**
+
+Run: `dotnet build src/Brmble.Client/Brmble.Client.csproj`
+Expected: BUILD SUCCEEDED
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/Brmble.Client/Services/Voice/MumbleAdapter.cs
+git commit -m "feat: add PTT+ mode parsing in MumbleAdapter"
+```
 
 ---
 
-## Task 6: Update Frontend Type Definition
+## Task 5: Update AudioSettingsTab
 
 **Files:**
 - Modify: `src/Brmble.Web/src/components/SettingsModal/AudioSettingsTab.tsx:21`
