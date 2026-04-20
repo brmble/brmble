@@ -7,7 +7,7 @@
   overflow: hidden;
   cursor: pointer;
   border-radius: var(--radius-sm);
-  border: 2px solid transparent;
+  border: var(--space-2xs) solid transparent;
   transition: border-color var(--transition-normal);
 }
 
@@ -67,7 +67,7 @@
 /* Fullscreen button — hover only */
 .screen-share-tile-overlay--controls {
   top: var(--space-xs);
-  right: calc(var(--space-xs) + 28px + var(--space-xs));
+  right: calc(var(--space-xs) + var(--space-lg) + var(--space-xs));
   display: flex;
   gap: var(--space-xs);
   pointer-events: auto;
@@ -77,8 +77,8 @@
   background: var(--bg-deep-glass) !important;
   color: var(--text-primary) !important;
   border-radius: var(--radius-sm) !important;
-  width: 28px;
-  height: 28px;
+  width: var(--space-lg);
+  height: var(--space-lg);
 }
 
 .screen-share-tile-control-btn:hover {
@@ -87,11 +87,11 @@
 
 /* Thumbnail adjustments */
 .screen-share-tile--thumbnail .screen-share-tile-overlay--name {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   padding: 1px var(--space-xs);
 }
 
 .screen-share-tile--thumbnail .screen-share-tile-control-btn {
-  width: 22px;
-  height: 22px;
+  width: var(--space-md);
+  height: var(--space-md);
 }
