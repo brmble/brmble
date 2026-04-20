@@ -2208,6 +2208,7 @@ const handleConnect = (serverData: SavedServer) => {
           activeShares={activeShares}
            watchingShares={watchingShares}
           onWatchScreenShare={handleWatchScreenShare}
+          onStopWatching={(userId) => disconnectViewer(userId)}
           onEditAvatar={connected ? () => setShowAvatarEditor(true) : undefined}
         />
         </ErrorBoundary>

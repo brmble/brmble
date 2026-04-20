@@ -40,6 +40,7 @@ interface SidebarProps {
   sharingChannelId?: number;
   sharingUserSession?: number;
   onWatchScreenShare?: (roomName: string, userId?: number, matrixUserId?: string) => void;
+  onStopWatching?: (userId: number) => void;
   activeShares?: ShareInfo[];
   watchingShares?: ShareInfo[];
   onEditAvatar?: () => void;
@@ -66,6 +67,7 @@ export function Sidebar({
   sharingChannelId,
   sharingUserSession,
   onWatchScreenShare,
+  onStopWatching,
   activeShares,
   watchingShares,
   onEditAvatar
@@ -286,6 +288,8 @@ export function Sidebar({
                           const isWatching = watchingShares?.some(s => s.userId === share.userId);
                           if (!isWatching) {
                             onWatchScreenShare?.(`channel-${rootChannel?.id ?? 0}`, share.userId, share.matrixUserId);
+                          } else {
+                            onStopWatching?.(share.userId);
                           }
                         } else {
                           onWatchScreenShare?.(`channel-${rootChannel?.id ?? 0}`);
@@ -345,6 +349,7 @@ export function Sidebar({
           sharingChannelId={sharingChannelId}
           sharingUserSession={sharingUserSession}
           onWatchScreenShare={onWatchScreenShare}
+          onStopWatching={onStopWatching}
           activeShares={activeShares}
           watchingShares={watchingShares}
           onEditAvatar={onEditAvatar}
