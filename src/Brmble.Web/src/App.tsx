@@ -541,12 +541,12 @@ function App() {
     const updatePttKeyFromSettings = (settings: any) => {
       const newMode = settings?.audio?.transmissionMode;
       const newKey: string | null =
-        newMode === 'pushToTalk' ? (settings?.audio?.pushToTalkKey ?? null) : null;
+        (newMode === 'pushToTalk' || newMode === 'pushToTalkPlus') ? (settings?.audio?.pushToTalkKey ?? null) : null;
 
       if (
         pttPressed &&
         (
-          newMode !== 'pushToTalk' ||
+          (newMode !== 'pushToTalk' && newMode !== 'pushToTalkPlus') ||
           !newKey ||
           newKey !== pttKey
         )
