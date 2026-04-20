@@ -1732,7 +1732,7 @@ private int _screenShareHotkeyId = -1;
 
                     if (_shortcutActionForMouse == "pushToTalk")
                     {
-                        if (_transmissionMode == TransmissionMode.PushToTalk)
+                        if (_transmissionMode == TransmissionMode.PushToTalk || _transmissionMode == TransmissionMode.PushToTalkPlus)
                             SetPttActive(true);
                     }
                     else if (_shortcutActionForMouse != null)
@@ -1754,7 +1754,7 @@ private int _screenShareHotkeyId = -1;
                 {
                     if (_shortcutActionForMouse == "pushToTalk")
                     {
-                        if (_transmissionMode == TransmissionMode.PushToTalk)
+                        if (_transmissionMode == TransmissionMode.PushToTalk || _transmissionMode == TransmissionMode.PushToTalkPlus)
                             SetPttActive(false);
                     }
                     else if (_heldMouseAction != null)
@@ -1903,7 +1903,7 @@ private int _screenShareHotkeyId = -1;
     public void HandlePttKeyFromJs(bool pressed)
     {
         AudioLog.Write($"[Audio] HandlePttKeyFromJs: pressed={pressed}, mode={_transmissionMode}");
-        if (_transmissionMode == TransmissionMode.PushToTalk)
+        if (_transmissionMode == TransmissionMode.PushToTalk || _transmissionMode == TransmissionMode.PushToTalkPlus)
         {
             SetPttActive(pressed);
         }
