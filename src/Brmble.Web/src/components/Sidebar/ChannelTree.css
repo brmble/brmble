@@ -197,14 +197,33 @@
 .user-status-icon-btn {
   background: none;
   border: none;
-  padding: 0;
+  padding: 2px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.user-status-icon-btn:hover {
+  background: var(--accent-primary-wash);
+}
+
+.user-status-icon-btn--watching {
+  background: var(--accent-secondary-subtle);
+}
+
+.user-status-icon-btn--watching .user-status-icon--sharing {
+  stroke: var(--accent-secondary) !important;
+}
+
+.user-status-icon-btn--watching:hover {
+  background: var(--accent-secondary-subtle);
+  opacity: 0.85;
 }
 
 .user-status-icon--watching {
-  filter: drop-shadow(0 0 3px var(--accent-primary));
+  filter: drop-shadow(0 0 3px var(--accent-secondary));
 }
 
 .user-name {

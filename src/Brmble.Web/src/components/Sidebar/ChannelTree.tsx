@@ -340,7 +340,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                 <span className="user-status-area">
                   {(activeShares?.some(s => s.sessionId === user.session) || user.session === sharingUserSession) ? (
                     <button
-                      className="user-status-icon-btn"
+                      className={`user-status-icon-btn${watchingShares?.some(s => s.sessionId === user.session) ? ' user-status-icon-btn--watching' : ''}`}
                       onClick={(e) => {
                         e.stopPropagation();
                         const share = activeShares?.find(s => s.sessionId === user.session);
