@@ -1,0 +1,97 @@
+.screen-share-tile {
+  position: relative;
+  background: var(--bg-deep);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  border: 2px solid transparent;
+  transition: border-color var(--transition-normal);
+}
+
+.screen-share-tile:hover {
+  border-color: var(--border-hover);
+}
+
+.screen-share-tile--focused {
+  border-color: var(--accent-primary);
+}
+
+.screen-share-tile--thumbnail {
+  cursor: pointer;
+}
+
+.screen-share-tile-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--bg-deep);
+  pointer-events: none;
+}
+
+/* Overlays */
+.screen-share-tile-overlay {
+  position: absolute;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity var(--transition-normal);
+  pointer-events: none;
+}
+
+.screen-share-tile.show-controls .screen-share-tile-overlay {
+  opacity: 1;
+}
+
+/* Name label — always visible */
+.screen-share-tile-overlay--name {
+  bottom: var(--space-xs);
+  left: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--bg-deep-glass);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+  opacity: 1;
+}
+
+/* Close button — always visible */
+.screen-share-tile-overlay--close {
+  top: var(--space-xs);
+  right: var(--space-xs);
+  pointer-events: auto;
+  opacity: 1;
+}
+
+/* Fullscreen button — hover only */
+.screen-share-tile-overlay--controls {
+  top: var(--space-xs);
+  right: calc(var(--space-xs) + 28px + var(--space-xs));
+  display: flex;
+  gap: var(--space-xs);
+  pointer-events: auto;
+}
+
+.screen-share-tile-control-btn {
+  background: var(--bg-deep-glass) !important;
+  color: var(--text-primary) !important;
+  border-radius: var(--radius-sm) !important;
+  width: 28px;
+  height: 28px;
+}
+
+.screen-share-tile-control-btn:hover {
+  background: var(--bg-hover-strong) !important;
+}
+
+/* Thumbnail adjustments */
+.screen-share-tile--thumbnail .screen-share-tile-overlay--name {
+  font-size: 10px;
+  padding: 1px var(--space-xs);
+}
+
+.screen-share-tile--thumbnail .screen-share-tile-control-btn {
+  width: 22px;
+  height: 22px;
+}
