@@ -18,7 +18,7 @@ interface AudioSettingsTabProps {
   onClearBinding: (bindingId: string) => void;
 }
 
-export type TransmissionMode = 'pushToTalk' | 'voiceActivity' | 'continuous';
+export type TransmissionMode = 'pushToTalk' | 'voiceActivity' | 'continuous' | 'pushToTalkPlus';
 
 export interface AudioSettings {
   inputDevice: string;
@@ -215,6 +215,7 @@ export function AudioSettingsTab({ settings, speechDenoise, onChange, onSpeechDe
             value={localSettings.transmissionMode}
             onChange={(v) => handleChange('transmissionMode', v as TransmissionMode)}
             options={[
+              { value: 'pushToTalkPlus', label: 'PTT+' },
               { value: 'pushToTalk', label: 'Push to Talk' },
               { value: 'voiceActivity', label: 'Voice Activity' },
               { value: 'continuous', label: 'Continuous' },
@@ -222,7 +223,7 @@ export function AudioSettingsTab({ settings, speechDenoise, onChange, onSpeechDe
           />
         </div>
 
-        {localSettings.transmissionMode === 'pushToTalk' && (
+        {(localSettings.transmissionMode === 'pushToTalk' || localSettings.transmissionMode === 'pushToTalkPlus') && (
           <>
             <div className="settings-item">
               <label>Push to Talk Key</label>
