@@ -46,6 +46,10 @@ git commit -m "feat: add PushToTalkPlus enum value"
 
 ---
 
+**NOTE:** De 80ms silence tail is alleen voor klassiek PTT. Voor PTT+ gebruiken we de software gate (geen mic stop). Task 3b regelt dit.
+
+---
+
 ## Task 2: Update OnMicData Software Gate
 
 **Files:**
@@ -59,6 +63,8 @@ if (!virtualMic && _transmissionMode == TransmissionMode.PushToTalk && !_pttActi
 ```
 
 - [ ] **Step 2: Add PTT+ gate logic**
+
+**NOTE:** Dit is de software gate. Audio loopt door APM en encoder, maar wordt NIET verstuurd naar server als PTT niet actief. Geen silence tail nodig - de mic blijft aan.
 
 Change line 966 from:
 ```csharp
@@ -94,12 +100,6 @@ git commit -m "feat: add software gate for PTT+ mode in OnMicData"
 
 Read around line 1291-1334 in AudioManager.cs - handles PTT mode setup.
 
-Current logic stops mic in PTT mode:
-```csharp
-if (mode == TransmissionMode.PushToTalk)
-    StopMic();
-```
-
 - [ ] **Step 2: Add PTT+ behavior**
 
 Add after line 1331:
@@ -123,6 +123,61 @@ Expected: BUILD SUCCEEDED
 ```bash
 git add src/Brmble.Client/Services/Voice/AudioManager.cs
 git commit -m "feat: keep mic running in PTT+ mode"
+```
+
+---
+
+## Task 3b: Fix SetPttActive for PTT+ (CRITICAL)
+
+**Files:**
+- Modify: `src/Brmble.Client/Services/Voice/AudioManager.cs:1931`
+
+**WARNING:** De bestaande SetPttActive roept StartMic() en StopMicWithSilenceTail() aan.
+Voor PTT+ moet dit OVERGESLAGEN worden - de mic blijft altijd aan.
+
+- [ ] **Step 1: Find SetPttActive logic**
+
+Read lines 1931-1956 in AudioManager.cs.
+
+- [ ] **Step 2: Add PTT+ check to skip StartMic**
+
+Change line 1931:
+```csharp
+if (active && !_muted)
+```
+
+To:
+```csharp
+if (active && !_muted && _transmissionMode != TransmissionMode.PushToTalkPlus)
+```
+
+- [ ] **Step 3: Add PTT+ check to skip StopMicWithSilenceTail**
+
+Find around line 1968 - this checks if we should stop:
+```csharp
+if (_pttActive || _muted) return;
+StopMicWithSilenceTail();
+```
+
+Add check:
+```csharp
+if (_pttActive || _muted || _transmissionMode == TransmissionMode.PushToTalkPlus) return;
+StopMicWithSilenceTail();
+```
+
+**CRITICAL:** For PTT+, we should NOT stop the mic when PTT is released.
+The software gate in OnMicData handles this.
+
+- [ ] **Step 4: Run build to verify**
+
+Run: `dotnet build src/Brmble.Client/Brmble.Client.csproj`
+Expected: BUILD SUCCEEDED
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/Brmble.Client/Services/Voice/AudioManager.cs
+git commit -m "fix: skip mic start/stop in SetPttActive for PTT+ mode"
 ```
 
 ---
