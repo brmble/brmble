@@ -120,4 +120,65 @@ public class MumbleAdapterParseTests
         var result = MumbleAdapter.ParseSessionMappings(json.RootElement);
         Assert.AreEqual(0, result.Count);
     }
+
+    // Transmission mode parsing tests
+    [TestMethod]
+    public void ParseTransmissionMode_PushToTalkPlus_ReturnsCorrectEnum()
+    {
+        var result = MumbleAdapter.ParseTransmissionMode("pushToTalkPlus");
+        Assert.AreEqual(TransmissionMode.PushToTalkPlus, result);
+    }
+
+    [TestMethod]
+    public void ParseTransmissionMode_PushToTalk_ReturnsCorrectEnum()
+    {
+        var result = MumbleAdapter.ParseTransmissionMode("pushToTalk");
+        Assert.AreEqual(TransmissionMode.PushToTalk, result);
+    }
+
+    [TestMethod]
+    public void ParseTransmissionMode_VoiceActivity_ReturnsCorrectEnum()
+    {
+        var result = MumbleAdapter.ParseTransmissionMode("voiceActivity");
+        Assert.AreEqual(TransmissionMode.VoiceActivity, result);
+    }
+
+    [TestMethod]
+    public void ParseTransmissionMode_Continuous_ReturnsCorrectEnum()
+    {
+        var result = MumbleAdapter.ParseTransmissionMode("continuous");
+        Assert.AreEqual(TransmissionMode.Continuous, result);
+    }
+
+    [TestMethod]
+    public void ParseTransmissionMode_Unknown_DefaultsToContinuous()
+    {
+        var result = MumbleAdapter.ParseTransmissionMode("invalidMode");
+        Assert.AreEqual(TransmissionMode.Continuous, result);
+    }
+
+    // DTX behavior tests
+    [TestMethod]
+    public void ShouldEnableDtx_PushToTalk_ReturnsFalse()
+    {
+        Assert.IsFalse(MumbleAdapter.ShouldEnableDtx(TransmissionMode.PushToTalk));
+    }
+
+    [TestMethod]
+    public void ShouldEnableDtx_PushToTalkPlus_ReturnsFalse()
+    {
+        Assert.IsFalse(MumbleAdapter.ShouldEnableDtx(TransmissionMode.PushToTalkPlus));
+    }
+
+    [TestMethod]
+    public void ShouldEnableDtx_VoiceActivity_ReturnsTrue()
+    {
+        Assert.IsTrue(MumbleAdapter.ShouldEnableDtx(TransmissionMode.VoiceActivity));
+    }
+
+    [TestMethod]
+    public void ShouldEnableDtx_Continuous_ReturnsTrue()
+    {
+        Assert.IsTrue(MumbleAdapter.ShouldEnableDtx(TransmissionMode.Continuous));
+    }
 }

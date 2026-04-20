@@ -650,9 +650,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _bridge?.NotifyUiThread();
     }
 
-    public void SetTransmissionMode(string mode, string? key)
+    /// <summary>
+    /// Parses a transmission mode string into a TransmissionMode enum.
+    /// Internal for testing.
+    /// </summary>
+    internal static TransmissionMode ParseTransmissionMode(string mode)
     {
-        var parsed = mode switch
+        return mode switch
         {
             "voiceActivity" => TransmissionMode.VoiceActivity,
             "pushToTalkPlus" => TransmissionMode.PushToTalkPlus,
@@ -660,14 +664,28 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             "continuous"    => TransmissionMode.Continuous,
             _ => TransmissionMode.Continuous,
         };
+    }
+
+    /// <summary>
+    /// Returns whether DTX (discontinuous transmission) should be enabled for the given mode.
+    /// DTX is on for VAD/Continuous (silence suppression), off for PTT/PTT+.
+    /// Internal for testing.
+    /// </summary>
+    internal static bool ShouldEnableDtx(TransmissionMode mode)
+    {
+        return mode != TransmissionMode.PushToTalk && mode != TransmissionMode.PushToTalkPlus;
+    }
+
+    public void SetTransmissionMode(string mode, string? key)
+    {
+        var parsed = ParseTransmissionMode(mode);
         if (parsed == TransmissionMode.Continuous && mode != "continuous")
             Debug.WriteLine($"[Audio] Unknown transmission mode '{mode}', defaulting to Continuous");
 
         if (parsed == TransmissionMode.PushToTalk || parsed == TransmissionMode.PushToTalkPlus)
             _currentPttKey = key;
 
-        // DTX on for VAD/Continuous (silence suppression), off for PTT/PTT+
-        _audioManager?.SetDtx(parsed != TransmissionMode.PushToTalk && parsed != TransmissionMode.PushToTalkPlus);
+        _audioManager?.SetDtx(ShouldEnableDtx(parsed));
         _audioManager?.SetTransmissionMode(parsed, key, _hwnd);
     }
 
