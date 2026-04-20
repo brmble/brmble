@@ -655,6 +655,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         var parsed = mode switch
         {
             "voiceActivity" => TransmissionMode.VoiceActivity,
+            "pushToTalkPlus" => TransmissionMode.PushToTalkPlus,
             "pushToTalk"    => TransmissionMode.PushToTalk,
             "continuous"    => TransmissionMode.Continuous,
             _ => TransmissionMode.Continuous,
@@ -662,11 +663,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (parsed == TransmissionMode.Continuous && mode != "continuous")
             Debug.WriteLine($"[Audio] Unknown transmission mode '{mode}', defaulting to Continuous");
 
-        if (parsed == TransmissionMode.PushToTalk)
+        if (parsed == TransmissionMode.PushToTalk || parsed == TransmissionMode.PushToTalkPlus)
             _currentPttKey = key;
 
-        // DTX on for VAD/Continuous (silence suppression), off for PTT
-        _audioManager?.SetDtx(parsed != TransmissionMode.PushToTalk);
+        // DTX on for VAD/Continuous (silence suppression), off for PTT/PTT+
+        _audioManager?.SetDtx(parsed != TransmissionMode.PushToTalk && parsed != TransmissionMode.PushToTalkPlus);
         _audioManager?.SetTransmissionMode(parsed, key, _hwnd);
     }
 
