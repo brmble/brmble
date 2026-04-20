@@ -1004,42 +1004,50 @@ private int _screenShareHotkeyId = -1;
             try
             {
                 // Convert byte buffer to normalized float samples (48kHz, range [-1, 1])
+                // Use ArrayPool to avoid per-frame allocations (important for PTT+ continuous processing)
                 var sampleCount = processedBytes / 2;
-                var samples48k = new float[sampleCount];
-                for (int i = 0; i < sampleCount; i++)
+                var samples48k = ArrayPool<float>.Shared.Rent(sampleCount);
+                try
                 {
-                    samples48k[i] = (short)(processedBuffer[i * 2] | (processedBuffer[i * 2 + 1] << 8)) / 32768f;
-                }
-
-                // Resample to 16kHz
-                var samples16k = _to16kResampler.Resample(samples48k);
-
-                // Enhance
-                var enhanced16k = _speechEnhancement.Enhance(samples16k);
-
-                if (enhanced16k != null)
-                {
-                    // Resample back to 48kHz
-                    var enhanced48k = _to48kResampler.Resample(enhanced16k);
-
-                    // Convert normalized floats back to int16 bytes
-                    int samplesToCopy = Math.Min(enhanced48k.Length, sampleCount);
-                    for (int i = 0; i < samplesToCopy; i++)
+                    for (int i = 0; i < sampleCount; i++)
                     {
-                        var sample = (short)Math.Clamp(enhanced48k[i] * 32768f, short.MinValue, short.MaxValue);
-                        processedBuffer[i * 2] = (byte)(sample & 0xFF);
-                        processedBuffer[i * 2 + 1] = (byte)((sample >> 8) & 0xFF);
+                        samples48k[i] = (short)(processedBuffer[i * 2] | (processedBuffer[i * 2 + 1] << 8)) / 32768f;
                     }
 
-                    // If the enhanced buffer is shorter than the original, zero-fill the remainder
-                    if (samplesToCopy < sampleCount)
+                    // Resample to 16kHz
+                    var samples16k = _to16kResampler.Resample(samples48k.AsSpan(0, sampleCount));
+
+                    // Enhance
+                    var enhanced16k = _speechEnhancement.Enhance(samples16k);
+
+                    if (enhanced16k != null)
                     {
-                        for (int i = samplesToCopy; i < sampleCount; i++)
+                        // Resample back to 48kHz
+                        var enhanced48k = _to48kResampler.Resample(enhanced16k);
+
+                        // Convert normalized floats back to int16 bytes
+                        int samplesToCopy = Math.Min(enhanced48k.Length, sampleCount);
+                        for (int i = 0; i < samplesToCopy; i++)
                         {
-                            processedBuffer[i * 2] = 0;
-                            processedBuffer[i * 2 + 1] = 0;
+                            var sample = (short)Math.Clamp(enhanced48k[i] * 32768f, short.MinValue, short.MaxValue);
+                            processedBuffer[i * 2] = (byte)(sample & 0xFF);
+                            processedBuffer[i * 2 + 1] = (byte)((sample >> 8) & 0xFF);
+                        }
+
+                        // If the enhanced buffer is shorter than the original, zero-fill the remainder
+                        if (samplesToCopy < sampleCount)
+                        {
+                            for (int i = samplesToCopy; i < sampleCount; i++)
+                            {
+                                processedBuffer[i * 2] = 0;
+                                processedBuffer[i * 2 + 1] = 0;
+                            }
                         }
                     }
+                }
+                finally
+                {
+                    ArrayPool<float>.Shared.Return(samples48k);
                 }
             }
             catch (Exception ex)
