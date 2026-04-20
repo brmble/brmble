@@ -54,6 +54,8 @@ describe('useScreenShare', () => {
     expect(result.current.error).toBeNull();
     expect(result.current.activeShares).toEqual([]);
     expect(result.current.watchingShare).toBeNull();
+    expect(result.current.watchingShares).toEqual([]);
+    expect(result.current.focusedShare).toBeNull();
   });
 
   it('requests token via bridge and connects on startSharing', async () => {
@@ -158,6 +160,18 @@ describe('useScreenShare', () => {
       });
     });
     expect(result.current.activeShares).toHaveLength(2);
+  });
+
+  it('exposes watchingShares as empty array initially', () => {
+    const { result } = renderHook(() => useScreenShare());
+    expect(result.current.watchingShares).toEqual([]);
+    expect(result.current.focusedShare).toBeNull();
+  });
+
+  it('exposes remoteVideoEls as empty Map initially', () => {
+    const { result } = renderHook(() => useScreenShare());
+    expect(result.current.remoteVideoEls).toBeInstanceOf(Map);
+    expect(result.current.remoteVideoEls.size).toBe(0);
   });
 
   it('disconnects on stopSharing', async () => {

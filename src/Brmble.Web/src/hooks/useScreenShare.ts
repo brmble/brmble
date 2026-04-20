@@ -28,19 +28,45 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
   const [isSharing, setIsSharing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeShares, setActiveShares] = useState<ShareInfo[]>([]);
-  const [watchingShare, setWatchingShare] = useState<ShareInfo | null>(null);
-  const [remoteVideoEl, setRemoteVideoEl] = useState<HTMLVideoElement | null>(null);
+  const [watchingShares, setWatchingShares] = useState<ShareInfo[]>([]);
+  const [focusedShare, setFocusedShare] = useState<ShareInfo | null>(null);
+  const [remoteVideoEls, setRemoteVideoEls] = useState<Map<number, HTMLVideoElement>>(new Map());
 
   // Single room connection per channel — used for both publishing and subscribing
   const roomRef = useRef<Room | null>(null);
-  const watchingShareRef = useRef<ShareInfo | null>(null);
+  const watchingSharesRef = useRef<ShareInfo[]>([]);
   const isSharingRef = useRef(false);
   const onDisconnectedRef = useRef(onDisconnected);
   onDisconnectedRef.current = onDisconnected;
 
-  const updateWatchingShare = useCallback((share: ShareInfo | null) => {
-    watchingShareRef.current = share;
-    setWatchingShare(share);
+  const updateWatchingShares = useCallback((shares: ShareInfo[]) => {
+    watchingSharesRef.current = shares;
+    setWatchingShares(shares);
+  }, []);
+
+  const addWatchingShare = useCallback((share: ShareInfo) => {
+    setWatchingShares(prev => {
+      if (prev.some(s => s.userId === share.userId)) return prev;
+      const next = prev.length >= 4
+        ? [...prev.slice(1), share]  // drop oldest if at max 4
+        : [...prev, share];
+      watchingSharesRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const removeWatchingShare = useCallback((userId: number) => {
+    setWatchingShares(prev => {
+      const next = prev.filter(s => s.userId !== userId);
+      watchingSharesRef.current = next;
+      return next;
+    });
+    setFocusedShare(prev => prev?.userId === userId ? null : prev);
+    setRemoteVideoEls(prev => {
+      const next = new Map(prev);
+      next.delete(userId);
+      return next;
+    });
   }, []);
 
   // Helper: request a LiveKit token via bridge
@@ -87,7 +113,7 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
     const room = new Room();
 
     room.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
-      const watching = watchingShareRef.current;
+      const watching = watchingSharesRef.current[0];
       if (!watching) return;
       const targetIdentity = watching.matrixUserId ?? String(watching.userId);
       if (
@@ -96,12 +122,16 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
         participant.identity === targetIdentity
       ) {
         const el = track.attach() as HTMLVideoElement;
-        setRemoteVideoEl(el);
+        setRemoteVideoEls(prev => {
+          const next = new Map(prev);
+          next.set(watching.userId, el);
+          return next;
+        });
       }
     });
 
     room.on(RoomEvent.TrackUnsubscribed, (track, _pub, participant) => {
-      const watching = watchingShareRef.current;
+      const watching = watchingSharesRef.current[0];
       if (!watching) return;
       const targetIdentity = watching.matrixUserId ?? String(watching.userId);
       if (
@@ -110,29 +140,33 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
         participant.identity === targetIdentity
       ) {
         track.detach();
-        setRemoteVideoEl(null);
+        setRemoteVideoEls(prev => {
+          const next = new Map(prev);
+          next.delete(watching.userId);
+          return next;
+        });
       }
     });
 
     room.on(RoomEvent.Disconnected, () => {
       roomRef.current = null;
-      setRemoteVideoEl(null);
+      setRemoteVideoEls(new Map());
       if (isSharingRef.current) {
         setIsSharing(false);
         isSharingRef.current = false;
         onDisconnectedRef.current?.();
       }
-      updateWatchingShare(null);
+      updateWatchingShares([]);
     });
 
     await room.connect(url, token);
     roomRef.current = room;
     return room;
-  }, [requestToken, updateWatchingShare]);
+  }, [requestToken, updateWatchingShares]);
 
   // Try to disconnect the room, but only if we're not sharing AND not watching
   const maybeDisconnectRoom = useCallback(async () => {
-    if (!isSharingRef.current && !watchingShareRef.current && roomRef.current) {
+    if (!isSharingRef.current && watchingSharesRef.current.length === 0 && roomRef.current) {
       try { await roomRef.current.disconnect(); } catch { /* ignore */ }
       roomRef.current = null;
     }
@@ -225,7 +259,7 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
 
   const connectAsViewer = useCallback(async (roomName: string, targetUserId: number, matrixUserId?: string) => {
     // Already watching this exact share — no-op
-    const current = watchingShareRef.current;
+    const current = watchingSharesRef.current[0];
     if (current && current.roomName === roomName && current.userId === targetUserId) {
       return;
     }
@@ -237,7 +271,7 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
       const room = await ensureRoom(roomName);
 
       // Detach any previously watched track
-      const prevWatching = watchingShareRef.current;
+      const prevWatching = watchingSharesRef.current[0];
       if (prevWatching) {
         const prevIdentity = prevWatching.matrixUserId ?? String(prevWatching.userId);
         const prevParticipant = room.remoteParticipants.get(prevIdentity);
@@ -248,11 +282,12 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
             }
           });
         }
-        setRemoteVideoEl(null);
+        setRemoteVideoEls(new Map());
       }
 
       // Update watching state before subscribing (so TrackSubscribed handler picks it up)
-      updateWatchingShare(shareInfo ?? { roomName, userName: '', userId: targetUserId, matrixUserId });
+      const newShare = shareInfo ?? { roomName, userName: '', userId: targetUserId, matrixUserId };
+      updateWatchingShares([newShare]);
 
       // Subscribe to the target's screen share track
       const participant = room.remoteParticipants.get(participantIdentity);
@@ -260,7 +295,7 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
         participant.trackPublications.forEach((pub: RemoteTrackPublication) => {
           if (pub.track && pub.track.kind === Track.Kind.Video && pub.source === Track.Source.ScreenShare) {
             const el = pub.track.attach() as HTMLVideoElement;
-            setRemoteVideoEl(el);
+            setRemoteVideoEls(new Map([[targetUserId, el]]));
           }
         });
       }
@@ -268,11 +303,11 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
     } catch (err) {
       console.error('Failed to connect as viewer:', err);
     }
-  }, [activeShares, ensureRoom, updateWatchingShare]);
+  }, [activeShares, ensureRoom, updateWatchingShares]);
 
   const disconnectViewer = useCallback(async () => {
     // Detach the remote track we're watching
-    const watching = watchingShareRef.current;
+    const watching = watchingSharesRef.current[0];
     const room = roomRef.current;
     if (watching && room) {
       const targetIdentity = watching.matrixUserId ?? String(watching.userId);
@@ -285,12 +320,12 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
         });
       }
     }
-    setRemoteVideoEl(null);
-    updateWatchingShare(null);
+    setRemoteVideoEls(new Map());
+    updateWatchingShares([]);
 
     // Disconnect only if not sharing
     await maybeDisconnectRoom();
-  }, [updateWatchingShare, maybeDisconnectRoom]);
+  }, [updateWatchingShares, maybeDisconnectRoom]);
 
   // Listen for screen share events from bridge
   useEffect(() => {
@@ -305,7 +340,7 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
     const onShareStopped = (data: unknown) => {
       const d = data as { roomName: string; userId: number };
       setActiveShares(prev => prev.filter(s => !(s.roomName === d.roomName && s.userId === d.userId)));
-      const current = watchingShareRef.current;
+      const current = watchingSharesRef.current[0];
       if (current && current.roomName === d.roomName && current.userId === d.userId) {
         // The share we were watching stopped — detach but don't disconnect room
         const room = roomRef.current;
@@ -320,8 +355,8 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
             });
           }
         }
-        setRemoteVideoEl(null);
-        updateWatchingShare(null);
+        setRemoteVideoEls(new Map());
+        updateWatchingShares([]);
         // Disconnect room if also not sharing
         if (!isSharingRef.current && room) {
           room.disconnect().catch(() => {});
@@ -361,6 +396,10 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
     ? { roomName: activeShares[0].roomName, userName: activeShares[0].userName, sessionId: activeShares[0].sessionId }
     : null;
 
+  // Backward compat
+  const watchingShare = watchingShares.length > 0 ? watchingShares[0] : null;
+  const remoteVideoEl = remoteVideoEls.size > 0 ? remoteVideoEls.values().next().value ?? null : null;
+
   return {
     isSharing,
     startSharing,
@@ -368,8 +407,12 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
     error,
     activeShare,       // backward compat
     activeShares,      // new: all active shares
-    watchingShare,     // new: which share you're viewing
-    remoteVideoEl,
+    watchingShare,     // backward compat
+    watchingShares,    // new
+    focusedShare,      // new
+    setFocusedShare,   // new
+    remoteVideoEl,     // backward compat
+    remoteVideoEls,    // new
     disconnectViewer,
     connectAsViewer,
   };
