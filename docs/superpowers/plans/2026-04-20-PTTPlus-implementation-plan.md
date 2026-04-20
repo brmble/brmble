@@ -147,25 +147,23 @@ Read lines 1931-1956 in AudioManager.cs.
 
 - [ ] **Step 2: Add PTT+ check to skip StartMic**
 
-Change line 1931:
+Find EXACTLY line 1931:
 ```csharp
 if (active && !_muted)
 ```
 
-To:
+Replace with:
 ```csharp
 if (active && !_muted && _transmissionMode != TransmissionMode.PushToTalkPlus)
 ```
 
 - [ ] **Step 3: Add PTT+ check to skip StopMicWithSilenceTail**
 
-Find around line 1968 - this checks if we should stop:
-```csharp
-if (_pttActive || _muted) return;
-StopMicWithSilenceTail();
-```
+Find EXACTLY these lines in AudioManager.cs:
+- Regel 1968: `if (_pttActive || _muted) return;`
+- Regel 1969: `StopMicWithSilenceTail();`
 
-Add check:
+Replace both lines with:
 ```csharp
 if (_pttActive || _muted || _transmissionMode == TransmissionMode.PushToTalkPlus) return;
 StopMicWithSilenceTail();
