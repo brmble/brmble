@@ -39,9 +39,8 @@ interface SidebarProps {
   channelUnreads?: Map<string, { notificationCount: number; highlightCount: number }>;
   sharingChannelId?: number;
   sharingUserSession?: number;
-  onWatchScreenShare?: (roomName: string, userId?: number) => void;
+  onWatchScreenShare?: (roomName: string, userId?: number, matrixUserId?: string) => void;
   activeShares?: ShareInfo[];
-  watchingShare?: ShareInfo | null;
   watchingShares?: ShareInfo[];
   onEditAvatar?: () => void;
 }
@@ -68,7 +67,6 @@ export function Sidebar({
   sharingUserSession,
   onWatchScreenShare,
   activeShares,
-  watchingShare,
   watchingShares,
   onEditAvatar
 }: SidebarProps) {
@@ -348,7 +346,6 @@ export function Sidebar({
           sharingUserSession={sharingUserSession}
           onWatchScreenShare={onWatchScreenShare}
           activeShares={activeShares}
-          watchingShare={watchingShare}
           watchingShares={watchingShares}
           onEditAvatar={onEditAvatar}
           onMoveUser={(session, channelId) => bridge.send('voice.move', { session, channelId })}

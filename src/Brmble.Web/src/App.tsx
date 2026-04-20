@@ -1843,7 +1843,7 @@ const handleConnect = (serverData: SavedServer) => {
     };
   }, []);
 
-  const { isSharing, startSharing, stopSharing, error: screenShareError, activeShare, activeShares, watchingShare, watchingShares, focusedShare, setFocusedShare, remoteVideoEl, remoteVideoEls, disconnectViewer, connectAsViewer } = useScreenShare(() => {
+  const { isSharing, startSharing, stopSharing, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, remoteVideoEls, disconnectViewer, connectAsViewer } = useScreenShare(() => {
     setSharingChannelId(undefined);
   }, screenShareSettings);
   disconnectViewerRef.current = disconnectViewer;
@@ -2205,8 +2205,7 @@ const handleConnect = (serverData: SavedServer) => {
           sharingChannelId={sharingChannelId ? Number(sharingChannelId) : (activeShares.length > 0 ? Number(activeShares[0].roomName.replace('channel-', '')) : undefined)}
           sharingUserSession={isSharing ? selfSession : activeShare?.sessionId}
           activeShares={activeShares}
-          watchingShare={watchingShare}
-          watchingShares={watchingShares}
+           watchingShares={watchingShares}
           onWatchScreenShare={handleWatchScreenShare}
           onEditAvatar={connected ? () => setShowAvatarEditor(true) : undefined}
         />
