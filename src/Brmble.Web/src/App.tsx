@@ -1843,7 +1843,7 @@ const handleConnect = (serverData: SavedServer) => {
     };
   }, []);
 
-  const { isSharing, startSharing, stopSharing, error: screenShareError, activeShare, activeShares, watchingShare, remoteVideoEl, disconnectViewer, connectAsViewer } = useScreenShare(() => {
+  const { isSharing, startSharing, stopSharing, error: screenShareError, activeShare, activeShares, watchingShare, watchingShares, focusedShare, setFocusedShare, remoteVideoEl, remoteVideoEls, disconnectViewer, connectAsViewer } = useScreenShare(() => {
     setSharingChannelId(undefined);
   }, screenShareSettings);
   disconnectViewerRef.current = disconnectViewer;
@@ -2206,6 +2206,7 @@ const handleConnect = (serverData: SavedServer) => {
           sharingUserSession={isSharing ? selfSession : activeShare?.sessionId}
           activeShares={activeShares}
           watchingShare={watchingShare}
+          watchingShares={watchingShares}
           onWatchScreenShare={handleWatchScreenShare}
           onEditAvatar={connected ? () => setShowAvatarEditor(true) : undefined}
         />
@@ -2242,10 +2243,12 @@ const handleConnect = (serverData: SavedServer) => {
                     matrixClient={matrixClient.client}
                     matrixRoomId={channelMatrixRoomId}
                     readMarkerTs={channelDividerTs}
-                    screenShareVideoEl={remoteVideoEl}
-                    screenSharerName={watchingShare?.userName ?? activeShare?.userName}
+                    watchingShares={watchingShares}
+                    focusedShare={focusedShare}
+                    remoteVideoEls={remoteVideoEls}
+                    onFocusShare={setFocusedShare}
+                    onCloseShare={(share) => disconnectViewer(share.userId)}
                     screenShareViewerMode={screenShareSettings.viewerMode}
-                    onCloseScreenShare={disconnectViewer}
                     users={users}
                     onMessageContextMenu={handleChatMessageContextMenu}
                     onCopyToClipboard={handleCopyToClipboard}

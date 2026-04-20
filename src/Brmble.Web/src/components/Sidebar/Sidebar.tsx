@@ -42,6 +42,7 @@ interface SidebarProps {
   onWatchScreenShare?: (roomName: string, userId?: number) => void;
   activeShares?: ShareInfo[];
   watchingShare?: ShareInfo | null;
+  watchingShares?: ShareInfo[];
   onEditAvatar?: () => void;
 }
 
@@ -68,6 +69,7 @@ export function Sidebar({
   onWatchScreenShare,
   activeShares,
   watchingShare,
+  watchingShares,
   onEditAvatar
 }: SidebarProps) {
   const fingerprint = useProfileFingerprint();
@@ -277,7 +279,24 @@ export function Sidebar({
               >
                 <span className="user-status-area">
                   {(activeShares?.some(s => s.sessionId === user.session) || user.session === sharingUserSession) ? (
-                    <Icon name="monitor" size={11} className={`user-status-icon user-status-icon--sharing${watchingShare?.sessionId === user.session ? ' user-status-icon--watching' : ''}`} stroke="var(--accent-primary)" strokeWidth="2.5" />
+                    <button
+                      className="user-status-icon-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const share = activeShares?.find(s => s.sessionId === user.session);
+                        if (share) {
+                          const isWatching = watchingShares?.some(s => s.userId === share.userId);
+                          if (!isWatching) {
+                            onWatchScreenShare?.(`channel-${rootChannel?.id ?? 0}`, share.userId, share.matrixUserId);
+                          }
+                        } else {
+                          onWatchScreenShare?.(`channel-${rootChannel?.id ?? 0}`);
+                        }
+                      }}
+                      aria-label={`${watchingShares?.some(s => s.sessionId === user.session) ? 'Watching' : 'Watch'} screen share from ${user.name}`}
+                    >
+                      <Icon name="monitor" size={11} className={`user-status-icon user-status-icon--sharing${watchingShares?.some(s => s.sessionId === user.session) ? ' user-status-icon--watching' : ''}`} stroke="var(--accent-primary)" strokeWidth="2.5" />
+                    </button>
                   ) : (
                     <>
                       {user.deafened && (
@@ -330,6 +349,7 @@ export function Sidebar({
           onWatchScreenShare={onWatchScreenShare}
           activeShares={activeShares}
           watchingShare={watchingShare}
+          watchingShares={watchingShares}
           onEditAvatar={onEditAvatar}
           onMoveUser={(session, channelId) => bridge.send('voice.move', { session, channelId })}
         />

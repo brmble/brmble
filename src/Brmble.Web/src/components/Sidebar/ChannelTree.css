@@ -194,6 +194,19 @@
   flex-shrink: 0;
 }
 
+.user-status-icon-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+
+.user-status-icon--watching {
+  filter: drop-shadow(0 0 3px var(--accent-primary));
+}
+
 .user-name {
   flex: 1;
   overflow: hidden;

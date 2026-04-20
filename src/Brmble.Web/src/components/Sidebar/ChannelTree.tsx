@@ -55,11 +55,12 @@ interface ChannelTreeProps {
   onWatchScreenShare?: (roomName: string, userId?: number, matrixUserId?: string) => void;
   activeShares?: ShareInfo[];
   watchingShare?: ShareInfo | null;
+  watchingShares?: ShareInfo[];
   onEditAvatar?: () => void;
   onMoveUser?: (session: number, channelId: number) => void;
 }
 
-export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, speakingUsers, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, activeShares, watchingShare, onEditAvatar, onMoveUser }: ChannelTreeProps) {
+export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, speakingUsers, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, activeShares, watchingShare, watchingShares, onEditAvatar, onMoveUser }: ChannelTreeProps) {
   const [sortByNamePerChannel, setSortByNamePerChannel] = useState<Record<number, boolean>>({});
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string; isSelf: boolean; channelId?: number } | null>(null);
   const [channelContextMenu, setChannelContextMenu] = useState<{ x: number; y: number; channelId: number; channelName: string } | null>(null);
@@ -338,7 +339,26 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
               >
                 <span className="user-status-area">
                   {(activeShares?.some(s => s.sessionId === user.session) || user.session === sharingUserSession) ? (
-                    <Icon name="monitor" size={11} className={`user-status-icon user-status-icon--sharing${watchingShare?.sessionId === user.session ? ' user-status-icon--watching' : ''}`} stroke="var(--accent-primary)" strokeWidth={2.5} />
+                    <button
+                      className="user-status-icon-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const share = activeShares?.find(s => s.sessionId === user.session);
+                        if (share) {
+                          const isWatching = watchingShares?.some(s => s.userId === share.userId);
+                          if (isWatching) {
+                            // Already watching — no-op (close handled from ChatPanel)
+                          } else {
+                            onWatchScreenShare?.(`channel-${channel.id}`, share.userId, share.matrixUserId);
+                          }
+                        } else {
+                          onWatchScreenShare?.(`channel-${channel.id}`);
+                        }
+                      }}
+                      aria-label={`${watchingShares?.some(s => s.sessionId === user.session) ? 'Watching' : 'Watch'} screen share from ${user.name}`}
+                    >
+                      <Icon name="monitor" size={11} className={`user-status-icon user-status-icon--sharing${watchingShares?.some(s => s.sessionId === user.session) ? ' user-status-icon--watching' : ''}`} stroke="var(--accent-primary)" strokeWidth={2.5} />
+                    </button>
                   ) : (
                     <>
                       {user.deafened && (

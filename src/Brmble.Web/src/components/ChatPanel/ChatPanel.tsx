@@ -6,7 +6,8 @@ import { BrmbleLogo } from '../Header/BrmbleLogo';
 import { groupMessages } from '../../utils/groupMessages';
 import { formatDateSeparator, formatFullDate } from '../../utils/formatDateSeparator';
 import type { ChatMessage, MentionableUser } from '../../types';
-import { ScreenShareViewer } from '../ScreenShareViewer/ScreenShareViewer';
+import { ScreenShareGrid } from '../ScreenShareGrid';
+import type { ShareInfo } from '../../hooks/useScreenShare';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { Icon } from '../Icon/Icon';
@@ -24,10 +25,12 @@ interface ChatPanelProps {
   matrixClient?: MatrixClient | null;
   matrixRoomId?: string | null;
   readMarkerTs?: number | null;
-  screenShareVideoEl?: HTMLVideoElement | null;
-  screenSharerName?: string;
+  watchingShares?: ShareInfo[];
+  focusedShare?: ShareInfo | null;
+  remoteVideoEls?: Map<number, HTMLVideoElement>;
+  onFocusShare?: (share: ShareInfo | null) => void;
+  onCloseShare?: (share: ShareInfo) => void;
   screenShareViewerMode?: 'in-app' | 'new-window';
-  onCloseScreenShare?: () => void;
   /** Connected users for avatar lookup by sender name */
   users?: { name: string; matrixUserId?: string; avatarUrl?: string }[];
   disabled?: boolean;
@@ -41,7 +44,7 @@ const SCROLL_THRESHOLD = 150;
 const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
 const DEFAULT_SPLIT = 50;
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, screenShareVideoEl, screenSharerName, screenShareViewerMode, onCloseScreenShare, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, watchingShares, focusedShare, remoteVideoEls, onFocusShare, onCloseShare, screenShareViewerMode, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard }: ChatPanelProps) {
   // Build lookup maps from sender name and matrixUserId → avatar data for MessageBubble.
   // Name-based lookup works when Mumble name matches message sender.
   // MatrixUserId-based lookup handles cases where the user connected with a different
@@ -200,11 +203,15 @@ const [replyState, setReplyState] = useState<{
     document.addEventListener('mouseup', onMouseUp);
   }, []);
 
-  const hasScreenShare = screenShareViewerMode === 'in-app' && !!screenShareVideoEl && !!screenSharerName && !!onCloseScreenShare;
-  const hasNewWindowScreenShare = screenShareViewerMode === 'new-window' && !!screenShareVideoEl && !!screenSharerName && !!onCloseScreenShare;
+  const hasScreenShare = screenShareViewerMode === 'in-app' && (watchingShares?.length ?? 0) > 0 && remoteVideoEls && remoteVideoEls.size > 0 && onCloseShare;
+  const hasNewWindowScreenShare = screenShareViewerMode === 'new-window' && (watchingShares?.length ?? 0) > 0 && remoteVideoEls && remoteVideoEls.size > 0 && onCloseShare;
 
   useEffect(() => {
-    if (hasNewWindowScreenShare && screenShareVideoEl && screenSharerName) {
+    const firstShare = watchingShares?.[0];
+    const firstVideoEl = firstShare ? remoteVideoEls?.get(firstShare.userId) : undefined;
+    const firstSharerName = firstShare?.userName;
+
+    if (hasNewWindowScreenShare && firstVideoEl && firstSharerName) {
       const existingOverlay = document.getElementById('screenshare-new-window-overlay');
       if (existingOverlay) {
         existingOverlay.remove();
@@ -215,7 +222,7 @@ const [replyState, setReplyState] = useState<{
       
       const closeOverlay = () => {
         overlay.remove();
-        onCloseScreenShare?.();
+        if (firstShare) onCloseShare?.(firstShare);
       };
       
       const handleEsc = (e: KeyboardEvent) => {
@@ -244,7 +251,7 @@ const [replyState, setReplyState] = useState<{
       overlay.id = 'screenshare-new-window-overlay';
       overlay.setAttribute('role', 'dialog');
       overlay.setAttribute('aria-modal', 'true');
-      overlay.setAttribute('aria-label', `Screen share from ${screenSharerName}`);
+      overlay.setAttribute('aria-label', `Screen share from ${firstSharerName}`);
       
       const style = document.createElement('style');
       style.textContent = `
@@ -311,7 +318,7 @@ const [replyState, setReplyState] = useState<{
       
       const title = document.createElement('span');
       title.className = 'title';
-      title.textContent = `Screen Share - ${screenSharerName}`;
+      title.textContent = `Screen Share - ${firstSharerName}`;
       
       const buttons = document.createElement('div');
       buttons.className = 'buttons';
@@ -338,8 +345,8 @@ const [replyState, setReplyState] = useState<{
       
       document.body.appendChild(overlay);
       
-      if (screenShareVideoEl.srcObject) {
-        newVideo.srcObject = screenShareVideoEl.srcObject;
+      if (firstVideoEl.srcObject) {
+        newVideo.srcObject = firstVideoEl.srcObject;
       }
       
       closeButton.addEventListener('click', closeOverlay);
@@ -356,7 +363,7 @@ const [replyState, setReplyState] = useState<{
         }
       };
     }
-  }, [hasNewWindowScreenShare, screenShareVideoEl, screenSharerName, onCloseScreenShare]);
+  }, [hasNewWindowScreenShare, watchingShares, remoteVideoEls, onCloseShare]);
 
   const handleScroll = useCallback(() => {
     const container = messagesContainerRef.current;
@@ -786,10 +793,12 @@ const [replyState, setReplyState] = useState<{
       {hasScreenShare && (
         <>
           <div className="chat-split-video" style={{ flex: `0 0 ${splitPercent}%` }}>
-            <ScreenShareViewer
-              videoEl={screenShareVideoEl}
-              sharerName={screenSharerName}
-              onClose={onCloseScreenShare}
+            <ScreenShareGrid
+              watchingShares={watchingShares!}
+              focusedShare={focusedShare ?? null}
+              videoElements={remoteVideoEls!}
+              onFocus={onFocusShare ?? (() => {})}
+              onClose={onCloseShare!}
             />
           </div>
           <div
