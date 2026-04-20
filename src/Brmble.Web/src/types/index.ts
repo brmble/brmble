@@ -69,6 +69,8 @@ export interface ServiceStatus {
   error?: string;
   label?: string;
   loss?: number;
+  /** SemVer string for the connected Brmble server (only set for svc === 'server'). */
+  version?: string;
 }
 
 export type ServiceStatusMap = Record<ServiceName, ServiceStatus>;

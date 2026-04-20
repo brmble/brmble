@@ -104,14 +104,27 @@ export function Sidebar({
     }
   };
 
+  const formatServerVersion = (v: string): string =>
+    v.startsWith('v') || v.startsWith('V') ? v : `v${v}`;
+
   const dotTooltip = (svc: ServiceName): string => {
     const name = SERVICE_DISPLAY_NAMES[svc];
-    const state = stateLabel(statuses[svc].state);
-    const error = statuses[svc].error;
-    if (svc === 'voice' && statuses[svc].state === 'connected' && typeof statuses[svc].loss === 'number') {
-      const quality = statuses[svc].loss < 2 ? ' (good)' : statuses[svc].loss < 10 ? ' (fair)' : ' (poor)';
-      return `${name}: ${state}\nPacket loss: ${statuses[svc].loss}%${quality}`;
+    const status = statuses[svc];
+    const state = stateLabel(status.state);
+    const error = status.error;
+
+    if (svc === 'voice' && status.state === 'connected' && typeof status.loss === 'number') {
+      const quality = status.loss < 2 ? ' (good)' : status.loss < 10 ? ' (fair)' : ' (poor)';
+      return `${name}: ${state}\nPacket loss: ${status.loss}%${quality}`;
     }
+
+    if (svc === 'server' && status.state === 'connected' && status.version) {
+      const versionPart = formatServerVersion(status.version);
+      return error
+        ? `${name}: ${state} — ${versionPart} — ${error}`
+        : `${name}: ${state} — ${versionPart}`;
+    }
+
     return error ? `${name}: ${state} — ${error}` : `${name}: ${state}`;
   };
 

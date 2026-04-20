@@ -12,12 +12,18 @@ export function useServerHealth() {
 
   useEffect(() => {
     const onHealthStatus = (data: unknown) => {
-      const d = data as { state?: ServiceState; error?: string; label?: string } | undefined;
+      const d = data as {
+        state?: ServiceState;
+        error?: string;
+        label?: string;
+        version?: string;
+      } | undefined;
       if (!d?.state) return;
       updateStatus('server', {
         state: d.state,
         error: d.error,
         label: d.label,
+        version: d.version ?? undefined,
       });
     };
 
