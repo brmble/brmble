@@ -1,0 +1,236 @@
+.container {
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  min-height: 100vh;
+  padding: var(--space-xl);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: var(--space-xl);
+  align-items: center;
+}
+
+.title {
+  font-size: 28px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  margin-bottom: var(--space-md);
+  color: var(--accent-primary);
+  margin: 0;
+}
+
+.statsBar {
+  display: flex;
+  gap: var(--space-lg);
+  align-items: center;
+  padding: var(--space-xs) var(--space-lg);
+}
+
+.money {
+  font-size: var(--text-lg);
+  font-weight: bold;
+  color: var(--accent-success);
+}
+
+.gridLayout {
+  display: grid;
+  grid-template-columns: 1fr 350px;
+  gap: var(--space-xl);
+}
+
+.productionCard {
+  background: rgba(20, 20, 25, 0.8);
+  border: 1px solid var(--glass-border);
+  border-left: 4px solid var(--accent-success);
+  border-radius: var(--radius-md);
+  padding: var(--space-lg);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8), 
+              inset 0 0 10px rgba(0, 255, 150, 0.1);
+  transition: all 0.3s ease;
+  margin-bottom: var(--space-md);
+}
+
+.productionCard:hover {
+  transform: translateY(-5px);
+  border-color: var(--accent-success);
+  box-shadow: 0 10px 40px 0 rgba(0, 255, 150, 0.2);
+}
+
+.distributionCard {
+  border-left: 4px solid var(--accent-secondary);
+}
+
+.columnHeader {
+  font-size: 18px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent-success);
+  margin-bottom: var(--space-sm);
+  font-weight: 600;
+}
+
+.distributionColumnHeader {
+  composes: columnHeader;
+  color: var(--accent-secondary);
+}
+
+.productionColumnHeader {
+  composes: columnHeader;
+}
+
+.statRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-xs);
+}
+
+.label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.price {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.productionRate {
+  color: var(--accent-success);
+  font-size: var(--text-xs);
+}
+
+.salesRate {
+  color: var(--accent-secondary);
+  font-size: var(--text-xs);
+}
+
+.upgradeButton {
+  flex: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.upgradeButton:active {
+  transform: scale(0.95);
+}
+
+.buyButton {
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  border: none;
+  background: linear-gradient(135deg, var(--accent-success) 0%, #00cc66 100%);
+  color: #000;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  box-shadow: 0 4px 15px 0 rgba(0, 255, 150, 0.3),
+              inset 0 0 10px rgba(255, 255, 255, 0.1);
+  transition: all 0.2s ease;
+}
+
+.buyButton:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 25px 0 rgba(0, 255, 150, 0.5),
+              inset 0 0 15px rgba(255, 255, 255, 0.2);
+}
+
+.buyButton:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.buyButton:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.unlockButton {
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  border: 2px solid var(--accent-primary);
+  background: transparent;
+  color: var(--accent-primary);
+  cursor: pointer;
+  font-weight: 700;
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  transition: all 0.2s ease;
+}
+
+.unlockButton:hover:not(:disabled) {
+  background: var(--accent-primary);
+  color: var(--bg-deep);
+  box-shadow: 0 0 20px rgba(0, 200, 255, 0.4);
+}
+
+.unlockButton:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.dangerButton {
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  border: 2px solid var(--accent-secondary);
+  background: transparent;
+  color: var(--accent-secondary);
+  cursor: pointer;
+  font-weight: 700;
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  transition: all 0.2s ease;
+}
+
+.dangerButton:hover {
+  background: var(--accent-secondary);
+  color: var(--bg-deep);
+  box-shadow: 0 0 20px rgba(255, 50, 150, 0.4);
+}
+
+.level {
+  background: rgba(255,255,255,0.1);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.upgradeCost {
+  color: var(--accent-success);
+}
+
+.select {
+  background: var(--bg-deep);
+  color: white;
+  border: 1px solid var(--glass-border);
+  border-radius: 4px;
+  padding: 2px 8px;
+}
+
+.dealerHeader {
+  background: var(--accent-secondary);
+  padding: var(--space-xs);
+  text-align: center;
+  font-weight: bold;
+}
