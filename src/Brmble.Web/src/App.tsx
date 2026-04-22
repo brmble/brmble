@@ -2229,7 +2229,7 @@ const handleConnect = (serverData: SavedServer) => {
             )
           ) : connectionStatus === 'connected' ? (
             showGame ? (
-              <NeonDGame />
+              <NeonDGame onClose={() => setShowGame(false)} />
             ) : (
               <div className={`content-slider ${dmStore.appMode === 'dm' ? 'dm-active' : ''}`}>
                 <div className="content-slide">

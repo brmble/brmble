@@ -14,7 +14,11 @@ const DEALERS = [
 
 function StarRating({ rating }: { rating: number }) {
   const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
-  return <span style={{ color: 'gold' }}>{stars}</span>;
+  return (
+    <span aria-label={`Rating: ${rating}/5`} title={`Rating: ${rating}/5`}>
+      <span style={{ color: 'gold' }} aria-hidden="true">{stars}</span>
+    </span>
+  );
 }
 
 function getUpgradeName(id: string): string {
@@ -41,7 +45,7 @@ function getUpgradeName(id: string): string {
   return names[id] || 'Lab';
 }
 
-export function NeonDGame() {
+export function NeonDGame({ onClose }: { onClose?: () => void }) {
   const { state, upgrade, unlockProduction, hireDealer, fireDealer, setBribeLevel, resetGame } = useGameEngine();
 
   const handleDealerChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -56,15 +60,11 @@ export function NeonDGame() {
     setBribeLevel(level);
   };
 
-  const getSoldRate = () => {
-    if (!state.dealer) return 0;
-    return state.dealer.volume;
-  };
-
   const getGrossRate = () => {
     if (!state.dealer) return 0;
     const activeProd = state.production[state.dealer.selling];
-    const actualGramsSold = Math.min(activeProd.rate, state.dealer.volume);
+    const availableStock = activeProd?.stock ?? 0;
+    const actualGramsSold = Math.min(availableStock, state.dealer.volume);
     const tierMult = PRODUCT_TIERS[state.dealer.selling] || 1;
     return actualGramsSold * (state.dealer.margin * tierMult);
   };
@@ -96,7 +96,17 @@ export function NeonDGame() {
   return (
     <div className={styles.container}>
       <header className={styles.header}>
-        <h2 className={styles.title}>Brmble Empire</h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2 className={styles.title}>Brmble Empire</h2>
+          {onClose && (
+            <button 
+              onClick={onClose}
+              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.5rem' }}
+            >
+              ×
+            </button>
+          )}
+        </div>
         <div className={`glass-panel ${styles.statsBar}`}>
           <div className={styles.label}>
             Research Speed: {state.researchSpeed.toFixed(1)}x

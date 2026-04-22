@@ -48,8 +48,9 @@ export const useGameEngine = () => {
   const upgrade = (id: string) => {
     setState(prev => {
       const item = prev.production[id];
+      if (!item) return prev;
       const currentUpgradeCost = Math.floor(item.upgradeCost);
-      if (!item || prev.money < currentUpgradeCost) return prev;
+      if (prev.money < currentUpgradeCost) return prev;
       if (!prev.unlockedProduction.includes(id)) return prev;
       
       const rateIncreases: Record<string, number> = {
@@ -85,6 +86,7 @@ export const useGameEngine = () => {
 
   const unlockProduction = (id: string) => {
     setState(prev => {
+      if (prev.unlockedProduction.includes(id)) return prev;
       const item = prev.production[id];
       const unlockCost = UNLOCK_COSTS[id] || 300;
       if (!item || prev.money < unlockCost) return prev;
@@ -92,9 +94,7 @@ export const useGameEngine = () => {
       return {
         ...prev,
         money: prev.money - unlockCost,
-        unlockedProduction: prev.unlockedProduction.includes(id)
-          ? prev.unlockedProduction
-          : [...prev.unlockedProduction, id]
+        unlockedProduction: [...prev.unlockedProduction, id]
       };
     });
   };
