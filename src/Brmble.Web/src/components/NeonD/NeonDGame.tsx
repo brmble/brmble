@@ -1,5 +1,6 @@
 import React from 'react';
 import { useGameEngine } from './hooks/useGameEngine';
+import { UNLOCK_COSTS } from './constants';
 import styles from './NeonD.module.css';
 
 const DEALERS = [
@@ -9,26 +10,7 @@ const DEALERS = [
   { name: 'Chemist Carlos', selling: 'meth', salesRate: 1.50, volume: 1, margin: 5, bribeLevel: 0 },
 ];
 
-const UNLOCK_COSTS: Record<string, number> = {
-  weed: 50,
-  mushrooms: 150,
-  meth: 300,
-  bluelotus: 800,
-  frostbite: 2500,
-  electriclace: 2000,
-  pharmgrade: 6000,
-  khole: 12000,
-  lunarregolith: 20000,
-  martianspores: 18000,
-  nebulamist: 35000,
-  voidcrystals: 60000,
-  chronosalt: 50000,
-  stardustresin: 100000,
-  darkmatterink: 85000,
-  singularityshards: 200000,
-  neutronflakes: 400000,
-  galacticcore: 850000,
-};
+
 
 function StarRating({ rating }: { rating: number }) {
   const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
@@ -93,9 +75,14 @@ export function NeonDGame() {
     return getSoldRate() * product.price;
   };
 
+  const getNetRate = () => {
+    if (!state.dealer) return 0;
+    return getGrossRate() * (1 - state.dealer.margin / 10);
+  };
+
   const getBribeCost = () => {
     if (!state.dealer || state.dealer.bribeLevel === 0) return 0;
-    return getGrossRate() * 0.1;
+    return getNetRate() * 0.1;
   };
 
   const handleHireDealer = (dealerIndex: number) => {
@@ -124,7 +111,7 @@ export function NeonDGame() {
             ${Math.floor(state.money).toLocaleString()}
           </div>
           <div className={styles.label}>
-            {state.dealer ? `($${(getGrossRate() - getBribeCost()).toFixed(2)}/s)` : ''}
+            {state.dealer ? `($${(getNetRate() - getBribeCost()).toFixed(2)}/s)` : ''}
           </div>
           <button 
             className={styles.upgradeButton} 
@@ -148,7 +135,7 @@ export function NeonDGame() {
                   <h3 className={styles.columnHeader} style={{ margin: 0, color: 'var(--text-primary)' }}>
                       {prod.name}
                   </h3>
-                  {isUnlocked && <span style={{ color: 'var(--accent-success)' }}>{prod.stock.toFixed(2)}kg</span>}
+                  {isUnlocked && <span style={{ color: 'var(--accent-success)' }}>{prod.stock.toFixed(2)}g</span>}
                 </div>
                 
                 {isUnlocked && (

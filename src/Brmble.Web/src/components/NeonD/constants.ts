@@ -34,3 +34,24 @@ export const DEALER_STATS = {
   bob: { volume: 2, margin: 4 },
   carlos: { volume: 1, margin: 5 },
 };
+
+export const UNLOCK_COSTS: Record<string, number> = {
+  weed: 50,
+  mushrooms: 150,
+  meth: 300,
+  bluelotus: 800,
+  frostbite: 2500,
+  electriclace: 2000,
+  pharmgrade: 6000,
+  khole: 12000,
+  lunarregolith: 20000,
+  martianspores: 18000,
+  nebulamist: 35000,
+  voidcrystals: 60000,
+  chronosalt: 50000,
+  stardustresin: 100000,
+  darkmatterink: 85000,
+  singularityshards: 200000,
+  neutronflakes: 400000,
+  galacticcore: 850000,
+};

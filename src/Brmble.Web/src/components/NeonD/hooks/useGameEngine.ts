@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import type { GameState, Dealer } from '../types';
-import { INITIAL_GAME_STATE } from '../constants';
+import { INITIAL_GAME_STATE, UNLOCK_COSTS } from '../constants';
 import { useInterval } from './useInterval';
 
 export const useGameEngine = () => {
@@ -8,9 +8,6 @@ export const useGameEngine = () => {
 
   const tick = () => {
     setState(prev => {
-      if (!prev.dealer) return prev;
-      
-      const currentDealer = prev.dealer;
       const next: GameState = {
         ...prev,
         production: { ...prev.production }
@@ -21,8 +18,11 @@ export const useGameEngine = () => {
         next.production[key].stock += next.production[key].rate;
       });
       
+      if (!prev.dealer) return next;
+      
+      const currentDealer = prev.dealer;
       const active = next.production[currentDealer.selling];
-      if (!active) return prev;
+      if (!active) return next;
       
       const effectiveSalesRate = currentDealer.salesRate * currentDealer.volume;
       const amountToSell = Math.min(active.stock, active.rate, effectiveSalesRate);
@@ -44,24 +44,26 @@ export const useGameEngine = () => {
   const upgrade = (id: string) => {
     setState(prev => {
       const item = prev.production[id];
-      if (!item || prev.money < item.upgradeCost) return prev;
+      const currentUpgradeCost = Math.floor(item.upgradeCost);
+      if (!item || prev.money < currentUpgradeCost) return prev;
       
       let rateIncrease = 0.1;
       if (id === 'mushrooms') rateIncrease = 0.15;
       if (id === 'meth') rateIncrease = 0.05;
       
       const costMultiplier = id === 'weed' ? 1.4 : id === 'mushrooms' ? 1.5 : 2.0;
+      const nextUpgradeCost = Math.floor(item.upgradeCost * costMultiplier);
       
       return {
         ...prev,
-        money: prev.money - item.upgradeCost,
+        money: prev.money - currentUpgradeCost,
         production: {
           ...prev.production,
           [id]: {
             ...item,
             level: item.level + 1,
             rate: item.rate + rateIncrease,
-            upgradeCost: item.upgradeCost * costMultiplier
+            upgradeCost: nextUpgradeCost
           }
         },
         unlockedProduction: prev.unlockedProduction.includes(id) 
@@ -74,13 +76,15 @@ export const useGameEngine = () => {
   const unlockProduction = (id: string) => {
     setState(prev => {
       const item = prev.production[id];
-      const unlockCost = id === 'weed' ? 50 : id === 'mushrooms' ? 150 : 300;
+      const unlockCost = UNLOCK_COSTS[id] || 300;
       if (!item || prev.money < unlockCost) return prev;
       
       return {
         ...prev,
         money: prev.money - unlockCost,
-        unlockedProduction: [...prev.unlockedProduction, id]
+        unlockedProduction: prev.unlockedProduction.includes(id)
+          ? prev.unlockedProduction
+          : [...prev.unlockedProduction, id]
       };
     });
   };

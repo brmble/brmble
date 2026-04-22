@@ -50,7 +50,7 @@
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8), 
               inset 0 0 10px rgba(0, 255, 150, 0.1);
   transition: all 0.3s ease;
-  margin-bottom: var(--border-md);
+  margin-bottom: var(--space-md);
 }
 
 .productionCard:hover {
@@ -75,6 +75,10 @@
 .distributionColumnHeader {
   composes: columnHeader;
   color: var(--accent-secondary);
+}
+
+.productionColumnHeader {
+  composes: columnHeader;
 }
 
 .statRow {

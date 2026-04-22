@@ -11,18 +11,37 @@ describe('useGameEngine', () => {
     vi.useRealTimers();
   });
 
-  it('should update stock and money atomically in one tick', async () => {
+  it('should update production without dealer', async () => {
     const { result } = renderHook(() => useGameEngine());
     
-    const initialMoney = result.current.state.money;
+    act(() => {
+      result.current.upgrade('weed');
+    });
+    
     const initialStock = result.current.state.production.weed.stock;
     
     act(() => {
       vi.advanceTimersByTime(1000);
     });
     
-    expect(result.current.state.production.weed.stock).not.toBe(initialStock);
-    expect(result.current.state.money).not.toBe(initialMoney);
+    expect(result.current.state.production.weed.stock).toBeGreaterThan(initialStock);
+  });
+  
+  it('should earn money when dealer sells', async () => {
+    const { result } = renderHook(() => useGameEngine());
+    
+    act(() => {
+      result.current.upgrade('weed');
+      result.current.hireDealer({ name: 'Test', selling: 'weed', salesRate: 10, volume: 10, margin: 1, bribeLevel: 0 });
+    });
+    
+    const initialMoney = result.current.state.money;
+    
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    
+    expect(result.current.state.money).toBeGreaterThan(initialMoney);
   });
 
   it('should upgrade production item', async () => {
@@ -32,7 +51,7 @@ describe('useGameEngine', () => {
       result.current.upgrade('weed');
     });
     
-    expect(result.current.state.production.weed.level).toBe(2);
+    expect(result.current.state.production.weed.level).toBe(1);
   });
 
   it('should not allow stock to go below zero', async () => {

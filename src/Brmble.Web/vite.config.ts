@@ -6,10 +6,6 @@ export default defineConfig({
   css: {
     modules: {
       localsConvention: 'camelCase',
-      generateScopedName: (name) => {
-        const hash = name.substring(0, 4);
-        return `${name}_${hash}`;
-      },
     },
   },
   build: {
