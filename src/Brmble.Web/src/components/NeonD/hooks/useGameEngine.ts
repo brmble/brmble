@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import type { GameState, Dealer } from '../types';
-import { INITIAL_GAME_STATE, UNLOCK_COSTS } from '../constants';
+import { INITIAL_GAME_STATE, UNLOCK_COSTS, PRODUCT_TIERS } from '../constants';
 import { useInterval } from './useInterval';
 
 export const useGameEngine = () => {
@@ -8,36 +8,40 @@ export const useGameEngine = () => {
 
   const tick = () => {
     setState(prev => {
-      const next: GameState = {
-        ...prev,
-        production: { ...prev.production }
-      };
+      const nextProduction: GameState['production'] = {};
       
-      Object.keys(next.production).forEach(key => {
-        next.production[key] = { ...next.production[key] };
-        next.production[key].stock += next.production[key].rate;
+      Object.keys(prev.production).forEach(key => {
+        nextProduction[key] = {
+          ...prev.production[key],
+          stock: prev.production[key].stock + prev.production[key].rate
+        };
       });
       
-      if (!prev.dealer) return next;
+      if (!prev.dealer) return { ...prev, production: nextProduction };
       
       const currentDealer = prev.dealer;
-      const active = next.production[currentDealer.selling];
-      if (!active) return next;
+      const dealerDrugId = currentDealer.selling;
+      const active = nextProduction[dealerDrugId];
       
-      const effectiveSalesRate = currentDealer.salesRate * currentDealer.volume;
-      const amountToSell = Math.min(active.stock, active.rate, effectiveSalesRate);
-      active.stock = Math.max(0, active.stock - amountToSell);
+      if (!active) return { ...prev, production: nextProduction };
       
-      const grossEarnings = amountToSell * active.price;
-      const marginCost = grossEarnings * (currentDealer.margin * 0.1);
-      const netEarnings = grossEarnings - marginCost;
+      const amountToSell = Math.min(active.stock, currentDealer.volume);
+      nextProduction[dealerDrugId] = {
+        ...active,
+        stock: Math.max(0, active.stock - amountToSell)
+      };
       
-      const bribeCost = currentDealer.bribeLevel > 0 ? netEarnings * 0.1 : 0;
-      const earnedThisTick = netEarnings - bribeCost;
-      next.money += earnedThisTick;
-      next.totalEarned += earnedThisTick;
+      const tierMult = PRODUCT_TIERS[dealerDrugId] || 1;
+      const earnedThisTick = amountToSell * (currentDealer.margin * tierMult);
+      const bribeCost = currentDealer.bribeLevel > 0 ? earnedThisTick * 0.1 : 0;
+      const finalProfit = earnedThisTick - bribeCost;
       
-      return next;
+      return {
+        ...prev,
+        money: prev.money + finalProfit,
+        totalEarned: prev.totalEarned + finalProfit,
+        production: nextProduction
+      };
     });
   };
 
@@ -46,13 +50,22 @@ export const useGameEngine = () => {
       const item = prev.production[id];
       const currentUpgradeCost = Math.floor(item.upgradeCost);
       if (!item || prev.money < currentUpgradeCost) return prev;
+      if (!prev.unlockedProduction.includes(id)) return prev;
       
-      let rateIncrease = 0.1;
-      if (id === 'mushrooms') rateIncrease = 0.15;
-      if (id === 'meth') rateIncrease = 0.05;
+      const rateIncreases: Record<string, number> = {
+        weed: 0.10,
+        mushrooms: 0.07,
+        meth: 0.04,
+      };
+      const rateIncrease = rateIncreases[id] || 0.02;
       
-      const costMultiplier = id === 'weed' ? 1.4 : id === 'mushrooms' ? 1.5 : 2.0;
-      const nextUpgradeCost = Math.floor(item.upgradeCost * costMultiplier);
+      const costMultipliers: Record<string, number> = {
+        weed: 1.35,
+        mushrooms: 1.45,
+        meth: 1.6,
+      };
+      const multiplier = costMultipliers[id] || 1.8;
+      const nextUpgradeCost = Math.floor(item.upgradeCost * multiplier);
       
       return {
         ...prev,
@@ -65,10 +78,7 @@ export const useGameEngine = () => {
             rate: item.rate + rateIncrease,
             upgradeCost: nextUpgradeCost
           }
-        },
-        unlockedProduction: prev.unlockedProduction.includes(id) 
-          ? prev.unlockedProduction 
-          : [...prev.unlockedProduction, id]
+        }
       };
     });
   };

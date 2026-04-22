@@ -1,13 +1,13 @@
 import React from 'react';
 import { useGameEngine } from './hooks/useGameEngine';
-import { UNLOCK_COSTS } from './constants';
+import { UNLOCK_COSTS, PRODUCT_TIERS } from './constants';
 import styles from './NeonD.module.css';
 
 const DEALERS = [
-  { name: 'Thomas "G" Palmer', selling: 'weed', salesRate: 3.45, volume: 3, margin: 3, bribeLevel: 0 },
-  { name: 'Dutch Dave', selling: 'weed', salesRate: 4.20, volume: 4, margin: 2, bribeLevel: 0 },
-  { name: 'Belgian Bob', selling: 'mushrooms', salesRate: 2.80, volume: 2, margin: 4, bribeLevel: 0 },
-  { name: 'Chemist Carlos', selling: 'meth', salesRate: 1.50, volume: 1, margin: 5, bribeLevel: 0 },
+  { name: 'Thomas "G" Palmer', selling: 'weed', volume: 3, margin: 3, bribeLevel: 0 },
+  { name: 'Dutch Dave', selling: 'weed', volume: 4, margin: 2, bribeLevel: 0 },
+  { name: 'Belgian Bob', selling: 'mushrooms', volume: 2, margin: 4, bribeLevel: 0 },
+  { name: 'Chemist Carlos', selling: 'meth', volume: 1, margin: 5, bribeLevel: 0 },
 ];
 
 
@@ -56,28 +56,22 @@ export function NeonDGame() {
     setBribeLevel(level);
   };
 
-  const getDealerCapacity = () => {
-    if (!state.dealer) return 0;
-    return state.dealer.salesRate * state.dealer.volume;
-  };
-
   const getSoldRate = () => {
     if (!state.dealer) return 0;
-    const product = state.production[state.dealer.selling];
-    if (!product) return 0;
-    return Math.min(product.rate, getDealerCapacity());
+    return state.dealer.volume;
   };
 
   const getGrossRate = () => {
     if (!state.dealer) return 0;
-    const product = state.production[state.dealer.selling];
-    if (!product) return 0;
-    return getSoldRate() * product.price;
+    const activeProd = state.production[state.dealer.selling];
+    const actualGramsSold = Math.min(activeProd.rate, state.dealer.volume);
+    const tierMult = PRODUCT_TIERS[state.dealer.selling] || 1;
+    return actualGramsSold * (state.dealer.margin * tierMult);
   };
 
   const getNetRate = () => {
     if (!state.dealer) return 0;
-    return getGrossRate() * (1 - state.dealer.margin / 10);
+    return getGrossRate();
   };
 
   const getBribeCost = () => {
@@ -140,15 +134,11 @@ export function NeonDGame() {
                 
                 {isUnlocked && (
                   <>
-                    <div className={`${styles.statRow} ${styles.price}`}>
-                      <span>Avg. street price: <strong>${prod.price.toFixed(2)}</strong> per gram</span>
-                    </div>
-
-                    <div className={styles.statRow}>
-                      <span className={styles.productionRate}>↑ {prod.rate.toFixed(2)}g / sec</span>
-                      <span className={styles.salesRate}>
-                          ↓ {state.dealer?.selling === prod.id ? state.dealer?.salesRate.toFixed(2) : "0.00"}g / sec
+                    <div className={styles.statRow} style={{ marginBottom: 'var(--space-sm)' }}>
+                      <span className={styles.productionRate}>
+                        Yield: <strong>+{prod.rate.toFixed(2)}g/s</strong>
                       </span>
+                      <span className={styles.label}>Level {prod.level}</span>
                     </div>
 
                     <div style={{ marginTop: 'var(--space-sm)' }}>
@@ -157,7 +147,7 @@ export function NeonDGame() {
                         onClick={() => upgrade(prod.id)}
                         disabled={state.money < prod.upgradeCost}
                       >
-                        Upgrade {getUpgradeName(prod.id)} (${Math.floor(prod.upgradeCost).toLocaleString()})
+                        Buy {getUpgradeName(prod.id)} (${Math.floor(prod.upgradeCost).toLocaleString()})
                       </button>
                     </div>
                   </>
@@ -183,16 +173,45 @@ export function NeonDGame() {
           {!state.dealer ? (
             <div className="glass-panel" style={{ marginBottom: 'var(--space-md)', padding: 'var(--space-sm)' }}>
               <p className={styles.label} style={{ marginBottom: 'var(--space-sm)' }}>Hire a dealer:</p>
-              {DEALERS.map((dealer, index) => (
-                <button 
-                  key={index}
-                  className={styles.buyButton} 
-                  style={{ marginBottom: 'var(--space-xs)', background: 'var(--accent-primary)' }}
-                  onClick={() => handleHireDealer(index)}
-                >
-                  {dealer.name} V{dealer.volume}/5 M{dealer.margin}/5
-                </button>
-              ))}
+              {DEALERS.map((dealer, index) => {
+                const product = state.production[dealer.selling];
+                const firstName = dealer.name.split(' ')[0];
+                const tierMult = PRODUCT_TIERS[dealer.selling] || 1;
+                const pricePerGram = dealer.margin * tierMult;
+                const totalSaleValue = dealer.volume * pricePerGram;
+
+                return (
+                  <div key={index} className="glass-panel" style={{ marginBottom: 'var(--space-md)', padding: 'var(--space-md)' }}>
+                    <h4 style={{ color: 'var(--accent-primary)', margin: '0 0 12px 0' }}>{dealer.name}</h4>
+                    
+                    <div style={{ marginBottom: '10px' }}>
+                      <div className={styles.label}>Volume:</div>
+                      <p style={{ fontSize: '13px', margin: '4px 0' }}>
+                        {firstName} can sell up to <strong>{dealer.volume}g</strong> of <strong>{product?.name}</strong> per second, 
+                        as well as <strong>0g</strong> of other drugs.
+                      </p>
+                    </div>
+
+                    <div style={{ marginBottom: '15px' }}>
+                      <div className={styles.label}>Margin:</div>
+                      <p style={{ fontSize: '13px', margin: '4px 0' }}>
+                        {firstName} sells <strong>{dealer.volume}g</strong> of {product?.name} for <strong>${totalSaleValue.toFixed(2)}</strong>.
+                      </p>
+                      <p style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                        Street Price: ${pricePerGram.toFixed(2)}/g ({product?.name})
+                      </p>
+                    </div>
+
+                    <button 
+                      className={styles.buyButton} 
+                      style={{ background: 'var(--accent-primary)' }}
+                      onClick={() => handleHireDealer(index)}
+                    >
+                      Hire
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <>

@@ -15,6 +15,7 @@ describe('useGameEngine', () => {
     const { result } = renderHook(() => useGameEngine());
     
     act(() => {
+      result.current.unlockProduction('weed');
       result.current.upgrade('weed');
     });
     
@@ -31,8 +32,9 @@ describe('useGameEngine', () => {
     const { result } = renderHook(() => useGameEngine());
     
     act(() => {
+      result.current.unlockProduction('weed');
       result.current.upgrade('weed');
-      result.current.hireDealer({ name: 'Test', selling: 'weed', salesRate: 10, volume: 10, margin: 1, bribeLevel: 0 });
+      result.current.hireDealer({ name: 'Test', selling: 'weed', volume: 10, margin: 1, bribeLevel: 0 });
     });
     
     const initialMoney = result.current.state.money;
@@ -48,6 +50,7 @@ describe('useGameEngine', () => {
     const { result } = renderHook(() => useGameEngine());
     
     act(() => {
+      result.current.unlockProduction('weed');
       result.current.upgrade('weed');
     });
     

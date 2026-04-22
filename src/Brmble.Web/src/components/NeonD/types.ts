@@ -2,7 +2,6 @@ export interface ProductionItem {
   id: string;
   name: string;
   stock: number;
-  price: number;
   rate: number;
   level: number;
   upgradeCost: number;
@@ -11,7 +10,6 @@ export interface ProductionItem {
 export interface Dealer {
   name: string;
   selling: string;
-  salesRate: number;
   volume: number;
   margin: number;
   bribeLevel: number;
