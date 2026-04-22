@@ -1,3 +1,4 @@
+import { describe, it, expect } from 'vitest';
 import { INITIAL_GAME_STATE } from '../constants';
 
 describe('Constants', () => {
