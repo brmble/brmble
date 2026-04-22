@@ -8,13 +8,20 @@ export interface ProductionItem {
   upgradeCost: number;
 }
 
+export interface Dealer {
+  name: string;
+  selling: string;
+  salesRate: number;
+  volume: number;
+  margin: number;
+  bribeLevel: number;
+}
+
 export interface GameState {
   money: number;
+  totalEarned: number;
   researchSpeed: number;
   production: Record<string, ProductionItem>;
-  dealer: {
-    name: string;
-    selling: string;
-    salesRate: number;
-  };
+  unlockedProduction: string[];
+  dealer: Dealer | null;
 }

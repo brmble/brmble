@@ -31,7 +31,7 @@ import { parseMessageMedia } from './utils/parseMessageMedia';
 import { useDMStore } from './hooks/useDMStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
 import { usePrompt, confirm } from './hooks/usePrompt';
-import { GameUI } from './components/Game/GameUI';
+import { NeonDGame } from './components/NeonD/NeonDGame';
 import { Brmblegotchi } from './components/Brmblegotchi/Brmblegotchi';
 import { ProfileProvider } from './contexts/ProfileContext';
 import { UpdateNotification } from './components/UpdateNotification/UpdateNotification';
@@ -2229,7 +2229,7 @@ const handleConnect = (serverData: SavedServer) => {
             )
           ) : connectionStatus === 'connected' ? (
             showGame ? (
-              <GameUI onClose={() => setShowGame(false)} />
+              <NeonDGame />
             ) : (
               <div className={`content-slider ${dmStore.appMode === 'dm' ? 'dm-active' : ''}`}>
                 <div className="content-slide">

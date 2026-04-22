@@ -1,12 +1,36 @@
-import { GameState } from './types';
+import type { GameState } from './types';
 
 export const INITIAL_GAME_STATE: GameState = {
   money: 250.00,
+  totalEarned: 0,
   researchSpeed: 1.0,
   production: {
-    weed: { id: 'weed', name: 'Weed', stock: 33.16, price: 4.20, rate: 0.2, level: 1, upgradeCost: 16.80 },
-    mushrooms: { id: 'mushrooms', name: 'Mushrooms', stock: 183.91, price: 6.00, rate: 1.2, level: 4, upgradeCost: 262.35 },
-    meth: { id: 'meth', name: 'Meth', stock: 124.92, price: 10.00, rate: 1.0, level: 2, upgradeCost: 1440.00 }
+    weed: { id: 'weed', name: 'Weed', stock: 0, price: 4.20, rate: 0, level: 0, upgradeCost: 17 },
+    mushrooms: { id: 'mushrooms', name: 'Mushrooms', stock: 0, price: 6.00, rate: 0, level: 0, upgradeCost: 250 },
+    meth: { id: 'meth', name: 'Meth', stock: 0, price: 10.00, rate: 0, level: 0, upgradeCost: 500 },
+    bluelotus: { id: 'bluelotus', name: 'Blue Lotus', stock: 0, price: 15.00, rate: 0, level: 0, upgradeCost: 1200 },
+    frostbite: { id: 'frostbite', name: 'Frost-Bite', stock: 0, price: 35.00, rate: 0, level: 0, upgradeCost: 3500 },
+    electriclace: { id: 'electriclace', name: 'Electric Lace', stock: 0, price: 25.00, rate: 0, level: 0, upgradeCost: 2500 },
+    pharmgrade: { id: 'pharmgrade', name: 'Pharm-Grade', stock: 0, price: 5.50, rate: 0, level: 0, upgradeCost: 8000 },
+    khole: { id: 'khole', name: 'K-Hole', stock: 0, price: 60.00, rate: 0, level: 0, upgradeCost: 15000 },
+    lunarregolith: { id: 'lunarregolith', name: 'Lunar Regolith', stock: 0, price: 85.00, rate: 0, level: 0, upgradeCost: 25000 },
+    martianspores: { id: 'martianspores', name: 'Martian Spores', stock: 0, price: 45.00, rate: 0, level: 0, upgradeCost: 20000 },
+    nebulamist: { id: 'nebulamist', name: 'Nebula Mist', stock: 0, price: 120.00, rate: 0, level: 0, upgradeCost: 40000 },
+    voidcrystals: { id: 'voidcrystals', name: 'Void Crystals', stock: 0, price: 200.00, rate: 0, level: 0, upgradeCost: 75000 },
+    chronosalt: { id: 'chronosalt', name: 'Chrono-Salt', stock: 0, price: 150.00, rate: 0, level: 0, upgradeCost: 60000 },
+    stardustresin: { id: 'stardustresin', name: 'Stardust Resin', stock: 0, price: 300.00, rate: 0, level: 0, upgradeCost: 120000 },
+    darkmatterink: { id: 'darkmatterink', name: 'Dark Matter Ink', stock: 0, price: 180.00, rate: 0, level: 0, upgradeCost: 100000 },
+    singularityshards: { id: 'singularityshards', name: 'Singularity Shards', stock: 0, price: 500.00, rate: 0, level: 0, upgradeCost: 250000 },
+    neutronflakes: { id: 'neutronflakes', name: 'Neutron Flakes', stock: 0, price: 800.00, rate: 0, level: 0, upgradeCost: 500000 },
+    galacticcore: { id: 'galacticcore', name: 'Galactic Core', stock: 0, price: 1500.00, rate: 0, level: 0, upgradeCost: 1000000 }
   },
-  dealer: { name: 'Thomas "G" Palmer', selling: 'weed', salesRate: 3.45 }
+  unlockedProduction: [],
+  dealer: null
+};
+
+export const DEALER_STATS = {
+  thomas: { volume: 3, margin: 3 },
+  dave: { volume: 4, margin: 2 },
+  bob: { volume: 2, margin: 4 },
+  carlos: { volume: 1, margin: 5 },
 };
