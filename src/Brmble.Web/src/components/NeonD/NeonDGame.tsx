@@ -112,9 +112,12 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     const activeDealers = state.activeDealers.filter((d): d is Dealer => d !== null);
     if (activeDealers.length === 0) return 0;
 
-    // Simulate sequential stock consumption matching the tick, so earnings can't be overstated
-    const stockSnapshot: Record<string, number> = Object.fromEntries(
-      Object.entries(state.production).map(([id, prod]) => [id, prod.stock])
+    // Snapshot the stock PLUS the rate for this "simulated" second
+    const availableSnapshot: Record<string, number> = Object.fromEntries(
+      Object.entries(state.production).map(([id, prod]) => [
+        id, 
+        prod.stock + prod.rate // Add rate so the UI sees what will be produced
+      ])
     );
 
     let total = 0;
@@ -123,15 +126,15 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
       const effectiveSide = getEffectiveSideHustle(dealer);
       const sideRatio = Math.min(0.9, Object.values(effectiveSide).reduce((a, b) => a + b, 0));
 
-      const primaryStock = stockSnapshot[dealer.selling] ?? 0;
+      const primaryStock = availableSnapshot[dealer.selling] ?? 0;
       const primarySold = Math.min(primaryStock, totalVol * (1 - sideRatio));
-      stockSnapshot[dealer.selling] = Math.max(0, primaryStock - primarySold);
+      availableSnapshot[dealer.selling] = Math.max(0, primaryStock - primarySold);
       total += primarySold * (dealer.margin * dealer.marginBonus * (PRODUCT_TIERS[dealer.selling] || 1));
 
       Object.entries(effectiveSide).forEach(([prodId, ratio]) => {
-        const sideStock = stockSnapshot[prodId] ?? 0;
+        const sideStock = availableSnapshot[prodId] ?? 0;
         const sold = Math.min(sideStock, totalVol * ratio);
-        stockSnapshot[prodId] = Math.max(0, sideStock - sold);
+        availableSnapshot[prodId] = Math.max(0, sideStock - sold);
         total += sold * (dealer.margin * dealer.marginBonus * (PRODUCT_TIERS[prodId] || 1));
       });
     });
@@ -146,7 +149,11 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     const totalVol = dealer.volume * dealer.volumeBonus;
     const effectiveSide = getEffectiveSideHustle(dealer);
     const sideRatio = Math.min(0.9, Object.values(effectiveSide).reduce((a, b) => a + b, 0));
-    const primarySold = Math.min(activeProd.stock, totalVol * (1 - sideRatio));
+    
+    // Use (stock + rate) to determine what can be sold this second
+    const availableToSell = activeProd.stock + activeProd.rate;
+    const primarySold = Math.min(availableToSell, totalVol * (1 - sideRatio));
+    
     const tierMult = PRODUCT_TIERS[dealer.selling] || 1;
     const primaryRev = primarySold * (dealer.margin * dealer.marginBonus * tierMult);
 
@@ -154,7 +161,9 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     Object.entries(effectiveSide).forEach(([prodId, ratio]) => {
       const sideProd = state.production[prodId];
       if (!sideProd) return;
-      const sold = Math.min(sideProd.stock, totalVol * ratio);
+      // Use (stock + rate) for side hustles too
+      const sideAvailable = sideProd.stock + sideProd.rate;
+      const sold = Math.min(sideAvailable, totalVol * ratio);
       sideRev += sold * (dealer.margin * dealer.marginBonus * (PRODUCT_TIERS[prodId] || 1));
     });
 
