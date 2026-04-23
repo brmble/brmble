@@ -27,6 +27,7 @@ export interface Dealer {
   volumeBonus: number;
   marginBonus: number;
   sideHustle: Record<string, number>;
+  networkBonus: number;
   equipmentCount: number;
 }
 

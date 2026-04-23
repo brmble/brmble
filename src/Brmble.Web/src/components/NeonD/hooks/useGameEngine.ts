@@ -28,6 +28,7 @@ const generateRandomDealer = (unlockedProducts: string[], totalEarned: number): 
     volumeBonus: 1.0,
     marginBonus: 1.0,
     sideHustle: {},
+    networkBonus: 0,
     equipmentCount: 0
   };
 };
@@ -61,7 +62,10 @@ export const useGameEngine = () => {
         if (!dealer) return;
 
         const totalVol = dealer.volume * dealer.volumeBonus;
-        const sideRatio = Math.min(0.9, Object.values(dealer.sideHustle).reduce((a, b) => a + b, 0));
+        const effectiveSideHustle = Object.fromEntries(
+          Object.entries(dealer.sideHustle).map(([k, v]) => [k, v * (1 + dealer.networkBonus)])
+        );
+        const sideRatio = Math.min(0.9, Object.values(effectiveSideHustle).reduce((a, b) => a + b, 0));
 
         const primaryProd = nextProduction[dealer.selling];
         if (!primaryProd) return;
@@ -73,7 +77,7 @@ export const useGameEngine = () => {
         };
 
         let sideRev = 0;
-        Object.entries(dealer.sideHustle).forEach(([prodId, ratio]) => {
+        Object.entries(effectiveSideHustle).forEach(([prodId, ratio]) => {
           const sideProd = nextProduction[prodId];
           if (!sideProd) return;
           const sold = Math.min(sideProd.stock, totalVol * ratio);
@@ -215,9 +219,10 @@ export const useGameEngine = () => {
           newDealer.marginBonus -= upgrade.marginPenalty || 0.1;
         }
         if (upgrade.type === 'NETWORK') {
-          Object.keys(newDealer.sideHustle).forEach(prodId => {
-            newDealer.sideHustle[prodId] += upgrade.value;
-          });
+          newDealer.networkBonus += upgrade.value;
+          newDealer.sideHustle = Object.fromEntries(
+            Object.entries(d.sideHustle).map(([prodId, val]) => [prodId, val + upgrade.value])
+          );
         }
         if (upgrade.type === 'SIDE_HUSTLE' && upgrade.targetProductId) {
           newDealer.sideHustle = { 

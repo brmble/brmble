@@ -103,11 +103,40 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     setDealerSelling(dealerId, selling);
   };
 
+  const getEffectiveSideHustle = (dealer: Dealer) =>
+    Object.fromEntries(
+      Object.entries(dealer.sideHustle).map(([k, v]) => [k, v * (1 + dealer.networkBonus)])
+    );
+
   const getTotalEarningsDisplay = () => {
     const activeDealers = state.activeDealers.filter((d): d is Dealer => d !== null);
     if (activeDealers.length === 0) return 0;
-    
-    return activeDealers.reduce((total, dealer) => total + getIndividualDealerEarnings(dealer), 0);
+
+    // Simulate sequential stock consumption matching the tick, so earnings can't be overstated
+    const stockSnapshot: Record<string, number> = Object.fromEntries(
+      Object.entries(state.production).map(([id, prod]) => [id, prod.stock])
+    );
+
+    let total = 0;
+    activeDealers.forEach(dealer => {
+      const totalVol = dealer.volume * dealer.volumeBonus;
+      const effectiveSide = getEffectiveSideHustle(dealer);
+      const sideRatio = Math.min(0.9, Object.values(effectiveSide).reduce((a, b) => a + b, 0));
+
+      const primaryStock = stockSnapshot[dealer.selling] ?? 0;
+      const primarySold = Math.min(primaryStock, totalVol * (1 - sideRatio));
+      stockSnapshot[dealer.selling] = Math.max(0, primaryStock - primarySold);
+      total += primarySold * (dealer.margin * dealer.marginBonus * (PRODUCT_TIERS[dealer.selling] || 1));
+
+      Object.entries(effectiveSide).forEach(([prodId, ratio]) => {
+        const sideStock = stockSnapshot[prodId] ?? 0;
+        const sold = Math.min(sideStock, totalVol * ratio);
+        stockSnapshot[prodId] = Math.max(0, sideStock - sold);
+        total += sold * (dealer.margin * dealer.marginBonus * (PRODUCT_TIERS[prodId] || 1));
+      });
+    });
+
+    return total;
   };
 
   const getIndividualDealerEarnings = (dealer: Dealer) => {
@@ -115,13 +144,14 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     if (!activeProd) return 0;
 
     const totalVol = dealer.volume * dealer.volumeBonus;
-    const sideRatio = Math.min(0.9, Object.values(dealer.sideHustle).reduce((a, b) => a + b, 0));
+    const effectiveSide = getEffectiveSideHustle(dealer);
+    const sideRatio = Math.min(0.9, Object.values(effectiveSide).reduce((a, b) => a + b, 0));
     const primarySold = Math.min(activeProd.stock, totalVol * (1 - sideRatio));
     const tierMult = PRODUCT_TIERS[dealer.selling] || 1;
     const primaryRev = primarySold * (dealer.margin * dealer.marginBonus * tierMult);
 
     let sideRev = 0;
-    Object.entries(dealer.sideHustle).forEach(([prodId, ratio]) => {
+    Object.entries(effectiveSide).forEach(([prodId, ratio]) => {
       const sideProd = state.production[prodId];
       if (!sideProd) return;
       const sold = Math.min(sideProd.stock, totalVol * ratio);
