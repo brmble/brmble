@@ -419,8 +419,7 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
                   className={opt.type === 'SIDE_HUSTLE' ? styles.dangerButton : styles.buyButton}
                   style={opt.type === 'SIDE_HUSTLE' ? { 
                     border: '2px solid gold', 
-                    boxShadow: '0 0 20px rgba(255, 215, 0, 0.5)',
-                    animation: 'pulse 1s infinite'
+                    boxShadow: '0 0 20px rgba(255, 215, 0, 0.5)'
                   } : {}}
                   onClick={() => {
                     buyEquipment(upgradingDealer.dealerId, opt);
