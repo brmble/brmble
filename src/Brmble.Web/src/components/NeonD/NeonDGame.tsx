@@ -131,6 +131,7 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     return primaryRev + sideRev;
   };
 
+  const refreshCooldown = getRefreshCooldown();
   const allIds = Object.keys(state.production);
   const nextUnlockIndex = state.unlockedProduction.length;
   const visibleProduction = Object.values(state.production).filter(prod => {
@@ -229,10 +230,10 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
             <button 
               onClick={refreshPool} 
               className={styles.label} 
-              style={{ cursor: getRefreshCooldown() ? 'not-allowed' : 'pointer', border: 'none', background: 'none', color: getRefreshCooldown() ? 'var(--text-muted)' : 'var(--accent-primary)' }}
-              disabled={!!getRefreshCooldown()}
+              style={{ cursor: refreshCooldown ? 'not-allowed' : 'pointer', border: 'none', background: 'none', color: refreshCooldown ? 'var(--text-muted)' : 'var(--accent-primary)' }}
+              disabled={!!refreshCooldown}
             >
-              🔄 Refresh {getRefreshCooldown() ? `(${getRefreshCooldown()})` : ''}
+              🔄 Refresh {refreshCooldown ? `(${refreshCooldown})` : ''}
             </button>
           </div>
           
