@@ -34,7 +34,7 @@ describe('useGameEngine', () => {
     act(() => {
       result.current.unlockProduction('weed');
       result.current.upgrade('weed');
-      result.current.hireDealer({ name: 'Test', selling: 'weed', volume: 10, margin: 1, bribeLevel: 0 });
+      result.current.hireDealer({ id: 'test-dealer', name: 'Test', selling: 'weed', volume: 10, margin: 1, volumeBonus: 1.0, marginBonus: 1.0, sideHustle: {}, equipmentCount: 0 }, 0);
     });
     
     const initialMoney = result.current.state.money;
