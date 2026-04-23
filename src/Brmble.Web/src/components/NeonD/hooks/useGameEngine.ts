@@ -220,9 +220,6 @@ export const useGameEngine = () => {
         }
         if (upgrade.type === 'NETWORK') {
           newDealer.networkBonus += upgrade.value;
-          newDealer.sideHustle = Object.fromEntries(
-            Object.entries(d.sideHustle).map(([prodId, val]) => [prodId, val + upgrade.value])
-          );
         }
         if (upgrade.type === 'SIDE_HUSTLE' && upgrade.targetProductId) {
           newDealer.sideHustle = { 

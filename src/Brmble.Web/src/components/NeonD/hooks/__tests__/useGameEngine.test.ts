@@ -211,7 +211,7 @@ describe('useGameEngine', () => {
       expect(result.current.state.activeDealers[0]?.sideHustle['mushrooms']).toBeCloseTo(0.1, 5);
     });
 
-    it('NETWORK upgrade increments networkBonus and creates a new sideHustle object', () => {
+    it('NETWORK upgrade increments networkBonus (tick applies it as multiplier)', () => {
       const { result } = renderHook(() => useGameEngine());
       act(() => {
         result.current.unlockProduction('weed');
@@ -220,14 +220,14 @@ describe('useGameEngine', () => {
       });
       act(() => { vi.advanceTimersByTime(50000); });
 
-      const originalSideHustle = result.current.state.activeDealers[0]!.sideHustle;
       act(() => {
         result.current.buyEquipment('test-dealer', { type: 'NETWORK', label: 'NW', description: '', value: 0.1 });
       });
       const d = result.current.state.activeDealers[0];
+      // networkBonus should accumulate; tick applies it as a ratio multiplier
       expect(d?.networkBonus).toBeCloseTo(0.1, 5);
-      // Must be a NEW object to preserve React state immutability
-      expect(d?.sideHustle).not.toBe(originalSideHustle);
+      // sideHustle base entries are left unchanged; networkBonus is the single source of truth
+      expect(d?.sideHustle['mushrooms']).toBeCloseTo(0.1, 5);
     });
 
     it('NETWORK upgrade on dealer with no side hustles still increments networkBonus', () => {
