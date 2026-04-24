@@ -269,9 +269,9 @@ export const useGameEngine = () => {
         generateRandomDealer(INITIAL_GAME_STATE.unlockedProduction, INITIAL_GAME_STATE.totalEarned)
       )
     });
-  }, [setState, clearStorage]);
+  }, [setState]);
 
   useInterval(tick, 1000);
   
-  return { state, upgrade, unlockProduction, hireDealer, fireDealer, refreshPool, resetGame, unlockSlot, setDealerSelling, buyEquipment, clearStorage };
+  return { state, upgrade, unlockProduction, hireDealer, fireDealer, refreshPool, resetGame, unlockSlot, setDealerSelling, buyEquipment };
 };

@@ -5,17 +5,36 @@ function isObject(item: unknown): item is Record<string, unknown> {
   return (item !== null && typeof item === 'object' && !Array.isArray(item));
 }
 
+const DANGEROUS_PROPERTIES = new Set(['__proto__', 'constructor', 'prototype']);
+
+function mergeValue(target: unknown, source: unknown): unknown {
+  if (Array.isArray(target) && Array.isArray(source)) {
+    const maxLength = Math.max(target.length, source.length);
+    return Array.from({ length: maxLength }, (_, i) => {
+      const targetVal = target[i];
+      const sourceVal = source[i];
+      if (sourceVal === undefined) return targetVal;
+      if (targetVal === undefined) return sourceVal;
+      if (isObject(targetVal) && isObject(sourceVal)) {
+        return deepMerge(targetVal, sourceVal);
+      }
+      return sourceVal;
+    });
+  }
+  if (isObject(target) && isObject(source)) {
+    return deepMerge(target, source);
+  }
+  return source !== undefined ? source : target;
+}
+
 function deepMerge<T extends object>(target: T, source: Partial<T>): T {
   const output = { ...target } as Record<string, unknown>;
   if (isObject(target) && isObject(source)) {
     Object.keys(source).forEach(key => {
+      if (DANGEROUS_PROPERTIES.has(key)) return;
       const sourceVal = (source as Record<string, unknown>)[key];
       const targetVal = (target as Record<string, unknown>)[key];
-      if (isObject(sourceVal) && isObject(targetVal)) {
-        output[key] = deepMerge(targetVal, sourceVal);
-      } else if (sourceVal !== undefined) {
-        output[key] = sourceVal;
-      }
+      output[key] = mergeValue(targetVal, sourceVal);
     });
   }
   return output as T;

@@ -52,7 +52,7 @@ describe('usePersistedGameState', () => {
     expect(JSON.parse(localStorage.getItem('test_key') || '{}')).toEqual({ a: 55, nested: { b: 2, c: 3 } });
   });
 
-  it('clears localStorage and resets when clear function is called', () => {
+  it('clears localStorage when clear function is called', () => {
     localStorage.setItem('test_key', JSON.stringify({ a: 99, nested: { b: 99, c: 99 } }));
     const { result } = renderHook(() => usePersistedGameState('test_key', initial));
     act(() => {
