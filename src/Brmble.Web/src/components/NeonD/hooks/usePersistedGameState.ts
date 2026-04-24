@@ -5,25 +5,23 @@ function isObject(item: unknown): item is Record<string, unknown> {
   return (item !== null && typeof item === 'object' && !Array.isArray(item));
 }
 
-function deepMerge<T extends Record<string, unknown>>(target: T, source: T): T {
-  const output = { ...target };
+function deepMerge<T extends object>(target: T, source: Partial<T>): T {
+  const output = { ...target } as Record<string, unknown>;
   if (isObject(target) && isObject(source)) {
     Object.keys(source).forEach(key => {
-      if (isObject(source[key])) {
-        if (!(key in target)) {
-          output[key] = source[key] as T[Extract<keyof T, string>];
-        } else {
-          output[key] = deepMerge(target[key] as T[Extract<keyof T, string>], source[key] as T[Extract<keyof T, string>]);
-        }
-      } else {
-        output[key] = source[key] as T[Extract<keyof T, string>];
+      const sourceVal = (source as Record<string, unknown>)[key];
+      const targetVal = (target as Record<string, unknown>)[key];
+      if (isObject(sourceVal) && isObject(targetVal)) {
+        output[key] = deepMerge(targetVal, sourceVal);
+      } else if (sourceVal !== undefined) {
+        output[key] = sourceVal;
       }
     });
   }
-  return output;
+  return output as T;
 }
 
-export function usePersistedGameState<T extends Record<string, unknown>>(
+export function usePersistedGameState<T extends object>(
   key: string,
   initialState: T | (() => T)
 ): [T, React.Dispatch<React.SetStateAction<T>>, () => void] {

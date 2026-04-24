@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useGameEngine } from './hooks/useGameEngine';
 import type { Dealer, DealerUpgrade } from './types';
 import { UNLOCK_COSTS, PRODUCT_TIERS, SLOT_UNLOCK_COSTS } from './constants';
+import { confirm } from '../../hooks/usePrompt';
 import styles from './NeonD.module.css';
 
 
@@ -397,8 +398,14 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
                         </button>
                         <button
                           className={styles.dangerButton}
-                          onClick={() => {
-                            if (window.confirm(`Fire ${dealer.name}? All equipment upgrades will be lost forever.`)) {
+                          onClick={async () => {
+                            const confirmed = await confirm({
+                              title: 'Fire Dealer?',
+                              message: `Fire ${dealer.name}? All equipment upgrades will be lost forever.`,
+                              confirmLabel: 'Fire',
+                              cancelLabel: 'Cancel',
+                            });
+                            if (confirmed) {
                               fireDealer(slot.id);
                             }
                           }}
