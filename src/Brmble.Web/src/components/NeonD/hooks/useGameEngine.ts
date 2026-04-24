@@ -1,7 +1,8 @@
-import { useState, useCallback } from 'react';
+import { useCallback } from 'react';
 import type { GameState, Dealer, DealerUpgrade } from '../types';
 import { INITIAL_GAME_STATE, UNLOCK_COSTS, PRODUCT_TIERS, DEALER_FIRST_NAMES, DEALER_LAST_NAMES, SLOT_UNLOCK_COSTS } from '../constants';
 import { useInterval } from './useInterval';
+import { usePersistedGameState } from './usePersistedGameState';
 
 const generateRandomDealer = (unlockedProducts: string[], totalEarned: number): Dealer => {
   const firstNames = DEALER_FIRST_NAMES;
@@ -34,7 +35,7 @@ const generateRandomDealer = (unlockedProducts: string[], totalEarned: number): 
 };
 
 export const useGameEngine = () => {
-  const [state, setState] = useState<GameState>(() => {
+  const [state, setState, clearStorage] = usePersistedGameState<GameState>('brmble_neon_d_save', () => {
     const initial = INITIAL_GAME_STATE;
     return {
       ...initial,
@@ -259,6 +260,7 @@ export const useGameEngine = () => {
   };
 
   const resetGame = useCallback(() => {
+    clearStorage();
     setState({
       ...INITIAL_GAME_STATE,
       activeDealers: [null, null, null],
@@ -267,9 +269,9 @@ export const useGameEngine = () => {
         generateRandomDealer(INITIAL_GAME_STATE.unlockedProduction, INITIAL_GAME_STATE.totalEarned)
       )
     });
-  }, []);
+  }, [setState, clearStorage]);
 
   useInterval(tick, 1000);
   
-  return { state, upgrade, unlockProduction, hireDealer, fireDealer, refreshPool, resetGame, unlockSlot, setDealerSelling, buyEquipment };
+  return { state, upgrade, unlockProduction, hireDealer, fireDealer, refreshPool, resetGame, unlockSlot, setDealerSelling, buyEquipment, clearStorage };
 };
