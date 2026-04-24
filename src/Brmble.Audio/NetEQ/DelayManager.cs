@@ -11,22 +11,26 @@ public class DelayManager
     private const int FrameSizeMs = 20;
     private const int FrameSizeSamples = 960;
     private const double ForgetFactor = 0.9993;
-    private const double TargetPercentile = 0.95;
     private const int HistogramBuckets = 50;
     private const int WindowDurationMs = 2000;
 
     private readonly int _minLevel;
     private readonly int _maxLevel;
+    private readonly double _targetPercentile;
     private readonly double[] _histogram;
     private readonly Queue<(long iat, long arrivalMs)> _window = new();
     private long _minIat = long.MaxValue;
 
     public int TargetLevel { get; private set; }
 
-    public DelayManager(int minLevel = 1, int maxLevel = 15)
+    public DelayManager(int minLevel = 1, int maxLevel = 15, double targetPercentile = 0.95)
     {
+        if (targetPercentile is <= 0.0 or > 1.0)
+            throw new ArgumentOutOfRangeException(nameof(targetPercentile),
+                targetPercentile, "Must be in the range (0.0, 1.0].");
         _minLevel = minLevel;
         _maxLevel = maxLevel;
+        _targetPercentile = targetPercentile;
         _histogram = new double[HistogramBuckets];
         TargetLevel = _minLevel;
     }
@@ -72,7 +76,7 @@ public class DelayManager
         for (int i = 0; i < _histogram.Length; i++)
         {
             cumulative += _histogram[i] / total;
-            if (cumulative >= TargetPercentile)
+            if (cumulative >= _targetPercentile)
             {
                 TargetLevel = Math.Clamp(i + 1, _minLevel, _maxLevel);
                 return;

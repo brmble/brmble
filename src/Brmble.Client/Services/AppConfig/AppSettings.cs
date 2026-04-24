@@ -80,3 +80,8 @@ public record AppSettings(
 }
 
 public record WindowState(int X, int Y, int Width, int Height, bool IsMaximized);
+
+public record JitterConfig(
+    double TargetPercentile = 0.90,
+    int MinDelayMs = 20
+);

@@ -106,7 +106,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _hwnd = hwnd;
         _certService = certService;
         _appConfigService = appConfigService;
-        _audioManager = new AudioManager(_hwnd);
+        _audioManager = new AudioManager(_hwnd, _appConfigService);
         _audioManager.ToggleMuteRequested += ToggleMute;
         _audioManager.ToggleDeafenRequested += ToggleDeaf;
         _audioManager.ToggleLeaveVoiceRequested += LeaveVoice;
@@ -190,7 +190,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         // Recreate audio manager if disposed by a previous Disconnect()
         if (_audioManager == null)
         {
-            _audioManager = new AudioManager(_hwnd);
+            _audioManager = new AudioManager(_hwnd, _appConfigService);
             _audioManager.ToggleMuteRequested += ToggleMute;
             _audioManager.ToggleDeafenRequested += ToggleDeaf;
             _audioManager.ToggleLeaveVoiceRequested += LeaveVoice;

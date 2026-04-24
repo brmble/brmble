@@ -30,4 +30,8 @@ public interface IAppConfigService
     void SetActiveProfileId(string? id);
     string GetCertsDir();
     void SwapProfileRegistrations(string? oldProfileId, string? newProfileId);
+    double GetJitterTargetPercentile();
+    void SetJitterTargetPercentile(double value);
+    int GetJitterMinDelayMs();
+    void SetJitterMinDelayMs(int value);
 }

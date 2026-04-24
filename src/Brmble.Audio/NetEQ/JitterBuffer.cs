@@ -18,6 +18,14 @@ public class JitterBuffer : IDisposable
     private readonly DelayManager _delayManager;
     private readonly DecisionLogic _decisionLogic;
     private readonly JitterBufferStats _stats;
+    private readonly TimeStretcher _timeStretcher;
+
+    // Tempo constants for time-stretching: >1 plays faster (Accelerate), <1 plays slower (Decelerate).
+    private const double AccelerateTempo = 1.20;
+    private const double DecelerateTempo = 0.83;
+
+    // Scratch buffer for TimeStretcher output — 2× FrameSize to accommodate any over-production.
+    private readonly short[] _stretchScratch = new short[FrameSize * 2];
 
     // Pre-allocated buffers — large enough for max Opus frame (120ms = 5760 samples)
     private const int MaxDecodeSamples = 5760;
@@ -30,7 +38,6 @@ public class JitterBuffer : IDisposable
     // Cross-fade buffer for Merge/Accelerate/Decelerate
     private const int OverlapSamples = 96; // 2ms at 48kHz
 
-    private PlayoutDecision _previousDecision = PlayoutDecision.Normal;
     private readonly short[] _lastDecodedFrame = new short[FrameSize];
     private bool _firstPacketReceived;
     private bool _playoutStarted; // true once we've buffered enough to start
@@ -51,14 +58,25 @@ public class JitterBuffer : IDisposable
     private int _consecutiveExpandCount;
     private const int SilenceResetThreshold = 25; // 25 frames = 500ms
 
-    public JitterBuffer(IOpusDecoder decoder, int initialBufferFrames = 3)
+    /// <summary>
+    /// The playout decision made on the most recent GetAudio call.
+    /// Diagnostic-only; useful in tests and monitoring.
+    /// </summary>
+    public PlayoutDecision LastDecision { get; private set; } = PlayoutDecision.Normal;
+
+    public JitterBuffer(IOpusDecoder decoder,
+                        int initialBufferFrames = 3,
+                        int minLevel = 1,
+                        int maxLevel = 15,
+                        double targetPercentile = 0.95)
     {
         _decoder = decoder;
         _initialBufferFrames = initialBufferFrames;
         _packetBuffer = new PacketBuffer();
-        _delayManager = new DelayManager();
+        _delayManager = new DelayManager(minLevel, maxLevel, targetPercentile);
         _decisionLogic = new DecisionLogic();
         _stats = new JitterBufferStats();
+        _timeStretcher = new TimeStretcher(sampleRate: 48000);
     }
 
     /// <summary>
@@ -72,6 +90,7 @@ public class JitterBuffer : IDisposable
         {
             _packetBuffer.Flush();
             _delayManager.Reset();
+            _timeStretcher.Reset();
             _firstPacketReceived = false;
             _playoutStarted = false;
         }
@@ -128,43 +147,177 @@ public class JitterBuffer : IDisposable
                 _syncBuffer.Write(frame[..decoded]);
         }
 
-        // If SyncBuffer has enough, serve from it directly
-        if (_syncBuffer.AvailableSamples >= FrameSize)
+        // Determine playout decision now that the sync buffer is up-to-date.
+        bool packetAvailable = _syncBuffer.AvailableSamples >= FrameSize;
+        var decision = _decisionLogic.Decide(
+            packetAvailable: packetAvailable,
+            bufferLevel: _packetBuffer.Count,
+            targetLevel: _delayManager.TargetLevel,
+            previousDecision: LastDecision);
+
+        switch (decision)
         {
-            _syncBuffer.Read(output[..FrameSize]);
-            output[..FrameSize].CopyTo(_lastDecodedFrame);
-            _stats.NormalFrames++;
-            _previousDecision = PlayoutDecision.Normal;
-            _consecutiveExpandCount = 0;
-            _realAudioTicks = Math.Min(_realAudioTicks + 1, SpeakingThreshold + 1);
-            IsSpeaking = _realAudioTicks >= SpeakingThreshold;
-            float v = Volume;
-            if (v < 0.999f || v > 1.001f)
-                for (int i = 0; i < FrameSize; i++)
-                    output[i] = (short)Math.Clamp(output[i] * v, short.MinValue, short.MaxValue);
-            return;
-        }
+            case PlayoutDecision.Normal:
+                _syncBuffer.Read(output[..FrameSize]);
+                output[..FrameSize].CopyTo(_lastDecodedFrame);
+                _stats.NormalFrames++;
+                _consecutiveExpandCount = 0;
+                break;
 
-        // Not enough samples even after draining all packets — check what to do
-        bool packetAvailable = _syncBuffer.AvailableSamples > 0;
-
-        // If we reach here, buffer is empty or has < 960 samples.
-        // Use PLC to fill (maintains decoder state for smooth transitions).
-        {
-            int partial = _syncBuffer.AvailableSamples > 0
-                ? _syncBuffer.Read(output[..FrameSize])
-                : 0;
-
-            if (partial < FrameSize)
+            case PlayoutDecision.Expand:
             {
-                _decoder.DecodePlc(frame);
-                frame[..(FrameSize - partial)].CopyTo(output[partial..FrameSize]);
+                bool isUnderflow = _syncBuffer.AvailableSamples == 0 && _packetBuffer.Count == 0;
+
+                int partial = _syncBuffer.AvailableSamples > 0
+                    ? _syncBuffer.Read(output[..FrameSize])
+                    : 0;
+
+                if (partial < FrameSize)
+                {
+                    _decoder.DecodePlc(frame);
+                    frame[..(FrameSize - partial)].CopyTo(output[partial..FrameSize]);
+                }
+
+                output[..FrameSize].CopyTo(_lastDecodedFrame);
+                _stats.ExpandFrames++;
+                if (isUnderflow)
+                    _stats.Underflows++;
+                _consecutiveExpandCount++;
+                break;
             }
 
-            output[..FrameSize].CopyTo(_lastDecodedFrame);
-            _stats.ExpandFrames++;
-            _previousDecision = PlayoutDecision.Expand;
+            case PlayoutDecision.Accelerate:
+            {
+                // TODO: consider warming the stretcher from the Normal-path frames so it's primed
+                // when Accelerate fires. Today the stretcher enters Accelerate cold, so the first
+                // ~2 Accelerate frames usually fall back to CrossFade (warmup underproduction).
+                // Read one frame from sync buffer into _frameBuffer.
+                _syncBuffer.Read(_frameBuffer.AsSpan(0, FrameSize));
+
+                // Try to decode a second frame from the next packet.
+                bool secondFrameAvailable = false;
+                var nextPkt = _packetBuffer.TryPopFirst();
+                if (nextPkt != null)
+                {
+                    // Decode into _secondFrameBuffer; excess samples spill into SyncBuffer.
+                    int decoded2 = _decoder.Decode(nextPkt.Payload, _secondFrameBuffer.AsSpan());
+                    if (decoded2 > 0)
+                    {
+                        if (decoded2 > FrameSize)
+                            _syncBuffer.Write(_secondFrameBuffer.AsSpan(FrameSize, decoded2 - FrameSize));
+                        secondFrameAvailable = true;
+                    }
+                    else
+                    {
+                        InsertPacket(nextPkt);
+                    }
+                }
+
+                if (secondFrameAvailable)
+                {
+                    // Attempt pitch-preserving time-stretch at AccelerateTempo.
+                    // Feed only the first frame; SoundTouch needs warmup (~1 sequence window =
+                    // 40ms) before it produces FrameSize samples. During warmup, produced < FrameSize
+                    // and we fall back to CrossFade to avoid audio gaps.
+                    int produced = _timeStretcher.IsOperational
+                        ? _timeStretcher.Process(_frameBuffer.AsSpan(0, FrameSize), AccelerateTempo, _stretchScratch)
+                        : 0;
+
+                    if (produced >= FrameSize)
+                    {
+                        // Stretch succeeded: output the compressed frame and push the second
+                        // frame back to the sync buffer so it plays next tick (net effect: one
+                        // frame consumed, buffer level reduced by one).
+                        _stretchScratch.AsSpan(0, FrameSize).CopyTo(output[..FrameSize]);
+                        _syncBuffer.Write(_secondFrameBuffer.AsSpan(0, FrameSize));
+                    }
+                    else
+                    {
+                        // Warmup or non-operational: fall back to CrossFade. Reset the stretcher
+                        // so partial output it produced (and that we can't use) doesn't leak into
+                        // the next stretching attempt — otherwise the next successful Process call
+                        // would emit already-played audio.
+                        _timeStretcher.Reset();
+                        CrossFade(output, _frameBuffer.AsSpan(0, FrameSize), _secondFrameBuffer.AsSpan(0, FrameSize));
+                    }
+                }
+                else
+                {
+                    // No second packet decoded yet — output the single frame unmodified.
+                    // We still count this as Accelerate: the decision was Accelerate;
+                    // the effective stretch is skipped only because input wasn't there.
+                    _frameBuffer.AsSpan(0, FrameSize).CopyTo(output[..FrameSize]);
+                }
+
+                output[..FrameSize].CopyTo(_lastDecodedFrame);
+                _stats.AccelerateFrames++;
+                _consecutiveExpandCount = 0;
+                break;
+            }
+
+            case PlayoutDecision.Decelerate:
+            {
+                // Read one frame from sync buffer.
+                _syncBuffer.Read(_frameBuffer.AsSpan(0, FrameSize));
+
+                // Attempt pitch-preserving time-stretch at DecelerateTempo (<1 = slower).
+                // Same warmup caveat as Accelerate: fall back to CrossFade until the stretcher
+                // has accumulated enough internal history to produce a full output frame.
+                int produced = _timeStretcher.IsOperational
+                    ? _timeStretcher.Process(_frameBuffer.AsSpan(0, FrameSize), DecelerateTempo, _stretchScratch)
+                    : 0;
+
+                if (produced >= FrameSize)
+                {
+                    _stretchScratch.AsSpan(0, FrameSize).CopyTo(output[..FrameSize]);
+                }
+                else
+                {
+                    // Reset the stretcher on fallback — see Accelerate branch for rationale.
+                    _timeStretcher.Reset();
+                    CrossFade(output, _lastDecodedFrame.AsSpan(), _frameBuffer.AsSpan(0, FrameSize));
+                }
+
+                output[..FrameSize].CopyTo(_lastDecodedFrame);
+                _stats.DecelerateFrames++;
+                _consecutiveExpandCount = 0;
+                break;
+            }
+
+            case PlayoutDecision.Merge:
+            {
+                // Merge keeps CrossFade — stretching a PLC-tail → speech transition adds more
+                // artifacts than it removes, since the outgoing frame is already a PLC estimate.
+                // Transition from PLC tail back to real audio via cross-fade.
+                _syncBuffer.Read(_frameBuffer.AsSpan(0, FrameSize));
+                CrossFade(output, _lastDecodedFrame.AsSpan() /* PLC tail */, _frameBuffer.AsSpan(0, FrameSize));
+                output[..FrameSize].CopyTo(_lastDecodedFrame);
+                _stats.MergeFrames++;
+                _consecutiveExpandCount = 0;
+                break;
+            }
+
+            default:
+                // Safety: treat unknown decisions as Normal if sync buffer has data, else Expand.
+                if (packetAvailable)
+                {
+                    _syncBuffer.Read(output[..FrameSize]);
+                    output[..FrameSize].CopyTo(_lastDecodedFrame);
+                    _stats.NormalFrames++;
+                }
+                else
+                {
+                    _decoder.DecodePlc(frame);
+                    frame[..FrameSize].CopyTo(output[..FrameSize]);
+                    output[..FrameSize].CopyTo(_lastDecodedFrame);
+                    _stats.ExpandFrames++;
+                    _consecutiveExpandCount++;
+                }
+                break;
         }
+
+        // Update decision tracking
+        LastDecision = decision;
 
         // Apply volume
         float vol = Volume;
@@ -175,7 +328,7 @@ public class JitterBuffer : IDisposable
         }
 
         // Update speaking state
-        bool isRealAudio = _previousDecision is PlayoutDecision.Normal
+        bool isRealAudio = decision is PlayoutDecision.Normal
             or PlayoutDecision.Merge
             or PlayoutDecision.Accelerate
             or PlayoutDecision.Decelerate;
@@ -188,19 +341,12 @@ public class JitterBuffer : IDisposable
         IsSpeaking = _realAudioTicks >= SpeakingThreshold;
 
         // After prolonged silence, reset so initial buffering kicks in again
-        if (_previousDecision == PlayoutDecision.Expand)
+        if (_consecutiveExpandCount >= SilenceResetThreshold)
         {
-            _consecutiveExpandCount++;
-            if (_consecutiveExpandCount >= SilenceResetThreshold)
-            {
-                _firstPacketReceived = false;
-                _playoutStarted = false;
-                _packetBuffer.Flush();
-                _consecutiveExpandCount = 0;
-            }
-        }
-        else
-        {
+            _firstPacketReceived = false;
+            _playoutStarted = false;
+            _packetBuffer.Flush();
+            _timeStretcher.Reset();
             _consecutiveExpandCount = 0;
         }
     }
@@ -222,28 +368,6 @@ public class JitterBuffer : IDisposable
         }
     }
 
-    /// <summary>
-    /// Decode a packet into the output buffer (FrameSize samples).
-    /// If the decoded frame is larger than FrameSize, excess goes into SyncBuffer.
-    /// </summary>
-    private void DecodeToOutput(byte[] payload, Span<short> decodeBuf, Span<short> output)
-    {
-        int decoded = _decoder.Decode(payload, decodeBuf);
-        if (decoded <= FrameSize)
-        {
-            decodeBuf[..Math.Min(decoded, FrameSize)].CopyTo(output[..FrameSize]);
-            // Zero-fill if decoded < FrameSize
-            if (decoded < FrameSize)
-                output[decoded..FrameSize].Clear();
-        }
-        else
-        {
-            // Output first 960 samples, store rest in SyncBuffer
-            decodeBuf[..FrameSize].CopyTo(output[..FrameSize]);
-            _syncBuffer.Write(decodeBuf[FrameSize..decoded]);
-        }
-    }
-
     public JitterBufferStats GetStats() => _stats.Snapshot();
 
     public void Dispose()
@@ -251,6 +375,7 @@ public class JitterBuffer : IDisposable
         if (!_disposed)
         {
             _decoder.Dispose();
+            _timeStretcher.Dispose();
             _disposed = true;
         }
     }
