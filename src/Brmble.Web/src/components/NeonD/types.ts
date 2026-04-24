@@ -7,12 +7,28 @@ export interface ProductionItem {
   upgradeCost: number;
 }
 
+export type UpgradeType = 'VOLUME' | 'MARGIN' | 'SIDE_HUSTLE' | 'NETWORK' | 'ALL_AROUNDER' | 'BULK';
+
+export interface DealerUpgrade {
+  type: UpgradeType;
+  label: string;
+  description: string;
+  value: number;
+  targetProductId?: string;
+  marginPenalty?: number;
+}
+
 export interface Dealer {
+  id: string;
   name: string;
   selling: string;
   volume: number;
   margin: number;
-  bribeLevel: number;
+  volumeBonus: number;
+  marginBonus: number;
+  sideHustle: Record<string, number>;
+  networkBonus: number;
+  equipmentCount: number;
 }
 
 export interface GameState {
@@ -21,5 +37,8 @@ export interface GameState {
   researchSpeed: number;
   production: Record<string, ProductionItem>;
   unlockedProduction: string[];
-  dealer: Dealer | null;
+  activeDealers: (Dealer | null)[];
+  availableDealers: Dealer[];
+  unlockedSlots: number;
+  lastRefreshTime: number;
 }

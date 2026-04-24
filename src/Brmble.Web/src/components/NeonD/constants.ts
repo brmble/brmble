@@ -25,7 +25,10 @@ export const INITIAL_GAME_STATE: GameState = {
     galacticcore: { id: 'galacticcore', name: 'Galactic Core', stock: 0, rate: 0, level: 0, upgradeCost: 1000000 }
   },
   unlockedProduction: [],
-  dealer: null
+  activeDealers: [null, null, null],
+  availableDealers: [],
+  unlockedSlots: 1,
+  lastRefreshTime: 0
 };
 
 export const DEALER_STATS = {
@@ -76,3 +79,8 @@ export const UNLOCK_COSTS: Record<string, number> = {
   neutronflakes: 400000,
   galacticcore: 850000,
 };
+
+export const SLOT_UNLOCK_COSTS = [0, 1000, 100000]; // Slot 0 is free, 1 is $1k, 2 is $100k
+
+export const DEALER_FIRST_NAMES = ['Thomas', 'Dutch', 'Belgian', 'Chemist', 'Slick', 'Vito', 'Snake', 'Mick', 'Jack'];
+export const DEALER_LAST_NAMES = ['Palmer', 'Dave', 'Bob', 'Carlos', 'Snake', 'Miller', 'The Fixer', 'The Ghost'];
