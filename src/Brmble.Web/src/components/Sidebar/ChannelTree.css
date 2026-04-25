@@ -226,6 +226,26 @@
   filter: drop-shadow(0 0 3px var(--accent-secondary));
 }
 
+.sharing-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  flex-shrink: 0;
+}
+
+.sharing-indicator .user-status-icon-btn {
+  flex-shrink: 0;
+}
+
+.sharing-badge {
+  font-size: var(--text-2xs);
+  color: var(--accent-primary);
+  padding: 1px var(--space-xs);
+  background: var(--accent-primary-subtle);
+  border-radius: var(--radius-md);
+  flex-shrink: 0;
+}
+
 .user-name {
   flex: 1;
   overflow: hidden;

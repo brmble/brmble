@@ -198,6 +198,47 @@
   color: color-mix(in srgb, var(--accent-primary) 55%, transparent);
 }
 
+.root-user-row .user-status-area {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  width: 24px;
+  flex-shrink: 0;
+}
+
+.root-user-row .user-status-icon-btn {
+  background: none;
+  border: none;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.root-user-row .user-status-icon-btn:hover {
+  background: var(--accent-primary-wash);
+}
+
+.root-user-row .user-status-icon-btn--watching {
+  background: var(--accent-secondary-subtle);
+}
+
+.root-user-row .user-status-icon-btn--watching .user-status-icon--sharing {
+  stroke: var(--accent-secondary) !important;
+}
+
+.root-user-row .user-status-icon-btn--watching:hover {
+  background: var(--accent-secondary-subtle);
+  opacity: 0.85;
+}
+
+.root-user-row .user-status-icon--watching {
+  filter: drop-shadow(0 0 3px var(--accent-secondary));
+}
+
 .root-user-name {
   flex: 1;
   overflow: hidden;
@@ -225,13 +266,23 @@
   text-transform: lowercase;
 }
 
+.sharing-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  flex-shrink: 0;
+}
+
+.sharing-indicator .user-status-icon-btn {
+  flex-shrink: 0;
+}
+
 .sharing-badge {
   font-size: var(--text-2xs);
   color: var(--accent-primary);
   padding: 1px var(--space-xs);
   background: var(--accent-primary-subtle);
   border-radius: var(--radius-md);
-  margin-left: var(--space-2xs);
   flex-shrink: 0;
 }
 

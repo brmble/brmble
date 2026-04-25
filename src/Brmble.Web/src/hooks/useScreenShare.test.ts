@@ -3,6 +3,41 @@ import { renderHook, act } from '@testing-library/react';
 import { useScreenShare } from './useScreenShare';
 import bridge from '../bridge';
 
+const roomEventHandlers = new Map<string, Set<(...args: unknown[]) => void>>();
+const localTrackEventHandlers = new Map<string, Set<() => void>>();
+let localSharePublicationEnabled = false;
+
+const mockLocalScreenShareTrack = {
+  addEventListener: vi.fn((event: string, handler: () => void) => {
+    const handlers = localTrackEventHandlers.get(event) ?? new Set<() => void>();
+    handlers.add(handler);
+    localTrackEventHandlers.set(event, handlers);
+  }),
+  removeEventListener: vi.fn((event: string, handler: () => void) => {
+    localTrackEventHandlers.get(event)?.delete(handler);
+  }),
+  on: vi.fn((event: string, handler: () => void) => {
+    const handlers = localTrackEventHandlers.get(event) ?? new Set<() => void>();
+    handlers.add(handler);
+    localTrackEventHandlers.set(event, handlers);
+  }),
+  off: vi.fn((event: string, handler: () => void) => {
+    localTrackEventHandlers.get(event)?.delete(handler);
+  }),
+};
+
+const emitRoomEvent = (event: string, ...args: unknown[]) => {
+  for (const handler of roomEventHandlers.get(event) ?? []) {
+    handler(...args);
+  }
+};
+
+const emitLocalTrackEvent = (event: string) => {
+  for (const handler of localTrackEventHandlers.get(event) ?? []) {
+    handler();
+  }
+};
+
 // Mock livekit-client
 const mockRoom = {
   connect: vi.fn().mockImplementation(async () => { mockRoom.state = 'connected'; }),
@@ -10,10 +45,27 @@ const mockRoom = {
   name: 'channel-1',
   state: undefined as string | undefined,
   localParticipant: {
-    setScreenShareEnabled: vi.fn().mockResolvedValue(undefined),
+    setScreenShareEnabled: vi.fn().mockImplementation(async (enabled: boolean) => {
+      localSharePublicationEnabled = enabled;
+    }),
+    getTrackPublication: vi.fn((source: string) => {
+      if (source !== 'screen_share' || !localSharePublicationEnabled) {
+        return undefined;
+      }
+
+      return {
+        track: mockLocalScreenShareTrack,
+        source: 'screen_share',
+      };
+    }),
   },
   remoteParticipants: new Map(),
-  on: vi.fn().mockReturnThis(),
+  on: vi.fn().mockImplementation((event: string, handler: (...args: unknown[]) => void) => {
+    const handlers = roomEventHandlers.get(event) ?? new Set<(...args: unknown[]) => void>();
+    handlers.add(handler);
+    roomEventHandlers.set(event, handlers);
+    return mockRoom;
+  }),
 };
 
 vi.mock('livekit-client', () => ({
@@ -49,6 +101,9 @@ describe('useScreenShare', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRoom.state = undefined;
+    roomEventHandlers.clear();
+    localTrackEventHandlers.clear();
+    localSharePublicationEnabled = false;
   });
 
   it('starts in idle state with empty activeShares', () => {
@@ -286,6 +341,210 @@ describe('useScreenShare', () => {
     });
 
     expect(result.current.isSharing).toBe(false);
+  });
+
+  it('surfaces the manual local stop reason once without triggering disconnect callback', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+    });
+
+    const onDisconnected = vi.fn();
+    const onLocalShareEnded = vi.fn();
+    const { result } = renderHook(() => (useScreenShare as any)(onDisconnected, undefined, onLocalShareEnded));
+
+    await act(async () => {
+      const promise = result.current.startSharing('channel-1');
+      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      await promise;
+    });
+
+    await act(async () => {
+      await result.current.stopSharing();
+    });
+
+    expect(result.current.isSharing).toBe(false);
+    expect(onDisconnected).not.toHaveBeenCalled();
+    expect(onLocalShareEnded).toHaveBeenCalledTimes(1);
+    expect(onLocalShareEnded).toHaveBeenCalledWith('manual');
+    expect(bridge.send).toHaveBeenCalledWith('livekit.shareStopped', { roomName: 'channel-1' });
+    expect((bridge.send as ReturnType<typeof vi.fn>).mock.calls.filter(([type]) => type === 'livekit.shareStopped')).toHaveLength(1);
+  });
+
+  it('classifies local capture ending as source-closed and only stops once', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+    });
+
+    const onDisconnected = vi.fn();
+    const onLocalShareEnded = vi.fn();
+    const { result } = renderHook(() => (useScreenShare as any)(onDisconnected, undefined, onLocalShareEnded));
+
+    await act(async () => {
+      const promise = result.current.startSharing('channel-1');
+      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      await promise;
+    });
+
+    await act(async () => {
+      emitLocalTrackEvent('ended');
+      await Promise.resolve();
+    });
+
+    expect(result.current.isSharing).toBe(false);
+    expect(onDisconnected).not.toHaveBeenCalled();
+    expect(onLocalShareEnded).toHaveBeenCalledTimes(1);
+    expect(onLocalShareEnded).toHaveBeenCalledWith('source-closed');
+    expect((bridge.send as ReturnType<typeof vi.fn>).mock.calls.filter(([type]) => type === 'livekit.shareStopped')).toHaveLength(1);
+  });
+
+  it('classifies active-share room disconnect as interrupted and notifies once', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+    });
+
+    const onDisconnected = vi.fn();
+    const onLocalShareEnded = vi.fn();
+    const { result } = renderHook(() => (useScreenShare as any)(onDisconnected, undefined, onLocalShareEnded));
+
+    await act(async () => {
+      const promise = result.current.startSharing('channel-1');
+      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      await promise;
+    });
+
+    act(() => {
+      emitRoomEvent('disconnected');
+    });
+
+    expect(result.current.isSharing).toBe(false);
+    expect(onDisconnected).toHaveBeenCalledTimes(1);
+    expect(onLocalShareEnded).toHaveBeenCalledTimes(1);
+    expect(onLocalShareEnded).toHaveBeenCalledWith('interrupted');
+    expect((bridge.send as ReturnType<typeof vi.fn>).mock.calls.filter(([type]) => type === 'livekit.shareStopped')).toHaveLength(1);
+  });
+
+  it('deduplicates local stop cleanup when source end and disconnect race', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+    });
+
+    const onDisconnected = vi.fn();
+    const onLocalShareEnded = vi.fn();
+    const { result } = renderHook(() => (useScreenShare as any)(onDisconnected, undefined, onLocalShareEnded));
+
+    await act(async () => {
+      const promise = result.current.startSharing('channel-1');
+      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      await promise;
+    });
+
+    await act(async () => {
+      emitLocalTrackEvent('ended');
+      emitRoomEvent('disconnected');
+      await Promise.resolve();
+    });
+
+    expect(result.current.isSharing).toBe(false);
+    expect(onDisconnected).not.toHaveBeenCalled();
+    expect(onLocalShareEnded).toHaveBeenCalledTimes(1);
+    expect(onLocalShareEnded).toHaveBeenCalledWith('source-closed');
+    expect((bridge.send as ReturnType<typeof vi.fn>).mock.calls.filter(([type]) => type === 'livekit.shareStopped')).toHaveLength(1);
+  });
+
+  it('removes the local ended listener on unmount', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+    });
+
+    const onLocalShareEnded = vi.fn();
+    const { result, unmount } = renderHook(() => useScreenShare(undefined, undefined, onLocalShareEnded));
+
+    await act(async () => {
+      const promise = result.current.startSharing('channel-1');
+      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      await promise;
+    });
+
+    expect(mockLocalScreenShareTrack.addEventListener).toHaveBeenCalledWith('ended', expect.any(Function));
+
+    unmount();
+
+    expect(mockLocalScreenShareTrack.removeEventListener).toHaveBeenCalledWith('ended', expect.any(Function));
+
+    await act(async () => {
+      emitLocalTrackEvent('ended');
+      await Promise.resolve();
+    });
+
+    expect(onLocalShareEnded).not.toHaveBeenCalled();
+    expect((bridge.send as ReturnType<typeof vi.fn>).mock.calls.filter(([type]) => type === 'livekit.shareStopped')).toHaveLength(0);
+  });
+
+  it('classifies start publish failure as error and emits local stop callback once', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    const publishError = new Error('Publish failed');
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+    });
+    mockRoom.localParticipant.setScreenShareEnabled.mockRejectedValueOnce(publishError);
+
+    const onDisconnected = vi.fn();
+    const onLocalShareEnded = vi.fn();
+    const { result } = renderHook(() => (useScreenShare as any)(onDisconnected, undefined, onLocalShareEnded));
+
+    await act(async () => {
+      const promise = result.current.startSharing('channel-1');
+      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      await promise;
+    });
+
+    expect(result.current.isSharing).toBe(false);
+    expect(result.current.error).toBe('Publish failed');
+    expect(onDisconnected).not.toHaveBeenCalled();
+    expect(onLocalShareEnded).toHaveBeenCalledTimes(1);
+    expect(onLocalShareEnded).toHaveBeenCalledWith('error');
+  });
+
+  it('reports error on quick restart even when previous stop already set the stop guard', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    const publishError = new Error('Publish failed');
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+    });
+
+    const onDisconnected = vi.fn();
+    const onLocalShareEnded = vi.fn();
+    const { result } = renderHook(() => (useScreenShare as any)(onDisconnected, undefined, onLocalShareEnded));
+
+    await act(async () => {
+      const promise = result.current.startSharing('channel-1');
+      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      await promise;
+    });
+
+    await act(async () => {
+      await result.current.stopSharing();
+    });
+
+    mockRoom.localParticipant.setScreenShareEnabled.mockRejectedValueOnce(publishError);
+
+    await act(async () => {
+      const promise = result.current.startSharing('channel-1');
+      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      await promise;
+    });
+
+    expect(result.current.isSharing).toBe(false);
+    expect(result.current.error).toBe('Publish failed');
+    expect(onDisconnected).not.toHaveBeenCalled();
+    expect(onLocalShareEnded).toHaveBeenCalledTimes(2);
+    expect(onLocalShareEnded).toHaveBeenNthCalledWith(1, 'manual');
+    expect(onLocalShareEnded).toHaveBeenNthCalledWith(2, 'error');
   });
 
   it('passes correct capture options to setScreenShareEnabled', async () => {
