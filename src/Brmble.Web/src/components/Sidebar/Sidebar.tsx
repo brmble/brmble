@@ -274,65 +274,64 @@ export function Sidebar({
             <span className="root-users-count">{rootUsers.length}</span>
           </div>
           <div className="root-users-list">
-            {rootUsers.map((user, i) => (
-              <UserTooltip key={user.session} user={user}>
-              <div
-                className={`root-user-row${user.self ? ' root-user-self' : ''}`}
-                style={{ animationDelay: `${i * 50}ms` }}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  setContextMenu({ x: e.clientX, y: e.clientY, userId: String(user.session), userName: user.name, isSelf: !!user.self });
-                }}
-                onDoubleClick={(() => {
-                  const share = activeShares?.find(s => s.sessionId === user.session);
-                  if (share) return () => onWatchScreenShare?.(`channel-${rootChannel?.id ?? 0}`, share.userId);
-                  if (user.session === sharingUserSession) return () => onWatchScreenShare?.(`channel-${rootChannel?.id ?? 0}`);
-                  return undefined;
-                })()}
-              >
-                <span className="user-status-area">
-                  {(activeShares?.some(s => s.sessionId === user.session) || user.session === sharingUserSession) ? (
-                    <button
-                      className={`user-status-icon-btn${(watchingShares?.some(s => s.sessionId === user.session) || user.session === sharingUserSession) ? ' user-status-icon-btn--watching' : ''}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const share = activeShares?.find(s => s.sessionId === user.session);
-                        if (share) {
-                          const isWatching = watchingShares?.some(s => s.userId === share.userId);
-                          if (!isWatching) {
-                            onWatchScreenShare?.(`channel-${rootChannel?.id ?? 0}`, share.userId, share.matrixUserId);
-                          } else {
-                            onStopWatching?.(share.userId);
-                          }
-                        } else {
-                          onWatchScreenShare?.(`channel-${rootChannel?.id ?? 0}`);
-                        }
-                      }}
-                      aria-label={`${(watchingShares?.some(s => s.sessionId === user.session) || user.session === sharingUserSession) ? 'Watching' : 'Watch'} screen share from ${user.name}`}
-                      aria-pressed={!!(watchingShares?.some(s => s.sessionId === user.session) || user.session === sharingUserSession)}
-                    >
-                      <Icon name="monitor" size={11} className={`user-status-icon user-status-icon--sharing${watchingShares?.some(s => s.sessionId === user.session) ? ' user-status-icon--watching' : ''}`} stroke="var(--accent-primary)" strokeWidth="2.5" />
-                    </button>
-                  ) : (
-                    <>
+            {rootUsers.map((user, i) => {
+              const share = activeShares?.find(s => s.sessionId === user.session);
+              const isLocalSharer = !!user.self && user.session === sharingUserSession;
+              const isRemoteSharer = !!share && !user.self;
+              const isSharer = isLocalSharer || isRemoteSharer;
+              const isWatchingRemoteShare = !!share && !!watchingShares?.some(s => s.userId === share.userId);
+
+              return (
+                <UserTooltip key={user.session} user={user}>
+                  <div
+                    className={`root-user-row${user.self ? ' root-user-self' : ''}`}
+                    style={{ animationDelay: `${i * 50}ms` }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setContextMenu({ x: e.clientX, y: e.clientY, userId: String(user.session), userName: user.name, isSelf: !!user.self });
+                    }}
+                    onDoubleClick={isRemoteSharer ? () => onWatchScreenShare?.(`channel-${rootChannel?.id ?? 0}`, share.userId, share.matrixUserId) : undefined}
+                  >
+                    <span className="user-status-area">
                       {user.deafened && (
                         <Icon name="headphones-off" size={11} className="user-status-icon user-status-icon--deaf" strokeWidth="2.5" />
                       )}
                       {user.muted && (
                         <Icon name="mic-off" size={11} className="user-status-icon user-status-icon--muted" strokeWidth="2.5" />
                       )}
-                    </>
-                  )}
-                </span>
-                <Avatar user={{ name: user.name, matrixUserId: user.matrixUserId, avatarUrl: user.avatarUrl }} size={20} isMumbleOnly={!user.self && !user.isBrmbleClient} />
-                <span className="root-user-name">{user.name}</span>
-                {user.self && <span className="root-self-badge">you</span>}
-                {(activeShares?.some(s => s.sessionId === user.session) || user.session === sharingUserSession) && (
-                  <span className="sharing-badge">Sharing</span>
-                )}
-              </div>
-              </UserTooltip>
-            ))}
+                    </span>
+                    <Avatar user={{ name: user.name, matrixUserId: user.matrixUserId, avatarUrl: user.avatarUrl }} size={20} isMumbleOnly={!user.self && !user.isBrmbleClient} />
+                    <span className="root-user-name">{user.name}</span>
+                    {user.self && <span className="root-self-badge">you</span>}
+                    {isSharer && (
+                      <span className="sharing-indicator">
+                        <span className="sharing-badge">Sharing</span>
+                        {isRemoteSharer ? (
+                          <button
+                            className={`user-status-icon-btn${isWatchingRemoteShare ? ' user-status-icon-btn--watching' : ''}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (!share) return;
+                              if (isWatchingRemoteShare) {
+                                onStopWatching?.(share.userId);
+                              } else {
+                                onWatchScreenShare?.(`channel-${rootChannel?.id ?? 0}`, share.userId, share.matrixUserId);
+                              }
+                            }}
+                            aria-label={`${isWatchingRemoteShare ? 'Watching' : 'Watch'} screen share from ${user.name}`}
+                            aria-pressed={isWatchingRemoteShare}
+                          >
+                            <Icon name="monitor" size={11} className={`user-status-icon user-status-icon--sharing${isWatchingRemoteShare ? ' user-status-icon--watching' : ''}`} stroke="var(--accent-primary)" strokeWidth="2.5" />
+                          </button>
+                        ) : (
+                          <Icon name="monitor" size={11} className="user-status-icon user-status-icon--sharing" stroke="var(--accent-primary)" strokeWidth="2.5" />
+                        )}
+                      </span>
+                    )}
+                  </div>
+                </UserTooltip>
+              );
+            })}
           </div>
         </div>
       )}

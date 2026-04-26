@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import bridge from './bridge';
-import type { ConnectionStatus, ChatMessage } from './types';
+import type { ConnectionStatus, ChatMessage, ServiceStatus } from './types';
 import { encodeForMumble } from './utils/imageUpload';
 import { useMatrixClient } from './hooks/useMatrixClient';
 import type { MatrixCredentials } from './hooks/useMatrixClient';
 import { useScreenShare } from './hooks/useScreenShare';
+import type { LocalShareStopReason } from './hooks/useScreenShare';
 import { useLeaveVoiceCooldown } from './hooks/useLeaveVoiceCooldown';
 import { useNotificationQueue } from './hooks/useNotificationQueue';
 import { useUnreadTracker, resetMarkersCache } from './hooks/useUnreadTracker';
@@ -37,8 +38,153 @@ import { ProfileProvider } from './contexts/ProfileContext';
 import { UpdateNotification } from './components/UpdateNotification/UpdateNotification';
 import { BrokenCertNotification } from './components/BrokenCertNotification/BrokenCertNotification';
 import { Notification } from './components/Notification/Notification';
+import type { NotificationStatus } from './components/Notification/Notification';
 import { migrateLocalStorage } from './utils/migrateLocalStorage';
 import './App.css';
+
+export interface ScreenShareEndedNotification {
+  status: NotificationStatus;
+  title: string;
+  detail: string;
+}
+
+export interface QueuedScreenShareEndedNotification extends ScreenShareEndedNotification {
+  id: string;
+}
+
+export function getScreenShareEndedNotification(reason: LocalShareStopReason): ScreenShareEndedNotification | null {
+  switch (reason) {
+    case 'manual':
+      return null;
+    case 'source-closed':
+      return {
+        status: 'info',
+        title: 'Share ended',
+        detail: 'Your screen share ended because the shared window or program was closed.',
+      };
+    case 'interrupted':
+      return {
+        status: 'info',
+        title: 'Share ended',
+        detail: 'Your screen share ended because of an unexpected technical issue.',
+      };
+    case 'error':
+      return {
+        status: 'error',
+        title: 'Screen share failed',
+        detail: 'Brmble could not keep your screen share running because of a technical issue.',
+      };
+    default: {
+      const exhaustiveReason: never = reason;
+      return exhaustiveReason;
+    }
+  }
+}
+
+export function createQueuedScreenShareEndedNotification(
+  reason: LocalShareStopReason,
+  sequence: number,
+): QueuedScreenShareEndedNotification | null {
+  const notification = getScreenShareEndedNotification(reason);
+  if (!notification) {
+    return null;
+  }
+
+  return {
+    id: `screen-share-ended-${sequence}`,
+    ...notification,
+  };
+}
+
+export function replaceScreenShareEndedNotification(
+  current: QueuedScreenShareEndedNotification | null,
+  reason: LocalShareStopReason,
+  sequence: number,
+  notifQueue: { unregister: (id: string) => void },
+): QueuedScreenShareEndedNotification | null {
+  if (current) {
+    notifQueue.unregister(current.id);
+  }
+
+  return createQueuedScreenShareEndedNotification(reason, sequence);
+}
+
+interface ToggleLocalScreenShareOptions {
+  isSharing: boolean;
+  selfLeftVoice: boolean;
+  voiceChannelId?: number;
+  startSharing: (roomName: string) => Promise<void>;
+  stopSharing: () => Promise<void>;
+  setSharingChannelId: (channelId: string | undefined) => void;
+}
+
+interface NextLiveKitStatusOptions {
+  isSharing: boolean;
+  watchingShareCount: number;
+  screenShareError: string | null;
+  isLocalShareStartPending: boolean;
+}
+
+interface LocalShareStartPendingTeardownOptions {
+  isLocalShareStartPending: boolean;
+  selfLeftVoice: boolean;
+  voiceChannelId?: number;
+}
+
+export function getNextLiveKitStatusUpdate({
+  isSharing,
+  watchingShareCount,
+  screenShareError,
+  isLocalShareStartPending,
+}: NextLiveKitStatusOptions): Partial<ServiceStatus> | null {
+  if (isSharing || watchingShareCount > 0) {
+    return { state: 'connected', error: undefined };
+  }
+
+  if (isLocalShareStartPending) {
+    return null;
+  }
+
+  if (!screenShareError) {
+    return { state: 'idle', error: undefined };
+  }
+
+  return null;
+}
+
+export function shouldClearLocalShareStartPending({
+  isLocalShareStartPending,
+  selfLeftVoice,
+  voiceChannelId,
+}: LocalShareStartPendingTeardownOptions): boolean {
+  return isLocalShareStartPending && (selfLeftVoice || voiceChannelId == null || voiceChannelId === 0);
+}
+
+export async function toggleLocalScreenShare({
+  isSharing,
+  selfLeftVoice,
+  voiceChannelId,
+  startSharing,
+  stopSharing,
+  setSharingChannelId,
+}: ToggleLocalScreenShareOptions) {
+  if (isSharing) {
+    await stopSharing();
+    setSharingChannelId(undefined);
+    return;
+  }
+
+  if (selfLeftVoice || voiceChannelId == null || voiceChannelId === 0) {
+    return;
+  }
+
+  try {
+    await startSharing(`channel-${voiceChannelId}`);
+    setSharingChannelId(String(voiceChannelId));
+  } catch {
+    // startSharing sets error state internally; App effects handle status updates.
+  }
+}
 
 const SETTINGS_STORAGE_KEY = 'brmble-settings';
 
@@ -1843,14 +1989,14 @@ const handleConnect = (serverData: SavedServer) => {
     };
   }, []);
 
-  const { isSharing, startSharing, stopSharing, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, remoteVideoEls, disconnectViewer, connectAsViewer } = useScreenShare(() => {
-    setSharingChannelId(undefined);
-  }, screenShareSettings);
-  disconnectViewerRef.current = disconnectViewer;
   const [sharingChannelId, setSharingChannelId] = useState<string | undefined>();
+  const [isLocalShareStartPending, setIsLocalShareStartPending] = useState(false);
   const [screenShareToast, setScreenShareToast] = useState<{
     userName: string; roomName: string; userId?: number; matrixUserId?: string;
   } | null>(null);
+  const [screenShareEndedNotification, setScreenShareEndedNotification] = useState<QueuedScreenShareEndedNotification | null>(null);
+  const nextScreenShareEndedNotificationIdRef = useRef(0);
+  const screenShareEndedNotificationRef = useRef<QueuedScreenShareEndedNotification | null>(null);
   const [copyToast, setCopyToast] = useState<{ message: string } | null>(null);
   const [updateInfo, setUpdateInfo] = useState<{ version: string } | null>(null);
   const [updateProgress, setUpdateProgress] = useState<number | null>(null);
@@ -1863,6 +2009,24 @@ const handleConnect = (serverData: SavedServer) => {
   interface ServerImportToast { id: string; label: string; visible: boolean; }
   const [serverImportToasts, setServerImportToasts] = useState<ServerImportToast[]>([]);
   const nextServerImportToastIdRef = useRef(0);
+
+  const handleLocalScreenShareEnded = useCallback((reason: LocalShareStopReason) => {
+    setSharingChannelId(undefined);
+
+    const notification = replaceScreenShareEndedNotification(
+      screenShareEndedNotificationRef.current,
+      reason,
+      nextScreenShareEndedNotificationIdRef.current++,
+      notifQueue,
+    );
+    screenShareEndedNotificationRef.current = notification;
+    setScreenShareEndedNotification(notification);
+  }, [notifQueue]);
+
+  const { isSharing, startSharing, stopSharing, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, remoteVideoEls, disconnectViewer, connectAsViewer } = useScreenShare(() => {
+    setSharingChannelId(undefined);
+  }, screenShareSettings, handleLocalScreenShareEnded);
+  disconnectViewerRef.current = disconnectViewer;
 
   const handleServersImported = useCallback((labels: string[]) => {
     const toasts = labels.map((label) => ({ id: `srv-${nextServerImportToastIdRef.current++}`, label, visible: true }));
@@ -1894,6 +2058,15 @@ const handleConnect = (serverData: SavedServer) => {
     }
     prevBrokenIdsRef.current = currentIds;
   }, [brokenCertInfo, notifQueue]);
+
+  useEffect(() => {
+    if (screenShareEndedNotification) {
+      notifQueue.register(screenShareEndedNotification.id, screenShareEndedNotification.status);
+    } else {
+      // Existing queued share-ended notifications are explicitly unregistered
+      // from dismissal/exit handlers so a replacement event gets fresh metadata.
+    }
+  }, [screenShareEndedNotification, notifQueue]);
 
   const { isOnCooldown: leaveVoiceOnCooldown, trigger: triggerLeaveVoiceCooldown } = useLeaveVoiceCooldown(1000);
   const { isOnCooldown: muteOnCooldown, trigger: triggerMuteCooldown } = useLeaveVoiceCooldown(1000);
@@ -1964,13 +2137,29 @@ const handleConnect = (serverData: SavedServer) => {
 
   // Track screenshare connection state for service status indicator
   useEffect(() => {
-    if (isSharing || watchingShares.length > 0) {
-      updateStatus('livekit', { state: 'connected', error: undefined });
-    } else if (!screenShareError) {
-      // Only reset to idle if there's no active error (error case handled above)
-      updateStatus('livekit', { state: 'idle', error: undefined });
+    const nextStatus = getNextLiveKitStatusUpdate({
+      isSharing,
+      watchingShareCount: watchingShares.length,
+      screenShareError,
+      isLocalShareStartPending,
+    });
+
+    if (nextStatus) {
+      updateStatus('livekit', nextStatus);
     }
-  }, [isSharing, watchingShares.length, screenShareError, updateStatus]);
+  }, [isSharing, watchingShares.length, screenShareError, isLocalShareStartPending, updateStatus]);
+
+  const selfVoiceChannelId = users.find(u => u.self)?.channelId;
+
+  useEffect(() => {
+    if (shouldClearLocalShareStartPending({
+      isLocalShareStartPending,
+      selfLeftVoice,
+      voiceChannelId: selfVoiceChannelId,
+    })) {
+      setIsLocalShareStartPending(false);
+    }
+  }, [isLocalShareStartPending, selfLeftVoice, selfVoiceChannelId]);
 
   // Show toast notification when someone starts sharing in the user's voice channel
   useEffect(() => {
@@ -2007,23 +2196,26 @@ const handleConnect = (serverData: SavedServer) => {
   }, [currentChannelId, disconnectViewer]);
 
   const handleToggleScreenShare = useCallback(async () => {
-    if (isSharing) {
-      await stopSharing();
-      setSharingChannelId(undefined);
-    } else if (!selfLeftVoice) {
-      const selfUser = usersRef.current.find(u => u.self);
-      const voiceChannelId = selfUser?.channelId;
-      if (voiceChannelId != null && voiceChannelId !== 0) {
-        updateStatus('livekit', { state: 'connecting', error: undefined });
-        try {
-          await startSharing(`channel-${voiceChannelId}`);
-          setSharingChannelId(String(voiceChannelId));
-        } catch {
-          // startSharing sets error state internally; useEffect above handles status
-        }
-      }
+    const selfUser = usersRef.current.find(u => u.self);
+    const shouldStartSharing = !isSharing && !selfLeftVoice && selfUser?.channelId != null && selfUser.channelId !== 0;
+
+    if (shouldStartSharing) {
+      setIsLocalShareStartPending(true);
     }
-  }, [isSharing, startSharing, stopSharing, selfLeftVoice, updateStatus]);
+
+    await toggleLocalScreenShare({
+      isSharing,
+      selfLeftVoice,
+      voiceChannelId: selfUser?.channelId,
+      startSharing,
+      stopSharing,
+      setSharingChannelId,
+    });
+
+    if (shouldStartSharing) {
+      setIsLocalShareStartPending(false);
+    }
+  }, [isSharing, startSharing, stopSharing, selfLeftVoice]);
   handleToggleScreenShareRef.current = handleToggleScreenShare;
 
   const handleWatchScreenShare = useCallback((roomName: string, userId?: number, matrixUserId?: string) => {
@@ -2422,6 +2614,27 @@ const handleConnect = (serverData: SavedServer) => {
             }}
             onExited={() => {
               notifQueue.unregister('screen-share');
+            }}
+          />
+        )}
+        {screenShareEndedNotification && notifQueue.isVisible(screenShareEndedNotification.id) && (
+          <Notification
+            key={screenShareEndedNotification.id}
+            status={screenShareEndedNotification.status}
+            position="top-right"
+            visible={!!screenShareEndedNotification}
+            title={screenShareEndedNotification.title}
+            detail={screenShareEndedNotification.detail}
+            onDismiss={() => {
+              notifQueue.unregister(screenShareEndedNotification.id);
+              screenShareEndedNotificationRef.current = null;
+              setScreenShareEndedNotification(null);
+            }}
+            onExited={() => {
+              notifQueue.unregister(screenShareEndedNotification.id);
+              if (screenShareEndedNotificationRef.current?.id === screenShareEndedNotification.id) {
+                screenShareEndedNotificationRef.current = null;
+              }
             }}
           />
         )}

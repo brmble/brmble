@@ -24,7 +24,86 @@ export interface ScreenShareSettings {
   systemAudio: boolean;
 }
 
-export function useScreenShare(onDisconnected?: () => void, screenShareSettings?: ScreenShareSettings) {
+export type LocalShareStopReason = 'manual' | 'source-closed' | 'interrupted' | 'error';
+
+type LocalTrackLike = {
+  addEventListener?: (event: string, handler: () => void) => void;
+  removeEventListener?: (event: string, handler: () => void) => void;
+  on?: (event: string, handler: () => void) => void;
+  off?: (event: string, handler: () => void) => void;
+};
+
+type ErrorLike = {
+  name?: unknown;
+  message?: unknown;
+  constructor?: {
+    name?: unknown;
+  };
+};
+
+const getErrorLikeDetails = (err: unknown) => {
+  if (!err || typeof err !== 'object') {
+    return null;
+  }
+
+  const { name, message } = err as ErrorLike;
+  return {
+    name: typeof name === 'string' ? name : '',
+    message: typeof message === 'string' ? message : '',
+  };
+};
+
+const isScreenSharePickerCancel = (err: unknown) => {
+  const details = getErrorLikeDetails(err);
+  if (!details) {
+    return false;
+  }
+
+   const normalizedMessage = details.message.trim().toLowerCase();
+
+   if (normalizedMessage === 'permission denied by user') {
+     return true;
+   }
+
+  const isDomExceptionLike = err instanceof DOMException
+    || (typeof (err as ErrorLike).constructor?.name === 'string' && (err as ErrorLike).constructor?.name === 'DOMException');
+
+  if (!isDomExceptionLike) {
+    return false;
+  }
+
+  const normalizedName = details.name.trim().toLowerCase();
+
+  if (normalizedName === 'aborterror') {
+    const knownAbortCancelMessages = new Set([
+      'canceled',
+      'cancelled',
+      'permission denied by user',
+      'selection canceled by user',
+      'selection cancelled by user',
+    ]);
+
+    return knownAbortCancelMessages.has(normalizedMessage);
+  }
+
+  if (normalizedName === 'notallowederror') {
+    const knownDismissMessages = new Set([
+      'permission denied by user',
+      'dismissed',
+      'permission dismissed',
+    ]);
+
+    return knownDismissMessages.has(normalizedMessage);
+  }
+
+  return false;
+};
+
+export function useScreenShare(
+  onDisconnected?: () => void,
+  screenShareSettings?: ScreenShareSettings,
+  onLocalShareEnded?: (reason: LocalShareStopReason) => void,
+) {
   const [isSharing, setIsSharing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeShares, setActiveShares] = useState<ShareInfo[]>([]);
@@ -38,7 +117,16 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
   const isSharingRef = useRef(false);
   const focusedShareRef = useRef<ShareInfo | null>(null);
   const onDisconnectedRef = useRef(onDisconnected);
+  const onLocalShareEndedRef = useRef(onLocalShareEnded);
+  const localShareEndCleanupRef = useRef<(() => void) | null>(null);
+  const localShareStopHandledRef = useRef(false);
   onDisconnectedRef.current = onDisconnected;
+  onLocalShareEndedRef.current = onLocalShareEnded;
+
+  const clearLocalShareEndListener = useCallback(() => {
+    localShareEndCleanupRef.current?.();
+    localShareEndCleanupRef.current = null;
+  }, []);
 
   const setFocusedShare: typeof _setFocusedShare = useCallback((action) => {
     _setFocusedShare(prev => {
@@ -123,6 +211,78 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
     });
   }, []);
 
+  // Try to disconnect the room, but only if we're not sharing AND not watching
+  const maybeDisconnectRoom = useCallback(async () => {
+    if (!isSharingRef.current && watchingSharesRef.current.length === 0 && roomRef.current) {
+      try { await roomRef.current.disconnect(); } catch { /* ignore */ }
+      roomRef.current = null;
+    }
+  }, []);
+
+  const stopLocalShare = useCallback(async (
+    reason: LocalShareStopReason,
+    roomOverride?: Room | null,
+  ) => {
+    const wasSharing = isSharingRef.current;
+    const shouldHandleErrorBeforeShareStarts = reason === 'error' && !localShareStopHandledRef.current;
+
+    if (localShareStopHandledRef.current || (!wasSharing && !shouldHandleErrorBeforeShareStarts)) {
+      return;
+    }
+
+    localShareStopHandledRef.current = true;
+    clearLocalShareEndListener();
+
+    const room = roomOverride ?? roomRef.current;
+    const roomName = room?.name;
+
+    if (wasSharing && reason !== 'interrupted' && room) {
+      try { await room.localParticipant.setScreenShareEnabled(false); } catch { /* ignore */ }
+    }
+
+    isSharingRef.current = false;
+    setIsSharing(false);
+
+    if (wasSharing && roomName) {
+      bridge.send('livekit.shareStopped', { roomName });
+    }
+
+    onLocalShareEndedRef.current?.(reason);
+
+    if (reason === 'interrupted') {
+      onDisconnectedRef.current?.();
+    }
+
+    await maybeDisconnectRoom();
+  }, [clearLocalShareEndListener, maybeDisconnectRoom]);
+
+  const bindLocalShareEndListener = useCallback((room: Room) => {
+    clearLocalShareEndListener();
+
+    const publication = (room.localParticipant as {
+      getTrackPublication?: (source: string) => { track?: LocalTrackLike } | undefined;
+    }).getTrackPublication?.(Track.Source.ScreenShare);
+    const track = publication?.track;
+    if (!track) {
+      return;
+    }
+
+    const onEnded = () => {
+      void stopLocalShare('source-closed', room);
+    };
+
+    if (typeof track.addEventListener === 'function' && typeof track.removeEventListener === 'function') {
+      track.addEventListener('ended', onEnded);
+      localShareEndCleanupRef.current = () => track.removeEventListener?.('ended', onEnded);
+      return;
+    }
+
+    if (typeof track.on === 'function' && typeof track.off === 'function') {
+      track.on('ended', onEnded);
+      localShareEndCleanupRef.current = () => track.off?.('ended', onEnded);
+    }
+  }, [clearLocalShareEndListener, stopLocalShare]);
+
   // Ensure we have a connected room for the given channel.
   // Returns the existing room if already connected to this channel, otherwise connects.
   const ensureRoom = useCallback(async (roomName: string): Promise<Room> => {
@@ -180,9 +340,7 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
       roomRef.current = null;
       setRemoteVideoEls(new Map());
       if (isSharingRef.current) {
-        setIsSharing(false);
-        isSharingRef.current = false;
-        onDisconnectedRef.current?.();
+        void stopLocalShare('interrupted', room);
       }
       updateWatchingShares([]);
       setFocusedShare(null);
@@ -191,18 +349,11 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
     await room.connect(url, token);
     roomRef.current = room;
     return room;
-  }, [requestToken, updateWatchingShares]);
-
-  // Try to disconnect the room, but only if we're not sharing AND not watching
-  const maybeDisconnectRoom = useCallback(async () => {
-    if (!isSharingRef.current && watchingSharesRef.current.length === 0 && roomRef.current) {
-      try { await roomRef.current.disconnect(); } catch { /* ignore */ }
-      roomRef.current = null;
-    }
-  }, []);
+  }, [requestToken, updateWatchingShares, stopLocalShare]);
 
   const startSharing = useCallback(async (roomName: string) => {
     setError(null);
+    localShareStopHandledRef.current = false;
 
     try {
       const room = await ensureRoom(roomName);
@@ -254,35 +405,27 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
 
       isSharingRef.current = true;
       setIsSharing(true);
+      bindLocalShareEndListener(room);
 
       bridge.send('livekit.shareStarted', { roomName });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Screen share failed');
-      setIsSharing(false);
-      isSharingRef.current = false;
+      clearLocalShareEndListener();
+
+      if (isScreenSharePickerCancel(err)) {
+        await maybeDisconnectRoom();
+        return;
+      }
+
+      setError(getErrorLikeDetails(err)?.message || 'Screen share failed');
+      await stopLocalShare('error', roomRef.current);
       // Disconnect room if we're not watching anyone either
       await maybeDisconnectRoom();
     }
-  }, [screenShareSettings, ensureRoom]);
+  }, [screenShareSettings, ensureRoom, bindLocalShareEndListener, clearLocalShareEndListener, maybeDisconnectRoom, stopLocalShare]);
 
   const stopSharing = useCallback(async () => {
-    const room = roomRef.current;
-    if (room) {
-      const roomName = room.name;
-      try { await room.localParticipant.setScreenShareEnabled(false); } catch { /* already stopped */ }
-      isSharingRef.current = false;
-      setIsSharing(false);
-      if (roomName) {
-        bridge.send('livekit.shareStopped', { roomName });
-      }
-
-      // Disconnect only if not watching anyone
-      await maybeDisconnectRoom();
-    } else {
-      isSharingRef.current = false;
-      setIsSharing(false);
-    }
-  }, [maybeDisconnectRoom]);
+    await stopLocalShare('manual');
+  }, [stopLocalShare]);
 
   // --- Viewer logic ---
 
@@ -449,6 +592,12 @@ export function useScreenShare(onDisconnected?: () => void, screenShareSettings?
       bridge.off('livekit.activeShareResult', onActiveShareResult);
     };
   }, [removeWatchingShare]);
+
+  useEffect(() => {
+    return () => {
+      clearLocalShareEndListener();
+    };
+  }, [clearLocalShareEndListener]);
 
   // Backward compat: expose first active share as activeShare
   const activeShare: ActiveShare | null = activeShares.length > 0
