@@ -33,6 +33,72 @@ type LocalTrackLike = {
   off?: (event: string, handler: () => void) => void;
 };
 
+type ErrorLike = {
+  name?: unknown;
+  message?: unknown;
+  constructor?: {
+    name?: unknown;
+  };
+};
+
+const getErrorLikeDetails = (err: unknown) => {
+  if (!err || typeof err !== 'object') {
+    return null;
+  }
+
+  const { name, message } = err as ErrorLike;
+  return {
+    name: typeof name === 'string' ? name : '',
+    message: typeof message === 'string' ? message : '',
+  };
+};
+
+const isScreenSharePickerCancel = (err: unknown) => {
+  const details = getErrorLikeDetails(err);
+  if (!details) {
+    return false;
+  }
+
+   const normalizedMessage = details.message.trim().toLowerCase();
+
+   if (normalizedMessage === 'permission denied by user') {
+     return true;
+   }
+
+  const isDomExceptionLike = err instanceof DOMException
+    || (typeof (err as ErrorLike).constructor?.name === 'string' && (err as ErrorLike).constructor?.name === 'DOMException');
+
+  if (!isDomExceptionLike) {
+    return false;
+  }
+
+  const normalizedName = details.name.trim().toLowerCase();
+
+  if (normalizedName === 'aborterror') {
+    const knownAbortCancelMessages = new Set([
+      'canceled',
+      'cancelled',
+      'permission denied by user',
+      'selection canceled by user',
+      'selection cancelled by user',
+    ]);
+
+    return knownAbortCancelMessages.has(normalizedMessage);
+  }
+
+  if (normalizedName === 'notallowederror') {
+    const knownDismissMessages = new Set([
+      'permission denied by user',
+      'dismissed',
+      'permission dismissed',
+    ]);
+
+    return knownDismissMessages.has(normalizedMessage);
+  }
+
+  return false;
+};
+
 export function useScreenShare(
   onDisconnected?: () => void,
   screenShareSettings?: ScreenShareSettings,
@@ -344,7 +410,13 @@ export function useScreenShare(
       bridge.send('livekit.shareStarted', { roomName });
     } catch (err) {
       clearLocalShareEndListener();
-      setError(err instanceof Error ? err.message : 'Screen share failed');
+
+      if (isScreenSharePickerCancel(err)) {
+        await maybeDisconnectRoom();
+        return;
+      }
+
+      setError(getErrorLikeDetails(err)?.message || 'Screen share failed');
       await stopLocalShare('error', roomRef.current);
       // Disconnect room if we're not watching anyone either
       await maybeDisconnectRoom();

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import bridge from './bridge';
-import type { ConnectionStatus, ChatMessage } from './types';
+import type { ConnectionStatus, ChatMessage, ServiceStatus } from './types';
 import { encodeForMumble } from './utils/imageUpload';
 import { useMatrixClient } from './hooks/useMatrixClient';
 import type { MatrixCredentials } from './hooks/useMatrixClient';
@@ -103,6 +103,83 @@ export function replaceScreenShareEndedNotification(
   }
 
   return createQueuedScreenShareEndedNotification(reason, sequence);
+}
+
+interface ToggleLocalScreenShareOptions {
+  isSharing: boolean;
+  selfLeftVoice: boolean;
+  voiceChannelId?: number;
+  startSharing: (roomName: string) => Promise<void>;
+  stopSharing: () => Promise<void>;
+  setSharingChannelId: (channelId: string | undefined) => void;
+}
+
+interface NextLiveKitStatusOptions {
+  isSharing: boolean;
+  watchingShareCount: number;
+  screenShareError: string | null;
+  isLocalShareStartPending: boolean;
+}
+
+interface LocalShareStartPendingTeardownOptions {
+  isLocalShareStartPending: boolean;
+  selfLeftVoice: boolean;
+  voiceChannelId?: number;
+}
+
+export function getNextLiveKitStatusUpdate({
+  isSharing,
+  watchingShareCount,
+  screenShareError,
+  isLocalShareStartPending,
+}: NextLiveKitStatusOptions): Partial<ServiceStatus> | null {
+  if (isSharing || watchingShareCount > 0) {
+    return { state: 'connected', error: undefined };
+  }
+
+  if (isLocalShareStartPending) {
+    return null;
+  }
+
+  if (!screenShareError) {
+    return { state: 'idle', error: undefined };
+  }
+
+  return null;
+}
+
+export function shouldClearLocalShareStartPending({
+  isLocalShareStartPending,
+  selfLeftVoice,
+  voiceChannelId,
+}: LocalShareStartPendingTeardownOptions): boolean {
+  return isLocalShareStartPending && (selfLeftVoice || voiceChannelId == null || voiceChannelId === 0);
+}
+
+export async function toggleLocalScreenShare({
+  isSharing,
+  selfLeftVoice,
+  voiceChannelId,
+  startSharing,
+  stopSharing,
+  setSharingChannelId,
+}: ToggleLocalScreenShareOptions) {
+  if (isSharing) {
+    await stopSharing();
+    setSharingChannelId(undefined);
+    return;
+  }
+
+  if (selfLeftVoice || voiceChannelId == null || voiceChannelId === 0) {
+    return;
+  }
+
+  try {
+    await startSharing(`channel-${voiceChannelId}`);
+    setSharingChannelId(String(voiceChannelId));
+  } catch {
+    // startSharing sets error state internally; App effects handle status updates.
+  }
 }
 
 const SETTINGS_STORAGE_KEY = 'brmble-settings';
@@ -1909,6 +1986,7 @@ const handleConnect = (serverData: SavedServer) => {
   }, []);
 
   const [sharingChannelId, setSharingChannelId] = useState<string | undefined>();
+  const [isLocalShareStartPending, setIsLocalShareStartPending] = useState(false);
   const [screenShareToast, setScreenShareToast] = useState<{
     userName: string; roomName: string; userId?: number; matrixUserId?: string;
   } | null>(null);
@@ -2055,13 +2133,29 @@ const handleConnect = (serverData: SavedServer) => {
 
   // Track screenshare connection state for service status indicator
   useEffect(() => {
-    if (isSharing || watchingShares.length > 0) {
-      updateStatus('livekit', { state: 'connected', error: undefined });
-    } else if (!screenShareError) {
-      // Only reset to idle if there's no active error (error case handled above)
-      updateStatus('livekit', { state: 'idle', error: undefined });
+    const nextStatus = getNextLiveKitStatusUpdate({
+      isSharing,
+      watchingShareCount: watchingShares.length,
+      screenShareError,
+      isLocalShareStartPending,
+    });
+
+    if (nextStatus) {
+      updateStatus('livekit', nextStatus);
     }
-  }, [isSharing, watchingShares.length, screenShareError, updateStatus]);
+  }, [isSharing, watchingShares.length, screenShareError, isLocalShareStartPending, updateStatus]);
+
+  const selfVoiceChannelId = users.find(u => u.self)?.channelId;
+
+  useEffect(() => {
+    if (shouldClearLocalShareStartPending({
+      isLocalShareStartPending,
+      selfLeftVoice,
+      voiceChannelId: selfVoiceChannelId,
+    })) {
+      setIsLocalShareStartPending(false);
+    }
+  }, [isLocalShareStartPending, selfLeftVoice, selfVoiceChannelId]);
 
   // Show toast notification when someone starts sharing in the user's voice channel
   useEffect(() => {
@@ -2098,23 +2192,26 @@ const handleConnect = (serverData: SavedServer) => {
   }, [currentChannelId, disconnectViewer]);
 
   const handleToggleScreenShare = useCallback(async () => {
-    if (isSharing) {
-      await stopSharing();
-      setSharingChannelId(undefined);
-    } else if (!selfLeftVoice) {
-      const selfUser = usersRef.current.find(u => u.self);
-      const voiceChannelId = selfUser?.channelId;
-      if (voiceChannelId != null && voiceChannelId !== 0) {
-        updateStatus('livekit', { state: 'connecting', error: undefined });
-        try {
-          await startSharing(`channel-${voiceChannelId}`);
-          setSharingChannelId(String(voiceChannelId));
-        } catch {
-          // startSharing sets error state internally; useEffect above handles status
-        }
-      }
+    const selfUser = usersRef.current.find(u => u.self);
+    const shouldStartSharing = !isSharing && !selfLeftVoice && selfUser?.channelId != null && selfUser.channelId !== 0;
+
+    if (shouldStartSharing) {
+      setIsLocalShareStartPending(true);
     }
-  }, [isSharing, startSharing, stopSharing, selfLeftVoice, updateStatus]);
+
+    await toggleLocalScreenShare({
+      isSharing,
+      selfLeftVoice,
+      voiceChannelId: selfUser?.channelId,
+      startSharing,
+      stopSharing,
+      setSharingChannelId,
+    });
+
+    if (shouldStartSharing) {
+      setIsLocalShareStartPending(false);
+    }
+  }, [isSharing, startSharing, stopSharing, selfLeftVoice]);
   handleToggleScreenShareRef.current = handleToggleScreenShare;
 
   const handleWatchScreenShare = useCallback((roomName: string, userId?: number, matrixUserId?: string) => {

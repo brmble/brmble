@@ -510,6 +510,186 @@ describe('useScreenShare', () => {
     expect(onLocalShareEnded).toHaveBeenCalledWith('error');
   });
 
+  it('treats picker cancel as a benign pre-share abort', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    const pickerCancelError = new DOMException('Selection canceled by user', 'AbortError');
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+    });
+    mockRoom.localParticipant.setScreenShareEnabled.mockRejectedValueOnce(pickerCancelError);
+
+    const onDisconnected = vi.fn();
+    const onLocalShareEnded = vi.fn();
+    const { result } = renderHook(() => (useScreenShare as any)(onDisconnected, undefined, onLocalShareEnded));
+
+    await act(async () => {
+      const promise = result.current.startSharing('channel-1');
+      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      await promise;
+    });
+
+    expect(result.current.isSharing).toBe(false);
+    expect(result.current.error).toBeNull();
+    expect(onDisconnected).not.toHaveBeenCalled();
+    expect(onLocalShareEnded).not.toHaveBeenCalled();
+    expect((bridge.send as ReturnType<typeof vi.fn>).mock.calls.filter(([type]) => type === 'livekit.shareStopped')).toHaveLength(0);
+  });
+
+  it('keeps close-but-real start failures on the error path', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    const publishError = new DOMException('Permission denied by user while starting capture pipeline', 'AbortError');
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+    });
+    mockRoom.localParticipant.setScreenShareEnabled.mockRejectedValueOnce(publishError);
+
+    const onDisconnected = vi.fn();
+    const onLocalShareEnded = vi.fn();
+    const { result } = renderHook(() => (useScreenShare as any)(onDisconnected, undefined, onLocalShareEnded));
+
+    await act(async () => {
+      const promise = result.current.startSharing('channel-1');
+      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      await promise;
+    });
+
+    expect(result.current.isSharing).toBe(false);
+    expect(result.current.error).toBe('Permission denied by user while starting capture pipeline');
+    expect(onDisconnected).not.toHaveBeenCalled();
+    expect(onLocalShareEnded).toHaveBeenCalledTimes(1);
+    expect(onLocalShareEnded).toHaveBeenCalledWith('error');
+  });
+
+  it('treats plain exact permission denied by user as benign picker cancel', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    const pickerCancelError = { message: 'Permission denied by user' };
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+    });
+    mockRoom.localParticipant.setScreenShareEnabled.mockRejectedValueOnce(pickerCancelError);
+
+    const onDisconnected = vi.fn();
+    const onLocalShareEnded = vi.fn();
+    const { result } = renderHook(() => (useScreenShare as any)(onDisconnected, undefined, onLocalShareEnded));
+
+    await act(async () => {
+      const promise = result.current.startSharing('channel-1');
+      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      await promise;
+    });
+
+    expect(result.current.isSharing).toBe(false);
+    expect(result.current.error).toBeNull();
+    expect(onDisconnected).not.toHaveBeenCalled();
+    expect(onLocalShareEnded).not.toHaveBeenCalled();
+    expect((bridge.send as ReturnType<typeof vi.fn>).mock.calls.filter(([type]) => type === 'livekit.shareStopped')).toHaveLength(0);
+  });
+
+  it('keeps non-picker errors with longer permission denied wording on the error path', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    const publishError = { message: 'Permission denied by user while starting capture pipeline' };
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+    });
+    mockRoom.localParticipant.setScreenShareEnabled.mockRejectedValueOnce(publishError);
+
+    const onDisconnected = vi.fn();
+    const onLocalShareEnded = vi.fn();
+    const { result } = renderHook(() => (useScreenShare as any)(onDisconnected, undefined, onLocalShareEnded));
+
+    await act(async () => {
+      const promise = result.current.startSharing('channel-1');
+      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      await promise;
+    });
+
+    expect(result.current.isSharing).toBe(false);
+    expect(result.current.error).toBe('Permission denied by user while starting capture pipeline');
+    expect(onDisconnected).not.toHaveBeenCalled();
+    expect(onLocalShareEnded).toHaveBeenCalledTimes(1);
+    expect(onLocalShareEnded).toHaveBeenCalledWith('error');
+  });
+
+  it('treats DOMException NotAllowedError with permission denied by user as benign picker cancel', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    const pickerCancelError = new DOMException('Permission denied by user', 'NotAllowedError');
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+    });
+    mockRoom.localParticipant.setScreenShareEnabled.mockRejectedValueOnce(pickerCancelError);
+
+    const onDisconnected = vi.fn();
+    const onLocalShareEnded = vi.fn();
+    const { result } = renderHook(() => (useScreenShare as any)(onDisconnected, undefined, onLocalShareEnded));
+
+    await act(async () => {
+      const promise = result.current.startSharing('channel-1');
+      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      await promise;
+    });
+
+    expect(result.current.isSharing).toBe(false);
+    expect(result.current.error).toBeNull();
+    expect(onDisconnected).not.toHaveBeenCalled();
+    expect(onLocalShareEnded).not.toHaveBeenCalled();
+    expect((bridge.send as ReturnType<typeof vi.fn>).mock.calls.filter(([type]) => type === 'livekit.shareStopped')).toHaveLength(0);
+  });
+
+  it('treats DOMException AbortError with permission denied by user as benign picker cancel', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    const pickerCancelError = new DOMException('Permission denied by user', 'AbortError');
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+    });
+    mockRoom.localParticipant.setScreenShareEnabled.mockRejectedValueOnce(pickerCancelError);
+
+    const onDisconnected = vi.fn();
+    const onLocalShareEnded = vi.fn();
+    const { result } = renderHook(() => (useScreenShare as any)(onDisconnected, undefined, onLocalShareEnded));
+
+    await act(async () => {
+      const promise = result.current.startSharing('channel-1');
+      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      await promise;
+    });
+
+    expect(result.current.isSharing).toBe(false);
+    expect(result.current.error).toBeNull();
+    expect(onDisconnected).not.toHaveBeenCalled();
+    expect(onLocalShareEnded).not.toHaveBeenCalled();
+    expect((bridge.send as ReturnType<typeof vi.fn>).mock.calls.filter(([type]) => type === 'livekit.shareStopped')).toHaveLength(0);
+  });
+
+  it('keeps spec-style DOMException NotAllowedError permission denials on the error path', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    const publishError = new DOMException(
+      'The request is not allowed by the user agent or the platform in the current context, possibly because the user denied permission.',
+      'NotAllowedError',
+    );
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+    });
+    mockRoom.localParticipant.setScreenShareEnabled.mockRejectedValueOnce(publishError);
+
+    const onDisconnected = vi.fn();
+    const onLocalShareEnded = vi.fn();
+    const { result } = renderHook(() => (useScreenShare as any)(onDisconnected, undefined, onLocalShareEnded));
+
+    await act(async () => {
+      const promise = result.current.startSharing('channel-1');
+      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      await promise;
+    });
+
+    expect(result.current.isSharing).toBe(false);
+    expect(result.current.error).toBe(
+      'The request is not allowed by the user agent or the platform in the current context, possibly because the user denied permission.',
+    );
+    expect(onDisconnected).not.toHaveBeenCalled();
+    expect(onLocalShareEnded).toHaveBeenCalledTimes(1);
+    expect(onLocalShareEnded).toHaveBeenCalledWith('error');
+  });
+
   it('reports error on quick restart even when previous stop already set the stop guard', async () => {
     let tokenHandler: ((data: unknown) => void) | null = null;
     const publishError = new Error('Publish failed');
