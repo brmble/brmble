@@ -52,7 +52,7 @@ export interface QueuedScreenShareEndedNotification extends ScreenShareEndedNoti
   id: string;
 }
 
-export function getScreenShareEndedNotification(reason: 'manual' | 'source-closed' | 'interrupted' | 'error'): ScreenShareEndedNotification | null {
+export function getScreenShareEndedNotification(reason: LocalShareStopReason): ScreenShareEndedNotification | null {
   switch (reason) {
     case 'manual':
       return null;
@@ -74,11 +74,15 @@ export function getScreenShareEndedNotification(reason: 'manual' | 'source-close
         title: 'Screen share failed',
         detail: 'Brmble could not keep your screen share running because of a technical issue.',
       };
+    default: {
+      const exhaustiveReason: never = reason;
+      return exhaustiveReason;
+    }
   }
 }
 
 export function createQueuedScreenShareEndedNotification(
-  reason: 'manual' | 'source-closed' | 'interrupted' | 'error',
+  reason: LocalShareStopReason,
   sequence: number,
 ): QueuedScreenShareEndedNotification | null {
   const notification = getScreenShareEndedNotification(reason);
@@ -94,7 +98,7 @@ export function createQueuedScreenShareEndedNotification(
 
 export function replaceScreenShareEndedNotification(
   current: QueuedScreenShareEndedNotification | null,
-  reason: 'manual' | 'source-closed' | 'interrupted' | 'error',
+  reason: LocalShareStopReason,
   sequence: number,
   notifQueue: { unregister: (id: string) => void },
 ): QueuedScreenShareEndedNotification | null {
