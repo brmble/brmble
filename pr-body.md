@@ -1,28 +1,59 @@
 ## Summary
 
-Adds a new "Screen Share" tab in the Settings modal for configuring screen capture and viewer options, plus a bug fix for re-watching.
+Transforms the Brmble Empire game from a single-dealer model to a multi-dealer slot system with a comprehensive equipment upgrade mechanic.
 
-### Screen Share Settings Tab
-- **Capture Audio** - Toggle to capture microphone audio along with screen share
-- **Resolution** - Dropdown to select output resolution: 720p (HD), 1080p (Full HD), 1440p (QHD), 4K (Ultra HD)
-- **FPS** - Dropdown to select frame rate: 15, 30, or 60
-- **System Audio** - Toggle to include system audio (Windows/macOS only)
-- **Viewer Mode** - Choose where to display screen share when watching others:
-  - **In-app** - Shows in a split panel within the chat
-  - **Full window** - Opens in a full-screen overlay
+### Major Changes
 
-### Technical Implementation
-The UI settings are mapped to LiveKit's `ScreenShareCaptureOptions`:
-- Resolution/FPS → `resolution` object with width, height, frameRate
-- Bitrate → `videoEncoding.maxBitrate` (2-15 Mbps based on resolution)
-- Codec → `videoCodec: 'h264'` for cross-hardware efficiency
+**Architecture**
+- Replaced single `dealer` field in GameState with `activeDealers[]` array supporting up to 3 dealers
+- Added `availableDealers` pool for hiring new dealers
+- Added `unlockedSlots` system to progressively unlock dealer slots ($1k, $100k)
+- Added `lastRefreshTime` for dealer pool cooldown
 
-### Bug Fix
-- **Re-watching** - Fixed a bug where viewers couldn't re-watch a screen share after closing the viewer. Previously, closing the viewer cleared `activeShare` to null, preventing re-watching. Now `activeShare` is only cleared when the sharer actually stops sharing (via the `screenShareStopped` event).
+**Equipment System**
+- 3-slot equipment limit per dealer with scaling costs ($500, $1,250, $3,125)
+- Weighted RNG upgrade selection:
+  - **Common (70%)**: High Capacity (+15% volume), Premium Cut (+15% margin), Packaging Expert (+5% both)
+  - **Uncommon (20%)**: Bulk Specialist (+35% vol, -10% marg), The Network (+10% side hustle efficiency)
+  - **Jackpot (10%)**: Side Hustle - sell a second product at 10% volume (gold glow UI)
+- New upgrade types: VOLUME, MARGIN, SIDE_HUSTLE, NETWORK, ALL_AROUNDER, BULK
 
-## Testing
-1. Open Settings → Screen Share tab - verify all settings appear
-2. Toggle capture audio, change resolution/FPS, enable system audio - settings persist
-3. Share your screen with different settings - verify options are applied
-4. Watch someone else's screen share, close it, then re-watch - should now work
-5. Switch between In-app and Full window viewer modes - both work
+**Side Hustles**
+- Dealers can now sell multiple products simultaneously
+- Side hustle sales capped at 90% of total volume to ensure primary sales
+- Side hustles consume inventory just like primary sales
+
+**UI Improvements**
+- Equipment slot visualization with filled/empty indicators
+- Upgrade selection modal with jackpot highlighting and pulse animation
+- Per-dealer earnings display
+- Global earnings in header
+- Fire confirmation with warning about lost equipment
+- Dealer pool refresh with 10-minute cooldown
+
+**Bug Fixes**
+- `resetGame` now properly regenerates available dealers
+- UI earnings calculation matches engine logic (both use stock)
+- Removed redundant state updates in tick loop
+- Removed dead code (DEALER_STATS, unused bribe system)
+
+### Breaking Changes
+
+| Old | New |
+|-----|-----|
+| `GameState.dealer: Dealer \| null` | `GameState.activeDealers: (Dealer \| null)[]` |
+| `Dealer.bribeLevel` | Removed (bribe system removed) |
+| - | `Dealer.id`, `volumeBonus`, `marginBonus`, `sideHustle`, `equipmentCount` |
+
+### Files Changed
+
+- `types.ts` - Updated interfaces
+- `constants.ts` - Added dealer name arrays, slot unlock costs, removed BRIBE_RATE and DEALER_STATS
+- `useGameEngine.ts` - Complete rewrite with new mechanics
+- `NeonDGame.tsx` - New UI with upgrade modal
+- `useGameEngine.test.ts` - Updated test data
+
+### Testing
+
+- All NeonD tests pass
+- Frontend builds successfully
