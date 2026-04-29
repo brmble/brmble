@@ -3,6 +3,20 @@ import type { MediaAttachment } from '../types';
 export const MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
 export const ALLOWED_MIMETYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 const IMG_REGEX = /<img\s+[^>]*src=["']data:(image\/[^;]+);base64,([^"']+)["'][^>]*\/?>/gi;
+// Anchor tag from a Brmble peer (linkifyForMumble) — strip back to inner text
+// so the local renderer's own URL detection (linkifyText) creates the React link.
+const ANCHOR_REGEX = /<a\s+[^>]*href=["'][^"']*["'][^>]*>([\s\S]*?)<\/a>/gi;
+
+const HTML_ENTITIES: Record<string, string> = {
+  '&amp;': '&',
+  '&lt;': '<',
+  '&gt;': '>',
+  '&quot;': '"',
+  '&#39;': "'",
+};
+function decodeEntities(s: string): string {
+  return s.replace(/&(amp|lt|gt|quot|#39);/g, m => HTML_ENTITIES[m] ?? m);
+}
 
 export interface ParsedMessage {
   text: string;
@@ -44,6 +58,12 @@ export function parseMessageMedia(message: string): ParsedMessage {
       size: estimatedSize,
     });
   }
+
+  // Replace anchor tags with their inner text (the URL we sent), then decode
+  // the HTML entities we escaped on the way out so the local linkifier sees a
+  // clean URL like "https://x.com/a?b=1&c=2" rather than the escaped form.
+  text = text.replace(ANCHOR_REGEX, (_m, inner) => inner);
+  text = decodeEntities(text);
 
   return { text: text.trim(), media };
 }

@@ -89,4 +89,23 @@ describe('parseMessageMedia', () => {
     expect(result.media).toHaveLength(1);
     expect(result.media[0].type).toBe('image');
   });
+
+  it('strips anchor tags from a Brmble peer back to plain URL text', () => {
+    const html = 'see <a href="https://example.com">https://example.com</a> here';
+    const result = parseMessageMedia(html);
+    expect(result.text).toBe('see https://example.com here');
+    expect(result.media).toHaveLength(0);
+  });
+
+  it('decodes escaped ampersands in stripped anchor text so URLs round-trip cleanly', () => {
+    const html = '<a href="https://x.com/a?b=1&amp;c=2">https://x.com/a?b=1&amp;c=2</a>';
+    const result = parseMessageMedia(html);
+    expect(result.text).toBe('https://x.com/a?b=1&c=2');
+  });
+
+  it('decodes escaped angle brackets that were html-escaped on the way out', () => {
+    const html = '&lt;hi&gt;';
+    const result = parseMessageMedia(html);
+    expect(result.text).toBe('<hi>');
+  });
 });
