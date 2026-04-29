@@ -4,15 +4,12 @@
  * them as clickable links. The Mumble server must have allowHTML enabled
  * (default true in Brmble's docker-local config).
  *
- * URLs supported:
- * - http(s)://...   → href is the URL as-is
- * - www....         → href is "https://" + URL (visible text stays "www....")
- *
- * Bare domains like "example.com" are NOT linkified — the false-positive rate
- * (e.g. mid-sentence punctuation, version numbers) is too high.
+ * Only http(s):// URLs are linkified — Mumble already auto-links www. URLs
+ * itself (it prepends https:// when resolving them), and bare domains like
+ * "example.com" have too high a false-positive rate to wrap.
  */
 
-const URL_PATTERN = /(https?:\/\/[^\s<>"')\]]+)|(\bwww\.[^\s<>"')\]]+)/gi;
+const URL_PATTERN = /(https?:\/\/[^\s<>"')\]]+)/gi;
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, ch => {
@@ -35,8 +32,7 @@ export function linkifyForMumble(text: string): string {
   while ((m = URL_PATTERN.exec(text)) !== null) {
     out += escapeHtml(text.slice(lastIndex, m.index));
     const url = m[0];
-    const href = m[1] ? url : `https://${url}`;
-    out += `<a href="${escapeHtml(href)}">${escapeHtml(url)}</a>`;
+    out += `<a href="${escapeHtml(url)}">${escapeHtml(url)}</a>`;
     lastIndex = URL_PATTERN.lastIndex;
   }
   out += escapeHtml(text.slice(lastIndex));
