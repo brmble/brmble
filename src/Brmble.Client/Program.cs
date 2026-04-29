@@ -72,6 +72,11 @@ static class Program
             VelopackApp.Build().Run();
             DevLog.Init();
 
+            // Ensure the taskbar groups this process as its own app (matching the
+            // Velopack package id "Brmble") so runtime WM_SETICON updates for
+            // theme-aware icons aren't shadowed by the launcher stub's icon.
+            Win32Window.SetAppUserModelId("Brmble");
+
             var useDevServer = IsDevServerRunning();
             Debug.WriteLine(useDevServer
                 ? "Brmble: Using Vite dev server"
