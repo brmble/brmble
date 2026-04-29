@@ -72,6 +72,9 @@ static class Program
             VelopackApp.Build().Run();
             DevLog.Init();
 
+            Win32Window.SetAppUserModelId(AppIdentity.AppUserModelId);
+            ShortcutAppId.StampVelopackShortcuts(AppIdentity.AppUserModelId, AppIdentity.PackId);
+
             var useDevServer = IsDevServerRunning();
             Debug.WriteLine(useDevServer
                 ? "Brmble: Using Vite dev server"
