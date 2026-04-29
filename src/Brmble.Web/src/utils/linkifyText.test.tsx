@@ -95,4 +95,52 @@ describe('linkifyText', () => {
     const result = linkifyText('foowww.google.com');
     expect(result).toBe('foowww.google.com');
   });
+
+  it('excludes a trailing period from the linkified URL', () => {
+    const result = linkifyText('check https://example.com.');
+    expect(result).toBeInstanceOf(Array);
+    const parts = result as unknown[];
+    const anchor = parts[1] as ReactElement<{ href: string; children: string }>;
+    expect(anchor.props.children).toBe('https://example.com');
+    expect(parts[2]).toBe('.');
+  });
+
+  it('excludes a trailing comma from the linkified URL', () => {
+    const result = linkifyText('see https://x.com, then later');
+    const parts = result as unknown[];
+    const anchor = parts[1] as ReactElement<{ href: string; children: string }>;
+    expect(anchor.props.children).toBe('https://x.com');
+    expect(parts[2]).toBe(', then later');
+  });
+
+  it('preserves ports, paths, query strings, and fragments inside the URL', () => {
+    const result = linkifyText('go to https://example.com:8080/path?a=1&b=2#frag now');
+    const parts = result as unknown[];
+    const anchor = parts[1] as ReactElement<{ href: string; children: string }>;
+    expect(anchor.props.href).toBe('https://example.com:8080/path?a=1&b=2#frag');
+    expect(parts[2]).toBe(' now');
+  });
+
+  it('does not linkify javascript: or data: schemes', () => {
+    expect(linkifyText('javascript:alert(1)')).toBe('javascript:alert(1)');
+    expect(linkifyText('data:text/html,foo')).toBe('data:text/html,foo');
+  });
+
+  it('safely handles HTML-like input by linkifying the URL portion only', () => {
+    // Contract: linkifyText takes plain text. If a caller passes serialized
+    // HTML, the surrounding tag fragments stay as plain text (React escapes
+    // them) — no broken DOM is produced.
+    const result = linkifyText('<a href="https://example.com">label</a>');
+    // Contains an anchor for the URL portion
+    expect(result).toBeInstanceOf(Array);
+    const parts = result as unknown[];
+    const anchor = parts.find((p) => typeof p !== 'string') as
+      | ReactElement<{ href: string; children: string }>
+      | undefined;
+    expect(anchor).toBeDefined();
+    expect(anchor!.props.href).toBe('https://example.com');
+    // The literal angle-bracket text remains as a string fragment that React
+    // will safely escape during rendering.
+    expect(parts.some((p) => typeof p === 'string' && p.startsWith('<a href='))).toBe(true);
+  });
 });

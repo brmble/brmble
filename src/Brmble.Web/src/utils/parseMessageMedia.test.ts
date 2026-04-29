@@ -108,4 +108,25 @@ describe('parseMessageMedia', () => {
     const result = parseMessageMedia(html);
     expect(result.text).toBe('<hi>');
   });
+
+  it('decode is single-pass — &amp;lt; stays as &lt; (does not become <)', () => {
+    // A user who literally typed "&lt;" gets the original "&lt;" back: linkify
+    // escaped & → &amp;, so wire is "&amp;lt;"; one decode pass yields "&lt;".
+    const html = '&amp;lt;hi&amp;gt;';
+    const result = parseMessageMedia(html);
+    expect(result.text).toBe('&lt;hi&gt;');
+  });
+
+  it('round-trips a Brmble-sent message containing an http URL plus &/<', () => {
+    // Simulates what linkifyForMumble produces for: "Hello & <world> https://x.com"
+    const wire = 'Hello &amp; &lt;world&gt; <a href="https://x.com">https://x.com</a>';
+    const result = parseMessageMedia(wire);
+    expect(result.text).toBe('Hello & <world> https://x.com');
+  });
+
+  it('strips an anchor wrapping a www-rewritten URL back to https://www....', () => {
+    const wire = 'visit <a href="https://www.example.com">https://www.example.com</a>!';
+    const result = parseMessageMedia(wire);
+    expect(result.text).toBe('visit https://www.example.com!');
+  });
 });

@@ -60,4 +60,56 @@ describe('linkifyForMumble', () => {
     expect(out).not.toContain('<https');
     expect(out).toContain('&lt;');
   });
+
+  it('does not include a trailing period in the URL', () => {
+    expect(linkifyForMumble('see https://example.com.'))
+      .toBe('see <a href="https://example.com">https://example.com</a>.');
+  });
+
+  it('does not include a trailing comma in the URL', () => {
+    expect(linkifyForMumble('see https://x.com, then go home'))
+      .toBe('see <a href="https://x.com">https://x.com</a>, then go home');
+  });
+
+  it('does not include trailing sentence punctuation (?, !, ;, :)', () => {
+    expect(linkifyForMumble('really https://x.com?'))
+      .toBe('really <a href="https://x.com">https://x.com</a>?');
+    expect(linkifyForMumble('wow https://x.com!'))
+      .toBe('wow <a href="https://x.com">https://x.com</a>!');
+    expect(linkifyForMumble('see https://x.com; later'))
+      .toBe('see <a href="https://x.com">https://x.com</a>; later');
+    expect(linkifyForMumble('here https://x.com: yes'))
+      .toBe('here <a href="https://x.com">https://x.com</a>: yes');
+  });
+
+  it('drops trailing punctuation on www. URLs too', () => {
+    expect(linkifyForMumble('go to www.google.com.'))
+      .toBe('go to <a href="https://www.google.com">https://www.google.com</a>.');
+  });
+
+  it('preserves ports, paths, query strings, and fragments inside the URL', () => {
+    const url = 'https://example.com:8080/path/to?a=1&b=2#section';
+    const out = linkifyForMumble(url);
+    expect(out).toContain('href="https://example.com:8080/path/to?a=1&amp;b=2#section"');
+    expect(out).toContain('>https://example.com:8080/path/to?a=1&amp;b=2#section<');
+  });
+
+  it('does not linkify javascript: or data: URLs (only http/https/www)', () => {
+    expect(linkifyForMumble('javascript:alert(1)')).toBe('javascript:alert(1)');
+    expect(linkifyForMumble('data:text/html,<script>alert(1)</script>'))
+      .toBe('data:text/html,&lt;script&gt;alert(1)&lt;/script&gt;');
+    expect(linkifyForMumble('ftp://x.com')).toBe('ftp://x.com');
+  });
+
+  it('does not linkify URLs that follow another word with no boundary', () => {
+    // Pattern uses \b for www. so foowww.x.com stays plain text.
+    expect(linkifyForMumble('foowww.example.com')).toBe('foowww.example.com');
+  });
+
+  it('round-trips a literal &amp; from user input as a single-pass entity', () => {
+    // User typed literal "&amp;" — linkifyForMumble escapes the & to "&amp;",
+    // producing "&amp;amp;" on the wire. parseMessageMedia decodes once back
+    // to "&amp;". This test just confirms our outgoing escape.
+    expect(linkifyForMumble('typed &amp; literally')).toBe('typed &amp;amp; literally');
+  });
 });

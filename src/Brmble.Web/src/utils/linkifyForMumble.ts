@@ -16,7 +16,11 @@
  * positive rate (mid-sentence punctuation, version numbers, file names).
  */
 
-const URL_PATTERN = /(https?:\/\/[^\s<>"')\]]+)|(\bwww\.[^\s<>"')\]]+)/gi;
+// Inner char class excludes whitespace and tag/quote/bracket delimiters.
+// The required final char additionally excludes sentence punctuation
+// (.,;:!?) so a URL at the end of a sentence doesn't swallow the period.
+const URL_PATTERN =
+  /(?:https?:\/\/|\bwww\.)[^\s<>"')\]]*[^\s<>"')\].,;:!?]/gi;
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, ch => {
@@ -38,10 +42,10 @@ export function linkifyForMumble(text: string): string {
   let m: RegExpExecArray | null;
   while ((m = URL_PATTERN.exec(text)) !== null) {
     out += escapeHtml(text.slice(lastIndex, m.index));
-    // m[1] = http(s) match, m[2] = www match. For www, prepend https:// so
-    // the URL is fully qualified everywhere (Mumble visible text, anchor
-    // href, and any Brmble receiver post-anchor-strip).
-    const url = m[1] ? m[0] : `https://${m[0]}`;
+    // For www-prefixed URLs, prepend https:// so the URL is fully qualified
+    // everywhere (Mumble visible text, anchor href, and any Brmble receiver
+    // post-anchor-strip).
+    const url = m[0].startsWith('www.') ? `https://${m[0]}` : m[0];
     out += `<a href="${escapeHtml(url)}">${escapeHtml(url)}</a>`;
     lastIndex = URL_PATTERN.lastIndex;
   }

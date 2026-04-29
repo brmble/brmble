@@ -7,9 +7,12 @@ import type { ReactNode } from 'react';
  *                     the user typed it.
  *
  * The whole match is wrapped in a single capturing group so String.split()
- * preserves the matched URLs at odd indices.
+ * preserves the matched URLs at odd indices. The required final char excludes
+ * sentence punctuation (.,;:!?) so a URL at the end of a sentence doesn't
+ * swallow the period.
  */
-const URL_PATTERN = /((?:https?:\/\/|\bwww\.)[^\s<>"')\]]+)/gi;
+const URL_PATTERN =
+  /((?:https?:\/\/|\bwww\.)[^\s<>"')\]]*[^\s<>"')\].,;:!?])/gi;
 
 /**
  * Takes a plain text string and returns an array of React nodes where

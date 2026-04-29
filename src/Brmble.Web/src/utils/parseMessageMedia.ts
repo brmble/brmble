@@ -60,8 +60,13 @@ export function parseMessageMedia(message: string): ParsedMessage {
   }
 
   // Replace anchor tags with their inner text (the URL we sent), then decode
-  // the HTML entities we escaped on the way out so the local linkifier sees a
-  // clean URL like "https://x.com/a?b=1&c=2" rather than the escaped form.
+  // the HTML entities we escaped on the way out. The decode is intentionally
+  // applied to the WHOLE message — linkifyForMumble escapes both URL and
+  // non-URL text so Mumble's HTML parser doesn't eat literal '<' or '&', and
+  // we have to reverse that on the receiver side to recover the original
+  // text. A single-pass decode (no recursive expansion) means a user who
+  // typed literal '&lt;' on the way out gets back literal '&lt;' here, which
+  // is the correct round-trip for our outgoing format.
   text = text.replace(ANCHOR_REGEX, (_m, inner) => inner);
   text = decodeEntities(text);
 
