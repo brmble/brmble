@@ -107,19 +107,29 @@ internal static class ShortcutAppId
     }
 
     /// <summary>
-    /// Stamps the Brmble shortcuts that Velopack creates by default.
-    /// Walks the conventional Start Menu and Desktop locations.
+    /// Stamps the Brmble shortcuts that Velopack creates by default plus any
+    /// existing pinned taskbar shortcut. Walks the conventional Start Menu,
+    /// Desktop, and User Pinned\TaskBar locations.
     /// </summary>
     public static void StampVelopackShortcuts(string appId, string packTitle)
     {
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+
         var startMenu = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "Microsoft", "Windows", "Start Menu", "Programs", packTitle + ".lnk");
+            appData, "Microsoft", "Windows", "Start Menu", "Programs", packTitle + ".lnk");
         var desktop = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
             packTitle + ".lnk");
+        // Pinned taskbar shortcuts live here regardless of Windows version.
+        // Without stamping, the running app inherits the pin's implicit identity
+        // and WM_SETICON updates have no visible effect for users who pinned
+        // before the AppUserModelID fix shipped.
+        var pinnedTaskbar = Path.Combine(
+            appData, "Microsoft", "Internet Explorer", "Quick Launch",
+            "User Pinned", "TaskBar", packTitle + ".lnk");
 
         Stamp(startMenu, appId);
         Stamp(desktop, appId);
+        Stamp(pinnedTaskbar, appId);
     }
 }
