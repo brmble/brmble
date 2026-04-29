@@ -129,4 +129,22 @@ describe('parseMessageMedia', () => {
     const result = parseMessageMedia(wire);
     expect(result.text).toBe('visit https://www.example.com!');
   });
+
+  it('preserves the href when an anchor has descriptive (non-URL) inner text', () => {
+    const wire = 'see <a href="https://example.com">click here</a> please';
+    const result = parseMessageMedia(wire);
+    expect(result.text).toBe('see click here (https://example.com) please');
+  });
+
+  it('keeps just the inner text when the anchor inner already contains a URL', () => {
+    const wire = '<a href="https://example.com">visit https://example.com now</a>';
+    const result = parseMessageMedia(wire);
+    expect(result.text).toBe('visit https://example.com now');
+  });
+
+  it('falls back to inner (href) when the inner text is empty', () => {
+    const wire = '<a href="https://example.com"></a>';
+    const result = parseMessageMedia(wire);
+    expect(result.text).toBe('(https://example.com)');
+  });
 });
