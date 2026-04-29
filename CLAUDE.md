@@ -138,10 +138,10 @@ See `docs/UI_GUIDE.md` section 11 for full icon list, adding new icons, and conv
 
 ## Running Docker (local dev)
 
-Docker runs in WSL. Use `wsl` to execute docker commands:
+Docker runs natively via Rancher Desktop. No WSL prefix needed:
 ```bash
-wsl docker compose -f docker-local/docker-compose.yml up -d --build brmble
-wsl docker compose -f docker-local/docker-compose.yml logs -f brmble
+docker compose -f docker-local/docker-compose.yml up -d --build brmble
+docker compose -f docker-local/docker-compose.yml logs -f brmble
 ```
 
 ## Build & Test (repeatable commands)
