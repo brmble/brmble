@@ -1,3 +1,4 @@
+import type { ReactElement } from 'react';
 import { describe, it, expect } from 'vitest';
 import { linkifyText } from './linkifyText';
 
@@ -75,5 +76,23 @@ describe('linkifyText', () => {
     const parts = result as unknown[];
     expect(parts).toHaveLength(3);
     expect(parts[0]).toBe('old link ');
+  });
+
+  it('linkifies www-prefixed URLs and prepends https:// to the href', () => {
+    const result = linkifyText('Check out www.google.com today');
+    expect(result).toBeInstanceOf(Array);
+    const parts = result as unknown[];
+    expect(parts).toHaveLength(3);
+    expect(parts[0]).toBe('Check out ');
+    expect(parts[2]).toBe(' today');
+
+    const anchor = parts[1] as ReactElement<{ href: string; children: string }>;
+    expect(anchor.props.href).toBe('https://www.google.com');
+    expect(anchor.props.children).toBe('www.google.com');
+  });
+
+  it('does not linkify "www." embedded inside another word', () => {
+    const result = linkifyText('foowww.google.com');
+    expect(result).toBe('foowww.google.com');
   });
 });

@@ -1,10 +1,15 @@
 import type { ReactNode } from 'react';
 
 /**
- * Regex to match HTTP/HTTPS URLs in plain text.
- * Uses a capturing group so String.split() preserves the matched URLs.
+ * Regex to match URLs in plain text:
+ * - http(s)://...   → href is the URL as-is
+ * - www....         → href gets https:// prepended; visible text stays as
+ *                     the user typed it.
+ *
+ * The whole match is wrapped in a single capturing group so String.split()
+ * preserves the matched URLs at odd indices.
  */
-const URL_PATTERN = /(https?:\/\/[^\s<>"')\]]+)/gi;
+const URL_PATTERN = /((?:https?:\/\/|\bwww\.)[^\s<>"')\]]+)/gi;
 
 /**
  * Takes a plain text string and returns an array of React nodes where
@@ -19,14 +24,15 @@ export function linkifyText(text: string): ReactNode {
   // No URLs found — split produces a single-element array
   if (parts.length === 1) return text;
 
-  // With a single capturing group in URL_PATTERN, split() puts URLs at odd indices.
-  return parts.map((part, i) =>
-    i % 2 === 1 ? (
-      <a key={i} href={part} target="_blank" rel="noopener noreferrer">
-        {part}
-      </a>
-    ) : (
-      part
-    )
-  );
+  return parts.map((part, i) => {
+    if (i % 2 === 1) {
+      const href = part.startsWith('www.') ? `https://${part}` : part;
+      return (
+        <a key={i} href={href} target="_blank" rel="noopener noreferrer">
+          {part}
+        </a>
+      );
+    }
+    return part;
+  });
 }
