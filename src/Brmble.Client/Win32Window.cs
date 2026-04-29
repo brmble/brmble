@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace Brmble.Client;
@@ -244,7 +245,7 @@ internal static class Win32Window
     public static void SetAppUserModelId(string appId)
     {
         try { SetCurrentProcessExplicitAppUserModelID(appId); }
-        catch { /* best-effort: failure here only degrades icon grouping */ }
+        catch (Exception ex) { Debug.WriteLine($"[AppUserModelID] Failed to set '{appId}': {ex.Message}"); }
     }
 
     [DllImport("user32.dll")]

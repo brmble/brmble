@@ -72,14 +72,8 @@ static class Program
             VelopackApp.Build().Run();
             DevLog.Init();
 
-            // Ensure the taskbar groups this process as its own app so runtime
-            // WM_SETICON updates for theme-aware icons aren't shadowed by the
-            // launcher stub's icon. The same AppID must be stamped onto the
-            // installer-created .lnk shortcuts (Start Menu, Desktop, pinned
-            // taskbar) — otherwise pinned shortcuts keep the launcher's identity.
-            const string AppId = "Brmble.Brmble";
-            Win32Window.SetAppUserModelId(AppId);
-            ShortcutAppId.StampVelopackShortcuts(AppId, "Brmble");
+            Win32Window.SetAppUserModelId(AppIdentity.AppUserModelId);
+            ShortcutAppId.StampVelopackShortcuts(AppIdentity.AppUserModelId, AppIdentity.PackId);
 
             var useDevServer = IsDevServerRunning();
             Debug.WriteLine(useDevServer
