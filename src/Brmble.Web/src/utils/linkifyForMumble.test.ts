@@ -20,18 +20,27 @@ describe('linkifyForMumble', () => {
       .toBe('<a href="http://example.com">http://example.com</a>');
   });
 
-  it('does not wrap www-prefixed URLs (native Mumble auto-links those itself)', () => {
+  it('rewrites www. URLs by prepending https:// to both the visible text and the href', () => {
     expect(linkifyForMumble('Check out www.google.com today'))
-      .toBe('Check out www.google.com today');
+      .toBe('Check out <a href="https://www.google.com">https://www.google.com</a> today');
   });
 
-  it('handles multiple http(s) URLs in one message', () => {
-    expect(linkifyForMumble('see https://a.com and http://b.com here'))
-      .toBe('see <a href="https://a.com">https://a.com</a> and <a href="http://b.com">http://b.com</a> here');
+  it('handles a mix of http(s) and www. URLs in one message', () => {
+    expect(linkifyForMumble('see https://a.com and www.b.com'))
+      .toBe('see <a href="https://a.com">https://a.com</a> and <a href="https://www.b.com">https://www.b.com</a>');
   });
 
-  it('does not linkify bare domains', () => {
+  it('does not linkify bare domains without a www. prefix', () => {
     expect(linkifyForMumble('example.com is great')).toBe('example.com is great');
+  });
+
+  it('matches www at a word boundary, not embedded inside another word', () => {
+    expect(linkifyForMumble('foowww.google.com')).toBe('foowww.google.com');
+  });
+
+  it('preserves preceding punctuation when matching www', () => {
+    expect(linkifyForMumble('(www.google.com)'))
+      .toBe('(<a href="https://www.google.com">https://www.google.com</a>)');
   });
 
   it('escapes ampersands in URLs to keep the href valid', () => {
