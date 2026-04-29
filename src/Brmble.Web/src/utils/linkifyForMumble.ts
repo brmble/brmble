@@ -4,9 +4,11 @@
  * them as clickable links. The Mumble server must have allowHTML enabled
  * (default true in Brmble's docker-local config).
  *
- * Only http(s):// URLs are linkified — Mumble already auto-links www. URLs
- * itself (it prepends https:// when resolving them), and bare domains like
- * "example.com" have too high a false-positive rate to wrap.
+ * Only http(s):// URLs are linkified. Native Mumble already auto-detects
+ * www-prefixed URLs in plain text (it prepends https:// itself), so wrapping
+ * them in our own anchor would be a no-op at best and could conflict with
+ * Mumble's own link rendering. Bare domains like "example.com" have too high
+ * a false-positive rate to wrap.
  */
 
 const URL_PATTERN = /(https?:\/\/[^\s<>"')\]]+)/gi;

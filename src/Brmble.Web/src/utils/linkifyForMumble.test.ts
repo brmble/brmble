@@ -20,14 +20,14 @@ describe('linkifyForMumble', () => {
       .toBe('<a href="http://example.com">http://example.com</a>');
   });
 
-  it('does not linkify www-prefixed URLs (native Mumble handles those itself)', () => {
+  it('does not wrap www-prefixed URLs (native Mumble auto-links those itself)', () => {
     expect(linkifyForMumble('Check out www.google.com today'))
       .toBe('Check out www.google.com today');
   });
 
   it('handles multiple http(s) URLs in one message', () => {
-    expect(linkifyForMumble('see https://a.com and http://b.com'))
-      .toBe('see <a href="https://a.com">https://a.com</a> and <a href="http://b.com">http://b.com</a>');
+    expect(linkifyForMumble('see https://a.com and http://b.com here'))
+      .toBe('see <a href="https://a.com">https://a.com</a> and <a href="http://b.com">http://b.com</a> here');
   });
 
   it('does not linkify bare domains', () => {
