@@ -41,7 +41,7 @@ public class LiveKitServiceTests
         _mockUserRepo.Setup(r => r.GetByCertHash("cert123"))
             .ReturnsAsync(new User(1, "cert123", "TestUser", "@test:example.com", "tok"));
 
-        var token = await _svc.GenerateToken("cert123", "room-1");
+        var token = await _svc.GenerateToken("cert123", "room-1", LiveKitAccessMode.Publish);
 
         Assert.IsNotNull(token);
         Assert.IsTrue(token.Length > 0);
@@ -55,7 +55,7 @@ public class LiveKitServiceTests
         _mockUserRepo.Setup(r => r.GetByCertHash("cert123"))
             .ReturnsAsync(new User(1, "cert123", "TestUser", "@test:example.com", "tok"));
 
-        var token = await _svc.GenerateToken("cert123", "room-1");
+        var token = await _svc.GenerateToken("cert123", "room-1", LiveKitAccessMode.Publish);
         Assert.IsNotNull(token);
 
         // Decode JWT payload (base64url)
@@ -68,8 +68,58 @@ public class LiveKitServiceTests
             case 3: payload += "="; break;
         }
         var json = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(payload));
-        var doc = System.Text.Json.JsonDocument.Parse(json);
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
         var video = doc.RootElement.GetProperty("video");
+        Assert.IsTrue(video.GetProperty("canSubscribe").GetBoolean());
+        Assert.IsTrue(video.GetProperty("canPublish").GetBoolean());
+    }
+
+    [TestMethod]
+    public async Task GenerateToken_SubscribeMode_GrantsSubscribeButNotPublish()
+    {
+        _mockUserRepo.Setup(r => r.GetByCertHash("cert123"))
+            .ReturnsAsync(new User(1, "cert123", "TestUser", "@test:example.com", "tok"));
+
+        var token = await _svc.GenerateToken("cert123", "channel-1", LiveKitAccessMode.Subscribe);
+        Assert.IsNotNull(token);
+
+        var parts = token.Split('.');
+        var payload = parts[1].Replace('-', '+').Replace('_', '/');
+        switch (payload.Length % 4)
+        {
+            case 2: payload += "=="; break;
+            case 3: payload += "="; break;
+        }
+
+        var json = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(payload));
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var video = doc.RootElement.GetProperty("video");
+
+        Assert.IsTrue(video.GetProperty("canSubscribe").GetBoolean());
+        Assert.IsFalse(video.GetProperty("canPublish").GetBoolean());
+    }
+
+    [TestMethod]
+    public async Task GenerateToken_PublishMode_GrantsPublishAndSubscribe()
+    {
+        _mockUserRepo.Setup(r => r.GetByCertHash("cert123"))
+            .ReturnsAsync(new User(1, "cert123", "TestUser", "@test:example.com", "tok"));
+
+        var token = await _svc.GenerateToken("cert123", "channel-1", LiveKitAccessMode.Publish);
+        Assert.IsNotNull(token);
+
+        var parts = token.Split('.');
+        var payload = parts[1].Replace('-', '+').Replace('_', '/');
+        switch (payload.Length % 4)
+        {
+            case 2: payload += "=="; break;
+            case 3: payload += "="; break;
+        }
+
+        var json = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(payload));
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var video = doc.RootElement.GetProperty("video");
+
         Assert.IsTrue(video.GetProperty("canSubscribe").GetBoolean());
         Assert.IsTrue(video.GetProperty("canPublish").GetBoolean());
     }
@@ -80,7 +130,7 @@ public class LiveKitServiceTests
         _mockUserRepo.Setup(r => r.GetByCertHash("unknown"))
             .ReturnsAsync((User?)null);
 
-        var token = await _svc.GenerateToken("unknown", "room-1");
+        var token = await _svc.GenerateToken("unknown", "room-1", LiveKitAccessMode.Publish);
 
         Assert.IsNull(token);
     }

@@ -23,7 +23,12 @@ public class LiveKitService : ILiveKitRoomQuery
         _logger = logger;
     }
 
-    public async Task<string?> GenerateToken(string certHash, string roomName)
+    public Task<string?> GenerateToken(string certHash, string roomName)
+    {
+        return GenerateToken(certHash, roomName, LiveKitAccessMode.Publish);
+    }
+
+    public async Task<string?> GenerateToken(string certHash, string roomName, LiveKitAccessMode accessMode)
     {
         var user = await _userRepo.GetByCertHash(certHash);
         if (user is null)
@@ -32,16 +37,29 @@ public class LiveKitService : ILiveKitRoomQuery
             return null;
         }
 
-        var token = new AccessToken(_settings.ApiKey, _settings.ApiSecret)
-            .WithIdentity(user.MatrixUserId)
-            .WithName(user.DisplayName)
-            .WithGrants(new VideoGrants
+        var grants = accessMode switch
+        {
+            LiveKitAccessMode.Subscribe => new VideoGrants
+            {
+                RoomJoin = true,
+                Room = roomName,
+                CanPublish = false,
+                CanSubscribe = true,
+            },
+            LiveKitAccessMode.Publish => new VideoGrants
             {
                 RoomJoin = true,
                 Room = roomName,
                 CanPublish = true,
-                CanSubscribe = true
-            })
+                CanSubscribe = true,
+            },
+            _ => throw new ArgumentOutOfRangeException(nameof(accessMode), accessMode, null),
+        };
+
+        var token = new AccessToken(_settings.ApiKey, _settings.ApiSecret)
+            .WithIdentity(user.MatrixUserId)
+            .WithName(user.DisplayName)
+            .WithGrants(grants)
             .WithTtl(DefaultTokenTtl);
 
         return token.ToJwt();
