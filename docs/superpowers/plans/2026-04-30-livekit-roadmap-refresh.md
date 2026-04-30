@@ -1,10 +1,14 @@
 # LiveKit Roadmap Refresh Implementation Plan
 
+> **Historical note:** This implementation plan is retained as an implemented historical record for the shipped roadmap refresh. The task-by-task checklist body below is intentionally preserved as the original implementation record.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Refresh the LiveKit/screenshare docs so the roadmap, recent fix docs, and historical phase docs clearly reflect current implementation status and the chosen next-phase-priority structure.
+> **Status note:** Implemented. This plan is kept as a historical implementation record for the shipped roadmap refresh, including the preserved task-by-task checklist.
 
-**Architecture:** Treat `docs/superpowers/specs/2026-04-17-livekit-feature-roadmap.md` as the current source of truth, update April fix docs to read as landed work, and add short historical-note banners to older March LiveKit docs rather than rewriting them. Fold the relevant open issues and known roadmap gaps into the refreshed roadmap so the next phase is visible without chasing GitHub and old specs, while keeping the Sub-Projects table on consistent lifecycle statuses and leaving E/F priority framing in the header, issue shortlist, and build-order sections.
+**Goal:** Historical implementation record for the shipped LiveKit/screenshare doc refresh that updated the roadmap, recent fix docs, and historical phase docs to reflect the implemented state and chosen next-phase-priority structure.
+
+**Architecture:** This refresh treated `docs/superpowers/specs/2026-04-17-livekit-feature-roadmap.md` as the current source of truth, updated April fix docs to read as landed work, and added short historical-note banners to older March LiveKit docs rather than rewriting them. It also folded the relevant open issues and known roadmap gaps into the refreshed roadmap so the next phase is visible without chasing GitHub and old specs, while keeping the Sub-Projects table on consistent lifecycle statuses and leaving E/F priority framing in the header, issue shortlist, and build-order sections.
 
 **Tech Stack:** Markdown docs, GitHub issues, existing `docs/superpowers/specs` and `docs/superpowers/plans` conventions
 

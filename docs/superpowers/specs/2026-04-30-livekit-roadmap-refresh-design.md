@@ -1,12 +1,12 @@
 # LiveKit Roadmap Refresh Design
 
 **Date:** 2026-04-30
-**Status:** Approved
-**Scope:** Refresh LiveKit/screenshare docs so roadmap, plans, and historical design docs match the current implementation state and the chosen roadmap structure for next-phase priority.
+**Status:** Implemented
+**Scope:** Historical design record for the LiveKit/screenshare doc refresh that aligned the roadmap, plans, and historical design docs with the implemented state and chosen next-phase priority structure.
 
 ## Overview
 
-Brmble's LiveKit/screenshare documentation now has a mix of current roadmap docs, recently implemented fix specs, and older phase docs that no longer describe the shipped architecture. This refresh keeps the existing document set but makes the current status legible: foundation and recent hardening work are implemented, the next recommended phase is security first and reliability second, the roadmap table uses lifecycle statuses consistently, and older March docs are retained only as historical references.
+Brmble's LiveKit/screenshare documentation had a mix of current roadmap docs, recently implemented fix specs, and older phase docs that no longer described the shipped architecture. This refresh has landed and is kept here as the historical design record for the implemented doc update: foundation and recent hardening work are marked as implemented, the next recommended phase remains security first and reliability second, the roadmap table uses lifecycle statuses consistently, and older March docs are retained only as historical references.
 
 ## Goals
 

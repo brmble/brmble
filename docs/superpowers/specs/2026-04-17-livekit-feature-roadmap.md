@@ -99,7 +99,7 @@ See full spec: `2026-04-17-multi-share-foundation-design.md`
 > Making it robust.
 
 34. Auto-reconnect on drop
-35. ICE fallback / TURN relay (partially implemented)
+35. ICE fallback / TURN relay (groundwork partially implemented; formal F-phase hardening still not started)
 36. Connection quality indicator
 37. Graceful degradation (auto-reduce quality instead of freezing)
 38. Disconnect notification ("User X's share ended unexpectedly")
