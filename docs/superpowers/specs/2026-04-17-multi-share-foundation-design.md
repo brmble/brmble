@@ -1,12 +1,14 @@
 # Multi-Share Foundation Design
 
 **Date:** 2026-04-17
-**Status:** Approved
+**Status:** Implemented
 **Scope:** Allow multiple users to share screens simultaneously within a channel
 
 ## Overview
 
-Currently, Brmble's screen sharing is limited to one active share per channel. This design extends the system so any number of users in a channel can share their screen at the same time, and viewers can switch between them near-instantly.
+This design has landed and is kept here as the historical foundation record for the shipped multi-share architecture.
+
+At the time it was written, Brmble's screen sharing was limited to one active share per channel. This design extends the system so any number of users in a channel can share their screen at the same time, and viewers can switch between them near-instantly.
 
 This is foundational infrastructure. Features like grid view, picture-in-picture, the game overlay, and multi-view all depend on multi-share working first.
 

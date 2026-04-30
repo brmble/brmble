@@ -6,12 +6,13 @@
 
 ## Overview
 
-Brmble's LiveKit/screenshare documentation had a mix of current roadmap docs, recently implemented fix specs, and older phase docs that no longer described the shipped architecture. This refresh has landed and is kept here as the historical design record for the implemented doc update: foundation and recent hardening work are marked as implemented, the next recommended phase remains security first and reliability second, the roadmap table uses lifecycle statuses consistently, and older March docs are retained only as historical references.
+Brmble's LiveKit/screenshare documentation had a mix of current roadmap docs, recently implemented fix specs, and older phase docs that no longer described the shipped architecture. This refresh has landed and is kept here as the historical design record for the implemented doc update: foundation and recent hardening work are marked as implemented, the next recommended phase remains security first and reliability second, the roadmap table uses lifecycle statuses consistently, and older March docs are retained only as historical references. The refresh also brought the already-existing `docs/superpowers/plans/2026-04-21-screenshare-self-slot.md` historical plan file under version control so the shipped April fix trail reads as intentional and complete rather than like accidental scope creep.
 
 ## Goals
 
 - Update the master LiveKit/screenshare roadmap to reflect implemented work through the recent fix wave.
 - Mark recent fix specs and plans as implemented/completed rather than still approved/in-progress.
+- Explicitly note when a historical April fix plan file was pre-existing in the workspace and was only being brought under version control as part of this refresh.
 - Add clear historical or superseded notes to older March LiveKit/screenshare docs that no longer match the current architecture.
 - Record the relevant open GitHub issues for the next phase and note roadmap gaps where no issue exists yet.
 
@@ -21,6 +22,7 @@ Brmble's LiveKit/screenshare documentation had a mix of current roadmap docs, re
 - Create implementation plans for Token & Security or Connection & Reliability.
 - Rewrite older historical docs to match the new architecture line by line.
 - Change non-LiveKit project docs.
+- Rewrite the large historical self-slot plan body.
 
 ## Current Problem
 

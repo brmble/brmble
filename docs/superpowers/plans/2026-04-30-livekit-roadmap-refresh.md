@@ -8,7 +8,7 @@
 
 **Goal:** Historical implementation record for the shipped LiveKit/screenshare doc refresh that updated the roadmap, recent fix docs, and historical phase docs to reflect the implemented state and chosen next-phase-priority structure.
 
-**Architecture:** This refresh treated `docs/superpowers/specs/2026-04-17-livekit-feature-roadmap.md` as the current source of truth, updated April fix docs to read as landed work, and added short historical-note banners to older March LiveKit docs rather than rewriting them. It also folded the relevant open issues and known roadmap gaps into the refreshed roadmap so the next phase is visible without chasing GitHub and old specs, while keeping the Sub-Projects table on consistent lifecycle statuses and leaving E/F priority framing in the header, issue shortlist, and build-order sections.
+**Architecture:** This refresh treated `docs/superpowers/specs/2026-04-17-livekit-feature-roadmap.md` as the current source of truth, updated April fix docs to read as landed work, and added short historical-note banners to older March LiveKit docs rather than rewriting them. It also folded the relevant open issues and known roadmap gaps into the refreshed roadmap so the next phase is visible without chasing GitHub and old specs, while keeping the Sub-Projects table on consistent lifecycle statuses and leaving E/F priority framing in the header, issue shortlist, and build-order sections. As part of that historical cleanup, `docs/superpowers/plans/2026-04-21-screenshare-self-slot.md` was treated as a pre-existing workspace plan file that this refresh also brought under version control; its original body remained intentionally preserved.
 
 **Tech Stack:** Markdown docs, GitHub issues, existing `docs/superpowers/specs` and `docs/superpowers/plans` conventions
 
@@ -25,7 +25,7 @@
 - Modify: `docs/superpowers/specs/2026-04-25-screen-share-picker-cancel-design.md`
   Purpose: mark the picker-cancel spec as implemented.
 - Modify: `docs/superpowers/plans/2026-04-21-screenshare-self-slot.md`
-  Purpose: label the plan as completed historical implementation work.
+  Purpose: label the pre-existing workspace plan as completed historical implementation work and bring it under version control as part of the refresh.
 - Modify: `docs/superpowers/plans/2026-04-25-screen-share-auto-stop.md`
   Purpose: label the plan as completed historical implementation work.
 - Modify: `docs/superpowers/plans/2026-04-25-screen-share-picker-cancel.md`
