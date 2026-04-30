@@ -2,7 +2,15 @@
 
 Self-hosted gaming communication. Voice over Mumble, persistent chat over Matrix, screen sharing over LiveKit — wrapped in a single desktop client.
 
-The voice side is plain Mumble: existing Mumble clients can join the same server. Brmble adds chat history and screen sharing on top, glued together by a single backend container.
+## Mumble compatibility
+
+Brmble is built on top of Mumble, not as a replacement. The voice server is an unmodified Mumble server. That means:
+
+- **Standard Mumble clients work without changes.** Anyone with the official Mumble client (or any third-party Mumble client) can connect to the same server and talk to Brmble users in the same channels.
+- **Mixed use is the intended setup.** A server with the Brmble container running alongside Mumble can host both kinds of clients at the same time. Brmble clients get voice + persistent chat + screen sharing; standard Mumble clients get voice only. Everyone shares the same channels and can hear each other.
+- **No fork, no patched server.** Brmble does not modify the Mumble protocol or the Mumble server. The chat and screen-sharing features live in a separate Brmble container that sits next to Mumble. If you turn the Brmble container off, your server is back to plain Mumble.
+
+The only requirement for cross-client interop is that the Brmble container has to be reachable for clients that want chat and screen sharing. Standard Mumble clients ignore it.
 
 ## Architecture
 
@@ -151,7 +159,7 @@ Make sure the host name in your TLS certificate matches `MATRIX_SERVER_NAME`.
 2. Enter the Mumble host (e.g. `mumble.example.com:64738`) and a username.
 3. On connect, the client reads Mumble's welcome text, pulls the `apiUrl` out of the `<!--brmble:{...}-->` marker, and starts talking to the Brmble server for chat and screen sharing.
 
-If a user connects with a plain Mumble client they get voice only — no chat, no screen sharing, but they can still talk to Brmble users in the same channel.
+A user connecting with a standard Mumble client skips all of the above and gets voice only. They share channels with Brmble users normally — the two client types coexist on the same server without any extra configuration.
 
 ## Updating
 
