@@ -1,15 +1,15 @@
 # LiveKit & Screen Sharing Feature Roadmap
 
 **Date:** 2026-04-17
-**Status:** Brainstormed, not yet designed (except sub-project A)
+**Status:** Active roadmap. Foundation and recent follow-up fixes implemented; next recommended phase is E. Token & Security, then F. Connection & Reliability.
 
-This is the master feature list for all planned LiveKit and screen sharing work. Each sub-project will go through its own design → plan → implementation cycle.
+This is the master feature list for LiveKit and screen sharing work. Completed sub-projects and shipped follow-up fixes are tracked here, while future work should continue through design -> plan -> implementation cycles.
 
 ## Sub-Projects
 
 | ID | Name | Status | Spec |
 |----|------|--------|------|
-| A | Multi-Share Foundation | Designed | `2026-04-17-multi-share-foundation-design.md` |
+| A | Multi-Share Foundation | Implemented | `2026-04-17-multi-share-foundation-design.md` |
 | A2 | Multi-Share Layouts | Implemented | `2026-04-20-multi-share-layouts-design.md` |
 | B | Broadcaster Controls | Not started | -- |
 | C | Viewing Experience | Not started | -- |
@@ -21,18 +21,23 @@ This is the master feature list for all planned LiveKit and screen sharing work.
 | I | Performance & Quality | Not started | -- |
 | J | Viewer Interaction | Not started | -- |
 
-## A. Multi-Share Foundation (Designed)
+## A. Multi-Share Foundation (Implemented)
 
 > Multiple people sharing at once -- infrastructure that many other features depend on.
 
 1. Simultaneous shares in the same channel
 2. Share switcher via channel user list monitor icons (clickable)
-3. ~~Grid/mosaic view~~ → moved to A2 (implemented)
-4. ~~Primary + thumbnail layout~~ → moved to A2 (implemented)
+3. ~~Grid/mosaic view~~ -> moved to A2 (implemented)
+4. ~~Primary + thumbnail layout~~ -> moved to A2 (implemented)
 5. Auto-switch on activity (optional) -- future
-6. ~~Share pinning~~ → deferred (not in A2 scope)
+6. ~~Share pinning~~ -> deferred (not in A2 scope)
 
-**Key decisions:** One LiveKit room per channel, lazy room creation, one share per user, manual opt-in viewing, one active view at a time (data model supports multi-view later).
+**Current shipped behavior:** one LiveKit room per channel, lazy room creation, one share per user, manual opt-in viewing, and multi-view layouts for up to four watched shares.
+
+**Recent shipped follow-up fixes:**
+- self-slot/sidebar cleanup (`2026-04-21-screenshare-self-slot-design.md`)
+- auto-stop when capture ends externally (`2026-04-25-screen-share-auto-stop-design.md`)
+- picker-cancel handling without false error state (`2026-04-25-screen-share-picker-cancel-design.md`)
 
 See full spec: `2026-04-17-multi-share-foundation-design.md`
 
@@ -148,7 +153,6 @@ See full spec: `2026-04-17-multi-share-foundation-design.md`
 
 61. Remote cursor display (show sharer's cursor position to viewers)
 62. Reaction overlays (emoji reactions floating on stream)
-63. "Invite to Watch" right-click option (issue #412)
 
 **Deferred:** Viewer cursor / laser pointer, remote control, bookmarks.
 
@@ -170,14 +174,33 @@ These items were discussed and explicitly parked:
 - Zoom & pan on shared screen
 - Settings live preview before going live
 
+## Next-Phase Issue Shortlist
+
+The next-priority phase should start with these open issues:
+
+- `#349` `[SECURITY] /livekit/active-share endpoint has no authentication`
+- `#351` `[SECURITY] No rate limiting on any endpoint`
+- `#354` `[SECURITY] LiveKit tokens have no early revocation`
+- `#380` `feat: Reconnect non-voice services independently when Mumble stays connected`
+- `#359` `Disable Screenshare button and keybinding while LiveKit is connecting`
+
+Known roadmap gaps with no dedicated issue yet:
+
+- token scoping for publish vs subscribe-only tokens
+- token rotation / refresh before expiry
+- room-level permissions tied to channel permissions
+- auto-reconnect on drop
+- share state recovery after crash
+- connection quality indicator and graceful degradation
+
 ## Suggested Build Order
 
-The sub-projects have dependencies. Recommended sequence:
+The recommended next sequence is:
 
-1. **A. Multi-Share Foundation** -- everything else builds on this
-2. **A2. Multi-Share Layouts** -- grid/focus views on top of A (implemented)
-3. **E. Token & Security** -- fixes existing security issues, needed before scaling
-4. **F. Connection & Reliability** -- robust foundation before adding features
+1. **A. Multi-Share Foundation** -- implemented
+2. **A2. Multi-Share Layouts** -- implemented
+3. **E. Token & Security** -- next priority; close the current auth and permission gaps before expanding feature surface
+4. **F. Connection & Reliability** -- address reconnect, recovery, and connection-state behavior immediately after E
 5. **C. Viewing Experience** -- pop-out, PiP, fullscreen (needed before overlay)
 6. **B. Broadcaster Controls** -- window picker, audio, quality presets
 7. **D. Game Overlay** -- depends on C (PiP/pop-out patterns) and voice system
@@ -185,5 +208,3 @@ The sub-projects have dependencies. Recommended sequence:
 9. **I. Performance & Quality** -- optimization pass
 10. **H. Clips & Screenshots** -- capture features
 11. **J. Viewer Interaction** -- social features last
-
-This order is a suggestion. Sub-projects E and F could be done in parallel with A since they address existing issues. The overlay (D) is the most architecturally novel and may warrant earlier exploration if it's a priority.
