@@ -176,7 +176,7 @@ These items were discussed and explicitly parked:
 
 ## Next-Phase Issue Shortlist
 
-The next-priority phase should start with these open issues:
+The next-priority work around E/F should start with these open issues, plus one adjacent guardrail fix:
 
 - `#349` `[SECURITY] /livekit/active-share endpoint has no authentication`
 - `#351` `[SECURITY] No rate limiting on any endpoint`
