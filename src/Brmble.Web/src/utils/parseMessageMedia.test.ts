@@ -89,4 +89,62 @@ describe('parseMessageMedia', () => {
     expect(result.media).toHaveLength(1);
     expect(result.media[0].type).toBe('image');
   });
+
+  it('strips anchor tags from a Brmble peer back to plain URL text', () => {
+    const html = 'see <a href="https://example.com">https://example.com</a> here';
+    const result = parseMessageMedia(html);
+    expect(result.text).toBe('see https://example.com here');
+    expect(result.media).toHaveLength(0);
+  });
+
+  it('decodes escaped ampersands in stripped anchor text so URLs round-trip cleanly', () => {
+    const html = '<a href="https://x.com/a?b=1&amp;c=2">https://x.com/a?b=1&amp;c=2</a>';
+    const result = parseMessageMedia(html);
+    expect(result.text).toBe('https://x.com/a?b=1&c=2');
+  });
+
+  it('decodes escaped angle brackets that were html-escaped on the way out', () => {
+    const html = '&lt;hi&gt;';
+    const result = parseMessageMedia(html);
+    expect(result.text).toBe('<hi>');
+  });
+
+  it('decode is single-pass — &amp;lt; stays as &lt; (does not become <)', () => {
+    // A user who literally typed "&lt;" gets the original "&lt;" back: linkify
+    // escaped & → &amp;, so wire is "&amp;lt;"; one decode pass yields "&lt;".
+    const html = '&amp;lt;hi&amp;gt;';
+    const result = parseMessageMedia(html);
+    expect(result.text).toBe('&lt;hi&gt;');
+  });
+
+  it('round-trips a Brmble-sent message containing an http URL plus &/<', () => {
+    // Simulates what linkifyForMumble produces for: "Hello & <world> https://x.com"
+    const wire = 'Hello &amp; &lt;world&gt; <a href="https://x.com">https://x.com</a>';
+    const result = parseMessageMedia(wire);
+    expect(result.text).toBe('Hello & <world> https://x.com');
+  });
+
+  it('strips an anchor wrapping a www-rewritten URL back to https://www....', () => {
+    const wire = 'visit <a href="https://www.example.com">https://www.example.com</a>!';
+    const result = parseMessageMedia(wire);
+    expect(result.text).toBe('visit https://www.example.com!');
+  });
+
+  it('preserves the href when an anchor has descriptive (non-URL) inner text', () => {
+    const wire = 'see <a href="https://example.com">click here</a> please';
+    const result = parseMessageMedia(wire);
+    expect(result.text).toBe('see click here (https://example.com) please');
+  });
+
+  it('keeps just the inner text when the anchor inner already contains a URL', () => {
+    const wire = '<a href="https://example.com">visit https://example.com now</a>';
+    const result = parseMessageMedia(wire);
+    expect(result.text).toBe('visit https://example.com now');
+  });
+
+  it('falls back to inner (href) when the inner text is empty', () => {
+    const wire = '<a href="https://example.com"></a>';
+    const result = parseMessageMedia(wire);
+    expect(result.text).toBe('(https://example.com)');
+  });
 });

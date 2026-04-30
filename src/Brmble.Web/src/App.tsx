@@ -29,6 +29,7 @@ import { Version } from './components/Version/Version';
 import { ZoomIndicator } from './components/ZoomIndicator/ZoomIndicator';
 import { useChatStore, addMessageToStore, clearChatStorage, purgeEphemeralMessages } from './hooks/useChatStore';
 import { parseMessageMedia } from './utils/parseMessageMedia';
+import { linkifyForMumble } from './utils/linkifyForMumble';
 import { useDMStore } from './hooks/useDMStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
 import { usePrompt, confirm } from './hooks/usePrompt';
@@ -510,7 +511,7 @@ function App() {
     users,
     username,
     sendMumbleDM: (targetSession: number, text: string) => {
-      bridge.send('voice.sendPrivateMessage', { message: text, targetSession });
+      bridge.send('voice.sendPrivateMessage', { message: linkifyForMumble(text), targetSession });
     },
   });
 
@@ -1649,10 +1650,11 @@ const handleConnect = (serverData: SavedServer) => {
         addMessage(username, content);
       }
 
+      const mumbleHtml = linkifyForMumble(content);
       if (channelId === 'server-root') {
-        bridge.send('voice.sendMessage', { message: content, channelId: 0 });
+        bridge.send('voice.sendMessage', { message: mumbleHtml, channelId: 0 });
       } else {
-        bridge.send('voice.sendMessage', { message: content, channelId: Number(channelId) });
+        bridge.send('voice.sendMessage', { message: mumbleHtml, channelId: Number(channelId) });
         if (isMatrixChannel) {
           matrixClient.sendMessage(channelId, content).catch(console.error);
         }
