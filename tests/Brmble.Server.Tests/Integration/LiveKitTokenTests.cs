@@ -30,7 +30,7 @@ public class LiveKitTokenTests : IDisposable
         using var client = factory.CreateClient();
 
         var body = new StringContent(
-            JsonSerializer.Serialize(new { roomName = "room-1" }),
+            JsonSerializer.Serialize(new { roomName = "channel-1", accessMode = "subscribe" }),
             Encoding.UTF8, "application/json");
 
         var response = await client.PostAsync("/livekit/token", body);
@@ -44,7 +44,7 @@ public class LiveKitTokenTests : IDisposable
         await _client.PostAsync("/auth/token", null);
 
         var body = new StringContent(
-            JsonSerializer.Serialize(new { roomName = "room-1" }),
+            JsonSerializer.Serialize(new { roomName = "channel-1", accessMode = "subscribe" }),
             Encoding.UTF8, "application/json");
 
         var response = await _client.PostAsync("/livekit/token", body);
@@ -63,7 +63,7 @@ public class LiveKitTokenTests : IDisposable
         await _client.PostAsync("/auth/token", null);
 
         var body = new StringContent(
-            JsonSerializer.Serialize(new { roomName = "channel-1" }),
+            JsonSerializer.Serialize(new { roomName = "channel-1", accessMode = "subscribe" }),
             Encoding.UTF8, "application/json");
 
         var response = await _client.PostAsync("/livekit/token", body);

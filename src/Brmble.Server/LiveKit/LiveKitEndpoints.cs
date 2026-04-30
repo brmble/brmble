@@ -19,20 +19,29 @@ public static class LiveKitEndpoints
                 return Results.Unauthorized();
 
             string? roomName = null;
+            string? accessModeRaw = null;
             try
             {
                 using var doc = await JsonDocument.ParseAsync(httpContext.Request.Body);
-                roomName = doc.RootElement.TryGetProperty("roomName", out var prop)
-                    ? prop.GetString() : null;
+                roomName = doc.RootElement.TryGetProperty("roomName", out var roomProp)
+                    ? roomProp.GetString()
+                    : null;
+                accessModeRaw = doc.RootElement.TryGetProperty("accessMode", out var modeProp)
+                    ? modeProp.GetString()
+                    : null;
             }
             catch (Exception ex) { logger.LogWarning(ex, "Failed to parse LiveKit token request body"); }
 
             if (string.IsNullOrWhiteSpace(roomName))
                 return Results.BadRequest(new { error = "roomName is required" });
 
-            // Task 2 will parse accessMode from the request. Until then this endpoint is
-            // only used for viewer/watch flows, so mint the narrowest subscribe-only token.
-            var token = await liveKitService.GenerateToken(certHash, roomName, LiveKitAccessMode.Subscribe);
+            if (!roomName.StartsWith("channel-") || !int.TryParse(roomName.AsSpan("channel-".Length), out _))
+                return Results.BadRequest(new { error = "invalid roomName format" });
+
+            if (!Enum.TryParse<LiveKitAccessMode>(accessModeRaw, true, out var accessMode))
+                return Results.BadRequest(new { error = "accessMode must be 'publish' or 'subscribe'" });
+
+            var token = await liveKitService.GenerateToken(certHash, roomName, accessMode);
             if (token is null)
                 return Results.Unauthorized();
 
