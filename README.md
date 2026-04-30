@@ -1,0 +1,194 @@
+# Brmble
+
+Self-hosted gaming communication. Voice over Mumble, persistent chat over Matrix, screen sharing over LiveKit — wrapped in a single desktop client.
+
+The voice side is plain Mumble: existing Mumble clients can join the same server. Brmble adds chat history and screen sharing on top, glued together by a single backend container.
+
+## Architecture
+
+```
+                    ┌──────────────────────────────┐
+                    │  Brmble Server (1 container) │
+                    │  ┌────────────┐              │
+                    │  │ ASP.NET    │  HTTP :8080  │── client API + /_matrix proxy
+                    │  ├────────────┤              │
+                    │  │ Continuwuity (Matrix)     │── persistent chat
+                    │  ├────────────┤              │
+                    │  │ LiveKit SFU │  :7881 +UDP │── screen sharing
+                    │  └────────────┘              │
+                    └─────────────┬────────────────┘
+                                  │ ICE :6502 (optional, for user mapping)
+                                  ▼
+                    ┌──────────────────────────────┐
+                    │  Mumble Server (separate)    │── voice (TCP/UDP :64738)
+                    └──────────────────────────────┘
+```
+
+The Brmble server bundles ASP.NET Core, Continuwuity (Matrix homeserver) and LiveKit into one image. Mumble runs separately — Brmble does not replace it.
+
+## Install the client
+
+Download the latest release from <https://github.com/brmble/brmble/releases/latest>:
+
+- `Brmble-win-Setup.exe` — installer, auto-updates from GitHub releases.
+- `Brmble-win-Portable.zip` — standalone, no install, no auto-update.
+
+Windows 10/11 only. The client embeds WebView2 (installed automatically by the setup if missing).
+
+On first launch the client generates a self-signed X.509 certificate that becomes your identity across voice, chat and screen sharing. **Back it up via Settings → Export Certificate.** If the certificate is lost, you become a new user with empty chat history, even if you reuse the same Mumble username.
+
+## Install the server
+
+You need two containers: one for Mumble, one for Brmble. The two examples below assume a host that already has a TLS reverse proxy (Caddy, Traefik, nginx) sitting in front, terminating HTTPS and forwarding to the Brmble container on port `8080`.
+
+### 1. Mumble server
+
+The official image works as-is, but a few settings matter for the Brmble integration:
+
+```yaml
+services:
+  mumble:
+    image: mumblevoip/mumble-server:latest
+    restart: unless-stopped
+    ports:
+      - "64738:64738"
+      - "64738:64738/udp"
+    volumes:
+      - mumble-data:/data
+    environment:
+      # Required for Brmble integration
+      MUMBLE_CONFIG_ALLOWHTML: "true"
+      MUMBLE_CONFIG_ICE: "tcp -h 0.0.0.0 -p 6502"
+      MUMBLE_CONFIG_WELCOMETEXT: |
+        <br/>Welcome to my server.<br/>
+        <!--brmble:{"apiUrl":"https://chat.example.com"}-->
+
+      # Recommended (lets Brmble post images, long messages and embeds)
+      MUMBLE_CONFIG_IMAGEMESSAGELENGTH: "0"
+      MUMBLE_CONFIG_TEXTMESSAGELENGTH: "0"
+      MUMBLE_ACCEPT_UNKNOWN_SETTINGS: "true"
+
+volumes:
+  mumble-data:
+```
+
+Key points:
+
+- **`allowhtml=true`** — required. The Brmble client embeds an HTML comment in the welcome text that points the client to the Brmble server (see below). Mumble strips HTML comments unless HTML is allowed.
+- **`MUMBLE_CONFIG_WELCOMETEXT`** — must include `<!--brmble:{"apiUrl":"https://your-brmble-host"}-->`. This is how a Brmble client discovers the matching Brmble server when a user connects to your Mumble server. Plain Mumble clients ignore the comment.
+- **`MUMBLE_CONFIG_ICE`** — exposes Mumble's ICE control plane on TCP `6502` so the Brmble server can map Mumble sessions to Matrix users. Bind it to a private network (or the docker-compose internal network) — never expose it to the public internet. Set an ICE secret on Mumble and pass the same value to Brmble via `Ice__Secret` if you need authentication.
+- `IMAGEMESSAGELENGTH` and `TEXTMESSAGELENGTH` default to small values; `0` means unlimited and is required for embeds, link previews and longer messages.
+
+### 2. Brmble server
+
+```yaml
+services:
+  brmble:
+    image: ghcr.io/brmble/brmble-server:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"                   # HTTP — put HTTPS reverse proxy in front
+      - "7881:7881"                   # LiveKit RTC TCP
+      - "50100-50200:50100-50200/udp" # LiveKit RTC UDP
+    volumes:
+      - brmble-data:/data
+    environment:
+      # Required
+      MATRIX_SERVER_NAME: chat.example.com
+      MATRIX_APPSERVICE_TOKEN: ${MATRIX_APPSERVICE_TOKEN}
+
+      # Optional — connect to your Mumble server's ICE endpoint
+      Ice__Host: mumble
+      Ice__Port: "6502"
+      Ice__Secret: ""
+
+      # Optional — force LiveKit to advertise a specific public IP
+      # LIVEKIT_NODE_IP: "203.0.113.10"
+
+volumes:
+  brmble-data:
+```
+
+Required environment:
+
+| Variable | Description |
+|---|---|
+| `MATRIX_SERVER_NAME` | Public Matrix domain. Must match the host clients reach over HTTPS (e.g. `chat.example.com`). Matrix user IDs become `@<id>:<MATRIX_SERVER_NAME>`. Cannot be changed after first start without resetting `/data`. |
+| `MATRIX_APPSERVICE_TOKEN` | Shared secret between the bundled Matrix homeserver and the Brmble backend. Generate with `openssl rand -hex 32`. Keep stable across restarts. |
+
+Optional environment:
+
+| Variable | Default | Description |
+|---|---|---|
+| `Ice__Host` / `Ice__Port` / `Ice__Secret` | `mumble-server` / `6502` / *(empty)* | Mumble ICE endpoint. Without this, Mumble↔Matrix user mapping is disabled. |
+| `LIVEKIT_NODE_IP` | *(auto)* | Pin LiveKit's advertised IP. Useful for local/LAN setups; leave unset on public servers and LiveKit will auto-detect. |
+| `MATRIX_ADMIN_USER` / `MATRIX_ADMIN_PASSWORD` | `brmble-admin` / *(generated)* | Override the auto-created Matrix admin. Generated password is stored in `/data/admin-password`. |
+| `MATRIX_ALLOW_REGISTRATION` | `false` | Set to `true` to allow open Matrix registration after first-run setup. Brmble does not need this — clients register themselves via the appservice. |
+| `CONDUWUIT_STARTUP_TIMEOUT` | `60` | Seconds to wait for the Matrix homeserver on first boot. |
+
+Ports:
+
+- `8080/tcp` — single HTTP entry point. Behind a reverse proxy that terminates HTTPS. The proxy must forward both regular HTTP traffic and WebSocket upgrades.
+- `7881/tcp` and `50100-50200/udp` — LiveKit RTC. Forward these directly (do not proxy). UDP is required for working WebRTC; TCP `7881` is fallback only.
+
+The first start runs ~30 seconds while the bundled Matrix homeserver initialises and registers the appservice. State after first start lives entirely in the `brmble-data` volume.
+
+### 3. Reverse proxy
+
+Anything that terminates HTTPS works. A minimal Caddyfile:
+
+```
+chat.example.com {
+    reverse_proxy localhost:8080
+}
+```
+
+Make sure the host name in your TLS certificate matches `MATRIX_SERVER_NAME`.
+
+## Connecting the client
+
+1. Open the Brmble client and add a server.
+2. Enter the Mumble host (e.g. `mumble.example.com:64738`) and a username.
+3. On connect, the client reads Mumble's welcome text, pulls the `apiUrl` out of the `<!--brmble:{...}-->` marker, and starts talking to the Brmble server for chat and screen sharing.
+
+If a user connects with a plain Mumble client they get voice only — no chat, no screen sharing, but they can still talk to Brmble users in the same channel.
+
+## Updating
+
+- **Client**: auto-updates from GitHub releases on installer builds; portable builds need to be replaced manually.
+- **Server**: pull a newer image and recreate the container. The `/data` volume migrates automatically.
+  ```bash
+  docker compose pull brmble && docker compose up -d brmble
+  ```
+
+## Building from source
+
+Requirements: .NET 10 SDK, Node 20+, Docker.
+
+```bash
+# Server image
+docker build -t brmble-server:dev -f src/Brmble.Server/Dockerfile .
+
+# Client (Windows)
+cd src/Brmble.Web && npm install && npm run build
+dotnet publish src/Brmble.Client/Brmble.Client.csproj -c Release -r win-x64 --self-contained -o publish
+```
+
+For day-to-day development, see [`CLAUDE.md`](CLAUDE.md) (running the client with hot reload, Docker setup, build commands).
+
+## Repository layout
+
+```
+src/Brmble.Server/   ASP.NET backend, Dockerfile, Matrix/LiveKit glue
+src/Brmble.Client/   Win32 + WebView2 desktop client
+src/Brmble.Web/      React + Vite frontend (rendered inside the client)
+lib/MumbleSharp/     Mumble protocol library (vendored)
+docker-local/        docker-compose for local dev (Mumble + Brmble)
+docs/                Architecture notes, specs, integration guides
+```
+
+Relevant docs:
+
+- [`docs/tech-stack.md`](docs/tech-stack.md) — component overview and licensing
+- [`docs/auth-specification.md`](docs/auth-specification.md) — certificate-based identity model
+- [`docs/mumble-integration-guide.md`](docs/mumble-integration-guide.md) — how the client talks to Mumble
