@@ -57,4 +57,15 @@ public class LiveKitEndpointsTests
 
         Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
     }
+
+    [TestMethod]
+    public async Task ActiveShare_WithoutClientIdentity_ReturnsUnauthorized()
+    {
+        using var factory = new BrmbleServerFactory(certHash: null);
+        using var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/livekit/active-share?roomName=channel-1");
+
+        Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
 }

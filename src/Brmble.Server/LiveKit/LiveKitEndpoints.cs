@@ -146,9 +146,14 @@ public static class LiveKitEndpoints
 
         app.MapGet("/livekit/active-share", (
             HttpContext httpContext,
+            ICertificateHashExtractor certHashExtractor,
             ScreenShareTracker tracker,
             ISessionMappingService sessionMapping) =>
         {
+            var certHash = certHashExtractor.GetCertHash(httpContext);
+            if (string.IsNullOrWhiteSpace(certHash))
+                return Results.Unauthorized();
+
             var roomName = httpContext.Request.Query["roomName"].ToString();
             if (string.IsNullOrWhiteSpace(roomName))
                 return Results.BadRequest(new { error = "roomName query parameter is required" });
