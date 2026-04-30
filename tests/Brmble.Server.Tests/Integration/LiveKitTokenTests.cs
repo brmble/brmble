@@ -1,6 +1,9 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Brmble.Server.Events;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Brmble.Server.Tests.Integration;
@@ -40,8 +43,14 @@ public class LiveKitTokenTests : IDisposable
     [TestMethod]
     public async Task PostLiveKitToken_ValidCert_ReturnsTokenAndUrl()
     {
-        // First authenticate to create the user record
-        await _client.PostAsync("/auth/token", null);
+        var sessionMapping = _factory.Services.GetRequiredService<ISessionMappingService>();
+        var channelMembership = _factory.Services.GetRequiredService<IChannelMembershipService>();
+
+        sessionMapping.SetNameForSession("TestUser", 7);
+
+        await _client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "TestUser" });
+
+        channelMembership.Update(7, 1);
 
         var body = new StringContent(
             JsonSerializer.Serialize(new { roomName = "channel-1", accessMode = "subscribe" }),
@@ -60,7 +69,14 @@ public class LiveKitTokenTests : IDisposable
     [TestMethod]
     public async Task PostLiveKitToken_CurrentEndpoint_IssuesSubscribeOnlyToken()
     {
-        await _client.PostAsync("/auth/token", null);
+        var sessionMapping = _factory.Services.GetRequiredService<ISessionMappingService>();
+        var channelMembership = _factory.Services.GetRequiredService<IChannelMembershipService>();
+
+        sessionMapping.SetNameForSession("TestUser", 7);
+
+        await _client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "TestUser" });
+
+        channelMembership.Update(7, 1);
 
         var body = new StringContent(
             JsonSerializer.Serialize(new { roomName = "channel-1", accessMode = "subscribe" }),

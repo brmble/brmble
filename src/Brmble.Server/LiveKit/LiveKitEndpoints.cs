@@ -7,6 +7,21 @@ namespace Brmble.Server.LiveKit;
 
 public static class LiveKitEndpoints
 {
+    private static bool IsUserInRoom(
+        long userId,
+        string roomName,
+        ISessionMappingService sessionMapping,
+        IChannelMembershipService channelMembership)
+    {
+        if (!sessionMapping.TryGetSessionByUserId(userId, out var sessionId)
+            || !channelMembership.TryGetChannel(sessionId, out var channelId))
+        {
+            return false;
+        }
+
+        return string.Equals(roomName, $"channel-{channelId}", StringComparison.Ordinal);
+    }
+
     public static IEndpointRouteBuilder MapLiveKitEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapPost("/livekit/token", async (
@@ -56,19 +71,14 @@ public static class LiveKitEndpoints
             if (accessMode is null)
                 return Results.BadRequest(new { error = "accessMode must be 'publish' or 'subscribe'" });
 
-            var canPublish = false;
-            if (sessionMapping.TryGetSessionByUserId(user.Id, out var sessionId)
-                && channelMembership.TryGetChannel(sessionId, out var channelId))
-            {
-                canPublish = string.Equals(roomName, $"channel-{channelId}", StringComparison.Ordinal);
-            }
+            var isInRequestedRoom = IsUserInRoom(user.Id, roomName, sessionMapping, channelMembership);
 
             var authz = await liveKitService.AuthorizeTokenRequest(
                 certHash,
                 roomName,
                 accessMode.Value,
-                canPublish,
-                canSubscribe: true);
+                canPublish: isInRequestedRoom,
+                canSubscribe: isInRequestedRoom);
 
             if (!authz.Allowed)
             {
@@ -180,9 +190,11 @@ public static class LiveKitEndpoints
         app.MapGet("/livekit/active-share", (
             HttpContext httpContext,
             ICertificateHashExtractor certHashExtractor,
+            LiveKitService liveKitService,
             UserRepository userRepo,
             ScreenShareTracker tracker,
-            ISessionMappingService sessionMapping) =>
+            ISessionMappingService sessionMapping,
+            IChannelMembershipService channelMembership) =>
         {
             var certHash = certHashExtractor.GetCertHash(httpContext);
             if (string.IsNullOrWhiteSpace(certHash))
@@ -198,6 +210,25 @@ public static class LiveKitEndpoints
 
             if (!roomName.StartsWith("channel-") || !int.TryParse(roomName.AsSpan("channel-".Length), out _))
                 return Results.BadRequest(new { error = "invalid roomName format" });
+
+            var isInRequestedRoom = IsUserInRoom(user.Id, roomName, sessionMapping, channelMembership);
+            var authz = liveKitService.AuthorizeTokenRequest(
+                certHash,
+                roomName,
+                LiveKitAccessMode.Subscribe,
+                canPublish: isInRequestedRoom,
+                canSubscribe: isInRequestedRoom).GetAwaiter().GetResult();
+
+            if (!authz.Allowed)
+            {
+                return authz.Failure switch
+                {
+                    LiveKitAuthorizationFailure.Unauthorized => Results.Unauthorized(),
+                    LiveKitAuthorizationFailure.Forbidden => Results.StatusCode(StatusCodes.Status403Forbidden),
+                    LiveKitAuthorizationFailure.InvalidRoom => Results.BadRequest(new { error = "invalid roomName format" }),
+                    _ => Results.StatusCode(StatusCodes.Status403Forbidden),
+                };
+            }
 
             var shares = tracker.GetActiveShares(roomName);
             var result = shares.Select(s =>

@@ -155,6 +155,20 @@ public class LiveKitServiceTests
     }
 
     [TestMethod]
+    public async Task AuthorizeTokenRequest_SubscribeDenied_ReturnsForbidden()
+    {
+        var result = await _svc.AuthorizeTokenRequest(
+            "cert123",
+            "channel-1",
+            LiveKitAccessMode.Subscribe,
+            canPublish: false,
+            canSubscribe: false);
+
+        Assert.IsFalse(result.Allowed);
+        Assert.AreEqual(LiveKitAuthorizationFailure.Forbidden, result.Failure);
+    }
+
+    [TestMethod]
     public async Task GenerateToken_UnknownUser_ReturnsNull()
     {
         _mockUserRepo.Setup(r => r.GetByCertHash("unknown"))

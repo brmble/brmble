@@ -105,6 +105,26 @@ public class LiveKitEndpointsTests
 
         var response = await client.PostAsJsonAsync("/livekit/token", new { roomName = "channel-1", accessMode = "subscribe" });
 
+        Assert.AreEqual(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task TokenRequest_SubscribeWithCurrentChannelAccess_ReturnsOk()
+    {
+        using var factory = new BrmbleServerFactory();
+        using var client = factory.CreateClient();
+
+        var sessionMapping = factory.Services.GetRequiredService<ISessionMappingService>();
+        var channelMembership = factory.Services.GetRequiredService<IChannelMembershipService>();
+
+        sessionMapping.SetNameForSession("TestUser", 7);
+
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "TestUser" });
+
+        channelMembership.Update(7, 1);
+
+        var response = await client.PostAsJsonAsync("/livekit/token", new { roomName = "channel-1", accessMode = "subscribe" });
+
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
     }
 
@@ -124,6 +144,39 @@ public class LiveKitEndpointsTests
         channelMembership.Update(7, 1);
 
         var response = await client.PostAsJsonAsync("/livekit/token", new { roomName = "channel-1", accessMode = "publish" });
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task ActiveShare_WithoutCurrentChannelAccess_ReturnsForbidden()
+    {
+        using var factory = new BrmbleServerFactory();
+        using var client = factory.CreateClient();
+
+        await client.PostAsync("/auth/token", null);
+
+        var response = await client.GetAsync("/livekit/active-share?roomName=channel-1");
+
+        Assert.AreEqual(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task ActiveShare_WithCurrentChannelAccess_ReturnsOk()
+    {
+        using var factory = new BrmbleServerFactory();
+        using var client = factory.CreateClient();
+
+        var sessionMapping = factory.Services.GetRequiredService<ISessionMappingService>();
+        var channelMembership = factory.Services.GetRequiredService<IChannelMembershipService>();
+
+        sessionMapping.SetNameForSession("TestUser", 7);
+
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "TestUser" });
+
+        channelMembership.Update(7, 1);
+
+        var response = await client.GetAsync("/livekit/active-share?roomName=channel-1");
 
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
     }
