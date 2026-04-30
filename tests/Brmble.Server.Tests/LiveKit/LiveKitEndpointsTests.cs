@@ -68,4 +68,15 @@ public class LiveKitEndpointsTests
 
         Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
     }
+
+    [TestMethod]
+    public async Task ActiveShare_WithUnknownCertHash_ReturnsUnauthorized()
+    {
+        using var factory = new BrmbleServerFactory(certHash: "unknowncerthash999");
+        using var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/livekit/active-share?roomName=channel-1");
+
+        Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
 }

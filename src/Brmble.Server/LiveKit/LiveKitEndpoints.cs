@@ -147,11 +147,16 @@ public static class LiveKitEndpoints
         app.MapGet("/livekit/active-share", (
             HttpContext httpContext,
             ICertificateHashExtractor certHashExtractor,
+            UserRepository userRepo,
             ScreenShareTracker tracker,
             ISessionMappingService sessionMapping) =>
         {
             var certHash = certHashExtractor.GetCertHash(httpContext);
             if (string.IsNullOrWhiteSpace(certHash))
+                return Results.Unauthorized();
+
+            var user = userRepo.GetByCertHash(certHash).GetAwaiter().GetResult();
+            if (user is null)
                 return Results.Unauthorized();
 
             var roomName = httpContext.Request.Query["roomName"].ToString();
