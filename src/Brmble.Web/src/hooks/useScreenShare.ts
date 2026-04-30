@@ -214,6 +214,7 @@ export function useScreenShare(
   }, []);
 
   const roomAccessModeRef = useRef<LiveKitAccessMode | null>(null);
+  const roomReconnectUpgradeRef = useRef(false);
 
   // Try to disconnect the room, but only if we're not sharing AND not watching
   const maybeDisconnectRoom = useCallback(async () => {
@@ -221,6 +222,7 @@ export function useScreenShare(
       try { await roomRef.current.disconnect(); } catch { /* ignore */ }
       roomRef.current = null;
       roomAccessModeRef.current = null;
+      roomReconnectUpgradeRef.current = false;
     }
   }, []);
 
@@ -300,8 +302,10 @@ export function useScreenShare(
 
     // Disconnect from any other room
     if (existing) {
+      roomReconnectUpgradeRef.current = existing.name === roomName && currentAccessMode === 'subscribe' && accessMode === 'publish';
       try { await existing.disconnect(); } catch { /* ignore */ }
       roomRef.current = null;
+      roomAccessModeRef.current = null;
     }
 
     const { token, url } = await requestToken(roomName, accessMode);
@@ -344,6 +348,12 @@ export function useScreenShare(
     });
 
     room.on(RoomEvent.Disconnected, () => {
+      const isUpgradeReconnect = roomReconnectUpgradeRef.current;
+      if (isUpgradeReconnect) {
+        roomReconnectUpgradeRef.current = false;
+        return;
+      }
+
       roomRef.current = null;
       roomAccessModeRef.current = null;
       setRemoteVideoEls(new Map());
@@ -357,6 +367,7 @@ export function useScreenShare(
     await room.connect(url, token);
     roomRef.current = room;
     roomAccessModeRef.current = accessMode;
+    roomReconnectUpgradeRef.current = false;
     return room;
   }, [requestToken, updateWatchingShares, stopLocalShare]);
 

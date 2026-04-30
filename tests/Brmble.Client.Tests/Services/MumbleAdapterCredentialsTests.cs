@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using Brmble.Client.Services.Voice;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -89,5 +90,20 @@ public class MumbleAdapterCredentialsTests
         var json = MumbleAdapter.CreateLiveKitTokenRequestBody("channel-1", "subscribe");
 
         Assert.AreEqual("{\"roomName\":\"channel-1\",\"accessMode\":\"subscribe\"}", json);
+    }
+
+    [TestMethod]
+    public void TryGetLiveKitAccessMode_NonStringValue_ReturnsFalse()
+    {
+        using var doc = JsonDocument.Parse("""
+        {
+            "accessMode": 1
+        }
+        """);
+
+        var result = MumbleAdapter.TryGetLiveKitAccessMode(doc.RootElement, out var accessMode);
+
+        Assert.IsFalse(result);
+        Assert.IsNull(accessMode);
     }
 }

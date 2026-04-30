@@ -157,6 +157,81 @@ describe('useScreenShare', () => {
     expect(bridge.send).toHaveBeenCalledWith('livekit.requestToken', { roomName: 'channel-1', accessMode: 'subscribe' });
   });
 
+  it('preserves watching state when upgrading from viewer to publisher in the same room', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'bob', userId: 20, matrixUserId: '@bob:test' });
+    });
+
+    await act(async () => {
+      const promise = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      tokenHandler?.({ token: 'viewer-jwt', url: 'ws://localhost/livekit' });
+      await promise;
+    });
+
+    expect(result.current.watchingShares).toHaveLength(1);
+    expect(result.current.watchingShares[0].userId).toBe(10);
+
+    await act(async () => {
+      const promise = result.current.startSharing('channel-1');
+      emitRoomEvent('disconnected');
+      await Promise.resolve();
+      tokenHandler?.({ token: 'publisher-jwt', url: 'ws://localhost/livekit' });
+      await promise;
+    });
+
+    expect(result.current.isSharing).toBe(true);
+    expect(result.current.watchingShares).toHaveLength(1);
+    expect(result.current.watchingShares[0].userId).toBe(10);
+    expect(result.current.focusedShare).toBeNull();
+  });
+
+  it('still clears watching state on a real disconnect after upgrade', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    await act(async () => {
+      const viewerPromise = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      tokenHandler?.({ token: 'viewer-jwt', url: 'ws://localhost/livekit' });
+      await viewerPromise;
+    });
+
+    await act(async () => {
+      const sharePromise = result.current.startSharing('channel-1');
+      emitRoomEvent('disconnected');
+      await Promise.resolve();
+      tokenHandler?.({ token: 'publisher-jwt', url: 'ws://localhost/livekit' });
+      await sharePromise;
+    });
+
+    act(() => {
+      emitRoomEvent('disconnected');
+    });
+
+    expect(result.current.watchingShares).toEqual([]);
+    expect(result.current.focusedShare).toBeNull();
+    expect(result.current.isSharing).toBe(false);
+  });
+
   it('accumulates multiple screenShareStarted events into activeShares', () => {
     let shareStartedHandler: ((data: unknown) => void) | null = null;
     (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {

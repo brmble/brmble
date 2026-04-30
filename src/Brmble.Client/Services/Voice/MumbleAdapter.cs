@@ -1155,6 +1155,17 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         return System.Text.Json.JsonSerializer.Serialize(new { roomName, accessMode = normalizedAccessMode });
     }
 
+    internal static bool TryGetLiveKitAccessMode(System.Text.Json.JsonElement data, out string? accessMode)
+    {
+        accessMode = null;
+
+        if (!data.TryGetProperty("accessMode", out var modeElement) || modeElement.ValueKind != System.Text.Json.JsonValueKind.String)
+            return false;
+
+        accessMode = modeElement.GetString();
+        return !string.IsNullOrWhiteSpace(accessMode);
+    }
+
     private static async Task<TlsResult> GetViaBcTls(X509Certificate2 cert, Uri uri)
     {
         var hostHeader = uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}";
@@ -2244,7 +2255,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         bridge.RegisterHandler("livekit.requestToken", async data =>
         {
             var roomName = data.TryGetProperty("roomName", out var rn) ? rn.GetString() : null;
-            var accessMode = data.TryGetProperty("accessMode", out var am) ? am.GetString() : null;
+            var hasAccessMode = TryGetLiveKitAccessMode(data, out var accessMode);
             if (string.IsNullOrWhiteSpace(roomName) || _apiUrl is null)
             {
                 _bridge?.Send("livekit.tokenError", new { error = "Not connected or missing roomName" });
@@ -2252,9 +2263,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(accessMode))
+            if (!hasAccessMode)
             {
-                _bridge?.Send("livekit.tokenError", new { error = "Missing accessMode" });
+                _bridge?.Send("livekit.tokenError", new { error = "Missing or invalid accessMode" });
                 _bridge?.NotifyUiThread();
                 return;
             }
