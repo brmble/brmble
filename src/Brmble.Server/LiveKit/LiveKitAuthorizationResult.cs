@@ -7,7 +7,7 @@ public enum LiveKitAuthorizationFailure
     InvalidRoom,
 }
 
-public sealed record LiveKitAuthorizationResult
+public sealed class LiveKitAuthorizationResult
 {
     private LiveKitAuthorizationResult(
         bool allowed,
@@ -23,15 +23,15 @@ public sealed record LiveKitAuthorizationResult
         Failure = failure;
     }
 
-    public bool Allowed { get; init; }
+    public bool Allowed { get; }
 
-    public string? CertHash { get; init; }
+    public string? CertHash { get; }
 
-    public string? RoomName { get; init; }
+    public string? RoomName { get; }
 
-    public LiveKitAccessMode? AccessMode { get; init; }
+    public LiveKitAccessMode? AccessMode { get; }
 
-    public LiveKitAuthorizationFailure? Failure { get; init; }
+    public LiveKitAuthorizationFailure? Failure { get; }
 
     public static LiveKitAuthorizationResult Success(string certHash, string roomName, LiveKitAccessMode mode) =>
         new(true, certHash, roomName, mode, null);

@@ -30,7 +30,9 @@ public static class LiveKitEndpoints
             if (string.IsNullOrWhiteSpace(roomName))
                 return Results.BadRequest(new { error = "roomName is required" });
 
-            var token = await liveKitService.GenerateToken(certHash, roomName);
+            // Task 2 will parse accessMode from the request. Until then this endpoint is
+            // only used for viewer/watch flows, so mint the narrowest subscribe-only token.
+            var token = await liveKitService.GenerateToken(certHash, roomName, LiveKitAccessMode.Subscribe);
             if (token is null)
                 return Results.Unauthorized();
 

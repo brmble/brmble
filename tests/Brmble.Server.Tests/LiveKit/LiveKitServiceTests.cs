@@ -147,6 +147,18 @@ public class LiveKitServiceTests
     }
 
     [TestMethod]
+    public void LiveKitAuthorizationResult_HasNoPublicPropertySetters()
+    {
+        var writableProperties = typeof(LiveKitAuthorizationResult)
+            .GetProperties(BindingFlags.Instance | BindingFlags.Public)
+            .Where(p => p.SetMethod?.IsPublic == true)
+            .Select(p => p.Name)
+            .ToArray();
+
+        CollectionAssert.AreEqual(Array.Empty<string>(), writableProperties);
+    }
+
+    [TestMethod]
     public void GenerateToken_LegacyOverload_IsObsolete()
     {
         var legacyOverload = typeof(LiveKitService)

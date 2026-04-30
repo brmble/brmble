@@ -58,6 +58,29 @@ public class LiveKitTokenTests : IDisposable
     }
 
     [TestMethod]
+    public async Task PostLiveKitToken_CurrentEndpoint_IssuesSubscribeOnlyToken()
+    {
+        await _client.PostAsync("/auth/token", null);
+
+        var body = new StringContent(
+            JsonSerializer.Serialize(new { roomName = "channel-1" }),
+            Encoding.UTF8, "application/json");
+
+        var response = await _client.PostAsync("/livekit/token", body);
+        response.EnsureSuccessStatusCode();
+
+        var json = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(json);
+        var token = tokenFrom(doc.RootElement);
+
+        using var tokenDoc = JsonDocument.Parse(DecodeJwtPayload(token));
+        var video = tokenDoc.RootElement.GetProperty("video");
+
+        Assert.IsTrue(video.GetProperty("canSubscribe").GetBoolean());
+        Assert.IsFalse(video.GetProperty("canPublish").GetBoolean());
+    }
+
+    [TestMethod]
     public async Task PostLiveKitToken_NoRoomName_ReturnsBadRequest()
     {
         var body = new StringContent("{}", Encoding.UTF8, "application/json");
@@ -71,5 +94,27 @@ public class LiveKitTokenTests : IDisposable
         var body = new StringContent("not json at all", Encoding.UTF8, "application/json");
         var response = await _client.PostAsync("/livekit/token", body);
         Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    private static string tokenFrom(JsonElement root)
+    {
+        Assert.IsTrue(root.TryGetProperty("token", out var tokenProp));
+        return tokenProp.GetString()!;
+    }
+
+    private static string DecodeJwtPayload(string token)
+    {
+        var payload = token.Split('.')[1].Replace('-', '+').Replace('_', '/');
+        switch (payload.Length % 4)
+        {
+            case 2:
+                payload += "==";
+                break;
+            case 3:
+                payload += "=";
+                break;
+        }
+
+        return Encoding.UTF8.GetString(Convert.FromBase64String(payload));
     }
 }
