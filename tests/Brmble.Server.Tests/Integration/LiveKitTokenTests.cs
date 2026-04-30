@@ -83,6 +83,8 @@ public class LiveKitTokenTests : IDisposable
     [TestMethod]
     public async Task PostLiveKitToken_NoRoomName_ReturnsBadRequest()
     {
+        await _client.PostAsync("/auth/token", null);
+
         var body = new StringContent("{}", Encoding.UTF8, "application/json");
         var response = await _client.PostAsync("/livekit/token", body);
         Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
@@ -91,6 +93,8 @@ public class LiveKitTokenTests : IDisposable
     [TestMethod]
     public async Task PostLiveKitToken_InvalidJson_ReturnsBadRequest()
     {
+        await _client.PostAsync("/auth/token", null);
+
         var body = new StringContent("not json at all", Encoding.UTF8, "application/json");
         var response = await _client.PostAsync("/livekit/token", body);
         Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);

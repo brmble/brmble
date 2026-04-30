@@ -66,6 +66,32 @@ public class LiveKitService : ILiveKitRoomQuery
         return token.ToJwt();
     }
 
+    public Task<LiveKitAuthorizationResult> AuthorizeTokenRequest(
+        string certHash,
+        string roomName,
+        LiveKitAccessMode accessMode,
+        bool canPublish,
+        bool canSubscribe)
+    {
+        if (string.IsNullOrWhiteSpace(certHash))
+            return Task.FromResult(LiveKitAuthorizationResult.Denied(LiveKitAuthorizationFailure.Unauthorized));
+
+        if (!roomName.StartsWith("channel-") || !int.TryParse(roomName.AsSpan("channel-".Length), out _))
+            return Task.FromResult(LiveKitAuthorizationResult.Denied(LiveKitAuthorizationFailure.InvalidRoom));
+
+        var allowed = accessMode switch
+        {
+            LiveKitAccessMode.Publish => canPublish,
+            LiveKitAccessMode.Subscribe => canSubscribe,
+            _ => false,
+        };
+
+        return Task.FromResult(
+            allowed
+                ? LiveKitAuthorizationResult.Success(certHash, roomName, accessMode)
+                : LiveKitAuthorizationResult.Denied(LiveKitAuthorizationFailure.Forbidden));
+    }
+
     public async Task RemoveParticipant(string roomName, string participantIdentity)
     {
         try

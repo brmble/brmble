@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Brmble.Server.Auth;
 using Brmble.Server.Events;
+using Microsoft.AspNetCore.Http;
 
 namespace Brmble.Server.LiveKit;
 
@@ -12,10 +13,17 @@ public static class LiveKitEndpoints
             HttpContext httpContext,
             ICertificateHashExtractor certHashExtractor,
             LiveKitService liveKitService,
+            UserRepository userRepo,
+            ISessionMappingService sessionMapping,
+            IChannelMembershipService channelMembership,
             ILogger<LiveKitService> logger) =>
         {
             var certHash = certHashExtractor.GetCertHash(httpContext);
             if (string.IsNullOrWhiteSpace(certHash))
+                return Results.Unauthorized();
+
+            var user = await userRepo.GetByCertHash(certHash);
+            if (user is null)
                 return Results.Unauthorized();
 
             string? roomName = null;
@@ -47,6 +55,31 @@ public static class LiveKitEndpoints
 
             if (accessMode is null)
                 return Results.BadRequest(new { error = "accessMode must be 'publish' or 'subscribe'" });
+
+            var canPublish = false;
+            if (sessionMapping.TryGetSessionByUserId(user.Id, out var sessionId)
+                && channelMembership.TryGetChannel(sessionId, out var channelId))
+            {
+                canPublish = string.Equals(roomName, $"channel-{channelId}", StringComparison.Ordinal);
+            }
+
+            var authz = await liveKitService.AuthorizeTokenRequest(
+                certHash,
+                roomName,
+                accessMode.Value,
+                canPublish,
+                canSubscribe: true);
+
+            if (!authz.Allowed)
+            {
+                return authz.Failure switch
+                {
+                    LiveKitAuthorizationFailure.Unauthorized => Results.Unauthorized(),
+                    LiveKitAuthorizationFailure.Forbidden => Results.StatusCode(StatusCodes.Status403Forbidden),
+                    LiveKitAuthorizationFailure.InvalidRoom => Results.BadRequest(new { error = "invalid roomName format" }),
+                    _ => Results.StatusCode(StatusCodes.Status403Forbidden),
+                };
+            }
 
             var token = await liveKitService.GenerateToken(certHash, roomName, accessMode.Value);
             if (token is null)
