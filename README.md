@@ -1,6 +1,12 @@
 # Brmble
 
-Self-hosted gaming communication. Voice over Mumble, persistent chat over Matrix, screen sharing over LiveKit — wrapped in a single desktop client.
+Self-hosted gaming communication. Voice over Mumble, persistent chat over Matrix, screen sharing over LiveKit — wrapped in a single desktop client (Windows only).
+
+The client is a native desktop app with a current web-stack UI rendered inside it, so it looks and feels like the chat apps people use today rather than the dated Qt interface of the official Mumble client — while staying fully interoperable with it on the wire.
+
+## Screenshots
+
+_Coming soon._
 
 ## Mumble compatibility
 
