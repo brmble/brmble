@@ -130,8 +130,31 @@ describe('useScreenShare', () => {
       await promise;
     });
 
-    expect(bridge.send).toHaveBeenCalledWith('livekit.requestToken', { roomName: 'channel-1' });
+    expect(bridge.send).toHaveBeenCalledWith('livekit.requestToken', { roomName: 'channel-1', accessMode: 'publish' });
     expect(result.current.isSharing).toBe(true);
+  });
+
+  it('requests subscribe token via bridge when connecting as viewer', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    await act(async () => {
+      const promise = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      tokenHandler?.({ token: 'jwt', url: 'ws://localhost/livekit' });
+      await promise;
+    });
+
+    expect(bridge.send).toHaveBeenCalledWith('livekit.requestToken', { roomName: 'channel-1', accessMode: 'subscribe' });
   });
 
   it('accumulates multiple screenShareStarted events into activeShares', () => {

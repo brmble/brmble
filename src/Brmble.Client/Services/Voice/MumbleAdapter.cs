@@ -1143,6 +1143,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         return await SendViaBcTls(cert, uri, httpRequest);
     }
 
+    internal static string CreateLiveKitTokenRequestBody(string roomName, string accessMode)
+    {
+        var normalizedAccessMode = accessMode.Trim().ToLowerInvariant() switch
+        {
+            "publish" => "publish",
+            "subscribe" => "subscribe",
+            _ => throw new ArgumentOutOfRangeException(nameof(accessMode), accessMode, null),
+        };
+
+        return System.Text.Json.JsonSerializer.Serialize(new { roomName, accessMode = normalizedAccessMode });
+    }
+
     private static async Task<TlsResult> GetViaBcTls(X509Certificate2 cert, Uri uri)
     {
         var hostHeader = uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}";
@@ -2232,9 +2244,17 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         bridge.RegisterHandler("livekit.requestToken", async data =>
         {
             var roomName = data.TryGetProperty("roomName", out var rn) ? rn.GetString() : null;
+            var accessMode = data.TryGetProperty("accessMode", out var am) ? am.GetString() : null;
             if (string.IsNullOrWhiteSpace(roomName) || _apiUrl is null)
             {
                 _bridge?.Send("livekit.tokenError", new { error = "Not connected or missing roomName" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(accessMode))
+            {
+                _bridge?.Send("livekit.tokenError", new { error = "Missing accessMode" });
                 _bridge?.NotifyUiThread();
                 return;
             }
@@ -2249,7 +2269,17 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
             var baseUri = new Uri(_apiUrl, UriKind.Absolute);
             var tokenUri = new Uri(baseUri, "livekit/token");
-            var jsonBody = System.Text.Json.JsonSerializer.Serialize(new { roomName });
+            string jsonBody;
+            try
+            {
+                jsonBody = CreateLiveKitTokenRequestBody(roomName, accessMode);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                _bridge?.Send("livekit.tokenError", new { error = "accessMode must be 'publish' or 'subscribe'" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
 
             var delays = new[] { 500, 1000, 2000 };
             TlsResult? lastResult = null;

@@ -74,4 +74,20 @@ public class MumbleAdapterCredentialsTests
         Assert.AreEqual(HttpMethod.Post, captured!.Method);
         Assert.IsNull(captured.Content); // empty body — identity comes from TLS handshake
     }
+
+    [TestMethod]
+    public void CreateLiveKitTokenRequestBody_Publish_UsesNamedAccessMode()
+    {
+        var json = MumbleAdapter.CreateLiveKitTokenRequestBody("channel-1", "publish");
+
+        Assert.AreEqual("{\"roomName\":\"channel-1\",\"accessMode\":\"publish\"}", json);
+    }
+
+    [TestMethod]
+    public void CreateLiveKitTokenRequestBody_Subscribe_UsesNamedAccessMode()
+    {
+        var json = MumbleAdapter.CreateLiveKitTokenRequestBody("channel-1", "subscribe");
+
+        Assert.AreEqual("{\"roomName\":\"channel-1\",\"accessMode\":\"subscribe\"}", json);
+    }
 }

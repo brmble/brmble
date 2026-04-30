@@ -33,6 +33,8 @@ type LocalTrackLike = {
   off?: (event: string, handler: () => void) => void;
 };
 
+type LiveKitAccessMode = 'publish' | 'subscribe';
+
 type ErrorLike = {
   name?: unknown;
   message?: unknown;
@@ -186,7 +188,7 @@ export function useScreenShare(
   }, []);
 
   // Helper: request a LiveKit token via bridge
-  const requestToken = useCallback((roomName: string) => {
+  const requestToken = useCallback((roomName: string, accessMode: LiveKitAccessMode) => {
     return new Promise<{ token: string; url: string }>((resolve, reject) => {
       const cleanup = () => {
         bridge.off('livekit.token', onToken);
@@ -207,15 +209,18 @@ export function useScreenShare(
       }, 20000);
       bridge.on('livekit.token', onToken);
       bridge.on('livekit.tokenError', onError);
-      bridge.send('livekit.requestToken', { roomName });
+      bridge.send('livekit.requestToken', { roomName, accessMode });
     });
   }, []);
+
+  const roomAccessModeRef = useRef<LiveKitAccessMode | null>(null);
 
   // Try to disconnect the room, but only if we're not sharing AND not watching
   const maybeDisconnectRoom = useCallback(async () => {
     if (!isSharingRef.current && watchingSharesRef.current.length === 0 && roomRef.current) {
       try { await roomRef.current.disconnect(); } catch { /* ignore */ }
       roomRef.current = null;
+      roomAccessModeRef.current = null;
     }
   }, []);
 
@@ -285,9 +290,11 @@ export function useScreenShare(
 
   // Ensure we have a connected room for the given channel.
   // Returns the existing room if already connected to this channel, otherwise connects.
-  const ensureRoom = useCallback(async (roomName: string): Promise<Room> => {
+  const ensureRoom = useCallback(async (roomName: string, accessMode: LiveKitAccessMode): Promise<Room> => {
     const existing = roomRef.current;
-    if (existing?.name === roomName && (existing as Room & { state?: string })?.state === 'connected') {
+    const currentAccessMode = roomAccessModeRef.current;
+    const existingCanSatisfyRequest = currentAccessMode === 'publish' || currentAccessMode === accessMode;
+    if (existing?.name === roomName && (existing as Room & { state?: string })?.state === 'connected' && existingCanSatisfyRequest) {
       return existing;
     }
 
@@ -297,7 +304,7 @@ export function useScreenShare(
       roomRef.current = null;
     }
 
-    const { token, url } = await requestToken(roomName);
+    const { token, url } = await requestToken(roomName, accessMode);
     const room = new Room();
 
     room.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
@@ -338,6 +345,7 @@ export function useScreenShare(
 
     room.on(RoomEvent.Disconnected, () => {
       roomRef.current = null;
+      roomAccessModeRef.current = null;
       setRemoteVideoEls(new Map());
       if (isSharingRef.current) {
         void stopLocalShare('interrupted', room);
@@ -348,6 +356,7 @@ export function useScreenShare(
 
     await room.connect(url, token);
     roomRef.current = room;
+    roomAccessModeRef.current = accessMode;
     return room;
   }, [requestToken, updateWatchingShares, stopLocalShare]);
 
@@ -356,7 +365,7 @@ export function useScreenShare(
     localShareStopHandledRef.current = false;
 
     try {
-      const room = await ensureRoom(roomName);
+      const room = await ensureRoom(roomName, 'publish');
 
       let captureOptions: Record<string, unknown> | undefined;
       if (screenShareSettings) {
@@ -459,7 +468,7 @@ export function useScreenShare(
     const newShare: ShareInfo = shareInfo ?? { roomName, userName: '', userId: targetUserId, matrixUserId };
 
     try {
-      const room = await ensureRoom(roomName);
+      const room = await ensureRoom(roomName, 'subscribe');
 
       // Add to watching list (handles max 4 enforcement via addWatchingShare)
       addWatchingShare(newShare);

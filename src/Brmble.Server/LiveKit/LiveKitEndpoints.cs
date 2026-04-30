@@ -38,10 +38,17 @@ public static class LiveKitEndpoints
             if (!roomName.StartsWith("channel-") || !int.TryParse(roomName.AsSpan("channel-".Length), out _))
                 return Results.BadRequest(new { error = "invalid roomName format" });
 
-            if (!Enum.TryParse<LiveKitAccessMode>(accessModeRaw, true, out var accessMode))
+            LiveKitAccessMode? accessMode = accessModeRaw?.Trim().ToLowerInvariant() switch
+            {
+                "publish" => LiveKitAccessMode.Publish,
+                "subscribe" => LiveKitAccessMode.Subscribe,
+                _ => null,
+            };
+
+            if (accessMode is null)
                 return Results.BadRequest(new { error = "accessMode must be 'publish' or 'subscribe'" });
 
-            var token = await liveKitService.GenerateToken(certHash, roomName, accessMode);
+            var token = await liveKitService.GenerateToken(certHash, roomName, accessMode.Value);
             if (token is null)
                 return Results.Unauthorized();
 
