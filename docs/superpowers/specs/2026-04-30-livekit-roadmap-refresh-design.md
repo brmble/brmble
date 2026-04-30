@@ -2,11 +2,11 @@
 
 **Date:** 2026-04-30
 **Status:** Approved
-**Scope:** Refresh LiveKit/screenshare docs so roadmap, plans, and historical design docs match the current implementation state and the agreed next-phase priority.
+**Scope:** Refresh LiveKit/screenshare docs so roadmap, plans, and historical design docs match the current implementation state and the chosen roadmap structure for next-phase priority.
 
 ## Overview
 
-Brmble's LiveKit/screenshare documentation now has a mix of current roadmap docs, recently implemented fix specs, and older phase docs that no longer describe the shipped architecture. This refresh keeps the existing document set but makes the current status legible: foundation and recent hardening work are implemented, the next recommended phase is security first and reliability second, and older March docs are retained only as historical references.
+Brmble's LiveKit/screenshare documentation now has a mix of current roadmap docs, recently implemented fix specs, and older phase docs that no longer describe the shipped architecture. This refresh keeps the existing document set but makes the current status legible: foundation and recent hardening work are implemented, the next recommended phase is security first and reliability second, the roadmap table uses lifecycle statuses consistently, and older March docs are retained only as historical references.
 
 ## Goals
 
@@ -53,7 +53,9 @@ Update `docs/superpowers/specs/2026-04-17-livekit-feature-roadmap.md` so it expl
   1. E. Token & Security
   2. F. Connection & Reliability
 
-The roadmap should also stop implying the product is still single-view-only where that conflicts with current multi-view behavior.
+Keep the Sub-Projects table on consistent lifecycle statuses such as `Implemented` and `Not started`. Keep the E/F priority framing in the status line, next-phase issue shortlist, and suggested build order rather than encoding it as special table statuses.
+
+The roadmap should also stop implying the product is still single-view-only where that conflicts with current multi-view behavior. Keep `Invite to watch` under G as part of the context-menu polish item, and avoid reintroducing it under J so the placement reads as intentional rather than duplicated.
 
 ### 2. Recent fix specs/plans are marked complete
 
@@ -110,7 +112,7 @@ Use minimal edits:
 
 - change status lines and short intro paragraphs where possible
 - add concise historical-note banners instead of rewriting old docs
-- update the roadmap's status table, build order, and next-phase notes without restructuring the whole document
+- update the roadmap's status line, table wording, build order, and next-phase notes without restructuring the whole document
 
 This keeps the refresh small, reviewable, and faithful to the repository history.
 

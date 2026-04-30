@@ -115,7 +115,7 @@ See full spec: `2026-04-17-multi-share-foundation-design.md`
 43. Animated share indicator in channel tree
 44. Drag-to-resize viewer
 45. Full keyboard shortcuts (toggle share, switch between shares, fullscreen, PiP)
-46. Context menu: "Watch screen", "Stop sharing", "Invite to watch" (issue #412)
+46. Context menu: "Watch screen", "Stop sharing", "Invite to watch" (issue #412; kept here as a UI/context-menu action rather than a separate Viewer Interaction item)
 47. Share notification sounds
 48. Viewer list (who's watching your stream -- no kick from LiveKit, channel kick handles that)
 

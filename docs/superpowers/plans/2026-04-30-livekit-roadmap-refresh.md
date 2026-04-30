@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Refresh the LiveKit/screenshare docs so the roadmap, recent fix docs, and historical phase docs clearly reflect current implementation status and the agreed next-phase priority.
+**Goal:** Refresh the LiveKit/screenshare docs so the roadmap, recent fix docs, and historical phase docs clearly reflect current implementation status and the chosen next-phase-priority structure.
 
-**Architecture:** Treat `docs/superpowers/specs/2026-04-17-livekit-feature-roadmap.md` as the current source of truth, update April fix docs to read as landed work, and add short historical-note banners to older March LiveKit docs rather than rewriting them. Fold the relevant open issues and known roadmap gaps into the refreshed roadmap so the next phase is visible without chasing GitHub and old specs.
+**Architecture:** Treat `docs/superpowers/specs/2026-04-17-livekit-feature-roadmap.md` as the current source of truth, update April fix docs to read as landed work, and add short historical-note banners to older March LiveKit docs rather than rewriting them. Fold the relevant open issues and known roadmap gaps into the refreshed roadmap so the next phase is visible without chasing GitHub and old specs, while keeping the Sub-Projects table on consistent lifecycle statuses and leaving E/F priority framing in the header, issue shortlist, and build-order sections.
 
 **Tech Stack:** Markdown docs, GitHub issues, existing `docs/superpowers/specs` and `docs/superpowers/plans` conventions
 
@@ -13,7 +13,7 @@
 ## File Map
 
 - Modify: `docs/superpowers/specs/2026-04-17-livekit-feature-roadmap.md`
-  Purpose: make the roadmap the clear current source of truth, mark implemented work, and state the next-phase priority plus issue shortlist.
+  Purpose: make the roadmap the clear current source of truth, mark implemented work, and state the next-phase priority plus issue shortlist without using special priority-only statuses in the Sub-Projects table.
 - Modify: `docs/superpowers/specs/2026-04-21-screenshare-self-slot-design.md`
   Purpose: mark the self-slot/sidebar cleanup spec as implemented.
 - Modify: `docs/superpowers/specs/2026-04-25-screen-share-auto-stop-design.md`
@@ -46,7 +46,7 @@
 
 - [ ] **Step 1: Update the roadmap header and sub-project table to match the current state**
 
-Edit the header area so it no longer says only sub-project A is designed. Change the status language and the sub-project table to show implemented work plus next-phase priority.
+Edit the header area so it no longer says only sub-project A is designed. Change the status language and keep the sub-project table on consistent lifecycle statuses, with next-phase priority called out in the header/build-order material instead of special table labels.
 
 ```md
 # LiveKit & Screen Sharing Feature Roadmap
@@ -65,8 +65,8 @@ This is the master feature list for LiveKit and screen sharing work. Completed s
 | B | Broadcaster Controls | Not started | -- |
 | C | Viewing Experience | Not started | -- |
 | D | Game Overlay | Not started | -- |
-| E | Token & Security | Next recommended phase | -- |
-| F | Connection & Reliability | Next after E | -- |
+| E | Token & Security | Not started | -- |
+| F | Connection & Reliability | Not started | -- |
 | G | UI/UX Polish | Not started | -- |
 | H | Clips & Screenshots | Not started | -- |
 | I | Performance & Quality | Not started | -- |
@@ -149,6 +149,12 @@ The recommended next sequence is:
 Run: `git diff -- docs/superpowers/specs/2026-04-17-livekit-feature-roadmap.md`
 
 Expected: Diff shows only roadmap-status, current-state, and next-phase guidance updates with no accidental restructuring.
+
+- [ ] **Step 6: Keep `Invite to Watch` placement explicit and non-duplicated**
+
+If needed, add a short clarification in the roadmap so `Invite to watch` is clearly intentional under G's context-menu polish item and is not repeated under J.
+
+Expected: The roadmap reads as deliberate, with no ambiguity about whether `Invite to watch` was accidentally dropped from Viewer Interaction.
 
 ### Task 2: Mark The April Fix Specs And Plans As Landed Work
 
