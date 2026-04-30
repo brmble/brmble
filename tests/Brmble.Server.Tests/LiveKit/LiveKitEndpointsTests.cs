@@ -44,4 +44,17 @@ public class LiveKitEndpointsTests
 
         Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
     }
+
+    [TestMethod]
+    public async Task TokenRequest_WithNumericJsonAccessMode_ReturnsBadRequest()
+    {
+        using var factory = new BrmbleServerFactory();
+        using var client = factory.CreateClient();
+
+        await client.PostAsync("/auth/token", null);
+
+        var response = await client.PostAsJsonAsync("/livekit/token", new { roomName = "channel-1", accessMode = 1 });
+
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+    }
 }
