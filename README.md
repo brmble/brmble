@@ -75,7 +75,7 @@ services:
       MUMBLE_CONFIG_ICE: "tcp -h 0.0.0.0 -p 6502"
       MUMBLE_CONFIG_WELCOMETEXT: |
         <br/>Welcome to my server.<br/>
-        <!--brmble:{"apiUrl":"https://chat.example.com:1912"}-->
+        <!--brmble:{"apiUrl":"https://chat.example.com:8080"}-->
 
       # Recommended (lets Brmble post images, long messages and embeds)
       MUMBLE_CONFIG_IMAGEMESSAGELENGTH: "0"
@@ -89,7 +89,7 @@ volumes:
 Key points:
 
 - **`allowhtml=true`** — required. The Brmble client embeds an HTML comment in the welcome text that points the client to the Brmble server (see below). Mumble strips HTML comments unless HTML is allowed.
-- **`MUMBLE_CONFIG_WELCOMETEXT`** — must include `<!--brmble:{"apiUrl":"https://your-brmble-host"}-->`. This is how a Brmble client discovers the matching Brmble server when a user connects to your Mumble server. Plain Mumble clients ignore the comment.
+- **`MUMBLE_CONFIG_WELCOMETEXT`** — must include an HTML comment of the form `<!--brmble:{"apiUrl":"https://<host>:<port>"}-->`, e.g. `https://chat.example.com:8080` or `https://203.0.113.10:8080`. This is how a Brmble client discovers the matching Brmble server when a user connects to your Mumble server. Plain Mumble clients ignore the comment.
 - **`MUMBLE_CONFIG_ICE`** — exposes Mumble's ICE control plane on TCP `6502` so the Brmble server can map Mumble sessions to Matrix users. Bind it to a private network (or the docker-compose internal network) — never expose it to the public internet. Set an ICE secret on Mumble and pass the same value to Brmble via `Ice__Secret` if you need authentication.
 - `IMAGEMESSAGELENGTH` and `TEXTMESSAGELENGTH` default to small values; `0` means unlimited and is required for embeds, link previews and longer messages.
 
@@ -101,7 +101,7 @@ services:
     image: ghcr.io/brmble/brmble-server:latest
     restart: unless-stopped
     ports:
-      - "1912:8080"                   # HTTPS (self-signed) — pick any host port you like
+      - "8080:8080"                   # HTTPS (self-signed)
       - "7881:7881"                   # LiveKit RTC TCP
       - "50100-50200:50100-50200/udp" # LiveKit RTC UDP
     volumes:
@@ -142,7 +142,7 @@ Optional environment:
 
 Ports:
 
-- `8080/tcp` (in container) — single HTTPS entry point, served with a built-in self-signed certificate. Map it to whatever public port you like (`1912` is the convention). The Brmble client accepts the self-signed cert directly.
+- `8080/tcp` — single HTTPS entry point, served with a built-in self-signed certificate. The Brmble client accepts the self-signed cert directly. Map it to a different host port if `8080` is already in use.
 - `7881/tcp` and `50100-50200/udp` — LiveKit RTC. Expose these directly. UDP is what actually carries WebRTC media; TCP `7881` is fallback only.
 
 The first start runs ~30 seconds while the bundled Matrix homeserver initialises and registers the appservice. State after first start lives entirely in the `brmble-data` volume.
