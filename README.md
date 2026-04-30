@@ -53,7 +53,7 @@ On first launch the client generates a self-signed X.509 certificate that become
 
 ## Install the server
 
-You need two containers: one for Mumble, one for Brmble. The Brmble container speaks HTTPS directly on port `8080` with a built-in self-signed certificate; the Brmble client trusts it without any extra setup, so you do not need a reverse proxy unless you want a custom domain or a real CA-signed certificate. (No browser ever talks to it directly — only the Brmble client does.)
+You need two containers: one for Mumble, one for Brmble. The Brmble container speaks HTTPS directly on port `8080` with a built-in self-signed certificate; the Brmble client trusts it without any extra setup. No browser ever talks to it directly — only the Brmble client does.
 
 ### 1. Mumble server
 
@@ -146,10 +146,6 @@ Ports:
 - `7881/tcp` and `50100-50200/udp` — LiveKit RTC. Expose these directly. UDP is what actually carries WebRTC media; TCP `7881` is fallback only.
 
 The first start runs ~30 seconds while the bundled Matrix homeserver initialises and registers the appservice. State after first start lives entirely in the `brmble-data` volume.
-
-### 3. Optional: custom certificate / domain
-
-If you'd rather not ship the bundled self-signed cert (e.g. you want a real CA-signed certificate for `chat.example.com`), put any TLS-terminating reverse proxy (Caddy, Traefik, nginx) in front of the container — it just needs to forward HTTP traffic and WebSocket upgrades to port `8080`. This is purely cosmetic; voice, chat and screen sharing all work without it.
 
 ## Connecting the client
 
