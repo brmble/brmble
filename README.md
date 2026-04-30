@@ -53,7 +53,7 @@ On first launch the client generates a self-signed X.509 certificate that become
 
 ## Install the server
 
-You need two containers: one for Mumble, one for Brmble. The two examples below assume a host that already has a TLS reverse proxy (Caddy, Traefik, nginx) sitting in front, terminating HTTPS and forwarding to the Brmble container on port `8080`.
+You need two containers: one for Mumble, one for Brmble. The Brmble container speaks HTTPS directly on port `8080` with a built-in self-signed certificate; the Brmble client trusts it without any extra setup, so you do not need a reverse proxy unless you want a custom domain or a real CA-signed certificate. (No browser ever talks to it directly — only the Brmble client does.)
 
 ### 1. Mumble server
 
@@ -75,7 +75,7 @@ services:
       MUMBLE_CONFIG_ICE: "tcp -h 0.0.0.0 -p 6502"
       MUMBLE_CONFIG_WELCOMETEXT: |
         <br/>Welcome to my server.<br/>
-        <!--brmble:{"apiUrl":"https://chat.example.com"}-->
+        <!--brmble:{"apiUrl":"https://chat.example.com:1912"}-->
 
       # Recommended (lets Brmble post images, long messages and embeds)
       MUMBLE_CONFIG_IMAGEMESSAGELENGTH: "0"
@@ -101,7 +101,7 @@ services:
     image: ghcr.io/brmble/brmble-server:latest
     restart: unless-stopped
     ports:
-      - "8080:8080"                   # HTTP — put HTTPS reverse proxy in front
+      - "1912:8080"                   # HTTPS (self-signed) — pick any host port you like
       - "7881:7881"                   # LiveKit RTC TCP
       - "50100-50200:50100-50200/udp" # LiveKit RTC UDP
     volumes:
@@ -127,7 +127,7 @@ Required environment:
 
 | Variable | Description |
 |---|---|
-| `MATRIX_SERVER_NAME` | Public Matrix domain. Must match the host clients reach over HTTPS (e.g. `chat.example.com`). Matrix user IDs become `@<id>:<MATRIX_SERVER_NAME>`. Cannot be changed after first start without resetting `/data`. |
+| `MATRIX_SERVER_NAME` | Public Matrix domain. Should match the host clients reach (e.g. `chat.example.com`). Matrix user IDs become `@<id>:<MATRIX_SERVER_NAME>`. Cannot be changed after first start without resetting `/data`. |
 | `MATRIX_APPSERVICE_TOKEN` | Shared secret between the bundled Matrix homeserver and the Brmble backend. Generate with `openssl rand -hex 32`. Keep stable across restarts. |
 
 Optional environment:
@@ -142,22 +142,14 @@ Optional environment:
 
 Ports:
 
-- `8080/tcp` — single HTTP entry point. Behind a reverse proxy that terminates HTTPS. The proxy must forward both regular HTTP traffic and WebSocket upgrades.
-- `7881/tcp` and `50100-50200/udp` — LiveKit RTC. Forward these directly (do not proxy). UDP is required for working WebRTC; TCP `7881` is fallback only.
+- `8080/tcp` (in container) — single HTTPS entry point, served with a built-in self-signed certificate. Map it to whatever public port you like (`1912` is the convention). The Brmble client accepts the self-signed cert directly.
+- `7881/tcp` and `50100-50200/udp` — LiveKit RTC. Expose these directly. UDP is what actually carries WebRTC media; TCP `7881` is fallback only.
 
 The first start runs ~30 seconds while the bundled Matrix homeserver initialises and registers the appservice. State after first start lives entirely in the `brmble-data` volume.
 
-### 3. Reverse proxy
+### 3. Optional: custom certificate / domain
 
-Anything that terminates HTTPS works. A minimal Caddyfile:
-
-```
-chat.example.com {
-    reverse_proxy localhost:8080
-}
-```
-
-Make sure the host name in your TLS certificate matches `MATRIX_SERVER_NAME`.
+If you'd rather not ship the bundled self-signed cert (e.g. you want a real CA-signed certificate for `chat.example.com`), put any TLS-terminating reverse proxy (Caddy, Traefik, nginx) in front of the container — it just needs to forward HTTP traffic and WebSocket upgrades to port `8080`. This is purely cosmetic; voice, chat and screen sharing all work without it.
 
 ## Connecting the client
 
