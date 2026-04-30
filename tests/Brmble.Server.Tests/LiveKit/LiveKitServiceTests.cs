@@ -2,6 +2,8 @@ using Brmble.Server.Auth;
 using Brmble.Server.Data;
 using Brmble.Server.LiveKit;
 using Brmble.Server.Matrix;
+using System.Linq;
+using System.Reflection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -133,5 +135,28 @@ public class LiveKitServiceTests
         var token = await _svc.GenerateToken("unknown", "room-1", LiveKitAccessMode.Publish);
 
         Assert.IsNull(token);
+    }
+
+    [TestMethod]
+    public void LiveKitAuthorizationResult_HasNoPublicConstructors()
+    {
+        var publicConstructors = typeof(LiveKitAuthorizationResult)
+            .GetConstructors(BindingFlags.Instance | BindingFlags.Public);
+
+        Assert.AreEqual(0, publicConstructors.Length);
+    }
+
+    [TestMethod]
+    public void GenerateToken_LegacyOverload_IsObsolete()
+    {
+        var legacyOverload = typeof(LiveKitService)
+            .GetMethods(BindingFlags.Instance | BindingFlags.Public)
+            .Single(m => m.Name == nameof(LiveKitService.GenerateToken)
+                && m.GetParameters().Length == 2);
+
+        var obsolete = legacyOverload.GetCustomAttribute<ObsoleteAttribute>();
+
+        Assert.IsNotNull(obsolete);
+        StringAssert.Contains(obsolete.Message ?? string.Empty, "access mode");
     }
 }

@@ -23,6 +23,7 @@ public class LiveKitService : ILiveKitRoomQuery
         _logger = logger;
     }
 
+    [Obsolete("Use GenerateToken(certHash, roomName, accessMode) so LiveKit token scope is explicit by access mode.")]
     public Task<string?> GenerateToken(string certHash, string roomName)
     {
         return GenerateToken(certHash, roomName, LiveKitAccessMode.Publish);
