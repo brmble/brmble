@@ -941,12 +941,22 @@ private int _screenShareHotkeyId = -1;
                 if (_processorOutputScratch == null || _processorOutputScratch.Length < needed)
                     _processorOutputScratch = new byte[needed];
 
-                int written = _processor.Process(
-                    new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes),
-                    _processorOutputScratch.AsSpan());
+                try
+                {
+                    int written = _processor.Process(
+                        new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes),
+                        _processorOutputScratch.AsSpan());
 
-                processedBuffer = _processorOutputScratch;
-                processedBytes = written;
+                    processedBuffer = _processorOutputScratch;
+                    processedBytes = written;
+                }
+                catch (Exception ex)
+                {
+                    // Native APM error or unexpected internal failure. Drop this
+                    // frame instead of crashing the capture callback.
+                    AudioLog.Write($"[Audio] APM Process failed: {ex.Message}");
+                    return;
+                }
 
                 if (processedBytes == 0) return;
             }
