@@ -295,6 +295,10 @@ private int _screenShareHotkeyId = -1;
     private volatile bool _virtualMicActive;
 
     // Capture-side WebRTC APM processor. Hot-swapped when NS level changes.
+    // Dedicated lock guards both the slot AND the in-flight Process() call:
+    // the underlying APM owns native handles, so we cannot let SetNoiseSuppression
+    // dispose the processor while the mic thread is mid-Process.
+    private readonly object _processorLock = new();
     private WebRtcApmProcessor? _processor;
     private NoiseSuppressionLevel _noiseSuppressionLevel = NoiseSuppressionLevel.High;
     [ThreadStatic] private static byte[]? _processorOutputScratch;
@@ -449,17 +453,17 @@ private int _screenShareHotkeyId = -1;
 
     public void SetNoiseSuppression(NoiseSuppressionLevel level)
     {
-        lock (_lock)
+        lock (_processorLock)
         {
             if (_noiseSuppressionLevel == level && _processor != null) return;
             _noiseSuppressionLevel = level;
             _processor?.Dispose();
-            _processor = CreateProcessorLocked(level);
+            _processor = CreateProcessor(level);
             AudioLog.Write($"[Audio] Noise suppression set to {level}");
         }
     }
 
-    private WebRtcApmProcessor? CreateProcessorLocked(NoiseSuppressionLevel level)
+    private static WebRtcApmProcessor? CreateProcessor(NoiseSuppressionLevel level)
     {
         try
         {
@@ -925,35 +929,27 @@ private int _screenShareHotkeyId = -1;
         if (_muted) return;
         if (!virtualMic && _transmissionMode == TransmissionMode.PushToTalk && !_pttActive) return;
 
-        // Capture-side WebRTC APM processor.
-        WebRtcApmProcessor? processor;
-        lock (_lock)
+        // Capture-side WebRTC APM processor. Hold _processorLock for the duration
+        // of Process() so SetNoiseSuppression cannot dispose the native APM handle
+        // mid-call. Process() is fast (sub-ms for a 10–20 ms frame).
+        lock (_processorLock)
         {
-            if (_processor == null) _processor = CreateProcessorLocked(_noiseSuppressionLevel);
-            processor = _processor;
-        }
-
-        if (processor != null)
-        {
-            int needed = processedBytes + WebRtcApmProcessor.FrameBytes;
-            if (_processorOutputScratch == null || _processorOutputScratch.Length < needed)
-                _processorOutputScratch = new byte[needed];
-
-            try
+            if (_processor == null) _processor = CreateProcessor(_noiseSuppressionLevel);
+            if (_processor != null)
             {
-                int written = processor.Process(
+                int needed = processedBytes + WebRtcApmProcessor.FrameBytes;
+                if (_processorOutputScratch == null || _processorOutputScratch.Length < needed)
+                    _processorOutputScratch = new byte[needed];
+
+                int written = _processor.Process(
                     new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes),
                     _processorOutputScratch.AsSpan());
 
                 processedBuffer = _processorOutputScratch;
                 processedBytes = written;
-            }
-            catch (ObjectDisposedException)
-            {
-                return;
-            }
 
-            if (processedBytes == 0) return;
+                if (processedBytes == 0) return;
+            }
         }
 
         // Input volume is applied inside EncodePipeline (see SetInputVolume → _encodePipeline.SetVolume).
@@ -2053,8 +2049,11 @@ private int _screenShareHotkeyId = -1;
     {
         _deviceResampler?.Dispose();
         _deviceResampler = null;
-        _processor?.Dispose();
-        _processor = null;
+        lock (_processorLock)
+        {
+            _processor?.Dispose();
+            _processor = null;
+        }
         _speakingTimer.Dispose();
         StopPttPolling();
         StopShortcutKeyboardPolling();

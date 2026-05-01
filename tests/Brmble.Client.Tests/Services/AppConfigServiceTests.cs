@@ -1,4 +1,5 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Brmble.Audio.Processing;
 using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.Security;
 using Brmble.Client.Services.Serverlist;
@@ -392,4 +393,50 @@ public class AppConfigServiceTests
     }
 
     private AppConfigService CreateService() => new AppConfigService(_tempDir, null);
+
+    [TestMethod]
+    public void LoadsLegacySettings_WithSpeechDenoiseAndProcessingStack_ReturnsDefaultNoiseSuppression()
+    {
+        // Simulate a config.json from before the WebRTC-only refactor:
+        // it has speechDenoise + speechEnhancement records and a processingStack
+        // field on audio. None of these exist on the new AppSettings; they should
+        // be silently ignored and the new NoiseSuppression record should fall back
+        // to its default (High).
+        var legacyJson = """
+        {
+          "settings": {
+            "audio": {
+              "inputDevice": "default",
+              "outputDevice": "default",
+              "inputVolume": 200,
+              "outputVolume": 200,
+              "transmissionMode": "pushToTalk",
+              "pushToTalkKey": "KeyV",
+              "opusBitrate": 96000,
+              "opusFrameSize": 20,
+              "captureApi": "wasapi",
+              "voiceHoldMs": 200,
+              "processingStack": "Legacy"
+            },
+            "shortcuts": {},
+            "messages": { "ttsEnabled": false, "ttsVolume": 100, "notificationsEnabled": true },
+            "overlay": { "overlayEnabled": false },
+            "speechDenoise": { "mode": "Rnnoise" },
+            "speechEnhancement": { "enabled": true, "model": "dns3" }
+          },
+          "servers": []
+        }
+        """;
+        File.WriteAllText(Path.Combine(_tempDir, "config.json"), legacyJson);
+
+        var svc = new AppConfigService(_tempDir, null);
+        var settings = svc.GetSettings();
+
+        // Surviving fields still load
+        Assert.AreEqual("pushToTalk", settings.Audio.TransmissionMode);
+        Assert.AreEqual("KeyV", settings.Audio.PushToTalkKey);
+        Assert.AreEqual(96000, settings.Audio.OpusBitrate);
+        // Removed fields are gone — but the new NS setting takes its default
+        Assert.AreEqual(NoiseSuppressionLevel.High, settings.NoiseSuppression.Level);
+    }
 }
