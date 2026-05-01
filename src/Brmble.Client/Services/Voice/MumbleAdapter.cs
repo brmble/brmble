@@ -15,7 +15,6 @@ using Brmble.Audio.Processing;
 using Brmble.Client.Bridge;
 using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.Certificate;
-using Brmble.Client.Services.SpeechEnhancement;
 
 namespace Brmble.Client.Services.Voice;
 
@@ -273,11 +272,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.Dispose();
         _audioManager = null;
 
-        // Reset cached speech-enhancement state so that when a new AudioManager
-        // is created on reconnect, ConfigureSpeechEnhancement is always called.
-        _lastSpeechEnhancementEnabled = false;
-        _lastSpeechEnhancementModel = "";
-        _lastSpeechDenoiseMode = SpeechDenoiseMode.Disabled;
+        // Reset cached NS state so that the next ApplySettings on a fresh
+        // AudioManager always re-applies the level.
+        _lastNoiseSuppressionLevel = null;
 
         try
         {
@@ -695,9 +692,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.SetTransmissionMode(parsed, key, _hwnd);
     }
 
-    private bool _lastSpeechEnhancementEnabled = false;
-    private string _lastSpeechEnhancementModel = "";
-    private SpeechDenoiseMode _lastSpeechDenoiseMode = SpeechDenoiseMode.Disabled;
+    private NoiseSuppressionLevel? _lastNoiseSuppressionLevel;
 
     public void ApplySettings(AppSettings settings)
     {
@@ -716,45 +711,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.SetCaptureApi(settings.Audio.CaptureApi);
         _audioManager?.SetVoiceHoldMs(settings.Audio.VoiceHoldMs);
 
-        // Determine effective speech enhancement state.
-        // The SpeechDenoise dropdown can select GTCRN, which should activate the
-        // GTCRN speech enhancement model.  The separate SpeechEnhancement settings
-        // also control this, so we merge both: GTCRN denoise mode forces it on,
-        // otherwise we fall back to the explicit SpeechEnhancement setting.
-        var denoiseMode = settings.SpeechDenoise.Mode;
-        var gtcrnViaDenoise = denoiseMode == SpeechDenoiseMode.Gtcrn;
-
-        var seEnabled = gtcrnViaDenoise || settings.SpeechEnhancement.Enabled;
-        var seModel = gtcrnViaDenoise
-            ? "dns3"
-            : (settings.SpeechEnhancement.Model ?? "").Trim().ToLowerInvariant();
-
-        // Only reinitialise speech enhancement when its settings actually change.
-        // ConfigureSpeechEnhancement disposes and recreates the ONNX InferenceSession,
-        // which causes a native crash if the mic callback is mid-inference at that moment.
-
-        if (seEnabled != _lastSpeechEnhancementEnabled || seModel != _lastSpeechEnhancementModel)
+        var nsLevel = settings.NoiseSuppression.Level;
+        if (_lastNoiseSuppressionLevel != nsLevel)
         {
-            _lastSpeechEnhancementEnabled = seEnabled;
-            _lastSpeechEnhancementModel = seModel;
-
-            var modelVariant = seModel switch
-            {
-                "vctk-demand" => GtcrnModelVariant.VctkDemand,
-                _ => GtcrnModelVariant.Dns3
-            };
-            var modelsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "models");
-            _audioManager?.ConfigureSpeechEnhancement(modelsPath, seEnabled, modelVariant);
-        }
-
-        // Configure RNNoise denoising.
-        // GTCRN and RNNoise are mutually exclusive — when GTCRN is active via the
-        // denoise dropdown, force RNNoise off so they don't both process audio.
-        var effectiveDenoiseMode = gtcrnViaDenoise ? SpeechDenoiseMode.Disabled : denoiseMode;
-        if (effectiveDenoiseMode != _lastSpeechDenoiseMode)
-        {
-            _lastSpeechDenoiseMode = effectiveDenoiseMode;
-            _audioManager?.ConfigureRnnoise(effectiveDenoiseMode);
+            _lastNoiseSuppressionLevel = nsLevel;
+            _audioManager?.SetNoiseSuppression(nsLevel);
         }
     }
 
@@ -2403,12 +2364,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             }
         });
 
-        bridge.RegisterHandler("voice.setProcessingStack", data =>
+        bridge.RegisterHandler("voice.setNoiseSuppression", data =>
         {
-            var stackStr = data.TryGetProperty("stack", out var stack) ? stack.GetString() ?? "Legacy" : "Legacy";
-            if (!Enum.TryParse<ProcessingStack>(stackStr, ignoreCase: true, out var processingStack))
-                processingStack = ProcessingStack.Legacy;
-            _audioManager?.SetProcessingStack(processingStack);
+            var levelStr = data.TryGetProperty("level", out var lv) ? lv.GetString() ?? "High" : "High";
+            if (!Enum.TryParse<NoiseSuppressionLevel>(levelStr, ignoreCase: true, out var level))
+                level = NoiseSuppressionLevel.High;
+            _audioManager?.SetNoiseSuppression(level);
             return Task.CompletedTask;
         });
 

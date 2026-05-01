@@ -2,11 +2,11 @@ using Brmble.Audio.Processing;
 
 namespace Brmble.Tools.ApmBench;
 
-public record Args(string Input, string Output, ProcessingStack Stack, bool Metrics)
+public record Args(string Input, string Output, NoiseSuppressionLevel NoiseSuppression, bool Metrics)
 {
     public static Args Parse(string[] argv)
     {
-        string? input = null, output = null, stackStr = null;
+        string? input = null, output = null, nsStr = null;
         bool metrics = false;
 
         for (int i = 0; i < argv.Length; i++)
@@ -21,9 +21,9 @@ public record Args(string Input, string Output, ProcessingStack Stack, bool Metr
                     if (i + 1 >= argv.Length) throw new ArgumentException("--out requires a value");
                     output = argv[++i];
                     break;
-                case "--stack":
-                    if (i + 1 >= argv.Length) throw new ArgumentException("--stack requires a value");
-                    stackStr = argv[++i];
+                case "--ns":
+                    if (i + 1 >= argv.Length) throw new ArgumentException("--ns requires a value");
+                    nsStr = argv[++i];
                     break;
                 case "--metrics":
                     metrics = true;
@@ -33,17 +33,19 @@ public record Args(string Input, string Output, ProcessingStack Stack, bool Metr
             }
         }
 
-        if (input == null || output == null || stackStr == null)
-            throw new ArgumentException("required: --in <wav> --out <wav> --stack <none|legacy|apm>");
+        if (input == null || output == null || nsStr == null)
+            throw new ArgumentException("required: --in <wav> --out <wav> --ns <off|low|moderate|high|veryhigh>");
 
-        ProcessingStack stack = stackStr.ToLowerInvariant() switch
+        NoiseSuppressionLevel level = nsStr.ToLowerInvariant() switch
         {
-            "none" => ProcessingStack.None,
-            "legacy" => ProcessingStack.Legacy,
-            "apm" or "webrtcapm" => ProcessingStack.WebRtcApm,
-            _ => throw new ArgumentException($"unknown stack: {stackStr}"),
+            "off" => NoiseSuppressionLevel.Off,
+            "low" => NoiseSuppressionLevel.Low,
+            "moderate" => NoiseSuppressionLevel.Moderate,
+            "high" => NoiseSuppressionLevel.High,
+            "veryhigh" or "very-high" => NoiseSuppressionLevel.VeryHigh,
+            _ => throw new ArgumentException($"unknown ns level: {nsStr}"),
         };
 
-        return new Args(input, output, stack, metrics);
+        return new Args(input, output, level, metrics);
     }
 }

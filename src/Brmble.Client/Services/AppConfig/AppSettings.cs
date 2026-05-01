@@ -1,3 +1,5 @@
+using Brmble.Audio.Processing;
+
 namespace Brmble.Client.Services.AppConfig;
 
 public record AudioSettings(
@@ -10,8 +12,7 @@ public record AudioSettings(
     int OpusBitrate = 72000,
     int OpusFrameSize = 20,
     string CaptureApi = "wasapi",
-    int VoiceHoldMs = 200,
-    string ProcessingStack = "Legacy"
+    int VoiceHoldMs = 200
 );
 
 public record ShortcutsSettings(
@@ -33,20 +34,8 @@ public record OverlaySettings(
     bool OverlayEnabled = false
 );
 
-public record SpeechEnhancementSettings(
-    bool Enabled = false,
-    string Model = "dns3"
-);
-
-public enum SpeechDenoiseMode
-{
-    Disabled,
-    Rnnoise,
-    Gtcrn
-}
-
-public record SpeechDenoiseSettings(
-    SpeechDenoiseMode Mode = SpeechDenoiseMode.Rnnoise
+public record NoiseSuppressionSettings(
+    NoiseSuppressionLevel Level = NoiseSuppressionLevel.High
 );
 
 public record AppearanceSettings(
@@ -58,8 +47,7 @@ public record AppSettings(
     ShortcutsSettings Shortcuts,
     MessagesSettings Messages,
     OverlaySettings Overlay,
-    SpeechEnhancementSettings? SpeechEnhancement = null,
-    SpeechDenoiseSettings? SpeechDenoise = null,
+    NoiseSuppressionSettings? NoiseSuppression = null,
     bool AutoConnectEnabled = false,
     string? AutoConnectServerId = null,
     bool ReconnectEnabled = true,
@@ -67,8 +55,7 @@ public record AppSettings(
     AppearanceSettings? Appearance = null
 )
 {
-    public SpeechEnhancementSettings SpeechEnhancement { get; init; } = SpeechEnhancement ?? new SpeechEnhancementSettings();
-    public SpeechDenoiseSettings SpeechDenoise { get; init; } = SpeechDenoise ?? new SpeechDenoiseSettings();
+    public NoiseSuppressionSettings NoiseSuppression { get; init; } = NoiseSuppression ?? new NoiseSuppressionSettings();
     public AppearanceSettings Appearance { get; init; } = Appearance ?? new AppearanceSettings();
 
     public static AppSettings Default => new(

@@ -33,13 +33,7 @@ public static class Program
             inputPcm = ms.ToArray();
         }
 
-        using IAudioCapturePostProcessor processor = args.Stack switch
-        {
-            ProcessingStack.None => new PassthroughProcessor(),
-            ProcessingStack.Legacy => new LegacyAudioProcessor { MaxAmplification = 1.5f },
-            ProcessingStack.WebRtcApm => new WebRtcApmProcessor(),
-            _ => throw new InvalidOperationException(),
-        };
+        using var processor = new WebRtcApmProcessor(args.NoiseSuppression);
 
         byte[] outputPcm = new byte[inputPcm.Length + WebRtcApmProcessor.FrameBytes];
         int written = processor.Process(inputPcm, outputPcm);
@@ -59,7 +53,7 @@ public static class Program
             string peakDelta = (outStats.PeakDbfs - inStats.PeakDbfs).ToString("+0.0;-0.0;0.0");
             Console.WriteLine($"Delta:    {rmsDelta,6} dB RMS      {peakDelta,6} dB peak");
             double ms = inStats.SampleCount / 48.0;
-            Console.WriteLine($"Frames:   {inStats.SampleCount / 480} ({ms:F0} ms)  Stack: {args.Stack}");
+            Console.WriteLine($"Frames:   {inStats.SampleCount / 480} ({ms:F0} ms)  NS: {args.NoiseSuppression}");
         }
         return 0;
     }

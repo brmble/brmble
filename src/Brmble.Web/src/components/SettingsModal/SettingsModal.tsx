@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, useLayoutEffect } from 'react';
 import './SettingsModal.css';
 import bridge from '../../bridge';
 import { applyTheme } from '../../themes/theme-loader';
-import { AudioSettingsTab, type AudioSettings, type SpeechDenoiseSettings, DEFAULT_SETTINGS as DEFAULT_AUDIO, DEFAULT_SPEECH_DENOISE } from './AudioSettingsTab';
+import { AudioSettingsTab, type AudioSettings, type NoiseSuppressionSettings, DEFAULT_SETTINGS as DEFAULT_AUDIO, DEFAULT_NOISE_SUPPRESSION } from './AudioSettingsTab';
 import { ShortcutsSettingsTab, type ShortcutsSettings, DEFAULT_SHORTCUTS } from './ShortcutsSettingsTab';
 import { MessagesSettingsTab, type MessagesSettings, DEFAULT_MESSAGES } from './MessagesSettingsTab';
 import { InterfaceSettingsTab } from './InterfaceSettingsTab';
@@ -70,7 +70,7 @@ interface AppSettings {
   appearance: AppearanceSettings;
   overlay: OverlaySettings;
   brmblegotchi: BrmblegotchiSettings;
-  speechDenoise: SpeechDenoiseSettings;
+  noiseSuppression: NoiseSuppressionSettings;
   screenShare: ScreenShareSettings;
   reconnectEnabled: boolean;
   rememberLastChannel: boolean;
@@ -85,13 +85,15 @@ const DEFAULT_SETTINGS: AppSettings = {
   appearance: DEFAULT_APPEARANCE,
   overlay: DEFAULT_OVERLAY,
   brmblegotchi: DEFAULT_BRMBLEGOTCHI,
-  speechDenoise: DEFAULT_SPEECH_DENOISE,
+  noiseSuppression: DEFAULT_NOISE_SUPPRESSION,
   screenShare: DEFAULT_SCREEN_SHARE,
   reconnectEnabled: true,
   rememberLastChannel: true,
   autoConnectEnabled: false,
   autoConnectServerId: null,
 };
+
+const VALID_NS_LEVELS = ['Off', 'Low', 'Moderate', 'High', 'VeryHigh'] as const;
 
 export function SettingsModal(props: SettingsModalProps) {
   const { isOpen, onClose, initialTab } = props;
@@ -171,13 +173,9 @@ export function SettingsModal(props: SettingsModalProps) {
       const d = data as { settings?: AppSettings } | undefined;
       if (d?.settings) {
         setSettings(prev => {
-          const normalizedDenoise = { ...DEFAULT_SPEECH_DENOISE, ...d.settings!.speechDenoise };
-          // C# JsonStringEnumConverter serializes PascalCase (e.g. "Gtcrn"),
-          // so normalise to lowercase before validating.
-          normalizedDenoise.mode = (normalizedDenoise.mode ?? '').toLowerCase() as typeof normalizedDenoise.mode;
-          const validModes = ['disabled', 'rnnoise', 'gtcrn'];
-          if (!validModes.includes(normalizedDenoise.mode)) {
-            normalizedDenoise.mode = 'rnnoise';
+          const normalizedNs = { ...DEFAULT_NOISE_SUPPRESSION, ...d.settings!.noiseSuppression };
+          if (!VALID_NS_LEVELS.includes(normalizedNs.level as typeof VALID_NS_LEVELS[number])) {
+            normalizedNs.level = DEFAULT_NOISE_SUPPRESSION.level;
           }
           const mergedSettings = {
             ...DEFAULT_SETTINGS,
@@ -185,16 +183,15 @@ export function SettingsModal(props: SettingsModalProps) {
             audio: { ...DEFAULT_SETTINGS.audio, ...(d.settings!.audio ?? {}) },
             brmblegotchi: d.settings!.brmblegotchi ?? prev.brmblegotchi ?? DEFAULT_BRMBLEGOTCHI,
             screenShare: d.settings!.screenShare ?? prev.screenShare ?? DEFAULT_SCREEN_SHARE,
-            speechDenoise: normalizedDenoise,
+            noiseSuppression: normalizedNs,
           };
           if (d.settings!.appearance?.theme) {
             applyTheme(d.settings!.appearance.theme);
           }
 
-          // Push the persisted processing stack to the bridge so the client
+          // Push the persisted NS level to the bridge so the client
           // honours the saved choice without waiting for a manual change.
-          const stack = mergedSettings.audio?.processingStack ?? 'Legacy';
-          bridge.send('voice.setProcessingStack', { stack });
+          bridge.send('voice.setNoiseSuppression', { level: normalizedNs.level });
 
           return mergedSettings;
         });
@@ -267,12 +264,6 @@ export function SettingsModal(props: SettingsModalProps) {
       // ApplySettings on the backend which already calls SetTransmissionMode.
       // Sending both caused a double-call race that crashed WASAPI capture when
       // the user's recorded PTT key was still physically held down.
-
-      // ApplySettings does not call SetProcessingStack, so send it explicitly
-      // whenever the value changes.
-      if (audio.processingStack !== prev.audio.processingStack) {
-        bridge.send('voice.setProcessingStack', { stack: audio.processingStack });
-      }
 
       return newSettings;
     });
@@ -366,10 +357,11 @@ export function SettingsModal(props: SettingsModalProps) {
     }
   };
 
-  const handleSpeechDenoiseChange = (speechDenoise: SpeechDenoiseSettings) => {
-    const newSettings = { ...settings, speechDenoise };
+  const handleNoiseSuppressionChange = (noiseSuppression: NoiseSuppressionSettings) => {
+    const newSettings = { ...settings, noiseSuppression };
     setSettings(newSettings);
     bridge.send('settings.set', { settings: newSettings });
+    bridge.send('voice.setNoiseSuppression', { level: noiseSuppression.level });
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
   };
 
@@ -467,7 +459,7 @@ export function SettingsModal(props: SettingsModalProps) {
               registeredName={connectedRegisteredName}
             />
           )}
-          {activeTab === 'audio' && <AudioSettingsTab settings={settings.audio} onChange={handleAudioChange} speechDenoise={settings.speechDenoise} onSpeechDenoiseChange={handleSpeechDenoiseChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}
+          {activeTab === 'audio' && <AudioSettingsTab settings={settings.audio} onChange={handleAudioChange} noiseSuppression={settings.noiseSuppression} onNoiseSuppressionChange={handleNoiseSuppressionChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}
           {activeTab === 'shortcuts' && <ShortcutsSettingsTab settings={settings.shortcuts} onChange={handleShortcutsChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}
           {activeTab === 'messages' && <MessagesSettingsTab settings={settings.messages} onChange={handleMessagesChange} />}
           {activeTab === 'appearance' && (

@@ -9,7 +9,6 @@
     <PackageReference Include="BouncyCastle.Cryptography" Version="2.5.1" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.5" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3800.47" />
-    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.19.2" />
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="Velopack" Version="0.0.1298" />
   </ItemGroup>
@@ -36,12 +35,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="models\*.onnx">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Include="native\*.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
     <None Include="Resources\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
