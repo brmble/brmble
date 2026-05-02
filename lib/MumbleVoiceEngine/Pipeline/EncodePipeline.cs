@@ -107,6 +107,25 @@ public class EncodePipeline : IDisposable
         _accumulatorPos = 0;
     }
 
+    /// <summary>
+    /// End the current voice transmission without disposing the pipeline. Always
+    /// emits exactly one Opus packet with the Mumble terminator flag set so the
+    /// receiver clears the speaker indicator. Unlike <see cref="FlushFinal"/>,
+    /// this path emits a zero-padded packet even if the accumulator is empty —
+    /// which is required for VAD gate-close to land cleanly on packet boundaries.
+    /// </summary>
+    public void EmitTerminator()
+    {
+        if (_accumulatorPos < _frameSizeBytes)
+        {
+            // Zero-pad whatever is in the accumulator (possibly all of it) to a full frame.
+            Array.Clear(_accumulator, _accumulatorPos, _frameSizeBytes - _accumulatorPos);
+            _accumulatorPos = _frameSizeBytes;
+        }
+        EncodeAndEmit(terminator: true);
+        _accumulatorPos = 0;
+    }
+
     // Opus specification guarantees a single packet never exceeds 1275 bytes.
     // Using _frameSizeBytes as the output buffer can be smaller than this maximum
     // for short frames (e.g. 10ms mono = 960 bytes) at high bitrates, causing

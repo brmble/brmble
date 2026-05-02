@@ -49,6 +49,13 @@ jobs:
           mkdir -p publish/web
           cp -r src/Brmble.Web/dist/* publish/web/
 
+      - name: Verify native DLLs in publish output
+        shell: bash
+        run: |
+          test -f publish/libfvad.dll
+          test -f publish/r8bsrc.dll
+          test -f publish/webrtc-apm.dll
+
       - name: Install Velopack CLI
         run: dotnet tool install -g vpk
 

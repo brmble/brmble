@@ -1,0 +1,8 @@
+LIBRARY libfvad
+EXPORTS
+    fvad_new
+    fvad_free
+    fvad_reset
+    fvad_set_mode
+    fvad_set_sample_rate
+    fvad_process
