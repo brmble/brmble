@@ -40,14 +40,6 @@
     </None>
   </ItemGroup>
 
-  <ItemGroup>
-    <None Include="..\..\tests\Brmble.Audio.Tests\fixtures\apm\*.wav">
-      <Link>fixtures\apm\%(FileName)%(Extension)</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-    </None>
-  </ItemGroup>
-
   <Target Name="CopyWebDist" AfterTargets="Build" Condition="Exists('..\..\src\Brmble.Web\dist\index.html')">
     <ItemGroup>
       <WebDistFiles Include="..\..\src\Brmble.Web\dist\**\*" />

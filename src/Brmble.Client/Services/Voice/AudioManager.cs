@@ -290,10 +290,6 @@ private int _screenShareHotkeyId = -1;
     private int _opusFrameMs = 20;
     private bool _dtxEnabled;
 
-    // Virtual mic (testing). Not persisted across restarts.
-    private string? _virtualMicPath;
-    private volatile bool _virtualMicActive;
-
     // Capture-side WebRTC APM processor. Hot-swapped when NS level changes.
     // Dedicated lock guards both the slot AND the in-flight Process() call:
     // the underlying APM owns native handles, so we cannot let SetNoiseSuppression
@@ -476,41 +472,6 @@ private int _screenShareHotkeyId = -1;
         }
     }
 
-    public void SetVirtualMic(string? wavPath)
-    {
-        lock (_lock)
-        {
-            if (string.IsNullOrWhiteSpace(wavPath))
-            {
-                _virtualMicPath = null;
-                _virtualMicActive = false;
-            }
-            else
-            {
-                // Relative paths come from the frontend as e.g. "fixtures/apm/near_speech.wav".
-                // Resolve against the binary's directory, where the MSBuild <None Link> rule
-                // copies the WAVs — not against the .NET process CWD.
-                _virtualMicPath = Path.IsPathRooted(wavPath)
-                    ? wavPath
-                    : Path.Combine(AppContext.BaseDirectory, wavPath);
-                _virtualMicActive = true;
-            }
-            AudioLog.Write($"[Audio] Virtual mic {(_virtualMicActive ? $"enabled: {_virtualMicPath}" : "disabled")}");
-
-            // If mic is currently running, restart it so StartMicLocked picks the right source.
-            // StopMicLocked only stops recording — it doesn't null _waveIn. Dispose it here so
-            // StartMicLocked creates a fresh IWaveIn matching the new _virtualMicActive state
-            // (otherwise a stale FixtureWaveProvider would get StartRecording()'d again).
-            if (_micStarted)
-            {
-                StopMicLocked();
-                _waveIn?.Dispose();
-                _waveIn = null;
-                StartMicLocked();
-            }
-        }
-    }
-
     public void SetCaptureApi(string api)
     {
         bool restartMic = false;
@@ -644,28 +605,6 @@ private int _screenShareHotkeyId = -1;
         if (_encodePipeline == null)
             RecreateEncodePipelineLocked();
 
-        // Virtual mic branch: use fixture replay instead of real hardware.
-        if (_virtualMicActive && _virtualMicPath != null)
-        {
-            try
-            {
-                _waveIn?.Dispose();
-                _waveIn = new FixtureWaveProvider(_virtualMicPath, frameMs: 20, loop: true);
-                _waveIn.DataAvailable += OnMicData;
-                _waveIn.StartRecording();
-                AudioLog.Write("[Audio] Mic started (virtual — fixture replay)");
-                return;
-            }
-            catch (Exception ex)
-            {
-                AudioLog.Write($"[Audio] Virtual mic failed ({_virtualMicPath}): {ex.Message} — falling back to real microphone.");
-                _waveIn?.Dispose();
-                _waveIn = null;
-                _virtualMicActive = false;
-                _virtualMicPath = null;
-                // Fall through to the live-mic branch below.
-            }
-        }
 
         if (_waveIn == null)
         {
@@ -925,9 +864,8 @@ private int _screenShareHotkeyId = -1;
             processedBytes = requiredInt16Bytes;
         }
 
-        bool virtualMic = _virtualMicActive;
         if (_muted) return;
-        if (!virtualMic && _transmissionMode == TransmissionMode.PushToTalk && !_pttActive) return;
+        if (_transmissionMode == TransmissionMode.PushToTalk && !_pttActive) return;
 
         // Capture-side WebRTC APM processor. Hold _processorLock for the duration
         // of Process() so SetNoiseSuppression cannot dispose the native APM handle
@@ -965,7 +903,7 @@ private int _screenShareHotkeyId = -1;
         // Input volume is applied inside EncodePipeline (see SetInputVolume → _encodePipeline.SetVolume).
 
         // Voice activity check on processed signal
-        if (!virtualMic && _transmissionMode == TransmissionMode.VoiceActivity && !IsAboveThreshold(processedBuffer, processedBytes)) return;
+        if (_transmissionMode == TransmissionMode.VoiceActivity && !IsAboveThreshold(processedBuffer, processedBytes)) return;
 
         // Snapshot the pipeline reference and update speaking state under lock.
         // This prevents a race where RecreateEncodePipelineLocked disposes _encodePipeline
