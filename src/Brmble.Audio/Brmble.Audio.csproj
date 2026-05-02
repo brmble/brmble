@@ -12,4 +12,11 @@
   <ItemGroup>
     <ProjectReference Include="..\..\lib\MumbleSharp\MumbleSharp\MumbleSharp.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\lib\native\libfvad\win-x64\libfvad.dll" Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+      <Link>libfvad.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+  </ItemGroup>
 </Project>
