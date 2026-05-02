@@ -223,6 +223,7 @@ internal sealed class AudioManager : IDisposable
     private volatile TransmissionMode _transmissionMode = TransmissionMode.Continuous;
     private string? _lastTransmissionKey;
     private bool _transmissionConfigured;
+    internal int TransmissionApplyCount { get; private set; } // diagnostic/test signal: increments each time SetTransmissionMode body runs
     private volatile bool _pttActive;
 internal const int PttHotkeyId = 1;
 internal const int MuteHotkeyId = 2;
@@ -1203,11 +1204,19 @@ private int _screenShareHotkeyId = -1;
     /// </summary>
     public void SetTransmissionMode(TransmissionMode mode, string? key, IntPtr hwnd)
     {
-        // Idempotency guard: bail out if nothing changed. Without this, repeated
-        // calls (e.g. from a UI refresh storm) tear down and re-register the
-        // mouse hook / raw input within milliseconds, which historically caused
-        // PTT to silently fail (#470).
-        if (_transmissionConfigured && mode == _transmissionMode && key == _lastTransmissionKey && hwnd == _hwnd)
+        // Idempotency guard: bail out if nothing changed AND our underlying
+        // input plumbing is still consistent. Without this, repeated calls
+        // (e.g. from a UI refresh storm) tear down and re-register the mouse
+        // hook / raw input within milliseconds, which historically caused PTT
+        // to silently fail (#470). The consistency check protects against the
+        // shared mouse hook being stolen by SetShortcut, or hook registration
+        // having failed on the previous call — in both cases we must
+        // reconfigure rather than skip.
+        if (_transmissionConfigured
+            && mode == _transmissionMode
+            && key == _lastTransmissionKey
+            && hwnd == _hwnd
+            && IsTransmissionConfigStillValid(mode, key, hwnd))
         {
             return;
         }
@@ -1215,8 +1224,6 @@ private int _screenShareHotkeyId = -1;
         _pttActive = false;
         _hwnd = hwnd;
         _transmissionMode = mode;
-        _lastTransmissionKey = key;
-        _transmissionConfigured = true;
 
         // Unregister any existing hotkey
         if (_hotkeyId >= 0 && _hwnd != IntPtr.Zero)
@@ -1274,6 +1281,43 @@ private int _screenShareHotkeyId = -1;
             StartMic(); // Always-on: keep mic running
         else if (!_muted)
             StartMic();
+
+        // Mark configured at the end so a failure or early return inside the
+        // body leaves the guard open for a retry on the next call.
+        _lastTransmissionKey = key;
+        _transmissionConfigured = true;
+        TransmissionApplyCount++;
+    }
+
+    /// <summary>
+    /// Returns true if the runtime input state matches the previously-applied
+    /// (mode, key) — i.e. the hook/polling we set up last time is still ours
+    /// and still alive. Returning false forces SetTransmissionMode to redo
+    /// configuration even when the inputs haven't changed.
+    /// </summary>
+    private bool IsTransmissionConfigStillValid(TransmissionMode mode, string? key, IntPtr hwnd)
+    {
+        bool isPttMode = mode == TransmissionMode.PushToTalk || mode == TransmissionMode.PushToTalkPlus;
+        if (!isPttMode || key == null || hwnd == IntPtr.Zero)
+        {
+            // Non-PTT modes (and PTT without a key / without a window) don't
+            // own a hook or polling timer that another caller could disturb.
+            return true;
+        }
+
+        bool isMouseButton = key is "XButton1" or "XButton2" or "MouseLeft" or "MouseRight" or "MouseMiddle";
+        if (isMouseButton)
+        {
+            // The mouse hook is shared with SetShortcut; verify it's still
+            // ours (not stolen by a non-PTT shortcut) and actually registered.
+            return _mouseHookHandle != IntPtr.Zero
+                && _shortcutActionForMouse == "pushToTalk"
+                && _shortcutKeyForMouse == key;
+        }
+
+        // Keyboard PTT: polling timer must be live for our VK.
+        var vk = KeyNameToVirtualKey(key);
+        return vk != 0 && _pttVk == vk && _pttPollingTimer != null;
     }
 
     private void StartPttPolling()
