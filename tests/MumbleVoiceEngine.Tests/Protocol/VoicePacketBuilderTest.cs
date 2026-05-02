@@ -51,6 +51,54 @@ namespace MumbleVoiceEngine.Tests.Protocol
         }
 
         [TestMethod]
+        public void Build_WithTerminator_SetsBit13InSize()
+        {
+            byte[] opusData = new byte[] { 0xAA, 0xBB, 0xCC };
+            byte[] packet = VoicePacketBuilder.Build(opusData, sequenceNumber: 0, target: 0, terminator: true);
+
+            using var reader = new PacketReader(new MemoryStream(packet, 1, packet.Length - 1));
+            reader.ReadVarInt64(); // sequence
+            int rawSize = (int)reader.ReadVarInt64();
+
+            Assert.AreEqual(0x2000, rawSize & 0x2000, "Terminator bit (0x2000) must be set");
+            Assert.AreEqual(3, rawSize & 0x1FFF, "Lower 13 bits must encode payload length");
+        }
+
+        [TestMethod]
+        public void Build_WithoutTerminator_LeavesBit13Unset()
+        {
+            byte[] opusData = new byte[] { 0xAA, 0xBB, 0xCC };
+            byte[] packet = VoicePacketBuilder.Build(opusData, sequenceNumber: 0, target: 0, terminator: false);
+
+            using var reader = new PacketReader(new MemoryStream(packet, 1, packet.Length - 1));
+            reader.ReadVarInt64(); // sequence
+            int rawSize = (int)reader.ReadVarInt64();
+
+            Assert.AreEqual(0, rawSize & 0x2000, "Terminator bit must NOT be set");
+            Assert.AreEqual(3, rawSize, "Plain length without terminator");
+        }
+
+        [TestMethod]
+        public void Build_WithTerminator_RemainsParseable()
+        {
+            // Receivers mask 0x2000 off — the payload must still parse correctly.
+            byte[] opusData = new byte[] { 0xAA, 0xBB, 0xCC };
+            byte[] clientPacket = VoicePacketBuilder.Build(opusData, sequenceNumber: 7, target: 0, terminator: true);
+
+            // Simulate server prepending session ID (parser expects server format)
+            byte[] sessionVarint = Varint.Encode(1);
+            byte[] serverPacket = new byte[1 + sessionVarint.Length + clientPacket.Length - 1];
+            serverPacket[0] = clientPacket[0];
+            Array.Copy(sessionVarint, 0, serverPacket, 1, sessionVarint.Length);
+            Array.Copy(clientPacket, 1, serverPacket, 1 + sessionVarint.Length, clientPacket.Length - 1);
+
+            var parsed = VoicePacketParser.Parse(serverPacket);
+            Assert.IsNotNull(parsed);
+            Assert.AreEqual(7L, parsed.Value.Sequence);
+            CollectionAssert.AreEqual(opusData, parsed.Value.OpusData);
+        }
+
+        [TestMethod]
         public void Build_Parse_ViaServerFormat_RoundTrips()
         {
             // Simulate server relaying: take builder output, prepend session ID

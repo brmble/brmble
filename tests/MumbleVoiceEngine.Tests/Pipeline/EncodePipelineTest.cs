@@ -244,6 +244,77 @@ namespace MumbleVoiceEngine.Tests.Pipeline
         }
 
         [TestMethod]
+        public void FlushFinal_WithPartialFrame_EmitsTerminatorPacket()
+        {
+            var packets = new List<byte[]>();
+            using var pipeline = new EncodePipeline(
+                sampleRate: 48000, channels: 1, bitrate: 72000,
+                onPacketReady: p => packets.Add(p.ToArray()));
+
+            // Submit half a frame (no packet yet)
+            pipeline.SubmitPcm(new byte[960]);
+            Assert.AreEqual(0, packets.Count);
+
+            pipeline.FlushFinal();
+
+            Assert.AreEqual(1, packets.Count, "FlushFinal should emit one final packet");
+
+            // Inspect the size varint and verify the terminator bit is set
+            using var reader = new PacketReader(new MemoryStream(packets[0], 1, packets[0].Length - 1));
+            reader.ReadVarInt64(); // sequence
+            int rawSize = (int)reader.ReadVarInt64();
+            Assert.AreEqual(0x2000, rawSize & 0x2000, "Last frame must carry the Mumble terminator bit");
+            Assert.IsTrue((rawSize & 0x1FFF) > 0, "Padded final frame must have non-empty Opus payload");
+        }
+
+        [TestMethod]
+        public void FlushFinal_WithEmptyAccumulator_EmitsNothing()
+        {
+            var packets = new List<byte[]>();
+            using var pipeline = new EncodePipeline(
+                sampleRate: 48000, channels: 1, bitrate: 72000,
+                onPacketReady: p => packets.Add(p.ToArray()));
+
+            // Submit exactly one full frame — accumulator drains to 0
+            pipeline.SubmitPcm(new byte[960 * 2]);
+            Assert.AreEqual(1, packets.Count);
+
+            pipeline.FlushFinal();
+
+            // No second packet — matches upstream Mumble (no synthetic terminator)
+            Assert.AreEqual(1, packets.Count, "FlushFinal must not emit when accumulator is empty");
+        }
+
+        [TestMethod]
+        public void FlushFinal_RegularFramesUnmarked_OnlyFinalCarriesTerminator()
+        {
+            var packets = new List<byte[]>();
+            using var pipeline = new EncodePipeline(
+                sampleRate: 48000, channels: 1, bitrate: 72000,
+                onPacketReady: p => packets.Add(p.ToArray()));
+
+            // Two full regular frames + a partial one
+            pipeline.SubmitPcm(new byte[960 * 2]);
+            pipeline.SubmitPcm(new byte[960 * 2]);
+            pipeline.SubmitPcm(new byte[960]); // partial
+            pipeline.FlushFinal();
+
+            Assert.AreEqual(3, packets.Count);
+
+            for (int i = 0; i < packets.Count; i++)
+            {
+                using var reader = new PacketReader(new MemoryStream(packets[i], 1, packets[i].Length - 1));
+                reader.ReadVarInt64(); // sequence
+                int rawSize = (int)reader.ReadVarInt64();
+                bool isLast = (rawSize & 0x2000) != 0;
+                if (i < packets.Count - 1)
+                    Assert.IsFalse(isLast, $"Packet {i} should not have terminator set");
+                else
+                    Assert.IsTrue(isLast, "Final packet must have terminator set");
+            }
+        }
+
+        [TestMethod]
         public void Pipeline_CurrentSequence_ReturnsCorrectValue()
         {
             using var pipeline = new EncodePipeline(

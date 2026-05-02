@@ -274,7 +274,6 @@ private int _screenShareHotkeyId = -1;
     // Speaking detection (polls per-user JitterBuffer.IsSpeaking directly)
     private readonly HashSet<uint> _currentlySpeaking = new();
     private readonly Timer _speakingTimer;
-    private const int PttSilenceTailFrames = 4; // 4 × 20 ms = 80 ms tail
     private uint _localUserId = 0;
     private long _lastLocalAudioMs; // monotonic timestamp of last local audio submission
     private int _voiceHoldMs = 200;
@@ -706,6 +705,16 @@ private int _screenShareHotkeyId = -1;
         if (!_micStarted) return (false, 0);
 
         _waveIn?.StopRecording();
+        // Flush any partial Opus frame with the Mumble end-of-transmission
+        // terminator bit set, matching upstream Mumble behaviour.
+        try
+        {
+            _encodePipeline?.FlushFinal();
+        }
+        catch (Exception ex)
+        {
+            AudioLog.Write($"[Audio] FlushFinal failed: {ex.Message}");
+        }
         _encodePipeline?.Dispose();
         _encodePipeline = null;
         _deviceResampler?.Dispose();
@@ -715,55 +724,6 @@ private int _screenShareHotkeyId = -1;
         bool wasSpeaking = capturedUserId != 0 && _currentlySpeaking.Remove(capturedUserId);
         AudioLog.Write("[Audio] Mic stopped");
         return (wasSpeaking, capturedUserId);
-    }
-
-    /// <summary>
-    /// Submits <see cref="PttSilenceTailFrames"/> silence frames through the encode pipeline
-    /// then disposes it. Call only when the pipeline is still alive (i.e. mic is running).
-    /// </summary>
-    private void StopMicWithSilenceTail()
-    {
-        bool wasSpeaking = false;
-        uint capturedUserId = 0;
-        lock (_lock)
-        {
-            if (!_micStarted) return;
-
-            // Submit silence frames before stopping so the receiver gets a graceful end-of-stream
-            if (_encodePipeline != null)
-            {
-                // Derive frame size from the actual capture format and the current encoder
-                // frame duration (_opusFrameMs) so the tail is correct for all frame sizes.
-                int frameDurationMs = _opusFrameMs;
-                var fmt = _waveIn?.WaveFormat;
-                int sampleRate = fmt?.SampleRate ?? 48000;
-                int channels = fmt?.Channels ?? 1;
-                int bytesPerSample = (fmt?.BitsPerSample ?? 16) / 8;
-                int frameSizeBytes = sampleRate * frameDurationMs / 1000 * channels * bytesPerSample;
-                var silence = new byte[frameSizeBytes * PttSilenceTailFrames];
-                try
-                {
-                    _encodePipeline.SubmitPcm(new ReadOnlySpan<byte>(silence));
-                    AudioLog.Write($"[Audio] Sent {PttSilenceTailFrames} silence tail frames");
-                }
-                catch (Exception ex)
-                {
-                    AudioLog.Write($"[Audio] Silence tail encode failed: {ex.Message}");
-                }
-            }
-
-            _waveIn?.StopRecording();
-            _encodePipeline?.Dispose();
-            _encodePipeline = null;
-            _deviceResampler?.Dispose();
-            _deviceResampler = null;
-            _micStarted = false;
-            capturedUserId = _localUserId;
-            wasSpeaking = capturedUserId != 0 && _currentlySpeaking.Remove(capturedUserId);
-            AudioLog.Write("[Audio] Mic stopped (with silence tail)");
-        }
-        if (wasSpeaking)
-            UserStoppedSpeaking?.Invoke(capturedUserId);
     }
 
     // Reusable scratch buffers for WASAPI float→int16 conversion (avoid per-callback GC allocations).
@@ -1945,7 +1905,7 @@ private int _screenShareHotkeyId = -1;
                 if (Interlocked.CompareExchange(ref _pttSilenceTailGeneration, generation, generation) != generation)
                     return;
                 if (_pttActive || _muted) return;
-                StopMicWithSilenceTail();
+                StopMic();
             }, null, dueTime: holdMs, period: Timeout.Infinite);
         }
     }
