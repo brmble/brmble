@@ -146,6 +146,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager.VadMeterUpdated += (rms, isOpen) =>
         {
             _bridge?.Send("voice.vadMeter", new { rms, isOpen });
+            // Audio thread → must wake the UI thread so WebView2 actually flushes the queue.
+            _bridge?.NotifyUiThread();
         };
     }
 

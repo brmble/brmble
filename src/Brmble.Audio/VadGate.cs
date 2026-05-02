@@ -48,19 +48,20 @@ public sealed class VadGate
         double rms = ComputeRms(frame);
         LastRms = rms;
 
-        // Always populate ring buffer (used for onset lookback when we open later).
-        Array.Copy(frame, _ring[_ringPos], FrameSamples);
-        _ringPos = (_ringPos + 1) % _ring.Length;
-
+        GateDecision decision;
         if (_state == GateState.Closed)
         {
             if (isSpeech && rms >= cfg.OpenRmsThreshold)
             {
                 _state = GateState.Open;
                 _lastActiveMs = nowMs;
-                return new GateDecision.OpenWithLookback(SnapshotLookbackPlusCurrent(frame));
+                // Snapshot the ring (which holds N priors) + current → N+1 frames total.
+                decision = new GateDecision.OpenWithLookback(SnapshotLookbackPlusCurrent(frame));
             }
-            return new GateDecision.Stay();
+            else
+            {
+                decision = new GateDecision.Stay();
+            }
         }
         else // Open
         {
@@ -69,29 +70,39 @@ public sealed class VadGate
             if (nowMs - _lastActiveMs >= cfg.HangoverMs)
             {
                 _state = GateState.Closed;
-                return new GateDecision.CloseWithTerminator();
+                decision = new GateDecision.CloseWithTerminator();
             }
-
-            return new GateDecision.PassThrough(frame);
+            else
+            {
+                decision = new GateDecision.PassThrough(frame);
+            }
         }
+
+        // Push current to the ring AFTER the snapshot so the next gate-open sees it
+        // as a prior. Doing this before the snapshot would overwrite the oldest prior
+        // and emit one fewer lookback frame than documented.
+        Array.Copy(frame, _ring[_ringPos], FrameSamples);
+        _ringPos = (_ringPos + 1) % _ring.Length;
+
+        return decision;
     }
 
     private IReadOnlyList<short[]> SnapshotLookbackPlusCurrent(short[] current)
     {
-        // _ring already contains [..., previous frames, current] because we just pushed `frame`.
-        // Walk from oldest to newest, ending with the current frame.
-        var result = new List<short[]>(_ring.Length);
-        int oldest = _ringPos; // position just written to is now treated as "next slot" — start from here for oldest
+        // _ring holds the last `_ring.Length` priors (current is NOT yet written).
+        // Walk oldest→newest, then append current.
+        var result = new List<short[]>(_ring.Length + 1);
+        int oldest = _ringPos; // position about to be overwritten = oldest entry
         for (int i = 0; i < _ring.Length; i++)
         {
             int idx = (oldest + i) % _ring.Length;
-            // Skip lookback slots that haven't been filled yet by skipping zero buffers
-            // produced by initial state: a fresh ring is all-zero, which is fine — encoding
-            // 30 ms of silence at the start of speech is harmless.
             var copy = new short[FrameSamples];
             Array.Copy(_ring[idx], copy, FrameSamples);
             result.Add(copy);
         }
+        var currentCopy = new short[FrameSamples];
+        Array.Copy(current, currentCopy, FrameSamples);
+        result.Add(currentCopy);
         return result;
     }
 

@@ -56,7 +56,8 @@ public class VadGateTests
         var decision = gate.Process(FrameFactory.WithRms(500), 30);
 
         var open = (GateDecision.OpenWithLookback)decision;
-        Assert.AreEqual(3, open.Frames.Count);
+        // OnsetLookbackFrames priors + current frame = 4 total at default config.
+        Assert.AreEqual(VadGateConfig.DefaultOnsetLookbackFrames + 1, open.Frames.Count);
     }
 
     [TestMethod]
@@ -147,16 +148,23 @@ public class VadGateTests
 
         var vad = new FakeVadDetector(rows.Select(r => r.isSpeech).ToArray());
         var gate = new VadGate(vad, BalancedConfig);
-        int transitions = 0;
+        int opens = 0;
+        int closes = 0;
 
         for (int i = 0; i < rows.Count; i++)
         {
             // 100 ms between frames matches the throttle of the original measurement.
             var frame = FrameFactory.WithRms(rows[i].rms);
             var d = gate.Process(frame, nowMs: i * 100);
-            if (d is GateDecision.OpenWithLookback or GateDecision.CloseWithTerminator) transitions++;
+            if (d is GateDecision.OpenWithLookback) opens++;
+            else if (d is GateDecision.CloseWithTerminator) closes++;
         }
 
+        int transitions = opens + closes;
+        // Lower bound: a real-talk sequence MUST produce at least one open and one close,
+        // otherwise the test would also pass on an always-closed (broken) gate.
+        Assert.IsTrue(opens >= 1, "Replay must produce at least one OpenWithLookback");
+        Assert.IsTrue(closes >= 1, "Replay must produce at least one CloseWithTerminator");
         Assert.IsTrue(transitions <= 5,
             $"Expected ≤5 transitions across the realtalk replay; got {transitions}. " +
             "Naïve threshold today produces ~20+; this guards the regression.");
