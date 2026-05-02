@@ -994,8 +994,6 @@ private int _screenShareHotkeyId = -1;
 
     
 
-    private const double VoiceActivityRmsThreshold = 300;
-
     /// <summary>RMS over a 16-bit little-endian PCM chunk. Returns 0 for empty buffers.</summary>
     private static double ComputeRms(byte[] buffer, int bytesRecorded)
     {
@@ -1009,10 +1007,6 @@ private int _screenShareHotkeyId = -1;
         if (samples == 0) return 0;
         return Math.Sqrt(sumSq / (double)samples);
     }
-
-    /// <summary>RMS check: returns true if the audio chunk is loud enough to transmit.</summary>
-    private static bool IsAboveThreshold(byte[] buffer, int bytesRecorded)
-        => ComputeRms(buffer, bytesRecorded) >= VoiceActivityRmsThreshold;
 
     private VadGate GetOrCreateVadGate()
     {
@@ -2056,11 +2050,14 @@ private int _screenShareHotkeyId = -1;
             }
 
             // Check local user: if no audio submitted recently, mark as stopped speaking
-            // Only apply hold time for PTT mode to avoid affecting VAD/continuous mode behavior
-            if (_localUserId != 0 && _currentlySpeaking.Contains(_localUserId) && _transmissionMode == TransmissionMode.PushToTalk)
+            if (_localUserId != 0 && _currentlySpeaking.Contains(_localUserId) &&
+                (_transmissionMode == TransmissionMode.PushToTalk
+                 || _transmissionMode == TransmissionMode.VoiceActivity))
             {
                 long elapsed = Environment.TickCount64 - _lastLocalAudioMs;
-                if (elapsed > _voiceHoldMs)
+                // VAD's hangover lives in the gate itself; cleanup uses zero extra grace.
+                int graceMs = _transmissionMode == TransmissionMode.VoiceActivity ? 0 : _voiceHoldMs;
+                if (elapsed > graceMs)
                 {
                     _currentlySpeaking.Remove(_localUserId);
                     (stopped ??= new()).Add(_localUserId);
