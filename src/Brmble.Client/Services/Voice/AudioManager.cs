@@ -221,6 +221,9 @@ internal sealed class AudioManager : IDisposable
     private volatile bool _muted;
     private volatile bool _deafened;
     private volatile TransmissionMode _transmissionMode = TransmissionMode.Continuous;
+    private string? _lastTransmissionKey;
+    private bool _transmissionConfigured;
+    internal int TransmissionApplyCount { get; private set; } // diagnostic/test signal: increments each time SetTransmissionMode body runs
     private volatile bool _pttActive;
 internal const int PttHotkeyId = 1;
 internal const int MuteHotkeyId = 2;
@@ -1161,14 +1164,12 @@ private int _screenShareHotkeyId = -1;
         string action = GetActionName(id);
         if (string.IsNullOrEmpty(action)) return;
 
-        bool isMouseButton = key is "XButton1" or "XButton2" or "MouseLeft" or "MouseRight" or "MouseMiddle";
-        
-        if (isMouseButton)
+        if (IsMouseButtonKey(key))
         {
             RegisterMouseHookForShortcut(action, key);
             return;
         }
-        
+
         var vk = KeyNameToVirtualKey(key);
         if (vk == 0) return;
         
@@ -1201,6 +1202,23 @@ private int _screenShareHotkeyId = -1;
     /// </summary>
     public void SetTransmissionMode(TransmissionMode mode, string? key, IntPtr hwnd)
     {
+        // Idempotency guard: bail out if nothing changed AND the mouse hook /
+        // PTT polling we configured last time is still intact. Without this,
+        // repeated calls (e.g. from a UI refresh storm) would tear down and
+        // re-register the mouse hook within milliseconds, which historically
+        // caused PTT to silently fail (#470). The consistency check
+        // (IsTransmissionConfigStillValid) detects when the shared mouse hook
+        // was stolen by SetShortcut or when hook/polling registration failed
+        // on the previous call — in those cases we must reconfigure.
+        if (_transmissionConfigured
+            && mode == _transmissionMode
+            && key == _lastTransmissionKey
+            && hwnd == _hwnd
+            && IsTransmissionConfigStillValid(mode, key, hwnd, CurrentPttInputState()))
+        {
+            return;
+        }
+
         _pttActive = false;
         _hwnd = hwnd;
         _transmissionMode = mode;
@@ -1226,12 +1244,10 @@ private int _screenShareHotkeyId = -1;
             var vk = KeyNameToVirtualKey(key);
             AudioLog.Write($"[Audio] SetTransmissionMode: mode={mode}, key={key}, vk=0x{vk:X2}, hwnd={hwnd}");
 
-            bool isMouseButton = key is "XButton1" or "XButton2" or "MouseLeft" or "MouseRight" or "MouseMiddle";
-
             // Stop any existing polling before reconfiguring (switching from keyboard to mouse PTT)
             StopPttPolling();
 
-            if (isMouseButton)
+            if (IsMouseButtonKey(key))
             {
                 RegisterMouseHookForButton(key);
             }
@@ -1261,6 +1277,85 @@ private int _screenShareHotkeyId = -1;
             StartMic(); // Always-on: keep mic running
         else if (!_muted)
             StartMic();
+
+        // Mark configured at the end so an exception thrown mid-body leaves
+        // the flag false (next call retries from scratch). For *silent*
+        // failures inside the body — e.g. SetWindowsHookEx returning
+        // IntPtr.Zero, or KeyNameToVirtualKey returning 0 — the flag still
+        // gets set here, but IsTransmissionConfigStillValid will detect the
+        // missing hook/timer/vk on the next call and force a re-run.
+        _lastTransmissionKey = key;
+        _transmissionConfigured = true;
+        TransmissionApplyCount++;
+    }
+
+    /// <summary>
+    /// Snapshot of the input plumbing relevant to PTT validity. Extracted as
+    /// a record so <see cref="IsTransmissionConfigStillValid"/> can be a pure
+    /// function (testable without mocking Win32).
+    /// </summary>
+    internal readonly record struct PttInputState(
+        IntPtr MouseHookHandle,
+        string? ShortcutActionForMouse,
+        string? ShortcutKeyForMouse,
+        int PttVk,
+        bool PttPollingActive);
+
+    // Sentinel string the mouse hook uses when registered for PTT. Both
+    // PushToTalk and PushToTalkPlus modes route through this single literal —
+    // see RegisterMouseHookForButton. If you ever introduce a separate
+    // "pushToTalkPlus" action, update this and IsTransmissionConfigStillValid
+    // together.
+    private const string MouseHookPttAction = "pushToTalk";
+
+    /// <summary>
+    /// Single source of truth for whether a key name refers to a mouse button.
+    /// Must stay in sync with <see cref="KeyNameToVirtualKey"/> and the
+    /// <c>expectedButton</c> map in <see cref="MouseHookCallback"/>.
+    /// </summary>
+    internal static bool IsMouseButtonKey(string? key) => key is
+        "XButton1" or "XButton2" or "MouseXButton1" or "MouseXButton2"
+        or "MouseLeft" or "MouseRight" or "MouseMiddle";
+
+    private PttInputState CurrentPttInputState() => new(
+        _mouseHookHandle,
+        _shortcutActionForMouse,
+        _shortcutKeyForMouse,
+        _pttVk,
+        _pttPollingTimer != null);
+
+    /// <summary>
+    /// Pure check: does the captured input plumbing still match what
+    /// SetTransmissionMode set up last time? Returning false forces
+    /// SetTransmissionMode to redo configuration even when the inputs haven't
+    /// changed — used to recover from the shared mouse hook being stolen by
+    /// SetShortcut, or from a previous SetWindowsHookEx returning IntPtr.Zero.
+    /// </summary>
+    internal static bool IsTransmissionConfigStillValid(
+        TransmissionMode mode, string? key, IntPtr hwnd, PttInputState state)
+    {
+        bool isPttMode = mode == TransmissionMode.PushToTalk || mode == TransmissionMode.PushToTalkPlus;
+        if (!isPttMode || key == null || hwnd == IntPtr.Zero)
+        {
+            // Non-PTT modes (and PTT without a key / without a window) don't
+            // own a hook or polling timer that another caller could disturb.
+            return true;
+        }
+
+        if (IsMouseButtonKey(key))
+        {
+            // The mouse hook is shared with SetShortcut; verify it's still
+            // ours (not stolen by a non-PTT shortcut) and actually registered.
+            return state.MouseHookHandle != IntPtr.Zero
+                && state.ShortcutActionForMouse == MouseHookPttAction
+                && state.ShortcutKeyForMouse == key;
+        }
+
+        // Keyboard PTT: polling timer must be live for our VK. If the key is
+        // unparseable (vk == 0), we deliberately return false so the body
+        // re-runs — there's nothing meaningful to skip.
+        var vk = KeyNameToVirtualKey(key);
+        return vk != 0 && state.PttVk == vk && state.PttPollingActive;
     }
 
     private void StartPttPolling()
@@ -1448,9 +1543,7 @@ private int _screenShareHotkeyId = -1;
         AudioLog.Write($"[Audio] SetShortcut: action={action}, key={key}, _hwnd={_hwnd}");
         if (_hwnd == IntPtr.Zero) return;
 
-        bool isMouseButton = key is "XButton1" or "XButton2" or "MouseLeft" or "MouseRight" or "MouseMiddle";
-
-        if (isMouseButton)
+        if (IsMouseButtonKey(key))
         {
             RegisterMouseHookForShortcut(action, key);
             return;
@@ -1650,8 +1743,8 @@ private int _screenShareHotkeyId = -1;
                     "MouseLeft" => 0,
                     "MouseMiddle" => 2,
                     "MouseRight" => 1,
-                    "XButton1" => 3,
-                    "XButton2" => 4,
+                    "XButton1" or "MouseXButton1" => 3,
+                    "XButton2" or "MouseXButton2" => 4,
                     _ => -1
                 };
 
