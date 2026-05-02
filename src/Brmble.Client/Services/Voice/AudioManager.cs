@@ -284,6 +284,7 @@ private int _screenShareHotkeyId = -1;
     private VadGate? _vadGate;
     private readonly object _vadLock = new();
     private VadSensitivity _vadSensitivity = VadSensitivity.Balanced;
+    private short[]? _vadFrameScratch; // reusable byte→short conversion buffer (capture thread only)
 
     // VAD meter event throttle
     private int _vadMeterSubscribers; // ref-counted; > 0 means publish events
@@ -897,17 +898,21 @@ private int _screenShareHotkeyId = -1;
         {
             var gate = GetOrCreateVadGate();
             int offset = 0;
+            // Reusable scratch buffer for byte→short conversion. Capture-thread only,
+            // so no synchronisation needed. Lazily sized to FrameSamples on first use.
+            if (_vadFrameScratch is null) _vadFrameScratch = new short[VadGate.FrameSamples];
+
             while (offset + (VadGate.FrameSamples * 2) <= processedBytes)
             {
                 var frameSpan = new ReadOnlySpan<byte>(processedBuffer, offset, VadGate.FrameSamples * 2);
-                var frameShorts = new short[VadGate.FrameSamples];
                 for (int i = 0; i < VadGate.FrameSamples; i++)
-                    frameShorts[i] = (short)(frameSpan[i * 2] | (frameSpan[i * 2 + 1] << 8));
+                    _vadFrameScratch[i] = (short)(frameSpan[i * 2] | (frameSpan[i * 2 + 1] << 8));
 
-                var decision = gate.Process(frameShorts, Environment.TickCount64);
+                var decision = gate.Process(_vadFrameScratch, Environment.TickCount64);
 
                 EncodePipeline? pipelineRef;
                 bool fireStartedSpeaking = false;
+                bool fireStoppedSpeaking = false;
                 lock (_lock)
                 {
                     pipelineRef = _encodePipeline;
@@ -925,12 +930,18 @@ private int _screenShareHotkeyId = -1;
                             break;
                         case GateDecision.CloseWithTerminator:
                             pipelineRef?.EmitTerminator();
+                            // Gate close is authoritative for VAD: clear local speaking
+                            // state immediately so the indicator turns off without waiting
+                            // for the polling timer (which would race with the next frame
+                            // and produce flickering).
+                            if (_currentlySpeaking.Remove(_localUserId)) fireStoppedSpeaking = true;
                             break;
                         case GateDecision.Stay:
                             break;
                     }
                 }
                 if (fireStartedSpeaking) UserStartedSpeaking?.Invoke(_localUserId);
+                if (fireStoppedSpeaking) UserStoppedSpeaking?.Invoke(_localUserId);
 
                 // Throttled meter publication (subscribed only when settings tab is open on VAD).
                 if (Volatile.Read(ref _vadMeterSubscribers) > 0)
@@ -2049,15 +2060,16 @@ private int _screenShareHotkeyId = -1;
                 }
             }
 
-            // Check local user: if no audio submitted recently, mark as stopped speaking
-            if (_localUserId != 0 && _currentlySpeaking.Contains(_localUserId) &&
-                (_transmissionMode == TransmissionMode.PushToTalk
-                 || _transmissionMode == TransmissionMode.VoiceActivity))
+            // Check local user: if no audio submitted recently, mark as stopped speaking.
+            // VAD mode is NOT included here — its gate-close decision is authoritative
+            // and clears _currentlySpeaking inline (see OnMicData → CloseWithTerminator).
+            // Including VAD here previously caused indicator-flicker because the timer
+            // races with the per-frame _lastLocalAudioMs update.
+            if (_localUserId != 0 && _currentlySpeaking.Contains(_localUserId)
+                && _transmissionMode == TransmissionMode.PushToTalk)
             {
                 long elapsed = Environment.TickCount64 - _lastLocalAudioMs;
-                // VAD's hangover lives in the gate itself; cleanup uses zero extra grace.
-                int graceMs = _transmissionMode == TransmissionMode.VoiceActivity ? 0 : _voiceHoldMs;
-                if (elapsed > graceMs)
+                if (elapsed > _voiceHoldMs)
                 {
                     _currentlySpeaking.Remove(_localUserId);
                     (stopped ??= new()).Add(_localUserId);
