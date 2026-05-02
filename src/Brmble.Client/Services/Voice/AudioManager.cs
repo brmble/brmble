@@ -1164,14 +1164,12 @@ private int _screenShareHotkeyId = -1;
         string action = GetActionName(id);
         if (string.IsNullOrEmpty(action)) return;
 
-        bool isMouseButton = key is "XButton1" or "XButton2" or "MouseLeft" or "MouseRight" or "MouseMiddle";
-        
-        if (isMouseButton)
+        if (IsMouseButtonKey(key))
         {
             RegisterMouseHookForShortcut(action, key);
             return;
         }
-        
+
         var vk = KeyNameToVirtualKey(key);
         if (vk == 0) return;
         
@@ -1204,14 +1202,14 @@ private int _screenShareHotkeyId = -1;
     /// </summary>
     public void SetTransmissionMode(TransmissionMode mode, string? key, IntPtr hwnd)
     {
-        // Idempotency guard: bail out if nothing changed AND our underlying
-        // input plumbing is still consistent. Without this, repeated calls
-        // (e.g. from a UI refresh storm) tear down and re-register the mouse
-        // hook / raw input within milliseconds, which historically caused PTT
-        // to silently fail (#470). The consistency check protects against the
-        // shared mouse hook being stolen by SetShortcut, or hook registration
-        // having failed on the previous call — in both cases we must
-        // reconfigure rather than skip.
+        // Idempotency guard: bail out if nothing changed AND the mouse hook /
+        // PTT polling we configured last time is still intact. Without this,
+        // repeated calls (e.g. from a UI refresh storm) would tear down and
+        // re-register the mouse hook within milliseconds, which historically
+        // caused PTT to silently fail (#470). The consistency check
+        // (IsTransmissionConfigStillValid) detects when the shared mouse hook
+        // was stolen by SetShortcut or when hook/polling registration failed
+        // on the previous call — in those cases we must reconfigure.
         if (_transmissionConfigured
             && mode == _transmissionMode
             && key == _lastTransmissionKey
@@ -1246,12 +1244,10 @@ private int _screenShareHotkeyId = -1;
             var vk = KeyNameToVirtualKey(key);
             AudioLog.Write($"[Audio] SetTransmissionMode: mode={mode}, key={key}, vk=0x{vk:X2}, hwnd={hwnd}");
 
-            bool isMouseButton = key is "XButton1" or "XButton2" or "MouseLeft" or "MouseRight" or "MouseMiddle";
-
             // Stop any existing polling before reconfiguring (switching from keyboard to mouse PTT)
             StopPttPolling();
 
-            if (isMouseButton)
+            if (IsMouseButtonKey(key))
             {
                 RegisterMouseHookForButton(key);
             }
@@ -1312,6 +1308,15 @@ private int _screenShareHotkeyId = -1;
     // together.
     private const string MouseHookPttAction = "pushToTalk";
 
+    /// <summary>
+    /// Single source of truth for whether a key name refers to a mouse button.
+    /// Must stay in sync with <see cref="KeyNameToVirtualKey"/> and the
+    /// <c>expectedButton</c> map in <see cref="MouseHookCallback"/>.
+    /// </summary>
+    internal static bool IsMouseButtonKey(string? key) => key is
+        "XButton1" or "XButton2" or "MouseXButton1" or "MouseXButton2"
+        or "MouseLeft" or "MouseRight" or "MouseMiddle";
+
     private PttInputState CurrentPttInputState() => new(
         _mouseHookHandle,
         _shortcutActionForMouse,
@@ -1337,8 +1342,7 @@ private int _screenShareHotkeyId = -1;
             return true;
         }
 
-        bool isMouseButton = key is "XButton1" or "XButton2" or "MouseLeft" or "MouseRight" or "MouseMiddle";
-        if (isMouseButton)
+        if (IsMouseButtonKey(key))
         {
             // The mouse hook is shared with SetShortcut; verify it's still
             // ours (not stolen by a non-PTT shortcut) and actually registered.
@@ -1539,9 +1543,7 @@ private int _screenShareHotkeyId = -1;
         AudioLog.Write($"[Audio] SetShortcut: action={action}, key={key}, _hwnd={_hwnd}");
         if (_hwnd == IntPtr.Zero) return;
 
-        bool isMouseButton = key is "XButton1" or "XButton2" or "MouseLeft" or "MouseRight" or "MouseMiddle";
-
-        if (isMouseButton)
+        if (IsMouseButtonKey(key))
         {
             RegisterMouseHookForShortcut(action, key);
             return;
@@ -1741,8 +1743,8 @@ private int _screenShareHotkeyId = -1;
                     "MouseLeft" => 0,
                     "MouseMiddle" => 2,
                     "MouseRight" => 1,
-                    "XButton1" => 3,
-                    "XButton2" => 4,
+                    "XButton1" or "MouseXButton1" => 3,
+                    "XButton2" or "MouseXButton2" => 4,
                     _ => -1
                 };
 
