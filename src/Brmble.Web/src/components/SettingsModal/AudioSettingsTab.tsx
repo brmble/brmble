@@ -3,6 +3,7 @@ import bridge from '../../bridge';
 import { type AllBindings, BINDING_LABELS } from './SettingsModal';
 import { confirm } from '../../hooks/usePrompt';
 import { Select } from '../Select';
+import { VadLevelMeter } from '../VadLevelMeter/VadLevelMeter';
 import './AudioSettingsTab.css';
 import './ShortcutsSettingsTab.css';
 
@@ -19,6 +20,8 @@ interface AudioSettingsTabProps {
 
 export type TransmissionMode = 'pushToTalk' | 'voiceActivity' | 'continuous' | 'pushToTalkPlus';
 
+export type VadSensitivity = 'low' | 'balanced' | 'high';
+
 export interface AudioSettings {
   inputDevice: string;
   outputDevice: string;
@@ -30,6 +33,7 @@ export interface AudioSettings {
   opusFrameSize: number;
   voiceHoldMs: number;
   captureApi: 'waveIn' | 'wasapi';
+  vadSensitivity: VadSensitivity;
 }
 
 export interface NoiseSuppressionSettings {
@@ -47,6 +51,7 @@ export const DEFAULT_SETTINGS: AudioSettings = {
   opusFrameSize: 20,
   voiceHoldMs: 200,
   captureApi: 'wasapi',
+  vadSensitivity: 'balanced',
 };
 
 export const DEFAULT_NOISE_SUPPRESSION: NoiseSuppressionSettings = {
@@ -232,6 +237,30 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
                 value={localSettings.voiceHoldMs}
                 onChange={(e) => handleChange('voiceHoldMs', parseInt(e.target.value, 10))}
               />
+            </div>
+          </>
+        )}
+
+        {localSettings.transmissionMode === 'voiceActivity' && (
+          <>
+            <div className="settings-item">
+              <label>
+                Sensitivity
+                <span className="tooltip-icon" data-tooltip="How strictly background noise is rejected. Higher rejects more noise but needs clearer speech to trigger; lower picks up softer voices.">?</span>
+              </label>
+              <Select
+                value={localSettings.vadSensitivity}
+                onChange={(v) => handleChange('vadSensitivity', v as VadSensitivity)}
+                options={[
+                  { value: 'low',      label: 'Low' },
+                  { value: 'balanced', label: 'Balanced (recommended)' },
+                  { value: 'high',     label: 'High' },
+                ]}
+              />
+            </div>
+            <div className="settings-item">
+              <label>Mic level</label>
+              <VadLevelMeter />
             </div>
           </>
         )}
