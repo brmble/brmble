@@ -278,6 +278,10 @@ private int _screenShareHotkeyId = -1;
     private long _lastLocalAudioMs; // monotonic timestamp of last local audio submission
     private int _voiceHoldMs = 200;
 
+    // TEMP VAD diagnostic: throttled logging of pre/post-APM RMS to characterise the signal.
+    // Remove together with the diagnostic block in the capture path.
+    private long _vadDiagLastLogMs;
+
     // Volume controls
     private volatile float _inputVolume = 1.0f;
     private volatile float _outputVolume = 1.0f;
@@ -832,6 +836,10 @@ private int _screenShareHotkeyId = -1;
         if (_muted) return;
         if (_transmissionMode == TransmissionMode.PushToTalk && !_pttActive) return;
 
+        // TEMP VAD diagnostic: snapshot pre-APM RMS so we can log it alongside
+        // post-APM RMS below. Cheap (single pass over a 10–20 ms frame).
+        double preApmRms = ComputeRms(processedBuffer, processedBytes);
+
         // Capture-side WebRTC APM processor. Hold _processorLock for the duration
         // of Process() so SetNoiseSuppression cannot dispose the native APM handle
         // mid-call. Process() is fast (sub-ms for a 10–20 ms frame).
@@ -870,6 +878,22 @@ private int _screenShareHotkeyId = -1;
         }
 
         // Input volume is applied inside EncodePipeline (see SetInputVolume → _encodePipeline.SetVolume).
+
+        // TEMP VAD diagnostic: log post-APM RMS at ~10 Hz so we can characterise the
+        // signal the threshold sees. Active in VoiceActivity and Continuous so users can
+        // observe levels without their voice being gated. Remove together with the
+        // pre-APM snapshot above and the _vadDiagLastLogMs field.
+        if (_transmissionMode == TransmissionMode.VoiceActivity || _transmissionMode == TransmissionMode.Continuous)
+        {
+            double postApmRms = ComputeRms(processedBuffer, processedBytes);
+            long now = Environment.TickCount64;
+            if (now - _vadDiagLastLogMs >= 100)
+            {
+                _vadDiagLastLogMs = now;
+                bool wouldPass = postApmRms >= VoiceActivityRmsThreshold;
+                AudioLog.Write($"[VAD-DIAG] preApmRms={preApmRms:F1} postApmRms={postApmRms:F1} threshold={VoiceActivityRmsThreshold} wouldPass={wouldPass} mode={_transmissionMode} ns={_noiseSuppressionLevel}");
+            }
+        }
 
         // Voice activity check on processed signal
         if (_transmissionMode == TransmissionMode.VoiceActivity && !IsAboveThreshold(processedBuffer, processedBytes)) return;
@@ -921,8 +945,8 @@ private int _screenShareHotkeyId = -1;
 
     private const double VoiceActivityRmsThreshold = 300;
 
-    /// <summary>RMS check: returns true if the audio chunk is loud enough to transmit.</summary>
-    private static bool IsAboveThreshold(byte[] buffer, int bytesRecorded)
+    /// <summary>RMS over a 16-bit little-endian PCM chunk. Returns 0 for empty buffers.</summary>
+    private static double ComputeRms(byte[] buffer, int bytesRecorded)
     {
         long sumSq = 0;
         int samples = bytesRecorded / 2; // 16-bit samples
@@ -931,10 +955,13 @@ private int _screenShareHotkeyId = -1;
             short sample = (short)(buffer[i] | (buffer[i + 1] << 8));
             sumSq += sample * sample;
         }
-        if (samples == 0) return false;
-        var rms = Math.Sqrt(sumSq / (double)samples);
-        return rms >= VoiceActivityRmsThreshold;
+        if (samples == 0) return 0;
+        return Math.Sqrt(sumSq / (double)samples);
     }
+
+    /// <summary>RMS check: returns true if the audio chunk is loud enough to transmit.</summary>
+    private static bool IsAboveThreshold(byte[] buffer, int bytesRecorded)
+        => ComputeRms(buffer, bytesRecorded) >= VoiceActivityRmsThreshold;
 
     /// <summary>
     /// Feed an incoming voice packet for a user. Creates per-user JitterBuffer
