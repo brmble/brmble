@@ -290,10 +290,6 @@ private int _screenShareHotkeyId = -1;
     private int _vadMeterSubscribers; // ref-counted; > 0 means publish events
     private long _vadMeterLastPostMs;
 
-#if DEBUG
-    private long _vadDiagLastLogMs;
-#endif
-
     // Volume controls
     private volatile float _inputVolume = 1.0f;
     private volatile float _outputVolume = 1.0f;
@@ -947,15 +943,6 @@ private int _screenShareHotkeyId = -1;
                 if (Volatile.Read(ref _vadMeterSubscribers) > 0)
                     PublishVadMeterThrottled(gate.LastRms, gate.IsOpen);
 
-#if DEBUG
-                // Diagnostic log at ~10 Hz for VAD-mode signal characterisation.
-                long diagNow = Environment.TickCount64;
-                if (diagNow - _vadDiagLastLogMs >= 100)
-                {
-                    _vadDiagLastLogMs = diagNow;
-                    AudioLog.Write($"[VAD-DIAG] postApmRms={gate.LastRms:F1} threshold={VadGateConfig.FromSensitivity(_vadSensitivity).OpenRmsThreshold} isOpen={gate.IsOpen} mode={_transmissionMode} ns={_noiseSuppressionLevel}");
-                }
-#endif
                 offset += VadGate.FrameSamples * 2;
             }
             return; // VAD path handles SubmitPcm itself; skip the legacy continuous block below
