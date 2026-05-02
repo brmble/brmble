@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Buffers;
+using Brmble.Audio;
 using Brmble.Audio.Codecs;
 using Brmble.Audio.Processing;
 using Brmble.Audio.NetEQ;
@@ -278,9 +279,19 @@ private int _screenShareHotkeyId = -1;
     private long _lastLocalAudioMs; // monotonic timestamp of last local audio submission
     private int _voiceHoldMs = 200;
 
-    // TEMP VAD diagnostic: throttled logging of pre/post-APM RMS to characterise the signal.
-    // Remove together with the diagnostic block in the capture path.
+    // VAD gate (active only in TransmissionMode.VoiceActivity)
+    private IVadDetector? _vad;
+    private VadGate? _vadGate;
+    private readonly object _vadLock = new();
+    private VadSensitivity _vadSensitivity = VadSensitivity.Balanced;
+
+    // VAD meter event throttle
+    private int _vadMeterSubscribers; // ref-counted; > 0 means publish events
+    private long _vadMeterLastPostMs;
+
+#if DEBUG
     private long _vadDiagLastLogMs;
+#endif
 
     // Volume controls
     private volatile float _inputVolume = 1.0f;
@@ -344,6 +355,12 @@ private int _screenShareHotkeyId = -1;
     public event Action<string>? ShortcutPressed;
     /// <summary>Fired when a shortcut key is released (action should fire on release).</summary>
     public event Action<string>? ShortcutReleased;
+
+    /// <summary>
+    /// Fired at most every 50 ms while VAD mode is active and at least one subscriber is registered
+    /// via <see cref="SetVadMeterSubscribed"/>. Args: (rms, isOpen).
+    /// </summary>
+    public event Action<double, bool>? VadMeterUpdated;
 
     public bool IsMuted => _muted;
     public bool IsDeafened => _deafened;
@@ -836,10 +853,6 @@ private int _screenShareHotkeyId = -1;
         if (_muted) return;
         if (_transmissionMode == TransmissionMode.PushToTalk && !_pttActive) return;
 
-        // TEMP VAD diagnostic: snapshot pre-APM RMS so we can log it alongside
-        // post-APM RMS below. Cheap (single pass over a 10–20 ms frame).
-        double preApmRms = ComputeRms(processedBuffer, processedBytes);
-
         // Capture-side WebRTC APM processor. Hold _processorLock for the duration
         // of Process() so SetNoiseSuppression cannot dispose the native APM handle
         // mid-call. Process() is fast (sub-ms for a 10–20 ms frame).
@@ -879,51 +892,89 @@ private int _screenShareHotkeyId = -1;
 
         // Input volume is applied inside EncodePipeline (see SetInputVolume → _encodePipeline.SetVolume).
 
-        // TEMP VAD diagnostic: log post-APM RMS at ~10 Hz so we can characterise the
-        // signal the threshold sees. Active in VoiceActivity and Continuous so users can
-        // observe levels without their voice being gated. Remove together with the
-        // pre-APM snapshot above and the _vadDiagLastLogMs field.
-        if (_transmissionMode == TransmissionMode.VoiceActivity || _transmissionMode == TransmissionMode.Continuous)
+        // Voice Activity: per-frame gate. Continuous and PTT modes go through unchanged.
+        if (_transmissionMode == TransmissionMode.VoiceActivity)
         {
-            double postApmRms = ComputeRms(processedBuffer, processedBytes);
-            long now = Environment.TickCount64;
-            if (now - _vadDiagLastLogMs >= 100)
+            var gate = GetOrCreateVadGate();
+            int offset = 0;
+            while (offset + (VadGate.FrameSamples * 2) <= processedBytes)
             {
-                _vadDiagLastLogMs = now;
-                bool wouldPass = postApmRms >= VoiceActivityRmsThreshold;
-                AudioLog.Write($"[VAD-DIAG] preApmRms={preApmRms:F1} postApmRms={postApmRms:F1} threshold={VoiceActivityRmsThreshold} wouldPass={wouldPass} mode={_transmissionMode} ns={_noiseSuppressionLevel}");
+                var frameSpan = new ReadOnlySpan<byte>(processedBuffer, offset, VadGate.FrameSamples * 2);
+                var frameShorts = new short[VadGate.FrameSamples];
+                for (int i = 0; i < VadGate.FrameSamples; i++)
+                    frameShorts[i] = (short)(frameSpan[i * 2] | (frameSpan[i * 2 + 1] << 8));
+
+                var decision = gate.Process(frameShorts, Environment.TickCount64);
+
+                EncodePipeline? pipelineRef;
+                bool fireStartedSpeaking = false;
+                lock (_lock)
+                {
+                    pipelineRef = _encodePipeline;
+                    switch (decision)
+                    {
+                        case GateDecision.OpenWithLookback open:
+                            if (_currentlySpeaking.Add(_localUserId)) fireStartedSpeaking = true;
+                            _lastLocalAudioMs = Environment.TickCount64;
+                            foreach (var f in open.Frames)
+                                pipelineRef?.SubmitPcm(MemoryMarshal.AsBytes(f.AsSpan()));
+                            break;
+                        case GateDecision.PassThrough pt:
+                            _lastLocalAudioMs = Environment.TickCount64;
+                            pipelineRef?.SubmitPcm(MemoryMarshal.AsBytes(pt.Frame.AsSpan()));
+                            break;
+                        case GateDecision.CloseWithTerminator:
+                            pipelineRef?.EmitTerminator();
+                            break;
+                        case GateDecision.Stay:
+                            break;
+                    }
+                }
+                if (fireStartedSpeaking) UserStartedSpeaking?.Invoke(_localUserId);
+
+                // Throttled meter publication (subscribed only when settings tab is open on VAD).
+                if (Volatile.Read(ref _vadMeterSubscribers) > 0)
+                    PublishVadMeterThrottled(gate.LastRms, gate.IsOpen);
+
+#if DEBUG
+                // Diagnostic log at ~10 Hz for VAD-mode signal characterisation.
+                long diagNow = Environment.TickCount64;
+                if (diagNow - _vadDiagLastLogMs >= 100)
+                {
+                    _vadDiagLastLogMs = diagNow;
+                    AudioLog.Write($"[VAD-DIAG] postApmRms={gate.LastRms:F1} threshold={VadGateConfig.FromSensitivity(_vadSensitivity).OpenRmsThreshold} isOpen={gate.IsOpen} mode={_transmissionMode} ns={_noiseSuppressionLevel}");
+                }
+#endif
+                offset += VadGate.FrameSamples * 2;
             }
+            return; // VAD path handles SubmitPcm itself; skip the legacy continuous block below
         }
 
-        // Voice activity check on processed signal
-        if (_transmissionMode == TransmissionMode.VoiceActivity && !IsAboveThreshold(processedBuffer, processedBytes)) return;
-
-        // Snapshot the pipeline reference and update speaking state under lock.
+        // Continuous + PTT: snapshot the pipeline reference and update speaking state under lock.
         // This prevents a race where RecreateEncodePipelineLocked disposes _encodePipeline
         // while SubmitPcm is executing on the mic thread.
         EncodePipeline? pipeline;
         bool shouldBeSpeaking;
         bool shouldSubmitPcm;
-        
+
         lock (_lock)
         {
             // Capture transmission mode and PTT state under lock for consistent decision-making
             var mode = _transmissionMode;
             var pttActive = _pttActive;
-            
+
             // Determine if we should be considered "speaking" based on transmission mode
             shouldBeSpeaking = mode switch
             {
                 TransmissionMode.Continuous => true,
-                TransmissionMode.VoiceActivity => true, // VAD filtering already happened above, before speaking-state update / submission
                 TransmissionMode.PushToTalk => pttActive,
                 TransmissionMode.PushToTalkPlus => pttActive,
                 _ => false
             };
-            
+
             // For PTT+, only submit audio when PTT is active (software gate)
             shouldSubmitPcm = mode != TransmissionMode.PushToTalkPlus || pttActive;
-            
+
             // Only trigger speaking events if we should be speaking based on transmission mode
             if (shouldBeSpeaking && _currentlySpeaking.Add(_localUserId))
             {
@@ -962,6 +1013,49 @@ private int _screenShareHotkeyId = -1;
     /// <summary>RMS check: returns true if the audio chunk is loud enough to transmit.</summary>
     private static bool IsAboveThreshold(byte[] buffer, int bytesRecorded)
         => ComputeRms(buffer, bytesRecorded) >= VoiceActivityRmsThreshold;
+
+    private VadGate GetOrCreateVadGate()
+    {
+        lock (_vadLock)
+        {
+            if (_vadGate != null) return _vadGate;
+
+            try
+            {
+                _vad = new WebRtcVad(VadAggressiveness.Aggressive);
+            }
+            catch (Exception ex)
+            {
+                AudioLog.Write($"[Audio] WebRtcVad init failed, using RMS-only fallback: {ex.Message}");
+                _vad = new RmsOnlyVadFallback();
+            }
+            _vadGate = new VadGate(_vad, VadGateConfig.FromSensitivity(_vadSensitivity));
+            return _vadGate;
+        }
+    }
+
+    private void PublishVadMeterThrottled(double rms, bool isOpen)
+    {
+        long now = Environment.TickCount64;
+        if (now - _vadMeterLastPostMs < 50) return;
+        _vadMeterLastPostMs = now;
+        VadMeterUpdated?.Invoke(rms, isOpen);
+    }
+
+    public void SetVadSensitivity(VadSensitivity level)
+    {
+        lock (_vadLock)
+        {
+            _vadSensitivity = level;
+            _vadGate?.SetSensitivity(level);
+        }
+    }
+
+    public void SetVadMeterSubscribed(bool subscribed)
+    {
+        if (subscribed) Interlocked.Increment(ref _vadMeterSubscribers);
+        else Interlocked.Decrement(ref _vadMeterSubscribers);
+    }
 
     /// <summary>
     /// Feed an incoming voice packet for a user. Creates per-user JitterBuffer
@@ -1998,6 +2092,12 @@ private int _screenShareHotkeyId = -1;
             _processor?.Dispose();
             _processor = null;
         }
+        lock (_vadLock)
+        {
+            _vadGate = null;
+            (_vad as IDisposable)?.Dispose();
+            _vad = null;
+        }
         _speakingTimer.Dispose();
         StopPttPolling();
         StopShortcutKeyboardPolling();
@@ -2142,5 +2242,15 @@ private int _screenShareHotkeyId = -1;
 
         _ => 0
     };
+}
+
+/// <summary>
+/// No-op VAD detector used when WebRtcVad native init fails.
+/// Always returns true so that the VadGate's RMS threshold does all the gating work.
+/// </summary>
+internal sealed class RmsOnlyVadFallback : IVadDetector
+{
+    public VadAggressiveness Mode { get; set; }
+    public bool IsSpeech(ReadOnlySpan<short> frame) => true; // gate RMS threshold does the work
 }
 
