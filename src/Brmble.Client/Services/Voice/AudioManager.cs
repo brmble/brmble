@@ -7,7 +7,6 @@ using Brmble.Audio.Processing;
 using Brmble.Audio.NetEQ;
 using Brmble.Audio.NetEQ.Models;
 using Brmble.Client.Services.AppConfig;
-using Brmble.Client.Services.SpeechEnhancement;
 using MumbleVoiceEngine.Audio;
 using MumbleVoiceEngine.Pipeline;
 using NAudio.Wave;
@@ -291,14 +290,14 @@ private int _screenShareHotkeyId = -1;
     private int _opusFrameMs = 20;
     private bool _dtxEnabled;
 
-    // Virtual mic (testing). Not persisted across restarts.
-    private string? _virtualMicPath;
-    private volatile bool _virtualMicActive;
-
-    // Speech enhancement
-    // Capture-side processor (swappable). Default = Legacy stack.
-    private IAudioCapturePostProcessor? _processor;
-    private ProcessingStack _processingStack = ProcessingStack.Legacy;
+    // Capture-side WebRTC APM processor. Hot-swapped when NS level changes.
+    // Dedicated lock guards both the slot AND the in-flight Process() call:
+    // the underlying APM owns native handles, so we cannot let SetNoiseSuppression
+    // dispose the processor while the mic thread is mid-Process.
+    private readonly object _processorLock = new();
+    private WebRtcApmProcessor? _processor;
+    private NoiseSuppressionLevel _noiseSuppressionLevel = NoiseSuppressionLevel.High;
+    private bool _processorCreateFailed;
     [ThreadStatic] private static byte[]? _processorOutputScratch;
 
     // Packet loss tracking per user (EMA smoothing to prevent UI jitter)
@@ -315,19 +314,10 @@ private int _screenShareHotkeyId = -1;
         public int LostUnits;
     }
 
-    private SpeechEnhancementService? _speechEnhancement;
-    private AudioResampler? _to16kResampler;
-    private AudioResampler? _to48kResampler;
-
     // Device→48kHz resampler (r8brain)
     private R8BrainResampler? _deviceResampler;
     private int _deviceSampleRate;
     private int _deviceMaxInLen;
-
-    // RNNoise denoising
-    private RnnoiseService? _rnnoise;
-    private SpeechDenoiseMode _lastDenoiseMode = SpeechDenoiseMode.Disabled;
-    private float[]? _rnnoiseRemainder;
 
     public void SetLocalUserId(uint sessionId) => _localUserId = sessionId;
 
@@ -458,118 +448,31 @@ private int _screenShareHotkeyId = -1;
         }
     }
 
-    public void ConfigureSpeechEnhancement(string modelsPath, bool enabled, GtcrnModelVariant variant)
+    public void SetNoiseSuppression(NoiseSuppressionLevel level)
     {
-        lock (_lock)
+        lock (_processorLock)
         {
-            _speechEnhancement?.Dispose();
-            _to16kResampler?.Dispose();
-            _to48kResampler?.Dispose();
-            _to16kResampler = null;
-            _to48kResampler = null;
-
-            if (!enabled)
-            {
-                _speechEnhancement = null;
-                return;
-            }
-
-            _speechEnhancement = new SpeechEnhancementService(modelsPath, enabled, variant);
-            _to16kResampler = new AudioResampler(48000, 16000, 1);
-            _to48kResampler = new AudioResampler(16000, 48000, 1);
-        }
-    }
-
-    public void ConfigureRnnoise(SpeechDenoiseMode mode)
-    {
-        lock (_lock)
-        {
-            if (mode == _lastDenoiseMode)
-                return;
-
-            _lastDenoiseMode = mode;
-            _rnnoise?.Dispose();
-            _rnnoise = mode == SpeechDenoiseMode.Rnnoise ? new RnnoiseService(mode) : null;
-            _rnnoiseRemainder = null;
-
-            // If we're on the Legacy stack, rebuild it so its RnnoiseProcess hook picks up the new service.
-            if (_processingStack == ProcessingStack.Legacy)
-            {
-                _processor?.Dispose();
-                _processor = CreateProcessorLocked(ProcessingStack.Legacy);
-            }
-        }
-    }
-
-    public void SetVirtualMic(string? wavPath)
-    {
-        lock (_lock)
-        {
-            if (string.IsNullOrWhiteSpace(wavPath))
-            {
-                _virtualMicPath = null;
-                _virtualMicActive = false;
-            }
-            else
-            {
-                // Relative paths come from the frontend as e.g. "fixtures/apm/near_speech.wav".
-                // Resolve against the binary's directory, where the MSBuild <None Link> rule
-                // copies the WAVs — not against the .NET process CWD.
-                _virtualMicPath = Path.IsPathRooted(wavPath)
-                    ? wavPath
-                    : Path.Combine(AppContext.BaseDirectory, wavPath);
-                _virtualMicActive = true;
-            }
-            AudioLog.Write($"[Audio] Virtual mic {(_virtualMicActive ? $"enabled: {_virtualMicPath}" : "disabled")}");
-
-            // If mic is currently running, restart it so StartMicLocked picks the right source.
-            // StopMicLocked only stops recording — it doesn't null _waveIn. Dispose it here so
-            // StartMicLocked creates a fresh IWaveIn matching the new _virtualMicActive state
-            // (otherwise a stale FixtureWaveProvider would get StartRecording()'d again).
-            if (_micStarted)
-            {
-                StopMicLocked();
-                _waveIn?.Dispose();
-                _waveIn = null;
-                StartMicLocked();
-            }
-        }
-    }
-
-    public void SetProcessingStack(ProcessingStack stack)
-    {
-        lock (_lock)
-        {
-            if (_processingStack == stack && _processor != null) return;
-            _processingStack = stack;
+            if (_noiseSuppressionLevel == level && _processor != null) return;
             _processor?.Dispose();
-            _processor = CreateProcessorLocked(stack);
-            AudioLog.Write($"[Audio] Processing stack set to {stack}");
+            _processor = CreateProcessor(level);
+            _processorCreateFailed = _processor == null;
+            if (_processor != null)
+            {
+                _noiseSuppressionLevel = level;
+                AudioLog.Write($"[Audio] Noise suppression set to {level}");
+            }
         }
     }
 
-    private IAudioCapturePostProcessor? CreateProcessorLocked(ProcessingStack stack)
+    private static WebRtcApmProcessor? CreateProcessor(NoiseSuppressionLevel level)
     {
         try
         {
-            return stack switch
-            {
-                ProcessingStack.None => new PassthroughProcessor(),
-                ProcessingStack.Legacy => new LegacyAudioProcessor
-                {
-                    // MaxAmplification was dropped from AudioManager on main in favour of
-                    // EncodePipeline-based volume. Legacy AGC now only compresses loud audio.
-                    MaxAmplification = 1.0f,
-                    RnnoiseEnabled = _rnnoise?.IsEnabled == true,
-                    RnnoiseProcess = frame => _rnnoise?.Process(frame),
-                },
-                ProcessingStack.WebRtcApm => new WebRtcApmProcessor(),
-                _ => throw new ArgumentOutOfRangeException(nameof(stack)),
-            };
+            return new WebRtcApmProcessor(level);
         }
         catch (Exception ex)
         {
-            AudioLog.Write($"[Audio] Failed to create processor for {stack}: {ex.Message}");
+            AudioLog.Write($"[Audio] Failed to create WebRTC APM processor: {ex.Message}");
             return null;
         }
     }
@@ -707,28 +610,6 @@ private int _screenShareHotkeyId = -1;
         if (_encodePipeline == null)
             RecreateEncodePipelineLocked();
 
-        // Virtual mic branch: use fixture replay instead of real hardware.
-        if (_virtualMicActive && _virtualMicPath != null)
-        {
-            try
-            {
-                _waveIn?.Dispose();
-                _waveIn = new FixtureWaveProvider(_virtualMicPath, frameMs: 20, loop: true);
-                _waveIn.DataAvailable += OnMicData;
-                _waveIn.StartRecording();
-                AudioLog.Write("[Audio] Mic started (virtual — fixture replay)");
-                return;
-            }
-            catch (Exception ex)
-            {
-                AudioLog.Write($"[Audio] Virtual mic failed ({_virtualMicPath}): {ex.Message} — falling back to real microphone.");
-                _waveIn?.Dispose();
-                _waveIn = null;
-                _virtualMicActive = false;
-                _virtualMicPath = null;
-                // Fall through to the live-mic branch below.
-            }
-        }
 
         if (_waveIn == null)
         {
@@ -988,105 +869,50 @@ private int _screenShareHotkeyId = -1;
             processedBytes = requiredInt16Bytes;
         }
 
-        bool virtualMic = _virtualMicActive;
         if (_muted) return;
-        if (!virtualMic && _transmissionMode == TransmissionMode.PushToTalk && !_pttActive) return;
+        if (_transmissionMode == TransmissionMode.PushToTalk && !_pttActive) return;
 
-        // Capture-side processor (swappable).
-        IAudioCapturePostProcessor? processor;
-        lock (_lock)
+        // Capture-side WebRTC APM processor. Hold _processorLock for the duration
+        // of Process() so SetNoiseSuppression cannot dispose the native APM handle
+        // mid-call. Process() is fast (sub-ms for a 10–20 ms frame).
+        lock (_processorLock)
         {
-            if (_processor == null) _processor = CreateProcessorLocked(_processingStack);
-            processor = _processor;
-        }
-
-        if (processor != null)
-        {
-            int needed = processedBytes + WebRtcApmProcessor.FrameBytes;
-            if (_processorOutputScratch == null || _processorOutputScratch.Length < needed)
-                _processorOutputScratch = new byte[needed];
-
-            try
+            if (_processor == null && !_processorCreateFailed)
             {
-                int written = processor.Process(
-                    new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes),
-                    _processorOutputScratch.AsSpan());
-
-                processedBuffer = _processorOutputScratch;
-                processedBytes = written;
+                _processor = CreateProcessor(_noiseSuppressionLevel);
+                _processorCreateFailed = _processor == null;
             }
-            catch (ObjectDisposedException)
+            if (_processor != null)
             {
-                return;
-            }
+                int needed = processedBytes + WebRtcApmProcessor.FrameBytes;
+                if (_processorOutputScratch == null || _processorOutputScratch.Length < needed)
+                    _processorOutputScratch = new byte[needed];
 
-            if (processedBytes == 0) return;
+                try
+                {
+                    int written = _processor.Process(
+                        new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes),
+                        _processorOutputScratch.AsSpan());
+
+                    processedBuffer = _processorOutputScratch;
+                    processedBytes = written;
+                }
+                catch (Exception ex)
+                {
+                    // Native APM error or unexpected internal failure. Drop this
+                    // frame instead of crashing the capture callback.
+                    AudioLog.Write($"[Audio] APM Process failed: {ex.Message}");
+                    return;
+                }
+
+                if (processedBytes == 0) return;
+            }
         }
 
         // Input volume is applied inside EncodePipeline (see SetInputVolume → _encodePipeline.SetVolume).
 
-        // Apply speech enhancement if enabled
-        if (_speechEnhancement?.IsEnabled == true && _to16kResampler != null && _to48kResampler != null)
-        {
-            try
-            {
-                // Convert byte buffer to normalized float samples (48kHz, range [-1, 1])
-                // Use ArrayPool to avoid per-frame allocations (important for PTT+ continuous processing)
-                var sampleCount = processedBytes / 2;
-                var samples48k = ArrayPool<float>.Shared.Rent(sampleCount);
-                try
-                {
-                    for (int i = 0; i < sampleCount; i++)
-                    {
-                        samples48k[i] = (short)(processedBuffer[i * 2] | (processedBuffer[i * 2 + 1] << 8)) / 32768f;
-                    }
-
-                    // Resample to 16kHz
-                    var samples16k = _to16kResampler.Resample(samples48k.AsSpan(0, sampleCount));
-
-                    // Enhance
-                    var enhanced16k = _speechEnhancement.Enhance(samples16k);
-
-                    if (enhanced16k != null)
-                    {
-                        // Resample back to 48kHz
-                        var enhanced48k = _to48kResampler.Resample(enhanced16k);
-
-                        // Convert normalized floats back to int16 bytes
-                        int samplesToCopy = Math.Min(enhanced48k.Length, sampleCount);
-                        for (int i = 0; i < samplesToCopy; i++)
-                        {
-                            var sample = (short)Math.Clamp(enhanced48k[i] * 32768f, short.MinValue, short.MaxValue);
-                            processedBuffer[i * 2] = (byte)(sample & 0xFF);
-                            processedBuffer[i * 2 + 1] = (byte)((sample >> 8) & 0xFF);
-                        }
-
-                        // If the enhanced buffer is shorter than the original, zero-fill the remainder
-                        if (samplesToCopy < sampleCount)
-                        {
-                            for (int i = samplesToCopy; i < sampleCount; i++)
-                            {
-                                processedBuffer[i * 2] = 0;
-                                processedBuffer[i * 2 + 1] = 0;
-                            }
-                        }
-                    }
-                }
-                finally
-                {
-                    ArrayPool<float>.Shared.Return(samples48k);
-                }
-            }
-            catch (Exception ex)
-            {
-                // Enhancement failed — disable it so voice is never silenced by an error
-                AudioLog.Write($"[Audio] Speech enhancement error, disabling: {ex.Message}");
-                _speechEnhancement = null;
-            }
-        }
-
         // Voice activity check on processed signal
-        if (!virtualMic && _transmissionMode == TransmissionMode.VoiceActivity && !IsAboveThreshold(processedBuffer, processedBytes)) return;
+        if (_transmissionMode == TransmissionMode.VoiceActivity && !IsAboveThreshold(processedBuffer, processedBytes)) return;
 
         // Snapshot the pipeline reference and update speaking state under lock.
         // This prevents a race where RecreateEncodePipelineLocked disposes _encodePipeline
@@ -2180,13 +2006,11 @@ private int _screenShareHotkeyId = -1;
     {
         _deviceResampler?.Dispose();
         _deviceResampler = null;
-        _processor?.Dispose();
-        _processor = null;
-        _rnnoise?.Dispose();
-        _rnnoiseRemainder = null;
-        _speechEnhancement?.Dispose();
-        _to16kResampler?.Dispose();
-        _to48kResampler?.Dispose();
+        lock (_processorLock)
+        {
+            _processor?.Dispose();
+            _processor = null;
+        }
         _speakingTimer.Dispose();
         StopPttPolling();
         StopShortcutKeyboardPolling();

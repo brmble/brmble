@@ -1,5 +1,5 @@
 using System;
-using SoundFlow.Extensions.WebRtc.Apm;
+using SfApm = SoundFlow.Extensions.WebRtc.Apm;
 
 namespace Brmble.Audio.Processing;
 
@@ -8,16 +8,16 @@ namespace Brmble.Audio.Processing;
 /// Samples that don't align to a 10 ms boundary are buffered until the next call.
 /// Not thread-safe — must be driven from a single thread (the WASAPI capture thread).
 /// </summary>
-public sealed class WebRtcApmProcessor : IAudioCapturePostProcessor
+public sealed class WebRtcApmProcessor : IDisposable
 {
     public const int SampleRate = 48000;
     public const int Channels = 1;
     public const int FrameSamples = 480;
     public const int FrameBytes = FrameSamples * sizeof(short);
 
-    private readonly AudioProcessingModule _apm;
-    private readonly ApmConfig _config;
-    private readonly StreamConfig _streamConfig;
+    private readonly SfApm.AudioProcessingModule _apm;
+    private readonly SfApm.ApmConfig _config;
+    private readonly SfApm.StreamConfig _streamConfig;
 
     private readonly float[][] _frameIn = { new float[FrameSamples] };
     private readonly float[][] _frameOut = { new float[FrameSamples] };
@@ -34,25 +34,40 @@ public sealed class WebRtcApmProcessor : IAudioCapturePostProcessor
     /// </summary>
     public float OutputGain { get; set; } = 1.5f;
 
-    public WebRtcApmProcessor()
+    public WebRtcApmProcessor() : this(NoiseSuppressionLevel.High) { }
+
+    public WebRtcApmProcessor(NoiseSuppressionLevel noiseSuppression)
     {
-        _apm = new AudioProcessingModule();
-        _config = new ApmConfig();
-        _config.SetGainController1(false, GainControlMode.AdaptiveDigital, 3, 9, true);
+        _apm = new SfApm.AudioProcessingModule();
+        _config = new SfApm.ApmConfig();
+        _config.SetGainController1(false, SfApm.GainControlMode.AdaptiveDigital, 3, 9, true);
         _config.SetGainController2(true);
-        _config.SetNoiseSuppression(true, NoiseSuppressionLevel.High);
+        ApplyNoiseSuppressionLocked(noiseSuppression);
         _config.SetHighPassFilter(true);
         _config.SetEchoCanceller(false, false);
 
         var err = _apm.ApplyConfig(_config);
-        if (err != ApmError.NoError)
+        if (err != SfApm.ApmError.NoError)
             throw new InvalidOperationException($"APM ApplyConfig failed: {err}");
 
-        _streamConfig = new StreamConfig(SampleRate, Channels);
+        _streamConfig = new SfApm.StreamConfig(SampleRate, Channels);
 
         err = _apm.Initialize();
-        if (err != ApmError.NoError)
+        if (err != SfApm.ApmError.NoError)
             throw new InvalidOperationException($"APM Initialize failed: {err}");
+    }
+
+    private void ApplyNoiseSuppressionLocked(NoiseSuppressionLevel level)
+    {
+        bool enabled = level != NoiseSuppressionLevel.Off;
+        var sfLevel = level switch
+        {
+            NoiseSuppressionLevel.Low => SfApm.NoiseSuppressionLevel.Low,
+            NoiseSuppressionLevel.Moderate => SfApm.NoiseSuppressionLevel.Moderate,
+            NoiseSuppressionLevel.VeryHigh => SfApm.NoiseSuppressionLevel.VeryHigh,
+            _ => SfApm.NoiseSuppressionLevel.High,
+        };
+        _config.SetNoiseSuppression(enabled, sfLevel);
     }
 
     /// <summary>
@@ -109,7 +124,7 @@ public sealed class WebRtcApmProcessor : IAudioCapturePostProcessor
         }
 
         var err = _apm.ProcessStream(_frameIn, _streamConfig, _streamConfig, _frameOut);
-        if (err != ApmError.NoError)
+        if (err != SfApm.ApmError.NoError)
         {
             inPcm16.CopyTo(outPcm16);
             return;
