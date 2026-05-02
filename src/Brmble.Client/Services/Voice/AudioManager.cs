@@ -1216,7 +1216,7 @@ private int _screenShareHotkeyId = -1;
             && mode == _transmissionMode
             && key == _lastTransmissionKey
             && hwnd == _hwnd
-            && IsTransmissionConfigStillValid(mode, key, hwnd))
+            && IsTransmissionConfigStillValid(mode, key, hwnd, CurrentPttInputState()))
         {
             return;
         }
@@ -1282,20 +1282,52 @@ private int _screenShareHotkeyId = -1;
         else if (!_muted)
             StartMic();
 
-        // Mark configured at the end so a failure or early return inside the
-        // body leaves the guard open for a retry on the next call.
+        // Mark configured at the end so an exception thrown mid-body leaves
+        // the flag false (next call retries from scratch). For *silent*
+        // failures inside the body — e.g. SetWindowsHookEx returning
+        // IntPtr.Zero, or KeyNameToVirtualKey returning 0 — the flag still
+        // gets set here, but IsTransmissionConfigStillValid will detect the
+        // missing hook/timer/vk on the next call and force a re-run.
         _lastTransmissionKey = key;
         _transmissionConfigured = true;
         TransmissionApplyCount++;
     }
 
     /// <summary>
-    /// Returns true if the runtime input state matches the previously-applied
-    /// (mode, key) — i.e. the hook/polling we set up last time is still ours
-    /// and still alive. Returning false forces SetTransmissionMode to redo
-    /// configuration even when the inputs haven't changed.
+    /// Snapshot of the input plumbing relevant to PTT validity. Extracted as
+    /// a record so <see cref="IsTransmissionConfigStillValid"/> can be a pure
+    /// function (testable without mocking Win32).
     /// </summary>
-    private bool IsTransmissionConfigStillValid(TransmissionMode mode, string? key, IntPtr hwnd)
+    internal readonly record struct PttInputState(
+        IntPtr MouseHookHandle,
+        string? ShortcutActionForMouse,
+        string? ShortcutKeyForMouse,
+        int PttVk,
+        bool PttPollingActive);
+
+    // Sentinel string the mouse hook uses when registered for PTT. Both
+    // PushToTalk and PushToTalkPlus modes route through this single literal —
+    // see RegisterMouseHookForButton. If you ever introduce a separate
+    // "pushToTalkPlus" action, update this and IsTransmissionConfigStillValid
+    // together.
+    private const string MouseHookPttAction = "pushToTalk";
+
+    private PttInputState CurrentPttInputState() => new(
+        _mouseHookHandle,
+        _shortcutActionForMouse,
+        _shortcutKeyForMouse,
+        _pttVk,
+        _pttPollingTimer != null);
+
+    /// <summary>
+    /// Pure check: does the captured input plumbing still match what
+    /// SetTransmissionMode set up last time? Returning false forces
+    /// SetTransmissionMode to redo configuration even when the inputs haven't
+    /// changed — used to recover from the shared mouse hook being stolen by
+    /// SetShortcut, or from a previous SetWindowsHookEx returning IntPtr.Zero.
+    /// </summary>
+    internal static bool IsTransmissionConfigStillValid(
+        TransmissionMode mode, string? key, IntPtr hwnd, PttInputState state)
     {
         bool isPttMode = mode == TransmissionMode.PushToTalk || mode == TransmissionMode.PushToTalkPlus;
         if (!isPttMode || key == null || hwnd == IntPtr.Zero)
@@ -1310,14 +1342,16 @@ private int _screenShareHotkeyId = -1;
         {
             // The mouse hook is shared with SetShortcut; verify it's still
             // ours (not stolen by a non-PTT shortcut) and actually registered.
-            return _mouseHookHandle != IntPtr.Zero
-                && _shortcutActionForMouse == "pushToTalk"
-                && _shortcutKeyForMouse == key;
+            return state.MouseHookHandle != IntPtr.Zero
+                && state.ShortcutActionForMouse == MouseHookPttAction
+                && state.ShortcutKeyForMouse == key;
         }
 
-        // Keyboard PTT: polling timer must be live for our VK.
+        // Keyboard PTT: polling timer must be live for our VK. If the key is
+        // unparseable (vk == 0), we deliberately return false so the body
+        // re-runs — there's nothing meaningful to skip.
         var vk = KeyNameToVirtualKey(key);
-        return vk != 0 && _pttVk == vk && _pttPollingTimer != null;
+        return vk != 0 && state.PttVk == vk && state.PttPollingActive;
     }
 
     private void StartPttPolling()
