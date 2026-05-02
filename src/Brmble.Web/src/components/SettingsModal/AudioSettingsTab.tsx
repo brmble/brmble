@@ -25,7 +25,6 @@ export interface AudioSettings {
   outputDevice: string;
   inputVolume: number;
   outputVolume: number;
-  maxAmplification: number;
   transmissionMode: TransmissionMode;
   pushToTalkKey: string | null;
   opusBitrate: number;
@@ -43,7 +42,6 @@ export const DEFAULT_SETTINGS: AudioSettings = {
   outputDevice: 'default',
   inputVolume: 250,
   outputVolume: 250,
-  maxAmplification: 100,
   transmissionMode: 'pushToTalk',
   pushToTalkKey: null,
   opusBitrate: 72000,
@@ -168,16 +166,6 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
           />
         </div>
 
-        <div className="settings-item settings-slider">
-          <label>Max Amplification: {localSettings.maxAmplification}%</label>
-          <input
-            type="range"
-            min="100"
-            max="400"
-            value={localSettings.maxAmplification}
-            onChange={(e) => handleChange('maxAmplification', parseInt(e.target.value, 10))}
-          />
-        </div>
       </div>
 
       {/* Output Section */}
