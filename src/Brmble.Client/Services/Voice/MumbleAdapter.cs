@@ -11,6 +11,7 @@ using MumbleSharp.Audio.Codecs;
 using MumbleSharp.Model;
 using MumbleProto;
 using PacketType = MumbleSharp.Packets.PacketType;
+using Brmble.Audio;
 using Brmble.Audio.Processing;
 using Brmble.Client.Bridge;
 using Brmble.Client.Services.AppConfig;
@@ -141,6 +142,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         };
         _audioManager.OnLossReport += loss => {
             _bridge?.Send("voice.loss", new { loss });
+        };
+        _audioManager.VadMeterUpdated += (rms, isOpen) =>
+        {
+            _bridge?.Send("voice.vadMeter", new { rms, isOpen });
         };
     }
 
@@ -697,6 +702,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     public void ApplySettings(AppSettings settings)
     {
         SetTransmissionMode(settings.Audio.TransmissionMode, settings.Audio.PushToTalkKey);
+        var vadSensitivity = settings.Audio.VadSensitivity switch
+        {
+            "low" => VadSensitivity.Low,
+            "high" => VadSensitivity.High,
+            _ => VadSensitivity.Balanced,
+        };
+        _audioManager?.SetVadSensitivity(vadSensitivity);
         _audioManager?.SetShortcut("toggleMute", settings.Shortcuts.ToggleMuteKey);
         _audioManager?.SetShortcut("toggleMuteDeafen", settings.Shortcuts.ToggleMuteDeafenKey);
         _audioManager?.SetShortcut("toggleLeaveVoice", settings.Shortcuts.ToggleLeaveVoiceKey);
@@ -2422,6 +2434,32 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 _bridge?.Send("dm.roomError", new { targetMatrixUserId, error = ex.Message });
                 _bridge?.NotifyUiThread();
             }
+        });
+
+        bridge.RegisterHandler("voice.vadSensitivity", data =>
+        {
+            var value = data.TryGetProperty("value", out var v) ? v.GetString() : null;
+            var level = value switch
+            {
+                "low" => VadSensitivity.Low,
+                "balanced" => VadSensitivity.Balanced,
+                "high" => VadSensitivity.High,
+                _ => (VadSensitivity?)null,
+            };
+            if (level is null)
+            {
+                AudioLog.Write($"[Bridge] Ignored voice.vadSensitivity with invalid value '{value}'");
+                return Task.CompletedTask;
+            }
+            _audioManager?.SetVadSensitivity(level.Value);
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.vadMeterSubscribe", data =>
+        {
+            var enabled = data.TryGetProperty("enabled", out var e) && e.GetBoolean();
+            _audioManager?.SetVadMeterSubscribed(enabled);
+            return Task.CompletedTask;
         });
     }
 
