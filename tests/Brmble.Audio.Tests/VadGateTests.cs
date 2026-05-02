@@ -132,4 +132,33 @@ public class VadGateTests
         var gate = new VadGate(new FakeVadDetector(), BalancedConfig);
         gate.Process(new short[100], 0);
     }
+
+    [TestMethod]
+    public void Replay_2026_05_02_realtalk_sequence_produces_at_most_5_transitions()
+    {
+        var lines = File.ReadAllLines("fixtures/vad-realtalk-2026-05-02.csv")
+                        .Where(l => !string.IsNullOrWhiteSpace(l) && !l.StartsWith("#"));
+        var rows = lines.Select(l =>
+        {
+            var p = l.Split(',');
+            return (rms: double.Parse(p[0], System.Globalization.CultureInfo.InvariantCulture),
+                    isSpeech: bool.Parse(p[1]));
+        }).ToList();
+
+        var vad = new FakeVadDetector(rows.Select(r => r.isSpeech).ToArray());
+        var gate = new VadGate(vad, BalancedConfig);
+        int transitions = 0;
+
+        for (int i = 0; i < rows.Count; i++)
+        {
+            // 100 ms between frames matches the throttle of the original measurement.
+            var frame = FrameFactory.WithRms(rows[i].rms);
+            var d = gate.Process(frame, nowMs: i * 100);
+            if (d is GateDecision.OpenWithLookback or GateDecision.CloseWithTerminator) transitions++;
+        }
+
+        Assert.IsTrue(transitions <= 5,
+            $"Expected ≤5 transitions across the realtalk replay; got {transitions}. " +
+            "Naïve threshold today produces ~20+; this guards the regression.");
+    }
 }
