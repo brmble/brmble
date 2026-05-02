@@ -221,6 +221,8 @@ internal sealed class AudioManager : IDisposable
     private volatile bool _muted;
     private volatile bool _deafened;
     private volatile TransmissionMode _transmissionMode = TransmissionMode.Continuous;
+    private string? _lastTransmissionKey;
+    private bool _transmissionConfigured;
     private volatile bool _pttActive;
 internal const int PttHotkeyId = 1;
 internal const int MuteHotkeyId = 2;
@@ -1201,9 +1203,20 @@ private int _screenShareHotkeyId = -1;
     /// </summary>
     public void SetTransmissionMode(TransmissionMode mode, string? key, IntPtr hwnd)
     {
+        // Idempotency guard: bail out if nothing changed. Without this, repeated
+        // calls (e.g. from a UI refresh storm) tear down and re-register the
+        // mouse hook / raw input within milliseconds, which historically caused
+        // PTT to silently fail (#470).
+        if (_transmissionConfigured && mode == _transmissionMode && key == _lastTransmissionKey && hwnd == _hwnd)
+        {
+            return;
+        }
+
         _pttActive = false;
         _hwnd = hwnd;
         _transmissionMode = mode;
+        _lastTransmissionKey = key;
+        _transmissionConfigured = true;
 
         // Unregister any existing hotkey
         if (_hotkeyId >= 0 && _hwnd != IntPtr.Zero)
