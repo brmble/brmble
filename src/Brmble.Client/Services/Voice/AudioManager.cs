@@ -297,6 +297,7 @@ private int _screenShareHotkeyId = -1;
     private readonly object _processorLock = new();
     private WebRtcApmProcessor? _processor;
     private NoiseSuppressionLevel _noiseSuppressionLevel = NoiseSuppressionLevel.High;
+    private bool _processorCreateFailed;
     [ThreadStatic] private static byte[]? _processorOutputScratch;
 
     // Packet loss tracking per user (EMA smoothing to prevent UI jitter)
@@ -452,10 +453,14 @@ private int _screenShareHotkeyId = -1;
         lock (_processorLock)
         {
             if (_noiseSuppressionLevel == level && _processor != null) return;
-            _noiseSuppressionLevel = level;
             _processor?.Dispose();
             _processor = CreateProcessor(level);
-            AudioLog.Write($"[Audio] Noise suppression set to {level}");
+            _processorCreateFailed = _processor == null;
+            if (_processor != null)
+            {
+                _noiseSuppressionLevel = level;
+                AudioLog.Write($"[Audio] Noise suppression set to {level}");
+            }
         }
     }
 
@@ -872,7 +877,11 @@ private int _screenShareHotkeyId = -1;
         // mid-call. Process() is fast (sub-ms for a 10–20 ms frame).
         lock (_processorLock)
         {
-            if (_processor == null) _processor = CreateProcessor(_noiseSuppressionLevel);
+            if (_processor == null && !_processorCreateFailed)
+            {
+                _processor = CreateProcessor(_noiseSuppressionLevel);
+                _processorCreateFailed = _processor == null;
+            }
             if (_processor != null)
             {
                 int needed = processedBytes + WebRtcApmProcessor.FrameBytes;

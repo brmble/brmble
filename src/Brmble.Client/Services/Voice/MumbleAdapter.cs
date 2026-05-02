@@ -2369,6 +2369,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             var levelStr = data.TryGetProperty("level", out var lv) ? lv.GetString() ?? "High" : "High";
             if (!Enum.TryParse<NoiseSuppressionLevel>(levelStr, ignoreCase: true, out var level))
                 level = NoiseSuppressionLevel.High;
+            _lastNoiseSuppressionLevel = level;
             _audioManager?.SetNoiseSuppression(level);
             return Task.CompletedTask;
         });
