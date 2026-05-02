@@ -894,8 +894,8 @@ private int _screenShareHotkeyId = -1;
         {
             var gate = GetOrCreateVadGate();
             int offset = 0;
-            // Reusable scratch buffer for byte→short conversion. Capture-thread only,
-            // so no synchronisation needed. Lazily sized to FrameSamples on first use.
+            int frameIndex = 0;
+            long baseNowMs = Environment.TickCount64;
             if (_vadFrameScratch is null) _vadFrameScratch = new short[VadGate.FrameSamples];
 
             while (offset + (VadGate.FrameSamples * 2) <= processedBytes)
@@ -904,7 +904,7 @@ private int _screenShareHotkeyId = -1;
                 for (int i = 0; i < VadGate.FrameSamples; i++)
                     _vadFrameScratch[i] = (short)(frameSpan[i * 2] | (frameSpan[i * 2 + 1] << 8));
 
-                var decision = gate.Process(_vadFrameScratch, Environment.TickCount64);
+                var decision = gate.Process(_vadFrameScratch, baseNowMs + frameIndex * 10);
 
                 EncodePipeline? pipelineRef;
                 bool fireStartedSpeaking = false;
@@ -944,6 +944,7 @@ private int _screenShareHotkeyId = -1;
                     PublishVadMeterThrottled(gate.LastRms, gate.IsOpen);
 
                 offset += VadGate.FrameSamples * 2;
+                frameIndex++;
             }
             return; // VAD path handles SubmitPcm itself; skip the legacy continuous block below
         }
@@ -990,21 +991,6 @@ private int _screenShareHotkeyId = -1;
         // else: encoded audio is ignored (the encoder keeps running)
     }
 
-    
-
-    /// <summary>RMS over a 16-bit little-endian PCM chunk. Returns 0 for empty buffers.</summary>
-    private static double ComputeRms(byte[] buffer, int bytesRecorded)
-    {
-        long sumSq = 0;
-        int samples = bytesRecorded / 2; // 16-bit samples
-        for (int i = 0; i < bytesRecorded - 1; i += 2)
-        {
-            short sample = (short)(buffer[i] | (buffer[i + 1] << 8));
-            sumSq += sample * sample;
-        }
-        if (samples == 0) return 0;
-        return Math.Sqrt(sumSq / (double)samples);
-    }
 
     private VadGate GetOrCreateVadGate()
     {
@@ -1045,8 +1031,16 @@ private int _screenShareHotkeyId = -1;
 
     public void SetVadMeterSubscribed(bool subscribed)
     {
-        if (subscribed) Interlocked.Increment(ref _vadMeterSubscribers);
-        else Interlocked.Decrement(ref _vadMeterSubscribers);
+        if (subscribed)
+            Interlocked.Increment(ref _vadMeterSubscribers);
+        else
+        {
+            // CAS loop to clamp at 0 — duplicate unmounts or error paths could
+            // otherwise drive the count negative and permanently disable the meter.
+            int current;
+            do { current = Volatile.Read(ref _vadMeterSubscribers); }
+            while (current > 0 && Interlocked.CompareExchange(ref _vadMeterSubscribers, current - 1, current) != current);
+        }
     }
 
     /// <summary>

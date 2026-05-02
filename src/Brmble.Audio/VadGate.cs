@@ -23,6 +23,8 @@ public sealed class VadGate
     {
         _vad = vad ?? throw new ArgumentNullException(nameof(vad));
         _config = initial ?? throw new ArgumentNullException(nameof(initial));
+        if (initial.OnsetLookbackFrames < 1)
+            throw new ArgumentOutOfRangeException(nameof(initial), "OnsetLookbackFrames must be >= 1");
         _vad.Mode = initial.VadMode;
         _ring = new short[initial.OnsetLookbackFrames][];
         for (int i = 0; i < _ring.Length; i++) _ring[i] = new short[FrameSamples];
