@@ -86,7 +86,6 @@ git push -u origin feature/my-feature
 - ❌ Commit directly to main
 - ❌ Push to main
 - ❌ Merge PRs without review
-- ❌ Commit plans or any changes before moving work to a worktree
 
 ## Tech Stack (Summary)
 - Frontend: React + TypeScript + Vite
