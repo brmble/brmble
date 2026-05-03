@@ -57,9 +57,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private readonly VoiceIdleTracker? _voiceIdleTracker;
     private System.Threading.Timer? _voiceIdlePollTimer;
     private int _voiceIdlePollOffset;
-    private const int VOICE_IDLE_POLL_INTERVAL_MS = 30_000;
-    private const int VOICE_IDLE_POLL_BATCH_SIZE = 30;
-    private readonly Stopwatch _localTransmitNotifyThrottle = Stopwatch.StartNew();
+    private int _voiceIdlePollInProgress;   // 0 = idle, 1 = tick running (Interlocked guard)
+    private int _voiceIdlePollGeneration;   // bumped on Stop so stale callbacks bail
+    // 5-second tick × 4-message batch = 0.8 msg/s sustained, burst 4 — comfortably
+    // under Mumble's documented leaky-bucket budget (~1 msg/s sustained, burst 5).
+    // Sweep cycle for N users: ceil(N/4) × 5s. 30-user channel = ~37.5s.
+    private const int VOICE_IDLE_POLL_INTERVAL_MS = 5_000;
+    private const int VOICE_IDLE_POLL_BATCH_SIZE = 4;
+    private long _lastLocalTransmitNotifyTicks;  // Environment.TickCount64 baseline
     private const int LOCAL_TRANSMIT_NOTIFY_THROTTLE_MS = 5_000;
     private System.Threading.Timer? _healthTimer;
     private long _healthGeneration;
@@ -2532,12 +2537,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _bridge?.Send("voice.userSpeaking", new { session = userId });
             // Local user spoke → reset Brmble-app idle timer (synthetic activity ping).
             // Throttled so we don't spam the bridge during normal continuous speech.
-            if (LocalUser != null && userId == LocalUser.Id
-                && _localTransmitNotifyThrottle.ElapsedMilliseconds >= LOCAL_TRANSMIT_NOTIFY_THROTTLE_MS)
+            // AudioManager events may fire from multiple threads; use Interlocked on
+            // a TickCount64 timestamp instead of a non-atomic Stopwatch.Restart().
+            if (LocalUser != null && userId == LocalUser.Id)
             {
-                _localTransmitNotifyThrottle.Restart();
-                _bridge?.Send("voice.localTransmit", new { });
-                _bridge?.NotifyUiThread();
+                var now = Environment.TickCount64;
+                var last = Interlocked.Read(ref _lastLocalTransmitNotifyTicks);
+                if (now - last >= LOCAL_TRANSMIT_NOTIFY_THROTTLE_MS
+                    && Interlocked.CompareExchange(ref _lastLocalTransmitNotifyTicks, now, last) == last)
+                {
+                    _bridge?.Send("voice.localTransmit", new { });
+                    _bridge?.NotifyUiThread();
+                }
             }
         };
         _audioManager?.UserStoppedSpeaking += userId =>
@@ -2849,8 +2860,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (_voiceIdleTracker == null) return;
         StopVoiceIdlePolling();
         _voiceIdlePollOffset = 0;
+        // Bump generation so any callback queued from a previous lifetime bails.
+        var generation = Interlocked.Increment(ref _voiceIdlePollGeneration);
         _voiceIdlePollTimer = new System.Threading.Timer(
-            _ => PollVoiceIdleTick(),
+            _ => PollVoiceIdleTick(generation),
             state: null,
             dueTime: VOICE_IDLE_POLL_INTERVAL_MS,
             period: VOICE_IDLE_POLL_INTERVAL_MS);
@@ -2858,20 +2871,31 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     private void StopVoiceIdlePolling()
     {
+        // Bump generation BEFORE disposing — if a callback is already queued on
+        // the threadpool, it will see the stale generation and exit cleanly.
+        Interlocked.Increment(ref _voiceIdlePollGeneration);
         _voiceIdlePollTimer?.Dispose();
         _voiceIdlePollTimer = null;
     }
 
     /// <summary>
     /// Sweeps a batch of currently-known users for fresh UserStats. Stays
-    /// well under Mumble's ~1 control-msg/sec sustained server-wide budget by
-    /// capping the batch size; rolls offset for fairness when channel size
-    /// exceeds <see cref="VOICE_IDLE_POLL_BATCH_SIZE"/>.
+    /// under Mumble's leaky-bucket budget by capping batch size to
+    /// <see cref="VOICE_IDLE_POLL_BATCH_SIZE"/> per <see cref="VOICE_IDLE_POLL_INTERVAL_MS"/>
+    /// and rolling offset for fairness across users.
+    /// Non-reentrant: a slow tick won't pile up overlapping callbacks.
     /// </summary>
-    private void PollVoiceIdleTick()
+    private void PollVoiceIdleTick(int generation)
     {
+        // Non-reentrant guard. CompareExchange returns the original value;
+        // if a tick was already running we bail without ever entering the body.
+        if (Interlocked.CompareExchange(ref _voiceIdlePollInProgress, 1, 0) != 0) return;
         try
         {
+            // Stale-callback guard: a callback can be queued on the threadpool
+            // before Stop disposes the timer; the generation bump invalidates it.
+            if (generation != Volatile.Read(ref _voiceIdlePollGeneration)) return;
+
             var conn = Connection;
             if (conn == null || conn.State != ConnectionStates.Connected) return;
 
@@ -2898,6 +2922,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     $"[{DateTime.Now:HH:mm:ss.fff}] PollVoiceIdleTick error: {ex.Message}\n");
             }
             catch { /* logging is best-effort */ }
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _voiceIdlePollInProgress, 0);
         }
     }
 
