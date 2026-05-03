@@ -9,6 +9,7 @@ import { prompt } from '../../hooks/usePrompt';
 import bridge from '../../bridge';
 import Avatar from '../Avatar/Avatar';
 import { formatIdleDuration } from '../../utils/formatIdleDuration';
+import { AFK_THRESHOLD_SEC } from '../../hooks/useIdleActions';
 import type { ShareInfo } from '../../hooks/useScreenShare';
 import { EditChannelDialog } from '../EditChannelDialog/EditChannelDialog';
 import { RenameConfirmDialog } from '../RenameConfirmDialog/RenameConfirmDialog';
@@ -348,7 +349,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                       {user.muted && (
                         <Icon name="mic-off" size={11} className="user-status-icon user-status-icon--muted" strokeWidth={2.5} />
                       )}
-                      {voiceIdle && voiceIdle[user.session] !== undefined && voiceIdle[user.session] > 600 && (
+                      {voiceIdle && voiceIdle[user.session] !== undefined && voiceIdle[user.session] >= AFK_THRESHOLD_SEC && (
                         <Tooltip content={formatIdleDuration(voiceIdle[user.session])}>
                           <Icon name="moon" size={11} className="user-status-icon user-status-icon--idle" strokeWidth={2.5} />
                         </Tooltip>

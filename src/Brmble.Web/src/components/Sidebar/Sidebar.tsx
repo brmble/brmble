@@ -6,6 +6,7 @@ import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
 import { UserTooltip } from '../UserTooltip/UserTooltip';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { formatIdleDuration } from '../../utils/formatIdleDuration';
+import { AFK_THRESHOLD_SEC } from '../../hooks/useIdleActions';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useServiceStatus } from '../../hooks/useServiceStatus';
 import { useResizable } from '../../hooks/useResizable';
@@ -302,7 +303,7 @@ export function Sidebar({
                       {user.muted && (
                         <Icon name="mic-off" size={11} className="user-status-icon user-status-icon--muted" strokeWidth="2.5" />
                       )}
-                      {voiceIdle && voiceIdle[user.session] !== undefined && voiceIdle[user.session] > 600 && (
+                      {voiceIdle && voiceIdle[user.session] !== undefined && voiceIdle[user.session] >= AFK_THRESHOLD_SEC && (
                         <Tooltip content={formatIdleDuration(voiceIdle[user.session])}>
                           <Icon name="moon" size={11} className="user-status-icon user-status-icon--idle" strokeWidth="2.5" />
                         </Tooltip>
