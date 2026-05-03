@@ -654,7 +654,7 @@ The component sets `aria-hidden="true"` automatically. Color inherits from `curr
 | **Chat** | `message-square`, `message-circle` | Message bubble variants |
 | **Server** | `server`, `globe`, `folder`, `shield`, `star`, `ban`, `triangle-right` | Infrastructure & moderation |
 | **UI — Actions** | `x`, `search`, `plus`, `check`, `send`, `upload`, `arrow-right`, `eye`, `eye-off`, `chevron-up`, `chevron-down`, `info`, `info-filled` | Generic interactive icons |
-| **UI — Objects** | `user`, `settings`, `save`, `palette` | Profiles, preferences |
+| **UI — Objects** | `user`, `settings`, `save`, `palette`, `moon` | Profiles, preferences, idle indicator |
 | **Window** | `window-minimize`, `window-maximize`, `window-close` | Title bar controls (custom viewBox) |
 | **Brmblegotchi — Actions** | `gotchi-food`, `gotchi-play`, `gotchi-clean` | Pet interaction buttons |
 | **Brmblegotchi — Stats** | `gotchi-hunger`, `gotchi-happiness`, `gotchi-cleanliness` | Pet stat indicators |

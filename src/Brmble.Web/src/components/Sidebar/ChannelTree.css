@@ -194,6 +194,11 @@
   flex-shrink: 0;
 }
 
+.user-status-icon--idle {
+  color: color-mix(in srgb, var(--text-muted, #888) 65%, transparent);
+  flex-shrink: 0;
+}
+
 .user-status-icon-btn {
   background: none;
   border: none;
