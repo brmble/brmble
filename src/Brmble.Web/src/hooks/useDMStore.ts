@@ -51,6 +51,12 @@ export interface DMStore {
 }
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const MUMBLE_MESSAGES_MAX_PER_CONTACT = 200;
+
+// ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
 
@@ -246,7 +252,11 @@ export function useDMStore(options: DMStoreOptions): DMStore {
       setMumbleMessages(prev => {
         const next = new Map(prev);
         const existing = next.get(selectedContactId!) ?? [];
-        next.set(selectedContactId!, [...existing, msg]);
+        let updated = [...existing, msg];
+        if (updated.length > MUMBLE_MESSAGES_MAX_PER_CONTACT) {
+          updated = updated.slice(updated.length - MUMBLE_MESSAGES_MAX_PER_CONTACT);
+        }
+        next.set(selectedContactId!, updated);
         return next;
       });
       sendMumbleDM?.(contact.mumbleSessionId, content);
@@ -280,7 +290,15 @@ export function useDMStore(options: DMStoreOptions): DMStore {
             return next;
           });
         })
-        .catch(console.error);
+        .catch(err => {
+          console.error('Matrix DM send failed:', err);
+          setPendingMessages(prev => {
+            const next = new Map(prev);
+            const existing = next.get(selectedContactId!) ?? [];
+            next.set(selectedContactId!, existing.filter(m => m.id !== optimisticMsg.id));
+            return next;
+          });
+        });
     }
   }, [selectedContactId, username, sendMatrixDM, mumbleContacts, sendMumbleDM]);
 
@@ -333,7 +351,11 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     setMumbleMessages(prev => {
       const next = new Map(prev);
       const existing = next.get(certHash) ?? [];
-      next.set(certHash, [...existing, msg]);
+      let updated = [...existing, msg];
+      if (updated.length > MUMBLE_MESSAGES_MAX_PER_CONTACT) {
+        updated = updated.slice(updated.length - MUMBLE_MESSAGES_MAX_PER_CONTACT);
+      }
+      next.set(certHash, updated);
       return next;
     });
     // Increment unread if not currently viewing this contact
