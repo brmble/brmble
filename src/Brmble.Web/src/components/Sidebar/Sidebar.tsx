@@ -5,6 +5,7 @@ import type { ContextMenuItem } from '../ContextMenu/ContextMenu';
 import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
 import { UserTooltip } from '../UserTooltip/UserTooltip';
 import { Tooltip } from '../Tooltip/Tooltip';
+import { formatIdleDuration } from '../../utils/formatIdleDuration';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useServiceStatus } from '../../hooks/useServiceStatus';
 import { useResizable } from '../../hooks/useResizable';
@@ -35,6 +36,7 @@ interface SidebarProps {
   onDisconnect?: () => void;
   onStartDM?: (userId: string, userName: string) => void;
   speakingUsers?: Map<number, boolean>;
+  voiceIdle?: Record<number, number>;
   pendingChannelAction?: number | 'leave' | null;
   channelUnreads?: Map<string, { notificationCount: number; highlightCount: number }>;
   sharingChannelId?: number;
@@ -62,6 +64,7 @@ export function Sidebar({
   onDisconnect,
   onStartDM,
   speakingUsers,
+  voiceIdle,
   pendingChannelAction,
   channelUnreads,
   sharingChannelId,
@@ -299,6 +302,11 @@ export function Sidebar({
                       {user.muted && (
                         <Icon name="mic-off" size={11} className="user-status-icon user-status-icon--muted" strokeWidth="2.5" />
                       )}
+                      {voiceIdle && voiceIdle[user.session] !== undefined && voiceIdle[user.session] > 600 && (
+                        <Tooltip content={formatIdleDuration(voiceIdle[user.session])}>
+                          <Icon name="moon" size={11} className="user-status-icon user-status-icon--idle" strokeWidth="2.5" />
+                        </Tooltip>
+                      )}
                     </span>
                     <Avatar user={{ name: user.name, matrixUserId: user.matrixUserId, avatarUrl: user.avatarUrl }} size={20} isMumbleOnly={!user.self && !user.isBrmbleClient} />
                     <span className="root-user-name">{user.name}</span>
@@ -357,6 +365,7 @@ export function Sidebar({
           onSelectChannel={onSelectChannel}
           onStartDM={onStartDM}
           speakingUsers={speakingUsers}
+          voiceIdle={voiceIdle}
           pendingChannelAction={pendingChannelAction}
           channelUnreads={channelUnreads}
           sharingChannelId={sharingChannelId}
