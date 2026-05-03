@@ -69,6 +69,32 @@ static class Program
     [STAThread]
     static void Main()
     {
+        // Unhandled-exception trap for diagnosis. WinExe has no console; without
+        // this hook a crashing background thread leaves no trace beyond exit
+        // code 1. Log to %TEMP%/brmble-tls.log so it survives the process end.
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
+            try
+            {
+                var ex = args.ExceptionObject as Exception;
+                File.AppendAllText(
+                    Path.Combine(Path.GetTempPath(), "brmble-tls.log"),
+                    $"[{DateTime.Now:HH:mm:ss.fff}] UNHANDLED ({(args.IsTerminating ? "TERMINATING" : "non-terminating")}): {ex}\n\n");
+            }
+            catch { /* logging is best-effort */ }
+        };
+        System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            try
+            {
+                File.AppendAllText(
+                    Path.Combine(Path.GetTempPath(), "brmble-tls.log"),
+                    $"[{DateTime.Now:HH:mm:ss.fff}] UNOBSERVED TASK EX: {args.Exception}\n\n");
+            }
+            catch { /* logging is best-effort */ }
+            args.SetObserved();
+        };
+
         try
         {
             VelopackApp.Build().Run();
