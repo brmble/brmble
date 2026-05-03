@@ -8,6 +8,9 @@ import { useScreenShare } from './hooks/useScreenShare';
 import type { LocalShareStopReason } from './hooks/useScreenShare';
 import { useLeaveVoiceCooldown } from './hooks/useLeaveVoiceCooldown';
 import { useNotificationQueue } from './hooks/useNotificationQueue';
+import { useBrmbleIdle } from './hooks/useBrmbleIdle';
+import { useIdleStatus } from './hooks/useIdleStatus';
+import { useIdleActions } from './hooks/useIdleActions';
 import { useUnreadTracker, resetMarkersCache } from './hooks/useUnreadTracker';
 import { useServiceStatus } from './hooks/useServiceStatus';
 import { useServerHealth } from './hooks/useServerHealth';
@@ -353,6 +356,26 @@ function App() {
   const [selfSession, setSelfSession] = useState<number>(0);
   const [speakingUsers, setSpeakingUsers] = useState<Map<number, boolean>>(new Map());
   const [pendingChannelAction, setPendingChannelAction] = useState<number | 'leave' | null>(null);
+
+  // Idle / AFK tracking — see docs/research/2026-05-03-idle-status-research.md
+  const brmbleIdleSec = useBrmbleIdle();
+  const { voiceIdle, systemIdle, isLocked } = useIdleStatus();
+  const selfVoiceChannelIdForIdle = users.find(u => u.self)?.channelId;
+  const inVoiceChannelForIdle =
+    !selfLeftVoice && selfVoiceChannelIdForIdle != null && selfVoiceChannelIdForIdle !== 0;
+  const { autoLeftAt, dismissToast: dismissAutoLeftToast } = useIdleActions({
+    brmbleIdleSec,
+    systemIdleSec: systemIdle,
+    isLocked,
+    inVoiceChannel: inVoiceChannelForIdle,
+  });
+
+  // Register the auto-leave-voice toast in the notification queue when fired.
+  useEffect(() => {
+    if (autoLeftAt !== null) {
+      notifQueue.register('idle-auto-leave', 'info');
+    }
+  }, [autoLeftAt, notifQueue]);
   const [hotkeyPressedBtn, setHotkeyPressedBtn] = useState<string | null>(null);
   const pendingChannelActionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -2393,6 +2416,7 @@ const handleConnect = (serverData: SavedServer) => {
           onDisconnect={handleDisconnect}
           onStartDM={handleStartDMFromContextMenu}
           speakingUsers={speakingUsers}
+          voiceIdle={voiceIdle}
           connectionStatus={connectionStatus}
           onCancelReconnect={handleCancelReconnect}
           pendingChannelAction={pendingChannelAction}
@@ -2652,6 +2676,20 @@ const handleConnect = (serverData: SavedServer) => {
             }}
             onExited={() => {
               notifQueue.unregister('copy');
+            }}
+          />
+        )}
+        {autoLeftAt !== null && notifQueue.isVisible('idle-auto-leave') && (
+          <Notification
+            status="info"
+            position="top-right"
+            visible={autoLeftAt !== null}
+            duration={6000}
+            title="Out of voice"
+            detail="You were moved out of voice after 10 minutes of inactivity."
+            onDismiss={dismissAutoLeftToast}
+            onExited={() => {
+              notifQueue.unregister('idle-auto-leave');
             }}
           />
         )}
