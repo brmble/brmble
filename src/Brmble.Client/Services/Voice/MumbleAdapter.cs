@@ -2901,7 +2901,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
             // Snapshot sessions; ConcurrentDictionary.Values is a live view but
             // ToArray gives us a stable list for the batch.
-            var sessions = UserDictionary.Keys.ToArray();
+            var sessions = UserDictionary.Keys.OrderBy(s => s).ToArray();
             if (sessions.Length == 0) return;
 
             var plan = PollBatchPlanner.Plan(_voiceIdlePollOffset, sessions.Length, VOICE_IDLE_POLL_BATCH_SIZE);

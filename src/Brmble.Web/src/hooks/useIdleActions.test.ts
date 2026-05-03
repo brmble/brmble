@@ -69,7 +69,7 @@ describe('useIdleActions', () => {
     expect(bridge.send).toHaveBeenCalledTimes(1);
   });
 
-  it('re-arms after user returns (brmbleIdle drops to 0)', () => {
+  it('re-arms when any source drops below threshold (not just brmbleIdle === 0)', () => {
     const { rerender } = render({
       brmbleIdleSec: AFK_THRESHOLD_SEC,
       systemIdleSec: AFK_THRESHOLD_SEC,
@@ -78,8 +78,8 @@ describe('useIdleActions', () => {
     });
     expect(bridge.send).toHaveBeenCalledTimes(1);
 
-    // User comes back
-    rerender({ brmbleIdleSec: 0, systemIdleSec: 0, isLocked: false, inVoiceChannel: true });
+    // User moves mouse (system idle drops, brmble idle stays high briefly due to 5s tick)
+    rerender({ brmbleIdleSec: AFK_THRESHOLD_SEC - 1, systemIdleSec: 3, isLocked: false, inVoiceChannel: true });
 
     // Goes idle again later
     rerender({

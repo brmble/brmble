@@ -2691,7 +2691,10 @@ const handleConnect = (serverData: SavedServer) => {
             duration={6000}
             title="Out of voice"
             detail="You were moved out of voice after 10 minutes of inactivity."
-            onDismiss={dismissAutoLeftToast}
+            onDismiss={() => {
+              notifQueue.unregister('idle-auto-leave');
+              dismissAutoLeftToast();
+            }}
             onExited={() => {
               notifQueue.unregister('idle-auto-leave');
             }}

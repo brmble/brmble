@@ -351,7 +351,9 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                       )}
                       {voiceIdle && voiceIdle[user.session] !== undefined && voiceIdle[user.session] >= AFK_THRESHOLD_SEC && (
                         <Tooltip content={formatIdleDuration(voiceIdle[user.session])}>
-                          <Icon name="moon" size={11} className="user-status-icon user-status-icon--idle" strokeWidth={2.5} />
+                          <span tabIndex={0} role="img" aria-label={formatIdleDuration(voiceIdle[user.session])}>
+                            <Icon name="moon" size={11} className="user-status-icon user-status-icon--idle" strokeWidth={2.5} />
+                          </span>
                         </Tooltip>
                       )}
                     </span>

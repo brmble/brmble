@@ -53,8 +53,8 @@ export function useIdleActions({
       firedRef.current = true;
       bridge.send('voice.leaveVoice', {});
       setAutoLeftAt(Date.now());
-    } else if (!fullyIdle && brmbleIdleSec === 0 && firedRef.current) {
-      // User came back (DOM activity reset Brmble idle). Re-arm for next cycle.
+    } else if (!fullyIdle && firedRef.current) {
+      // Any source dropped below threshold → user came back. Re-arm for next cycle.
       firedRef.current = false;
     }
   }, [brmbleIdleSec, systemIdleSec, isLocked, inVoiceChannel]);

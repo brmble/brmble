@@ -28,7 +28,6 @@ export interface User {
   avatarUrl?: string;
   certHash?: string;
   isBrmbleClient?: boolean;
-  voiceIdleSecs?: number;
 }
 
 export interface IdleUpdate {
