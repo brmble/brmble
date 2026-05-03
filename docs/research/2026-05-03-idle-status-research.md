@@ -284,14 +284,14 @@ useIdleActions()
 
 **Visual:**
 
-- **Sidebar moon icon (`<Icon name="moon" />`)** next to every Mumble-connected user (peers + self) when their `voiceIdleSec > 10 min`. Driven by polled `UserStats.idlesecs`. Rendered via the existing `user-status-area` span in `ChannelTree.tsx` and the equivalent in root-users (`Sidebar.tsx`).
-- **Hover tooltip on the moon** showing elapsed time. Format: `< 60 min` → "AFK voor 12 min"; `≥ 60 min` → "AFK voor 1u 23m"; `≥ 24 h` → "AFK voor 2 dagen". Use the existing `<UserTooltip>`/`<Tooltip>` infrastructure.
-- **Tray icon moon overlay** when `systemIdleSec ≥ 10 min` OR `isLocked` — shown whether or not connected to voice. Two pre-rendered .ico files (`Resources/brmble.ico` + `Resources/brmble-idle.ico`); swap via `Shell_NotifyIcon(NIM_MODIFY)`.
+- **Sidebar moon icon (`<Icon name="moon" />`)** next to every Mumble-connected user (peers + self) when their `voiceIdleSec ≥ AFK_THRESHOLD_SEC` (10 min). Driven by polled `UserStats.idlesecs`. Rendered via the existing `user-status-area` span in `ChannelTree.tsx` and the equivalent in root-users (`Sidebar.tsx`).
+- **Hover tooltip on the moon** showing elapsed time. Format (English): `< 60 min` → "Idle for 12 min"; `≥ 60 min` → "Idle for 1h 23m"; `≥ 24 h` → "Idle for 2 days". Use the existing `<UserTooltip>`/`<Tooltip>` infrastructure.
 
 **Polling:**
 
-- Sweep `UserStats` for **every Mumble-connected user we render** (voice channels + root) every **30 s**. Stagger across waves if >30 users to stay under Mumble's ~1 control msg/s sustained limit.
+- Sweep `UserStats` for every Mumble-connected user the client knows about. **Tick every 5 s, batch ≤ 4 sessions per tick** — 0.8 msg/s sustained, burst 4 (under Mumble's leaky-bucket ~1 msg/s sustained, burst 5). Sweep cycle for N users: `ceil(N/4) × 5s` (30 users = ~37.5 s).
 - Pause polling when not connected.
+- Polling is non-reentrant and gated by a generation token so callbacks queued from a previous lifetime exit cleanly across disconnect/reconnect.
 
 **Out of scope for v1 (deferred):**
 
@@ -301,6 +301,7 @@ useIdleActions()
 - Brmble-specific presence broadcast (Mumble `idlesecs` already covers peer-visible idle).
 - Per-server settings.
 - Idle for pure-Matrix DM contacts without a Mumble session.
+- **Tray icon moon overlay** — needs a `brmble-idle.ico` graphic asset. Wired into the plan as Task 14 (optional). Tracked as a follow-up issue once the asset exists.
 
 **Why this is enough**
 
