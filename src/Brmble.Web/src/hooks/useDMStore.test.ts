@@ -12,7 +12,7 @@ function makeOptions(overrides: Partial<DMStoreOptions> = {}): DMStoreOptions {
     sendMatrixDM: vi.fn().mockResolvedValue(undefined),
     fetchDMHistory: vi.fn().mockResolvedValue(undefined),
     sendMumbleDM: vi.fn(),
-    users: [{ id: 1, name: 'me', session: 1 }] as DMStoreOptions['users'],
+    users: [{ name: 'me', session: 1 }] as DMStoreOptions['users'],
     username: 'me',
     ...overrides,
   };
