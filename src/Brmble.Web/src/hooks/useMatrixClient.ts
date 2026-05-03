@@ -99,6 +99,12 @@ export interface MatrixCredentials {
   dmRoomMap?: Record<string, string>; // matrixUserId → matrixRoomId (from server)
 }
 
+export interface MessagePreview {
+  content: string;
+  ts: number;
+  sender: string;
+}
+
 export function useMatrixClient(credentials: MatrixCredentials | null) {
   const clientRef = useRef<MatrixClient | null>(null);
   const [client, setClient] = useState<MatrixClient | null>(null);
@@ -109,6 +115,10 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
   const [dmRoomMap, setDmRoomMap] = useState<Map<string, string>>(new Map());
   // DM messages: matrixUserId -> ChatMessage[]
   const [dmMessages, setDmMessages] = useState<Map<string, ChatMessage[]>>(new Map());
+
+  // Last-message previews: one entry per channel/DM user (bounded)
+  const [lastMessages, setLastMessages] = useState<Map<string, MessagePreview>>(new Map());
+  const [dmLastMessages, setDmLastMessages] = useState<Map<string, MessagePreview>>(new Map());
 
   const dmRoomMapRef = useRef<Map<string, string>>(new Map());
   // Keep ref in sync
@@ -133,8 +143,10 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       clientRef.current = null;
       setClient(null);
       setMessages(new Map());
-      setDmRoomMap(new Map());
+      setLastMessages(new Map());
       setDmMessages(new Map());
+      setDmLastMessages(new Map());
+      setDmRoomMap(new Map());
       dmRoomMapRef.current = new Map();
       roomIdToDMUserIdRef.current = new Map();
       lastSyncStateRef.current = null;
@@ -164,6 +176,17 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
           if (updated === existing) return prev;
           return new Map(prev).set(channelId, updated);
         });
+        setLastMessages(prev => {
+          const existing = prev.get(channelId);
+          if (existing && existing.ts >= message.timestamp.getTime()) return prev;
+          const next = new Map(prev);
+          next.set(channelId, {
+            content: message.content,
+            ts: message.timestamp.getTime(),
+            sender: message.sender,
+          });
+          return next;
+        });
         return;
       }
 
@@ -184,6 +207,17 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
         const updated = insertMessage(existing, dmMessage);
         if (updated === existing) return prev;
         return new Map(prev).set(dmUserId, updated);
+      });
+      setDmLastMessages(prev => {
+        const existing = prev.get(dmUserId);
+        if (existing && existing.ts >= dmMessage.timestamp.getTime()) return prev;
+        const next = new Map(prev);
+        next.set(dmUserId, {
+          content: dmMessage.content,
+          ts: dmMessage.timestamp.getTime(),
+          sender: dmMessage.sender,
+        });
+        return next;
       });
     };
 
@@ -218,6 +252,36 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
             onTimeline(event, room);
           }
           bufferedDmEvents.length = 0;
+
+          // Bootstrap last-message previews from the SDK timelines now
+          // that initial sync is complete. This avoids waiting for new
+          // RoomEvent.Timeline events to populate the sidebar.
+          const bootChannelPreviews = new Map<string, MessagePreview>();
+          const bootDmPreviews = new Map<string, MessagePreview>();
+          for (const room of client.getRooms()) {
+            const channelId = roomIdToChannelId.get(room.roomId);
+            const dmUserId = roomIdToDMUserIdRef.current.get(room.roomId);
+            const target = channelId ?? dmUserId;
+            if (!target) continue;
+
+            const events = room.getLiveTimeline().getEvents();
+            for (let i = events.length - 1; i >= 0; i--) {
+              const ev = events[i];
+              if (ev.getType() !== EventType.RoomMessage) continue;
+              const msg = transformEventToChatMessage(ev, room, target, clientRef.current);
+              if (!msg) continue;
+              const preview: MessagePreview = {
+                content: msg.content,
+                ts: msg.timestamp.getTime(),
+                sender: msg.sender,
+              };
+              if (channelId) bootChannelPreviews.set(channelId, preview);
+              else if (dmUserId) bootDmPreviews.set(dmUserId, preview);
+              break;
+            }
+          }
+          if (bootChannelPreviews.size > 0) setLastMessages(bootChannelPreviews);
+          if (bootDmPreviews.size > 0) setDmLastMessages(bootDmPreviews);
         }
       } else if (state === 'ERROR') {
         derivedState = 'disconnected';
@@ -548,7 +612,8 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     return urls;
   }, [client, dmRoomMap]);
 
-  return { messages, sendMessage, sendImageMessage, uploadContent, fetchHistory, dmMessages, dmRoomMap,
+  return { messages, lastMessages, sendMessage, sendImageMessage, uploadContent, fetchHistory,
+           dmMessages, dmLastMessages, dmRoomMap,
            dmUserDisplayNames, dmUserAvatarUrls, sendDMMessage, fetchDMHistory,
            fetchAvatarUrl, client };
 }

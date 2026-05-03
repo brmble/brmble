@@ -242,4 +242,39 @@ describe('useMatrixClient', () => {
     // Content should be the full body, not stripped
     expect(last.content).toBe('[Alice]: this is not bridged');
   });
+
+  it('lastMessages and dmLastMessages start empty', () => {
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+    expect(result.current.lastMessages.size).toBe(0);
+    expect(result.current.dmLastMessages.size).toBe(0);
+  });
+
+  it('updates lastMessages when a channel timeline event arrives', () => {
+    const mockRoom = {
+      roomId: '!room:example.com',
+      getMember: vi.fn(() => ({ rawDisplayName: 'Alice', name: 'Alice' })),
+    };
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+
+    const onTimeline = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'Room.timeline')?.[1] as
+      | ((ev: unknown, r: unknown) => void)
+      | undefined;
+    expect(onTimeline).toBeDefined();
+
+    const fakeEvent = {
+      getType: () => 'm.room.message',
+      getId: () => '$evt-1',
+      getSender: () => '@alice:example.com',
+      getContent: () => ({ body: 'hi there' }),
+      getTs: () => 1_700_000_000_000,
+    };
+
+    act(() => onTimeline!(fakeEvent, mockRoom));
+
+    expect(result.current.lastMessages.get('42')).toEqual({
+      content: 'hi there',
+      ts: 1_700_000_000_000,
+      sender: 'Alice',
+    });
+  });
 });
