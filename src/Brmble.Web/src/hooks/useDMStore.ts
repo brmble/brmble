@@ -20,7 +20,8 @@ export interface DMContact {
 }
 
 export interface DMStoreOptions {
-  matrixDmMessages: Map<string, ChatMessage[]> | undefined;
+  matrixDmLastMessages: Map<string, { content: string; ts: number; sender: string }> | undefined;
+  activeDmMessages: ChatMessage[] | undefined;
   matrixDmRoomMap: Map<string, string> | undefined;
   matrixDmUserDisplayNames: Map<string, string> | undefined;
   matrixDmUserAvatarUrls: Map<string, string> | undefined;
@@ -62,7 +63,8 @@ const MUMBLE_MESSAGES_MAX_PER_CONTACT = 200;
 
 export function useDMStore(options: DMStoreOptions): DMStore {
   const {
-    matrixDmMessages,
+    matrixDmLastMessages,
+    activeDmMessages,
     matrixDmRoomMap,
     matrixDmUserDisplayNames,
     matrixDmUserAvatarUrls,
@@ -120,8 +122,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
       for (const [matrixUserId] of matrixDmRoomMap) {
         seen.add(matrixUserId);
         const user = users.find(u => u.matrixUserId === matrixUserId);
-        const msgs = matrixDmMessages?.get(matrixUserId);
-        const lastMsg = msgs && msgs.length > 0 ? msgs[msgs.length - 1] : undefined;
+        const lastPreview = matrixDmLastMessages?.get(matrixUserId);
 
         // Resolve display name: Matrix room membership > Mumble user list > parse Matrix ID
         const displayName = matrixDmUserDisplayNames?.get(matrixUserId)
@@ -132,8 +133,8 @@ export function useDMStore(options: DMStoreOptions): DMStore {
           id: matrixUserId,
           displayName,
           avatarUrl: user?.avatarUrl ?? matrixDmUserAvatarUrls?.get(matrixUserId),
-          lastMessage: lastMsg?.content,
-          lastMessageTime: lastMsg?.timestamp.getTime(),
+          lastMessage: lastPreview?.content,
+          lastMessageTime: lastPreview?.ts,
           unreadCount: 0, // Matrix unread is tracked globally via matrixDmUnreadCount
         });
       }
@@ -159,7 +160,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
 
     result.sort((a, b) => (b.lastMessageTime ?? 0) - (a.lastMessageTime ?? 0));
     return result;
-  }, [matrixDmRoomMap, matrixDmMessages, matrixDmUserDisplayNames, matrixDmUserAvatarUrls, users, pendingMatrixContacts, mumbleContacts, mumbleMessages]);
+  }, [matrixDmRoomMap, matrixDmLastMessages, matrixDmUserDisplayNames, matrixDmUserAvatarUrls, users, pendingMatrixContacts, mumbleContacts, mumbleMessages]);
 
   // ---- Selected contact ----------------------------------------------------
 
@@ -176,10 +177,10 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     const mumbleMsgs = mumbleMessages.get(selectedContactId);
     if (mumbleMsgs) return mumbleMsgs;
     // Otherwise Matrix messages
-    const matrixMsgs = matrixDmMessages?.get(selectedContactId) ?? [];
+    const matrixMsgs = activeDmMessages ?? [];
     const pending = pendingMessages.get(selectedContactId) ?? [];
     return [...matrixMsgs, ...pending];
-  }, [selectedContactId, matrixDmMessages, pendingMessages, mumbleMessages]);
+  }, [selectedContactId, activeDmMessages, pendingMessages, mumbleMessages]);
 
   // ---- Actions -------------------------------------------------------------
 

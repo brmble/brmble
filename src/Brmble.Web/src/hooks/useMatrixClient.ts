@@ -130,13 +130,10 @@ export interface MessagePreview {
 export function useMatrixClient(credentials: MatrixCredentials | null) {
   const clientRef = useRef<MatrixClient | null>(null);
   const [client, setClient] = useState<MatrixClient | null>(null);
-  const [messages, setMessages] = useState<Map<string, ChatMessage[]>>(new Map());
   const { updateStatus } = useServiceStatus();
 
   // DM room tracking: matrixUserId -> roomId
   const [dmRoomMap, setDmRoomMap] = useState<Map<string, string>>(new Map());
-  // DM messages: matrixUserId -> ChatMessage[]
-  const [dmMessages, setDmMessages] = useState<Map<string, ChatMessage[]>>(new Map());
 
   // Last-message previews: one entry per channel/DM user (bounded)
   const [lastMessages, setLastMessages] = useState<Map<string, MessagePreview>>(new Map());
@@ -172,9 +169,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       clientRef.current?.stopClient();
       clientRef.current = null;
       setClient(null);
-      setMessages(new Map());
       setLastMessages(new Map());
-      setDmMessages(new Map());
       setDmLastMessages(new Map());
       setActiveMessages([]);
       setActiveDmMessages([]);
@@ -204,12 +199,6 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
         const message = transformEventToChatMessage(event, room, channelId, clientRef.current);
         if (!message) return;
 
-        setMessages(prev => {
-          const existing = prev.get(channelId) ?? [];
-          const updated = insertMessage(existing, message);
-          if (updated === existing) return prev;
-          return new Map(prev).set(channelId, updated);
-        });
         setLastMessages(prev => {
           const existing = prev.get(channelId);
           if (existing && existing.ts >= message.timestamp.getTime()) return prev;
@@ -242,12 +231,6 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       const dmMessage = transformEventToChatMessage(event, room, dmUserId, clientRef.current);
       if (!dmMessage) return;
 
-      setDmMessages(prev => {
-        const existing = prev.get(dmUserId) ?? [];
-        const updated = insertMessage(existing, dmMessage);
-        if (updated === existing) return prev;
-        return new Map(prev).set(dmUserId, updated);
-      });
       setDmLastMessages(prev => {
         const existing = prev.get(dmUserId);
         if (existing && existing.ts >= dmMessage.timestamp.getTime()) return prev;
@@ -269,7 +252,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
 
     client.on(RoomEvent.Timeline, onTimeline);
     updateStatus('chat', { state: 'connecting', error: undefined });
-    client.startClient({ initialSyncLimit: 20 });
+    client.startClient({ initialSyncLimit: 5 });
     clientRef.current = client;
     setClient(client);
 
@@ -363,23 +346,6 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       roomIdToDMUserIdRef.current = new Map(roomIdToDMUserIdRef.current).set(room.roomId, otherUserId);
 
       const timelineEvents = room.getLiveTimeline().getEvents();
-      const backfillMsgs: ChatMessage[] = [];
-      for (const ev of timelineEvents) {
-        const msg = transformEventToChatMessage(ev, room, otherUserId, clientRef.current);
-        if (msg) backfillMsgs.push(msg);
-      }
-
-      if (backfillMsgs.length > 0) {
-        setDmMessages(prev => {
-          const existing = prev.get(otherUserId) ?? [];
-          let merged = existing;
-          for (const msg of backfillMsgs) {
-            merged = insertMessage(merged, msg);
-          }
-          if (merged === existing) return prev;
-          return new Map(prev).set(otherUserId, merged);
-        });
-      }
 
       if (activeDmContactIdRef.current === otherUserId) {
         activeDmVersionRef.current += 1;
@@ -724,9 +690,9 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     return urls;
   }, [client, dmRoomMap]);
 
-  return { messages, lastMessages, activeMessages, setActiveChannel,
+  return { lastMessages, activeMessages, setActiveChannel,
            sendMessage, sendImageMessage, uploadContent, fetchHistory,
-           dmMessages, dmLastMessages, activeDmMessages, setActiveDmContact, dmRoomMap,
+           dmLastMessages, activeDmMessages, setActiveDmContact, dmRoomMap,
            dmUserDisplayNames, dmUserAvatarUrls, sendDMMessage, fetchDMHistory,
            fetchAvatarUrl, client };
 }

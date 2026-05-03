@@ -59,7 +59,7 @@ beforeEach(() => {
 describe('useMatrixClient', () => {
   it('calls startClient when credentials are provided', () => {
     renderHook(() => useMatrixClient(creds), { wrapper });
-    expect(mockClient.startClient).toHaveBeenCalledWith({ initialSyncLimit: 20 });
+    expect(mockClient.startClient).toHaveBeenCalledWith({ initialSyncLimit: 5 });
   });
 
   it('does not call startClient when credentials are null', () => {
@@ -73,14 +73,17 @@ describe('useMatrixClient', () => {
     expect(mockClient.stopClient).toHaveBeenCalled();
   });
 
-  it('calls stopClient and clears messages when credentials become null', () => {
+  it('calls stopClient and clears state when credentials become null', () => {
     const { result, rerender } = renderHook(
       ({ c }: { c: MatrixCredentials | null }) => useMatrixClient(c),
       { initialProps: { c: creds as MatrixCredentials | null }, wrapper }
     );
     act(() => rerender({ c: null }));
     expect(mockClient.stopClient).toHaveBeenCalled();
-    expect(result.current.messages.size).toBe(0);
+    expect(result.current.lastMessages.size).toBe(0);
+    expect(result.current.dmLastMessages.size).toBe(0);
+    expect(result.current.activeMessages).toEqual([]);
+    expect(result.current.activeDmMessages).toEqual([]);
   });
 
   it('registers RoomEvent.Timeline listener', () => {
@@ -112,7 +115,11 @@ describe('useMatrixClient', () => {
   });
 
   it('timeline handler uses member display name as sender', () => {
+    mockClient.getRoom.mockReturnValue(null);
     const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+
+    // Activate channel '42' so timeline events populate activeMessages
+    act(() => result.current.setActiveChannel('42'));
 
     // Extract the registered timeline handler
     const onCall = mockClient.on.mock.calls.find(
@@ -137,9 +144,8 @@ describe('useMatrixClient', () => {
     };
 
     act(() => handler(mockEvent, mockRoom));
-    const msgs = result.current.messages.get('42');
-    expect(msgs).toHaveLength(1);
-    expect(msgs![0].sender).toBe('Alice');
+    expect(result.current.activeMessages).toHaveLength(1);
+    expect(result.current.activeMessages[0].sender).toBe('Alice');
   });
 
   it('exposes the Matrix client instance', () => {
@@ -153,7 +159,11 @@ describe('useMatrixClient', () => {
   });
 
   it('timeline handler falls back to senderId when member has no display name', () => {
+    mockClient.getRoom.mockReturnValue(null);
     const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+
+    // Activate channel '42' so timeline events populate activeMessages
+    act(() => result.current.setActiveChannel('42'));
 
     const onCall = mockClient.on.mock.calls.find(
       (c: unknown[]) => c[0] === 'Room.timeline'
@@ -173,14 +183,17 @@ describe('useMatrixClient', () => {
     };
 
     act(() => handler(mockEvent, mockRoom));
-    const msgs = result.current.messages.get('42');
-    expect(msgs).toBeDefined();
-    const last = msgs![msgs!.length - 1];
+    expect(result.current.activeMessages.length).toBeGreaterThanOrEqual(1);
+    const last = result.current.activeMessages[result.current.activeMessages.length - 1];
     expect(last.sender).toBe('@99:example.com');
   });
 
   it('timeline handler extracts sender from bridge prefix when sent by bridge bot', () => {
+    mockClient.getRoom.mockReturnValue(null);
     const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+
+    // Activate channel '42' so timeline events populate activeMessages
+    act(() => result.current.setActiveChannel('42'));
 
     const onCall = mockClient.on.mock.calls.find(
       (c: unknown[]) => c[0] === 'Room.timeline'
@@ -203,15 +216,18 @@ describe('useMatrixClient', () => {
     };
 
     act(() => handler(mockEvent, mockRoom));
-    const msgs = result.current.messages.get('42');
-    expect(msgs).toBeDefined();
-    const last = msgs![msgs!.length - 1];
+    expect(result.current.activeMessages.length).toBeGreaterThanOrEqual(1);
+    const last = result.current.activeMessages[result.current.activeMessages.length - 1];
     expect(last.sender).toBe('Bob');
     expect(last.content).toBe('hello from bridge');
   });
 
   it('timeline handler does NOT parse bridge prefix for non-bot senders', () => {
+    mockClient.getRoom.mockReturnValue(null);
     const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+
+    // Activate channel '42' so timeline events populate activeMessages
+    act(() => result.current.setActiveChannel('42'));
 
     const onCall = mockClient.on.mock.calls.find(
       (c: unknown[]) => c[0] === 'Room.timeline'
@@ -234,9 +250,8 @@ describe('useMatrixClient', () => {
     };
 
     act(() => handler(mockEvent, mockRoom));
-    const msgs = result.current.messages.get('42');
-    expect(msgs).toBeDefined();
-    const last = msgs![msgs!.length - 1];
+    expect(result.current.activeMessages.length).toBeGreaterThanOrEqual(1);
+    const last = result.current.activeMessages[result.current.activeMessages.length - 1];
     // Sender should be the display name, not parsed from the prefix
     expect(last.sender).toBe('Alice');
     // Content should be the full body, not stripped

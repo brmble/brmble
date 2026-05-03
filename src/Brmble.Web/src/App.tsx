@@ -528,8 +528,13 @@ function App() {
   const { messages, addMessage } = useChatStore(channelKey);
   const [optimisticImages, setOptimisticImages] = useState<ChatMessage[]>([]);
 
+  const activeChannelId = currentChannelId && currentChannelId !== 'server-root'
+    ? currentChannelId
+    : undefined;
+
   const dmStore = useDMStore({
-    matrixDmMessages: matrixClient.dmMessages,
+    matrixDmLastMessages: matrixClient.dmLastMessages,
+    activeDmMessages: matrixClient.activeDmMessages,
     matrixDmRoomMap: matrixClient.dmRoomMap,
     matrixDmUserDisplayNames: matrixClient.dmUserDisplayNames,
     matrixDmUserAvatarUrls: matrixClient.dmUserAvatarUrls,
@@ -541,6 +546,14 @@ function App() {
       bridge.send('voice.sendPrivateMessage', { message: linkifyForMumble(text), targetSession });
     },
   });
+
+  useEffect(() => {
+    matrixClient.setActiveChannel(activeChannelId ?? null);
+  }, [activeChannelId, matrixClient.setActiveChannel]);
+
+  useEffect(() => {
+    matrixClient.setActiveDmContact(dmStore.selectedContact?.id ?? null);
+  }, [dmStore.selectedContact?.id, matrixClient.setActiveDmContact]);
 
   // Determine active Matrix room ID (depends on dmStore.selectedContact)
   const activeMatrixRoomId = useMemo(() => {
@@ -1952,12 +1965,9 @@ const handleConnect = (serverData: SavedServer) => {
     }
   }, [notifQueue]);
 
-  const activeChannelId = currentChannelId && currentChannelId !== 'server-root'
-    ? currentChannelId
-    : undefined;
   const isMatrixActive = !!activeChannelId && matrixCredentials?.roomMap[activeChannelId] !== undefined;
   const matrixMessages = activeChannelId
-    ? matrixClient.messages.get(activeChannelId)
+    ? matrixClient.activeMessages
     : undefined;
 
   const { Prompt, PromptWithInput } = usePrompt();

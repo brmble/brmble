@@ -5,7 +5,8 @@ import type { DMStoreOptions } from './useDMStore';
 
 function makeOptions(overrides: Partial<DMStoreOptions> = {}): DMStoreOptions {
   return {
-    matrixDmMessages: new Map(),
+    matrixDmLastMessages: new Map(),
+    activeDmMessages: [],
     matrixDmRoomMap: new Map(),
     matrixDmUserDisplayNames: new Map(),
     matrixDmUserAvatarUrls: new Map(),
