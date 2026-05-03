@@ -336,8 +336,9 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       }
     };
 
-    /** Register a newly-discovered DM room in local maps and backfill any messages
-     *  that onTimeline may have dropped before the mapping existed. */
+    /** Register a newly-discovered DM room in local maps. If this room is the
+     *  currently active DM contact, also rebuild activeDmMessages from its
+     *  timeline (version-guarded against rapid contact switches). */
     const registerDMRoom = (room: Room, otherUserId: string) => {
       if (roomIdToDMUserIdRef.current.has(room.roomId)) return;
 
