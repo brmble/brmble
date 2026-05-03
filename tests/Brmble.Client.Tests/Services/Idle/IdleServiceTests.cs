@@ -56,4 +56,47 @@ public class IdleServiceTests
         svc.Stop();
         Assert.AreEqual(0, svc.VoiceTracker.GetCurrent().Count);
     }
+
+    [TestMethod]
+    public void BuildIdleUpdatePayload_BeforeAttachWindow_ReturnsZeroSystemAndUnlocked()
+    {
+        using var svc = new IdleService();
+        var payload = svc.BuildIdleUpdatePayload();
+        Assert.AreEqual(0, payload.SystemIdle);
+        Assert.IsFalse(payload.IsLocked);
+        Assert.AreEqual(0, payload.VoiceIdle.Count);
+    }
+
+    [TestMethod]
+    public void BuildIdleUpdatePayload_IncludesVoiceTrackerSnapshot()
+    {
+        using var svc = new IdleService();
+        svc.VoiceTracker.UpdateUserStats(5, 700);
+        svc.VoiceTracker.UpdateUserStats(7, 30);
+
+        var payload = svc.BuildIdleUpdatePayload();
+        Assert.AreEqual(2, payload.VoiceIdle.Count);
+        Assert.AreEqual(700u, payload.VoiceIdle[5]);
+        Assert.AreEqual(30u, payload.VoiceIdle[7]);
+    }
+
+    [TestMethod]
+    public void BuildIdleUpdatePayload_ReflectsLockState()
+    {
+        using var svc = new IdleService();
+        svc.AttachWindow(IntPtr.Zero);
+        svc.SystemTracker!.OnSessionChange(0x7); // WTS_SESSION_LOCK
+        var payload = svc.BuildIdleUpdatePayload();
+        Assert.IsTrue(payload.IsLocked);
+    }
+
+    [TestMethod]
+    public void BuildIdleUpdatePayload_VoiceIdleIsSnapshot_NotLiveReference()
+    {
+        using var svc = new IdleService();
+        svc.VoiceTracker.UpdateUserStats(5, 700);
+        var payload = svc.BuildIdleUpdatePayload();
+        svc.VoiceTracker.UpdateUserStats(5, 999);
+        Assert.AreEqual(700u, payload.VoiceIdle[5], "payload must capture state at build time");
+    }
 }

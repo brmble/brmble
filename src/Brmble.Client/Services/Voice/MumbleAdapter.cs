@@ -2904,14 +2904,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             var sessions = UserDictionary.Keys.ToArray();
             if (sessions.Length == 0) return;
 
-            int start = _voiceIdlePollOffset % sessions.Length;
-            int count = Math.Min(VOICE_IDLE_POLL_BATCH_SIZE, sessions.Length);
-            for (int i = 0; i < count; i++)
+            var plan = PollBatchPlanner.Plan(_voiceIdlePollOffset, sessions.Length, VOICE_IDLE_POLL_BATCH_SIZE);
+            foreach (var idx in plan.IndicesToPoll)
             {
-                uint session = sessions[(start + i) % sessions.Length];
-                SendRequestUserStats(new UserStats { Session = session, StatsOnly = true });
+                SendRequestUserStats(new UserStats { Session = sessions[idx], StatsOnly = true });
             }
-            _voiceIdlePollOffset = (start + count) % sessions.Length;
+            _voiceIdlePollOffset = plan.NewOffset;
         }
         catch (Exception ex)
         {

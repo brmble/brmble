@@ -63,6 +63,19 @@ public sealed class IdleService : IService, IDisposable
     }
 
     /// <summary>
+    /// Snapshots current state into the payload sent on each push tick.
+    /// Pure / synchronous so tests can assert the payload shape without a
+    /// live WebView2 bridge.
+    /// </summary>
+    internal IdleUpdatePayload BuildIdleUpdatePayload()
+    {
+        return new IdleUpdatePayload(
+            VoiceIdle: VoiceTracker.GetCurrent(),
+            SystemIdle: SystemTracker?.GetIdleSeconds() ?? 0,
+            IsLocked: SystemTracker?.IsLocked ?? false);
+    }
+
+    /// <summary>
     /// Builds and sends a single voice.idleUpdate. Public for testability —
     /// production callers should not invoke this directly.
     /// </summary>
@@ -70,18 +83,21 @@ public sealed class IdleService : IService, IDisposable
     {
         if (_bridge == null) return;
 
-        var voiceIdle = VoiceTracker.GetCurrent();
-        var systemIdle = SystemTracker?.GetIdleSeconds() ?? 0;
-        var locked = SystemTracker?.IsLocked ?? false;
-
+        var payload = BuildIdleUpdatePayload();
         _bridge.Send("voice.idleUpdate", new
         {
-            voiceIdle,
-            systemIdle,
-            isLocked = locked,
+            voiceIdle = payload.VoiceIdle,
+            systemIdle = payload.SystemIdle,
+            isLocked = payload.IsLocked,
         });
         _bridge.NotifyUiThread();
     }
+
+    /// <summary>Snapshot of the data pushed to the frontend on each idle tick.</summary>
+    internal sealed record IdleUpdatePayload(
+        Dictionary<uint, uint> VoiceIdle,
+        int SystemIdle,
+        bool IsLocked);
 
     public void Dispose()
     {
