@@ -55,7 +55,7 @@ describe('useChatStore hard cap (server-root)', () => {
     expect(result.current.messages[199].content).toBe('msg-209');
   });
 
-  it('does NOT cap non-server-root channels', () => {
+  it('caps non-server-root channels at 200 messages via addMessage', () => {
     const { result } = renderHook(() => useChatStore('channel-5'));
 
     act(() => {
@@ -64,7 +64,29 @@ describe('useChatStore hard cap (server-root)', () => {
       }
     });
 
-    expect(result.current.messages).toHaveLength(210);
+    expect(result.current.messages).toHaveLength(200);
+    expect(result.current.messages[0].content).toBe('msg-10');
+    expect(result.current.messages[199].content).toBe('msg-209');
+  });
+
+  it('caps non-server-root channels at 200 messages via addMessageToStore', () => {
+    const existing = Array.from({ length: 195 }, (_, i) => ({
+      id: `id-${i}`,
+      channelId: 'channel-5',
+      sender: 'User',
+      content: `old-${i}`,
+      timestamp: new Date().toISOString(),
+    }));
+    localStorage.setItem('brmble_chat_channel-5', JSON.stringify(existing));
+
+    for (let i = 0; i < 10; i++) {
+      addMessageToStore('channel-5', 'User', `new-${i}`);
+    }
+
+    const stored = JSON.parse(localStorage.getItem('brmble_chat_channel-5')!);
+    expect(stored).toHaveLength(200);
+    expect(stored[0].content).toBe('old-5');
+    expect(stored[199].content).toBe('new-9');
   });
 
   it('trims oldest messages when exceeding 200 via addMessageToStore', () => {
