@@ -22,6 +22,7 @@ const mockClient = {
   off: vi.fn(),
   once: vi.fn(),
   getRoom: vi.fn(),
+  getRooms: vi.fn().mockReturnValue([]),
   getAccountData: vi.fn(),
   setAccountData: vi.fn().mockResolvedValue(undefined),
   createRoom: vi.fn().mockResolvedValue({ room_id: '!new:example.com' }),
@@ -367,5 +368,46 @@ describe('useMatrixClient', () => {
 
     expect(result.current.activeMessages).toHaveLength(1);
     expect(result.current.activeMessages[0].content).toBe('A-msg');
+  });
+
+  it('PREPARED reloads activeMessages when a channel was activated before sync completed', () => {
+    // Initially the SDK has no room — setActiveChannel will bail out.
+    mockClient.getRoom.mockReturnValue(null);
+
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+
+    // Activate before PREPARED — load returns [] because the room is not yet known.
+    act(() => result.current.setActiveChannel('42'));
+    expect(result.current.activeMessages).toEqual([]);
+
+    // Now simulate the SDK having the room and the timeline populated.
+    const aliceMember = { rawDisplayName: 'Alice', name: 'Alice' };
+    const fakeEvents = [
+      {
+        getType: () => 'm.room.message',
+        getId: () => '$e-prep-1',
+        getSender: () => '@alice:example.com',
+        getContent: () => ({ body: 'sync-delivered' }),
+        getTs: () => 5000,
+      },
+    ];
+    const mockRoom = {
+      roomId: '!room:example.com',
+      getMember: () => aliceMember,
+      getLiveTimeline: () => ({ getEvents: () => fakeEvents }),
+    };
+    mockClient.getRoom.mockReturnValue(mockRoom);
+    mockClient.getRooms.mockReturnValue([mockRoom]);
+
+    // Fire the registered onSync handler with PREPARED.
+    const onSync = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'sync')?.[1] as
+      | ((state: string) => void)
+      | undefined;
+    expect(onSync).toBeDefined();
+
+    act(() => onSync!('PREPARED'));
+
+    expect(result.current.activeMessages).toHaveLength(1);
+    expect(result.current.activeMessages[0].content).toBe('sync-delivered');
   });
 });

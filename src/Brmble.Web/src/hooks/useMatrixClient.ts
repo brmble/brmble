@@ -311,6 +311,35 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
           }
           if (bootChannelPreviews.size > 0) setLastMessages(bootChannelPreviews);
           if (bootDmPreviews.size > 0) setDmLastMessages(bootDmPreviews);
+
+          // If a channel/DM was activated before PREPARED finished, re-run
+          // the load now that the SDK has the room and its timeline.
+          // Bumping the version invalidates any earlier load that committed
+          // an empty array against this same channel/DM id.
+          if (activeChannelIdRef.current && credentials) {
+            const channelId = activeChannelIdRef.current;
+            const roomId = credentials.roomMap[channelId];
+            if (roomId) {
+              activeRoomVersionRef.current += 1;
+              const myVersion = activeRoomVersionRef.current;
+              const messages = loadMessagesFromTimeline(client, roomId, channelId);
+              if (activeRoomVersionRef.current === myVersion) {
+                setActiveMessages(messages);
+              }
+            }
+          }
+          if (activeDmContactIdRef.current) {
+            const dmContactId = activeDmContactIdRef.current;
+            const dmRoomId = dmRoomMapRef.current.get(dmContactId);
+            if (dmRoomId) {
+              activeDmVersionRef.current += 1;
+              const myVersion = activeDmVersionRef.current;
+              const messages = loadMessagesFromTimeline(client, dmRoomId, dmContactId);
+              if (activeDmVersionRef.current === myVersion) {
+                setActiveDmMessages(messages);
+              }
+            }
+          }
         }
       } else if (state === 'ERROR') {
         derivedState = 'disconnected';
