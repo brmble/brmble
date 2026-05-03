@@ -145,18 +145,17 @@
 
 - [ ] **Step 1**: Constructor — accept an optional `VoiceIdleTracker?` parameter (default null so existing tests don't break). Store as `_voiceIdleTracker`.
 
-- [ ] **Step 2**: Override `BasicMumbleProtocol.UserStats(UserStats)`:
+- [ ] **Step 2**: Override `BasicMumbleProtocol.UserStats(UserStats)`. MumbleSharp uses **protobuf-net** which generates `ShouldSerialize<Field>()` (not `*Specified`) for optional fields. Verified at `lib/MumbleSharp/MumbleSharp/Packets/Mumble.cs:1656-1663`:
   ```csharp
   protected override void UserStats(UserStats userStats)
   {
       base.UserStats(userStats);
-      if (userStats?.SessionSpecified == true && userStats.IdlesecsSpecified)
+      if (userStats?.ShouldSerializeSession() == true && userStats.ShouldSerializeIdlesecs())
       {
           _voiceIdleTracker?.UpdateUserStats(userStats.Session, userStats.Idlesecs);
       }
   }
   ```
-  Verify the exact field-presence accessors against `lib/MumbleSharp/MumbleSharp/Packets/Mumble.cs` — protobuf-net generates `*Specified` properties for `optional` fields.
 
 - [ ] **Step 3**: Add a polling timer. Fires every **30 seconds** while connected. Behavior:
   - Snapshot all currently-known user sessions (from `Users` collection).
@@ -188,8 +187,9 @@
 - [ ] **Step 1**: Find the existing local-user speaking detection (the speaking indicator path; search for `speaking` or `IsTransmitting` near the audio capture wiring). When local-user speaking transitions to *true*, send a bridge message:
   ```csharp
   _bridge?.Send("voice.localTransmit", new { });
+  _bridge?.NotifyUiThread();   // background thread → wake UI to flush queue
   ```
-  Throttle to at most once per 5 seconds — we only need it to reset Brmble idle, not stream.
+  Throttle to at most once per 5 seconds — we only need it to reset Brmble idle, not stream. Verified pattern: see `CertificateService.cs:879-884`.
 
 - [ ] **Step 2**: Build + test. Commit:
   ```bash
@@ -223,7 +223,7 @@
   - `Timer _pushTimer` — every **10 s**, push `voice.idleUpdate` to JS
   - Threshold constant: `private const int AFK_THRESHOLD_SECONDS = 600;`
 
-- [ ] **Step 3**: Push timer body:
+- [ ] **Step 3**: Push timer body (timer fires on a threadpool thread → must `NotifyUiThread()` to flush):
   ```csharp
   var voiceIdle = _voiceTracker.GetCurrent();
   var sysIdle   = _systemTracker.GetIdleSeconds();
@@ -234,6 +234,7 @@
       systemIdle = sysIdle,
       isLocked   = locked,
   });
+  _bridge.NotifyUiThread();
   ```
   Note: the actual AFK trigger fires from the *frontend* (`useIdleActions`), not here. C# only pushes data and exposes the LeaveVoice plumbing. Keeping the decision in JS keeps the logic in one place and lets us verify with React testing later.
 
