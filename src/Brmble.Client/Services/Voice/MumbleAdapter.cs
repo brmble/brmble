@@ -16,6 +16,7 @@ using Brmble.Audio.Processing;
 using Brmble.Client.Bridge;
 using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.Certificate;
+using Brmble.Client.Services.Idle;
 
 namespace Brmble.Client.Services.Voice;
 
@@ -53,6 +54,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private readonly ConcurrentDictionary<uint, SessionMappingEntry> _sessionMappings = new();
     private CancellationTokenSource? _wsCts;
     private readonly IAppConfigService? _appConfigService;
+    private readonly VoiceIdleTracker? _voiceIdleTracker;
+    private System.Threading.Timer? _voiceIdlePollTimer;
+    private int _voiceIdlePollOffset;
+    private const int VOICE_IDLE_POLL_INTERVAL_MS = 30_000;
+    private const int VOICE_IDLE_POLL_BATCH_SIZE = 30;
     private System.Threading.Timer? _healthTimer;
     private long _healthGeneration;
     private BanList? _cachedBanList;
@@ -100,12 +106,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// <summary>The ID of the ServerEntry that initiated the current connection, if any.</summary>
     public string? ActiveServerId => _activeServerId;
 
-    public MumbleAdapter(NativeBridge bridge, IntPtr hwnd, CertificateService? certService = null, IAppConfigService? appConfigService = null)
+    public MumbleAdapter(NativeBridge bridge, IntPtr hwnd, CertificateService? certService = null, IAppConfigService? appConfigService = null, VoiceIdleTracker? voiceIdleTracker = null)
     {
         _bridge = bridge;
         _hwnd = hwnd;
         _certService = certService;
         _appConfigService = appConfigService;
+        _voiceIdleTracker = voiceIdleTracker;
         _audioManager = new AudioManager(_hwnd);
         _audioManager.ToggleMuteRequested += ToggleMute;
         _audioManager.ToggleDeafenRequested += ToggleDeaf;
@@ -275,6 +282,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _cts?.Cancel();
         _processThread?.Join(2000);
         _processThread = null;
+
+        StopVoiceIdlePolling();
+        _voiceIdleTracker?.Clear();
 
         _audioManager?.Dispose();
         _audioManager = null;
@@ -2523,6 +2533,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _audioManager?.SetLocalUserId(LocalUser.Id);
         _audioManager?.StartMic();
 
+        StartVoiceIdlePolling();
+
         // Check which channel the server placed us in.  Unregistered users
         // land in root (channel 0).  Registered users may be placed in their
         // last channel automatically by the Mumble server.
@@ -2802,6 +2814,80 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _bridge?.NotifyUiThread();
     }
 
+    public override void UserStats(UserStats userStats)
+    {
+        base.UserStats(userStats);
+        if (userStats != null
+            && userStats.ShouldSerializeSession()
+            && userStats.ShouldSerializeIdlesecs()
+            && _voiceIdleTracker != null)
+        {
+            _voiceIdleTracker.UpdateUserStats(userStats.Session, userStats.Idlesecs);
+        }
+    }
+
+    /// <summary>
+    /// Starts the periodic UserStats poll so we can surface peer idle times
+    /// (Mumble has no UserState.idlesecs broadcast — pull-only via UserStats).
+    /// Idempotent; stops any existing timer first.
+    /// </summary>
+    private void StartVoiceIdlePolling()
+    {
+        if (_voiceIdleTracker == null) return;
+        StopVoiceIdlePolling();
+        _voiceIdlePollOffset = 0;
+        _voiceIdlePollTimer = new System.Threading.Timer(
+            _ => PollVoiceIdleTick(),
+            state: null,
+            dueTime: VOICE_IDLE_POLL_INTERVAL_MS,
+            period: VOICE_IDLE_POLL_INTERVAL_MS);
+    }
+
+    private void StopVoiceIdlePolling()
+    {
+        _voiceIdlePollTimer?.Dispose();
+        _voiceIdlePollTimer = null;
+    }
+
+    /// <summary>
+    /// Sweeps a batch of currently-known users for fresh UserStats. Stays
+    /// well under Mumble's ~1 control-msg/sec sustained server-wide budget by
+    /// capping the batch size; rolls offset for fairness when channel size
+    /// exceeds <see cref="VOICE_IDLE_POLL_BATCH_SIZE"/>.
+    /// </summary>
+    private void PollVoiceIdleTick()
+    {
+        try
+        {
+            var conn = Connection;
+            if (conn == null || conn.State != ConnectionStates.Connected) return;
+
+            // Snapshot sessions; ConcurrentDictionary.Values is a live view but
+            // ToArray gives us a stable list for the batch.
+            var sessions = UserDictionary.Keys.ToArray();
+            if (sessions.Length == 0) return;
+
+            int start = _voiceIdlePollOffset % sessions.Length;
+            int count = Math.Min(VOICE_IDLE_POLL_BATCH_SIZE, sessions.Length);
+            for (int i = 0; i < count; i++)
+            {
+                uint session = sessions[(start + i) % sessions.Length];
+                SendRequestUserStats(new UserStats { Session = session, StatsOnly = true });
+            }
+            _voiceIdlePollOffset = (start + count) % sessions.Length;
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                System.IO.File.AppendAllText(
+                    System.IO.Path.Combine(System.IO.Path.GetTempPath(), "brmble-tls.log"),
+                    $"[{DateTime.Now:HH:mm:ss.fff}] PollVoiceIdleTick error: {ex.Message}\n");
+            }
+            catch { /* logging is best-effort */ }
+        }
+    }
+
     public override void UserRemove(UserRemove userRemove)
     {
         // Look up user name before base call removes them from dictionary
@@ -2816,6 +2902,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         Debug.WriteLine($"[Mumble] UserRemove: session {userRemove.Session}, name: {userName}, isSelf: {isSelf}");
 
+        _voiceIdleTracker?.RemoveUser(userRemove.Session);
         _audioManager?.RemoveUser(userRemove.Session);
         var channelId = user?.Channel?.Id;
         var certHash = user?.CertificateHash;
