@@ -91,6 +91,28 @@ function transformEventToChatMessage(
   };
 }
 
+/**
+ * Read all `m.room.message` events from a room's live timeline and transform
+ * them into ChatMessages. Pure helper for active-message loading.
+ *
+ * Returns `[]` when the room cannot be resolved (caller's responsibility to
+ * setState on the returned value).
+ */
+function loadMessagesFromTimeline(
+  client: MatrixClient,
+  roomId: string,
+  targetId: string,
+): ChatMessage[] {
+  const room = client.getRoom(roomId);
+  if (!room) return [];
+  const out: ChatMessage[] = [];
+  for (const ev of room.getLiveTimeline().getEvents()) {
+    const m = transformEventToChatMessage(ev, room, targetId, client);
+    if (m) out.push(m);
+  }
+  return out;
+}
+
 export interface MatrixCredentials {
   homeserverUrl: string;
   accessToken: string;
@@ -358,6 +380,19 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
           return new Map(prev).set(otherUserId, merged);
         });
       }
+
+      if (activeDmContactIdRef.current === otherUserId) {
+        activeDmVersionRef.current += 1;
+        const myVersion = activeDmVersionRef.current;
+        const messages: ChatMessage[] = [];
+        for (const ev of timelineEvents) {
+          const m = transformEventToChatMessage(ev, room, otherUserId, clientRef.current);
+          if (m) messages.push(m);
+        }
+        if (activeDmVersionRef.current === myVersion) {
+          setActiveDmMessages(messages);
+        }
+      }
     };
 
     const onMyMembership = (room: Room, membership: string) => {
@@ -609,24 +644,14 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       setActiveMessages([]);
       return;
     }
-    const room = client.getRoom(roomId);
-    if (!room) {
-      setActiveMessages([]);
-      return;
-    }
-
-    const events = room.getLiveTimeline().getEvents();
-    const messages: ChatMessage[] = [];
-    for (const ev of events) {
-      const m = transformEventToChatMessage(ev, room, channelId, client);
-      if (m) messages.push(m);
-    }
+    const messages = loadMessagesFromTimeline(client, roomId, channelId);
 
     if (activeRoomVersionRef.current === myVersion) {
       setActiveMessages(messages);
     }
   }, [credentials]);
 
+  // No deps: dmRoomMapRef is mutable and always reflects the latest map.
   const setActiveDmContact = useCallback((matrixUserId: string | null) => {
     activeDmVersionRef.current += 1;
     const myVersion = activeDmVersionRef.current;
@@ -646,18 +671,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       setActiveDmMessages([]);
       return;
     }
-    const room = client.getRoom(roomId);
-    if (!room) {
-      setActiveDmMessages([]);
-      return;
-    }
-
-    const events = room.getLiveTimeline().getEvents();
-    const messages: ChatMessage[] = [];
-    for (const ev of events) {
-      const m = transformEventToChatMessage(ev, room, matrixUserId, client);
-      if (m) messages.push(m);
-    }
+    const messages = loadMessagesFromTimeline(client, roomId, matrixUserId);
 
     if (activeDmVersionRef.current === myVersion) {
       setActiveDmMessages(messages);
