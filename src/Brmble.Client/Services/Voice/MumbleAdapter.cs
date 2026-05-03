@@ -59,6 +59,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private int _voiceIdlePollOffset;
     private const int VOICE_IDLE_POLL_INTERVAL_MS = 30_000;
     private const int VOICE_IDLE_POLL_BATCH_SIZE = 30;
+    private readonly Stopwatch _localTransmitNotifyThrottle = Stopwatch.StartNew();
+    private const int LOCAL_TRANSMIT_NOTIFY_THROTTLE_MS = 5_000;
     private System.Threading.Timer? _healthTimer;
     private long _healthGeneration;
     private BanList? _cachedBanList;
@@ -2526,7 +2528,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.SendVoicePacket += packet =>
             Connection?.SendVoice(new ArraySegment<byte>(packet.ToArray()));
         _audioManager?.UserStartedSpeaking += userId =>
+        {
             _bridge?.Send("voice.userSpeaking", new { session = userId });
+            // Local user spoke → reset Brmble-app idle timer (synthetic activity ping).
+            // Throttled so we don't spam the bridge during normal continuous speech.
+            if (LocalUser != null && userId == LocalUser.Id
+                && _localTransmitNotifyThrottle.ElapsedMilliseconds >= LOCAL_TRANSMIT_NOTIFY_THROTTLE_MS)
+            {
+                _localTransmitNotifyThrottle.Restart();
+                _bridge?.Send("voice.localTransmit", new { });
+                _bridge?.NotifyUiThread();
+            }
+        };
         _audioManager?.UserStoppedSpeaking += userId =>
             _bridge?.Send("voice.userSilent", new { session = userId });
         if (LocalUser != null)
