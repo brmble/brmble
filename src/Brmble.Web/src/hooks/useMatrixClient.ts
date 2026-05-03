@@ -120,6 +120,14 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
   const [lastMessages, setLastMessages] = useState<Map<string, MessagePreview>>(new Map());
   const [dmLastMessages, setDmLastMessages] = useState<Map<string, MessagePreview>>(new Map());
 
+  // Active-only message state: only the currently-viewed channel/DM is loaded
+  const [activeMessages, setActiveMessages] = useState<ChatMessage[]>([]);
+  const [activeDmMessages, setActiveDmMessages] = useState<ChatMessage[]>([]);
+  const activeChannelIdRef = useRef<string | null>(null);
+  const activeDmContactIdRef = useRef<string | null>(null);
+  const activeRoomVersionRef = useRef(0);
+  const activeDmVersionRef = useRef(0);
+
   const dmRoomMapRef = useRef<Map<string, string>>(new Map());
   // Keep ref in sync
   useEffect(() => { dmRoomMapRef.current = dmRoomMap; }, [dmRoomMap]);
@@ -146,6 +154,10 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       setLastMessages(new Map());
       setDmMessages(new Map());
       setDmLastMessages(new Map());
+      setActiveMessages([]);
+      setActiveDmMessages([]);
+      activeChannelIdRef.current = null;
+      activeDmContactIdRef.current = null;
       setDmRoomMap(new Map());
       dmRoomMapRef.current = new Map();
       roomIdToDMUserIdRef.current = new Map();
@@ -187,6 +199,12 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
           });
           return next;
         });
+        if (activeChannelIdRef.current === channelId) {
+          setActiveMessages(prev => {
+            const updated = insertMessage(prev, message);
+            return updated === prev ? prev : updated;
+          });
+        }
         return;
       }
 
@@ -219,6 +237,12 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
         });
         return next;
       });
+      if (activeDmContactIdRef.current === dmUserId) {
+        setActiveDmMessages(prev => {
+          const updated = insertMessage(prev, dmMessage);
+          return updated === prev ? prev : updated;
+        });
+      }
     };
 
     client.on(RoomEvent.Timeline, onTimeline);
@@ -566,6 +590,80 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     return null;
   }, []);
 
+  const setActiveChannel = useCallback((channelId: string | null) => {
+    activeRoomVersionRef.current += 1;
+    const myVersion = activeRoomVersionRef.current;
+    activeChannelIdRef.current = channelId;
+
+    if (!channelId) {
+      setActiveMessages([]);
+      return;
+    }
+    const client = clientRef.current;
+    if (!credentials || !client) {
+      setActiveMessages([]);
+      return;
+    }
+    const roomId = credentials.roomMap[channelId];
+    if (!roomId) {
+      setActiveMessages([]);
+      return;
+    }
+    const room = client.getRoom(roomId);
+    if (!room) {
+      setActiveMessages([]);
+      return;
+    }
+
+    const events = room.getLiveTimeline().getEvents();
+    const messages: ChatMessage[] = [];
+    for (const ev of events) {
+      const m = transformEventToChatMessage(ev, room, channelId, client);
+      if (m) messages.push(m);
+    }
+
+    if (activeRoomVersionRef.current === myVersion) {
+      setActiveMessages(messages);
+    }
+  }, [credentials]);
+
+  const setActiveDmContact = useCallback((matrixUserId: string | null) => {
+    activeDmVersionRef.current += 1;
+    const myVersion = activeDmVersionRef.current;
+    activeDmContactIdRef.current = matrixUserId;
+
+    if (!matrixUserId) {
+      setActiveDmMessages([]);
+      return;
+    }
+    const client = clientRef.current;
+    if (!client) {
+      setActiveDmMessages([]);
+      return;
+    }
+    const roomId = dmRoomMapRef.current.get(matrixUserId);
+    if (!roomId) {
+      setActiveDmMessages([]);
+      return;
+    }
+    const room = client.getRoom(roomId);
+    if (!room) {
+      setActiveDmMessages([]);
+      return;
+    }
+
+    const events = room.getLiveTimeline().getEvents();
+    const messages: ChatMessage[] = [];
+    for (const ev of events) {
+      const m = transformEventToChatMessage(ev, room, matrixUserId, client);
+      if (m) messages.push(m);
+    }
+
+    if (activeDmVersionRef.current === myVersion) {
+      setActiveDmMessages(messages);
+    }
+  }, []);
+
   // Resolve display names for DM partners from Matrix room membership.
   // This works even when the other user isn't connected to Mumble.
   const dmUserDisplayNames = useMemo(() => {
@@ -612,8 +710,9 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     return urls;
   }, [client, dmRoomMap]);
 
-  return { messages, lastMessages, sendMessage, sendImageMessage, uploadContent, fetchHistory,
-           dmMessages, dmLastMessages, dmRoomMap,
+  return { messages, lastMessages, activeMessages, setActiveChannel,
+           sendMessage, sendImageMessage, uploadContent, fetchHistory,
+           dmMessages, dmLastMessages, activeDmMessages, setActiveDmContact, dmRoomMap,
            dmUserDisplayNames, dmUserAvatarUrls, sendDMMessage, fetchDMHistory,
            fetchAvatarUrl, client };
 }

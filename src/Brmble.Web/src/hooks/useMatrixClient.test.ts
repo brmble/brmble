@@ -277,4 +277,80 @@ describe('useMatrixClient', () => {
       sender: 'Alice',
     });
   });
+
+  it('setActiveChannel rebuilds activeMessages from SDK timeline', () => {
+    const aliceMember = { rawDisplayName: 'Alice', name: 'Alice' };
+    const fakeEvents = [
+      {
+        getType: () => 'm.room.message',
+        getId: () => '$e1',
+        getSender: () => '@alice:example.com',
+        getContent: () => ({ body: 'first' }),
+        getTs: () => 1000,
+      },
+      {
+        getType: () => 'm.room.message',
+        getId: () => '$e2',
+        getSender: () => '@alice:example.com',
+        getContent: () => ({ body: 'second' }),
+        getTs: () => 2000,
+      },
+    ];
+    const mockRoom = {
+      roomId: '!room:example.com',
+      getMember: () => aliceMember,
+      getLiveTimeline: () => ({ getEvents: () => fakeEvents }),
+    };
+    mockClient.getRoom.mockReturnValue(mockRoom);
+
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+
+    act(() => result.current.setActiveChannel('42'));
+
+    expect(result.current.activeMessages).toHaveLength(2);
+    expect(result.current.activeMessages[0].content).toBe('first');
+    expect(result.current.activeMessages[1].content).toBe('second');
+  });
+
+  it('setActiveChannel(null) clears activeMessages', () => {
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+    act(() => result.current.setActiveChannel(null));
+    expect(result.current.activeMessages).toEqual([]);
+  });
+
+  it('rapid setActiveChannel switches commit only the latest load', () => {
+    const roomA = {
+      roomId: '!a:example.com',
+      getMember: () => ({ rawDisplayName: 'A', name: 'A' }),
+      getLiveTimeline: () => ({ getEvents: () => [
+        { getType: () => 'm.room.message', getId: () => '$a1', getSender: () => '@a:example.com',
+          getContent: () => ({ body: 'A-msg' }), getTs: () => 1 },
+      ]}),
+    };
+    const roomB = {
+      roomId: '!b:example.com',
+      getMember: () => ({ rawDisplayName: 'B', name: 'B' }),
+      getLiveTimeline: () => ({ getEvents: () => [
+        { getType: () => 'm.room.message', getId: () => '$b1', getSender: () => '@b:example.com',
+          getContent: () => ({ body: 'B-msg' }), getTs: () => 1 },
+      ]}),
+    };
+    mockClient.getRoom.mockImplementation((id: string) =>
+      id === '!a:example.com' ? roomA : id === '!b:example.com' ? roomB : null);
+
+    const credsAB: MatrixCredentials = {
+      ...creds,
+      roomMap: { 'A': '!a:example.com', 'B': '!b:example.com' },
+    };
+    const { result } = renderHook(() => useMatrixClient(credsAB), { wrapper });
+
+    act(() => {
+      result.current.setActiveChannel('A');
+      result.current.setActiveChannel('B');
+      result.current.setActiveChannel('A');
+    });
+
+    expect(result.current.activeMessages).toHaveLength(1);
+    expect(result.current.activeMessages[0].content).toBe('A-msg');
+  });
 });
