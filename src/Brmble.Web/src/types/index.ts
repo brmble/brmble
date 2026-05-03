@@ -28,6 +28,13 @@ export interface User {
   avatarUrl?: string;
   certHash?: string;
   isBrmbleClient?: boolean;
+  voiceIdleSecs?: number;
+}
+
+export interface IdleUpdate {
+  voiceIdle: Record<number, number>;
+  systemIdle: number;
+  isLocked: boolean;
 }
 
 export interface MediaAttachment {
