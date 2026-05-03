@@ -371,11 +371,15 @@ function App() {
   });
 
   // Register the auto-leave-voice toast in the notification queue when fired.
+  // notifQueue intentionally omitted from deps: the object identity changes on
+  // every render, but `register` is idempotent and we only care about the
+  // autoLeftAt edge.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (autoLeftAt !== null) {
       notifQueue.register('idle-auto-leave', 'info');
     }
-  }, [autoLeftAt, notifQueue]);
+  }, [autoLeftAt]);
   const [hotkeyPressedBtn, setHotkeyPressedBtn] = useState<string | null>(null);
   const pendingChannelActionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 

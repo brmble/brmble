@@ -12,7 +12,10 @@ const ACTIVITY_EVENTS = [
   'pointerdown',
 ] as const;
 
-const TICK_MS = 1000;
+// 5-second tick is plenty for a 10-minute auto-leave threshold and avoids
+// re-rendering App every second (which over hours of idle would dominate the
+// renderer's CPU budget without any user benefit).
+const TICK_MS = 5000;
 
 /**
  * Tracks how many seconds the local user has been inactive within the Brmble app.
@@ -24,6 +27,10 @@ const TICK_MS = 1000;
  * than incrementing a counter. WebView2 throttles `setInterval` to ≥1 Hz when
  * the window is hidden — counter-based code under-counts; timestamp-diff code
  * stays correct on the next tick.
+ *
+ * Reports in 5-second granularity (the tick interval), and only triggers a
+ * React re-render when the bucketed value actually changes — so a continuously-
+ * active user re-renders App at most once per tick instead of every second.
  */
 export function useBrmbleIdle(): number {
   const lastActivityRef = useRef<number>(Date.now());
@@ -40,7 +47,10 @@ export function useBrmbleIdle(): number {
     bridge.on('voice.localTransmit', reset);
 
     const interval = window.setInterval(() => {
-      setIdleSecs(Math.floor((Date.now() - lastActivityRef.current) / 1000));
+      const next = Math.floor((Date.now() - lastActivityRef.current) / 1000);
+      // setState with === skips the render entirely (React bail-out). This
+      // makes the steady-state cost ~0 between activity ticks.
+      setIdleSecs(prev => prev === next ? prev : next);
     }, TICK_MS);
 
     return () => {
