@@ -24,6 +24,73 @@ function insertMessage(existing: ChatMessage[], msg: ChatMessage): ChatMessage[]
   return updated;
 }
 
+/**
+ * Transform a Matrix `m.room.message` event into a ChatMessage.
+ * Pure: only depends on its arguments. No SDK calls beyond what's
+ * passed in via `client` (used for mxc → http URL resolution).
+ *
+ * Returns null for non-message events.
+ */
+function transformEventToChatMessage(
+  event: MatrixEvent,
+  room: Room | undefined,
+  channelId: string,
+  client: MatrixClient | null,
+): ChatMessage | null {
+  if (event.getType() !== EventType.RoomMessage) return null;
+
+  const senderId = event.getSender() ?? 'Unknown';
+  const senderMember = room?.getMember(senderId);
+  const displayName = senderMember?.rawDisplayName || senderMember?.name || senderId;
+
+  const content = event.getContent() as {
+    body?: string;
+    msgtype?: string;
+    url?: string;
+    info?: { thumbnail_url?: string; w?: number; h?: number; mimetype?: string; size?: number };
+    'm.relates_to'?: { 'm.in_reply_to'?: { event_id: string } };
+  };
+
+  let media: MediaAttachment[] | undefined;
+  if (content.msgtype === 'm.image' && content.url) {
+    const fullUrl = client?.mxcUrlToHttp(content.url) ?? content.url;
+    media = [{
+      type: content.info?.mimetype?.toLowerCase() === 'image/gif' ? 'gif' : 'image',
+      url: fullUrl,
+      width: content.info?.w,
+      height: content.info?.h,
+      mimetype: content.info?.mimetype,
+      size: content.info?.size,
+    }];
+  }
+
+  const rawBody = content.body ?? '';
+  const isBridgeBotSender = /^@brmble[_-]?/.test(senderId);
+  const bridgeMatch = isBridgeBotSender ? rawBody.match(/^\[(.+?)\]:\s*/) : null;
+  const messageSender = bridgeMatch ? bridgeMatch[1] : displayName;
+  let messageContent = bridgeMatch ? rawBody.slice(bridgeMatch[0].length) : rawBody;
+
+  // Strip reply fallback from body (lines starting with > )
+  messageContent = messageContent.split('\n').filter(line => !/^> ?/.test(line)).join('\n').trim();
+
+  // For image-only messages, body is just the filename — don't show it as text
+  const displayContent = media ? '' : messageContent;
+
+  const relatesTo = content['m.relates_to'] as { 'm.in_reply_to'?: { event_id: string } } | undefined;
+  const replyToEventId = relatesTo?.['m.in_reply_to']?.event_id;
+
+  return {
+    id: event.getId() ?? crypto.randomUUID(),
+    channelId,
+    sender: messageSender,
+    senderMatrixUserId: senderId,
+    content: displayContent,
+    timestamp: new Date(event.getTs()),
+    ...(media && { media }),
+    ...(replyToEventId && { replyToEventId }),
+  };
+}
+
 export interface MatrixCredentials {
   homeserverUrl: string;
   accessToken: string;
@@ -88,60 +155,8 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       if (event.getType() !== EventType.RoomMessage) return;
       const channelId = roomIdToChannelId.get(room?.roomId ?? '');
       if (channelId) {
-        const senderId = event.getSender() ?? 'Unknown';
-        const senderMember = room?.getMember(senderId);
-        const displayName = senderMember?.rawDisplayName || senderMember?.name || senderId;
-
-        const content = event.getContent() as {
-          body?: string;
-          msgtype?: string;
-          url?: string;
-          info?: { thumbnail_url?: string; w?: number; h?: number; mimetype?: string; size?: number };
-          'm.relates_to'?: { 'm.in_reply_to'?: { event_id: string } };
-        };
-
-        let media: MediaAttachment[] | undefined;
-        if (content.msgtype === 'm.image' && content.url) {
-          const cl = clientRef.current;
-          const fullUrl = cl?.mxcUrlToHttp(content.url) ?? content.url;
-
-          media = [{
-            type: content.info?.mimetype?.toLowerCase() === 'image/gif' ? 'gif' : 'image',
-            url: fullUrl,
-            width: content.info?.w,
-            height: content.info?.h,
-            mimetype: content.info?.mimetype,
-            size: content.info?.size,
-          }];
-        }
-
-        const rawBody = content.body ?? '';
-        // Only parse bridged "[Name]: " prefixes for events sent by the bridge bot
-        const isBridgeBotSender = /^@brmble[_-]?/.test(senderId);
-        const bridgeMatch = isBridgeBotSender ? rawBody.match(/^\[(.+?)\]:\s*/) : null;
-        const messageSender = bridgeMatch ? bridgeMatch[1] : displayName;
-        let messageContent = bridgeMatch ? rawBody.slice(bridgeMatch[0].length) : rawBody;
-
-        // Strip reply fallback from body (lines starting with > )
-        messageContent = messageContent.split('\n').filter(line => !/^> ?/.test(line)).join('\n').trim();
-
-        // For image-only messages, body is just the filename — don't show it as text
-        const displayContent = media ? '' : messageContent;
-
-        // Extract reply relation from Matrix event
-        const relatesTo = content['m.relates_to'] as { 'm.in_reply_to'?: { event_id: string } } | undefined;
-        const replyToEventId = relatesTo?.['m.in_reply_to']?.event_id;
-
-        const message: ChatMessage = {
-          id: event.getId() ?? crypto.randomUUID(),
-          channelId,
-          sender: messageSender,
-          senderMatrixUserId: senderId,
-          content: displayContent,
-          timestamp: new Date(event.getTs()),
-          ...(media && { media }),
-          ...(replyToEventId && { replyToEventId }),
-        };
+        const message = transformEventToChatMessage(event, room, channelId, clientRef.current);
+        if (!message) return;
 
         setMessages(prev => {
           const existing = prev.get(channelId) ?? [];
@@ -161,60 +176,8 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
         return;
       }
 
-      const dmSenderId = event.getSender() ?? 'Unknown';
-      const dmSenderMember = room?.getMember(dmSenderId);
-      const dmDisplayName = dmSenderMember?.rawDisplayName || dmSenderMember?.name || dmSenderId;
-
-      const dmContent = event.getContent() as {
-        body?: string;
-        msgtype?: string;
-        url?: string;
-        info?: { thumbnail_url?: string; w?: number; h?: number; mimetype?: string; size?: number };
-        'm.relates_to'?: { 'm.in_reply_to'?: { event_id: string } };
-      };
-
-      let dmMedia: MediaAttachment[] | undefined;
-      if (dmContent.msgtype === 'm.image' && dmContent.url) {
-        const cl = clientRef.current;
-        const fullUrl = cl?.mxcUrlToHttp(dmContent.url) ?? dmContent.url;
-
-        dmMedia = [{
-          type: dmContent.info?.mimetype?.toLowerCase() === 'image/gif' ? 'gif' : 'image',
-          url: fullUrl,
-          width: dmContent.info?.w,
-          height: dmContent.info?.h,
-          mimetype: dmContent.info?.mimetype,
-          size: dmContent.info?.size,
-        }];
-      }
-
-      const dmRawBody = dmContent.body ?? '';
-      // Only parse bridged "[Name]: " prefixes for events sent by the bridge bot
-      const isDmBridgeBotSender = /^@brmble[_-]?/.test(dmSenderId);
-      const dmBridgeMatch = isDmBridgeBotSender ? dmRawBody.match(/^\[(.+?)\]:\s*/) : null;
-      const dmSender = dmBridgeMatch ? dmBridgeMatch[1] : dmDisplayName;
-      let dmMessageContent = dmBridgeMatch ? dmRawBody.slice(dmBridgeMatch[0].length) : dmRawBody;
-
-      // Strip reply fallback from body (lines starting with > )
-      dmMessageContent = dmMessageContent.split('\n').filter(line => !/^> ?/.test(line)).join('\n').trim();
-
-      // For image-only messages, body is just the filename — don't show it as text
-      const dmDisplayContent = dmMedia ? '' : dmMessageContent;
-
-      // Extract reply relation from Matrix event
-      const dmRelatesTo = dmContent['m.relates_to'] as { 'm.in_reply_to'?: { event_id: string } } | undefined;
-      const dmReplyToEventId = dmRelatesTo?.['m.in_reply_to']?.event_id;
-
-      const dmMessage: ChatMessage = {
-        id: event.getId() ?? crypto.randomUUID(),
-        channelId: dmUserId,
-        sender: dmSender,
-        senderMatrixUserId: dmSenderId,
-        content: dmDisplayContent,
-        timestamp: new Date(event.getTs()),
-        ...(dmMedia && { media: dmMedia }),
-        ...(dmReplyToEventId && { replyToEventId: dmReplyToEventId }),
-      };
+      const dmMessage = transformEventToChatMessage(event, room, dmUserId, clientRef.current);
+      if (!dmMessage) return;
 
       setDmMessages(prev => {
         const existing = prev.get(dmUserId) ?? [];
@@ -283,58 +246,17 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     /** Register a newly-discovered DM room in local maps and backfill any messages
      *  that onTimeline may have dropped before the mapping existed. */
     const registerDMRoom = (room: Room, otherUserId: string) => {
-      if (roomIdToDMUserIdRef.current.has(room.roomId)) return; // already tracked
+      if (roomIdToDMUserIdRef.current.has(room.roomId)) return;
 
       setDmRoomMap(prev => new Map(prev).set(otherUserId, room.roomId));
       dmRoomMapRef.current = new Map(dmRoomMapRef.current).set(otherUserId, room.roomId);
       roomIdToDMUserIdRef.current = new Map(roomIdToDMUserIdRef.current).set(room.roomId, otherUserId);
 
-      // Backfill: the SDK already has timeline events for this room that onTimeline
-      // dropped because the room wasn't in roomIdToDMUserIdRef at the time.
       const timelineEvents = room.getLiveTimeline().getEvents();
       const backfillMsgs: ChatMessage[] = [];
       for (const ev of timelineEvents) {
-        if (ev.getType() !== EventType.RoomMessage) continue;
-        const senderId = ev.getSender() ?? 'Unknown';
-        const senderMember = room.getMember(senderId);
-        const displayName = senderMember?.rawDisplayName || senderMember?.name || senderId;
-
-        const content = ev.getContent() as {
-          body?: string;
-          msgtype?: string;
-          url?: string;
-          info?: { thumbnail_url?: string; w?: number; h?: number; mimetype?: string; size?: number };
-        };
-
-        let media: MediaAttachment[] | undefined;
-        if (content.msgtype === 'm.image' && content.url) {
-          const cl = clientRef.current;
-          const fullUrl = cl?.mxcUrlToHttp(content.url) ?? content.url;
-          media = [{
-            type: content.info?.mimetype?.toLowerCase() === 'image/gif' ? 'gif' : 'image',
-            url: fullUrl,
-            width: content.info?.w,
-            height: content.info?.h,
-            mimetype: content.info?.mimetype,
-            size: content.info?.size,
-          }];
-        }
-
-        const rawBody = content.body ?? '';
-        const isBridgeBotSender = /^@brmble[_-]?/.test(senderId);
-        const bridgeMatch = isBridgeBotSender ? rawBody.match(/^\[(.+?)\]:\s*/) : null;
-        const messageSender = bridgeMatch ? bridgeMatch[1] : displayName;
-        const messageContent = bridgeMatch ? rawBody.slice(bridgeMatch[0].length) : rawBody;
-
-        backfillMsgs.push({
-          id: ev.getId() ?? crypto.randomUUID(),
-          channelId: otherUserId,
-          sender: messageSender,
-          senderMatrixUserId: senderId,
-          content: media ? '' : messageContent,
-          timestamp: new Date(ev.getTs()),
-          ...(media && { media }),
-        });
+        const msg = transformEventToChatMessage(ev, room, otherUserId, clientRef.current);
+        if (msg) backfillMsgs.push(msg);
       }
 
       if (backfillMsgs.length > 0) {
