@@ -15,8 +15,18 @@ public sealed class SystemIdleTracker : IDisposable
 {
     public const uint WM_WTSSESSION_CHANGE = 0x02B1;
 
+    // Per Microsoft docs (winuser.h):
+    //   WTS_CONSOLE_CONNECT       = 0x1
+    //   WTS_CONSOLE_DISCONNECT    = 0x2
+    //   WTS_REMOTE_CONNECT        = 0x3
+    //   WTS_REMOTE_DISCONNECT     = 0x4
+    //   WTS_SESSION_LOCK          = 0x7
+    //   WTS_SESSION_UNLOCK        = 0x8
+    // We treat both console *and* remote disconnect as "user is gone".
     private const int WTS_CONSOLE_CONNECT = 0x1;
     private const int WTS_CONSOLE_DISCONNECT = 0x2;
+    private const int WTS_REMOTE_CONNECT = 0x3;
+    private const int WTS_REMOTE_DISCONNECT = 0x4;
     private const int WTS_SESSION_LOCK = 0x7;
     private const int WTS_SESSION_UNLOCK = 0x8;
 
@@ -85,10 +95,12 @@ public sealed class SystemIdleTracker : IDisposable
         {
             case WTS_SESSION_LOCK:
             case WTS_CONSOLE_DISCONNECT:
+            case WTS_REMOTE_DISCONNECT:
                 _isLocked = true;
                 break;
             case WTS_SESSION_UNLOCK:
             case WTS_CONSOLE_CONNECT:
+            case WTS_REMOTE_CONNECT:
                 _isLocked = false;
                 break;
         }

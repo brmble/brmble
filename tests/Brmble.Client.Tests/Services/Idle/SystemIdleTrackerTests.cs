@@ -47,6 +47,32 @@ public class SystemIdleTrackerTests
     }
 
     [TestMethod]
+    public void OnSessionChange_WtsRemoteDisconnect_SetsIsLockedTrue()
+    {
+        using var tracker = new SystemIdleTracker(IntPtr.Zero);
+        tracker.OnSessionChange(0x4); // WTS_REMOTE_DISCONNECT (RDP session detached)
+        Assert.IsTrue(tracker.IsLocked);
+    }
+
+    [TestMethod]
+    public void OnSessionChange_WtsRemoteConnect_ClearsIsLocked()
+    {
+        using var tracker = new SystemIdleTracker(IntPtr.Zero);
+        tracker.OnSessionChange(0x4); // remote disconnect (locked)
+        tracker.OnSessionChange(0x3); // WTS_REMOTE_CONNECT (RDP attached)
+        Assert.IsFalse(tracker.IsLocked);
+    }
+
+    [TestMethod]
+    public void OnSessionChange_WtsConsoleConnect_ClearsIsLocked()
+    {
+        using var tracker = new SystemIdleTracker(IntPtr.Zero);
+        tracker.OnSessionChange(0x2); // console disconnect (locked)
+        tracker.OnSessionChange(0x1); // WTS_CONSOLE_CONNECT
+        Assert.IsFalse(tracker.IsLocked);
+    }
+
+    [TestMethod]
     public void OnSessionChange_UnknownWParam_DoesNothing()
     {
         using var tracker = new SystemIdleTracker(IntPtr.Zero);
