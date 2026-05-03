@@ -1,13 +1,9 @@
 import '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 
-// Node 25 introduces a native localStorage global that lacks .clear() and conflicts with
-// jsdom's implementation. vitest's populateGlobal skips localStorage because it exists
-// on the Node global, so jsdom's localStorage never overrides it.
-// We restore proper behaviour by delegating to document.defaultView which IS the real
-// jsdom Window object (vitest patches document.defaultView to point to itself but that
-// still gives us access to jsdom's Window prototype chain).
-// Fallback: a fully-functional in-memory shim.
+// Node 25 ships a native localStorage on globalThis that lacks .clear(), and vitest's
+// populateGlobal skips the slot because it's already populated, so jsdom's Storage
+// never installs. We feature-detect on .clear and replace with a Map-backed shim.
 (function patchLocalStorage() {
   // Check if localStorage already has .clear — if it does, nothing to do.
   if (typeof globalThis.localStorage?.clear === 'function') return;
