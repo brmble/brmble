@@ -2189,7 +2189,12 @@ const handleConnect = (serverData: SavedServer) => {
   }, [notifQueue]);
 
   const requestActiveShareDiscovery = useCallback((channelId: string | undefined) => {
-    if (!channelId || channelId === 'server-root') {
+    if (!channelId) {
+      return;
+    }
+
+    if (channelId === 'server-root') {
+      bridge.send('livekit.checkActiveShare', { scope: 'all' });
       return;
     }
 

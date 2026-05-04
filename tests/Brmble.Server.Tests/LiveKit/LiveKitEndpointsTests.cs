@@ -201,6 +201,46 @@ public class LiveKitEndpointsTests
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
     }
 
+    [TestMethod]
+    public async Task ActiveShare_RootGlobalRequest_ReturnsAllActiveShares()
+    {
+        using var factory = new BrmbleServerFactory();
+        using var client = factory.CreateClient();
+
+        await client.PostAsync("/auth/token", null);
+
+        var tracker = factory.Services.GetRequiredService<ScreenShareTracker>();
+        tracker.Start("channel-1", "alice", 10, "@alice:test");
+        tracker.Start("channel-2", "bob", 20, "@bob:test");
+
+        var response = await client.GetAsync("/livekit/active-share?scope=all");
+        var payload = await response.Content.ReadAsStringAsync();
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        StringAssert.Contains(payload, "channel-1");
+        StringAssert.Contains(payload, "channel-2");
+    }
+
+    [TestMethod]
+    public async Task ActiveShare_ChannelRequest_StillReturnsOnlyRequestedRoom()
+    {
+        using var factory = new BrmbleServerFactory();
+        using var client = factory.CreateClient();
+
+        await client.PostAsync("/auth/token", null);
+
+        var tracker = factory.Services.GetRequiredService<ScreenShareTracker>();
+        tracker.Start("channel-1", "alice", 10, "@alice:test");
+        tracker.Start("channel-2", "bob", 20, "@bob:test");
+
+        var response = await client.GetAsync("/livekit/active-share?roomName=channel-1");
+        var payload = await response.Content.ReadAsStringAsync();
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        StringAssert.Contains(payload, "channel-1");
+        Assert.IsFalse(payload.Contains("channel-2"));
+    }
+
     private record ActiveShareInfo(string UserName, long UserId, string MatrixUserId, int? SessionId);
     private record ActiveSharesResponse(ActiveShareInfo[] Shares);
 }

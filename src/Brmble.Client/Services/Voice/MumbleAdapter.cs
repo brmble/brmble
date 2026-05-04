@@ -2392,9 +2392,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         bridge.RegisterHandler("livekit.checkActiveShare", async data =>
         {
             var roomName = data.TryGetProperty("roomName", out var rn) ? rn.GetString() : null;
-            if (string.IsNullOrWhiteSpace(roomName) || _apiUrl is null)
+            var scope = data.TryGetProperty("scope", out var scopeProp) ? scopeProp.GetString() : null;
+            if ((string.IsNullOrWhiteSpace(roomName) && !string.Equals(scope, "all", StringComparison.Ordinal)) || _apiUrl is null)
             {
-                _bridge?.Send("livekit.activeShareError", new { roomName, reason = "client-not-ready" });
+                _bridge?.Send("livekit.activeShareError", new { roomName, scope, reason = "client-not-ready" });
                 _bridge?.NotifyUiThread();
                 return;
             }
@@ -2402,7 +2403,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             using var cert = _certService?.GetExportableCertificate();
             if (cert is null)
             {
-                _bridge?.Send("livekit.activeShareError", new { roomName, reason = "missing-certificate" });
+                _bridge?.Send("livekit.activeShareError", new { roomName, scope, reason = "missing-certificate" });
                 _bridge?.NotifyUiThread();
                 return;
             }
@@ -2410,7 +2411,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             try
             {
                 var baseUri = new Uri(_apiUrl, UriKind.Absolute);
-                var uri = new Uri(baseUri, $"livekit/active-share?roomName={Uri.EscapeDataString(roomName)}");
+                var query = string.Equals(scope, "all", StringComparison.Ordinal)
+                    ? "livekit/active-share?scope=all"
+                    : $"livekit/active-share?roomName={Uri.EscapeDataString(roomName!)}";
+                var uri = new Uri(baseUri, query);
                 var result = await GetViaBcTls(cert, uri);
                 if (result.Success && result.Body is not null)
                 {
@@ -2423,23 +2427,24 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                             var sUserName = s.TryGetProperty("userName", out var un) ? un.GetString() : null;
                             var sUserId = s.TryGetProperty("userId", out var uid) && uid.ValueKind == System.Text.Json.JsonValueKind.Number
                                 ? uid.GetInt64() : (long?)null;
+                            var sRoomName = s.TryGetProperty("roomName", out var srn) ? srn.GetString() : roomName;
                             var sMatrixUserId = s.TryGetProperty("matrixUserId", out var muid) ? muid.GetString() : null;
                             var sSessionId = s.TryGetProperty("sessionId", out var sid) && sid.ValueKind == System.Text.Json.JsonValueKind.Number
                                 ? sid.GetInt32() : (int?)null;
-                            shares.Add(new { userName = sUserName, userId = sUserId, matrixUserId = sMatrixUserId, sessionId = sSessionId });
+                            shares.Add(new { roomName = sRoomName, userName = sUserName, userId = sUserId, matrixUserId = sMatrixUserId, sessionId = sSessionId });
                         }
                     }
-                    _bridge?.Send("livekit.activeShareResult", new { roomName, shares });
+                    _bridge?.Send("livekit.activeShareResult", new { roomName, scope, shares });
                 }
                 else
                 {
-                    _bridge?.Send("livekit.activeShareError", new { roomName, reason = "request-failed", statusCode = result.StatusCode });
+                    _bridge?.Send("livekit.activeShareError", new { roomName, scope, reason = "request-failed", statusCode = result.StatusCode });
                 }
                 _bridge?.NotifyUiThread();
             }
             catch (Exception ex)
             {
-                _bridge?.Send("livekit.activeShareError", new { roomName, reason = "exception", message = ex.Message });
+                _bridge?.Send("livekit.activeShareError", new { roomName, scope, reason = "exception", message = ex.Message });
                 _bridge?.NotifyUiThread();
             }
         });

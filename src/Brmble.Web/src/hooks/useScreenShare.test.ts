@@ -347,6 +347,37 @@ describe('useScreenShare', () => {
     ]);
   });
 
+  it('replaces activeShares with global discovery results when scope is all', () => {
+    let activeShareHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.activeShareResult') activeShareHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      activeShareHandler?.({
+        roomName: 'channel-1',
+        shares: [{ userId: 10, userName: 'alice', sessionId: 1 }],
+      });
+    });
+
+    act(() => {
+      activeShareHandler?.({
+        scope: 'all',
+        shares: [
+          { roomName: 'channel-2', userId: 20, userName: 'bob', sessionId: 2 },
+          { roomName: 'channel-3', userId: 30, userName: 'charlie', sessionId: 3 },
+        ],
+      });
+    });
+
+    expect(result.current.activeShares).toEqual([
+      { roomName: 'channel-2', userId: 20, userName: 'bob', sessionId: 2 },
+      { roomName: 'channel-3', userId: 30, userName: 'charlie', sessionId: 3 },
+    ]);
+  });
+
   it('clears activeShares only for the queried room when activeShareResult returns empty', () => {
     let activeShareHandler: ((data: unknown) => void) | null = null;
     (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {

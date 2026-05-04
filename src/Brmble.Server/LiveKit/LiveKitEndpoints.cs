@@ -202,19 +202,36 @@ public static class LiveKitEndpoints
             if (user is null)
                 return Results.Unauthorized();
 
+            var scope = httpContext.Request.Query["scope"].ToString();
             var roomName = httpContext.Request.Query["roomName"].ToString();
-            if (string.IsNullOrWhiteSpace(roomName))
-                return Results.BadRequest(new { error = "roomName query parameter is required" });
 
-            if (!roomName.StartsWith("channel-") || !int.TryParse(roomName.AsSpan("channel-".Length), out _))
-                return Results.BadRequest(new { error = "invalid roomName format" });
+            IEnumerable<object> result;
 
-            var shares = tracker.GetActiveShares(roomName);
-            var result = shares.Select(s =>
+            if (string.Equals(scope, "all", StringComparison.Ordinal))
             {
-                var hasSession = sessionMapping.TryGetSessionByUserId(s.UserId, out var sessionId);
-                return new { s.UserName, s.UserId, s.MatrixUserId, sessionId = hasSession ? sessionId : (int?)null };
-            }).ToArray();
+                result = tracker.GetAllRoomNames()
+                    .SelectMany(activeRoomName => tracker.GetActiveShares(activeRoomName).Select(s =>
+                    {
+                        var hasSession = sessionMapping.TryGetSessionByUserId(s.UserId, out var sessionId);
+                        return new { roomName = activeRoomName, s.UserName, s.UserId, s.MatrixUserId, sessionId = hasSession ? sessionId : (int?)null };
+                    }))
+                    .ToArray();
+            }
+            else
+            {
+                if (string.IsNullOrWhiteSpace(roomName))
+                    return Results.BadRequest(new { error = "roomName query parameter is required" });
+
+                if (!roomName.StartsWith("channel-") || !int.TryParse(roomName.AsSpan("channel-".Length), out _))
+                    return Results.BadRequest(new { error = "invalid roomName format" });
+
+                result = tracker.GetActiveShares(roomName).Select(s =>
+                {
+                    var hasSession = sessionMapping.TryGetSessionByUserId(s.UserId, out var sessionId);
+                    return new { roomName, s.UserName, s.UserId, s.MatrixUserId, sessionId = hasSession ? sessionId : (int?)null };
+                }).ToArray();
+            }
+
             return Results.Ok(new { shares = result });
         });
 

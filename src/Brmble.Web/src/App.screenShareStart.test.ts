@@ -285,6 +285,23 @@ describe('active share discovery', () => {
     ]);
   });
 
+  it('requests global active share discovery while in root channel', async () => {
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 0,
+        channels: [{ id: 1, name: 'General' }],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 0 }],
+      });
+    });
+
+    await waitFor(() => {
+      expect(bridge.send).toHaveBeenCalledWith('livekit.checkActiveShare', { scope: 'all' });
+    });
+  });
+
   it('requests active share discovery exactly once when switching channels while already connected', async () => {
     render(React.createElement(App));
 

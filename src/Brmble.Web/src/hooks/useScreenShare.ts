@@ -588,14 +588,27 @@ export function useScreenShare(
     };
 
     const onActiveShareResult = (data: unknown) => {
-      const d = data as { roomName: string; shares: Array<{ userId: number; userName: string; matrixUserId?: string; sessionId?: number }> };
+      const d = data as {
+        roomName?: string;
+        scope?: string;
+        shares: Array<{ roomName?: string; userId: number; userName: string; matrixUserId?: string; sessionId?: number }>;
+      };
       const nextRoomShares = (d.shares ?? []).map(s => ({
-        roomName: d.roomName,
+        roomName: s.roomName ?? d.roomName ?? '',
         userName: s.userName,
         userId: s.userId,
         matrixUserId: s.matrixUserId,
         sessionId: s.sessionId,
-      }));
+      })).filter(s => s.roomName);
+
+      if (d.scope === 'all') {
+        setActiveShares(nextRoomShares);
+        return;
+      }
+
+      if (!d.roomName) {
+        return;
+      }
 
       setActiveShares(prev => [
         ...prev.filter(s => s.roomName !== d.roomName),
