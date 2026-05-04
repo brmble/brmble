@@ -1,12 +1,90 @@
+using System.Collections.Concurrent;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
+using Brmble.Client.Bridge;
 using Brmble.Client.Services.Voice;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Brmble.Client.Tests.Services;
 
+internal static class NativeBridgeTestHarness
+{
+    public static NativeBridge Create()
+    {
+        var bridge = (NativeBridge)RuntimeHelpers.GetUninitializedObject(typeof(NativeBridge));
+        SetField(bridge, "_handlers", new Dictionary<string, List<Func<JsonElement, Task>>>());
+        SetField(bridge, "_pendingMessages", new ConcurrentQueue<string>());
+        return bridge;
+    }
+
+    public static async Task InvokeAsync(NativeBridge bridge, string type, JsonElement data)
+    {
+        var handlers = (Dictionary<string, List<Func<JsonElement, Task>>>)GetField(bridge, "_handlers");
+        foreach (var handler in handlers[type])
+            await handler(data);
+    }
+
+    public static List<(string Type, string DataJson)> DrainMessages(NativeBridge bridge)
+    {
+        var queue = (ConcurrentQueue<string>)GetField(bridge, "_pendingMessages");
+        var result = new List<(string Type, string DataJson)>();
+
+        while (queue.TryDequeue(out var json))
+        {
+            using var doc = JsonDocument.Parse(json);
+            var type = doc.RootElement.GetProperty("type").GetString() ?? string.Empty;
+            var dataJson = doc.RootElement.GetProperty("data").GetRawText();
+            result.Add((type, dataJson));
+        }
+
+        return result;
+    }
+
+    private static object GetField(object instance, string name)
+        => instance.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(instance)!;
+
+    private static void SetField(object instance, string name, object? value)
+        => instance.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(instance, value);
+}
+
+internal static class MumbleAdapterTestHarness
+{
+    public static MumbleAdapter CreateWithBridge(NativeBridge bridge, string? apiUrl = null)
+    {
+        var adapter = (MumbleAdapter)RuntimeHelpers.GetUninitializedObject(typeof(MumbleAdapter));
+        SetField(adapter, "_bridge", bridge);
+        SetField(adapter, "_apiUrl", apiUrl);
+        return adapter;
+    }
+
+    private static void SetField(object instance, string name, object? value)
+        => instance.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(instance, value);
+}
+
 [TestClass]
 public class MumbleAdapterParseTests
 {
+    [TestMethod]
+    public async Task ActiveShareFailure_IsNotCollapsedIntoEmptyShares()
+    {
+        var bridge = NativeBridgeTestHarness.Create();
+        var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge, apiUrl: "https://api.example.com");
+        adapter.RegisterHandlers(bridge);
+
+        using var doc = JsonDocument.Parse("""
+        {
+            "roomName": "channel-1"
+        }
+        """);
+
+        await NativeBridgeTestHarness.InvokeAsync(bridge, "livekit.checkActiveShare", doc.RootElement.Clone());
+        var sent = NativeBridgeTestHarness.DrainMessages(bridge);
+
+        Assert.IsTrue(sent.Any(x => x.Type == "livekit.activeShareError"));
+        Assert.IsFalse(sent.Any(x => x.Type == "livekit.activeShareResult" && x.DataJson.Contains("\"shares\"")));
+    }
+
     [TestMethod]
     public void ParseBrmbleApiUrl_ValidComment_ReturnsUrl()
     {

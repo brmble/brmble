@@ -2394,7 +2394,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             var roomName = data.TryGetProperty("roomName", out var rn) ? rn.GetString() : null;
             if (string.IsNullOrWhiteSpace(roomName) || _apiUrl is null)
             {
-                _bridge?.Send("livekit.activeShareResult", new { roomName, active = false });
+                _bridge?.Send("livekit.activeShareError", new { roomName, reason = "client-not-ready" });
                 _bridge?.NotifyUiThread();
                 return;
             }
@@ -2402,7 +2402,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             using var cert = _certService?.GetExportableCertificate();
             if (cert is null)
             {
-                _bridge?.Send("livekit.activeShareResult", new { roomName, active = false });
+                _bridge?.Send("livekit.activeShareError", new { roomName, reason = "missing-certificate" });
                 _bridge?.NotifyUiThread();
                 return;
             }
@@ -2433,13 +2433,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 }
                 else
                 {
-                    _bridge?.Send("livekit.activeShareResult", new { roomName, shares = Array.Empty<object>() });
+                    _bridge?.Send("livekit.activeShareError", new { roomName, reason = "request-failed", statusCode = result.StatusCode });
                 }
                 _bridge?.NotifyUiThread();
             }
-            catch
+            catch (Exception ex)
             {
-                _bridge?.Send("livekit.activeShareResult", new { roomName, shares = Array.Empty<object>() });
+                _bridge?.Send("livekit.activeShareError", new { roomName, reason = "exception", message = ex.Message });
                 _bridge?.NotifyUiThread();
             }
         });
