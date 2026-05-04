@@ -149,7 +149,7 @@ public class LiveKitEndpointsTests
     }
 
     [TestMethod]
-    public async Task ActiveShare_WithoutCurrentChannelAccess_ReturnsForbidden()
+    public async Task ActiveShare_WithoutCurrentChannelAccess_ReturnsOk()
     {
         using var factory = new BrmbleServerFactory();
         using var client = factory.CreateClient();
@@ -158,11 +158,11 @@ public class LiveKitEndpointsTests
 
         var response = await client.GetAsync("/livekit/active-share?roomName=channel-1");
 
-        Assert.AreEqual(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
     }
 
     [TestMethod]
-    public async Task ActiveShare_WithCurrentChannelAccess_ReturnsOk()
+    public async Task ActiveShare_WithCurrentChannelAccess_StillReturnsOk()
     {
         using var factory = new BrmbleServerFactory();
         using var client = factory.CreateClient();

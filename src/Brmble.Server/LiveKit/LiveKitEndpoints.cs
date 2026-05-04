@@ -187,20 +187,18 @@ public static class LiveKitEndpoints
             return Results.Ok();
         });
 
-        app.MapGet("/livekit/active-share", (
+        app.MapGet("/livekit/active-share", async (
             HttpContext httpContext,
             ICertificateHashExtractor certHashExtractor,
-            LiveKitService liveKitService,
             UserRepository userRepo,
             ScreenShareTracker tracker,
-            ISessionMappingService sessionMapping,
-            IChannelMembershipService channelMembership) =>
+            ISessionMappingService sessionMapping) =>
         {
             var certHash = certHashExtractor.GetCertHash(httpContext);
             if (string.IsNullOrWhiteSpace(certHash))
                 return Results.Unauthorized();
 
-            var user = userRepo.GetByCertHash(certHash).GetAwaiter().GetResult();
+            var user = await userRepo.GetByCertHash(certHash);
             if (user is null)
                 return Results.Unauthorized();
 
@@ -210,25 +208,6 @@ public static class LiveKitEndpoints
 
             if (!roomName.StartsWith("channel-") || !int.TryParse(roomName.AsSpan("channel-".Length), out _))
                 return Results.BadRequest(new { error = "invalid roomName format" });
-
-            var isInRequestedRoom = IsUserInRoom(user.Id, roomName, sessionMapping, channelMembership);
-            var authz = liveKitService.AuthorizeTokenRequest(
-                certHash,
-                roomName,
-                LiveKitAccessMode.Subscribe,
-                canPublish: isInRequestedRoom,
-                canSubscribe: isInRequestedRoom).GetAwaiter().GetResult();
-
-            if (!authz.Allowed)
-            {
-                return authz.Failure switch
-                {
-                    LiveKitAuthorizationFailure.Unauthorized => Results.Unauthorized(),
-                    LiveKitAuthorizationFailure.Forbidden => Results.StatusCode(StatusCodes.Status403Forbidden),
-                    LiveKitAuthorizationFailure.InvalidRoom => Results.BadRequest(new { error = "invalid roomName format" }),
-                    _ => Results.StatusCode(StatusCodes.Status403Forbidden),
-                };
-            }
 
             var shares = tracker.GetActiveShares(roomName);
             var result = shares.Select(s =>
