@@ -125,6 +125,7 @@ export function useScreenShare(
   const onLocalShareEndedRef = useRef(onLocalShareEnded);
   const localShareEndCleanupRef = useRef<(() => void) | null>(null);
   const localShareStopHandledRef = useRef(false);
+  const localShareTeardownIntentRef = useRef<LocalShareStopReason | null>(null);
   onDisconnectedRef.current = onDisconnected;
   onLocalShareEndedRef.current = onLocalShareEnded;
 
@@ -144,6 +145,10 @@ export function useScreenShare(
   const updateWatchingShares = useCallback((shares: ShareInfo[]) => {
     watchingSharesRef.current = shares;
     setWatchingShares(shares);
+  }, []);
+
+  const markLocalShareTeardownIntent = useCallback((reason: LocalShareStopReason) => {
+    localShareTeardownIntentRef.current = reason;
   }, []);
 
   const setDiscoveryTarget = useCallback((target: DiscoveryTarget) => {
@@ -270,6 +275,7 @@ export function useScreenShare(
 
     localShareStopHandledRef.current = true;
     clearLocalShareEndListener();
+    localShareTeardownIntentRef.current = null;
 
     const room = roomOverride ?? roomRef.current;
     const roomName = room?.name;
@@ -388,8 +394,10 @@ export function useScreenShare(
       roomRef.current = null;
       roomAccessModeRef.current = null;
       setRemoteVideoEls(new Map());
+      const teardownIntent = localShareTeardownIntentRef.current;
+      localShareTeardownIntentRef.current = null;
       if (isSharingRef.current) {
-        void stopLocalShare('interrupted', room);
+        void stopLocalShare(teardownIntent ?? 'interrupted', room);
       }
       updateWatchingShares([]);
       setFocusedShare(null);
@@ -707,6 +715,7 @@ export function useScreenShare(
     isSharing,
     startSharing,
     stopSharing,
+    markLocalShareTeardownIntent,
     error,
     activeShare,       // backward compat
     activeShares,      // new: all active shares

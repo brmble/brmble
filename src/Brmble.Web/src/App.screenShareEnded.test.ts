@@ -1,5 +1,5 @@
 import { act, renderHook } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as AppModule from './App';
 import { createQueuedScreenShareEndedNotification, getScreenShareEndedNotification } from './App';
@@ -13,7 +13,15 @@ type ReplaceScreenShareEndedNotification = (
 ) => ReturnType<typeof createQueuedScreenShareEndedNotification>;
 
 describe('getScreenShareEndedNotification', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it('keeps manual share endings silent', () => {
+    expect(getScreenShareEndedNotification('manual')).toBeNull();
+  });
+
+  it('returns null notification for manual share stop', () => {
     expect(getScreenShareEndedNotification('manual')).toBeNull();
   });
 
@@ -90,5 +98,9 @@ describe('getScreenShareEndedNotification', () => {
 
     expect(unregister).toHaveBeenCalledWith(interrupted!.id);
     expect(errored).toEqual(createQueuedScreenShareEndedNotification('error', 1));
+  });
+
+  it('does not create a queued notification for manual share stop', () => {
+    expect(createQueuedScreenShareEndedNotification('manual', 1)).toBeNull();
   });
 });

@@ -115,6 +115,7 @@ interface ToggleLocalScreenShareOptions {
   voiceChannelId?: number;
   startSharing: (roomName: string) => Promise<void>;
   stopSharing: () => Promise<void>;
+  markLocalShareTeardownIntent?: (reason: LocalShareStopReason) => void;
   setSharingChannelId: (channelId: string | undefined) => void;
 }
 
@@ -150,6 +151,19 @@ export function getNextLiveKitStatusUpdate({
   }
 
   return null;
+}
+
+async function stopSharingForIntentionalDisconnect(options: {
+  isSharing: boolean;
+  stopSharing: () => Promise<void>;
+  markLocalShareTeardownIntent?: (reason: LocalShareStopReason) => void;
+}) {
+  if (!options.isSharing) {
+    return;
+  }
+
+  options.markLocalShareTeardownIntent?.('manual');
+  await options.stopSharing();
 }
 
 export function shouldClearLocalShareStartPending({
@@ -1728,7 +1742,12 @@ const handleConnect = (serverData: SavedServer) => {
     });
   };
 
-  const handleDisconnect = () => {
+  const handleDisconnect = async () => {
+    await stopSharingForIntentionalDisconnect({
+      isSharing,
+      stopSharing,
+      markLocalShareTeardownIntent,
+    });
     bridge.send('voice.disconnect');
   };
 
@@ -1750,7 +1769,12 @@ const handleConnect = (serverData: SavedServer) => {
     }
   };
 
-  const handleBackToServerList = () => {
+  const handleBackToServerList = async () => {
+    await stopSharingForIntentionalDisconnect({
+      isSharing,
+      stopSharing,
+      markLocalShareTeardownIntent,
+    });
     bridge.send('voice.disconnect');
     clearPendingAction();
     userSawConnectedRef.current = false;
@@ -2025,7 +2049,7 @@ const handleConnect = (serverData: SavedServer) => {
     setScreenShareEndedNotification(notification);
   }, [notifQueue]);
 
-  const { isSharing, startSharing, stopSharing, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, disconnectViewer, connectAsViewer } = useScreenShare(() => {
+  const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, disconnectViewer, connectAsViewer } = useScreenShare(() => {
     setSharingChannelId(undefined);
   }, screenShareSettings, handleLocalScreenShareEnded);
   disconnectViewerRef.current = disconnectViewer;

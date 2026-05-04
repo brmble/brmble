@@ -626,6 +626,35 @@ describe('useScreenShare', () => {
     expect((bridge.send as ReturnType<typeof vi.fn>).mock.calls.filter(([type]) => type === 'livekit.shareStopped')).toHaveLength(1);
   });
 
+  it('preserves explicit manual teardown intent across room disconnect', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+    });
+
+    const onDisconnected = vi.fn();
+    const onLocalShareEnded = vi.fn();
+    const { result } = renderHook(() => (useScreenShare as any)(onDisconnected, undefined, onLocalShareEnded));
+
+    await act(async () => {
+      const promise = result.current.startSharing('channel-1');
+      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      await promise;
+    });
+
+    await act(async () => {
+      result.current.markLocalShareTeardownIntent('manual');
+      emitRoomEvent('disconnected');
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(result.current.isSharing).toBe(false);
+    expect(onDisconnected).not.toHaveBeenCalled();
+    expect(onLocalShareEnded).toHaveBeenCalledTimes(1);
+    expect(onLocalShareEnded).toHaveBeenCalledWith('manual');
+  });
+
   it('classifies local capture ending as source-closed and only stops once', async () => {
     let tokenHandler: ((data: unknown) => void) | null = null;
     (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
