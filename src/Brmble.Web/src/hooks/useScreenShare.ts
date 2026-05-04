@@ -24,7 +24,7 @@ export interface ScreenShareSettings {
   systemAudio: boolean;
 }
 
-export type LocalShareStopReason = 'manual' | 'source-closed' | 'interrupted' | 'error';
+export type LocalShareStopReason = 'manual' | 'source-closed' | 'interrupted' | 'error' | 'blocked-capture';
 
 type LocalTrackLike = {
   addEventListener?: (event: string, handler: () => void) => void;
@@ -275,7 +275,7 @@ export function useScreenShare(
     roomOverride?: Room | null,
   ) => {
     const wasSharing = isSharingRef.current;
-    const shouldHandleErrorBeforeShareStarts = reason === 'error' && !localShareStopHandledRef.current;
+    const shouldHandleErrorBeforeShareStarts = (reason === 'error' || reason === 'blocked-capture') && !localShareStopHandledRef.current;
 
     if (localShareStopHandledRef.current || (!wasSharing && !shouldHandleErrorBeforeShareStarts)) {
       return;
@@ -485,10 +485,11 @@ export function useScreenShare(
 
       if (isBlockedWindowCaptureError(err)) {
         setError('Windows could not share that app or window. Try sharing your full screen or a different window.');
+        await stopLocalShare('blocked-capture', roomRef.current);
       } else {
         setError(getErrorLikeDetails(err)?.message || 'Screen share failed');
+        await stopLocalShare('error', roomRef.current);
       }
-      await stopLocalShare('error', roomRef.current);
       // Disconnect room if we're not watching anyone either
       await maybeDisconnectRoom();
     }

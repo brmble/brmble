@@ -11,7 +11,7 @@ import { useNotificationQueue } from './hooks/useNotificationQueue';
 
 type ReplaceScreenShareEndedNotification = (
   current: ReturnType<typeof createQueuedScreenShareEndedNotification>,
-  reason: 'manual' | 'source-closed' | 'interrupted' | 'error',
+  reason: 'manual' | 'source-closed' | 'interrupted' | 'error' | 'blocked-capture',
   sequence: number,
   notifQueue: { unregister: (id: string) => void },
 ) => ReturnType<typeof createQueuedScreenShareEndedNotification>;
@@ -45,11 +45,19 @@ describe('getScreenShareEndedNotification', () => {
     });
   });
 
-  it('maps error to an error notification', () => {
-    expect(getScreenShareEndedNotification('error')).toEqual({
+  it('maps blocked-capture to a clearer error notification', () => {
+    expect(getScreenShareEndedNotification('blocked-capture')).toEqual({
       status: 'error',
       title: 'Screen share failed',
       detail: 'Brmble could not start or keep your screen share running. Windows may have blocked sharing that app or window.',
+    });
+  });
+
+  it('maps error to the generic technical issue notification', () => {
+    expect(getScreenShareEndedNotification('error')).toEqual({
+      status: 'error',
+      title: 'Screen share failed',
+      detail: 'Brmble could not keep your screen share running because of a technical issue.',
     });
   });
 

@@ -841,7 +841,7 @@ describe('useScreenShare', () => {
     expect(result.current.error).toBe('Windows could not share that app or window. Try sharing your full screen or a different window.');
     expect(onDisconnected).not.toHaveBeenCalled();
     expect(onLocalShareEnded).toHaveBeenCalledTimes(1);
-    expect(onLocalShareEnded).toHaveBeenCalledWith('error');
+    expect(onLocalShareEnded).toHaveBeenCalledWith('blocked-capture');
   });
 
   it('treats plain exact permission denied by user as benign picker cancel', async () => {
