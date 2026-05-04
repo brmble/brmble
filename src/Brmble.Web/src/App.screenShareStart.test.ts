@@ -4,9 +4,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 type BridgeHandler = (data: unknown) => void;
 
-const { bridgeHandlers, bridge, disconnectViewer } = vi.hoisted(() => {
+const { bridgeHandlers, bridge, disconnectViewer, setDiscoveryTarget } = vi.hoisted(() => {
   const handlers = new Map<string, Set<BridgeHandler>>();
   const disconnect = vi.fn();
+  const setTarget = vi.fn();
   const mockBridge = {
     send: vi.fn(),
     on: vi.fn((type: string, handler: BridgeHandler) => {
@@ -35,6 +36,7 @@ const { bridgeHandlers, bridge, disconnectViewer } = vi.hoisted(() => {
     bridgeHandlers: handlers,
     bridge: mockBridge,
     disconnectViewer: disconnect,
+    setDiscoveryTarget: setTarget,
   };
 });
 
@@ -65,6 +67,7 @@ vi.mock('./hooks/useScreenShare', () => ({
     watchingShares: [],
     focusedShare: null,
     setFocusedShare: vi.fn(),
+    setDiscoveryTarget,
     remoteVideoEls: new Map(),
     disconnectViewer,
     connectAsViewer: vi.fn(),

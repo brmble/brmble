@@ -35,6 +35,8 @@ type LocalTrackLike = {
 
 type LiveKitAccessMode = 'publish' | 'subscribe';
 
+type DiscoveryTarget = { scope: 'all' } | { roomName: string } | null;
+
 type ErrorLike = {
   name?: unknown;
   message?: unknown;
@@ -118,6 +120,7 @@ export function useScreenShare(
   const watchingSharesRef = useRef<ShareInfo[]>([]);
   const isSharingRef = useRef(false);
   const focusedShareRef = useRef<ShareInfo | null>(null);
+  const discoveryTargetRef = useRef<DiscoveryTarget>(null);
   const onDisconnectedRef = useRef(onDisconnected);
   const onLocalShareEndedRef = useRef(onLocalShareEnded);
   const localShareEndCleanupRef = useRef<(() => void) | null>(null);
@@ -141,6 +144,34 @@ export function useScreenShare(
   const updateWatchingShares = useCallback((shares: ShareInfo[]) => {
     watchingSharesRef.current = shares;
     setWatchingShares(shares);
+  }, []);
+
+  const setDiscoveryTarget = useCallback((target: DiscoveryTarget) => {
+    discoveryTargetRef.current = target;
+    setActiveShares(prev => {
+      if (!target) {
+        return [];
+      }
+
+      if ('scope' in target) {
+        return prev;
+      }
+
+      return prev.filter(share => share.roomName === target.roomName);
+    });
+  }, []);
+
+  const isRelevantToDiscoveryTarget = useCallback((roomName: string) => {
+    const target = discoveryTargetRef.current;
+    if (!target) {
+      return true;
+    }
+
+    if ('scope' in target) {
+      return true;
+    }
+
+    return target.roomName === roomName;
   }, []);
 
   const addWatchingShare = useCallback((share: ShareInfo) => {
@@ -550,6 +581,10 @@ export function useScreenShare(
   useEffect(() => {
     const onShareStarted = (data: unknown) => {
       const d = data as { roomName: string; userName: string; userId: number; matrixUserId?: string; sessionId?: number };
+      if (!isRelevantToDiscoveryTarget(d.roomName)) {
+        return;
+      }
+
       setActiveShares(prev => {
         if (prev.some(s => s.userId === d.userId && s.roomName === d.roomName)) return prev;
         return [...prev, { roomName: d.roomName, userName: d.userName, userId: d.userId, matrixUserId: d.matrixUserId, sessionId: d.sessionId }];
@@ -558,6 +593,10 @@ export function useScreenShare(
 
     const onShareStopped = (data: unknown) => {
       const d = data as { roomName: string; userId: number };
+      if (!isRelevantToDiscoveryTarget(d.roomName)) {
+        return;
+      }
+
       setActiveShares(prev => prev.filter(s => !(s.roomName === d.roomName && s.userId === d.userId)));
 
       // If we were watching this user, remove their tile
@@ -601,7 +640,13 @@ export function useScreenShare(
         sessionId: s.sessionId,
       })).filter(s => s.roomName);
 
+      const target = discoveryTargetRef.current;
+
       if (d.scope === 'all') {
+        if (target && !('scope' in target)) {
+          return;
+        }
+
         setActiveShares(nextRoomShares);
         return;
       }
@@ -610,10 +655,19 @@ export function useScreenShare(
         return;
       }
 
-      setActiveShares(prev => [
-        ...prev.filter(s => s.roomName !== d.roomName),
-        ...nextRoomShares,
-      ]);
+      if (target && (('scope' in target) || target.roomName !== d.roomName)) {
+        return;
+      }
+
+      if (!target) {
+        setActiveShares(prev => [
+          ...prev.filter(s => s.roomName !== d.roomName),
+          ...nextRoomShares,
+        ]);
+        return;
+      }
+
+      setActiveShares(nextRoomShares);
     };
 
     const onActiveShareError = (data: unknown) => {
@@ -632,7 +686,7 @@ export function useScreenShare(
       bridge.off('livekit.activeShareResult', onActiveShareResult);
       bridge.off('livekit.activeShareError', onActiveShareError);
     };
-  }, [removeWatchingShare]);
+  }, [isRelevantToDiscoveryTarget, removeWatchingShare]);
 
   useEffect(() => {
     return () => {
@@ -660,6 +714,7 @@ export function useScreenShare(
     watchingShares,    // new
     focusedShare,      // new
     setFocusedShare,   // new
+    setDiscoveryTarget,
     remoteVideoEl,     // backward compat
     remoteVideoEls,    // new
     addWatchingShare,      // new

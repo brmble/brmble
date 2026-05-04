@@ -2025,7 +2025,7 @@ const handleConnect = (serverData: SavedServer) => {
     setScreenShareEndedNotification(notification);
   }, [notifQueue]);
 
-  const { isSharing, startSharing, stopSharing, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, remoteVideoEls, disconnectViewer, connectAsViewer } = useScreenShare(() => {
+  const { isSharing, startSharing, stopSharing, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, disconnectViewer, connectAsViewer } = useScreenShare(() => {
     setSharingChannelId(undefined);
   }, screenShareSettings, handleLocalScreenShareEnded);
   disconnectViewerRef.current = disconnectViewer;
@@ -2190,16 +2190,19 @@ const handleConnect = (serverData: SavedServer) => {
 
   const requestActiveShareDiscovery = useCallback((channelId: string | undefined) => {
     if (!channelId) {
+      setDiscoveryTarget(null);
       return;
     }
 
     if (channelId === 'server-root') {
+      setDiscoveryTarget({ scope: 'all' });
       bridge.send('livekit.checkActiveShare', { scope: 'all' });
       return;
     }
 
+    setDiscoveryTarget({ roomName: `channel-${channelId}` });
     bridge.send('livekit.checkActiveShare', { roomName: `channel-${channelId}` });
-  }, []);
+  }, [setDiscoveryTarget]);
 
   // Check for active screen shares when switching channels
   useEffect(() => {

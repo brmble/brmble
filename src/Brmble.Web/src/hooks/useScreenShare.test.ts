@@ -378,6 +378,44 @@ describe('useScreenShare', () => {
     ]);
   });
 
+  it('drops stale global shares after switching back to room-scoped discovery', () => {
+    let activeShareHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+    let shareStoppedHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.activeShareResult') activeShareHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+      if (type === 'livekit.screenShareStopped') shareStoppedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      result.current.setDiscoveryTarget({ scope: 'all' });
+      activeShareHandler?.({
+        scope: 'all',
+        shares: [
+          { roomName: 'channel-2', userId: 20, userName: 'bob', sessionId: 2 },
+          { roomName: 'channel-3', userId: 30, userName: 'charlie', sessionId: 3 },
+        ],
+      });
+    });
+
+    act(() => {
+      result.current.setDiscoveryTarget({ roomName: 'channel-2' });
+      activeShareHandler?.({
+        roomName: 'channel-2',
+        shares: [{ userId: 20, userName: 'bob', sessionId: 2 }],
+      });
+      shareStartedHandler?.({ roomName: 'channel-9', userName: 'eve', userId: 90, sessionId: 9 });
+      shareStoppedHandler?.({ roomName: 'channel-3', userId: 30 });
+    });
+
+    expect(result.current.activeShares).toEqual([
+      { roomName: 'channel-2', userId: 20, userName: 'bob', sessionId: 2 },
+    ]);
+  });
+
   it('clears activeShares only for the queried room when activeShareResult returns empty', () => {
     let activeShareHandler: ((data: unknown) => void) | null = null;
     (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
