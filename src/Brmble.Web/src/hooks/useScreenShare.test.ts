@@ -318,7 +318,7 @@ describe('useScreenShare', () => {
     expect(result.current.activeShares).toHaveLength(2);
   });
 
-  it('replaces activeShares when activeShareResult succeeds', () => {
+  it('reconciles activeShares only for the queried room when activeShareResult succeeds', () => {
     let activeShareHandler: ((data: unknown) => void) | null = null;
     (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
       if (type === 'livekit.activeShareResult') activeShareHandler = handler;
@@ -340,8 +340,42 @@ describe('useScreenShare', () => {
       });
     });
 
-    expect(result.current.activeShares).toHaveLength(1);
-    expect(result.current.activeShares[0].userId).toBe(10);
+    expect(result.current.activeShares).toHaveLength(2);
+    expect(result.current.activeShares).toEqual([
+      { roomName: 'channel-2', userId: 20, userName: 'bob', sessionId: 2 },
+      { roomName: 'channel-1', userId: 10, userName: 'alice', sessionId: 1 },
+    ]);
+  });
+
+  it('clears activeShares only for the queried room when activeShareResult returns empty', () => {
+    let activeShareHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.activeShareResult') activeShareHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      activeShareHandler?.({
+        roomName: 'channel-1',
+        shares: [{ userId: 10, userName: 'alice', sessionId: 1 }],
+      });
+      activeShareHandler?.({
+        roomName: 'channel-2',
+        shares: [{ userId: 20, userName: 'bob', sessionId: 2 }],
+      });
+    });
+
+    act(() => {
+      activeShareHandler?.({
+        roomName: 'channel-1',
+        shares: [],
+      });
+    });
+
+    expect(result.current.activeShares).toEqual([
+      { roomName: 'channel-2', userId: 20, userName: 'bob', sessionId: 2 },
+    ]);
   });
 
   it('does not clear existing activeShares on activeShareError', () => {
