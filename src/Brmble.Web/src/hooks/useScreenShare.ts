@@ -602,14 +602,21 @@ export function useScreenShare(
       }
     };
 
+    const onActiveShareError = (data: unknown) => {
+      const d = data as { roomName?: string; reason?: string; statusCode?: number; message?: string };
+      console.warn('[LiveKit] activeShare discovery failed', d);
+    };
+
     bridge.on('livekit.screenShareStarted', onShareStarted);
     bridge.on('livekit.screenShareStopped', onShareStopped);
     bridge.on('livekit.activeShareResult', onActiveShareResult);
+    bridge.on('livekit.activeShareError', onActiveShareError);
 
     return () => {
       bridge.off('livekit.screenShareStarted', onShareStarted);
       bridge.off('livekit.screenShareStopped', onShareStopped);
       bridge.off('livekit.activeShareResult', onActiveShareResult);
+      bridge.off('livekit.activeShareError', onActiveShareError);
     };
   }, [removeWatchingShare]);
 

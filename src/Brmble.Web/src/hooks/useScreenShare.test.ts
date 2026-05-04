@@ -318,6 +318,60 @@ describe('useScreenShare', () => {
     expect(result.current.activeShares).toHaveLength(2);
   });
 
+  it('replaces activeShares when activeShareResult succeeds', () => {
+    let activeShareHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.activeShareResult') activeShareHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      activeShareHandler?.({
+        roomName: 'channel-2',
+        shares: [{ userId: 20, userName: 'bob', sessionId: 2 }],
+      });
+    });
+
+    act(() => {
+      activeShareHandler?.({
+        roomName: 'channel-1',
+        shares: [{ userId: 10, userName: 'alice', sessionId: 1 }],
+      });
+    });
+
+    expect(result.current.activeShares).toHaveLength(1);
+    expect(result.current.activeShares[0].userId).toBe(10);
+  });
+
+  it('does not clear existing activeShares on activeShareError', () => {
+    let activeShareHandler: ((data: unknown) => void) | null = null;
+    let activeShareErrorHandler: ((data: unknown) => void) | null = null;
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.activeShareResult') activeShareHandler = handler;
+      if (type === 'livekit.activeShareError') activeShareErrorHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    expect(activeShareErrorHandler).not.toBeNull();
+
+    act(() => {
+      activeShareHandler?.({
+        roomName: 'channel-1',
+        shares: [{ userId: 10, userName: 'alice', sessionId: 1 }],
+      });
+    });
+
+    act(() => {
+      activeShareErrorHandler?.({ roomName: 'channel-1', reason: 'request-failed' });
+    });
+
+    expect(result.current.activeShares).toHaveLength(1);
+    expect(result.current.activeShares[0].userId).toBe(10);
+  });
+
   it('exposes watchingShares as empty array initially', () => {
     const { result } = renderHook(() => useScreenShare());
     expect(result.current.watchingShares).toEqual([]);
