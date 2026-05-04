@@ -4,10 +4,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 type BridgeHandler = (data: unknown) => void;
 
-const { bridgeHandlers, bridge, disconnectViewer, setDiscoveryTarget } = vi.hoisted(() => {
+const {
+  bridgeHandlers,
+  bridge,
+  disconnectViewer,
+  setDiscoveryTarget,
+  stopSharing,
+  markLocalShareTeardownIntent,
+  screenShareState,
+  notifQueue,
+} = vi.hoisted(() => {
   const handlers = new Map<string, Set<BridgeHandler>>();
   const disconnect = vi.fn();
   const setTarget = vi.fn();
+  const stop = vi.fn();
+  const markIntent = vi.fn();
   const mockBridge = {
     send: vi.fn(),
     on: vi.fn((type: string, handler: BridgeHandler) => {
@@ -37,6 +48,14 @@ const { bridgeHandlers, bridge, disconnectViewer, setDiscoveryTarget } = vi.hois
     bridge: mockBridge,
     disconnectViewer: disconnect,
     setDiscoveryTarget: setTarget,
+    stopSharing: stop,
+    markLocalShareTeardownIntent: markIntent,
+    screenShareState: { isSharing: false },
+    notifQueue: {
+      register: vi.fn(),
+      unregister: vi.fn(),
+      isVisible: vi.fn(() => false),
+    },
   };
 });
 
@@ -58,9 +77,10 @@ vi.mock('./hooks/useMatrixClient', () => ({
 
 vi.mock('./hooks/useScreenShare', () => ({
   useScreenShare: () => ({
-    isSharing: false,
+    isSharing: screenShareState.isSharing,
     startSharing: vi.fn(),
-    stopSharing: vi.fn(),
+    stopSharing,
+    markLocalShareTeardownIntent,
     error: null,
     activeShare: null,
     activeShares: [],
@@ -79,7 +99,7 @@ vi.mock('./hooks/useLeaveVoiceCooldown', () => ({
 }));
 
 vi.mock('./hooks/useNotificationQueue', () => ({
-  useNotificationQueue: () => ({ register: vi.fn(), unregister: vi.fn(), isVisible: vi.fn(() => false) }),
+  useNotificationQueue: () => notifQueue,
 }));
 
 vi.mock('./hooks/useUnreadTracker', () => ({
@@ -145,11 +165,23 @@ vi.mock('./components/ErrorBoundary', () => ({
 
 vi.mock('./components/Header/Header', () => ({ Header: () => null }));
 vi.mock('./components/Header/BrmbleLogo', () => ({ BrmbleLogo: () => null }));
-vi.mock('./components/Sidebar/Sidebar', () => ({ Sidebar: () => null }));
+vi.mock('./components/Sidebar/Sidebar', () => ({
+  Sidebar: ({ onDisconnect }: { onDisconnect?: () => void }) => React.createElement('button', {
+    type: 'button',
+    'data-testid': 'sidebar-disconnect',
+    onClick: onDisconnect,
+  }),
+}));
 vi.mock('./components/ChatPanel/ChatPanel', () => ({ ChatPanel: () => null }));
 vi.mock('./components/ConnectModal/ConnectModal', () => ({ ConnectModal: () => null }));
 vi.mock('./components/ServerList/ServerList', () => ({ ServerList: () => null }));
-vi.mock('./components/ConnectionState/ConnectionState', () => ({ ConnectionState: () => null }));
+vi.mock('./components/ConnectionState/ConnectionState', () => ({
+  ConnectionState: ({ onBackToServerList }: { onBackToServerList?: () => void }) => React.createElement('button', {
+    type: 'button',
+    'data-testid': 'back-to-server-list',
+    onClick: onBackToServerList,
+  }),
+}));
 vi.mock('./components/SettingsModal/SettingsModal', () => ({
   SettingsModal: () => null,
   DEFAULT_SCREEN_SHARE: {},
@@ -224,10 +256,15 @@ describe('active share discovery', () => {
     ([type]) => type === 'livekit.checkActiveShare',
   );
 
+  const getShareEndedQueueRegistrations = () => vi.mocked(notifQueue.register).mock.calls.filter(
+    ([id]) => String(id).startsWith('screen-share-ended-'),
+  );
+
   beforeEach(() => {
     vi.clearAllMocks();
     bridgeHandlers.clear();
     localStorage.clear();
+    screenShareState.isSharing = false;
   });
 
   it('requests active share discovery after connect for the current channel', async () => {
@@ -336,5 +373,87 @@ describe('active share discovery', () => {
       ['livekit.checkActiveShare', { roomName: 'channel-1' }],
       ['livekit.checkActiveShare', { roomName: 'channel-2' }],
     ]);
+  });
+
+  it('clicking disconnect while sharing stops manually before voice disconnect without queueing a warning', async () => {
+    screenShareState.isSharing = true;
+    vi.mocked(stopSharing).mockImplementation(async () => {
+      screenShareState.isSharing = false;
+    });
+
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    await act(async () => {
+      view.getByTestId('sidebar-disconnect').click();
+      await Promise.resolve();
+    });
+
+    expect(markLocalShareTeardownIntent).toHaveBeenCalledWith('manual');
+    expect(stopSharing).toHaveBeenCalledTimes(1);
+    expect(bridge.send).toHaveBeenCalledWith('voice.disconnect');
+
+    const stopCall = vi.mocked(stopSharing).mock.invocationCallOrder[0];
+    const disconnectCall = vi.mocked(bridge.send).mock.calls
+      .map(([type], index) => ({ type, order: vi.mocked(bridge.send).mock.invocationCallOrder[index] }))
+      .find(call => call.type === 'voice.disconnect');
+
+    expect(disconnectCall?.order).toBeGreaterThan(stopCall);
+    expect(getShareEndedQueueRegistrations()).toEqual([]);
+  });
+
+  it('back-to-server while sharing stops manually before voice disconnect without queueing a warning', async () => {
+    screenShareState.isSharing = true;
+    vi.mocked(stopSharing).mockImplementation(async () => {
+      screenShareState.isSharing = false;
+    });
+
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() => {
+      bridge.emit('voice.disconnected', { reconnectAvailable: true });
+    });
+
+    await waitFor(() => {
+      expect(view.getByTestId('back-to-server-list')).toBeTruthy();
+    });
+
+    await act(async () => {
+      view.getByTestId('back-to-server-list').click();
+      await Promise.resolve();
+    });
+
+    expect(markLocalShareTeardownIntent).toHaveBeenCalledWith('manual');
+    expect(stopSharing).toHaveBeenCalledTimes(1);
+    expect(bridge.send).toHaveBeenCalledWith('voice.disconnect');
+
+    const stopCall = vi.mocked(stopSharing).mock.invocationCallOrder[0];
+    const disconnectCall = vi.mocked(bridge.send).mock.calls
+      .map(([type], index) => ({ type, order: vi.mocked(bridge.send).mock.invocationCallOrder[index] }))
+      .find(call => call.type === 'voice.disconnect');
+
+    expect(disconnectCall?.order).toBeGreaterThan(stopCall);
+    expect(getShareEndedQueueRegistrations()).toEqual([]);
   });
 });
