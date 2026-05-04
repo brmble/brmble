@@ -581,6 +581,8 @@ function App() {
   addMessageRef.current = addMessage;
   const currentChannelIdRef = useRef(currentChannelId);
   currentChannelIdRef.current = currentChannelId;
+  const previousConnectionStatusRef = useRef(connectionStatus);
+  const previousCurrentChannelIdRef = useRef(currentChannelId);
   const unreadCountRef = useRef(unreadCount);
   unreadCountRef.current = unreadCount;
   const hasPendingInviteRef = useRef(hasPendingInvite);
@@ -2202,12 +2204,23 @@ const handleConnect = (serverData: SavedServer) => {
   }, [currentChannelId, disconnectViewer, requestActiveShareDiscovery]);
 
   useEffect(() => {
-    if (connectionStatus !== 'connected') {
+    const previousConnectionStatus = previousConnectionStatusRef.current;
+    previousConnectionStatusRef.current = connectionStatus;
+
+    if (connectionStatus !== 'connected' || previousConnectionStatus === 'connected') {
       return;
     }
 
-    requestActiveShareDiscovery(currentChannelId);
-  }, [connectionStatus, currentChannelId, requestActiveShareDiscovery]);
+    if (previousCurrentChannelIdRef.current !== currentChannelIdRef.current) {
+      return;
+    }
+
+    requestActiveShareDiscovery(currentChannelIdRef.current);
+  }, [connectionStatus, requestActiveShareDiscovery]);
+
+  useEffect(() => {
+    previousCurrentChannelIdRef.current = currentChannelId;
+  }, [currentChannelId]);
 
   const handleToggleScreenShare = useCallback(async () => {
     const selfUser = usersRef.current.find(u => u.self);
