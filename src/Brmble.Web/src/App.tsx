@@ -2186,14 +2186,28 @@ const handleConnect = (serverData: SavedServer) => {
     };
   }, [notifQueue]);
 
+  const requestActiveShareDiscovery = useCallback((channelId: string | undefined) => {
+    if (!channelId || channelId === 'server-root') {
+      return;
+    }
+
+    bridge.send('livekit.checkActiveShare', { roomName: `channel-${channelId}` });
+  }, []);
+
   // Check for active screen shares when switching channels
   useEffect(() => {
     disconnectViewer();
     setScreenShareToast(null);
-    if (currentChannelId && currentChannelId !== 'server-root') {
-      bridge.send('livekit.checkActiveShare', { roomName: `channel-${currentChannelId}` });
+    requestActiveShareDiscovery(currentChannelId);
+  }, [currentChannelId, disconnectViewer, requestActiveShareDiscovery]);
+
+  useEffect(() => {
+    if (connectionStatus !== 'connected') {
+      return;
     }
-  }, [currentChannelId, disconnectViewer]);
+
+    requestActiveShareDiscovery(currentChannelId);
+  }, [connectionStatus, currentChannelId, requestActiveShareDiscovery]);
 
   const handleToggleScreenShare = useCallback(async () => {
     const selfUser = usersRef.current.find(u => u.self);
