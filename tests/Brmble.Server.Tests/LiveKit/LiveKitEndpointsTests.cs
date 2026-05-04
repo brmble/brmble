@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using Brmble.Server.Events;
+using Brmble.Server.LiveKit;
 using Brmble.Server.Tests.Integration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -149,16 +150,35 @@ public class LiveKitEndpointsTests
     }
 
     [TestMethod]
-    public async Task ActiveShare_WithoutCurrentChannelAccess_ReturnsOk()
+    public async Task ActiveShare_WithoutCurrentChannelAccess_ReturnsShareMetadata()
     {
         using var factory = new BrmbleServerFactory();
         using var client = factory.CreateClient();
 
-        await client.PostAsync("/auth/token", null);
+        var tracker = factory.Services.GetRequiredService<ScreenShareTracker>();
+        var sessionMapping = factory.Services.GetRequiredService<ISessionMappingService>();
+        var channelMembership = factory.Services.GetRequiredService<IChannelMembershipService>();
+
+        sessionMapping.SetNameForSession("TestUser", 7);
+
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "TestUser" });
+
+        channelMembership.Update(7, 2);
+        Assert.IsTrue(sessionMapping.TryAddMatrixUser(11, "@sharer:localhost", "Sharer", 42));
+        channelMembership.Update(11, 1);
+        Assert.IsTrue(tracker.Start("channel-1", "Sharer", 42, "@sharer:localhost"));
 
         var response = await client.GetAsync("/livekit/active-share?roomName=channel-1");
 
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<ActiveSharesResponse>();
+
+        Assert.IsNotNull(body?.Shares);
+        Assert.AreEqual(1, body.Shares.Length);
+        Assert.AreEqual("Sharer", body.Shares[0].UserName);
+        Assert.AreEqual(42L, body.Shares[0].UserId);
+        Assert.AreEqual("@sharer:localhost", body.Shares[0].MatrixUserId);
+        Assert.AreEqual(11, body.Shares[0].SessionId);
     }
 
     [TestMethod]
@@ -180,4 +200,7 @@ public class LiveKitEndpointsTests
 
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
     }
+
+    private record ActiveShareInfo(string UserName, long UserId, string MatrixUserId, int? SessionId);
+    private record ActiveSharesResponse(ActiveShareInfo[] Shares);
 }
