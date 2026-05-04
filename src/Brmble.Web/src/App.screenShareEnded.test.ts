@@ -2,7 +2,11 @@ import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as AppModule from './App';
-import { createQueuedScreenShareEndedNotification, getScreenShareEndedNotification } from './App';
+import {
+  createQueuedScreenShareEndedNotification,
+  getScreenShareEndedNotification,
+  runIntentionalDisconnect,
+} from './App';
 import { useNotificationQueue } from './hooks/useNotificationQueue';
 
 type ReplaceScreenShareEndedNotification = (
@@ -102,5 +106,62 @@ describe('getScreenShareEndedNotification', () => {
 
   it('does not create a queued notification for manual share stop', () => {
     expect(createQueuedScreenShareEndedNotification('manual', 1)).toBeNull();
+  });
+});
+
+describe('runIntentionalDisconnect', () => {
+  it('marks manual intent and stops sharing before disconnecting', async () => {
+    const events: string[] = [];
+    const markLocalShareTeardownIntent = vi.fn(() => {
+      events.push('mark');
+    });
+    const stopSharing = vi.fn(async () => {
+      events.push('stop');
+    });
+    const disconnect = vi.fn(() => {
+      events.push('disconnect');
+    });
+
+    await runIntentionalDisconnect({
+      isSharing: true,
+      stopSharing,
+      markLocalShareTeardownIntent,
+      disconnect,
+    });
+
+    expect(markLocalShareTeardownIntent).toHaveBeenCalledWith('manual');
+    expect(stopSharing).toHaveBeenCalledTimes(1);
+    expect(disconnect).toHaveBeenCalledTimes(1);
+    expect(events).toEqual(['mark', 'stop', 'disconnect']);
+  });
+
+  it('runs back-to-server follow-up after disconnecting when sharing', async () => {
+    const events: string[] = [];
+    const markLocalShareTeardownIntent = vi.fn(() => {
+      events.push('mark');
+    });
+    const stopSharing = vi.fn(async () => {
+      events.push('stop');
+    });
+    const disconnect = vi.fn(() => {
+      events.push('disconnect');
+    });
+    const afterDisconnect = vi.fn(() => {
+      events.push('after');
+    });
+
+    await runIntentionalDisconnect({
+      isSharing: true,
+      stopSharing,
+      markLocalShareTeardownIntent,
+      disconnect,
+      afterDisconnect,
+    });
+
+    expect(markLocalShareTeardownIntent).toHaveBeenCalledWith('manual');
+    expect(stopSharing).toHaveBeenCalledTimes(1);
+    expect(disconnect).toHaveBeenCalledTimes(1);
+    expect(afterDisconnect).toHaveBeenCalledTimes(1);
+    expect(events).toEqual(['mark', 'stop', 'disconnect', 'after']);
   });
 });

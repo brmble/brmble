@@ -166,6 +166,22 @@ async function stopSharingForIntentionalDisconnect(options: {
   await options.stopSharing();
 }
 
+export async function runIntentionalDisconnect(options: {
+  isSharing: boolean;
+  stopSharing: () => Promise<void>;
+  markLocalShareTeardownIntent?: (reason: LocalShareStopReason) => void;
+  disconnect: () => void;
+  afterDisconnect?: () => void;
+}) {
+  await stopSharingForIntentionalDisconnect({
+    isSharing: options.isSharing,
+    stopSharing: options.stopSharing,
+    markLocalShareTeardownIntent: options.markLocalShareTeardownIntent,
+  });
+  options.disconnect();
+  options.afterDisconnect?.();
+}
+
 export function shouldClearLocalShareStartPending({
   isLocalShareStartPending,
   selfLeftVoice,
@@ -1743,12 +1759,12 @@ const handleConnect = (serverData: SavedServer) => {
   };
 
   const handleDisconnect = async () => {
-    await stopSharingForIntentionalDisconnect({
+    await runIntentionalDisconnect({
       isSharing,
       stopSharing,
       markLocalShareTeardownIntent,
+      disconnect: () => bridge.send('voice.disconnect'),
     });
-    bridge.send('voice.disconnect');
   };
 
   const handleCancelReconnect = () => {
@@ -1770,31 +1786,33 @@ const handleConnect = (serverData: SavedServer) => {
   };
 
   const handleBackToServerList = async () => {
-    await stopSharingForIntentionalDisconnect({
+    await runIntentionalDisconnect({
       isSharing,
       stopSharing,
       markLocalShareTeardownIntent,
+      disconnect: () => bridge.send('voice.disconnect'),
+      afterDisconnect: () => {
+        clearPendingAction();
+        userSawConnectedRef.current = false;
+        setConnectionStatus('idle');
+        resetStatuses();
+        setServerLabel('');
+        setServerAddress('');
+        setUsername('');
+        setChannels([]);
+        setUsers([]);
+        setCurrentChannelId(undefined);
+        setCurrentChannelName('');
+        setSelfMuted(false);
+        setSelfDeafened(false);
+        setSelfLeftVoice(false);
+        setSelfCanRejoin(false);
+        setSelfSession(0);
+        setSpeakingUsers(new Map());
+        setMatrixCredentials(null);
+        setSharingChannelId(undefined);
+      },
     });
-    bridge.send('voice.disconnect');
-    clearPendingAction();
-    userSawConnectedRef.current = false;
-    setConnectionStatus('idle');
-    resetStatuses();
-    setServerLabel('');
-    setServerAddress('');
-    setUsername('');
-    setChannels([]);
-    setUsers([]);
-    setCurrentChannelId(undefined);
-    setCurrentChannelName('');
-    setSelfMuted(false);
-    setSelfDeafened(false);
-    setSelfLeftVoice(false);
-    setSelfCanRejoin(false);
-    setSelfSession(0);
-    setSpeakingUsers(new Map());
-    setMatrixCredentials(null);
-    setSharingChannelId(undefined);
   };
 
   const handleToggleMute = () => {
