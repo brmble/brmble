@@ -819,7 +819,7 @@ describe('useScreenShare', () => {
     expect((bridge.send as ReturnType<typeof vi.fn>).mock.calls.filter(([type]) => type === 'livekit.shareStopped')).toHaveLength(0);
   });
 
-  it('keeps close-but-real start failures on the error path', async () => {
+  it('classifies blocked window capture as a clearer platform error', async () => {
     let tokenHandler: ((data: unknown) => void) | null = null;
     const publishError = new DOMException('Permission denied by user while starting capture pipeline', 'AbortError');
     (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
@@ -838,7 +838,7 @@ describe('useScreenShare', () => {
     });
 
     expect(result.current.isSharing).toBe(false);
-    expect(result.current.error).toBe('Permission denied by user while starting capture pipeline');
+    expect(result.current.error).toBe('Windows could not share that app or window. Try sharing your full screen or a different window.');
     expect(onDisconnected).not.toHaveBeenCalled();
     expect(onLocalShareEnded).toHaveBeenCalledTimes(1);
     expect(onLocalShareEnded).toHaveBeenCalledWith('error');

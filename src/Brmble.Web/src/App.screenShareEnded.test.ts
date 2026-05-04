@@ -49,7 +49,7 @@ describe('getScreenShareEndedNotification', () => {
     expect(getScreenShareEndedNotification('error')).toEqual({
       status: 'error',
       title: 'Screen share failed',
-      detail: 'Brmble could not keep your screen share running because of a technical issue.',
+      detail: 'Brmble could not start or keep your screen share running. Windows may have blocked sharing that app or window.',
     });
   });
 

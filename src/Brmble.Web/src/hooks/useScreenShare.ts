@@ -103,6 +103,14 @@ const isScreenSharePickerCancel = (err: unknown) => {
   return false;
 };
 
+const isBlockedWindowCaptureError = (err: unknown) => {
+  const details = getErrorLikeDetails(err);
+  const message = details?.message.toLowerCase() ?? '';
+  const name = details?.name.toLowerCase() ?? '';
+
+  return name === 'aborterror' && message.includes('starting capture pipeline');
+};
+
 export function useScreenShare(
   onDisconnected?: () => void,
   screenShareSettings?: ScreenShareSettings,
@@ -475,7 +483,11 @@ export function useScreenShare(
         return;
       }
 
-      setError(getErrorLikeDetails(err)?.message || 'Screen share failed');
+      if (isBlockedWindowCaptureError(err)) {
+        setError('Windows could not share that app or window. Try sharing your full screen or a different window.');
+      } else {
+        setError(getErrorLikeDetails(err)?.message || 'Screen share failed');
+      }
       await stopLocalShare('error', roomRef.current);
       // Disconnect room if we're not watching anyone either
       await maybeDisconnectRoom();
