@@ -383,12 +383,37 @@ export const INITIAL_GAME_STATE: GameState = {
   lastRefreshTime: 0
 };
 
-export const DEALER_STATS = {
-  thomas: { volume: 3, margin: 3 },
-  dave: { volume: 4, margin: 2 },
-  bob: { volume: 2, margin: 4 },
-  carlos: { volume: 1, margin: 5 },
+// Star-based dealer stat ranges (rolled once at generation)
+export const VOLUME_RANGES: Record<number, [number, number]> = {
+  1: [1.0, 1.5],
+  2: [2.5, 3.5],
+  3: [4.0, 6.0],
+  4: [8.0, 10.0],
+  5: [15.0, 17.0],
 };
+
+export const MARGIN_RANGES: Record<number, [number, number]> = {
+  1: [1.0, 1.15],
+  2: [1.5, 1.7],
+  3: [2.5, 3.0],
+  4: [4.0, 6.0],
+  5: [7.5, 9.0],
+  6: [15.0, 18.0],
+};
+
+// Min values for upgrade calculations
+export const VOLUME_BY_STARS: Record<number, number> = { 1: 1.0, 2: 2.5, 3: 4.0, 4: 8.0, 5: 15.0 };
+export const MARGIN_BY_STARS: Record<number, number> = { 1: 1.0, 2: 1.5, 3: 2.5, 4: 4.0, 5: 7.5, 6: 15.0 };
+
+// Upgrade type constants
+export const UPGRADE_TYPES = {
+  VOLUME: 'VOLUME',
+  MARGIN: 'MARGIN',
+  ALL_AROUNDER: 'ALL_AROUNDER',
+  BULK: 'BULK',
+  NETWORK: 'NETWORK',
+  SIDE_HUSTLE: 'SIDE_HUSTLE',
+} as const;
 
 export const SLOT_UNLOCK_COSTS = [0, 1000, 100000]; // Slot 0 is free, 1 is $1k, 2 is $100k
 

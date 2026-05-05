@@ -16,8 +16,8 @@ export interface DealerUpgrade {
   label: string;
   description: string;
   value: number;
-  targetProductId?: string;
   marginPenalty?: number;
+  sideVolumeValue?: number;
 }
 
 export interface Dealer {
@@ -28,9 +28,10 @@ export interface Dealer {
   margin: number;
   volumeBonus: number;
   marginBonus: number;
-  sideHustle: Record<string, number>;
-  networkBonus: number;
+  sideVolume: number;
   equipmentCount: number;
+  baseVolumeGps: number;
+  baseMarginMult: number;
 }
 
 export interface GameState {
