@@ -389,7 +389,7 @@ export const INITIAL_GAME_STATE: GameState = {
 
 // Star-based dealer stat ranges (rolled once at generation)
 export const VOLUME_RANGES: Record<number, [number, number]> = {
-  1: [1.0, 1.5],
+  1: [1, 1.5],
   2: [1.5, 2.5],
   3: [2.5, 3.5],
   4: [3.5, 4.5],
@@ -397,7 +397,7 @@ export const VOLUME_RANGES: Record<number, [number, number]> = {
 };
 
 export const MARGIN_RANGES: Record<number, [number, number]> = {
-  1: [0.42, 0.50],
+  1: [1, 0.50],
   2: [0.51, 0.78],
   3: [0.90, 1.10],
   4: [1.20, 1.40],
@@ -405,8 +405,8 @@ export const MARGIN_RANGES: Record<number, [number, number]> = {
 };
 
 // Min values for upgrade calculations
-export const VOLUME_BY_STARS: Record<number, number> = { 1: 1.0, 2: 1.5, 3: 2.5, 4: 3.5, 5: 4.5 };
-export const MARGIN_BY_STARS: Record<number, number> = { 1: 0.42, 2: 0.51, 3: 0.90, 4: 1.20, 5: 1.50 };
+export const VOLUME_BY_STARS: Record<number, number> = { 1: 1, 2: 1.5, 3: 2.5, 4: 3.5, 5: 4.5 };
+export const MARGIN_BY_STARS: Record<number, number> = { 1: 1, 2: 0.51, 3: 0.90, 4: 1.20, 5: 1.50 };
 
 // Upgrade type constants
 export const UPGRADE_TYPES = {
