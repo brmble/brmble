@@ -91,6 +91,30 @@ describe('ChannelTree screen share behavior', () => {
     vi.clearAllMocks();
   });
 
+  it('shows channel sharing indicators for every active share room', () => {
+    render(
+      <ChannelTree
+        channels={[
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming' },
+        ]}
+        users={[]}
+        currentChannelId={1}
+        onJoinChannel={vi.fn()}
+        activeShares={[
+          makeShare({ roomName: 'channel-1', userId: 10, userName: 'Alice' }),
+          makeShare({ roomName: 'channel-2', userId: 20, userName: 'Bob' }),
+        ]}
+      />
+    );
+
+    const generalRow = screen.getByText('General').closest('.channel-row');
+    const gamingRow = screen.getByText('Gaming').closest('.channel-row');
+
+    expect(generalRow?.querySelector('.channel-icon [data-icon="monitor"]')).not.toBeNull();
+    expect(gamingRow?.querySelector('.channel-icon [data-icon="monitor"]')).not.toBeNull();
+  });
+
   it('shows local sharing without watch controls or watch actions', () => {
     const onWatchScreenShare = vi.fn();
 

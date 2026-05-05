@@ -77,6 +77,19 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
   const [removeChannelDialog, setRemoveChannelDialog] = useState<{ id: number; name: string } | null>(null);
   const [removeConfirmText, setRemoveConfirmText] = useState('');
   const { hasPermission, Permission, requestPermissions } = usePermissions();
+  const sharingChannelIds = useMemo(() => {
+    const ids = new Set<number>();
+    if (sharingChannelId != null) {
+      ids.add(sharingChannelId);
+    }
+    for (const share of activeShares ?? []) {
+      const id = Number(share.roomName.replace('channel-', ''));
+      if (Number.isFinite(id)) {
+        ids.add(id);
+      }
+    }
+    return ids;
+  }, [activeShares, sharingChannelId]);
 
   const canDragUsers = currentChannelId != null && hasPermission(currentChannelId, Permission.Move);
 
@@ -268,7 +281,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
             <Icon name="triangle-right" size={10} />
           </span>
           <span className="channel-icon">
-            {channel.id === sharingChannelId ? (
+            {sharingChannelIds.has(channel.id) ? (
               <Icon name="monitor" size={14} stroke="var(--accent-primary)" />
             ) : (
               <Icon name="folder" size={14} />
