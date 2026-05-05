@@ -1970,6 +1970,14 @@ const handleConnect = (serverData: SavedServer) => {
     ? matrixClient.activeMessages
     : undefined;
 
+  const channelChatMessages = useMemo(
+    () => [
+      ...(isMatrixActive ? (matrixMessages ?? []) : messages),
+      ...optimisticImages.filter(m => m.channelId === currentChannelId),
+    ],
+    [isMatrixActive, matrixMessages, messages, optimisticImages, currentChannelId],
+  );
+
   const { Prompt, PromptWithInput } = usePrompt();
 
   const [screenShareSettings, setScreenShareSettings] = useState<ScreenShareSettings>(DEFAULT_SCREEN_SHARE);
@@ -2469,7 +2477,7 @@ const handleConnect = (serverData: SavedServer) => {
                    <ChatPanel
                     channelId={currentChannelId || undefined}
                     channelName={currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName}
-                    messages={[...(isMatrixActive ? (matrixMessages ?? []) : messages), ...optimisticImages.filter(m => m.channelId === currentChannelId)]}
+                    messages={channelChatMessages}
                     currentUsername={username}
                     onSendMessage={handleSendMessage}
                     onDismissMessage={handleDismissMessage}
