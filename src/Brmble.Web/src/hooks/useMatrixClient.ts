@@ -377,6 +377,21 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
 
       const timelineEvents = room.getLiveTimeline().getEvents();
 
+      for (let i = timelineEvents.length - 1; i >= 0; i--) {
+        const ev = timelineEvents[i];
+        if (ev.getType() !== EventType.RoomMessage) continue;
+        const msg = transformEventToChatMessage(ev, room, otherUserId, clientRef.current);
+        if (!msg) continue;
+        setDmLastMessages(prev => {
+          const existing = prev.get(otherUserId);
+          if (existing && existing.ts >= msg.timestamp.getTime()) return prev;
+          const next = new Map(prev);
+          next.set(otherUserId, { content: msg.content, ts: msg.timestamp.getTime(), sender: msg.sender });
+          return next;
+        });
+        break;
+      }
+
       if (activeDmContactIdRef.current === otherUserId) {
         activeDmVersionRef.current += 1;
         const myVersion = activeDmVersionRef.current;

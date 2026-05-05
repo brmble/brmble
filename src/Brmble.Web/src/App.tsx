@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import bridge from './bridge';
 import type { ConnectionStatus, ChatMessage, ServiceStatus } from './types';
 import { encodeForMumble } from './utils/imageUpload';
@@ -547,11 +547,11 @@ function App() {
     },
   });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     matrixClient.setActiveChannel(activeChannelId ?? null);
   }, [activeChannelId, matrixClient.setActiveChannel]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     matrixClient.setActiveDmContact(dmStore.selectedContact?.id ?? null);
   }, [dmStore.selectedContact?.id, matrixClient.setActiveDmContact]);
 

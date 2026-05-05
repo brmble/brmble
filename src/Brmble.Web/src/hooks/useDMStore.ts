@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import type { ChatMessage, User } from '../types';
+import type { MessagePreview } from './useMatrixClient';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -20,7 +21,7 @@ export interface DMContact {
 }
 
 export interface DMStoreOptions {
-  matrixDmLastMessages: Map<string, { content: string; ts: number; sender: string }> | undefined;
+  matrixDmLastMessages: Map<string, MessagePreview> | undefined;
   activeDmMessages: ChatMessage[] | undefined;
   matrixDmRoomMap: Map<string, string> | undefined;
   matrixDmUserDisplayNames: Map<string, string> | undefined;
@@ -281,13 +282,13 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     });
 
     if (sendMatrixDM) {
-      sendMatrixDM(selectedContactId, content)
+      const contactId = selectedContactId;
+      sendMatrixDM(contactId, content)
         .then(() => {
-          // Remove optimistic message -- the real one arrives via sync
           setPendingMessages(prev => {
             const next = new Map(prev);
-            const existing = next.get(selectedContactId!) ?? [];
-            next.set(selectedContactId!, existing.filter(m => m.id !== optimisticMsg.id));
+            const existing = next.get(contactId!) ?? [];
+            next.set(contactId!, existing.filter(m => m.id !== optimisticMsg.id));
             return next;
           });
         })
@@ -295,8 +296,8 @@ export function useDMStore(options: DMStoreOptions): DMStore {
           console.error('Matrix DM send failed:', err);
           setPendingMessages(prev => {
             const next = new Map(prev);
-            const existing = next.get(selectedContactId!) ?? [];
-            next.set(selectedContactId!, existing.filter(m => m.id !== optimisticMsg.id));
+            const existing = next.get(contactId!) ?? [];
+            next.set(contactId!, existing.filter(m => m.id !== optimisticMsg.id));
             return next;
           });
         });
