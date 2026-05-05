@@ -130,6 +130,7 @@ export function useScreenShare(
   const focusedShareRef = useRef<ShareInfo | null>(null);
   const discoveryTargetRef = useRef<DiscoveryTarget>(null);
   const shareEventVersionRef = useRef(0);
+  const shareEventVersionByRoomRef = useRef(new Map<string, number>());
   const onDisconnectedRef = useRef(onDisconnected);
   const onLocalShareEndedRef = useRef(onLocalShareEnded);
   const localShareEndCleanupRef = useRef<(() => void) | null>(null);
@@ -167,7 +168,10 @@ export function useScreenShare(
       return;
     }
 
-    discoveryTargetRef.current = { ...target, baselineShareEventVersion: shareEventVersionRef.current };
+    const baselineShareEventVersion = 'scope' in target
+      ? shareEventVersionRef.current
+      : shareEventVersionByRoomRef.current.get(target.roomName) ?? 0;
+    discoveryTargetRef.current = { ...target, baselineShareEventVersion };
   }, []);
 
   const addWatchingShare = useCallback((share: ShareInfo) => {
@@ -586,6 +590,7 @@ export function useScreenShare(
     const onShareStarted = (data: unknown) => {
       const d = data as { roomName: string; userName: string; userId: number; matrixUserId?: string; sessionId?: number };
       shareEventVersionRef.current += 1;
+      shareEventVersionByRoomRef.current.set(d.roomName, (shareEventVersionByRoomRef.current.get(d.roomName) ?? 0) + 1);
       setActiveShares(prev => {
         if (prev.some(s => s.userId === d.userId && s.roomName === d.roomName)) return prev;
         return [...prev, { roomName: d.roomName, userName: d.userName, userId: d.userId, matrixUserId: d.matrixUserId, sessionId: d.sessionId }];
@@ -595,6 +600,7 @@ export function useScreenShare(
     const onShareStopped = (data: unknown) => {
       const d = data as { roomName: string; userId: number };
       shareEventVersionRef.current += 1;
+      shareEventVersionByRoomRef.current.set(d.roomName, (shareEventVersionByRoomRef.current.get(d.roomName) ?? 0) + 1);
       setActiveShares(prev => prev.filter(s => !(s.roomName === d.roomName && s.userId === d.userId)));
 
       // If we were watching this user, remove their tile
@@ -648,12 +654,12 @@ export function useScreenShare(
         return;
       }
 
-      if (target.baselineShareEventVersion !== shareEventVersionRef.current) {
-        return;
-      }
-
       if (d.scope === 'all') {
         if (!('scope' in target)) {
+          return;
+        }
+
+        if (target.baselineShareEventVersion !== shareEventVersionRef.current) {
           return;
         }
 
@@ -666,6 +672,10 @@ export function useScreenShare(
       }
 
       if ('scope' in target || target.roomName !== d.roomName) {
+        return;
+      }
+
+      if (target.baselineShareEventVersion !== (shareEventVersionByRoomRef.current.get(d.roomName) ?? 0)) {
         return;
       }
 

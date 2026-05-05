@@ -525,6 +525,33 @@ describe('useScreenShare', () => {
     expect(result.current.activeShares).toEqual([]);
   });
 
+  it('applies room-scoped activeShareResult when an unrelated realtime event happens after discovery request', () => {
+    let activeShareHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.activeShareResult') activeShareHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      result.current.setDiscoveryTarget({ scope: 'all', requestId: 0 });
+      activeShareHandler?.({
+        scope: 'all',
+        requestId: 0,
+        shares: [{ roomName: 'channel-2', userId: 10, userName: 'alice', sessionId: 1 }],
+      });
+      result.current.setDiscoveryTarget({ roomName: 'channel-2', requestId: 1 });
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'bob', userId: 20, sessionId: 2 });
+      activeShareHandler?.({ roomName: 'channel-2', requestId: 1, shares: [] });
+    });
+
+    expect(result.current.activeShares).toEqual([
+      expect.objectContaining({ roomName: 'channel-1', userId: 20 }),
+    ]);
+  });
+
   it('keeps realtime share events from other rooms in global visibility state', () => {
     let shareStartedHandler: ((data: unknown) => void) | null = null;
     let shareStoppedHandler: ((data: unknown) => void) | null = null;
