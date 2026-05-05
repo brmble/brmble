@@ -280,7 +280,7 @@ describe('active share discovery', () => {
     });
 
     await waitFor(() => {
-      expect(bridge.send).toHaveBeenCalledWith('livekit.checkActiveShare', { roomName: 'channel-1' });
+      expect(bridge.send).toHaveBeenCalledWith('livekit.checkActiveShare', expect.objectContaining({ roomName: 'channel-1' }));
     });
 
     expect(getActiveShareRequests()).toHaveLength(1);
@@ -299,7 +299,7 @@ describe('active share discovery', () => {
     });
 
     await waitFor(() => {
-      expect(bridge.send).toHaveBeenCalledWith('livekit.checkActiveShare', { roomName: 'channel-1' });
+      expect(bridge.send).toHaveBeenCalledWith('livekit.checkActiveShare', expect.objectContaining({ roomName: 'channel-1' }));
     });
 
     act(() => {
@@ -320,8 +320,8 @@ describe('active share discovery', () => {
     });
 
     expect(getActiveShareRequests()).toEqual([
-      ['livekit.checkActiveShare', { roomName: 'channel-1' }],
-      ['livekit.checkActiveShare', { roomName: 'channel-1' }],
+      ['livekit.checkActiveShare', expect.objectContaining({ roomName: 'channel-1' })],
+      ['livekit.checkActiveShare', expect.objectContaining({ roomName: 'channel-1' })],
     ]);
   });
 
@@ -338,8 +338,56 @@ describe('active share discovery', () => {
     });
 
     await waitFor(() => {
-      expect(bridge.send).toHaveBeenCalledWith('livekit.checkActiveShare', { scope: 'all' });
+      expect(bridge.send).toHaveBeenCalledWith('livekit.checkActiveShare', expect.objectContaining({ scope: 'all' }));
     });
+  });
+
+  it('sends increasing requestIds for room and global active share discovery', async () => {
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming' },
+        ],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    await waitFor(() => {
+      expect(getActiveShareRequests()).toHaveLength(1);
+    });
+
+    act(() => {
+      bridge.emit('voice.channelChanged', { channelId: 2, name: 'Gaming' });
+    });
+
+    await waitFor(() => {
+      expect(getActiveShareRequests()).toHaveLength(2);
+    });
+
+    act(() => {
+      bridge.emit('voice.channelChanged', { channelId: 0, name: 'Root' });
+    });
+
+    await waitFor(() => {
+      expect(getActiveShareRequests()).toHaveLength(3);
+    });
+
+    expect(getActiveShareRequests()).toEqual([
+      ['livekit.checkActiveShare', { roomName: 'channel-1', requestId: 1 }],
+      ['livekit.checkActiveShare', { roomName: 'channel-2', requestId: 2 }],
+      ['livekit.checkActiveShare', { scope: 'all', requestId: 3 }],
+    ]);
+
+    expect(setDiscoveryTarget.mock.calls.map(([target]) => target).filter(Boolean)).toEqual([
+      { roomName: 'channel-1', requestId: 1 },
+      { roomName: 'channel-2', requestId: 2 },
+      { scope: 'all', requestId: 3 },
+    ]);
   });
 
   it('requests active share discovery exactly once when switching channels while already connected', async () => {
@@ -370,8 +418,8 @@ describe('active share discovery', () => {
     });
 
     expect(getActiveShareRequests()).toEqual([
-      ['livekit.checkActiveShare', { roomName: 'channel-1' }],
-      ['livekit.checkActiveShare', { roomName: 'channel-2' }],
+      ['livekit.checkActiveShare', expect.objectContaining({ roomName: 'channel-1' })],
+      ['livekit.checkActiveShare', expect.objectContaining({ roomName: 'channel-2' })],
     ]);
   });
 

@@ -86,6 +86,26 @@ public class MumbleAdapterParseTests
     }
 
     [TestMethod]
+    public async Task ActiveShareError_EchoesRequestId()
+    {
+        var bridge = NativeBridgeTestHarness.Create();
+        var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge, apiUrl: "https://api.example.com");
+        adapter.RegisterHandlers(bridge);
+
+        using var doc = JsonDocument.Parse("""
+        {
+            "roomName": "channel-1",
+            "requestId": 42
+        }
+        """);
+
+        await NativeBridgeTestHarness.InvokeAsync(bridge, "livekit.checkActiveShare", doc.RootElement.Clone());
+        var sent = NativeBridgeTestHarness.DrainMessages(bridge);
+
+        Assert.IsTrue(sent.Any(x => x.Type == "livekit.activeShareError" && x.DataJson.Contains("\"requestId\":42")));
+    }
+
+    [TestMethod]
     public void ParseBrmbleApiUrl_ValidComment_ReturnsUrl()
     {
         var text = """Welcome!<!--brmble:{"apiUrl":"https://noscope.it:1912"}-->""";

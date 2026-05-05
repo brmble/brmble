@@ -2046,6 +2046,7 @@ const handleConnect = (serverData: SavedServer) => {
   } | null>(null);
   const [screenShareEndedNotification, setScreenShareEndedNotification] = useState<QueuedScreenShareEndedNotification | null>(null);
   const nextScreenShareEndedNotificationIdRef = useRef(0);
+  const nextActiveShareDiscoveryRequestIdRef = useRef(0);
   const screenShareEndedNotificationRef = useRef<QueuedScreenShareEndedNotification | null>(null);
   const [copyToast, setCopyToast] = useState<{ message: string } | null>(null);
   const [updateInfo, setUpdateInfo] = useState<{ version: string } | null>(null);
@@ -2242,14 +2243,16 @@ const handleConnect = (serverData: SavedServer) => {
       return;
     }
 
+    const requestId = ++nextActiveShareDiscoveryRequestIdRef.current;
+
     if (channelId === 'server-root') {
-      setDiscoveryTarget({ scope: 'all' });
-      bridge.send('livekit.checkActiveShare', { scope: 'all' });
+      setDiscoveryTarget({ scope: 'all', requestId });
+      bridge.send('livekit.checkActiveShare', { scope: 'all', requestId });
       return;
     }
 
-    setDiscoveryTarget({ roomName: `channel-${channelId}` });
-    bridge.send('livekit.checkActiveShare', { roomName: `channel-${channelId}` });
+    setDiscoveryTarget({ roomName: `channel-${channelId}`, requestId });
+    bridge.send('livekit.checkActiveShare', { roomName: `channel-${channelId}`, requestId });
   }, [setDiscoveryTarget]);
 
   // Check for active screen shares when switching channels

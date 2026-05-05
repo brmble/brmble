@@ -35,7 +35,7 @@ type LocalTrackLike = {
 
 type LiveKitAccessMode = 'publish' | 'subscribe';
 
-type DiscoveryTarget = { scope: 'all' } | { roomName: string } | null;
+type DiscoveryTarget = ({ scope: 'all' } | { roomName: string }) & { requestId?: number } | null;
 
 type ErrorLike = {
   name?: unknown;
@@ -619,6 +619,7 @@ export function useScreenShare(
       const d = data as {
         roomName?: string;
         scope?: string;
+        requestId?: number;
         shares: Array<{ roomName?: string; userId: number; userName: string; matrixUserId?: string; sessionId?: number }>;
       };
       const nextRoomShares = (d.shares ?? []).map(s => ({
@@ -631,6 +632,10 @@ export function useScreenShare(
       const target = discoveryTargetRef.current;
 
       if (!target) {
+        return;
+      }
+
+      if (target.requestId != null && d.requestId !== target.requestId) {
         return;
       }
 

@@ -2393,9 +2393,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         {
             var roomName = data.TryGetProperty("roomName", out var rn) ? rn.GetString() : null;
             var scope = data.TryGetProperty("scope", out var scopeProp) ? scopeProp.GetString() : null;
+            var requestId = data.TryGetProperty("requestId", out var requestIdProp) && requestIdProp.ValueKind == System.Text.Json.JsonValueKind.Number
+                ? requestIdProp.GetInt32()
+                : (int?)null;
             if ((string.IsNullOrWhiteSpace(roomName) && !string.Equals(scope, "all", StringComparison.Ordinal)) || _apiUrl is null)
             {
-                _bridge?.Send("livekit.activeShareError", new { roomName, scope, reason = "client-not-ready" });
+                _bridge?.Send("livekit.activeShareError", new { roomName, scope, requestId, reason = "client-not-ready" });
                 _bridge?.NotifyUiThread();
                 return;
             }
@@ -2403,7 +2406,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             using var cert = _certService?.GetExportableCertificate();
             if (cert is null)
             {
-                _bridge?.Send("livekit.activeShareError", new { roomName, scope, reason = "missing-certificate" });
+                _bridge?.Send("livekit.activeShareError", new { roomName, scope, requestId, reason = "missing-certificate" });
                 _bridge?.NotifyUiThread();
                 return;
             }
@@ -2434,17 +2437,17 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                             shares.Add(new { roomName = sRoomName, userName = sUserName, userId = sUserId, matrixUserId = sMatrixUserId, sessionId = sSessionId });
                         }
                     }
-                    _bridge?.Send("livekit.activeShareResult", new { roomName, scope, shares });
+                    _bridge?.Send("livekit.activeShareResult", new { roomName, scope, requestId, shares });
                 }
                 else
                 {
-                    _bridge?.Send("livekit.activeShareError", new { roomName, scope, reason = "request-failed", statusCode = result.StatusCode });
+                    _bridge?.Send("livekit.activeShareError", new { roomName, scope, requestId, reason = "request-failed", statusCode = result.StatusCode });
                 }
                 _bridge?.NotifyUiThread();
             }
             catch (Exception ex)
             {
-                _bridge?.Send("livekit.activeShareError", new { roomName, scope, reason = "exception", message = ex.Message });
+                _bridge?.Send("livekit.activeShareError", new { roomName, scope, requestId, reason = "exception", message = ex.Message });
                 _bridge?.NotifyUiThread();
             }
         });

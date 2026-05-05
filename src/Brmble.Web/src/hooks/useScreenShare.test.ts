@@ -435,6 +435,30 @@ describe('useScreenShare', () => {
     ]);
   });
 
+  it('ignores stale same-target activeShareResult with an older requestId', () => {
+    let activeShareHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.activeShareResult') activeShareHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      result.current.setDiscoveryTarget({ scope: 'all', requestId: 1 });
+      result.current.setDiscoveryTarget({ scope: 'all', requestId: 2 });
+      activeShareHandler?.({
+        scope: 'all',
+        requestId: 2,
+        shares: [{ roomName: 'channel-1', userId: 10, userName: 'alice', sessionId: 1 }],
+      });
+      activeShareHandler?.({ scope: 'all', requestId: 1, shares: [] });
+    });
+
+    expect(result.current.activeShares).toEqual([
+      expect.objectContaining({ roomName: 'channel-1', userId: 10 }),
+    ]);
+  });
+
   it('keeps realtime share events from other rooms in global visibility state', () => {
     let shareStartedHandler: ((data: unknown) => void) | null = null;
     let shareStoppedHandler: ((data: unknown) => void) | null = null;
