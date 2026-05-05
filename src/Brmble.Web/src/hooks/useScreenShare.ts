@@ -669,9 +669,11 @@ export function useScreenShare(
         return;
       }
 
+      const nextScopedRoomShares = nextRoomShares.filter(s => s.roomName === d.roomName);
+
       setActiveShares(prev => [
         ...prev.filter(s => s.roomName !== d.roomName),
-        ...nextRoomShares,
+        ...nextScopedRoomShares,
       ]);
     };
 

@@ -586,6 +586,46 @@ describe('useScreenShare', () => {
     ]);
   });
 
+  it('ignores mismatched room shares in room-scoped activeShareResult', () => {
+    let activeShareHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.activeShareResult') activeShareHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      result.current.setDiscoveryTarget({ roomName: 'channel-1' });
+      activeShareHandler?.({
+        roomName: 'channel-1',
+        shares: [{ roomName: 'channel-2', userId: 20, userName: 'bob' }],
+      });
+    });
+
+    expect(result.current.activeShares).toEqual([]);
+  });
+
+  it('keeps activeShares unchanged for room-scoped activeShareResult without top-level roomName', () => {
+    let activeShareHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.activeShareResult') activeShareHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      result.current.setDiscoveryTarget({ roomName: 'channel-1' });
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, sessionId: 1 });
+      activeShareHandler?.({ shares: [] });
+    });
+
+    expect(result.current.activeShares).toEqual([
+      expect.objectContaining({ roomName: 'channel-1', userId: 10 }),
+    ]);
+  });
+
   it('does not clear existing activeShares on activeShareError', () => {
     let activeShareHandler: ((data: unknown) => void) | null = null;
     let activeShareErrorHandler: ((data: unknown) => void) | null = null;
