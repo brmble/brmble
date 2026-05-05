@@ -3,16 +3,20 @@ import { useGameEngine } from './hooks/useGameEngine';
 import type { Dealer, DealerUpgrade } from './types';
 import { UNLOCK_COSTS, PRODUCT_TIERS, SLOT_UNLOCK_COSTS } from './constants';
 import { confirm } from '../../hooks/usePrompt';
+import { Tooltip } from '../Tooltip/Tooltip';
 import styles from './NeonD.module.css';
 
 
 
-function StarRating({ rating }: { rating: number }) {
+function StarRating({ rating, label, tooltipText }: { rating: number; label?: string; tooltipText?: string }) {
   const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
+  const text = tooltipText || (label ? `${label}: ${rating}/5` : `Rating: ${rating}/5`);
   return (
-    <span aria-label={`Rating: ${rating}/5`} title={`Rating: ${rating}/5`}>
-      <span style={{ color: 'gold' }} aria-hidden="true">{stars}</span>
-    </span>
+    <Tooltip content={text}>
+      <span aria-label={`Rating: ${rating}/5`} style={{ cursor: 'help' }}>
+        <span style={{ color: 'gold' }} aria-hidden="true">{stars}</span>
+      </span>
+    </Tooltip>
   );
 }
 
@@ -210,7 +214,7 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
           <button 
             className={styles.upgradeButton} 
             onClick={resetGame}
-            style={{ marginLeft: 'var(--space-md)', backgroundColor: 'var(--accent-secondary)', color: 'var(--text-primary)' }}
+            style={{ marginLeft: 'auto', flex: 0, backgroundColor: 'var(--accent-secondary)', color: 'var(--text-primary)' }}
           >
             Reset
           </button>
@@ -312,11 +316,11 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
                           <h4 style={{ color: 'var(--accent-primary)', margin: '0 0 12px 0' }}>{dealer.name}</h4>
                           <div className={styles.statRow}>
                             <span className={styles.label}>Volume:</span>
-                            <StarRating rating={dealer.volume} />
+                            <StarRating rating={dealer.volume} label="Volume" tooltipText={`can sell up to ${Number((dealer.volume * (1 + dealer.volumeBonus)).toFixed(2))}g of ${state.production[dealer.selling]?.name || 'Weed'} per second.`} />
                           </div>
                           <div className={styles.statRow}>
                             <span className={styles.label}>Margin:</span>
-                            <StarRating rating={dealer.margin} />
+                            <StarRating rating={dealer.margin} label="Margin" tooltipText={`sells 1g of ${state.production[dealer.selling]?.name || 'Weed'} for $${(dealer.margin * (1 + dealer.marginBonus) * (PRODUCT_TIERS[dealer.selling] || 1)).toFixed(2)}`} />
                           </div>
                           <button 
                             className={styles.buyButton} 
@@ -363,12 +367,12 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
 
                       <div className={styles.statRow}>
                         <span className={styles.label}>Volume:</span>
-                        <StarRating rating={slot.volume} />
+                        <StarRating rating={slot.volume} label="Volume" tooltipText={`can sell up to ${Number((slot.volume * (1 + slot.volumeBonus)).toFixed(2))}g of ${state.production[slot.selling]?.name || 'Product'} per second.`} />
                         <span style={{ color: 'var(--accent-primary)', fontSize: '0.85rem' }}>({(1 + slot.volumeBonus).toFixed(1)}x)</span>
                       </div>
                       <div className={styles.statRow}>
                         <span className={styles.label}>Margin:</span>
-                        <StarRating rating={slot.margin} />
+                        <StarRating rating={slot.margin} label="Margin" tooltipText={`sells 1g of ${state.production[slot.selling]?.name || 'Product'} for $${(slot.margin * (1 + slot.marginBonus) * (PRODUCT_TIERS[slot.selling] || 1)).toFixed(2)}`} />
                         <span style={{ color: 'var(--accent-primary)', fontSize: '0.85rem' }}>({(1 + slot.marginBonus).toFixed(1)}x)</span>
                       </div>
 

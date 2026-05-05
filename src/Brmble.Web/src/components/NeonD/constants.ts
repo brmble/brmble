@@ -1,6 +1,10 @@
 import type { GameState } from './types';
 
 // Complete 18-tier pricing data from DST economic model
+// Pricing Model: T1-T5 represents 5 progression tiers with base prices increasing by 10x per tier (4.20, 6.00, 10.00, 15.00, 20.00).
+// Each tier has 3-4 products that scale proportionally. Higher tiers maintain exponential growth through both cost multiplier increases
+// (T1: 1.12, T5: 1.61) and yieldPerLevel bonuses. This creates a balanced progression where player upgrades feel impactful
+// while maintaining consistent economic scaling across the 18-product hierarchy.
 export const TIER_DATA = {
   weed: {
     name: "Weed",

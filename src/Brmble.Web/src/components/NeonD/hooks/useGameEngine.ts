@@ -38,7 +38,7 @@ const generateRandomDealer = (unlockedProducts: string[], totalEarned: number): 
 
   const progressBonus = Math.floor(totalEarned / 10000);
   const volumeStars = Math.min(5, Math.floor(Math.random() * 3) + 1 + Math.min(2, progressBonus));
-  const marginStars = Math.min(6, Math.floor(Math.random() * 3) + 1 + Math.min(3, progressBonus));
+  const marginStars = Math.min(5, Math.floor(Math.random() * 3) + 1 + Math.min(3, progressBonus));
 
   const baseVolumeGps = rollVolumeGps(volumeStars);
   const baseMarginMult = rollMarginMultiplier(marginStars);

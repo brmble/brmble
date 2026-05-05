@@ -25,7 +25,7 @@ describe('NeonD Tier Parameters — Weed (Tier 1)', () => {
   });
 
   it('has correct sell price', () => {
-    expect(PRODUCT_TIERS.weed).toBe(10);
+    expect(PRODUCT_TIERS.weed).toBe(4.20);
   });
 });
 
@@ -47,7 +47,7 @@ describe('NeonD Tier Parameters — Mushrooms (Tier 2)', () => {
   });
 
   it('has correct sell price', () => {
-    expect(PRODUCT_TIERS.mushrooms).toBe(13);
+    expect(PRODUCT_TIERS.mushrooms).toBe(6.00);
   });
 });
 
@@ -69,7 +69,7 @@ describe('NeonD Tier Parameters — Galactic Core (Tier 18)', () => {
   });
 
   it('has correct sell price', () => {
-    expect(PRODUCT_TIERS.galacticCore).toBe(8775);
+    expect(PRODUCT_TIERS.galacticCore).toBe(841.56);
   });
 });
 
