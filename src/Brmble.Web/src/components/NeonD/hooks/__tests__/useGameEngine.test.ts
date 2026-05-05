@@ -11,9 +11,10 @@ const makeDealer = (overrides: Partial<Dealer> = {}): Dealer => ({
   margin: 1,
   volumeBonus: 1.0,
   marginBonus: 1.0,
-  sideHustle: {},
-  networkBonus: 0,
+  sideVolume: 0.10,
   equipmentCount: 0,
+  baseVolumeGps: 10,
+  baseMarginMult: 1,
   ...overrides,
 });
 
@@ -203,39 +204,12 @@ describe('useGameEngine', () => {
       expect(d?.marginBonus).toBeCloseTo(margBefore + 0.05, 5);
     });
 
-    it('SIDE_HUSTLE upgrade adds a side product entry', () => {
+    it('SIDE_HUSTLE upgrade adds sideVolume', () => {
       const { result } = setupWithMoney();
       act(() => {
-        result.current.buyEquipment('test-dealer', { type: 'SIDE_HUSTLE', label: 'SH', description: '', value: 0.1, targetProductId: 'mushrooms' });
+        result.current.buyEquipment('test-dealer', { type: 'SIDE_HUSTLE', label: 'SH', description: '', value: 0.1, sideVolumeValue: 0.1 });
       });
-      expect(result.current.state.activeDealers[0]?.sideHustle['mushrooms']).toBeCloseTo(0.1, 5);
-    });
-
-    it('NETWORK upgrade increments networkBonus (tick applies it as multiplier)', () => {
-      const { result } = renderHook(() => useGameEngine());
-      act(() => {
-        result.current.unlockProduction('weed');
-        result.current.upgrade('weed');
-        result.current.hireDealer(makeDealer({ margin: 100, sideHustle: { mushrooms: 0.1 } }), 0);
-      });
-      act(() => { vi.advanceTimersByTime(50000); });
-
-      act(() => {
-        result.current.buyEquipment('test-dealer', { type: 'NETWORK', label: 'NW', description: '', value: 0.1 });
-      });
-      const d = result.current.state.activeDealers[0];
-      // networkBonus should accumulate; tick applies it as a ratio multiplier
-      expect(d?.networkBonus).toBeCloseTo(0.1, 5);
-      // sideHustle base entries are left unchanged; networkBonus is the single source of truth
-      expect(d?.sideHustle['mushrooms']).toBeCloseTo(0.1, 5);
-    });
-
-    it('NETWORK upgrade on dealer with no side hustles still increments networkBonus', () => {
-      const { result } = setupWithMoney();
-      act(() => {
-        result.current.buyEquipment('test-dealer', { type: 'NETWORK', label: 'NW', description: '', value: 0.1 });
-      });
-      expect(result.current.state.activeDealers[0]?.networkBonus).toBeCloseTo(0.1, 5);
+      expect(result.current.state.activeDealers[0]?.sideVolume).toBeCloseTo(0.2, 5);
     });
 
     it('equipment slots are capped at 3', () => {
@@ -270,8 +244,8 @@ describe('useGameEngine', () => {
       act(() => {
         result.current.unlockProduction('weed');
         result.current.upgrade('weed');
-        // Dealer with extreme volume and side hustle ratio near cap
-        result.current.hireDealer(makeDealer({ volume: 1000, sideHustle: { mushrooms: 0.5 } }), 0);
+        // Dealer with extreme volume and side hustle
+        result.current.hireDealer(makeDealer({ volume: 1000, sideVolume: 0.5 }), 0);
       });
       act(() => { vi.advanceTimersByTime(5000); });
       expect(result.current.state.production.mushrooms.stock).toBeGreaterThanOrEqual(0);
@@ -282,8 +256,8 @@ describe('useGameEngine', () => {
       act(() => {
         result.current.unlockProduction('weed');
         result.current.upgrade('weed');
-        // sideHustle ratio > 0.9 should be capped, ensuring primary sales
-        result.current.hireDealer(makeDealer({ volume: 5, margin: 10, sideHustle: { mushrooms: 0.95 } }), 0);
+        // sideVolume is parallel, primary sales still occur
+        result.current.hireDealer(makeDealer({ volume: 5, margin: 10, sideVolume: 0.95 }), 0);
       });
       act(() => { vi.advanceTimersByTime(5000); });
       const moneyBefore = result.current.state.money;
@@ -292,15 +266,15 @@ describe('useGameEngine', () => {
       expect(result.current.state.money).toBeGreaterThanOrEqual(moneyBefore);
     });
 
-    it('NETWORK networkBonus multiplies effective side hustle ratios in the tick', async () => {
+    it('Side hustle bleeds to other unlocked products', async () => {
       const { result } = renderHook(() => useGameEngine());
       act(() => {
         result.current.unlockProduction('weed');
         result.current.upgrade('weed');
         result.current.unlockProduction('mushrooms');
         result.current.upgrade('mushrooms');
-        // dealer with side hustle and network bonus
-        result.current.hireDealer(makeDealer({ volume: 5, margin: 10, sideHustle: { mushrooms: 0.1 }, networkBonus: 1.0 }), 0);
+        // dealer with side hustle
+        result.current.hireDealer(makeDealer({ volume: 5, margin: 10, sideVolume: 0.1 }), 0);
       });
       act(() => { vi.advanceTimersByTime(2000); });
       // Mushrooms is sold as side hustle; stock should not go below zero

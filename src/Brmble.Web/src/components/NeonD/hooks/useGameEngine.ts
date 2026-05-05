@@ -1,6 +1,25 @@
 import { useCallback } from 'react';
 import type { GameState, Dealer, DealerUpgrade } from '../types';
-import { INITIAL_GAME_STATE, UNLOCK_COSTS, PRODUCT_TIERS, DEALER_FIRST_NAMES, DEALER_LAST_NAMES, SLOT_UNLOCK_COSTS } from '../constants';
+import { INITIAL_GAME_STATE, UNLOCK_COSTS, PRODUCT_TIERS, DEALER_FIRST_NAMES, DEALER_LAST_NAMES, SLOT_UNLOCK_COSTS, VOLUME_RANGES, MARGIN_RANGES } from '../constants';
+
+// Roll a random value within a given range
+function rollWithinRange(min: number, max: number): number {
+  return min + Math.random() * (max - min);
+}
+
+// Roll volume (g/s) for a given star rating
+function rollVolumeGps(stars: number): number {
+  const range = VOLUME_RANGES[Math.min(5, Math.max(1, stars))];
+  if (!range) return 1.0;  // Fallback
+  return rollWithinRange(range[0], range[1]);
+}
+
+// Roll margin multiplier for a given star rating
+function rollMarginMultiplier(stars: number): number {
+  const range = MARGIN_RANGES[Math.min(6, Math.max(1, stars))];
+  if (!range) return 1.0;  // Fallback
+  return rollWithinRange(range[0], range[1]);
+}
 import { useInterval } from './useInterval';
 import { usePersistedGameState } from './usePersistedGameState';
 
@@ -18,19 +37,24 @@ const generateRandomDealer = (unlockedProducts: string[], totalEarned: number): 
     : 'weed';
 
   const progressBonus = Math.floor(totalEarned / 10000);
-  const rollStat = () => Math.min(5, Math.floor(Math.random() * 3) + 1 + Math.min(2, progressBonus));
+  const volumeStars = Math.min(5, Math.floor(Math.random() * 3) + 1 + Math.min(2, progressBonus));
+  const marginStars = Math.min(5, Math.floor(Math.random() * 3) + 1 + Math.min(3, progressBonus));
+
+  const baseVolumeGps = rollVolumeGps(volumeStars);
+  const baseMarginMult = rollMarginMultiplier(marginStars);
 
   return {
     id: crypto.randomUUID(),
     name: `${fName} "${lName}"`,
     selling: drug,
-    volume: rollStat(),
-    margin: rollStat(),
-    volumeBonus: 1.0,
-    marginBonus: 1.0,
-    sideHustle: {},
-    networkBonus: 0,
-    equipmentCount: 0
+    volume: baseVolumeGps * (1 + 0),
+    margin: baseMarginMult * (1 + 0),
+    volumeBonus: 0,
+    marginBonus: 0,
+    sideVolume: 0.10,
+    equipmentCount: 0,
+    baseVolumeGps,
+    baseMarginMult
   };
 };
 
@@ -62,31 +86,37 @@ export const useGameEngine = () => {
       prev.activeDealers.forEach((dealer) => {
         if (!dealer) return;
 
-        const totalVol = dealer.volume * dealer.volumeBonus;
-        const effectiveSideHustle = Object.fromEntries(
-          Object.entries(dealer.sideHustle).map(([k, v]) => [k, v * (1 + dealer.networkBonus)])
-        );
-        const sideRatio = Math.min(0.9, Object.values(effectiveSideHustle).reduce((a, b) => a + b, 0));
+        const effectiveVolume = dealer.volume * (1 + dealer.volumeBonus);
+        const effectiveMargin = dealer.margin * (1 + dealer.marginBonus);
 
         const primaryProd = nextProduction[dealer.selling];
         if (!primaryProd) return;
 
-        const primarySold = Math.min(primaryProd.stock, totalVol * (1 - sideRatio));
+        const primarySold = Math.min(primaryProd.stock, effectiveVolume);
         nextProduction[dealer.selling] = { 
           ...primaryProd, 
           stock: Math.max(0, primaryProd.stock - primarySold) 
         };
 
+        const primaryRev = primarySold * (effectiveMargin * (PRODUCT_TIERS[dealer.selling] || 1));
         let sideRev = 0;
-        Object.entries(effectiveSideHustle).forEach(([prodId, ratio]) => {
-          const sideProd = nextProduction[prodId];
-          if (!sideProd) return;
-          const sold = Math.min(sideProd.stock, totalVol * ratio);
-          nextProduction[prodId] = { ...sideProd, stock: Math.max(0, sideProd.stock - sold) };
-          sideRev += sold * (dealer.margin * dealer.marginBonus * (PRODUCT_TIERS[prodId] || 1));
-        });
 
-        const primaryRev = primarySold * (dealer.margin * dealer.marginBonus * (PRODUCT_TIERS[dealer.selling] || 1));
+        // Side hustle: Each dealer simultaneously liquidates other commodities as a secondary income phase.
+        // This is NOT subtracted from primary sales — it's a separate automatic parallel process.
+        if (dealer.sideVolume > 0) {
+          const bleedAmount = effectiveVolume * dealer.sideVolume;  // e.g., 10 g/s volume * 10% = 1 g/s to each other commodity
+          
+          for (const product of Object.keys(nextProduction)) {
+            if (product !== dealer.selling) {
+              const sideProd = nextProduction[product];
+              if (!sideProd) continue;
+              const sold = Math.min(sideProd.stock, bleedAmount);
+              nextProduction[product] = { ...sideProd, stock: Math.max(0, sideProd.stock - sold) };
+              sideRev += sold * (effectiveMargin * (PRODUCT_TIERS[product] || 1));
+            }
+          }
+        }
+
         const gross = primaryRev + sideRev;
         totalEarnedThisTick += gross;
       });
@@ -103,36 +133,19 @@ export const useGameEngine = () => {
   const upgrade = (id: string) => {
     setState(prev => {
       const item = prev.production[id];
-      if (!item) return prev;
-      const currentUpgradeCost = Math.floor(item.upgradeCost);
-      if (prev.money < currentUpgradeCost) return prev;
+      if (!item || prev.money < item.upgradeCost) return prev;
       if (!prev.unlockedProduction.includes(id)) return prev;
-      
-      const rateIncreases: Record<string, number> = {
-        weed: 0.10,
-        mushrooms: 0.07,
-        meth: 0.04,
-      };
-      const rateIncrease = rateIncreases[id] || 0.02;
-      
-      const costMultipliers: Record<string, number> = {
-        weed: 1.35,
-        mushrooms: 1.45,
-        meth: 1.6,
-      };
-      const multiplier = costMultipliers[id] || 1.8;
-      const nextUpgradeCost = Math.floor(item.upgradeCost * multiplier);
-      
+
       return {
         ...prev,
-        money: prev.money - currentUpgradeCost,
+        money: prev.money - item.upgradeCost,
         production: {
           ...prev.production,
           [id]: {
             ...item,
             level: item.level + 1,
-            rate: item.rate + rateIncrease,
-            upgradeCost: nextUpgradeCost
+            rate: item.rate + item.yieldPerLevel,
+            upgradeCost: Math.floor(item.upgradeCost * item.costMultiplier)
           }
         }
       };
@@ -143,7 +156,7 @@ export const useGameEngine = () => {
     setState(prev => {
       if (prev.unlockedProduction.includes(id)) return prev;
       const item = prev.production[id];
-      const unlockCost = UNLOCK_COSTS[id] || 300;
+      const unlockCost = UNLOCK_COSTS[id] ?? 300;
       if (!item || prev.money < unlockCost) return prev;
       
       return {
@@ -219,14 +232,8 @@ export const useGameEngine = () => {
           newDealer.volumeBonus += upgrade.value;
           newDealer.marginBonus -= upgrade.marginPenalty || 0.1;
         }
-        if (upgrade.type === 'NETWORK') {
-          newDealer.networkBonus += upgrade.value;
-        }
-        if (upgrade.type === 'SIDE_HUSTLE' && upgrade.targetProductId) {
-          newDealer.sideHustle = { 
-            ...d.sideHustle, 
-            [upgrade.targetProductId]: (d.sideHustle[upgrade.targetProductId] || 0) + upgrade.value 
-          };
+        if (upgrade.type === 'SIDE_HUSTLE') {
+          newDealer.sideVolume = (newDealer.sideVolume || 0) + (upgrade.sideVolumeValue || 0.10);
         }
         return newDealer;
       });
