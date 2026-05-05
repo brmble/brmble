@@ -3,16 +3,25 @@ import { useGameEngine } from './hooks/useGameEngine';
 import type { Dealer, DealerUpgrade } from './types';
 import { UNLOCK_COSTS, PRODUCT_TIERS, SLOT_UNLOCK_COSTS } from './constants';
 import { confirm } from '../../hooks/usePrompt';
+import { Tooltip } from '../Tooltip/Tooltip';
 import styles from './NeonD.module.css';
 
 
 
-function StarRating({ rating }: { rating: number }) {
-  const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
+function StarRating({ rating, label, tooltipText }: { rating: number; label?: string; tooltipText?: string }) {
+  const clampedRating = Math.min(5, Math.max(0, Math.round(rating)));
+  const stars = '★'.repeat(clampedRating) + '☆'.repeat(5 - clampedRating);
+  const text = tooltipText || (label ? `${label}: ${clampedRating}/5` : `Rating: ${clampedRating}/5`);
   return (
-    <span aria-label={`Rating: ${rating}/5`} title={`Rating: ${rating}/5`}>
-      <span style={{ color: 'gold' }} aria-hidden="true">{stars}</span>
-    </span>
+    <Tooltip content={text}>
+      <button 
+        tabIndex={0}
+        aria-label={`Rating: ${clampedRating}/5`} 
+        style={{ cursor: 'help', background: 'none', border: 'none', padding: 0, font: 'inherit' }}
+      >
+        <span style={{ color: 'gold' }} aria-hidden="true">{stars}</span>
+      </button>
+    </Tooltip>
   );
 }
 
@@ -20,22 +29,22 @@ function getUpgradeName(id: string): string {
   const names: Record<string, string> = {
     weed: 'Grow Op',
     mushrooms: 'Mushroom Farm',
+    blueLotus: 'Club Lab',
+    frostBite: 'Lab',
+    electricLace: 'Micro-Drip',
     meth: 'Meth Lab',
-    bluelotus: 'Club Lab',
-    frostbite: 'Lab',
-    electriclace: 'Micro-Drip',
-    pharmgrade: 'Factory',
+    pharmGrade: 'Factory',
     khole: 'Lab',
-    lunarregolith: 'Zero-G Lab',
-    martianspores: 'Mars Chamber',
-    nebulamist: 'Siphon',
-    voidcrystals: 'Event Horizon',
-    chronosalt: 'Accelerator',
-    stardustresin: 'Solar Extractor',
-    darkmatterink: 'Telepathy Lab',
-    singularityshards: 'Void Rift',
-    neutronflakes: 'Particle Accel',
-    galacticcore: 'Core Fusion',
+    lunarRegolith: 'Zero-G Lab',
+    martianSpores: 'Mars Chamber',
+    nebulaMist: 'Siphon',
+    voidCrystals: 'Event Horizon',
+    chronoSalt: 'Accelerator',
+    stardustResin: 'Solar Extractor',
+    darkMatterInk: 'Telepathy Lab',
+    singularityShards: 'Void Rift',
+    neutronFlakes: 'Particle Accel',
+    galacticCore: 'Core Fusion',
   };
   return names[id] || 'Lab';
 }
@@ -48,36 +57,27 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     const options: DealerUpgrade[] = [];
     const sideHustleProducts = state.unlockedProduction.filter(id => id !== dealer.selling);
 
-    const rollRarity = () => {
-      const roll = Math.random();
-      if (roll < 0.10 && sideHustleProducts.length > 0) return 'jackpot';
-      if (roll < 0.30) return 'uncommon';
-      return 'common';
-    };
-
     const commonUpgrades: DealerUpgrade[] = [
-      { type: 'VOLUME', label: 'High Capacity', description: 'Volume +15%', value: 0.15 },
-      { type: 'MARGIN', label: 'Premium Cut', description: 'Margin +15%', value: 0.15 },
-      { type: 'ALL_AROUNDER', label: 'Packaging Expert', description: 'Volume & Margin +5%', value: 0.05 },
+      { type: 'VOLUME', label: 'Armed Gang', description: 'Volume +15%', value: 0.15 },
+      { type: 'MARGIN', label: 'Ferrari', description: 'Margin +15%', value: 0.15 },
+      { type: 'ALL_AROUNDER', label: 'Copter', description: 'Volume & Margin +5%', value: 0.05 },
     ];
 
     const uncommonUpgrades: DealerUpgrade[] = [
-      { type: 'BULK', label: 'Bulk Specialist', description: 'Volume +35%, Margin -10%', value: 0.35, marginPenalty: 0.1 },
-      { type: 'NETWORK', label: 'The Network', description: 'Side Hustle Efficiency +10%', value: 0.1 },
+      { type: 'BULK', label: 'The Crew', description: 'Volume +35%, Margin -10%', value: 0.35, marginPenalty: 0.1 },
     ];
 
     for (let i = 0; i < 3; i++) {
-      const rarity = rollRarity();
-      if (rarity === 'jackpot' && sideHustleProducts.length > 0) {
-        const productId = sideHustleProducts[Math.floor(Math.random() * sideHustleProducts.length)];
+      const roll = Math.random();
+      if (roll < 0.10 && sideHustleProducts.length > 0) {
         options.push({
           type: 'SIDE_HUSTLE',
           label: 'JACKPOT: Side Hustle',
-          description: `Sell ${state.production[productId]?.name} at 10% volume`,
+          description: `Add 10% side volume bleed`,
           value: 0.1,
-          targetProductId: productId
+          sideVolumeValue: 0.1
         });
-      } else if (rarity === 'uncommon') {
+      } else if (roll < 0.30) {
         const upgrade = uncommonUpgrades[Math.floor(Math.random() * uncommonUpgrades.length)];
         options.push({ ...upgrade });
       } else {
@@ -104,72 +104,9 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     setDealerSelling(dealerId, selling);
   };
 
-  const getEffectiveSideHustle = (dealer: Dealer) =>
-    Object.fromEntries(
-      Object.entries(dealer.sideHustle).map(([k, v]) => [k, v * (1 + dealer.networkBonus)])
-    );
 
-  const getTotalEarningsDisplay = () => {
-    const activeDealers = state.activeDealers.filter((d): d is Dealer => d !== null);
-    if (activeDealers.length === 0) return 0;
 
-    // Snapshot the stock PLUS the rate for this "simulated" second
-    const availableSnapshot: Record<string, number> = Object.fromEntries(
-      Object.entries(state.production).map(([id, prod]) => [
-        id, 
-        prod.stock + prod.rate // Add rate so the UI sees what will be produced
-      ])
-    );
 
-    let total = 0;
-    activeDealers.forEach(dealer => {
-      const totalVol = dealer.volume * dealer.volumeBonus;
-      const effectiveSide = getEffectiveSideHustle(dealer);
-      const sideRatio = Math.min(0.9, Object.values(effectiveSide).reduce((a, b) => a + b, 0));
-
-      const primaryStock = availableSnapshot[dealer.selling] ?? 0;
-      const primarySold = Math.min(primaryStock, totalVol * (1 - sideRatio));
-      availableSnapshot[dealer.selling] = Math.max(0, primaryStock - primarySold);
-      total += primarySold * (dealer.margin * dealer.marginBonus * (PRODUCT_TIERS[dealer.selling] || 1));
-
-      Object.entries(effectiveSide).forEach(([prodId, ratio]) => {
-        const sideStock = availableSnapshot[prodId] ?? 0;
-        const sold = Math.min(sideStock, totalVol * ratio);
-        availableSnapshot[prodId] = Math.max(0, sideStock - sold);
-        total += sold * (dealer.margin * dealer.marginBonus * (PRODUCT_TIERS[prodId] || 1));
-      });
-    });
-
-    return total;
-  };
-
-  const getIndividualDealerEarnings = (dealer: Dealer) => {
-    const activeProd = state.production[dealer.selling];
-    if (!activeProd) return 0;
-
-    const totalVol = dealer.volume * dealer.volumeBonus;
-    const effectiveSide = getEffectiveSideHustle(dealer);
-    const sideRatio = Math.min(0.9, Object.values(effectiveSide).reduce((a, b) => a + b, 0));
-    
-    // Use (stock + rate) to determine what can be sold this second
-    const availableToSell = activeProd.stock + activeProd.rate;
-    const primarySold = Math.min(availableToSell, totalVol * (1 - sideRatio));
-    
-    const tierMult = PRODUCT_TIERS[dealer.selling] || 1;
-    const primaryRev = primarySold * (dealer.margin * dealer.marginBonus * tierMult);
-
-    let sideRev = 0;
-    Object.entries(effectiveSide).forEach(([prodId, ratio]) => {
-      const sideProd = state.production[prodId];
-      if (!sideProd) return;
-      // Use (stock + rate) for side hustles too
-      const sideAvailable = sideProd.stock + sideProd.rate;
-      const sold = Math.min(sideAvailable, totalVol * ratio);
-      sideRev += sold * (dealer.margin * dealer.marginBonus * (PRODUCT_TIERS[prodId] || 1));
-    });
-
-    return primaryRev + sideRev;
-  };
 
   const refreshCooldown = getRefreshCooldown();
   const allIds = Object.keys(state.production);
@@ -202,12 +139,12 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
             ${state.money.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
           <div className={styles.label}>
-            {state.activeDealers.filter(d => d !== null).length > 0 ? `($${(getTotalEarningsDisplay()).toFixed(2)}/s)` : ''}
+            {state.activeDealers.filter(d => d !== null).length > 0 ? `($${Object.values(state.lastEarningsPerDealer).reduce((a, b) => a + b, 0).toFixed(2)}/s)` : ''}
           </div>
           <button 
             className={styles.upgradeButton} 
             onClick={resetGame}
-            style={{ marginLeft: 'var(--space-md)', backgroundColor: 'var(--accent-secondary)', color: 'var(--text-primary)' }}
+            style={{ marginLeft: 'auto', flex: 0, backgroundColor: 'var(--accent-secondary)', color: 'var(--text-primary)' }}
           >
             Reset
           </button>
@@ -304,16 +241,16 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
                   <p className={styles.label} style={{ marginBottom: 'var(--space-sm)' }}>Slot {slotIndex + 1} - Empty</p>
                   {state.availableDealers.length > 0 && (
                     <div>
-                      {state.availableDealers.slice(0, 2).map((dealer) => (
+                      {state.availableDealers.map((dealer) => (
                         <div key={dealer.id} className="glass-panel" style={{ marginBottom: 'var(--space-md)', padding: 'var(--space-md)' }}>
                           <h4 style={{ color: 'var(--accent-primary)', margin: '0 0 12px 0' }}>{dealer.name}</h4>
                           <div className={styles.statRow}>
                             <span className={styles.label}>Volume:</span>
-                            <StarRating rating={dealer.volume} />
+                            <StarRating rating={dealer.volumeStars} label="Volume" tooltipText={`can sell up to ${Number((dealer.volume * (1 + dealer.volumeBonus)).toFixed(2))}g of ${state.production[dealer.selling]?.name || 'Weed'} per second.`} />
                           </div>
                           <div className={styles.statRow}>
                             <span className={styles.label}>Margin:</span>
-                            <StarRating rating={dealer.margin} />
+                            <StarRating rating={dealer.marginStars} label="Margin" tooltipText={`sells 1g of ${state.production[dealer.selling]?.name || 'Weed'} for $${(dealer.margin * (1 + dealer.marginBonus) * (PRODUCT_TIERS[dealer.selling] || 1)).toFixed(2)}`} />
                           </div>
                           <button 
                             className={styles.buyButton} 
@@ -360,19 +297,26 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
 
                       <div className={styles.statRow}>
                         <span className={styles.label}>Volume:</span>
-                        <StarRating rating={slot.volume} />
-                        <span style={{ color: 'var(--accent-primary)', fontSize: '0.85rem' }}>({slot.volumeBonus.toFixed(1)}x)</span>
+                        <StarRating rating={slot.volumeStars} label="Volume" tooltipText={`can sell up to ${Number((slot.volume * (1 + slot.volumeBonus)).toFixed(2))}g of ${state.production[slot.selling]?.name || 'Weed'} per second.`} />
+                        <span style={{ color: 'var(--accent-primary)', fontSize: '0.85rem' }}>({(1 + slot.volumeBonus).toFixed(1)}x)</span>
                       </div>
                       <div className={styles.statRow}>
                         <span className={styles.label}>Margin:</span>
-                        <StarRating rating={slot.margin} />
-                        <span style={{ color: 'var(--accent-primary)', fontSize: '0.85rem' }}>({slot.marginBonus.toFixed(1)}x)</span>
+                        <StarRating rating={slot.marginStars} label="Margin" tooltipText={`sells 1g of ${state.production[slot.selling]?.name || 'Weed'} for $${(slot.margin * (1 + slot.marginBonus) * (PRODUCT_TIERS[slot.selling] || 1)).toFixed(2)}`} />
+                        <span style={{ color: 'var(--accent-primary)', fontSize: '0.85rem' }}>({(1 + slot.marginBonus).toFixed(1)}x)</span>
                       </div>
+
+                      {slot.sideVolume > 0 && (
+                        <div className={styles.statRow}>
+                          <span className={styles.label}>Side Volume:</span>
+                          <span style={{ color: 'var(--accent-primary)' }}>{(slot.sideVolume * 100).toFixed(1)}%</span>
+                        </div>
+                      )}
 
                       <div className={styles.statRow} style={{ marginTop: 'var(--space-xs)', borderTop: '1px solid var(--glass-border)', paddingTop: 'var(--space-xs)' }}>
                         <span className={styles.label}>Earnings:</span>
                         <span className={styles.productionRate} style={{ fontWeight: 'bold' }}>
-                          +${getIndividualDealerEarnings(slot).toFixed(2)}/s
+                          +${(state.lastEarningsPerDealer[slot.id] || 0).toFixed(2)}/s
                         </span>
                       </div>
 
