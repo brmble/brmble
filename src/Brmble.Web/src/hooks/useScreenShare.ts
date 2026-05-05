@@ -628,13 +628,26 @@ export function useScreenShare(
         matrixUserId: s.matrixUserId,
         sessionId: s.sessionId,
       })).filter(s => s.roomName);
+      const target = discoveryTargetRef.current;
+
+      if (!target) {
+        return;
+      }
 
       if (d.scope === 'all') {
+        if (!('scope' in target)) {
+          return;
+        }
+
         setActiveShares(nextRoomShares);
         return;
       }
 
       if (!d.roomName) {
+        return;
+      }
+
+      if ('scope' in target || target.roomName !== d.roomName) {
         return;
       }
 
