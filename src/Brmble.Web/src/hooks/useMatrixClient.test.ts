@@ -410,4 +410,205 @@ describe('useMatrixClient', () => {
     expect(result.current.activeMessages).toHaveLength(1);
     expect(result.current.activeMessages[0].content).toBe('sync-delivered');
   });
+
+  // ── DM activeDmMessages + setActiveDmContact ──
+
+  it('setActiveDmContact rebuilds activeDmMessages from SDK timeline', () => {
+    mockClient.getRoom.mockReturnValue(null); // reset from PREPARED bootstrap
+
+    const credsWithDm: MatrixCredentials = {
+      ...creds,
+      dmRoomMap: { '@bob:example.com': '!dm-bob:example.com' },
+    };
+    const { result } = renderHook(() => useMatrixClient(credsWithDm), { wrapper });
+
+    const onSync = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'sync')?.[1] as
+      | ((state: string) => void)
+      | undefined;
+    act(() => onSync!('PREPARED'));
+
+    const bobMember = { rawDisplayName: 'Bob', name: 'Bob', getAvatarUrl: () => null };
+    const dmFakeEvents = [
+      { getType: () => 'm.room.message', getId: () => '$dm1', getSender: () => '@bob:example.com',
+        getContent: () => ({ body: 'hey' }), getTs: () => 1000 },
+      { getType: () => 'm.room.message', getId: () => '$dm2', getSender: () => '@bob:example.com',
+        getContent: () => ({ body: 'you there?' }), getTs: () => 2000 },
+    ];
+    const mockDmRoom = {
+      roomId: '!dm-bob:example.com',
+      getMember: () => bobMember,
+      getLiveTimeline: () => ({ getEvents: () => dmFakeEvents }),
+    };
+    mockClient.getRoom.mockReturnValue(mockDmRoom);
+
+    act(() => result.current.setActiveDmContact('@bob:example.com'));
+
+    expect(result.current.activeDmMessages).toHaveLength(2);
+    expect(result.current.activeDmMessages[0].content).toBe('hey');
+    expect(result.current.activeDmMessages[1].content).toBe('you there?');
+  });
+
+  it('setActiveDmContact(null) clears activeDmMessages', () => {
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+    act(() => result.current.setActiveDmContact(null));
+    expect(result.current.activeDmMessages).toEqual([]);
+  });
+
+  it('rapid setActiveDmContact switches commit only the latest load', () => {
+    mockClient.getRoom.mockReturnValue(null); // reset from bootstrap
+
+    const credsWithDms: MatrixCredentials = {
+      ...creds,
+      dmRoomMap: {
+        '@bob:example.com': '!bob:example.com',
+        '@carol:example.com': '!carol:example.com',
+      },
+    };
+    const { result } = renderHook(() => useMatrixClient(credsWithDms), { wrapper });
+
+    const onSync = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'sync')?.[1] as
+      | ((state: string) => void)
+      | undefined;
+    act(() => onSync!('PREPARED'));
+
+    const roomBob = {
+      roomId: '!bob:example.com',
+      getMember: () => ({ rawDisplayName: 'Bob', name: 'Bob', getAvatarUrl: () => null }),
+      getLiveTimeline: () => ({ getEvents: () => [
+        { getType: () => 'm.room.message', getId: () => '$b1', getSender: () => '@bob:example.com',
+          getContent: () => ({ body: 'Bob-msg' }), getTs: () => 1 },
+      ]}),
+    };
+    const roomCarol = {
+      roomId: '!carol:example.com',
+      getMember: () => ({ rawDisplayName: 'Carol', name: 'Carol', getAvatarUrl: () => null }),
+      getLiveTimeline: () => ({ getEvents: () => [
+        { getType: () => 'm.room.message', getId: () => '$c1', getSender: () => '@carol:example.com',
+          getContent: () => ({ body: 'Carol-msg' }), getTs: () => 1 },
+      ]}),
+    };
+    mockClient.getRoom.mockImplementation((id: string) =>
+      id === '!bob:example.com' ? roomBob : id === '!carol:example.com' ? roomCarol : null);
+
+    act(() => {
+      result.current.setActiveDmContact('@bob:example.com');
+      result.current.setActiveDmContact('@carol:example.com');
+      result.current.setActiveDmContact('@bob:example.com');
+    });
+
+    expect(result.current.activeDmMessages).toHaveLength(1);
+    expect(result.current.activeDmMessages[0].content).toBe('Bob-msg');
+  });
+
+  it('PREPARED reloads activeDmMessages when a DM was activated before sync completed', () => {
+    mockClient.getRoom.mockReturnValue(null);
+
+    const credsWithDm: MatrixCredentials = {
+      ...creds,
+      dmRoomMap: { '@bob:example.com': '!dm-bob:example.com' },
+    };
+    const { result } = renderHook(() => useMatrixClient(credsWithDm), { wrapper });
+
+    act(() => result.current.setActiveDmContact('@bob:example.com'));
+    expect(result.current.activeDmMessages).toEqual([]);
+
+    const bobMember = { rawDisplayName: 'Bob', name: 'Bob', getAvatarUrl: () => null };
+    const dmFakeEvents = [
+      { getType: () => 'm.room.message', getId: () => '$dm-prep-1', getSender: () => '@bob:example.com',
+        getContent: () => ({ body: 'late arrival' }), getTs: () => 5000 },
+    ];
+    const mockDmRoom = {
+      roomId: '!dm-bob:example.com',
+      getMember: () => bobMember,
+      getLiveTimeline: () => ({ getEvents: () => dmFakeEvents }),
+    };
+    mockClient.getRoom.mockReturnValue(mockDmRoom);
+    mockClient.getRooms.mockReturnValue([mockDmRoom]);
+
+    const onSync = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'sync')?.[1] as
+      | ((state: string) => void)
+      | undefined;
+    expect(onSync).toBeDefined();
+    act(() => onSync!('PREPARED'));
+
+    expect(result.current.activeDmMessages).toHaveLength(1);
+    expect(result.current.activeDmMessages[0].content).toBe('late arrival');
+  });
+
+  // ── dmLastMessages sidebar previews ──
+
+  it('updates dmLastMessages when a DM timeline event arrives', () => {
+    mockClient.getRoom.mockReturnValue(null);
+
+    const credsWithDm: MatrixCredentials = {
+      ...creds,
+      dmRoomMap: { '@bob:example.com': '!dm-bob:example.com' },
+    };
+    const { result } = renderHook(() => useMatrixClient(credsWithDm), { wrapper });
+
+    const onSync = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'sync')?.[1] as
+      | ((state: string) => void)
+      | undefined;
+    act(() => onSync!('PREPARED'));
+
+    const dmMockRoom = {
+      roomId: '!dm-bob:example.com',
+      getMember: vi.fn(() => ({ rawDisplayName: 'Bob', name: 'Bob', getAvatarUrl: () => null })),
+    };
+    const onTimeline = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'Room.timeline')?.[1] as
+      | ((ev: unknown, r: unknown) => void)
+      | undefined;
+    expect(onTimeline).toBeDefined();
+
+    const fakeEvent = {
+      getType: () => 'm.room.message',
+      getId: () => '$dm-ev-1',
+      getSender: () => '@bob:example.com',
+      getContent: () => ({ body: 'dm preview text' }),
+      getTs: () => 1_700_000_000_000,
+    };
+
+    act(() => onTimeline!(fakeEvent, dmMockRoom));
+
+    expect(result.current.dmLastMessages.get('@bob:example.com')).toEqual({
+      content: 'dm preview text',
+      ts: 1_700_000_000_000,
+      sender: 'Bob',
+    });
+  });
+
+  it('dmLastMessages are bootstrapped on PREPARED from SDK timelines', () => {
+    mockClient.getRoom.mockReturnValue(null);
+
+    const dmRoom = {
+      roomId: '!dm-bob:example.com',
+      getMember: vi.fn(() => ({ rawDisplayName: 'Bob', name: 'Bob', getAvatarUrl: () => null })),
+      getLiveTimeline: () => ({ getEvents: () => [
+        { getType: () => 'm.room.message', getId: () => '$e1', getSender: () => '@bob:example.com',
+          getContent: () => ({ body: 'first' }), getTs: () => 1000 },
+        { getType: () => 'm.room.message', getId: () => '$e2', getSender: () => '@bob:example.com',
+          getContent: () => ({ body: 'last one' }), getTs: () => 2000 },
+      ]}),
+    };
+    mockClient.getRooms.mockReturnValue([dmRoom]);
+
+    const credsWithDm: MatrixCredentials = {
+      ...creds,
+      dmRoomMap: { '@bob:example.com': '!dm-bob:example.com' },
+    };
+    const { result } = renderHook(() => useMatrixClient(credsWithDm), { wrapper });
+
+    expect(result.current.dmLastMessages.size).toBe(0);
+
+    const onSync = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'sync')?.[1] as
+      | ((state: string) => void)
+      | undefined;
+    act(() => onSync!('PREPARED'));
+
+    expect(result.current.dmLastMessages.get('@bob:example.com')).toEqual({
+      content: 'last one',
+      ts: 2000,
+      sender: 'Bob',
+    });
+  });
 });
