@@ -161,9 +161,13 @@ export function useScreenShare(
   }, []);
 
   const setDiscoveryTarget = useCallback((target: DiscoveryTarget) => {
-    discoveryTargetRef.current = target
-      ? { ...target, baselineShareEventVersion: shareEventVersionRef.current }
-      : null;
+    if (!target) {
+      discoveryTargetRef.current = null;
+      setActiveShares([]);
+      return;
+    }
+
+    discoveryTargetRef.current = { ...target, baselineShareEventVersion: shareEventVersionRef.current };
   }, []);
 
   const addWatchingShare = useCallback((share: ShareInfo) => {
