@@ -16,7 +16,7 @@ function rollVolumeGps(stars: number): number {
 
 // Roll margin multiplier for a given star rating
 function rollMarginMultiplier(stars: number): number {
-  const range = MARGIN_RANGES[Math.min(6, Math.max(1, stars))];
+  const range = MARGIN_RANGES[Math.min(5, Math.max(1, stars))];
   if (!range) return 1.0;  // Fallback
   return rollWithinRange(range[0], range[1]);
 }
@@ -233,7 +233,7 @@ export const useGameEngine = () => {
           newDealer.marginBonus -= upgrade.marginPenalty || 0.1;
         }
         if (upgrade.type === 'SIDE_HUSTLE') {
-          newDealer.sideVolume = (newDealer.sideVolume || 0) + (upgrade.sideVolumeValue || 0.10);
+          newDealer.sideVolume = (newDealer.sideVolume ?? 0) + (upgrade.sideVolumeValue ?? 0.10);
         }
         return newDealer;
       });

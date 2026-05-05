@@ -9,13 +9,18 @@ import styles from './NeonD.module.css';
 
 
 function StarRating({ rating, label, tooltipText }: { rating: number; label?: string; tooltipText?: string }) {
-  const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
-  const text = tooltipText || (label ? `${label}: ${rating}/5` : `Rating: ${rating}/5`);
+  const clampedRating = Math.min(5, Math.max(0, Math.round(rating)));
+  const stars = '★'.repeat(clampedRating) + '☆'.repeat(5 - clampedRating);
+  const text = tooltipText || (label ? `${label}: ${clampedRating}/5` : `Rating: ${clampedRating}/5`);
   return (
     <Tooltip content={text}>
-      <span aria-label={`Rating: ${rating}/5`} style={{ cursor: 'help' }}>
+      <button 
+        tabIndex={0}
+        aria-label={`Rating: ${clampedRating}/5`} 
+        style={{ cursor: 'help', background: 'none', border: 'none', padding: 0, font: 'inherit' }}
+      >
         <span style={{ color: 'gold' }} aria-hidden="true">{stars}</span>
-      </span>
+      </button>
     </Tooltip>
   );
 }

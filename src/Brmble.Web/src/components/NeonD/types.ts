@@ -9,7 +9,7 @@ export interface ProductionItem {
   upgradeCost: number;
 }
 
-export type UpgradeType = 'VOLUME' | 'MARGIN' | 'SIDE_HUSTLE' | 'NETWORK' | 'ALL_AROUNDER' | 'BULK';
+export type UpgradeType = 'VOLUME' | 'MARGIN' | 'SIDE_HUSTLE' | 'ALL_AROUNDER' | 'BULK';
 
 export interface DealerUpgrade {
   type: UpgradeType;
