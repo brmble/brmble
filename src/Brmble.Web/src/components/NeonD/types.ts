@@ -3,6 +3,8 @@ export interface ProductionItem {
   name: string;
   stock: number;
   rate: number;
+  yieldPerLevel: number;
+  costMultiplier: number;
   level: number;
   upgradeCost: number;
 }
