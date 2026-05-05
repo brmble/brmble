@@ -2,15 +2,19 @@
   background: var(--bg-deep);
   color: var(--text-primary);
   font-family: var(--font-body);
-  min-height: 100vh;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
   padding: var(--space-xl);
+  overflow: hidden;
 }
 
 .header {
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: var(--space-md);
   margin-bottom: var(--space-xl);
-  align-items: center;
+  flex-shrink: 0;
 }
 
 .title {
@@ -39,6 +43,15 @@
   display: grid;
   grid-template-columns: 1fr 350px;
   gap: var(--space-xl);
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.gridLayout > section {
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
 }
 
 .productionCard {
