@@ -36,7 +36,7 @@ const generateRandomDealer = (unlockedProducts: string[], totalEarned: number): 
     ? unlockedProducts[Math.floor(Math.random() * unlockedProducts.length)] 
     : 'weed';
 
-  const progressBonus = Math.floor(totalEarned / 10000);
+  const progressBonus = Math.floor(Math.log10(totalEarned / 1000 + 1));
   const volumeStars = Math.min(5, Math.floor(Math.random() * 3) + 1 + Math.min(2, progressBonus));
   const marginStars = Math.min(5, Math.floor(Math.random() * 3) + 1 + Math.min(3, progressBonus));
 
@@ -51,7 +51,7 @@ const generateRandomDealer = (unlockedProducts: string[], totalEarned: number): 
     margin: baseMarginMult * (1 + 0),
     volumeBonus: 0,
     marginBonus: 0,
-    sideVolume: 0.10,
+    sideVolume: 0,
     equipmentCount: 0,
     baseVolumeGps,
     baseMarginMult
@@ -74,58 +74,58 @@ export const useGameEngine = () => {
   const tick = () => {
     setState(prev => {
       const nextProduction = { ...prev.production };
+      const nextEarnings: Record<string, number> = {};
       let totalEarnedThisTick = 0;
 
       Object.keys(nextProduction).forEach(key => {
-        nextProduction[key] = {
-          ...nextProduction[key],
-          stock: nextProduction[key].stock + nextProduction[key].rate
-        };
+        if (nextProduction[key].rate > 0) {
+          nextProduction[key] = {
+            ...nextProduction[key],
+            stock: nextProduction[key].stock + nextProduction[key].rate
+          };
+        }
       });
 
       prev.activeDealers.forEach((dealer) => {
         if (!dealer) return;
+        let dealerGross = 0;
 
         const effectiveVolume = dealer.volume * (1 + dealer.volumeBonus);
         const effectiveMargin = dealer.margin * (1 + dealer.marginBonus);
 
         const primaryProd = nextProduction[dealer.selling];
-        if (!primaryProd) return;
+        if (primaryProd) {
+          const primarySold = Math.min(primaryProd.stock, effectiveVolume);
+          nextProduction[dealer.selling] = { 
+            ...primaryProd, 
+            stock: Math.max(0, primaryProd.stock - primarySold) 
+          };
+          dealerGross += primarySold * (effectiveMargin * (PRODUCT_TIERS[dealer.selling] || 1));
+        }
 
-        const primarySold = Math.min(primaryProd.stock, effectiveVolume);
-        nextProduction[dealer.selling] = { 
-          ...primaryProd, 
-          stock: Math.max(0, primaryProd.stock - primarySold) 
-        };
-
-        const primaryRev = primarySold * (effectiveMargin * (PRODUCT_TIERS[dealer.selling] || 1));
-        let sideRev = 0;
-
-        // Side hustle: Each dealer simultaneously liquidates other commodities as a secondary income phase.
-        // This is NOT subtracted from primary sales — it's a separate automatic parallel process.
         if (dealer.sideVolume > 0) {
-          const bleedAmount = effectiveVolume * dealer.sideVolume;  // e.g., 10 g/s volume * 10% = 1 g/s to each other commodity
-          
+          const bleedAmount = effectiveVolume * dealer.sideVolume;
           for (const product of Object.keys(nextProduction)) {
             if (product !== dealer.selling) {
               const sideProd = nextProduction[product];
               if (!sideProd) continue;
               const sold = Math.min(sideProd.stock, bleedAmount);
               nextProduction[product] = { ...sideProd, stock: Math.max(0, sideProd.stock - sold) };
-              sideRev += sold * (effectiveMargin * (PRODUCT_TIERS[product] || 1));
+              dealerGross += sold * (effectiveMargin * (PRODUCT_TIERS[product] || 1));
             }
           }
         }
 
-        const gross = primaryRev + sideRev;
-        totalEarnedThisTick += gross;
+        nextEarnings[dealer.id] = dealerGross;
+        totalEarnedThisTick += dealerGross;
       });
 
       return {
         ...prev,
         money: prev.money + totalEarnedThisTick,
         totalEarned: prev.totalEarned + totalEarnedThisTick,
-        production: nextProduction
+        production: nextProduction,
+        lastEarningsPerDealer: nextEarnings
       };
     });
   };
@@ -276,7 +276,7 @@ export const useGameEngine = () => {
         generateRandomDealer(INITIAL_GAME_STATE.unlockedProduction, INITIAL_GAME_STATE.totalEarned)
       )
     });
-  }, [setState]);
+  }, [setState, clearStorage]);
 
   useInterval(tick, 1000);
   

@@ -57,13 +57,6 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     const options: DealerUpgrade[] = [];
     const sideHustleProducts = state.unlockedProduction.filter(id => id !== dealer.selling);
 
-    const rollRarity = () => {
-      const roll = Math.random();
-      if (roll < 0.10 && sideHustleProducts.length > 0) return 'jackpot';
-      if (roll < 0.30) return 'uncommon';
-      return 'common';
-    };
-
     const commonUpgrades: DealerUpgrade[] = [
       { type: 'VOLUME', label: 'Armed Gang', description: 'Volume +15%', value: 0.15 },
       { type: 'MARGIN', label: 'Ferrari', description: 'Margin +15%', value: 0.15 },
@@ -75,8 +68,8 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     ];
 
     for (let i = 0; i < 3; i++) {
-      const rarity = rollRarity();
-      if (rarity === 'jackpot' && sideHustleProducts.length > 0) {
+      const roll = Math.random();
+      if (roll < 0.10 && sideHustleProducts.length > 0) {
         options.push({
           type: 'SIDE_HUSTLE',
           label: 'JACKPOT: Side Hustle',
@@ -84,7 +77,7 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
           value: 0.1,
           sideVolumeValue: 0.1
         });
-      } else if (rarity === 'uncommon') {
+      } else if (roll < 0.30) {
         const upgrade = uncommonUpgrades[Math.floor(Math.random() * uncommonUpgrades.length)];
         options.push({ ...upgrade });
       } else {
@@ -113,75 +106,7 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
 
 
 
-  const getTotalEarningsDisplay = () => {
-    const activeDealers = state.activeDealers.filter((d): d is Dealer => d !== null);
-    if (activeDealers.length === 0) return 0;
 
-    // Snapshot the stock PLUS the rate for this "simulated" second
-    const availableSnapshot: Record<string, number> = Object.fromEntries(
-      Object.entries(state.production).map(([id, prod]) => [
-        id, 
-        prod.stock + prod.rate // Add rate so the UI sees what will be produced
-      ])
-    );
-
-    let total = 0;
-    activeDealers.forEach(dealer => {
-      const effectiveVolume = dealer.volume * (1 + dealer.volumeBonus);
-      const effectiveMargin = dealer.margin * (1 + dealer.marginBonus);
-
-      const primaryStock = availableSnapshot[dealer.selling] ?? 0;
-      const primarySold = Math.min(primaryStock, effectiveVolume);
-      availableSnapshot[dealer.selling] = Math.max(0, primaryStock - primarySold);
-      total += primarySold * (effectiveMargin * (PRODUCT_TIERS[dealer.selling] || 1));
-
-      if (dealer.sideVolume > 0) {
-        const bleedAmount = effectiveVolume * dealer.sideVolume;
-        
-        Object.keys(availableSnapshot).forEach((prodId) => {
-          if (prodId !== dealer.selling) {
-            const sideStock = availableSnapshot[prodId] ?? 0;
-            const sold = Math.min(sideStock, bleedAmount);
-            availableSnapshot[prodId] = Math.max(0, sideStock - sold);
-            total += sold * (effectiveMargin * (PRODUCT_TIERS[prodId] || 1));
-          }
-        });
-      }
-    });
-
-    return total;
-  };
-
-  const getIndividualDealerEarnings = (dealer: Dealer) => {
-    const activeProd = state.production[dealer.selling];
-    if (!activeProd) return 0;
-
-    const effectiveVolume = dealer.volume * (1 + dealer.volumeBonus);
-    const effectiveMargin = dealer.margin * (1 + dealer.marginBonus);
-    
-    // Use (stock + rate) to determine what can be sold this second
-    const availableToSell = activeProd.stock + activeProd.rate;
-    const primarySold = Math.min(availableToSell, effectiveVolume);
-    
-    const tierMult = PRODUCT_TIERS[dealer.selling] || 1;
-    const primaryRev = primarySold * (effectiveMargin * tierMult);
-
-    let sideRev = 0;
-    if (dealer.sideVolume > 0) {
-      const bleedAmount = effectiveVolume * dealer.sideVolume;
-      Object.keys(state.production).forEach((prodId) => {
-        if (prodId !== dealer.selling) {
-          const sideProd = state.production[prodId];
-          if (!sideProd) return;
-          const sideAvailable = sideProd.stock + sideProd.rate;
-          const sold = Math.min(sideAvailable, bleedAmount);
-          sideRev += sold * (effectiveMargin * (PRODUCT_TIERS[prodId] || 1));
-        }
-      });
-    }
-
-    return primaryRev + sideRev;
-  };
 
   const refreshCooldown = getRefreshCooldown();
   const allIds = Object.keys(state.production);
@@ -214,7 +139,7 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
             ${state.money.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
           <div className={styles.label}>
-            {state.activeDealers.filter(d => d !== null).length > 0 ? `($${(getTotalEarningsDisplay()).toFixed(2)}/s)` : ''}
+            {state.activeDealers.filter(d => d !== null).length > 0 ? `($${Object.values(state.lastEarningsPerDealer).reduce((a, b) => a + b, 0).toFixed(2)}/s)` : ''}
           </div>
           <button 
             className={styles.upgradeButton} 
@@ -391,7 +316,7 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
                       <div className={styles.statRow} style={{ marginTop: 'var(--space-xs)', borderTop: '1px solid var(--glass-border)', paddingTop: 'var(--space-xs)' }}>
                         <span className={styles.label}>Earnings:</span>
                         <span className={styles.productionRate} style={{ fontWeight: 'bold' }}>
-                          +${getIndividualDealerEarnings(slot).toFixed(2)}/s
+                          +${(state.lastEarningsPerDealer[slot.id] || 0).toFixed(2)}/s
                         </span>
                       </div>
 

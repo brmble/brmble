@@ -384,7 +384,8 @@ export const INITIAL_GAME_STATE: GameState = {
   activeDealers: [null, null, null],
   availableDealers: [],
   unlockedSlots: 1,
-  lastRefreshTime: 0
+  lastRefreshTime: 0,
+  lastEarningsPerDealer: {}
 };
 
 // Star-based dealer stat ranges (rolled once at generation)
@@ -419,5 +420,5 @@ export const UPGRADE_TYPES = {
 
 export const SLOT_UNLOCK_COSTS = [0, 1000, 100000]; // Slot 0 is free, 1 is $1k, 2 is $100k
 
-export const DEALER_FIRST_NAMES = ['Thomas', 'Dutch', 'Belgian', 'Chemist', 'Slick', 'Vito', 'Snake', 'Mick', 'Jack'];
-export const DEALER_LAST_NAMES = ['Palmer', 'Dave', 'Bob', 'Carlos', 'Snake', 'Miller', 'The Fixer', 'The Ghost'];
+export const DEALER_FIRST_NAMES = ['Thomas', 'Dutch', 'Belgian', 'Chemist', 'Slick', 'Vito', 'Snake', 'Mick', 'Jack', 'Dave', 'Miller', 'Bob', 'Ghost'];
+export const DEALER_LAST_NAMES = ['Palmer', 'Dave', 'Bob', 'Carlos', 'Snake', 'Miller', 'The Fixer', 'The Ghost', 'Slick'];

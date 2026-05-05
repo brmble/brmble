@@ -44,4 +44,5 @@ export interface GameState {
   availableDealers: Dealer[];
   unlockedSlots: number;
   lastRefreshTime: number;
+  lastEarningsPerDealer: Record<string, number>;
 }
