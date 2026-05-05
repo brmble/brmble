@@ -459,6 +459,49 @@ describe('useScreenShare', () => {
     ]);
   });
 
+  it('ignores activeShareResult when a realtime event after discovery request started a share', () => {
+    let activeShareHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.activeShareResult') activeShareHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      result.current.setDiscoveryTarget({ roomName: 'channel-1', requestId: 1 });
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, sessionId: 1 });
+      activeShareHandler?.({ roomName: 'channel-1', requestId: 1, shares: [] });
+    });
+
+    expect(result.current.activeShares).toEqual([
+      expect.objectContaining({ roomName: 'channel-1', userId: 10 }),
+    ]);
+  });
+
+  it('ignores activeShareResult when a realtime event after discovery request stopped a share', () => {
+    let activeShareHandler: ((data: unknown) => void) | null = null;
+    let shareStoppedHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.activeShareResult') activeShareHandler = handler;
+      if (type === 'livekit.screenShareStopped') shareStoppedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+    const alice = { roomName: 'channel-1', userId: 10, userName: 'alice', sessionId: 1 };
+
+    act(() => {
+      result.current.setDiscoveryTarget({ roomName: 'channel-1', requestId: 1 });
+      activeShareHandler?.({ roomName: 'channel-1', requestId: 1, shares: [alice] });
+      result.current.setDiscoveryTarget({ roomName: 'channel-1', requestId: 2 });
+      shareStoppedHandler?.({ roomName: 'channel-1', userId: 10 });
+      activeShareHandler?.({ roomName: 'channel-1', requestId: 2, shares: [alice] });
+    });
+
+    expect(result.current.activeShares).toEqual([]);
+  });
+
   it('keeps realtime share events from other rooms in global visibility state', () => {
     let shareStartedHandler: ((data: unknown) => void) | null = null;
     let shareStoppedHandler: ((data: unknown) => void) | null = null;

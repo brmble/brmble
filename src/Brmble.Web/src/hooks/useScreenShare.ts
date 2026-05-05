@@ -35,7 +35,7 @@ type LocalTrackLike = {
 
 type LiveKitAccessMode = 'publish' | 'subscribe';
 
-type DiscoveryTarget = ({ scope: 'all' } | { roomName: string }) & { requestId?: number } | null;
+type DiscoveryTarget = (({ scope: 'all' } | { roomName: string }) & { requestId?: number; baselineShareEventVersion?: number }) | null;
 
 type ErrorLike = {
   name?: unknown;
@@ -129,6 +129,7 @@ export function useScreenShare(
   const isSharingRef = useRef(false);
   const focusedShareRef = useRef<ShareInfo | null>(null);
   const discoveryTargetRef = useRef<DiscoveryTarget>(null);
+  const shareEventVersionRef = useRef(0);
   const onDisconnectedRef = useRef(onDisconnected);
   const onLocalShareEndedRef = useRef(onLocalShareEnded);
   const localShareEndCleanupRef = useRef<(() => void) | null>(null);
@@ -160,7 +161,9 @@ export function useScreenShare(
   }, []);
 
   const setDiscoveryTarget = useCallback((target: DiscoveryTarget) => {
-    discoveryTargetRef.current = target;
+    discoveryTargetRef.current = target
+      ? { ...target, baselineShareEventVersion: shareEventVersionRef.current }
+      : null;
   }, []);
 
   const addWatchingShare = useCallback((share: ShareInfo) => {
@@ -578,6 +581,7 @@ export function useScreenShare(
   useEffect(() => {
     const onShareStarted = (data: unknown) => {
       const d = data as { roomName: string; userName: string; userId: number; matrixUserId?: string; sessionId?: number };
+      shareEventVersionRef.current += 1;
       setActiveShares(prev => {
         if (prev.some(s => s.userId === d.userId && s.roomName === d.roomName)) return prev;
         return [...prev, { roomName: d.roomName, userName: d.userName, userId: d.userId, matrixUserId: d.matrixUserId, sessionId: d.sessionId }];
@@ -586,6 +590,7 @@ export function useScreenShare(
 
     const onShareStopped = (data: unknown) => {
       const d = data as { roomName: string; userId: number };
+      shareEventVersionRef.current += 1;
       setActiveShares(prev => prev.filter(s => !(s.roomName === d.roomName && s.userId === d.userId)));
 
       // If we were watching this user, remove their tile
@@ -636,6 +641,10 @@ export function useScreenShare(
       }
 
       if (target.requestId != null && d.requestId !== target.requestId) {
+        return;
+      }
+
+      if (target.baselineShareEventVersion !== shareEventVersionRef.current) {
         return;
       }
 
