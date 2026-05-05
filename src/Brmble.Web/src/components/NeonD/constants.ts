@@ -380,7 +380,7 @@ export const INITIAL_GAME_STATE: GameState = {
       upgradeCost: TIER_DATA.galacticCore.c0
     }
   },
-  unlockedProduction: [],
+  unlockedProduction: ["weed"],
   activeDealers: [null, null, null],
   availableDealers: [],
   unlockedSlots: 1,

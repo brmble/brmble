@@ -32,6 +32,8 @@ export interface Dealer {
   equipmentCount: number;
   baseVolumeGps: number;
   baseMarginMult: number;
+  volumeStars: number;
+  marginStars: number;
 }
 
 export interface GameState {

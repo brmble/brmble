@@ -1,4 +1,6 @@
 import { useCallback } from 'react';
+import { useInterval } from './useInterval';
+import { usePersistedGameState } from './usePersistedGameState';
 import type { GameState, Dealer, DealerUpgrade } from '../types';
 import { INITIAL_GAME_STATE, UNLOCK_COSTS, PRODUCT_TIERS, DEALER_FIRST_NAMES, DEALER_LAST_NAMES, SLOT_UNLOCK_COSTS, VOLUME_RANGES, MARGIN_RANGES } from '../constants';
 
@@ -20,8 +22,6 @@ function rollMarginMultiplier(stars: number): number {
   if (!range) return 1.0;  // Fallback
   return rollWithinRange(range[0], range[1]);
 }
-import { useInterval } from './useInterval';
-import { usePersistedGameState } from './usePersistedGameState';
 
 const generateRandomDealer = (unlockedProducts: string[], totalEarned: number): Dealer => {
   const firstNames = DEALER_FIRST_NAMES;
@@ -47,14 +47,16 @@ const generateRandomDealer = (unlockedProducts: string[], totalEarned: number): 
     id: crypto.randomUUID(),
     name: `${fName} "${lName}"`,
     selling: drug,
-    volume: baseVolumeGps * (1 + 0),
-    margin: baseMarginMult * (1 + 0),
+    volume: baseVolumeGps,
+    margin: baseMarginMult,
     volumeBonus: 0,
     marginBonus: 0,
     sideVolume: 0,
     equipmentCount: 0,
     baseVolumeGps,
-    baseMarginMult
+    baseMarginMult,
+    volumeStars,
+    marginStars
   };
 };
 
@@ -105,7 +107,8 @@ export const useGameEngine = () => {
 
         if (dealer.sideVolume > 0) {
           const bleedAmount = effectiveVolume * dealer.sideVolume;
-          for (const product of Object.keys(nextProduction)) {
+          // Side volume only applies to other UNLOCKED products
+          for (const product of prev.unlockedProduction) {
             if (product !== dealer.selling) {
               const sideProd = nextProduction[product];
               if (!sideProd) continue;

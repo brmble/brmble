@@ -15,6 +15,8 @@ const makeDealer = (overrides: Partial<Dealer> = {}): Dealer => ({
   equipmentCount: 0,
   baseVolumeGps: 10,
   baseMarginMult: 1,
+  volumeStars: 3,
+  marginStars: 3,
   ...overrides,
 });
 
@@ -27,7 +29,6 @@ const makeDealer = (overrides: Partial<Dealer> = {}): Dealer => ({
 const setupWithMoney = () => {
   const hook = renderHook(() => useGameEngine());
   act(() => {
-    hook.result.current.unlockProduction('weed');
     hook.result.current.upgrade('weed');
     hook.result.current.hireDealer(makeDealer({ margin: 100 }), 0);
   });
