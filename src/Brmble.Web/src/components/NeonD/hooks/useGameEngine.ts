@@ -103,36 +103,19 @@ export const useGameEngine = () => {
   const upgrade = (id: string) => {
     setState(prev => {
       const item = prev.production[id];
-      if (!item) return prev;
-      const currentUpgradeCost = Math.floor(item.upgradeCost);
-      if (prev.money < currentUpgradeCost) return prev;
+      if (!item || prev.money < item.upgradeCost) return prev;
       if (!prev.unlockedProduction.includes(id)) return prev;
-      
-      const rateIncreases: Record<string, number> = {
-        weed: 0.10,
-        mushrooms: 0.07,
-        meth: 0.04,
-      };
-      const rateIncrease = rateIncreases[id] || 0.02;
-      
-      const costMultipliers: Record<string, number> = {
-        weed: 1.35,
-        mushrooms: 1.45,
-        meth: 1.6,
-      };
-      const multiplier = costMultipliers[id] || 1.8;
-      const nextUpgradeCost = Math.floor(item.upgradeCost * multiplier);
-      
+
       return {
         ...prev,
-        money: prev.money - currentUpgradeCost,
+        money: prev.money - item.upgradeCost,
         production: {
           ...prev.production,
           [id]: {
             ...item,
             level: item.level + 1,
-            rate: item.rate + rateIncrease,
-            upgradeCost: nextUpgradeCost
+            rate: item.rate + item.yieldPerLevel,
+            upgradeCost: Math.floor(item.upgradeCost * item.costMultiplier)
           }
         }
       };
