@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import type { NotificationStatus } from '../components/Notification/Notification';
 
 const MAX_VISIBLE = 3;
@@ -53,12 +53,18 @@ export function useNotificationQueue() {
   }, []);
 
   const unregister = useCallback((id: string) => {
-    setEntries(prev => prev.filter(e => e.id !== id));
+    setEntries(prev => {
+      const next = prev.filter(e => e.id !== id);
+      return next.length === prev.length ? prev : next;
+    });
   }, []);
 
-  const visibleSet = getVisible(entries);
+  const visibleSet = useMemo(() => getVisible(entries), [getVisible, entries]);
 
   const isVisible = useCallback((id: string) => visibleSet.has(id), [visibleSet]);
 
-  return { register, unregister, isVisible, visibleCount: visibleSet.size, totalCount: entries.length };
+  return useMemo(
+    () => ({ register, unregister, isVisible, visibleCount: visibleSet.size, totalCount: entries.length }),
+    [register, unregister, isVisible, visibleSet, entries.length],
+  );
 }

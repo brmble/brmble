@@ -24,6 +24,95 @@ function insertMessage(existing: ChatMessage[], msg: ChatMessage): ChatMessage[]
   return updated;
 }
 
+/**
+ * Transform a Matrix `m.room.message` event into a ChatMessage.
+ * Pure: only depends on its arguments. No SDK calls beyond what's
+ * passed in via `client` (used for mxc → http URL resolution).
+ *
+ * Returns null for non-message events.
+ */
+function transformEventToChatMessage(
+  event: MatrixEvent,
+  room: Room | undefined,
+  channelId: string,
+  client: MatrixClient | null,
+): ChatMessage | null {
+  if (event.getType() !== EventType.RoomMessage) return null;
+
+  const senderId = event.getSender() ?? 'Unknown';
+  const senderMember = room?.getMember(senderId);
+  const displayName = senderMember?.rawDisplayName || senderMember?.name || senderId;
+
+  const content = event.getContent() as {
+    body?: string;
+    msgtype?: string;
+    url?: string;
+    info?: { thumbnail_url?: string; w?: number; h?: number; mimetype?: string; size?: number };
+    'm.relates_to'?: { 'm.in_reply_to'?: { event_id: string } };
+  };
+
+  let media: MediaAttachment[] | undefined;
+  if (content.msgtype === 'm.image' && content.url) {
+    const fullUrl = client?.mxcUrlToHttp(content.url) ?? content.url;
+    media = [{
+      type: content.info?.mimetype?.toLowerCase() === 'image/gif' ? 'gif' : 'image',
+      url: fullUrl,
+      width: content.info?.w,
+      height: content.info?.h,
+      mimetype: content.info?.mimetype,
+      size: content.info?.size,
+    }];
+  }
+
+  const rawBody = content.body ?? '';
+  const isBridgeBotSender = /^@brmble[_-]?/.test(senderId);
+  const bridgeMatch = isBridgeBotSender ? rawBody.match(/^\[(.+?)\]:\s*/) : null;
+  const messageSender = bridgeMatch ? bridgeMatch[1] : displayName;
+  let messageContent = bridgeMatch ? rawBody.slice(bridgeMatch[0].length) : rawBody;
+
+  // Strip reply fallback from body (lines starting with > )
+  messageContent = messageContent.split('\n').filter(line => !/^> ?/.test(line)).join('\n').trim();
+
+  // For image-only messages, body is just the filename — don't show it as text
+  const displayContent = media ? '' : messageContent;
+
+  const relatesTo = content['m.relates_to'] as { 'm.in_reply_to'?: { event_id: string } } | undefined;
+  const replyToEventId = relatesTo?.['m.in_reply_to']?.event_id;
+
+  return {
+    id: event.getId() ?? crypto.randomUUID(),
+    channelId,
+    sender: messageSender,
+    senderMatrixUserId: senderId,
+    content: displayContent,
+    timestamp: new Date(event.getTs()),
+    ...(media && { media }),
+    ...(replyToEventId && { replyToEventId }),
+  };
+}
+
+/**
+ * Read all `m.room.message` events from a room's live timeline and transform
+ * them into ChatMessages. Pure helper for active-message loading.
+ *
+ * Returns `[]` when the room cannot be resolved (caller's responsibility to
+ * setState on the returned value).
+ */
+function loadMessagesFromTimeline(
+  client: MatrixClient,
+  roomId: string,
+  targetId: string,
+): ChatMessage[] {
+  const room = client.getRoom(roomId);
+  if (!room) return [];
+  const out: ChatMessage[] = [];
+  for (const ev of room.getLiveTimeline().getEvents()) {
+    const m = transformEventToChatMessage(ev, room, targetId, client);
+    if (m) out.push(m);
+  }
+  return out;
+}
+
 export interface MatrixCredentials {
   homeserverUrl: string;
   accessToken: string;
@@ -32,16 +121,31 @@ export interface MatrixCredentials {
   dmRoomMap?: Record<string, string>; // matrixUserId → matrixRoomId (from server)
 }
 
+export interface MessagePreview {
+  content: string;
+  ts: number;
+  sender: string;
+}
+
 export function useMatrixClient(credentials: MatrixCredentials | null) {
   const clientRef = useRef<MatrixClient | null>(null);
   const [client, setClient] = useState<MatrixClient | null>(null);
-  const [messages, setMessages] = useState<Map<string, ChatMessage[]>>(new Map());
   const { updateStatus } = useServiceStatus();
 
   // DM room tracking: matrixUserId -> roomId
   const [dmRoomMap, setDmRoomMap] = useState<Map<string, string>>(new Map());
-  // DM messages: matrixUserId -> ChatMessage[]
-  const [dmMessages, setDmMessages] = useState<Map<string, ChatMessage[]>>(new Map());
+
+  // Last-message previews: one entry per channel/DM user (bounded)
+  const [lastMessages, setLastMessages] = useState<Map<string, MessagePreview>>(new Map());
+  const [dmLastMessages, setDmLastMessages] = useState<Map<string, MessagePreview>>(new Map());
+
+  // Active-only message state: only the currently-viewed channel/DM is loaded
+  const [activeMessages, setActiveMessages] = useState<ChatMessage[]>([]);
+  const [activeDmMessages, setActiveDmMessages] = useState<ChatMessage[]>([]);
+  const activeChannelIdRef = useRef<string | null>(null);
+  const activeDmContactIdRef = useRef<string | null>(null);
+  const activeRoomVersionRef = useRef(0);
+  const activeDmVersionRef = useRef(0);
 
   const dmRoomMapRef = useRef<Map<string, string>>(new Map());
   // Keep ref in sync
@@ -65,9 +169,13 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       clientRef.current?.stopClient();
       clientRef.current = null;
       setClient(null);
-      setMessages(new Map());
+      setLastMessages(new Map());
+      setDmLastMessages(new Map());
+      setActiveMessages([]);
+      setActiveDmMessages([]);
+      activeChannelIdRef.current = null;
+      activeDmContactIdRef.current = null;
       setDmRoomMap(new Map());
-      setDmMessages(new Map());
       dmRoomMapRef.current = new Map();
       roomIdToDMUserIdRef.current = new Map();
       lastSyncStateRef.current = null;
@@ -88,67 +196,26 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       if (event.getType() !== EventType.RoomMessage) return;
       const channelId = roomIdToChannelId.get(room?.roomId ?? '');
       if (channelId) {
-        const senderId = event.getSender() ?? 'Unknown';
-        const senderMember = room?.getMember(senderId);
-        const displayName = senderMember?.rawDisplayName || senderMember?.name || senderId;
+        const message = transformEventToChatMessage(event, room, channelId, clientRef.current);
+        if (!message) return;
 
-        const content = event.getContent() as {
-          body?: string;
-          msgtype?: string;
-          url?: string;
-          info?: { thumbnail_url?: string; w?: number; h?: number; mimetype?: string; size?: number };
-          'm.relates_to'?: { 'm.in_reply_to'?: { event_id: string } };
-        };
-
-        let media: MediaAttachment[] | undefined;
-        if (content.msgtype === 'm.image' && content.url) {
-          const cl = clientRef.current;
-          const fullUrl = cl?.mxcUrlToHttp(content.url) ?? content.url;
-
-          media = [{
-            type: content.info?.mimetype?.toLowerCase() === 'image/gif' ? 'gif' : 'image',
-            url: fullUrl,
-            width: content.info?.w,
-            height: content.info?.h,
-            mimetype: content.info?.mimetype,
-            size: content.info?.size,
-          }];
-        }
-
-        const rawBody = content.body ?? '';
-        // Only parse bridged "[Name]: " prefixes for events sent by the bridge bot
-        const isBridgeBotSender = /^@brmble[_-]?/.test(senderId);
-        const bridgeMatch = isBridgeBotSender ? rawBody.match(/^\[(.+?)\]:\s*/) : null;
-        const messageSender = bridgeMatch ? bridgeMatch[1] : displayName;
-        let messageContent = bridgeMatch ? rawBody.slice(bridgeMatch[0].length) : rawBody;
-
-        // Strip reply fallback from body (lines starting with > )
-        messageContent = messageContent.split('\n').filter(line => !/^> ?/.test(line)).join('\n').trim();
-
-        // For image-only messages, body is just the filename — don't show it as text
-        const displayContent = media ? '' : messageContent;
-
-        // Extract reply relation from Matrix event
-        const relatesTo = content['m.relates_to'] as { 'm.in_reply_to'?: { event_id: string } } | undefined;
-        const replyToEventId = relatesTo?.['m.in_reply_to']?.event_id;
-
-        const message: ChatMessage = {
-          id: event.getId() ?? crypto.randomUUID(),
-          channelId,
-          sender: messageSender,
-          senderMatrixUserId: senderId,
-          content: displayContent,
-          timestamp: new Date(event.getTs()),
-          ...(media && { media }),
-          ...(replyToEventId && { replyToEventId }),
-        };
-
-        setMessages(prev => {
-          const existing = prev.get(channelId) ?? [];
-          const updated = insertMessage(existing, message);
-          if (updated === existing) return prev;
-          return new Map(prev).set(channelId, updated);
+        setLastMessages(prev => {
+          const existing = prev.get(channelId);
+          if (existing && existing.ts >= message.timestamp.getTime()) return prev;
+          const next = new Map(prev);
+          next.set(channelId, {
+            content: message.content,
+            ts: message.timestamp.getTime(),
+            sender: message.sender,
+          });
+          return next;
         });
+        if (activeChannelIdRef.current === channelId) {
+          setActiveMessages(prev => {
+            const updated = insertMessage(prev, message);
+            return updated === prev ? prev : updated;
+          });
+        }
         return;
       }
 
@@ -161,72 +228,31 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
         return;
       }
 
-      const dmSenderId = event.getSender() ?? 'Unknown';
-      const dmSenderMember = room?.getMember(dmSenderId);
-      const dmDisplayName = dmSenderMember?.rawDisplayName || dmSenderMember?.name || dmSenderId;
+      const dmMessage = transformEventToChatMessage(event, room, dmUserId, clientRef.current);
+      if (!dmMessage) return;
 
-      const dmContent = event.getContent() as {
-        body?: string;
-        msgtype?: string;
-        url?: string;
-        info?: { thumbnail_url?: string; w?: number; h?: number; mimetype?: string; size?: number };
-        'm.relates_to'?: { 'm.in_reply_to'?: { event_id: string } };
-      };
-
-      let dmMedia: MediaAttachment[] | undefined;
-      if (dmContent.msgtype === 'm.image' && dmContent.url) {
-        const cl = clientRef.current;
-        const fullUrl = cl?.mxcUrlToHttp(dmContent.url) ?? dmContent.url;
-
-        dmMedia = [{
-          type: dmContent.info?.mimetype?.toLowerCase() === 'image/gif' ? 'gif' : 'image',
-          url: fullUrl,
-          width: dmContent.info?.w,
-          height: dmContent.info?.h,
-          mimetype: dmContent.info?.mimetype,
-          size: dmContent.info?.size,
-        }];
-      }
-
-      const dmRawBody = dmContent.body ?? '';
-      // Only parse bridged "[Name]: " prefixes for events sent by the bridge bot
-      const isDmBridgeBotSender = /^@brmble[_-]?/.test(dmSenderId);
-      const dmBridgeMatch = isDmBridgeBotSender ? dmRawBody.match(/^\[(.+?)\]:\s*/) : null;
-      const dmSender = dmBridgeMatch ? dmBridgeMatch[1] : dmDisplayName;
-      let dmMessageContent = dmBridgeMatch ? dmRawBody.slice(dmBridgeMatch[0].length) : dmRawBody;
-
-      // Strip reply fallback from body (lines starting with > )
-      dmMessageContent = dmMessageContent.split('\n').filter(line => !/^> ?/.test(line)).join('\n').trim();
-
-      // For image-only messages, body is just the filename — don't show it as text
-      const dmDisplayContent = dmMedia ? '' : dmMessageContent;
-
-      // Extract reply relation from Matrix event
-      const dmRelatesTo = dmContent['m.relates_to'] as { 'm.in_reply_to'?: { event_id: string } } | undefined;
-      const dmReplyToEventId = dmRelatesTo?.['m.in_reply_to']?.event_id;
-
-      const dmMessage: ChatMessage = {
-        id: event.getId() ?? crypto.randomUUID(),
-        channelId: dmUserId,
-        sender: dmSender,
-        senderMatrixUserId: dmSenderId,
-        content: dmDisplayContent,
-        timestamp: new Date(event.getTs()),
-        ...(dmMedia && { media: dmMedia }),
-        ...(dmReplyToEventId && { replyToEventId: dmReplyToEventId }),
-      };
-
-      setDmMessages(prev => {
-        const existing = prev.get(dmUserId) ?? [];
-        const updated = insertMessage(existing, dmMessage);
-        if (updated === existing) return prev;
-        return new Map(prev).set(dmUserId, updated);
+      setDmLastMessages(prev => {
+        const existing = prev.get(dmUserId);
+        if (existing && existing.ts >= dmMessage.timestamp.getTime()) return prev;
+        const next = new Map(prev);
+        next.set(dmUserId, {
+          content: dmMessage.content,
+          ts: dmMessage.timestamp.getTime(),
+          sender: dmMessage.sender,
+        });
+        return next;
       });
+      if (activeDmContactIdRef.current === dmUserId) {
+        setActiveDmMessages(prev => {
+          const updated = insertMessage(prev, dmMessage);
+          return updated === prev ? prev : updated;
+        });
+      }
     };
 
     client.on(RoomEvent.Timeline, onTimeline);
     updateStatus('chat', { state: 'connecting', error: undefined });
-    client.startClient({ initialSyncLimit: 20 });
+    client.startClient({ initialSyncLimit: 5 });
     clientRef.current = client;
     setClient(client);
 
@@ -255,6 +281,65 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
             onTimeline(event, room);
           }
           bufferedDmEvents.length = 0;
+
+          // Bootstrap last-message previews from the SDK timelines now
+          // that initial sync is complete. This avoids waiting for new
+          // RoomEvent.Timeline events to populate the sidebar.
+          const bootChannelPreviews = new Map<string, MessagePreview>();
+          const bootDmPreviews = new Map<string, MessagePreview>();
+          for (const room of client.getRooms()) {
+            const channelId = roomIdToChannelId.get(room.roomId);
+            const dmUserId = roomIdToDMUserIdRef.current.get(room.roomId);
+            const target = channelId ?? dmUserId;
+            if (!target) continue;
+
+            const events = room.getLiveTimeline().getEvents();
+            for (let i = events.length - 1; i >= 0; i--) {
+              const ev = events[i];
+              if (ev.getType() !== EventType.RoomMessage) continue;
+              const msg = transformEventToChatMessage(ev, room, target, clientRef.current);
+              if (!msg) continue;
+              const preview: MessagePreview = {
+                content: msg.content,
+                ts: msg.timestamp.getTime(),
+                sender: msg.sender,
+              };
+              if (channelId) bootChannelPreviews.set(channelId, preview);
+              else if (dmUserId) bootDmPreviews.set(dmUserId, preview);
+              break;
+            }
+          }
+          if (bootChannelPreviews.size > 0) setLastMessages(bootChannelPreviews);
+          if (bootDmPreviews.size > 0) setDmLastMessages(bootDmPreviews);
+
+          // If a channel/DM was activated before PREPARED finished, re-run
+          // the load now that the SDK has the room and its timeline.
+          // Bumping the version invalidates any earlier load that committed
+          // an empty array against this same channel/DM id.
+          if (activeChannelIdRef.current && credentials) {
+            const channelId = activeChannelIdRef.current;
+            const roomId = credentials.roomMap[channelId];
+            if (roomId) {
+              activeRoomVersionRef.current += 1;
+              const myVersion = activeRoomVersionRef.current;
+              const messages = loadMessagesFromTimeline(client, roomId, channelId);
+              if (activeRoomVersionRef.current === myVersion) {
+                setActiveMessages(messages);
+              }
+            }
+          }
+          if (activeDmContactIdRef.current) {
+            const dmContactId = activeDmContactIdRef.current;
+            const dmRoomId = dmRoomMapRef.current.get(dmContactId);
+            if (dmRoomId) {
+              activeDmVersionRef.current += 1;
+              const myVersion = activeDmVersionRef.current;
+              const messages = loadMessagesFromTimeline(client, dmRoomId, dmContactId);
+              if (activeDmVersionRef.current === myVersion) {
+                setActiveDmMessages(messages);
+              }
+            }
+          }
         }
       } else if (state === 'ERROR') {
         derivedState = 'disconnected';
@@ -280,73 +365,44 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       }
     };
 
-    /** Register a newly-discovered DM room in local maps and backfill any messages
-     *  that onTimeline may have dropped before the mapping existed. */
+    /** Register a newly-discovered DM room in local maps. If this room is the
+     *  currently active DM contact, also rebuild activeDmMessages from its
+     *  timeline (version-guarded against rapid contact switches). */
     const registerDMRoom = (room: Room, otherUserId: string) => {
-      if (roomIdToDMUserIdRef.current.has(room.roomId)) return; // already tracked
+      if (roomIdToDMUserIdRef.current.has(room.roomId)) return;
 
       setDmRoomMap(prev => new Map(prev).set(otherUserId, room.roomId));
       dmRoomMapRef.current = new Map(dmRoomMapRef.current).set(otherUserId, room.roomId);
       roomIdToDMUserIdRef.current = new Map(roomIdToDMUserIdRef.current).set(room.roomId, otherUserId);
 
-      // Backfill: the SDK already has timeline events for this room that onTimeline
-      // dropped because the room wasn't in roomIdToDMUserIdRef at the time.
       const timelineEvents = room.getLiveTimeline().getEvents();
-      const backfillMsgs: ChatMessage[] = [];
-      for (const ev of timelineEvents) {
+
+      for (let i = timelineEvents.length - 1; i >= 0; i--) {
+        const ev = timelineEvents[i];
         if (ev.getType() !== EventType.RoomMessage) continue;
-        const senderId = ev.getSender() ?? 'Unknown';
-        const senderMember = room.getMember(senderId);
-        const displayName = senderMember?.rawDisplayName || senderMember?.name || senderId;
-
-        const content = ev.getContent() as {
-          body?: string;
-          msgtype?: string;
-          url?: string;
-          info?: { thumbnail_url?: string; w?: number; h?: number; mimetype?: string; size?: number };
-        };
-
-        let media: MediaAttachment[] | undefined;
-        if (content.msgtype === 'm.image' && content.url) {
-          const cl = clientRef.current;
-          const fullUrl = cl?.mxcUrlToHttp(content.url) ?? content.url;
-          media = [{
-            type: content.info?.mimetype?.toLowerCase() === 'image/gif' ? 'gif' : 'image',
-            url: fullUrl,
-            width: content.info?.w,
-            height: content.info?.h,
-            mimetype: content.info?.mimetype,
-            size: content.info?.size,
-          }];
-        }
-
-        const rawBody = content.body ?? '';
-        const isBridgeBotSender = /^@brmble[_-]?/.test(senderId);
-        const bridgeMatch = isBridgeBotSender ? rawBody.match(/^\[(.+?)\]:\s*/) : null;
-        const messageSender = bridgeMatch ? bridgeMatch[1] : displayName;
-        const messageContent = bridgeMatch ? rawBody.slice(bridgeMatch[0].length) : rawBody;
-
-        backfillMsgs.push({
-          id: ev.getId() ?? crypto.randomUUID(),
-          channelId: otherUserId,
-          sender: messageSender,
-          senderMatrixUserId: senderId,
-          content: media ? '' : messageContent,
-          timestamp: new Date(ev.getTs()),
-          ...(media && { media }),
+        const msg = transformEventToChatMessage(ev, room, otherUserId, clientRef.current);
+        if (!msg) continue;
+        setDmLastMessages(prev => {
+          const existing = prev.get(otherUserId);
+          if (existing && existing.ts >= msg.timestamp.getTime()) return prev;
+          const next = new Map(prev);
+          next.set(otherUserId, { content: msg.content, ts: msg.timestamp.getTime(), sender: msg.sender });
+          return next;
         });
+        break;
       }
 
-      if (backfillMsgs.length > 0) {
-        setDmMessages(prev => {
-          const existing = prev.get(otherUserId) ?? [];
-          let merged = existing;
-          for (const msg of backfillMsgs) {
-            merged = insertMessage(merged, msg);
-          }
-          if (merged === existing) return prev;
-          return new Map(prev).set(otherUserId, merged);
-        });
+      if (activeDmContactIdRef.current === otherUserId) {
+        activeDmVersionRef.current += 1;
+        const myVersion = activeDmVersionRef.current;
+        const messages: ChatMessage[] = [];
+        for (const ev of timelineEvents) {
+          const m = transformEventToChatMessage(ev, room, otherUserId, clientRef.current);
+          if (m) messages.push(m);
+        }
+        if (activeDmVersionRef.current === myVersion) {
+          setActiveDmMessages(messages);
+        }
       }
     };
 
@@ -580,6 +636,59 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     return null;
   }, []);
 
+  const setActiveChannel = useCallback((channelId: string | null) => {
+    activeRoomVersionRef.current += 1;
+    const myVersion = activeRoomVersionRef.current;
+    activeChannelIdRef.current = channelId;
+
+    if (!channelId) {
+      setActiveMessages([]);
+      return;
+    }
+    const client = clientRef.current;
+    if (!credentials || !client) {
+      setActiveMessages([]);
+      return;
+    }
+    const roomId = credentials.roomMap[channelId];
+    if (!roomId) {
+      setActiveMessages([]);
+      return;
+    }
+    const messages = loadMessagesFromTimeline(client, roomId, channelId);
+
+    if (activeRoomVersionRef.current === myVersion) {
+      setActiveMessages(messages);
+    }
+  }, [credentials]);
+
+  // No deps: dmRoomMapRef is mutable and always reflects the latest map.
+  const setActiveDmContact = useCallback((matrixUserId: string | null) => {
+    activeDmVersionRef.current += 1;
+    const myVersion = activeDmVersionRef.current;
+    activeDmContactIdRef.current = matrixUserId;
+
+    if (!matrixUserId) {
+      setActiveDmMessages([]);
+      return;
+    }
+    const client = clientRef.current;
+    if (!client) {
+      setActiveDmMessages([]);
+      return;
+    }
+    const roomId = dmRoomMapRef.current.get(matrixUserId);
+    if (!roomId) {
+      setActiveDmMessages([]);
+      return;
+    }
+    const messages = loadMessagesFromTimeline(client, roomId, matrixUserId);
+
+    if (activeDmVersionRef.current === myVersion) {
+      setActiveDmMessages(messages);
+    }
+  }, []);
+
   // Resolve display names for DM partners from Matrix room membership.
   // This works even when the other user isn't connected to Mumble.
   const dmUserDisplayNames = useMemo(() => {
@@ -626,7 +735,9 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
     return urls;
   }, [client, dmRoomMap]);
 
-  return { messages, sendMessage, sendImageMessage, uploadContent, fetchHistory, dmMessages, dmRoomMap,
+  return { lastMessages, activeMessages, setActiveChannel,
+           sendMessage, sendImageMessage, uploadContent, fetchHistory,
+           dmLastMessages, activeDmMessages, setActiveDmContact, dmRoomMap,
            dmUserDisplayNames, dmUserAvatarUrls, sendDMMessage, fetchDMHistory,
            fetchAvatarUrl, client };
 }

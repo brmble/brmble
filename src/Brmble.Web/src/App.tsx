@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import bridge from './bridge';
 import type { ConnectionStatus, ChatMessage, ServiceStatus } from './types';
 import { encodeForMumble } from './utils/imageUpload';
@@ -528,8 +528,13 @@ function App() {
   const { messages, addMessage } = useChatStore(channelKey);
   const [optimisticImages, setOptimisticImages] = useState<ChatMessage[]>([]);
 
+  const activeChannelId = currentChannelId && currentChannelId !== 'server-root'
+    ? currentChannelId
+    : undefined;
+
   const dmStore = useDMStore({
-    matrixDmMessages: matrixClient.dmMessages,
+    matrixDmLastMessages: matrixClient.dmLastMessages,
+    activeDmMessages: matrixClient.activeDmMessages,
     matrixDmRoomMap: matrixClient.dmRoomMap,
     matrixDmUserDisplayNames: matrixClient.dmUserDisplayNames,
     matrixDmUserAvatarUrls: matrixClient.dmUserAvatarUrls,
@@ -541,6 +546,14 @@ function App() {
       bridge.send('voice.sendPrivateMessage', { message: linkifyForMumble(text), targetSession });
     },
   });
+
+  useLayoutEffect(() => {
+    matrixClient.setActiveChannel(activeChannelId ?? null);
+  }, [activeChannelId, matrixClient.setActiveChannel]);
+
+  useLayoutEffect(() => {
+    matrixClient.setActiveDmContact(dmStore.selectedContact?.id ?? null);
+  }, [dmStore.selectedContact?.id, matrixClient.setActiveDmContact]);
 
   // Determine active Matrix room ID (depends on dmStore.selectedContact)
   const activeMatrixRoomId = useMemo(() => {
@@ -1952,13 +1965,18 @@ const handleConnect = (serverData: SavedServer) => {
     }
   }, [notifQueue]);
 
-  const activeChannelId = currentChannelId && currentChannelId !== 'server-root'
-    ? currentChannelId
-    : undefined;
   const isMatrixActive = !!activeChannelId && matrixCredentials?.roomMap[activeChannelId] !== undefined;
   const matrixMessages = activeChannelId
-    ? matrixClient.messages.get(activeChannelId)
+    ? matrixClient.activeMessages
     : undefined;
+
+  const channelChatMessages = useMemo(
+    () => [
+      ...(isMatrixActive ? (matrixMessages ?? []) : messages),
+      ...optimisticImages.filter(m => m.channelId === currentChannelId),
+    ],
+    [isMatrixActive, matrixMessages, messages, optimisticImages, currentChannelId],
+  );
 
   const { Prompt, PromptWithInput } = usePrompt();
 
@@ -2459,7 +2477,7 @@ const handleConnect = (serverData: SavedServer) => {
                    <ChatPanel
                     channelId={currentChannelId || undefined}
                     channelName={currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName}
-                    messages={[...(isMatrixActive ? (matrixMessages ?? []) : messages), ...optimisticImages.filter(m => m.channelId === currentChannelId)]}
+                    messages={channelChatMessages}
                     currentUsername={username}
                     onSendMessage={handleSendMessage}
                     onDismissMessage={handleDismissMessage}
