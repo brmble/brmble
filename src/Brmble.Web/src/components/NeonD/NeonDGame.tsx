@@ -6,14 +6,22 @@ import { confirm } from '../../hooks/usePrompt';
 import { Tooltip } from '../Tooltip/Tooltip';
 import styles from './NeonD.module.css';
 
-
+// Convert a margin multiplier value to a star rating (1-5)
+function marginToStars(margin: number): number {
+  // Map margin multiplier values to their star ratings based on MARGIN_RANGES
+  if (margin >= 1.50) return 5;      // 5 stars: [1.50, 1.70]
+  if (margin >= 1.20) return 4;      // 4 stars: [1.20, 1.40]
+  if (margin >= 0.90) return 3;      // 3 stars: [0.90, 1.10]
+  if (margin >= 0.51) return 2;      // 2 stars: [0.51, 0.78]
+  return 1;                          // 1 star: [1, 0.50] (note: this range seems incorrect in constants)
+}
 
 function StarRating({ rating, label, tooltipText }: { rating: number; label?: string; tooltipText?: string }) {
-  const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
-  const text = tooltipText || (label ? `${label}: ${rating}/5` : `Rating: ${rating}/5`);
+  const stars = '★'.repeat(Math.round(rating)) + '☆'.repeat(5 - Math.round(rating));
+  const text = tooltipText || (label ? `${label}: ${Math.round(rating)}/5` : `Rating: ${Math.round(rating)}/5`);
   return (
     <Tooltip content={text}>
-      <span aria-label={`Rating: ${rating}/5`} style={{ cursor: 'help' }}>
+      <span aria-label={`Rating: ${Math.round(rating)}/5`} style={{ cursor: 'help' }}>
         <span style={{ color: 'gold' }} aria-hidden="true">{stars}</span>
       </span>
     </Tooltip>
@@ -320,7 +328,7 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
                           </div>
                           <div className={styles.statRow}>
                             <span className={styles.label}>Margin:</span>
-                            <StarRating rating={dealer.margin} label="Margin" tooltipText={`sells 1g of ${state.production[dealer.selling]?.name || 'Weed'} for $${(dealer.margin * (1 + dealer.marginBonus) * (PRODUCT_TIERS[dealer.selling] || 1)).toFixed(2)}`} />
+                            <StarRating rating={marginToStars(dealer.margin)} label="Margin" tooltipText={`sells 1g of ${state.production[dealer.selling]?.name || 'Weed'} for $${(dealer.margin * (1 + dealer.marginBonus) * (PRODUCT_TIERS[dealer.selling] || 1)).toFixed(2)}`} />
                           </div>
                           <button 
                             className={styles.buyButton} 
@@ -372,7 +380,7 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
                       </div>
                       <div className={styles.statRow}>
                         <span className={styles.label}>Margin:</span>
-                        <StarRating rating={slot.margin} label="Margin" tooltipText={`sells 1g of ${state.production[slot.selling]?.name || 'Product'} for $${(slot.margin * (1 + slot.marginBonus) * (PRODUCT_TIERS[slot.selling] || 1)).toFixed(2)}`} />
+                        <StarRating rating={marginToStars(slot.margin)} label="Margin" tooltipText={`sells 1g of ${state.production[slot.selling]?.name || 'Product'} for $${(slot.margin * (1 + slot.marginBonus) * (PRODUCT_TIERS[slot.selling] || 1)).toFixed(2)}`} />
                         <span style={{ color: 'var(--accent-primary)', fontSize: '0.85rem' }}>({(1 + slot.marginBonus).toFixed(1)}x)</span>
                       </div>
 
