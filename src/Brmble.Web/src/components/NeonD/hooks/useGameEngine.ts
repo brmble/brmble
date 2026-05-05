@@ -126,7 +126,7 @@ export const useGameEngine = () => {
     setState(prev => {
       if (prev.unlockedProduction.includes(id)) return prev;
       const item = prev.production[id];
-      const unlockCost = UNLOCK_COSTS[id] || 300;
+      const unlockCost = UNLOCK_COSTS[id] ?? 300;
       if (!item || prev.money < unlockCost) return prev;
       
       return {
