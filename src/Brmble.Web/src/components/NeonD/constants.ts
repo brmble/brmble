@@ -8,7 +8,7 @@ export const TIER_DATA = {
     costMultiplier: 1.12,
     yieldPerLevel: 0.20,
     unlockCost: 0,
-    sellPrice: 10
+    sellPrice: 4.20
   },
   mushrooms: {
     name: "Mushrooms",
@@ -16,7 +16,7 @@ export const TIER_DATA = {
     costMultiplier: 1.15,
     yieldPerLevel: 0.30,
     unlockCost: 2000,
-    sellPrice: 13
+    sellPrice: 6.00
   },
   blueLotus: {
     name: "Blue Lotus",
@@ -24,7 +24,7 @@ export const TIER_DATA = {
     costMultiplier: 1.18,
     yieldPerLevel: 0.45,
     unlockCost: 25000,
-    sellPrice: 20
+    sellPrice: 10.00
   },
   frostBite: {
     name: "Frostbite",
@@ -32,7 +32,7 @@ export const TIER_DATA = {
     costMultiplier: 1.20,
     yieldPerLevel: 0.65,
     unlockCost: 250000,
-    sellPrice: 30
+    sellPrice: 15.00
   },
   electricLace: {
     name: "Electric Lace",
@@ -40,7 +40,7 @@ export const TIER_DATA = {
     costMultiplier: 1.22,
     yieldPerLevel: 1.00,
     unlockCost: 2500000,
-    sellPrice: 45
+    sellPrice: 20.00
   },
   meth: {
     name: "Meth",
@@ -48,7 +48,7 @@ export const TIER_DATA = {
     costMultiplier: 1.25,
     yieldPerLevel: 1.50,
     unlockCost: 25000000,
-    sellPrice: 67.50
+    sellPrice: 26.67
   },
   pharmGrade: {
     name: "Pharm Grade",
@@ -56,7 +56,7 @@ export const TIER_DATA = {
     costMultiplier: 1.28,
     yieldPerLevel: 2.50,
     unlockCost: 250000000,
-    sellPrice: 101.25
+    sellPrice: 35.56
   },
   khole: {
     name: "K-Hole",
@@ -64,7 +64,7 @@ export const TIER_DATA = {
     costMultiplier: 1.31,
     yieldPerLevel: 3.75,
     unlockCost: 2500000000,
-    sellPrice: 152
+    sellPrice: 47.41
   },
   lunarRegolith: {
     name: "Lunar Regolith",
@@ -72,7 +72,7 @@ export const TIER_DATA = {
     costMultiplier: 1.34,
     yieldPerLevel: 5.625,
     unlockCost: 25000000000,
-    sellPrice: 228
+    sellPrice: 63.21
   },
   martianSpores: {
     name: "Martian Spores",
@@ -80,7 +80,7 @@ export const TIER_DATA = {
     costMultiplier: 1.37,
     yieldPerLevel: 8.4375,
     unlockCost: 250000000000,
-    sellPrice: 342
+    sellPrice: 84.28
   },
   nebulaMist: {
     name: "Nebula Mist",
@@ -88,7 +88,7 @@ export const TIER_DATA = {
     costMultiplier: 1.40,
     yieldPerLevel: 12.65625,
     unlockCost: 2500000000000,
-    sellPrice: 513
+    sellPrice: 112.37
   },
   voidCrystals: {
     name: "Void Crystals",
@@ -96,7 +96,7 @@ export const TIER_DATA = {
     costMultiplier: 1.43,
     yieldPerLevel: 18.984375,
     unlockCost: 25000000000000,
-    sellPrice: 770
+    sellPrice: 149.82
   },
   chronoSalt: {
     name: "Chrono Salt",
@@ -104,7 +104,7 @@ export const TIER_DATA = {
     costMultiplier: 1.46,
     yieldPerLevel: 28.4765625,
     unlockCost: 250000000000000,
-    sellPrice: 1155
+    sellPrice: 199.75
   },
   stardustResin: {
     name: "Stardust Resin",
@@ -112,7 +112,7 @@ export const TIER_DATA = {
     costMultiplier: 1.49,
     yieldPerLevel: 42.71484375,
     unlockCost: 2500000000000000,
-    sellPrice: 1733
+    sellPrice: 266.32
   },
   darkMatterInk: {
     name: "Dark Matter Ink",
@@ -120,7 +120,7 @@ export const TIER_DATA = {
     costMultiplier: 1.52,
     yieldPerLevel: 64.07226563,
     unlockCost: 25000000000000000,
-    sellPrice: 2600
+    sellPrice: 355.08
   },
   singularityShards: {
     name: "Singularity Shards",
@@ -128,7 +128,7 @@ export const TIER_DATA = {
     costMultiplier: 1.55,
     yieldPerLevel: 96.10839844,
     unlockCost: 250000000000000000,
-    sellPrice: 3900
+    sellPrice: 473.42
   },
   neutronFlakes: {
     name: "Neutron Flakes",
@@ -136,7 +136,7 @@ export const TIER_DATA = {
     costMultiplier: 1.58,
     yieldPerLevel: 144.1625977,
     unlockCost: 2500000000000000000,
-    sellPrice: 5850
+    sellPrice: 631.20
   },
   galacticCore: {
     name: "Galactic Core",
@@ -144,7 +144,7 @@ export const TIER_DATA = {
     costMultiplier: 1.61,
     yieldPerLevel: 216.2438965,
     unlockCost: 25000000000000000000,
-    sellPrice: 8775
+    sellPrice: 841.56
   }
 } as const;
 
@@ -386,24 +386,23 @@ export const INITIAL_GAME_STATE: GameState = {
 // Star-based dealer stat ranges (rolled once at generation)
 export const VOLUME_RANGES: Record<number, [number, number]> = {
   1: [1.0, 1.5],
-  2: [2.5, 3.5],
-  3: [4.0, 6.0],
-  4: [8.0, 10.0],
-  5: [15.0, 17.0],
+  2: [1.5, 2.5],
+  3: [2.5, 3.5],
+  4: [3.5, 4.5],
+  5: [4.5, 5.5],
 };
 
 export const MARGIN_RANGES: Record<number, [number, number]> = {
-  1: [1.0, 1.15],
-  2: [1.5, 1.7],
-  3: [2.5, 3.0],
-  4: [4.0, 6.0],
-  5: [7.5, 9.0],
-  6: [15.0, 18.0],
+  1: [0.42, 0.50],
+  2: [0.51, 0.78],
+  3: [0.90, 1.10],
+  4: [1.20, 1.40],
+  5: [1.50, 1.70],
 };
 
 // Min values for upgrade calculations
-export const VOLUME_BY_STARS: Record<number, number> = { 1: 1.0, 2: 2.5, 3: 4.0, 4: 8.0, 5: 15.0 };
-export const MARGIN_BY_STARS: Record<number, number> = { 1: 1.0, 2: 1.5, 3: 2.5, 4: 4.0, 5: 7.5, 6: 15.0 };
+export const VOLUME_BY_STARS: Record<number, number> = { 1: 1.0, 2: 1.5, 3: 2.5, 4: 3.5, 5: 4.5 };
+export const MARGIN_BY_STARS: Record<number, number> = { 1: 0.42, 2: 0.51, 3: 0.90, 4: 1.20, 5: 1.50 };
 
 // Upgrade type constants
 export const UPGRADE_TYPES = {
