@@ -127,7 +127,7 @@ const createSupersededRoomRequestError = (): SupersededRoomRequest => Object.ass
 
 const isSupersededRoomRequestError = (err: unknown) => (
   !!err && typeof err === 'object' && (err as { code?: unknown }).code === 'LIVEKIT_ROOM_REQUEST_SUPERSEDED'
-) || getErrorLikeDetails(err)?.message === 'LiveKit room request was superseded';
+);
 
 export function useScreenShare(
   onDisconnected?: () => void,
@@ -305,10 +305,16 @@ export function useScreenShare(
   const roomLifecycleGenerationRef = useRef(0);
   const pendingRoomRequestRef = useRef<PendingRoomRequest | null>(null);
 
+  const cancelPendingRoomRequest = useCallback(() => {
+    const pending = pendingRoomRequestRef.current;
+    pendingRoomRequestRef.current = null;
+    pending?.reject(createSupersededRoomRequestError());
+  }, []);
+
   const invalidateRoomLifecycle = useCallback(() => {
     roomLifecycleGenerationRef.current += 1;
-    pendingRoomRequestRef.current = null;
-  }, []);
+    cancelPendingRoomRequest();
+  }, [cancelPendingRoomRequest]);
 
   // Try to disconnect the room, but only if we're not sharing AND not watching
   const maybeDisconnectRoom = useCallback(async () => {
@@ -405,7 +411,6 @@ export function useScreenShare(
 
     if (pending) {
       invalidateRoomLifecycle();
-      pending.reject(createSupersededRoomRequestError());
     }
 
     let lifecycleGeneration = roomLifecycleGenerationRef.current;
@@ -426,7 +431,7 @@ export function useScreenShare(
 
       const { token, url } = await requestToken(roomName, accessMode);
       if (roomLifecycleGenerationRef.current !== lifecycleGeneration) {
-        throw new Error('LiveKit room request was superseded');
+        throw createSupersededRoomRequestError();
       }
 
       const room = new Room();
@@ -511,14 +516,14 @@ export function useScreenShare(
           roomRef.current = null;
           roomAccessModeRef.current = null;
           roomReconnectUpgradeRef.current = false;
-          invalidateRoomLifecycle();
+          roomLifecycleGenerationRef.current += 1;
         }
         try { await room.disconnect(); } catch { /* ignore */ }
         throw err;
       }
       if (roomLifecycleGenerationRef.current !== lifecycleGeneration || roomRef.current !== room) {
         try { await room.disconnect(); } catch { /* ignore */ }
-        throw new Error('LiveKit room request was superseded');
+        throw createSupersededRoomRequestError();
       }
 
       roomReconnectUpgradeRef.current = false;
@@ -529,6 +534,7 @@ export function useScreenShare(
       rejectRoomRequest = reject;
       createRoomPromise.then(resolve, reject);
     });
+    roomPromise.catch(() => {});
 
     pendingRoomRequestRef.current = { roomName, accessMode, promise: roomPromise, reject: rejectRoomRequest };
 
