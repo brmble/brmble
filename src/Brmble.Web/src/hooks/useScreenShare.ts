@@ -205,18 +205,17 @@ export function useScreenShare(
   }, []);
 
   const removeWatchingShare = useCallback((userId: number) => {
-    setWatchingShares(prev => {
-      const next = prev.filter(s => s.userId !== userId);
-      watchingSharesRef.current = next;
-      return next;
-    });
+    const next = watchingSharesRef.current.filter(s => s.userId !== userId);
+    watchingSharesRef.current = next;
+    setWatchingShares(next);
     setFocusedShare(prev => prev?.userId === userId ? null : prev);
     setRemoteVideoEls(prev => {
       const next = new Map(prev);
       next.delete(userId);
       return next;
     });
-  }, []);
+    return next;
+  }, [setFocusedShare]);
 
   // Helper: request a LiveKit token via bridge
   const requestToken = useCallback((roomName: string, accessMode: LiveKitAccessMode) => {
@@ -371,8 +370,7 @@ export function useScreenShare(
         track.source === Track.Source.ScreenShare
       ) {
         track.detach();
-        const remainingWatchedShares = watchingSharesRef.current.filter(s => s.userId !== matchedShare.userId);
-        removeWatchingShare(matchedShare.userId);
+        const remainingWatchedShares = removeWatchingShare(matchedShare.userId);
 
         if (remainingWatchedShares.length === 0 && !isSharingRef.current) {
           const room = roomRef.current;
@@ -385,6 +383,10 @@ export function useScreenShare(
     });
 
     room.on(RoomEvent.Disconnected, () => {
+      if (roomRef.current !== room) {
+        return;
+      }
+
       const isUpgradeReconnect = roomReconnectUpgradeRef.current;
       if (isUpgradeReconnect) {
         roomReconnectUpgradeRef.current = false;
