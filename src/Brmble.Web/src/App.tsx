@@ -130,6 +130,7 @@ interface NextLiveKitStatusOptions {
   watchingShareCount: number;
   screenShareError: string | null;
   isLocalShareStartPending: boolean;
+  isViewerConnectPending: boolean;
 }
 
 interface LocalShareStartPendingTeardownOptions {
@@ -143,12 +144,13 @@ export function getNextLiveKitStatusUpdate({
   watchingShareCount,
   screenShareError,
   isLocalShareStartPending,
+  isViewerConnectPending,
 }: NextLiveKitStatusOptions): Partial<ServiceStatus> | null {
   if (isSharing || watchingShareCount > 0) {
     return { state: 'connected', error: undefined };
   }
 
-  if (isLocalShareStartPending) {
+  if (isLocalShareStartPending || isViewerConnectPending) {
     return null;
   }
 
@@ -2079,7 +2081,7 @@ const handleConnect = (serverData: SavedServer) => {
     setScreenShareEndedNotification(notification);
   }, [notifQueue]);
 
-  const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, disconnectViewer, connectAsViewer } = useScreenShare(() => {
+  const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, disconnectViewer, connectAsViewer, isViewerConnectPending } = useScreenShare(() => {
     setSharingChannelId(undefined);
   }, screenShareSettings, handleLocalScreenShareEnded);
   disconnectViewerRef.current = disconnectViewer;
@@ -2198,12 +2200,13 @@ const handleConnect = (serverData: SavedServer) => {
       watchingShareCount: watchingShares.length,
       screenShareError,
       isLocalShareStartPending,
+      isViewerConnectPending,
     });
 
     if (nextStatus) {
       updateStatus('livekit', nextStatus);
     }
-  }, [isSharing, watchingShares.length, screenShareError, isLocalShareStartPending, updateStatus]);
+  }, [isSharing, watchingShares.length, screenShareError, isLocalShareStartPending, isViewerConnectPending, updateStatus]);
 
   const selfVoiceChannelId = users.find(u => u.self)?.channelId;
 

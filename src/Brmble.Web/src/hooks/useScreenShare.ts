@@ -138,6 +138,7 @@ export function useScreenShare(
   const [error, setError] = useState<string | null>(null);
   const [activeShares, setActiveShares] = useState<ShareInfo[]>([]);
   const [watchingShares, setWatchingShares] = useState<ShareInfo[]>([]);
+  const [isViewerConnectPending, setIsViewerConnectPending] = useState(false);
   const [focusedShare, _setFocusedShare] = useState<ShareInfo | null>(null);
   const [remoteVideoEls, setRemoteVideoEls] = useState<Map<number, HTMLVideoElement>>(new Map());
 
@@ -623,11 +624,10 @@ export function useScreenShare(
   // --- Viewer logic ---
 
   const connectAsViewer = useCallback(async (roomName: string, targetUserId: number, matrixUserId?: string) => {
-    setError(null);
-
     // Toggle: if already watching this user, remove them
     const existingShare = watchingSharesRef.current.find(s => s.userId === targetUserId);
     if (existingShare) {
+      setError(null);
       // Detach track
       const room = roomRef.current;
       if (room) {
@@ -649,11 +649,14 @@ export function useScreenShare(
       return;
     }
 
-    const shareInfo = activeShares.find(s => s.userId === targetUserId && s.roomName === roomName);
-    const participantIdentity = matrixUserId ?? shareInfo?.matrixUserId ?? String(targetUserId);
-    const newShare: ShareInfo = { ...(shareInfo ?? { roomName, userName: '', userId: targetUserId }), matrixUserId: participantIdentity };
+    setIsViewerConnectPending(true);
+    setError(null);
 
     try {
+      const shareInfo = activeShares.find(s => s.userId === targetUserId && s.roomName === roomName);
+      const participantIdentity = matrixUserId ?? shareInfo?.matrixUserId ?? String(targetUserId);
+      const newShare: ShareInfo = { ...(shareInfo ?? { roomName, userName: '', userId: targetUserId }), matrixUserId: participantIdentity };
+
       const room = await ensureRoom(roomName, 'subscribe');
 
       const isShareStillActive = activeSharesRef.current.some(s => s.roomName === roomName && s.userId === targetUserId);
@@ -684,6 +687,8 @@ export function useScreenShare(
       console.error('Failed to connect as viewer:', err);
       setError(err instanceof Error ? err.message : 'Failed to connect as viewer');
       throw err;
+    } finally {
+      setIsViewerConnectPending(false);
     }
   }, [activeShares, ensureRoom, addWatchingShare, removeWatchingShare, maybeDisconnectRoom]);
 
@@ -880,6 +885,7 @@ export function useScreenShare(
     activeShares,      // new: all active shares
     watchingShare,     // backward compat
     watchingShares,    // new
+    isViewerConnectPending,
     focusedShare,      // new
     setFocusedShare,   // new
     setDiscoveryTarget,

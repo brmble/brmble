@@ -28,6 +28,8 @@ const {
   };
   const screenShare = {
     isSharing: false,
+    error: null as string | null,
+    isViewerConnectPending: false,
     activeShares: [] as Array<{
       roomName: string;
       userName: string;
@@ -100,7 +102,7 @@ vi.mock('./hooks/useScreenShare', () => ({
     startSharing: vi.fn(),
     stopSharing,
     markLocalShareTeardownIntent,
-    error: null,
+    error: screenShareState.error,
     activeShare: null,
     activeShares: screenShareState.activeShares,
     watchingShares: [],
@@ -110,6 +112,7 @@ vi.mock('./hooks/useScreenShare', () => ({
     remoteVideoEls: new Map(),
     disconnectViewer,
     connectAsViewer,
+    isViewerConnectPending: screenShareState.isViewerConnectPending,
   }),
 }));
 
@@ -259,6 +262,17 @@ describe('getNextLiveKitStatusUpdate', () => {
       watchingShareCount: 0,
       screenShareError: null,
       isLocalShareStartPending: true,
+      isViewerConnectPending: false,
+    })).toBeNull();
+  });
+
+  it('preserves connecting while viewer connect pending after clearing an error', () => {
+    expect(getNextLiveKitStatusUpdate({
+      isSharing: false,
+      watchingShareCount: 0,
+      screenShareError: null,
+      isLocalShareStartPending: false,
+      isViewerConnectPending: true,
     })).toBeNull();
   });
 
@@ -268,6 +282,7 @@ describe('getNextLiveKitStatusUpdate', () => {
       watchingShareCount: 1,
       screenShareError: null,
       isLocalShareStartPending: true,
+      isViewerConnectPending: false,
     })).toEqual({ state: 'connected', error: undefined });
   });
 
@@ -277,6 +292,7 @@ describe('getNextLiveKitStatusUpdate', () => {
       watchingShareCount: 0,
       screenShareError: null,
       isLocalShareStartPending: false,
+      isViewerConnectPending: false,
     })).toEqual({ state: 'idle', error: undefined });
   });
 });
@@ -313,6 +329,8 @@ describe('active share discovery', () => {
     bridgeHandlers.clear();
     localStorage.clear();
     screenShareState.isSharing = false;
+    screenShareState.error = null;
+    screenShareState.isViewerConnectPending = false;
     screenShareState.activeShares = [];
     vi.mocked(notifQueue.isVisible).mockReturnValue(false);
   });
@@ -433,6 +451,41 @@ describe('active share discovery', () => {
     expect(connectAsViewer).toHaveBeenCalledWith('channel-1', 42, '@alice:example.com');
     expect(serviceStatus.updateStatus).toHaveBeenCalledWith('livekit', { state: 'connecting', error: undefined });
     expect(serviceStatus.updateStatus).toHaveBeenCalledWith('livekit', { state: 'disconnected', error: 'viewer failed' });
+  });
+
+  it('retry viewer connect pending preserves connecting status after clearing previous error', async () => {
+    screenShareState.error = 'viewer failed';
+    screenShareState.activeShares = [{
+      roomName: 'channel-1',
+      userName: 'Alice',
+      userId: 42,
+      matrixUserId: '@alice:example.com',
+      sessionId: 2,
+    }];
+
+    const { rerender } = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [
+          { session: 7, name: 'TestUser', self: true, channelId: 1 },
+          { session: 2, name: 'Alice', channelId: 1, matrixUserId: '@alice:example.com' },
+        ],
+      });
+    });
+
+    await act(async () => {
+      serviceStatus.updateStatus.mockClear();
+      screenShareState.error = null;
+      screenShareState.isViewerConnectPending = true;
+      rerender(React.createElement(App));
+      await Promise.resolve();
+    });
+
+    expect(serviceStatus.updateStatus).not.toHaveBeenCalledWith('livekit', { state: 'idle', error: undefined });
   });
 
   it('toast watch does not connect as viewer from root selected channel', async () => {
