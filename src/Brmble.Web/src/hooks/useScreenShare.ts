@@ -44,6 +44,10 @@ type PendingRoomRequest = {
   reject: (err: unknown) => void;
 };
 
+type PendingTokenRequest = {
+  cancel: () => void;
+};
+
 type PendingViewerAttempt = {
   id: number;
   roomName: string;
@@ -160,6 +164,7 @@ export function useScreenShare(
   const shareEventVersionRef = useRef(0);
   const shareEventVersionByRoomRef = useRef(new Map<string, number>());
   const nextTokenRequestIdRef = useRef(0);
+  const pendingTokenRequestRef = useRef<PendingTokenRequest | null>(null);
   const onDisconnectedRef = useRef(onDisconnected);
   const onLocalShareEndedRef = useRef(onLocalShareEnded);
   const localShareEndCleanupRef = useRef<(() => void) | null>(null);
@@ -199,15 +204,6 @@ export function useScreenShare(
 
   const unregisterPendingViewerAttempt = useCallback((attempt: PendingViewerAttempt) => {
     pendingViewerAttemptsRef.current.delete(attempt.id);
-  }, []);
-
-  const cancelPendingViewerAttempts = useCallback((predicate?: (attempt: PendingViewerAttempt) => boolean) => {
-    for (const attempt of pendingViewerAttemptsRef.current.values()) {
-      if (!predicate || predicate(attempt)) {
-        pendingViewerAttemptsRef.current.delete(attempt.id);
-        attempt.cancel();
-      }
-    }
   }, []);
 
   const setFocusedShare: typeof _setFocusedShare = useCallback((action) => {
@@ -301,10 +297,23 @@ export function useScreenShare(
   const requestToken = useCallback((roomName: string, accessMode: LiveKitAccessMode) => {
     return new Promise<{ token: string; url: string }>((resolve, reject) => {
       const requestId = ++nextTokenRequestIdRef.current;
+      let settled = false;
+      const cancel = () => {
+        settle(() => reject(createSupersededRoomRequestError()));
+      };
       const cleanup = () => {
+        if (pendingTokenRequestRef.current?.cancel === cancel) {
+          pendingTokenRequestRef.current = null;
+        }
         bridge.off('livekit.token', onToken);
         bridge.off('livekit.tokenError', onError);
         clearTimeout(timer);
+      };
+      const settle = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        fn();
       };
       const onToken = (data: unknown) => {
         const responseRequestId = (data as { requestId?: number }).requestId;
@@ -312,8 +321,7 @@ export function useScreenShare(
           return;
         }
 
-        cleanup();
-        resolve(data as { token: string; url: string });
+        settle(() => resolve(data as { token: string; url: string }));
       };
       const onError = (data: unknown) => {
         const responseRequestId = (data as { requestId?: number }).requestId;
@@ -321,13 +329,12 @@ export function useScreenShare(
           return;
         }
 
-        cleanup();
-        reject(new Error((data as { error: string }).error));
+        settle(() => reject(new Error((data as { error: string }).error)));
       };
       const timer = setTimeout(() => {
-        cleanup();
-        reject(new Error('Token request timed out'));
+        settle(() => reject(new Error('Token request timed out')));
       }, 20000);
+      pendingTokenRequestRef.current = { cancel };
       bridge.on('livekit.token', onToken);
       bridge.on('livekit.tokenError', onError);
       bridge.send('livekit.requestToken', { roomName, accessMode, requestId });
@@ -340,6 +347,8 @@ export function useScreenShare(
   const pendingRoomRequestRef = useRef<PendingRoomRequest | null>(null);
 
   const cancelPendingRoomRequest = useCallback(() => {
+    pendingTokenRequestRef.current?.cancel();
+    pendingTokenRequestRef.current = null;
     const pending = pendingRoomRequestRef.current;
     pendingRoomRequestRef.current = null;
     pending?.reject(createSupersededRoomRequestError());
@@ -349,6 +358,27 @@ export function useScreenShare(
     roomLifecycleGenerationRef.current += 1;
     cancelPendingRoomRequest();
   }, [cancelPendingRoomRequest]);
+
+  const maybeCancelPendingRoomForViewerRoom = useCallback((roomName: string) => {
+    const hasRemainingPendingViewersForRoom = Array.from(pendingViewerAttemptsRef.current.values()).some(attempt => attempt.roomName === roomName);
+    if (pendingRoomRequestRef.current?.roomName === roomName && !hasRemainingPendingViewersForRoom && watchingSharesRef.current.length === 0 && !isSharingRef.current) {
+      invalidateRoomLifecycle();
+    }
+  }, [invalidateRoomLifecycle]);
+
+  const cancelPendingViewerAttempts = useCallback((predicate?: (attempt: PendingViewerAttempt) => boolean) => {
+    const canceledRooms = new Set<string>();
+    for (const attempt of pendingViewerAttemptsRef.current.values()) {
+      if (!predicate || predicate(attempt)) {
+        pendingViewerAttemptsRef.current.delete(attempt.id);
+        canceledRooms.add(attempt.roomName);
+        attempt.cancel();
+      }
+    }
+    for (const roomName of canceledRooms) {
+      maybeCancelPendingRoomForViewerRoom(roomName);
+    }
+  }, [maybeCancelPendingRoomForViewerRoom]);
 
   // Try to disconnect the room, but only if we're not sharing AND not watching
   const maybeDisconnectRoom = useCallback(async () => {
@@ -755,6 +785,7 @@ export function useScreenShare(
     const room = roomRef.current;
 
     if (userId !== undefined) {
+      cancelPendingViewerAttempts(attempt => attempt.userId === userId);
       // Remove a specific stream
       const share = watchingSharesRef.current.find(s => s.userId === userId);
       if (share && room) {
@@ -794,7 +825,7 @@ export function useScreenShare(
     setFocusedShare(null);
     invalidateRoomLifecycle();
     await maybeDisconnectRoom();
-  }, [removeWatchingShare, updateWatchingShares, maybeDisconnectRoom, invalidateRoomLifecycle]);
+  }, [removeWatchingShare, updateWatchingShares, maybeDisconnectRoom, invalidateRoomLifecycle, cancelPendingViewerAttempts]);
 
   // Listen for screen share events from bridge
   useEffect(() => {
@@ -817,10 +848,6 @@ export function useScreenShare(
       // If we were watching this user, remove their tile
       const wasWatching = watchingSharesRef.current.some(s => s.roomName === d.roomName && s.userId === d.userId);
       cancelPendingViewerAttempts(attempt => attempt.roomName === d.roomName && attempt.userId === d.userId);
-      const hasRemainingPendingViewersForRoom = Array.from(pendingViewerAttemptsRef.current.values()).some(attempt => attempt.roomName === d.roomName);
-      if (pendingRoomRequestRef.current?.roomName === d.roomName && !hasRemainingPendingViewersForRoom && watchingSharesRef.current.length === 0 && !isSharingRef.current) {
-        invalidateRoomLifecycle();
-      }
       if (wasWatching) {
         const room = roomRef.current;
         if (room) {
@@ -922,7 +949,7 @@ export function useScreenShare(
       bridge.off('livekit.activeShareResult', onActiveShareResult);
       bridge.off('livekit.activeShareError', onActiveShareError);
     };
-  }, [removeWatchingShare, updateActiveShares, invalidateRoomLifecycle]);
+  }, [removeWatchingShare, updateActiveShares, invalidateRoomLifecycle, cancelPendingViewerAttempts]);
 
   useEffect(() => {
     return () => {

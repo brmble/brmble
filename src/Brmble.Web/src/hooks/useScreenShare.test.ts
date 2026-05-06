@@ -1419,6 +1419,66 @@ describe('useScreenShare', () => {
     expect(mockRoom.connect).not.toHaveBeenCalled();
   });
 
+  it('targeted pending viewer disconnect cancels without adding stale watch after token', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    const onSettled = vi.fn();
+    act(() => {
+      result.current.connectAsViewer('channel-1', 10, '@alice:test').then(onSettled, onSettled);
+    });
+
+    await act(async () => {
+      await result.current.disconnectViewer(10);
+      await Promise.resolve();
+    });
+
+    expect(onSettled).toHaveBeenCalledTimes(1);
+    expect(result.current.isViewerConnectPending).toBe(false);
+
+    await act(async () => {
+      tokenHandler?.(liveKitToken('viewer-jwt'));
+      await Promise.resolve();
+    });
+
+    expect(result.current.watchingShares).toEqual([]);
+    expect(mockRoom.connect).not.toHaveBeenCalled();
+  });
+
+  it('token listener cleanup runs when pending viewer is canceled on unmount', async () => {
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result, unmount } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+      result.current.connectAsViewer('channel-1', 10, '@alice:test').catch(() => {});
+    });
+
+    await act(async () => {
+      unmount();
+      await Promise.resolve();
+    });
+
+    expect(bridge.off).toHaveBeenCalledWith('livekit.token', expect.any(Function));
+    expect(bridge.off).toHaveBeenCalledWith('livekit.tokenError', expect.any(Function));
+  });
+
   it('multiple pending viewer connects keep active target pending when another target stops', async () => {
     const tokenHandlers: Array<(data: unknown) => void> = [];
     let shareStartedHandler: ((data: unknown) => void) | null = null;
