@@ -245,7 +245,7 @@ describe('useScreenShare', () => {
     expect(result.current.isSharing).toBe(false);
   });
 
-  it('upgrade token failure clears stale upgrade state before next room disconnect', async () => {
+  it('upgrade token failure clears stale upgrade state and watched shares', async () => {
     const tokenHandlers: Array<(data: unknown) => void> = [];
     const tokenErrorHandlers: Array<(data: unknown) => void> = [];
     let shareStartedHandler: ((data: unknown) => void) | null = null;
@@ -276,7 +276,9 @@ describe('useScreenShare', () => {
       await sharePromise;
     });
 
-    expect(result.current.watchingShares).toEqual([expect.objectContaining({ userId: 10 })]);
+    expect(result.current.watchingShares).toEqual([]);
+    expect(result.current.focusedShare).toBeNull();
+    expect(result.current.remoteVideoEls.size).toBe(0);
 
     let resolveConnect: (() => void) | null = null;
     mockRoom.connect.mockImplementationOnce(() => new Promise<void>(resolve => {
@@ -305,6 +307,43 @@ describe('useScreenShare', () => {
       resolveConnect?.();
       await viewerPromise;
     });
+  });
+
+  it('share stops while viewer connect is pending does not add stale watched share', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+    let shareStoppedHandler: ((data: unknown) => void) | null = null;
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+      if (type === 'livekit.screenShareStopped') shareStoppedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    let viewerPromise: Promise<void> | null = null;
+    act(() => {
+      viewerPromise = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+    });
+
+    act(() => {
+      shareStoppedHandler?.({ roomName: 'channel-1', userId: 10 });
+    });
+
+    await act(async () => {
+      tokenHandler?.(liveKitToken('viewer-jwt'));
+      await viewerPromise;
+    });
+
+    expect(result.current.activeShares).toEqual([]);
+    expect(result.current.watchingShares).toEqual([]);
+    expect(result.current.remoteVideoEls.size).toBe(0);
+    expect(mockRoom.disconnect).toHaveBeenCalledTimes(1);
   });
 
   it('accumulates multiple screenShareStarted events into activeShares', () => {

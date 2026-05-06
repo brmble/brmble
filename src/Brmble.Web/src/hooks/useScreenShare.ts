@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, useEffect } from 'react';
+import { useCallback, useRef, useState, useEffect, type SetStateAction } from 'react';
 import { Room, RoomEvent, Track, RemoteTrackPublication } from 'livekit-client';
 import bridge from '../bridge';
 
@@ -145,6 +145,7 @@ export function useScreenShare(
   // Single room connection per channel — used for both publishing and subscribing
   const roomRef = useRef<Room | null>(null);
   const watchingSharesRef = useRef<ShareInfo[]>([]);
+  const activeSharesRef = useRef<ShareInfo[]>([]);
   const isSharingRef = useRef(false);
   const focusedShareRef = useRef<ShareInfo | null>(null);
   const discoveryTargetRef = useRef<DiscoveryTarget>(null);
@@ -172,6 +173,14 @@ export function useScreenShare(
     });
   }, []);
 
+  const updateActiveShares = useCallback((action: SetStateAction<ShareInfo[]>) => {
+    setActiveShares(prev => {
+      const next = typeof action === 'function' ? action(prev) : action;
+      activeSharesRef.current = next;
+      return next;
+    });
+  }, []);
+
   const updateWatchingShares = useCallback((shares: ShareInfo[]) => {
     watchingSharesRef.current = shares;
     setWatchingShares(shares);
@@ -184,7 +193,7 @@ export function useScreenShare(
   const setDiscoveryTarget = useCallback((target: DiscoveryTarget) => {
     if (!target) {
       discoveryTargetRef.current = null;
-      setActiveShares([]);
+      updateActiveShares([]);
       return;
     }
 
@@ -192,7 +201,7 @@ export function useScreenShare(
       ? shareEventVersionRef.current
       : shareEventVersionByRoomRef.current.get(target.roomName) ?? 0;
     discoveryTargetRef.current = { ...target, baselineShareEventVersion };
-  }, []);
+  }, [updateActiveShares]);
 
   const addWatchingShare = useCallback((share: ShareInfo) => {
     setWatchingShares(prev => {
@@ -236,6 +245,12 @@ export function useScreenShare(
     });
     return next;
   }, [setFocusedShare]);
+
+  const clearWatchingState = useCallback(() => {
+    setRemoteVideoEls(new Map());
+    updateWatchingShares([]);
+    setFocusedShare(null);
+  }, [setFocusedShare, updateWatchingShares]);
 
   // Helper: request a LiveKit token via bridge
   const requestToken = useCallback((roomName: string, accessMode: LiveKitAccessMode) => {
@@ -467,14 +482,12 @@ export function useScreenShare(
 
         roomRef.current = null;
         roomAccessModeRef.current = null;
-        setRemoteVideoEls(new Map());
+        clearWatchingState();
         const teardownIntent = localShareTeardownIntentRef.current;
         localShareTeardownIntentRef.current = null;
         if (isSharingRef.current) {
           void stopLocalShare(teardownIntent ?? 'interrupted', room);
         }
-        updateWatchingShares([]);
-        setFocusedShare(null);
       });
 
       roomRef.current = room;
@@ -513,12 +526,15 @@ export function useScreenShare(
     } finally {
       if (isUpgradeReconnect) {
         roomReconnectUpgradeRef.current = false;
+        if (roomRef.current === null && !isSharingRef.current) {
+          clearWatchingState();
+        }
       }
       if (pendingRoomRequestRef.current?.promise === roomPromise) {
         pendingRoomRequestRef.current = null;
       }
     }
-  }, [requestToken, updateWatchingShares, stopLocalShare, removeWatchingShare, invalidateRoomLifecycle]);
+  }, [requestToken, stopLocalShare, removeWatchingShare, clearWatchingState, invalidateRoomLifecycle]);
 
   const startSharing = useCallback(async (roomName: string) => {
     setError(null);
@@ -639,6 +655,12 @@ export function useScreenShare(
     try {
       const room = await ensureRoom(roomName, 'subscribe');
 
+      const isShareStillActive = activeSharesRef.current.some(s => s.roomName === roomName && s.userId === targetUserId);
+      if (!isShareStillActive) {
+        await maybeDisconnectRoom();
+        return;
+      }
+
       // Add to watching list (handles max 4 enforcement via addWatchingShare)
       addWatchingShare(newShare);
 
@@ -715,7 +737,7 @@ export function useScreenShare(
       const d = data as { roomName: string; userName: string; userId: number; matrixUserId?: string; sessionId?: number };
       shareEventVersionRef.current += 1;
       shareEventVersionByRoomRef.current.set(d.roomName, (shareEventVersionByRoomRef.current.get(d.roomName) ?? 0) + 1);
-      setActiveShares(prev => {
+      updateActiveShares(prev => {
         if (prev.some(s => s.userId === d.userId && s.roomName === d.roomName)) return prev;
         return [...prev, { roomName: d.roomName, userName: d.userName, userId: d.userId, matrixUserId: d.matrixUserId, sessionId: d.sessionId }];
       });
@@ -725,7 +747,7 @@ export function useScreenShare(
       const d = data as { roomName: string; userId: number };
       shareEventVersionRef.current += 1;
       shareEventVersionByRoomRef.current.set(d.roomName, (shareEventVersionByRoomRef.current.get(d.roomName) ?? 0) + 1);
-      setActiveShares(prev => prev.filter(s => !(s.roomName === d.roomName && s.userId === d.userId)));
+      updateActiveShares(prev => prev.filter(s => !(s.roomName === d.roomName && s.userId === d.userId)));
 
       // If we were watching this user, remove their tile
       const wasWatching = watchingSharesRef.current.some(s => s.roomName === d.roomName && s.userId === d.userId);
@@ -790,7 +812,7 @@ export function useScreenShare(
           return;
         }
 
-        setActiveShares(nextRoomShares);
+        updateActiveShares(nextRoomShares);
         return;
       }
 
@@ -808,7 +830,7 @@ export function useScreenShare(
 
       const nextScopedRoomShares = nextRoomShares.filter(s => s.roomName === d.roomName);
 
-      setActiveShares(prev => [
+      updateActiveShares(prev => [
         ...prev.filter(s => s.roomName !== d.roomName),
         ...nextScopedRoomShares,
       ]);
@@ -830,7 +852,7 @@ export function useScreenShare(
       bridge.off('livekit.activeShareResult', onActiveShareResult);
       bridge.off('livekit.activeShareError', onActiveShareError);
     };
-  }, [removeWatchingShare, invalidateRoomLifecycle]);
+  }, [removeWatchingShare, updateActiveShares, invalidateRoomLifecycle]);
 
   useEffect(() => {
     return () => {
