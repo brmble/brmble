@@ -1371,7 +1371,7 @@ describe('useScreenShare', () => {
     expect(result.current.isSharing).toBe(true);
   });
 
-  it('publish followed by subscribe supersedes pending publish request', async () => {
+  it('publish followed by subscribe reuses pending publish request', async () => {
     const tokenHandlers: Array<(data: unknown) => void> = [];
     let shareStartedHandler: ((data: unknown) => void) | null = null;
 
@@ -1395,13 +1395,12 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       tokenHandlers[0]?.({ token: 'publish-jwt', url: 'ws://localhost/livekit', requestId: 1 });
-      tokenHandlers[1]?.({ token: 'subscribe-jwt', url: 'ws://localhost/livekit', requestId: 2 });
       await Promise.all([sharePromise, viewerPromise]);
     });
 
     expect(mockRoom.connect).toHaveBeenCalledTimes(1);
-    expect(mockRoom.connect).toHaveBeenCalledWith('ws://localhost/livekit', 'subscribe-jwt');
-    expect(result.current.isSharing).toBe(false);
+    expect(mockRoom.connect).toHaveBeenCalledWith('ws://localhost/livekit', 'publish-jwt');
+    expect(result.current.isSharing).toBe(true);
     expect(result.current.watchingShares).toEqual([expect.objectContaining({ userId: 10 })]);
   });
 

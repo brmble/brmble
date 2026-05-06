@@ -372,7 +372,7 @@ export function useScreenShare(
     }
 
     const pending = pendingRoomRequestRef.current;
-    const pendingCanSatisfyRequest = pending?.accessMode === accessMode;
+    const pendingCanSatisfyRequest = pending?.accessMode === 'publish' || pending?.accessMode === accessMode;
     if (pending?.roomName === roomName && pendingCanSatisfyRequest) {
       return pending.promise;
     }
