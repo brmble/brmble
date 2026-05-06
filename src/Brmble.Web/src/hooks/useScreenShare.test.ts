@@ -102,6 +102,13 @@ vi.mock('../bridge', () => ({
   },
 }));
 
+const liveKitToken = (token: string, url = 'ws://localhost/livekit') => {
+  const calls = (bridge.send as ReturnType<typeof vi.fn>).mock.calls;
+  const requestTokenCall = [...calls].reverse().find(([type]) => type === 'livekit.requestToken');
+  const requestId = (requestTokenCall?.[1] as { requestId?: number } | undefined)?.requestId;
+  return { token, url, requestId };
+};
+
 describe('useScreenShare', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -132,7 +139,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const promise = result.current.startSharing('channel-1');
-      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('test-jwt'));
       await promise;
     });
 
@@ -156,7 +163,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const promise = result.current.connectAsViewer('channel-1', 10, '@alice:test');
-      tokenHandler?.({ token: 'jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('jwt'));
       await promise;
     });
 
@@ -180,7 +187,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const promise = result.current.connectAsViewer('channel-1', 10, '@alice:test');
-      tokenHandler?.({ token: 'viewer-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('viewer-jwt'));
       await promise;
     });
 
@@ -191,7 +198,7 @@ describe('useScreenShare', () => {
       const promise = result.current.startSharing('channel-1');
       emitRoomEvent('disconnected');
       await Promise.resolve();
-      tokenHandler?.({ token: 'publisher-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('publisher-jwt'));
       await promise;
     });
 
@@ -217,7 +224,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const viewerPromise = result.current.connectAsViewer('channel-1', 10, '@alice:test');
-      tokenHandler?.({ token: 'viewer-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('viewer-jwt'));
       await viewerPromise;
     });
 
@@ -225,7 +232,7 @@ describe('useScreenShare', () => {
       const sharePromise = result.current.startSharing('channel-1');
       emitRoomEvent('disconnected');
       await Promise.resolve();
-      tokenHandler?.({ token: 'publisher-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('publisher-jwt'));
       await sharePromise;
     });
 
@@ -718,7 +725,7 @@ describe('useScreenShare', () => {
     // First call: adds to watchingShares
     await act(async () => {
       const p = result.current.connectAsViewer('channel-1', 10, '@alice:test');
-      tokenHandler?.({ token: 'jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('jwt'));
       await p;
     });
     expect(result.current.watchingShares).toHaveLength(1);
@@ -754,7 +761,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const p = result.current.connectAsViewer('channel-1', 10, '@alice:test');
-      tokenHandler?.({ token: 'jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('jwt'));
       await p;
     });
 
@@ -801,7 +808,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const p = result.current.connectAsViewer('channel-1', 10, '@alice:test');
-      tokenHandler?.({ token: 'jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('jwt'));
       await p;
     });
 
@@ -839,7 +846,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const p = result.current.connectAsViewer('channel-1', 10, '@alice:test');
-      tokenHandler?.({ token: 'jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('jwt'));
       await p;
     });
     await act(async () => {
@@ -884,7 +891,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const p = result.current.connectAsViewer('channel-1', 10, '@alice:test');
-      tokenHandler?.({ token: 'jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('jwt'));
       await p;
     });
     await act(async () => {
@@ -920,7 +927,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const p = result.current.startSharing('channel-1');
-      tokenHandler?.({ token: 'publisher-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('publisher-jwt'));
       await p;
     });
     act(() => {
@@ -964,7 +971,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const p = result.current.connectAsViewer('channel-1', 10, '@alice:test');
-      tokenHandler?.({ token: 'alice-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('alice-jwt'));
       await p;
     });
 
@@ -977,7 +984,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const p = result.current.connectAsViewer('channel-1', 20, '@bob:test');
-      tokenHandler?.({ token: 'bob-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('bob-jwt'));
       await p;
     });
 
@@ -1013,7 +1020,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const p = result.current.connectAsViewer('channel-1', 10, '@alice:test');
-      tokenHandler?.({ token: 'alice-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('alice-jwt'));
       await p;
     });
 
@@ -1026,7 +1033,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const p = result.current.connectAsViewer('channel-1', 20, '@bob:test');
-      tokenHandler?.({ token: 'bob-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('bob-jwt'));
       await p;
     });
     mockRoom.disconnect.mockClear();
@@ -1065,7 +1072,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const p = result.current.connectAsViewer('channel-1', 10, '@alice:test');
-      tokenHandler?.({ token: 'alice-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('alice-jwt'));
       await p;
     });
 
@@ -1078,7 +1085,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const p = result.current.connectAsViewer('channel-1', 20, '@bob:test');
-      tokenHandler?.({ token: 'bob-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('bob-jwt'));
       await p;
     });
 
@@ -1114,7 +1121,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const p = result.current.connectAsViewer('channel-1', 10, '@alice:test');
-      tokenHandler?.({ token: 'viewer-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('viewer-jwt'));
       await p;
     });
 
@@ -1138,7 +1145,7 @@ describe('useScreenShare', () => {
     await act(async () => {
       resolveDisconnect?.();
       await Promise.resolve();
-      tokenHandler?.({ token: 'publisher-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('publisher-jwt'));
       await startPromise;
     });
 
@@ -1171,7 +1178,7 @@ describe('useScreenShare', () => {
     });
 
     await act(async () => {
-      tokenHandler?.({ token: 'viewer-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('viewer-jwt'));
       await viewerPromise;
     });
 
@@ -1198,8 +1205,8 @@ describe('useScreenShare', () => {
     await act(async () => {
       const alicePromise = result.current.connectAsViewer('channel-1', 10, '@alice:test');
       const bobPromise = result.current.connectAsViewer('channel-1', 20, '@bob:test');
-      tokenHandlers[0]?.({ token: 'viewer-jwt', url: 'ws://localhost/livekit' });
-      tokenHandlers[1]?.({ token: 'viewer-jwt-2', url: 'ws://localhost/livekit' });
+      tokenHandlers[0]?.(liveKitToken('viewer-jwt'));
+      tokenHandlers[1]?.(liveKitToken('viewer-jwt-2'));
       await Promise.all([alicePromise, bobPromise]);
     });
 
@@ -1235,7 +1242,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const p = result.current.connectAsViewer('channel-1', 10, '@alice:test');
-      tokenHandler?.({ token: 'viewer-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('viewer-jwt'));
       await p;
     });
 
@@ -1251,7 +1258,7 @@ describe('useScreenShare', () => {
       const p = result.current.startSharing('channel-1');
       resolveDisconnect?.();
       await Promise.resolve();
-      tokenHandler?.({ token: 'publisher-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('publisher-jwt'));
       await p;
     });
 
@@ -1333,6 +1340,108 @@ describe('useScreenShare', () => {
     expect(result.current.isSharing).toBe(true);
   });
 
+  it('missing requestId token response is ignored when requestId was sent', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    let sharePromise: Promise<void> | null = null;
+    act(() => {
+      sharePromise = result.current.startSharing('channel-1');
+    });
+
+    await act(async () => {
+      tokenHandler?.({ token: 'legacy-jwt', url: 'ws://localhost/livekit' });
+      await Promise.resolve();
+    });
+
+    expect(mockRoom.connect).not.toHaveBeenCalled();
+
+    await act(async () => {
+      tokenHandler?.({ token: 'publish-jwt', url: 'ws://localhost/livekit', requestId: 1 });
+      await sharePromise;
+    });
+
+    expect(mockRoom.connect).toHaveBeenCalledTimes(1);
+    expect(mockRoom.connect).toHaveBeenCalledWith('ws://localhost/livekit', 'publish-jwt');
+    expect(result.current.isSharing).toBe(true);
+  });
+
+  it('publish followed by subscribe supersedes pending publish request', async () => {
+    const tokenHandlers: Array<(data: unknown) => void> = [];
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandlers.push(handler);
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    let sharePromise: Promise<void> | null = null;
+    let viewerPromise: Promise<void> | null = null;
+    act(() => {
+      sharePromise = result.current.startSharing('channel-1');
+      viewerPromise = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+    });
+
+    await act(async () => {
+      tokenHandlers[0]?.({ token: 'publish-jwt', url: 'ws://localhost/livekit', requestId: 1 });
+      tokenHandlers[1]?.({ token: 'subscribe-jwt', url: 'ws://localhost/livekit', requestId: 2 });
+      await Promise.all([sharePromise, viewerPromise]);
+    });
+
+    expect(mockRoom.connect).toHaveBeenCalledTimes(1);
+    expect(mockRoom.connect).toHaveBeenCalledWith('ws://localhost/livekit', 'subscribe-jwt');
+    expect(result.current.isSharing).toBe(false);
+    expect(result.current.watchingShares).toEqual([expect.objectContaining({ userId: 10 })]);
+  });
+
+  it('connect failure clears failed room so stale events do not mutate watch state', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+    const connectError = new Error('connect failed');
+    const screenShareTrack = {
+      kind: 'video',
+      source: 'screen_share',
+      attach: vi.fn(() => document.createElement('video')),
+    };
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+    mockRoom.connect.mockRejectedValueOnce(connectError);
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    await act(async () => {
+      const p = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      tokenHandler?.({ token: 'viewer-jwt', url: 'ws://localhost/livekit', requestId: 1 });
+      await expect(p).rejects.toThrow('connect failed');
+    });
+
+    act(() => {
+      emitRoomEvent('trackSubscribed', screenShareTrack, {}, { identity: '@alice:test' });
+    });
+
+    expect(result.current.watchingShares).toEqual([]);
+    expect(result.current.remoteVideoEls.has(10)).toBe(false);
+    expect(screenShareTrack.attach).not.toHaveBeenCalled();
+  });
+
   it('connectAsViewer adds multiple users up to 4', async () => {
     let tokenHandler: ((data: unknown) => void) | null = null;
     let shareStartedHandler: ((data: unknown) => void) | null = null;
@@ -1354,7 +1463,7 @@ describe('useScreenShare', () => {
     for (const uid of [10, 20, 30]) {
       await act(async () => {
         const p = result.current.connectAsViewer('channel-1', uid);
-        if (uid === 10) tokenHandler?.({ token: 'jwt', url: 'ws://localhost/livekit' });
+        if (uid === 10) tokenHandler?.(liveKitToken('jwt'));
         await p;
       });
     }
@@ -1378,7 +1487,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const p = result.current.connectAsViewer('channel-1', 10);
-      tokenHandler?.({ token: 'jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('jwt'));
       await p;
     });
     await act(async () => {
@@ -1403,7 +1512,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const promise = result.current.startSharing('channel-1');
-      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('test-jwt'));
       await promise;
     });
     await act(async () => {
@@ -1425,7 +1534,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const promise = result.current.startSharing('channel-1');
-      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('test-jwt'));
       await promise;
     });
 
@@ -1453,7 +1562,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const promise = result.current.startSharing('channel-1');
-      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('test-jwt'));
       await promise;
     });
 
@@ -1482,7 +1591,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const promise = result.current.startSharing('channel-1');
-      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('test-jwt'));
       await promise;
     });
 
@@ -1510,7 +1619,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const promise = result.current.startSharing('channel-1');
-      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('test-jwt'));
       await promise;
     });
 
@@ -1537,7 +1646,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const promise = result.current.startSharing('channel-1');
-      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('test-jwt'));
       await promise;
     });
 
@@ -1565,7 +1674,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const promise = result.current.startSharing('channel-1');
-      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('test-jwt'));
       await promise;
     });
 
@@ -1598,7 +1707,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const promise = result.current.startSharing('channel-1');
-      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('test-jwt'));
       await promise;
     });
 
@@ -1623,7 +1732,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const promise = result.current.startSharing('channel-1');
-      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('test-jwt'));
       await promise;
     });
 
@@ -1648,7 +1757,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const promise = result.current.startSharing('channel-1');
-      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('test-jwt'));
       await promise;
     });
 
@@ -1673,7 +1782,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const promise = result.current.startSharing('channel-1');
-      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('test-jwt'));
       await promise;
     });
 
@@ -1698,7 +1807,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const promise = result.current.startSharing('channel-1');
-      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('test-jwt'));
       await promise;
     });
 
@@ -1723,7 +1832,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const promise = result.current.startSharing('channel-1');
-      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('test-jwt'));
       await promise;
     });
 
@@ -1748,7 +1857,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const promise = result.current.startSharing('channel-1');
-      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('test-jwt'));
       await promise;
     });
 
@@ -1776,7 +1885,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const promise = result.current.startSharing('channel-1');
-      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('test-jwt'));
       await promise;
     });
 
@@ -1802,7 +1911,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const promise = result.current.startSharing('channel-1');
-      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('test-jwt'));
       await promise;
     });
 
@@ -1814,7 +1923,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const promise = result.current.startSharing('channel-1');
-      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('test-jwt'));
       await promise;
     });
 
@@ -1843,7 +1952,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       const promise = result.current.startSharing('channel-1');
-      tokenHandler?.({ token: 'test-jwt', url: 'ws://localhost/livekit' });
+      tokenHandler?.(liveKitToken('test-jwt'));
       await promise;
     });
 

@@ -248,7 +248,7 @@ export function useScreenShare(
       };
       const onToken = (data: unknown) => {
         const responseRequestId = (data as { requestId?: number }).requestId;
-        if (responseRequestId != null && responseRequestId !== requestId) {
+        if (responseRequestId !== requestId) {
           return;
         }
 
@@ -257,7 +257,7 @@ export function useScreenShare(
       };
       const onError = (data: unknown) => {
         const responseRequestId = (data as { requestId?: number }).requestId;
-        if (responseRequestId != null && responseRequestId !== requestId) {
+        if (responseRequestId !== requestId) {
           return;
         }
 
@@ -372,7 +372,7 @@ export function useScreenShare(
     }
 
     const pending = pendingRoomRequestRef.current;
-    const pendingCanSatisfyRequest = pending?.accessMode === 'publish' || pending?.accessMode === accessMode;
+    const pendingCanSatisfyRequest = pending?.accessMode === accessMode;
     if (pending?.roomName === roomName && pendingCanSatisfyRequest) {
       return pending.promise;
     }
@@ -478,7 +478,18 @@ export function useScreenShare(
       roomRef.current = room;
       roomAccessModeRef.current = accessMode;
 
-      await room.connect(url, token);
+      try {
+        await room.connect(url, token);
+      } catch (err) {
+        if (roomRef.current === room) {
+          roomRef.current = null;
+          roomAccessModeRef.current = null;
+          roomReconnectUpgradeRef.current = false;
+          invalidateRoomLifecycle();
+        }
+        try { await room.disconnect(); } catch { /* ignore */ }
+        throw err;
+      }
       if (roomLifecycleGenerationRef.current !== lifecycleGeneration || roomRef.current !== room) {
         try { await room.disconnect(); } catch { /* ignore */ }
         throw new Error('LiveKit room request was superseded');
