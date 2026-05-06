@@ -75,7 +75,7 @@ const {
     notifQueue: {
       register: vi.fn(),
       unregister: vi.fn(),
-      isVisible: vi.fn(() => false),
+      isVisible: vi.fn((_id: string) => false),
     },
   };
 });
@@ -489,7 +489,7 @@ describe('active share discovery', () => {
   });
 
   it('toast watch does not connect as viewer from root selected channel', async () => {
-    vi.mocked(notifQueue.isVisible).mockImplementation((id) => id === 'screen-share');
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id === 'screen-share');
     screenShareState.activeShares = [{
       roomName: 'channel-1',
       userName: 'Alice',
@@ -536,7 +536,7 @@ describe('active share discovery', () => {
   });
 
   it('toast watch does not connect as viewer from the wrong selected channel', async () => {
-    vi.mocked(notifQueue.isVisible).mockImplementation((id) => id === 'screen-share');
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id === 'screen-share');
     screenShareState.activeShares = [{
       roomName: 'channel-1',
       userName: 'Alice',
@@ -586,7 +586,7 @@ describe('active share discovery', () => {
   });
 
   it('toast watch connects as viewer through the gate from the same selected channel', async () => {
-    vi.mocked(notifQueue.isVisible).mockImplementation((id) => id === 'screen-share');
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id === 'screen-share');
     screenShareState.activeShares = [
       {
         roomName: 'channel-2',
