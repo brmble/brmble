@@ -383,12 +383,14 @@ export function useScreenShare(
     }
 
     let lifecycleGeneration = roomLifecycleGenerationRef.current;
+    let isUpgradeReconnect = false;
     let rejectRoomRequest!: (err: unknown) => void;
 
     const createRoomPromise = (async () => {
       // Disconnect from any other room
       if (existing) {
-        roomReconnectUpgradeRef.current = existing.name === roomName && currentAccessMode === 'subscribe' && accessMode === 'publish';
+        isUpgradeReconnect = existing.name === roomName && currentAccessMode === 'subscribe' && accessMode === 'publish';
+        roomReconnectUpgradeRef.current = isUpgradeReconnect;
         roomRef.current = null;
         roomAccessModeRef.current = null;
         invalidateRoomLifecycle();
@@ -509,6 +511,9 @@ export function useScreenShare(
     try {
       return await roomPromise;
     } finally {
+      if (isUpgradeReconnect) {
+        roomReconnectUpgradeRef.current = false;
+      }
       if (pendingRoomRequestRef.current?.promise === roomPromise) {
         pendingRoomRequestRef.current = null;
       }

@@ -245,6 +245,68 @@ describe('useScreenShare', () => {
     expect(result.current.isSharing).toBe(false);
   });
 
+  it('upgrade token failure clears stale upgrade state before next room disconnect', async () => {
+    const tokenHandlers: Array<(data: unknown) => void> = [];
+    const tokenErrorHandlers: Array<(data: unknown) => void> = [];
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandlers.push(handler);
+      if (type === 'livekit.tokenError') tokenErrorHandlers.push(handler);
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    await act(async () => {
+      const viewerPromise = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      tokenHandlers[0]?.({ token: 'viewer-jwt', url: 'ws://localhost/livekit', requestId: 1 });
+      await viewerPromise;
+    });
+
+    await act(async () => {
+      const sharePromise = result.current.startSharing('channel-1');
+      emitRoomEvent('disconnected');
+      await Promise.resolve();
+      tokenErrorHandlers[1]?.({ error: 'token failed', requestId: 2 });
+      await sharePromise;
+    });
+
+    expect(result.current.watchingShares).toEqual([expect.objectContaining({ userId: 10 })]);
+
+    let resolveConnect: (() => void) | null = null;
+    mockRoom.connect.mockImplementationOnce(() => new Promise<void>(resolve => {
+      resolveConnect = () => {
+        mockRoom.state = 'connected';
+        resolve();
+      };
+    }));
+
+    let viewerPromise: Promise<void> | null = null;
+    await act(async () => {
+      viewerPromise = result.current.connectAsViewer('channel-1', 20, '@bob:test');
+      tokenHandlers[2]?.({ token: 'viewer-jwt-2', url: 'ws://localhost/livekit', requestId: 3 });
+      await Promise.resolve();
+    });
+
+    act(() => {
+      emitRoomEvent('disconnected');
+    });
+
+    expect(result.current.watchingShares).toEqual([]);
+    expect(result.current.focusedShare).toBeNull();
+    expect(result.current.isSharing).toBe(false);
+
+    await act(async () => {
+      resolveConnect?.();
+      await viewerPromise;
+    });
+  });
+
   it('accumulates multiple screenShareStarted events into activeShares', () => {
     let shareStartedHandler: ((data: unknown) => void) | null = null;
     (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
