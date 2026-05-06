@@ -2324,7 +2324,9 @@ const handleConnect = (serverData: SavedServer) => {
     }
 
     updateStatus('livekit', { state: 'connecting', error: undefined });
-    connectAsViewer(actualRoomName, userId, matrixUserId ?? share?.matrixUserId);
+    void Promise.resolve(connectAsViewer(actualRoomName, userId, matrixUserId ?? share?.matrixUserId)).catch(err => {
+      updateStatus('livekit', { state: 'disconnected', error: err instanceof Error ? err.message : 'Failed to connect as viewer' });
+    });
   }, [activeShares, connectAsViewer, currentChannelId, updateStatus]);
 
   // Track which channel/DM was last opened so we only snapshot + mark-read on actual switches.

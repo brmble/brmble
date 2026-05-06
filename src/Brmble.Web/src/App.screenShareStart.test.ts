@@ -400,6 +400,41 @@ describe('active share discovery', () => {
     expect(connectAsViewer).toHaveBeenCalledWith('channel-1', 42, '@alice:example.com');
   });
 
+  it('handles rejected viewer connect from the watch UI path', async () => {
+    screenShareState.activeShares = [{
+      roomName: 'channel-1',
+      userName: 'Alice',
+      userId: 42,
+      matrixUserId: '@alice:example.com',
+      sessionId: 2,
+    }];
+    vi.mocked(connectAsViewer).mockRejectedValueOnce(new Error('viewer failed'));
+
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [
+          { session: 7, name: 'TestUser', self: true, channelId: 1 },
+          { session: 2, name: 'Alice', channelId: 1, matrixUserId: '@alice:example.com' },
+        ],
+      });
+    });
+
+    await act(async () => {
+      view.getByTestId('sidebar-watch-share').click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(connectAsViewer).toHaveBeenCalledWith('channel-1', 42, '@alice:example.com');
+    expect(serviceStatus.updateStatus).toHaveBeenCalledWith('livekit', { state: 'connecting', error: undefined });
+    expect(serviceStatus.updateStatus).toHaveBeenCalledWith('livekit', { state: 'disconnected', error: 'viewer failed' });
+  });
+
   it('toast watch does not connect as viewer from root selected channel', async () => {
     vi.mocked(notifQueue.isVisible).mockImplementation((id) => id === 'screen-share');
     screenShareState.activeShares = [{

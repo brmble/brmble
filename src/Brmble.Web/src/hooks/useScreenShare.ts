@@ -40,7 +40,6 @@ type DiscoveryTarget = (({ scope: 'all' } | { roomName: string }) & { requestId?
 type PendingRoomRequest = {
   roomName: string;
   accessMode: LiveKitAccessMode;
-  generation: number;
   promise: Promise<Room>;
   reject: (err: unknown) => void;
 };
@@ -519,7 +518,7 @@ export function useScreenShare(
       createRoomPromise.then(resolve, reject);
     });
 
-    pendingRoomRequestRef.current = { roomName, accessMode, generation: lifecycleGeneration, promise: roomPromise, reject: rejectRoomRequest };
+    pendingRoomRequestRef.current = { roomName, accessMode, promise: roomPromise, reject: rejectRoomRequest };
 
     try {
       return await roomPromise;
@@ -624,6 +623,8 @@ export function useScreenShare(
   // --- Viewer logic ---
 
   const connectAsViewer = useCallback(async (roomName: string, targetUserId: number, matrixUserId?: string) => {
+    setError(null);
+
     // Toggle: if already watching this user, remove them
     const existingShare = watchingSharesRef.current.find(s => s.userId === targetUserId);
     if (existingShare) {

@@ -346,6 +346,42 @@ describe('useScreenShare', () => {
     expect(mockRoom.disconnect).toHaveBeenCalledTimes(1);
   });
 
+  it('clears viewer error after a later successful connectAsViewer', async () => {
+    const tokenHandlers: Array<(data: unknown) => void> = [];
+    const tokenErrorHandlers: Array<(data: unknown) => void> = [];
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandlers.push(handler);
+      if (type === 'livekit.tokenError') tokenErrorHandlers.push(handler);
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'bob', userId: 20, matrixUserId: '@bob:test' });
+    });
+
+    await act(async () => {
+      const failedViewerPromise = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      tokenErrorHandlers[0]?.({ error: 'viewer failed', requestId: 1 });
+      await expect(failedViewerPromise).rejects.toThrow('viewer failed');
+    });
+
+    expect(result.current.error).toBe('viewer failed');
+
+    await act(async () => {
+      const viewerPromise = result.current.connectAsViewer('channel-1', 20, '@bob:test');
+      tokenHandlers[1]?.({ token: 'viewer-jwt', url: 'ws://localhost/livekit', requestId: 2 });
+      await viewerPromise;
+    });
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.watchingShares).toEqual([expect.objectContaining({ userId: 20 })]);
+  });
+
   it('accumulates multiple screenShareStarted events into activeShares', () => {
     let shareStartedHandler: ((data: unknown) => void) | null = null;
     (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
