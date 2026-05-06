@@ -1357,6 +1357,44 @@ describe('useScreenShare', () => {
     expect(mockRoom.connect).not.toHaveBeenCalled();
   });
 
+  it('full disconnect cancels pending viewer connect when room is already connected', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    await act(async () => {
+      const alicePromise = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      tokenHandler?.(liveKitToken('viewer-jwt'));
+      await alicePromise;
+    });
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'bob', userId: 20, matrixUserId: '@bob:test' });
+    });
+
+    let bobPromise: Promise<void> | null = null;
+    act(() => {
+      bobPromise = result.current.connectAsViewer('channel-1', 20, '@bob:test');
+    });
+
+    await act(async () => {
+      await result.current.disconnectViewer();
+      await bobPromise;
+    });
+
+    expect(result.current.watchingShares).toEqual([]);
+  });
+
   it('unmount cancels pending viewer connect without waiting for token', async () => {
     let shareStartedHandler: ((data: unknown) => void) | null = null;
 

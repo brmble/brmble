@@ -807,6 +807,7 @@ export function useScreenShare(
     }
 
     // No userId: remove all streams (channel switch / full cleanup)
+    cancelPendingViewerAttempts();
     if (room) {
       for (const share of watchingSharesRef.current) {
         const targetIdentity = share.matrixUserId ?? String(share.userId);
