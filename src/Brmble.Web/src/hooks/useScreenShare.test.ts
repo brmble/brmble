@@ -136,7 +136,7 @@ describe('useScreenShare', () => {
       await promise;
     });
 
-    expect(bridge.send).toHaveBeenCalledWith('livekit.requestToken', { roomName: 'channel-1', accessMode: 'publish' });
+    expect(bridge.send).toHaveBeenCalledWith('livekit.requestToken', { roomName: 'channel-1', accessMode: 'publish', requestId: 1 });
     expect(result.current.isSharing).toBe(true);
   });
 
@@ -160,7 +160,7 @@ describe('useScreenShare', () => {
       await promise;
     });
 
-    expect(bridge.send).toHaveBeenCalledWith('livekit.requestToken', { roomName: 'channel-1', accessMode: 'subscribe' });
+    expect(bridge.send).toHaveBeenCalledWith('livekit.requestToken', { roomName: 'channel-1', accessMode: 'subscribe', requestId: 1 });
   });
 
   it('preserves watching state when upgrading from viewer to publisher in the same room', async () => {
@@ -1258,6 +1258,79 @@ describe('useScreenShare', () => {
     expect(screenShareTrack.attach).toHaveBeenCalledTimes(1);
     expect(result.current.remoteVideoEls.has(10)).toBe(true);
     expect(result.current.watchingShares).toEqual([expect.objectContaining({ userId: 10 })]);
+  });
+
+  it('incompatible pending subscribe is superseded by publish without consuming publish token', async () => {
+    const tokenHandlers: Array<(data: unknown) => void> = [];
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandlers.push(handler);
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    let viewerPromise: Promise<void> | null = null;
+    let sharePromise: Promise<void> | null = null;
+    act(() => {
+      viewerPromise = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      sharePromise = result.current.startSharing('channel-1');
+    });
+
+    await act(async () => {
+      tokenHandlers[0]?.({ token: 'subscribe-jwt', url: 'ws://localhost/livekit', requestId: 1 });
+      tokenHandlers[1]?.({ token: 'publish-jwt', url: 'ws://localhost/livekit', requestId: 2 });
+      await Promise.all([viewerPromise, sharePromise]);
+    });
+
+    expect(mockRoom.connect).toHaveBeenCalledTimes(1);
+    expect(mockRoom.connect).toHaveBeenCalledWith('ws://localhost/livekit', 'publish-jwt');
+    expect(result.current.isSharing).toBe(true);
+    expect(result.current.watchingShares).toEqual([]);
+  });
+
+  it('stale token responses are ignored for the current room request', async () => {
+    const tokenHandlers: Array<(data: unknown) => void> = [];
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandlers.push(handler);
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    let viewerPromise: Promise<void> | null = null;
+    let sharePromise: Promise<void> | null = null;
+    act(() => {
+      viewerPromise = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      sharePromise = result.current.startSharing('channel-1');
+    });
+
+    await act(async () => {
+      tokenHandlers[1]?.({ token: 'subscribe-jwt', url: 'ws://localhost/livekit', requestId: 1 });
+      await Promise.resolve();
+    });
+
+    expect(mockRoom.connect).not.toHaveBeenCalled();
+
+    await act(async () => {
+      tokenHandlers[1]?.({ token: 'publish-jwt', url: 'ws://localhost/livekit', requestId: 2 });
+      await Promise.all([viewerPromise, sharePromise]);
+    });
+
+    expect(mockRoom.connect).toHaveBeenCalledTimes(1);
+    expect(mockRoom.connect).toHaveBeenCalledWith('ws://localhost/livekit', 'publish-jwt');
+    expect(result.current.isSharing).toBe(true);
   });
 
   it('connectAsViewer adds multiple users up to 4', async () => {

@@ -2256,16 +2256,19 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         {
             var roomName = data.TryGetProperty("roomName", out var rn) ? rn.GetString() : null;
             var hasAccessMode = TryGetLiveKitAccessMode(data, out var accessMode);
+            var requestId = data.TryGetProperty("requestId", out var requestIdProp) && requestIdProp.ValueKind == System.Text.Json.JsonValueKind.Number
+                ? requestIdProp.GetInt32()
+                : (int?)null;
             if (string.IsNullOrWhiteSpace(roomName) || _apiUrl is null)
             {
-                _bridge?.Send("livekit.tokenError", new { error = "Not connected or missing roomName" });
+                _bridge?.Send("livekit.tokenError", new { error = "Not connected or missing roomName", requestId });
                 _bridge?.NotifyUiThread();
                 return;
             }
 
             if (!hasAccessMode)
             {
-                _bridge?.Send("livekit.tokenError", new { error = "Missing or invalid accessMode" });
+                _bridge?.Send("livekit.tokenError", new { error = "Missing or invalid accessMode", requestId });
                 _bridge?.NotifyUiThread();
                 return;
             }
@@ -2273,7 +2276,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             using var cert = _certService?.GetExportableCertificate();
             if (cert is null)
             {
-                _bridge?.Send("livekit.tokenError", new { error = "No client certificate" });
+                _bridge?.Send("livekit.tokenError", new { error = "No client certificate", requestId });
                 _bridge?.NotifyUiThread();
                 return;
             }
@@ -2287,7 +2290,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             }
             catch (ArgumentOutOfRangeException)
             {
-                _bridge?.Send("livekit.tokenError", new { error = "accessMode must be 'publish' or 'subscribe'" });
+                _bridge?.Send("livekit.tokenError", new { error = "accessMode must be 'publish' or 'subscribe'", requestId });
                 _bridge?.NotifyUiThread();
                 return;
             }
@@ -2317,6 +2320,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                                 _ => prop.Value.GetRawText()
                             };
                         }
+                        dict["requestId"] = requestId;
                         _bridge?.Send("livekit.token", dict);
                         _bridge?.NotifyUiThread();
                         return;
@@ -2341,7 +2345,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
             var errorMsg = lastResult?.Error ?? "Token request failed";
             LogToFile($"[LiveKit] Token request failed after all attempts: {errorMsg}");
-            _bridge?.Send("livekit.tokenError", new { error = errorMsg });
+            _bridge?.Send("livekit.tokenError", new { error = errorMsg, requestId });
             _bridge?.NotifyUiThread();
         });
 

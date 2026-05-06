@@ -246,6 +246,50 @@ public class MumbleAdapterParseTests
     }
 
     [TestMethod]
+    public async Task LiveKitToken_EchoesRequestId()
+    {
+        var tempDir = Directory.CreateTempSubdirectory();
+        try
+        {
+            var bridge = NativeBridgeTestHarness.Create();
+            using var clientCertificate = TestTlsHttpServer.CreateCertificate("CN=client");
+            await File.WriteAllBytesAsync(Path.Combine(tempDir.FullName, "Test_test.pfx"), clientCertificate.Export(X509ContentType.Pkcs12));
+
+            var certService = new CertificateService(bridge, new TestAppConfigService(tempDir.FullName));
+            await using var server = new TestTlsHttpServer("""
+            {
+                "token": "jwt",
+                "url": "ws://localhost/livekit"
+            }
+            """);
+            var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge, apiUrl: server.Url, certService: certService);
+            adapter.RegisterHandlers(bridge);
+            certService.RegisterHandlers(bridge);
+
+            using var statusDoc = JsonDocument.Parse("{}");
+            await NativeBridgeTestHarness.InvokeAsync(bridge, "cert.requestStatus", statusDoc.RootElement.Clone());
+            _ = NativeBridgeTestHarness.DrainMessages(bridge);
+
+            using var doc = JsonDocument.Parse("""
+            {
+                "roomName": "channel-1",
+                "accessMode": "subscribe",
+                "requestId": 42
+            }
+            """);
+
+            await NativeBridgeTestHarness.InvokeAsync(bridge, "livekit.requestToken", doc.RootElement.Clone());
+            var sent = NativeBridgeTestHarness.DrainMessages(bridge);
+
+            Assert.IsTrue(sent.Any(x => x.Type == "livekit.token" && x.DataJson.Contains("\"requestId\":42")));
+        }
+        finally
+        {
+            tempDir.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void ParseBrmbleApiUrl_ValidComment_ReturnsUrl()
     {
         var text = """Welcome!<!--brmble:{"apiUrl":"https://noscope.it:1912"}-->""";

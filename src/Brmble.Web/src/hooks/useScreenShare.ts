@@ -42,7 +42,10 @@ type PendingRoomRequest = {
   accessMode: LiveKitAccessMode;
   generation: number;
   promise: Promise<Room>;
+  reject: (err: unknown) => void;
 };
+
+type SupersededRoomRequest = Error & { code: 'LIVEKIT_ROOM_REQUEST_SUPERSEDED' };
 
 type ErrorLike = {
   name?: unknown;
@@ -118,7 +121,14 @@ const isBlockedWindowCaptureError = (err: unknown) => {
   return name === 'aborterror' && message.includes('starting capture pipeline');
 };
 
-const isSupersededRoomRequestError = (err: unknown) => getErrorLikeDetails(err)?.message === 'LiveKit room request was superseded';
+const createSupersededRoomRequestError = (): SupersededRoomRequest => Object.assign(
+  new Error('LiveKit room request was superseded'),
+  { code: 'LIVEKIT_ROOM_REQUEST_SUPERSEDED' as const },
+);
+
+const isSupersededRoomRequestError = (err: unknown) => (
+  !!err && typeof err === 'object' && (err as { code?: unknown }).code === 'LIVEKIT_ROOM_REQUEST_SUPERSEDED'
+) || getErrorLikeDetails(err)?.message === 'LiveKit room request was superseded';
 
 export function useScreenShare(
   onDisconnected?: () => void,
@@ -140,6 +150,7 @@ export function useScreenShare(
   const discoveryTargetRef = useRef<DiscoveryTarget>(null);
   const shareEventVersionRef = useRef(0);
   const shareEventVersionByRoomRef = useRef(new Map<string, number>());
+  const nextTokenRequestIdRef = useRef(0);
   const onDisconnectedRef = useRef(onDisconnected);
   const onLocalShareEndedRef = useRef(onLocalShareEnded);
   const localShareEndCleanupRef = useRef<(() => void) | null>(null);
@@ -229,16 +240,27 @@ export function useScreenShare(
   // Helper: request a LiveKit token via bridge
   const requestToken = useCallback((roomName: string, accessMode: LiveKitAccessMode) => {
     return new Promise<{ token: string; url: string }>((resolve, reject) => {
+      const requestId = ++nextTokenRequestIdRef.current;
       const cleanup = () => {
         bridge.off('livekit.token', onToken);
         bridge.off('livekit.tokenError', onError);
         clearTimeout(timer);
       };
       const onToken = (data: unknown) => {
+        const responseRequestId = (data as { requestId?: number }).requestId;
+        if (responseRequestId != null && responseRequestId !== requestId) {
+          return;
+        }
+
         cleanup();
         resolve(data as { token: string; url: string });
       };
       const onError = (data: unknown) => {
+        const responseRequestId = (data as { requestId?: number }).requestId;
+        if (responseRequestId != null && responseRequestId !== requestId) {
+          return;
+        }
+
         cleanup();
         reject(new Error((data as { error: string }).error));
       };
@@ -248,7 +270,7 @@ export function useScreenShare(
       }, 20000);
       bridge.on('livekit.token', onToken);
       bridge.on('livekit.tokenError', onError);
-      bridge.send('livekit.requestToken', { roomName, accessMode });
+      bridge.send('livekit.requestToken', { roomName, accessMode, requestId });
     });
   }, []);
 
@@ -355,9 +377,15 @@ export function useScreenShare(
       return pending.promise;
     }
 
-    let lifecycleGeneration = roomLifecycleGenerationRef.current;
+    if (pending) {
+      invalidateRoomLifecycle();
+      pending.reject(createSupersededRoomRequestError());
+    }
 
-    const roomPromise = (async () => {
+    let lifecycleGeneration = roomLifecycleGenerationRef.current;
+    let rejectRoomRequest!: (err: unknown) => void;
+
+    const createRoomPromise = (async () => {
       // Disconnect from any other room
       if (existing) {
         roomReconnectUpgradeRef.current = existing.name === roomName && currentAccessMode === 'subscribe' && accessMode === 'publish';
@@ -460,7 +488,12 @@ export function useScreenShare(
       return room;
     })();
 
-    pendingRoomRequestRef.current = { roomName, accessMode, generation: lifecycleGeneration, promise: roomPromise };
+    const roomPromise = new Promise<Room>((resolve, reject) => {
+      rejectRoomRequest = reject;
+      createRoomPromise.then(resolve, reject);
+    });
+
+    pendingRoomRequestRef.current = { roomName, accessMode, generation: lifecycleGeneration, promise: roomPromise, reject: rejectRoomRequest };
 
     try {
       return await roomPromise;
