@@ -1085,6 +1085,94 @@ describe('useScreenShare', () => {
     expect(result.current.watchingShares).toEqual([expect.objectContaining({ userId: 20 })]);
   });
 
+  it('track unsubscribe during replacement does not remove preserved watch state', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+    let resolveDisconnect: (() => void) | null = null;
+    const screenShareTrack = {
+      kind: 'video',
+      source: 'screen_share',
+      detach: vi.fn(),
+    };
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    await act(async () => {
+      const p = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      tokenHandler?.({ token: 'viewer-jwt', url: 'ws://localhost/livekit' });
+      await p;
+    });
+
+    mockRoom.disconnect.mockImplementationOnce(() => new Promise<void>(resolve => {
+      resolveDisconnect = resolve;
+    }));
+
+    let startPromise: Promise<void> | null = null;
+    act(() => {
+      startPromise = result.current.startSharing('channel-1');
+    });
+
+    await act(async () => {
+      emitRoomEvent('trackUnsubscribed', screenShareTrack, {}, { identity: '@alice:test' });
+      await Promise.resolve();
+    });
+
+    expect(screenShareTrack.detach).not.toHaveBeenCalled();
+    expect(result.current.watchingShares).toEqual([expect.objectContaining({ userId: 10 })]);
+
+    await act(async () => {
+      resolveDisconnect?.();
+      await Promise.resolve();
+      tokenHandler?.({ token: 'publisher-jwt', url: 'ws://localhost/livekit' });
+      await startPromise;
+    });
+
+    expect(result.current.watchingShares).toEqual([expect.objectContaining({ userId: 10 })]);
+    expect(result.current.isSharing).toBe(true);
+  });
+
+  it('pending viewer connect resolving after disconnectViewer does not add stale watch state', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    let viewerPromise: Promise<void> | null = null;
+    act(() => {
+      viewerPromise = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+    });
+
+    await act(async () => {
+      await result.current.disconnectViewer();
+    });
+
+    await act(async () => {
+      tokenHandler?.({ token: 'viewer-jwt', url: 'ws://localhost/livekit' });
+      await viewerPromise;
+    });
+
+    expect(result.current.watchingShares).toEqual([]);
+    expect(mockRoom.connect).not.toHaveBeenCalled();
+  });
+
   it('connectAsViewer adds multiple users up to 4', async () => {
     let tokenHandler: ((data: unknown) => void) | null = null;
     let shareStartedHandler: ((data: unknown) => void) | null = null;

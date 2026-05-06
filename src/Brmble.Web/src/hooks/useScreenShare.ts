@@ -111,6 +111,8 @@ const isBlockedWindowCaptureError = (err: unknown) => {
   return name === 'aborterror' && message.includes('starting capture pipeline');
 };
 
+const isSupersededRoomRequestError = (err: unknown) => getErrorLikeDetails(err)?.message === 'LiveKit room request was superseded';
+
 export function useScreenShare(
   onDisconnected?: () => void,
   screenShareSettings?: ScreenShareSettings,
@@ -245,16 +247,23 @@ export function useScreenShare(
 
   const roomAccessModeRef = useRef<LiveKitAccessMode | null>(null);
   const roomReconnectUpgradeRef = useRef(false);
+  const roomLifecycleGenerationRef = useRef(0);
+
+  const invalidateRoomLifecycle = useCallback(() => {
+    roomLifecycleGenerationRef.current += 1;
+  }, []);
 
   // Try to disconnect the room, but only if we're not sharing AND not watching
   const maybeDisconnectRoom = useCallback(async () => {
-    if (!isSharingRef.current && watchingSharesRef.current.length === 0 && roomRef.current) {
-      try { await roomRef.current.disconnect(); } catch { /* ignore */ }
+    const room = roomRef.current;
+    if (!isSharingRef.current && watchingSharesRef.current.length === 0 && room) {
       roomRef.current = null;
       roomAccessModeRef.current = null;
       roomReconnectUpgradeRef.current = false;
+      invalidateRoomLifecycle();
+      try { await room.disconnect(); } catch { /* ignore */ }
     }
-  }, []);
+  }, [invalidateRoomLifecycle]);
 
   const stopLocalShare = useCallback(async (
     reason: LocalShareStopReason,
@@ -331,15 +340,23 @@ export function useScreenShare(
       return existing;
     }
 
+    let lifecycleGeneration = roomLifecycleGenerationRef.current;
+
     // Disconnect from any other room
     if (existing) {
       roomReconnectUpgradeRef.current = existing.name === roomName && currentAccessMode === 'subscribe' && accessMode === 'publish';
-      try { await existing.disconnect(); } catch { /* ignore */ }
       roomRef.current = null;
       roomAccessModeRef.current = null;
+      invalidateRoomLifecycle();
+      lifecycleGeneration = roomLifecycleGenerationRef.current;
+      try { await existing.disconnect(); } catch { /* ignore */ }
     }
 
     const { token, url } = await requestToken(roomName, accessMode);
+    if (roomLifecycleGenerationRef.current !== lifecycleGeneration) {
+      throw new Error('LiveKit room request was superseded');
+    }
+
     const room = new Room();
 
     room.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
@@ -414,11 +431,16 @@ export function useScreenShare(
     });
 
     await room.connect(url, token);
+    if (roomLifecycleGenerationRef.current !== lifecycleGeneration) {
+      try { await room.disconnect(); } catch { /* ignore */ }
+      throw new Error('LiveKit room request was superseded');
+    }
+
     roomRef.current = room;
     roomAccessModeRef.current = accessMode;
     roomReconnectUpgradeRef.current = false;
     return room;
-  }, [requestToken, updateWatchingShares, stopLocalShare, removeWatchingShare]);
+  }, [requestToken, updateWatchingShares, stopLocalShare, removeWatchingShare, invalidateRoomLifecycle]);
 
   const startSharing = useCallback(async (roomName: string) => {
     setError(null);
@@ -479,6 +501,10 @@ export function useScreenShare(
       bridge.send('livekit.shareStarted', { roomName });
     } catch (err) {
       clearLocalShareEndListener();
+
+      if (isSupersededRoomRequestError(err)) {
+        return;
+      }
 
       if (isScreenSharePickerCancel(err)) {
         await maybeDisconnectRoom();
@@ -550,6 +576,10 @@ export function useScreenShare(
       }
       // If track not yet available, TrackSubscribed event will pick it up
     } catch (err) {
+      if (isSupersededRoomRequestError(err)) {
+        return;
+      }
+
       console.error('Failed to connect as viewer:', err);
       setError(err instanceof Error ? err.message : 'Failed to connect as viewer');
       throw err;
@@ -597,8 +627,9 @@ export function useScreenShare(
     setRemoteVideoEls(new Map());
     updateWatchingShares([]);
     setFocusedShare(null);
+    invalidateRoomLifecycle();
     await maybeDisconnectRoom();
-  }, [removeWatchingShare, updateWatchingShares, maybeDisconnectRoom]);
+  }, [removeWatchingShare, updateWatchingShares, maybeDisconnectRoom, invalidateRoomLifecycle]);
 
   // Listen for screen share events from bridge
   useEffect(() => {
@@ -641,6 +672,9 @@ export function useScreenShare(
         if (watchingSharesRef.current.length === 0 && !isSharingRef.current && room) {
           room.disconnect().catch(() => {});
           roomRef.current = null;
+          roomAccessModeRef.current = null;
+          roomReconnectUpgradeRef.current = false;
+          invalidateRoomLifecycle();
         }
       }
     };
@@ -718,7 +752,7 @@ export function useScreenShare(
       bridge.off('livekit.activeShareResult', onActiveShareResult);
       bridge.off('livekit.activeShareError', onActiveShareError);
     };
-  }, [removeWatchingShare]);
+  }, [removeWatchingShare, invalidateRoomLifecycle]);
 
   useEffect(() => {
     return () => {
