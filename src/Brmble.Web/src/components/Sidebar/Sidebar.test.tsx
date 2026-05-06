@@ -177,13 +177,13 @@ describe('Sidebar root user screen share behavior', () => {
     expect(onWatchScreenShare).not.toHaveBeenCalled();
   });
 
-  it('keeps remote watch behavior and leaves mute and deafen in the status area', () => {
+  it('shows root share badges as presence-only and does not start watching from root', () => {
     const onWatchScreenShare = vi.fn();
-    const share = makeShare();
+    const share = makeShare({ roomName: 'channel-1' });
 
     renderSidebar({
       users: [
-        { session: 2, name: 'Alice', channelId: 0, muted: true, deafened: true, matrixUserId: '@alice:example.com' },
+        { session: 2, name: 'Alice', channelId: 0, matrixUserId: '@alice:example.com' },
       ],
       onWatchScreenShare,
       activeShares: [share],
@@ -192,13 +192,12 @@ describe('Sidebar root user screen share behavior', () => {
     const row = screen.getByText('Alice').closest('.root-user-row');
     expect(row).not.toBeNull();
 
-    fireEvent.click(screen.getByLabelText('Watch screen share from Alice'));
+    fireEvent.doubleClick(row!);
 
-    expect(onWatchScreenShare).toHaveBeenCalledWith('channel-0', 42, '@alice:example.com');
-    expect(row?.querySelector('.user-status-area [data-icon="monitor"]')).toBeNull();
+    expect(screen.getByText('Sharing')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Watch screen share from Alice')).not.toBeInTheDocument();
     expect(row?.querySelector('.sharing-indicator [data-icon="monitor"]')).not.toBeNull();
-    expect(row?.querySelector('.user-status-area .user-status-icon--muted')).not.toBeNull();
-    expect(row?.querySelector('.user-status-area .user-status-icon--deaf')).not.toBeNull();
+    expect(onWatchScreenShare).not.toHaveBeenCalled();
   });
 
   it('stops watching a remote root user share when the watched control is clicked', () => {

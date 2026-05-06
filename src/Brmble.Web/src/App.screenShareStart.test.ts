@@ -11,6 +11,8 @@ const {
   setDiscoveryTarget,
   stopSharing,
   markLocalShareTeardownIntent,
+  connectAsViewer,
+  serviceStatus,
   screenShareState,
   notifQueue,
 } = vi.hoisted(() => {
@@ -19,6 +21,21 @@ const {
   const setTarget = vi.fn();
   const stop = vi.fn();
   const markIntent = vi.fn();
+  const connectViewer = vi.fn();
+  const status = {
+    updateStatus: vi.fn(),
+    resetStatuses: vi.fn(),
+  };
+  const screenShare = {
+    isSharing: false,
+    activeShares: [] as Array<{
+      roomName: string;
+      userName: string;
+      userId: number;
+      matrixUserId?: string;
+      sessionId?: number;
+    }>,
+  };
   const mockBridge = {
     send: vi.fn(),
     on: vi.fn((type: string, handler: BridgeHandler) => {
@@ -50,7 +67,9 @@ const {
     setDiscoveryTarget: setTarget,
     stopSharing: stop,
     markLocalShareTeardownIntent: markIntent,
-    screenShareState: { isSharing: false },
+    connectAsViewer: connectViewer,
+    serviceStatus: status,
+    screenShareState: screenShare,
     notifQueue: {
       register: vi.fn(),
       unregister: vi.fn(),
@@ -83,14 +102,14 @@ vi.mock('./hooks/useScreenShare', () => ({
     markLocalShareTeardownIntent,
     error: null,
     activeShare: null,
-    activeShares: [],
+    activeShares: screenShareState.activeShares,
     watchingShares: [],
     focusedShare: null,
     setFocusedShare: vi.fn(),
     setDiscoveryTarget,
     remoteVideoEls: new Map(),
     disconnectViewer,
-    connectAsViewer: vi.fn(),
+    connectAsViewer,
   }),
 }));
 
@@ -116,8 +135,8 @@ vi.mock('./hooks/useUnreadTracker', () => ({
 vi.mock('./hooks/useServiceStatus', () => ({
   useServiceStatus: () => ({
     statuses: { voice: { error: undefined } },
-    updateStatus: vi.fn(),
-    resetStatuses: vi.fn(),
+    updateStatus: serviceStatus.updateStatus,
+    resetStatuses: serviceStatus.resetStatuses,
   }),
 }));
 
@@ -166,11 +185,21 @@ vi.mock('./components/ErrorBoundary', () => ({
 vi.mock('./components/Header/Header', () => ({ Header: () => null }));
 vi.mock('./components/Header/BrmbleLogo', () => ({ BrmbleLogo: () => null }));
 vi.mock('./components/Sidebar/Sidebar', () => ({
-  Sidebar: ({ onDisconnect }: { onDisconnect?: () => void }) => React.createElement('button', {
-    type: 'button',
-    'data-testid': 'sidebar-disconnect',
-    onClick: onDisconnect,
-  }),
+  Sidebar: ({ onDisconnect, onWatchScreenShare }: {
+    onDisconnect?: () => void;
+    onWatchScreenShare?: (roomName: string, userId?: number, matrixUserId?: string) => void;
+  }) => React.createElement(React.Fragment, null,
+    React.createElement('button', {
+      type: 'button',
+      'data-testid': 'sidebar-disconnect',
+      onClick: onDisconnect,
+    }),
+    React.createElement('button', {
+      type: 'button',
+      'data-testid': 'sidebar-watch-share',
+      onClick: () => onWatchScreenShare?.('channel-0', 42, '@alice:example.com'),
+    }),
+  ),
 }));
 vi.mock('./components/ChatPanel/ChatPanel', () => ({ ChatPanel: () => null }));
 vi.mock('./components/ConnectModal/ConnectModal', () => ({ ConnectModal: () => null }));
@@ -198,7 +227,7 @@ vi.mock('./components/UpdateNotification/UpdateNotification', () => ({ UpdateNot
 vi.mock('./components/BrokenCertNotification/BrokenCertNotification', () => ({ BrokenCertNotification: () => null }));
 vi.mock('./components/Notification/Notification', () => ({ Notification: () => null }));
 
-import App, { getNextLiveKitStatusUpdate, shouldClearLocalShareStartPending, toggleLocalScreenShare } from './App';
+import App, { canWatchShareFromChannel, getNextLiveKitStatusUpdate, shouldClearLocalShareStartPending, toggleLocalScreenShare } from './App';
 
 describe('toggleLocalScreenShare', () => {
   it('starts sharing in the current voice channel without changing LiveKit status first', async () => {
@@ -251,6 +280,14 @@ describe('shouldClearLocalShareStartPending', () => {
   });
 });
 
+describe('canWatchShareFromChannel', () => {
+  it('blocks watch attempts when current channel does not match share room', () => {
+    expect(canWatchShareFromChannel('server-root', 'channel-1')).toBe(false);
+    expect(canWatchShareFromChannel('2', 'channel-1')).toBe(false);
+    expect(canWatchShareFromChannel('1', 'channel-1')).toBe(true);
+  });
+});
+
 describe('active share discovery', () => {
   const getActiveShareRequests = () => vi.mocked(bridge.send).mock.calls.filter(
     ([type]) => type === 'livekit.checkActiveShare',
@@ -265,6 +302,7 @@ describe('active share discovery', () => {
     bridgeHandlers.clear();
     localStorage.clear();
     screenShareState.isSharing = false;
+    screenShareState.activeShares = [];
   });
 
   it('requests active share discovery after connect for the current channel', async () => {
@@ -284,6 +322,70 @@ describe('active share discovery', () => {
     });
 
     expect(getActiveShareRequests()).toHaveLength(1);
+  });
+
+  it('does not connect as viewer for root watch attempts', async () => {
+    screenShareState.activeShares = [{
+      roomName: 'channel-1',
+      userName: 'Alice',
+      userId: 42,
+      matrixUserId: '@alice:example.com',
+      sessionId: 2,
+    }];
+
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 0,
+        channels: [{ id: 1, name: 'General' }],
+        users: [
+          { session: 7, name: 'TestUser', self: true, channelId: 0 },
+          { session: 2, name: 'Alice', channelId: 0, matrixUserId: '@alice:example.com' },
+        ],
+      });
+    });
+
+    await act(async () => {
+      view.getByTestId('sidebar-watch-share').click();
+      await Promise.resolve();
+    });
+
+    expect(connectAsViewer).not.toHaveBeenCalled();
+    expect(serviceStatus.updateStatus).not.toHaveBeenCalledWith('livekit', { state: 'connecting', error: undefined });
+  });
+
+  it('connects as viewer with the actual share room for same-channel watch attempts', async () => {
+    screenShareState.activeShares = [{
+      roomName: 'channel-1',
+      userName: 'Alice',
+      userId: 42,
+      matrixUserId: '@alice:example.com',
+      sessionId: 2,
+    }];
+
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [
+          { session: 7, name: 'TestUser', self: true, channelId: 1 },
+          { session: 2, name: 'Alice', channelId: 1, matrixUserId: '@alice:example.com' },
+        ],
+      });
+    });
+
+    await act(async () => {
+      view.getByTestId('sidebar-watch-share').click();
+      await Promise.resolve();
+    });
+
+    expect(serviceStatus.updateStatus).toHaveBeenCalledWith('livekit', { state: 'connecting', error: undefined });
+    expect(connectAsViewer).toHaveBeenCalledWith('channel-1', 42, '@alice:example.com');
   });
 
   it('rechecks active share discovery after reconnect when the current channel is unchanged', async () => {

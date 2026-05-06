@@ -196,6 +196,11 @@ export function shouldClearLocalShareStartPending({
   return isLocalShareStartPending && (selfLeftVoice || voiceChannelId == null || voiceChannelId === 0);
 }
 
+export function canWatchShareFromChannel(currentChannelId: string | undefined, shareRoomName: string): boolean {
+  if (!currentChannelId || currentChannelId === 'server-root') return false;
+  return shareRoomName === `channel-${currentChannelId}`;
+}
+
 export async function toggleLocalScreenShare({
   isSharing,
   selfLeftVoice,
@@ -2305,11 +2310,20 @@ const handleConnect = (serverData: SavedServer) => {
   handleToggleScreenShareRef.current = handleToggleScreenShare;
 
   const handleWatchScreenShare = useCallback((roomName: string, userId?: number, matrixUserId?: string) => {
-    if (userId != null) {
-      updateStatus('livekit', { state: 'connecting', error: undefined });
-      connectAsViewer(roomName, userId, matrixUserId);
+    if (userId == null) {
+      return;
     }
-  }, [connectAsViewer, updateStatus]);
+
+    const share = activeShares.find(s => s.userId === userId) ?? null;
+    const actualRoomName = share?.roomName ?? roomName;
+
+    if (!canWatchShareFromChannel(currentChannelId, actualRoomName)) {
+      return;
+    }
+
+    updateStatus('livekit', { state: 'connecting', error: undefined });
+    connectAsViewer(actualRoomName, userId, matrixUserId ?? share?.matrixUserId);
+  }, [activeShares, connectAsViewer, currentChannelId, updateStatus]);
 
   // Track which channel/DM was last opened so we only snapshot + mark-read on actual switches.
   const prevChannelIdRef = useRef<string | undefined>(undefined);
