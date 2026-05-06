@@ -157,12 +157,23 @@ export function useScreenShare(
   const localShareEndCleanupRef = useRef<(() => void) | null>(null);
   const localShareStopHandledRef = useRef(false);
   const localShareTeardownIntentRef = useRef<LocalShareStopReason | null>(null);
+  const viewerConnectPendingCountRef = useRef(0);
   onDisconnectedRef.current = onDisconnected;
   onLocalShareEndedRef.current = onLocalShareEnded;
 
   const clearLocalShareEndListener = useCallback(() => {
     localShareEndCleanupRef.current?.();
     localShareEndCleanupRef.current = null;
+  }, []);
+
+  const beginViewerConnectAttempt = useCallback(() => {
+    viewerConnectPendingCountRef.current += 1;
+    setIsViewerConnectPending(true);
+  }, []);
+
+  const endViewerConnectAttempt = useCallback(() => {
+    viewerConnectPendingCountRef.current = Math.max(0, viewerConnectPendingCountRef.current - 1);
+    setIsViewerConnectPending(viewerConnectPendingCountRef.current > 0);
   }, []);
 
   const setFocusedShare: typeof _setFocusedShare = useCallback((action) => {
@@ -649,7 +660,7 @@ export function useScreenShare(
       return;
     }
 
-    setIsViewerConnectPending(true);
+    beginViewerConnectAttempt();
     setError(null);
 
     try {
@@ -688,9 +699,9 @@ export function useScreenShare(
       setError(err instanceof Error ? err.message : 'Failed to connect as viewer');
       throw err;
     } finally {
-      setIsViewerConnectPending(false);
+      endViewerConnectAttempt();
     }
-  }, [activeShares, ensureRoom, addWatchingShare, removeWatchingShare, maybeDisconnectRoom]);
+  }, [activeShares, ensureRoom, addWatchingShare, removeWatchingShare, maybeDisconnectRoom, beginViewerConnectAttempt, endViewerConnectAttempt]);
 
   const disconnectViewer = useCallback(async (userId?: number) => {
     const room = roomRef.current;

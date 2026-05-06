@@ -1323,6 +1323,43 @@ describe('useScreenShare', () => {
     expect(mockRoom.connect).not.toHaveBeenCalled();
   });
 
+  it('superseded viewer connect finishing keeps newer viewer pending state', async () => {
+    const tokenHandlers: Array<(data: unknown) => void> = [];
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandlers.push(handler);
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+      shareStartedHandler?.({ roomName: 'channel-2', userName: 'bob', userId: 20, matrixUserId: '@bob:test' });
+    });
+
+    let firstViewerPromise: Promise<void> | null = null;
+    let secondViewerPromise: Promise<void> | null = null;
+    act(() => {
+      firstViewerPromise = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      secondViewerPromise = result.current.connectAsViewer('channel-2', 20, '@bob:test');
+    });
+
+    await act(async () => {
+      await firstViewerPromise;
+    });
+
+    expect(result.current.isViewerConnectPending).toBe(true);
+
+    await act(async () => {
+      tokenHandlers[1]?.({ token: 'viewer-jwt-2', url: 'ws://localhost/livekit', requestId: 2 });
+      await secondViewerPromise;
+    });
+
+    expect(result.current.isViewerConnectPending).toBe(false);
+  });
+
   it('parallel viewer connects share one room creation', async () => {
     const tokenHandlers: Array<(data: unknown) => void> = [];
     let shareStartedHandler: ((data: unknown) => void) | null = null;
