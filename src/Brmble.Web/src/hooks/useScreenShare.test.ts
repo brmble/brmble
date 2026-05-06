@@ -725,6 +725,54 @@ describe('useScreenShare', () => {
     expect(result.current.watchingShares).toHaveLength(0);
   });
 
+  it('removes watched share when its screen-share track unsubscribes', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+    const screenShareTrack = {
+      kind: 'video',
+      source: 'screen_share',
+      attach: vi.fn(() => document.createElement('video')),
+      detach: vi.fn(),
+    };
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    await act(async () => {
+      const p = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      tokenHandler?.({ token: 'jwt', url: 'ws://localhost/livekit' });
+      await p;
+    });
+
+    act(() => {
+      result.current.setFocusedShare(result.current.watchingShares[0]);
+      emitRoomEvent('trackSubscribed', screenShareTrack, {}, { identity: '@alice:test' });
+    });
+
+    expect(result.current.watchingShares).toHaveLength(1);
+    expect(result.current.focusedShare?.userId).toBe(10);
+    expect(result.current.remoteVideoEls.has(10)).toBe(true);
+
+    await act(async () => {
+      emitRoomEvent('trackUnsubscribed', screenShareTrack, {}, { identity: '@alice:test' });
+      await Promise.resolve();
+    });
+
+    expect(screenShareTrack.detach).toHaveBeenCalledTimes(1);
+    expect(result.current.watchingShares).toEqual([]);
+    expect(result.current.focusedShare).toBeNull();
+    expect(result.current.remoteVideoEls.has(10)).toBe(false);
+    expect(mockRoom.disconnect).toHaveBeenCalledTimes(1);
+  });
+
   it('connectAsViewer adds multiple users up to 4', async () => {
     let tokenHandler: ((data: unknown) => void) | null = null;
     let shareStartedHandler: ((data: unknown) => void) | null = null;

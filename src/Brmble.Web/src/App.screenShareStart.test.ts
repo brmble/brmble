@@ -270,6 +270,15 @@ describe('getNextLiveKitStatusUpdate', () => {
       isLocalShareStartPending: true,
     })).toEqual({ state: 'connected', error: undefined });
   });
+
+  it('returns idle when not sharing and no watched shares remain', () => {
+    expect(getNextLiveKitStatusUpdate({
+      isSharing: false,
+      watchingShareCount: 0,
+      screenShareError: null,
+      isLocalShareStartPending: false,
+    })).toEqual({ state: 'idle', error: undefined });
+  });
 });
 
 describe('shouldClearLocalShareStartPending', () => {

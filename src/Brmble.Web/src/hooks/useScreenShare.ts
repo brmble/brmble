@@ -371,11 +371,16 @@ export function useScreenShare(
         track.source === Track.Source.ScreenShare
       ) {
         track.detach();
-        setRemoteVideoEls(prev => {
-          const next = new Map(prev);
-          next.delete(matchedShare.userId);
-          return next;
-        });
+        const remainingWatchedShares = watchingSharesRef.current.filter(s => s.userId !== matchedShare.userId);
+        removeWatchingShare(matchedShare.userId);
+
+        if (remainingWatchedShares.length === 0 && !isSharingRef.current) {
+          const room = roomRef.current;
+          roomRef.current = null;
+          roomAccessModeRef.current = null;
+          roomReconnectUpgradeRef.current = false;
+          room?.disconnect().catch(() => {});
+        }
       }
     });
 
@@ -403,7 +408,7 @@ export function useScreenShare(
     roomAccessModeRef.current = accessMode;
     roomReconnectUpgradeRef.current = false;
     return room;
-  }, [requestToken, updateWatchingShares, stopLocalShare]);
+  }, [requestToken, updateWatchingShares, stopLocalShare, removeWatchingShare]);
 
   const startSharing = useCallback(async (roomName: string) => {
     setError(null);
