@@ -225,7 +225,9 @@ vi.mock('./components/NeonD/NeonDGame', () => ({ NeonDGame: () => null }));
 vi.mock('./components/Brmblegotchi/Brmblegotchi', () => ({ Brmblegotchi: () => null }));
 vi.mock('./components/UpdateNotification/UpdateNotification', () => ({ UpdateNotification: () => null }));
 vi.mock('./components/BrokenCertNotification/BrokenCertNotification', () => ({ BrokenCertNotification: () => null }));
-vi.mock('./components/Notification/Notification', () => ({ Notification: () => null }));
+vi.mock('./components/Notification/Notification', () => ({
+  Notification: ({ actions }: { actions?: React.ReactNode }) => React.createElement('div', null, actions),
+}));
 
 import App, { canWatchShareFromChannel, getNextLiveKitStatusUpdate, shouldClearLocalShareStartPending, toggleLocalScreenShare } from './App';
 
@@ -303,6 +305,7 @@ describe('active share discovery', () => {
     localStorage.clear();
     screenShareState.isSharing = false;
     screenShareState.activeShares = [];
+    vi.mocked(notifQueue.isVisible).mockReturnValue(false);
   });
 
   it('requests active share discovery after connect for the current channel', async () => {
@@ -381,6 +384,105 @@ describe('active share discovery', () => {
 
     await act(async () => {
       view.getByTestId('sidebar-watch-share').click();
+      await Promise.resolve();
+    });
+
+    expect(serviceStatus.updateStatus).toHaveBeenCalledWith('livekit', { state: 'connecting', error: undefined });
+    expect(connectAsViewer).toHaveBeenCalledWith('channel-1', 42, '@alice:example.com');
+  });
+
+  it('toast watch does not connect as viewer from root selected channel', async () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id) => id === 'screen-share');
+    screenShareState.activeShares = [{
+      roomName: 'channel-1',
+      userName: 'Alice',
+      userId: 42,
+      matrixUserId: '@alice:example.com',
+      sessionId: 2,
+    }];
+
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [
+          { session: 7, name: 'TestUser', self: true, channelId: 1 },
+          { session: 2, name: 'Alice', channelId: 1, matrixUserId: '@alice:example.com' },
+        ],
+      });
+    });
+
+    act(() => {
+      bridge.emit('voice.channelChanged', { channelId: 0, name: 'Root' });
+    });
+
+    act(() => {
+      bridge.emit('livekit.screenShareStarted', {
+        roomName: 'channel-1',
+        userName: 'Alice',
+        userId: 42,
+        matrixUserId: '@alice:example.com',
+        sessionId: 2,
+      });
+    });
+
+    await act(async () => {
+      view.getByText('Watch').click();
+      await Promise.resolve();
+    });
+
+    expect(connectAsViewer).not.toHaveBeenCalled();
+    expect(serviceStatus.updateStatus).not.toHaveBeenCalledWith('livekit', { state: 'connecting', error: undefined });
+  });
+
+  it('toast watch connects as viewer through the gate from the same selected channel', async () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id) => id === 'screen-share');
+    screenShareState.activeShares = [
+      {
+        roomName: 'channel-2',
+        userName: 'Alice',
+        userId: 42,
+        matrixUserId: '@alice:example.com',
+        sessionId: 2,
+      },
+      {
+        roomName: 'channel-1',
+        userName: 'Alice',
+        userId: 42,
+        matrixUserId: '@alice:example.com',
+        sessionId: 2,
+      },
+    ];
+
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [
+          { session: 7, name: 'TestUser', self: true, channelId: 1 },
+          { session: 2, name: 'Alice', channelId: 1, matrixUserId: '@alice:example.com' },
+        ],
+      });
+    });
+
+    act(() => {
+      bridge.emit('livekit.screenShareStarted', {
+        roomName: 'channel-1',
+        userName: 'Alice',
+        userId: 42,
+        matrixUserId: '@alice:example.com',
+        sessionId: 2,
+      });
+    });
+
+    await act(async () => {
+      view.getByText('Watch').click();
       await Promise.resolve();
     });
 

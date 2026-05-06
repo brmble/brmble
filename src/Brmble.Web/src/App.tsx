@@ -2314,7 +2314,9 @@ const handleConnect = (serverData: SavedServer) => {
       return;
     }
 
-    const share = activeShares.find(s => s.userId === userId) ?? null;
+    const share = activeShares.find(s => s.userId === userId && s.roomName === roomName)
+      ?? activeShares.find(s => s.userId === userId)
+      ?? null;
     const actualRoomName = share?.roomName ?? roomName;
 
     if (!canWatchShareFromChannel(currentChannelId, actualRoomName)) {
@@ -2701,7 +2703,7 @@ const handleConnect = (serverData: SavedServer) => {
               <button
                 className="btn btn-sm btn-primary"
                 onClick={() => {
-                  connectAsViewer(screenShareToast.roomName, screenShareToast.userId!, screenShareToast.matrixUserId);
+                  handleWatchScreenShare(screenShareToast.roomName, screenShareToast.userId, screenShareToast.matrixUserId);
                   setScreenShareToast(null);
                   notifQueue.unregister('screen-share');
                 }}
