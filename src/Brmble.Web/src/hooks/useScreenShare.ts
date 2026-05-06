@@ -343,6 +343,10 @@ export function useScreenShare(
     const room = new Room();
 
     room.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
+      if (roomRef.current !== room) {
+        return;
+      }
+
       const watching = watchingSharesRef.current;
       const matchedShare = watching.find(s => {
         const identity = s.matrixUserId ?? String(s.userId);
@@ -359,6 +363,10 @@ export function useScreenShare(
     });
 
     room.on(RoomEvent.TrackUnsubscribed, (track, _pub, participant) => {
+      if (roomRef.current !== room) {
+        return;
+      }
+
       const watching = watchingSharesRef.current;
       const matchedShare = watching.find(s => {
         const identity = s.matrixUserId ?? String(s.userId);

@@ -984,6 +984,107 @@ describe('useScreenShare', () => {
     expect(result.current.watchingShares).toEqual([expect.objectContaining({ userId: 20 })]);
   });
 
+  it('stale track unsubscribed events from an old room do not clear a newer watch state', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+    const screenShareTrack = {
+      kind: 'video',
+      source: 'screen_share',
+      detach: vi.fn(),
+    };
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'bob', userId: 20, matrixUserId: '@bob:test' });
+    });
+
+    await act(async () => {
+      const p = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      tokenHandler?.({ token: 'alice-jwt', url: 'ws://localhost/livekit' });
+      await p;
+    });
+
+    const oldTrackUnsubscribedHandler = Array.from(roomEventHandlers.get('trackUnsubscribed') ?? [])[0];
+
+    await act(async () => {
+      emitRoomEvent('trackUnsubscribed', screenShareTrack, {}, { identity: '@alice:test' });
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      const p = result.current.connectAsViewer('channel-1', 20, '@bob:test');
+      tokenHandler?.({ token: 'bob-jwt', url: 'ws://localhost/livekit' });
+      await p;
+    });
+    mockRoom.disconnect.mockClear();
+
+    await act(async () => {
+      oldTrackUnsubscribedHandler?.(screenShareTrack, {}, { identity: '@bob:test' });
+      await Promise.resolve();
+    });
+
+    expect(screenShareTrack.detach).toHaveBeenCalledTimes(1);
+    expect(result.current.watchingShares).toEqual([expect.objectContaining({ userId: 20 })]);
+    expect(mockRoom.disconnect).not.toHaveBeenCalled();
+  });
+
+  it('stale track subscribed events from an old room do not attach to a newer watch state', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+    const screenShareTrack = {
+      kind: 'video',
+      source: 'screen_share',
+      attach: vi.fn(() => document.createElement('video')),
+      detach: vi.fn(),
+    };
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'bob', userId: 20, matrixUserId: '@bob:test' });
+    });
+
+    await act(async () => {
+      const p = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      tokenHandler?.({ token: 'alice-jwt', url: 'ws://localhost/livekit' });
+      await p;
+    });
+
+    const oldTrackSubscribedHandler = Array.from(roomEventHandlers.get('trackSubscribed') ?? [])[0];
+
+    await act(async () => {
+      emitRoomEvent('trackUnsubscribed', screenShareTrack, {}, { identity: '@alice:test' });
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      const p = result.current.connectAsViewer('channel-1', 20, '@bob:test');
+      tokenHandler?.({ token: 'bob-jwt', url: 'ws://localhost/livekit' });
+      await p;
+    });
+
+    act(() => {
+      oldTrackSubscribedHandler?.(screenShareTrack, {}, { identity: '@bob:test' });
+    });
+
+    expect(screenShareTrack.attach).not.toHaveBeenCalled();
+    expect(result.current.remoteVideoEls.has(20)).toBe(false);
+    expect(result.current.watchingShares).toEqual([expect.objectContaining({ userId: 20 })]);
+  });
+
   it('connectAsViewer adds multiple users up to 4', async () => {
     let tokenHandler: ((data: unknown) => void) | null = null;
     let shareStartedHandler: ((data: unknown) => void) | null = null;
