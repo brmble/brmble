@@ -37,6 +37,13 @@ type LiveKitAccessMode = 'publish' | 'subscribe';
 
 type DiscoveryTarget = (({ scope: 'all' } | { roomName: string }) & { requestId?: number; baselineShareEventVersion?: number }) | null;
 
+type PendingRoomRequest = {
+  roomName: string;
+  accessMode: LiveKitAccessMode;
+  generation: number;
+  promise: Promise<Room>;
+};
+
 type ErrorLike = {
   name?: unknown;
   message?: unknown;
@@ -248,9 +255,11 @@ export function useScreenShare(
   const roomAccessModeRef = useRef<LiveKitAccessMode | null>(null);
   const roomReconnectUpgradeRef = useRef(false);
   const roomLifecycleGenerationRef = useRef(0);
+  const pendingRoomRequestRef = useRef<PendingRoomRequest | null>(null);
 
   const invalidateRoomLifecycle = useCallback(() => {
     roomLifecycleGenerationRef.current += 1;
+    pendingRoomRequestRef.current = null;
   }, []);
 
   // Try to disconnect the room, but only if we're not sharing AND not watching
@@ -340,106 +349,126 @@ export function useScreenShare(
       return existing;
     }
 
+    const pending = pendingRoomRequestRef.current;
+    const pendingCanSatisfyRequest = pending?.accessMode === 'publish' || pending?.accessMode === accessMode;
+    if (pending?.roomName === roomName && pendingCanSatisfyRequest) {
+      return pending.promise;
+    }
+
     let lifecycleGeneration = roomLifecycleGenerationRef.current;
 
-    // Disconnect from any other room
-    if (existing) {
-      roomReconnectUpgradeRef.current = existing.name === roomName && currentAccessMode === 'subscribe' && accessMode === 'publish';
-      roomRef.current = null;
-      roomAccessModeRef.current = null;
-      invalidateRoomLifecycle();
-      lifecycleGeneration = roomLifecycleGenerationRef.current;
-      try { await existing.disconnect(); } catch { /* ignore */ }
-    }
-
-    const { token, url } = await requestToken(roomName, accessMode);
-    if (roomLifecycleGenerationRef.current !== lifecycleGeneration) {
-      throw new Error('LiveKit room request was superseded');
-    }
-
-    const room = new Room();
-
-    room.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
-      if (roomRef.current !== room) {
-        return;
+    const roomPromise = (async () => {
+      // Disconnect from any other room
+      if (existing) {
+        roomReconnectUpgradeRef.current = existing.name === roomName && currentAccessMode === 'subscribe' && accessMode === 'publish';
+        roomRef.current = null;
+        roomAccessModeRef.current = null;
+        invalidateRoomLifecycle();
+        lifecycleGeneration = roomLifecycleGenerationRef.current;
+        try { await existing.disconnect(); } catch { /* ignore */ }
       }
 
-      const watching = watchingSharesRef.current;
-      const matchedShare = watching.find(s => {
-        const identity = s.matrixUserId ?? String(s.userId);
-        return identity === participant.identity;
-      });
-      if (!matchedShare) return;
-      if (
-        track.kind === Track.Kind.Video &&
-        track.source === Track.Source.ScreenShare
-      ) {
-        const el = track.attach() as HTMLVideoElement;
-        setRemoteVideoEls(prev => new Map(prev).set(matchedShare.userId, el));
-      }
-    });
-
-    room.on(RoomEvent.TrackUnsubscribed, (track, _pub, participant) => {
-      if (roomRef.current !== room) {
-        return;
+      const { token, url } = await requestToken(roomName, accessMode);
+      if (roomLifecycleGenerationRef.current !== lifecycleGeneration) {
+        throw new Error('LiveKit room request was superseded');
       }
 
-      const watching = watchingSharesRef.current;
-      const matchedShare = watching.find(s => {
-        const identity = s.matrixUserId ?? String(s.userId);
-        return identity === participant.identity;
-      });
-      if (!matchedShare) return;
-      if (
-        track.kind === Track.Kind.Video &&
-        track.source === Track.Source.ScreenShare
-      ) {
-        track.detach();
-        const remainingWatchedShares = removeWatchingShare(matchedShare.userId);
+      const room = new Room();
 
-        if (remainingWatchedShares.length === 0 && !isSharingRef.current) {
-          const room = roomRef.current;
-          roomRef.current = null;
-          roomAccessModeRef.current = null;
-          roomReconnectUpgradeRef.current = false;
-          room?.disconnect().catch(() => {});
+      room.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
+        if (roomRef.current !== room) {
+          return;
         }
-      }
-    });
 
-    room.on(RoomEvent.Disconnected, () => {
-      if (roomRef.current !== room) {
-        return;
+        const watching = watchingSharesRef.current;
+        const matchedShare = watching.find(s => {
+          const identity = s.matrixUserId ?? String(s.userId);
+          return identity === participant.identity;
+        });
+        if (!matchedShare) return;
+        if (
+          track.kind === Track.Kind.Video &&
+          track.source === Track.Source.ScreenShare
+        ) {
+          const el = track.attach() as HTMLVideoElement;
+          setRemoteVideoEls(prev => new Map(prev).set(matchedShare.userId, el));
+        }
+      });
+
+      room.on(RoomEvent.TrackUnsubscribed, (track, _pub, participant) => {
+        if (roomRef.current !== room) {
+          return;
+        }
+
+        const watching = watchingSharesRef.current;
+        const matchedShare = watching.find(s => {
+          const identity = s.matrixUserId ?? String(s.userId);
+          return identity === participant.identity;
+        });
+        if (!matchedShare) return;
+        if (
+          track.kind === Track.Kind.Video &&
+          track.source === Track.Source.ScreenShare
+        ) {
+          track.detach();
+          const remainingWatchedShares = removeWatchingShare(matchedShare.userId);
+
+          if (remainingWatchedShares.length === 0 && !isSharingRef.current) {
+            const room = roomRef.current;
+            roomRef.current = null;
+            roomAccessModeRef.current = null;
+            roomReconnectUpgradeRef.current = false;
+            invalidateRoomLifecycle();
+            room?.disconnect().catch(() => {});
+          }
+        }
+      });
+
+      room.on(RoomEvent.Disconnected, () => {
+        if (roomRef.current !== room) {
+          return;
+        }
+
+        const isUpgradeReconnect = roomReconnectUpgradeRef.current;
+        if (isUpgradeReconnect) {
+          roomReconnectUpgradeRef.current = false;
+          return;
+        }
+
+        roomRef.current = null;
+        roomAccessModeRef.current = null;
+        setRemoteVideoEls(new Map());
+        const teardownIntent = localShareTeardownIntentRef.current;
+        localShareTeardownIntentRef.current = null;
+        if (isSharingRef.current) {
+          void stopLocalShare(teardownIntent ?? 'interrupted', room);
+        }
+        updateWatchingShares([]);
+        setFocusedShare(null);
+      });
+
+      roomRef.current = room;
+      roomAccessModeRef.current = accessMode;
+
+      await room.connect(url, token);
+      if (roomLifecycleGenerationRef.current !== lifecycleGeneration || roomRef.current !== room) {
+        try { await room.disconnect(); } catch { /* ignore */ }
+        throw new Error('LiveKit room request was superseded');
       }
 
-      const isUpgradeReconnect = roomReconnectUpgradeRef.current;
-      if (isUpgradeReconnect) {
-        roomReconnectUpgradeRef.current = false;
-        return;
-      }
+      roomReconnectUpgradeRef.current = false;
+      return room;
+    })();
 
-      roomRef.current = null;
-      roomAccessModeRef.current = null;
-      setRemoteVideoEls(new Map());
-      const teardownIntent = localShareTeardownIntentRef.current;
-      localShareTeardownIntentRef.current = null;
-      if (isSharingRef.current) {
-        void stopLocalShare(teardownIntent ?? 'interrupted', room);
-      }
-      updateWatchingShares([]);
-      setFocusedShare(null);
-    });
+    pendingRoomRequestRef.current = { roomName, accessMode, generation: lifecycleGeneration, promise: roomPromise };
 
-    await room.connect(url, token);
-    if (roomLifecycleGenerationRef.current !== lifecycleGeneration) {
-      try { await room.disconnect(); } catch { /* ignore */ }
-      throw new Error('LiveKit room request was superseded');
+    try {
+      return await roomPromise;
+    } finally {
+      if (pendingRoomRequestRef.current?.promise === roomPromise) {
+        pendingRoomRequestRef.current = null;
+      }
     }
-
-    roomRef.current = room;
-    roomAccessModeRef.current = accessMode;
-    roomReconnectUpgradeRef.current = false;
-    return room;
   }, [requestToken, updateWatchingShares, stopLocalShare, removeWatchingShare, invalidateRoomLifecycle]);
 
   const startSharing = useCallback(async (roomName: string) => {

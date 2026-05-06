@@ -6,6 +6,7 @@ import bridge from '../bridge';
 const roomEventHandlers = new Map<string, Set<(...args: unknown[]) => void>>();
 const localTrackEventHandlers = new Map<string, Set<() => void>>();
 let localSharePublicationEnabled = false;
+let mockRoomConstructionCount = 0;
 
 const mockLocalScreenShareTrack = {
   addEventListener: vi.fn((event: string, handler: () => void) => {
@@ -70,6 +71,10 @@ const mockRoom = {
 
 vi.mock('livekit-client', () => ({
   Room: class MockRoom {
+    constructor() {
+      mockRoomConstructionCount += 1;
+    }
+
     connect = mockRoom.connect;
     disconnect = mockRoom.disconnect;
     name = mockRoom.name;
@@ -104,6 +109,7 @@ describe('useScreenShare', () => {
     roomEventHandlers.clear();
     localTrackEventHandlers.clear();
     localSharePublicationEnabled = false;
+    mockRoomConstructionCount = 0;
   });
 
   it('starts in idle state with empty activeShares', () => {
@@ -1171,6 +1177,87 @@ describe('useScreenShare', () => {
 
     expect(result.current.watchingShares).toEqual([]);
     expect(mockRoom.connect).not.toHaveBeenCalled();
+  });
+
+  it('parallel viewer connects share one room creation', async () => {
+    const tokenHandlers: Array<(data: unknown) => void> = [];
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandlers.push(handler);
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'bob', userId: 20, matrixUserId: '@bob:test' });
+    });
+
+    await act(async () => {
+      const alicePromise = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      const bobPromise = result.current.connectAsViewer('channel-1', 20, '@bob:test');
+      tokenHandlers[0]?.({ token: 'viewer-jwt', url: 'ws://localhost/livekit' });
+      tokenHandlers[1]?.({ token: 'viewer-jwt-2', url: 'ws://localhost/livekit' });
+      await Promise.all([alicePromise, bobPromise]);
+    });
+
+    expect(mockRoomConstructionCount).toBe(1);
+    expect(mockRoom.connect).toHaveBeenCalledTimes(1);
+    expect(result.current.watchingShares).toEqual([
+      expect.objectContaining({ userId: 10 }),
+      expect.objectContaining({ userId: 20 }),
+    ]);
+  });
+
+  it('track subscribed during connect attaches preserved watched share video', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+    let resolveDisconnect: (() => void) | null = null;
+    const screenShareTrack = {
+      kind: 'video',
+      source: 'screen_share',
+      attach: vi.fn(() => document.createElement('video')),
+    };
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+    mockRoom.connect.mockImplementationOnce(async () => { mockRoom.state = 'connected'; });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    await act(async () => {
+      const p = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      tokenHandler?.({ token: 'viewer-jwt', url: 'ws://localhost/livekit' });
+      await p;
+    });
+
+    mockRoom.disconnect.mockImplementationOnce(() => new Promise<void>(resolve => {
+      resolveDisconnect = resolve;
+    }));
+    mockRoom.connect.mockImplementationOnce(async () => {
+      emitRoomEvent('trackSubscribed', screenShareTrack, {}, { identity: '@alice:test' });
+      mockRoom.state = 'connected';
+    });
+
+    await act(async () => {
+      const p = result.current.startSharing('channel-1');
+      resolveDisconnect?.();
+      await Promise.resolve();
+      tokenHandler?.({ token: 'publisher-jwt', url: 'ws://localhost/livekit' });
+      await p;
+    });
+
+    expect(screenShareTrack.attach).toHaveBeenCalledTimes(1);
+    expect(result.current.remoteVideoEls.has(10)).toBe(true);
+    expect(result.current.watchingShares).toEqual([expect.objectContaining({ userId: 10 })]);
   });
 
   it('connectAsViewer adds multiple users up to 4', async () => {
