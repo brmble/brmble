@@ -438,6 +438,56 @@ describe('active share discovery', () => {
     expect(serviceStatus.updateStatus).not.toHaveBeenCalledWith('livekit', { state: 'connecting', error: undefined });
   });
 
+  it('toast watch does not connect as viewer from the wrong selected channel', async () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id) => id === 'screen-share');
+    screenShareState.activeShares = [{
+      roomName: 'channel-1',
+      userName: 'Alice',
+      userId: 42,
+      matrixUserId: '@alice:example.com',
+      sessionId: 2,
+    }];
+
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming' },
+        ],
+        users: [
+          { session: 7, name: 'TestUser', self: true, channelId: 1 },
+          { session: 2, name: 'Alice', channelId: 1, matrixUserId: '@alice:example.com' },
+        ],
+      });
+    });
+
+    act(() => {
+      bridge.emit('voice.channelChanged', { channelId: 2, name: 'Gaming' });
+    });
+
+    act(() => {
+      bridge.emit('livekit.screenShareStarted', {
+        roomName: 'channel-1',
+        userName: 'Alice',
+        userId: 42,
+        matrixUserId: '@alice:example.com',
+        sessionId: 2,
+      });
+    });
+
+    await act(async () => {
+      view.getByText('Watch').click();
+      await Promise.resolve();
+    });
+
+    expect(connectAsViewer).not.toHaveBeenCalled();
+    expect(serviceStatus.updateStatus).not.toHaveBeenCalledWith('livekit', { state: 'connecting', error: undefined });
+  });
+
   it('toast watch connects as viewer through the gate from the same selected channel', async () => {
     vi.mocked(notifQueue.isVisible).mockImplementation((id) => id === 'screen-share');
     screenShareState.activeShares = [
