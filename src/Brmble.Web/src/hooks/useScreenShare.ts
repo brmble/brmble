@@ -44,6 +44,8 @@ type PendingRoomRequest = {
   reject: (err: unknown) => void;
 };
 
+type PendingViewerTarget = { roomName: string; userId: number } | null;
+
 type SupersededRoomRequest = Error & { code: 'LIVEKIT_ROOM_REQUEST_SUPERSEDED' };
 
 type ErrorLike = {
@@ -158,6 +160,7 @@ export function useScreenShare(
   const localShareStopHandledRef = useRef(false);
   const localShareTeardownIntentRef = useRef<LocalShareStopReason | null>(null);
   const viewerConnectPendingCountRef = useRef(0);
+  const pendingViewerTargetRef = useRef<PendingViewerTarget>(null);
   onDisconnectedRef.current = onDisconnected;
   onLocalShareEndedRef.current = onLocalShareEnded;
 
@@ -667,6 +670,7 @@ export function useScreenShare(
     }
 
     beginViewerConnectAttempt();
+    pendingViewerTargetRef.current = { roomName, userId: targetUserId };
     setError(null);
 
     try {
@@ -705,6 +709,10 @@ export function useScreenShare(
       setError(err instanceof Error ? err.message : 'Failed to connect as viewer');
       throw err;
     } finally {
+      const pendingTarget = pendingViewerTargetRef.current;
+      if (pendingTarget?.roomName === roomName && pendingTarget.userId === targetUserId) {
+        pendingViewerTargetRef.current = null;
+      }
       endViewerConnectAttempt();
     }
   }, [activeShares, ensureRoom, addWatchingShare, removeWatchingShare, maybeDisconnectRoom, beginViewerConnectAttempt, endViewerConnectAttempt]);
@@ -774,6 +782,11 @@ export function useScreenShare(
 
       // If we were watching this user, remove their tile
       const wasWatching = watchingSharesRef.current.some(s => s.roomName === d.roomName && s.userId === d.userId);
+      const pendingViewerTarget = pendingViewerTargetRef.current;
+      if (pendingViewerTarget?.roomName === d.roomName && pendingViewerTarget.userId === d.userId) {
+        pendingViewerTargetRef.current = null;
+        invalidateRoomLifecycle();
+      }
       if (wasWatching) {
         const room = roomRef.current;
         if (room) {
@@ -880,8 +893,10 @@ export function useScreenShare(
   useEffect(() => {
     return () => {
       clearLocalShareEndListener();
+      pendingViewerTargetRef.current = null;
+      invalidateRoomLifecycle();
     };
-  }, [clearLocalShareEndListener]);
+  }, [clearLocalShareEndListener, invalidateRoomLifecycle]);
 
   // Backward compat: expose first active share as activeShare
   const activeShare: ActiveShare | null = activeShares.length > 0

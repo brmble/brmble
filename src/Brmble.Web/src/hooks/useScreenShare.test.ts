@@ -343,7 +343,8 @@ describe('useScreenShare', () => {
     expect(result.current.activeShares).toEqual([]);
     expect(result.current.watchingShares).toEqual([]);
     expect(result.current.remoteVideoEls.size).toBe(0);
-    expect(mockRoom.disconnect).toHaveBeenCalledTimes(1);
+    expect(mockRoom.connect).not.toHaveBeenCalled();
+    expect(mockRoom.disconnect).not.toHaveBeenCalled();
   });
 
   it('clears viewer error after a later successful connectAsViewer', async () => {
@@ -1347,6 +1348,68 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       await result.current.disconnectViewer();
+      await Promise.resolve();
+    });
+
+    expect(onSettled).toHaveBeenCalledTimes(1);
+    expect(result.current.isViewerConnectPending).toBe(false);
+    expect(result.current.watchingShares).toEqual([]);
+    expect(mockRoom.connect).not.toHaveBeenCalled();
+  });
+
+  it('unmount cancels pending viewer connect without waiting for token', async () => {
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result, unmount } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    const onSettled = vi.fn();
+    act(() => {
+      result.current.connectAsViewer('channel-1', 10, '@alice:test').then(onSettled, onSettled);
+    });
+
+    expect(result.current.isViewerConnectPending).toBe(true);
+
+    await act(async () => {
+      unmount();
+      await Promise.resolve();
+    });
+
+    expect(onSettled).toHaveBeenCalledTimes(1);
+    expect(mockRoom.connect).not.toHaveBeenCalled();
+  });
+
+  it('share stops while pending viewer connect cancels without waiting for token', async () => {
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+    let shareStoppedHandler: ((data: unknown) => void) | null = null;
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+      if (type === 'livekit.screenShareStopped') shareStoppedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    const onSettled = vi.fn();
+    act(() => {
+      result.current.connectAsViewer('channel-1', 10, '@alice:test').then(onSettled, onSettled);
+    });
+
+    expect(result.current.isViewerConnectPending).toBe(true);
+
+    await act(async () => {
+      shareStoppedHandler?.({ roomName: 'channel-1', userId: 10 });
       await Promise.resolve();
     });
 
