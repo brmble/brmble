@@ -44,7 +44,13 @@ type PendingRoomRequest = {
   reject: (err: unknown) => void;
 };
 
-type PendingViewerTarget = { roomName: string; userId: number } | null;
+type PendingViewerAttempt = {
+  id: number;
+  roomName: string;
+  userId: number;
+  cancel: () => void;
+  promise: Promise<never>;
+};
 
 type SupersededRoomRequest = Error & { code: 'LIVEKIT_ROOM_REQUEST_SUPERSEDED' };
 
@@ -160,7 +166,8 @@ export function useScreenShare(
   const localShareStopHandledRef = useRef(false);
   const localShareTeardownIntentRef = useRef<LocalShareStopReason | null>(null);
   const viewerConnectPendingCountRef = useRef(0);
-  const pendingViewerTargetRef = useRef<PendingViewerTarget>(null);
+  const pendingViewerAttemptIdRef = useRef(0);
+  const pendingViewerAttemptsRef = useRef(new Map<number, PendingViewerAttempt>());
   onDisconnectedRef.current = onDisconnected;
   onLocalShareEndedRef.current = onLocalShareEnded;
 
@@ -177,6 +184,30 @@ export function useScreenShare(
   const endViewerConnectAttempt = useCallback(() => {
     viewerConnectPendingCountRef.current = Math.max(0, viewerConnectPendingCountRef.current - 1);
     setIsViewerConnectPending(viewerConnectPendingCountRef.current > 0);
+  }, []);
+
+  const registerPendingViewerAttempt = useCallback((roomName: string, userId: number) => {
+    const id = ++pendingViewerAttemptIdRef.current;
+    let cancel!: () => void;
+    const promise = new Promise<never>((_, reject) => {
+      cancel = () => reject(createSupersededRoomRequestError());
+    });
+    const attempt: PendingViewerAttempt = { id, roomName, userId, cancel, promise };
+    pendingViewerAttemptsRef.current.set(id, attempt);
+    return attempt;
+  }, []);
+
+  const unregisterPendingViewerAttempt = useCallback((attempt: PendingViewerAttempt) => {
+    pendingViewerAttemptsRef.current.delete(attempt.id);
+  }, []);
+
+  const cancelPendingViewerAttempts = useCallback((predicate?: (attempt: PendingViewerAttempt) => boolean) => {
+    for (const attempt of pendingViewerAttemptsRef.current.values()) {
+      if (!predicate || predicate(attempt)) {
+        pendingViewerAttemptsRef.current.delete(attempt.id);
+        attempt.cancel();
+      }
+    }
   }, []);
 
   const setFocusedShare: typeof _setFocusedShare = useCallback((action) => {
@@ -670,7 +701,7 @@ export function useScreenShare(
     }
 
     beginViewerConnectAttempt();
-    pendingViewerTargetRef.current = { roomName, userId: targetUserId };
+    const pendingAttempt = registerPendingViewerAttempt(roomName, targetUserId);
     setError(null);
 
     try {
@@ -678,8 +709,14 @@ export function useScreenShare(
       const participantIdentity = matrixUserId ?? shareInfo?.matrixUserId ?? String(targetUserId);
       const newShare: ShareInfo = { ...(shareInfo ?? { roomName, userName: '', userId: targetUserId }), matrixUserId: participantIdentity };
 
-      const room = await ensureRoom(roomName, 'subscribe');
+      const room = await Promise.race([
+        ensureRoom(roomName, 'subscribe'),
+        pendingAttempt.promise,
+      ]);
 
+      if (!pendingViewerAttemptsRef.current.has(pendingAttempt.id)) {
+        return;
+      }
       const isShareStillActive = activeSharesRef.current.some(s => s.roomName === roomName && s.userId === targetUserId);
       if (!isShareStillActive) {
         await maybeDisconnectRoom();
@@ -709,13 +746,10 @@ export function useScreenShare(
       setError(err instanceof Error ? err.message : 'Failed to connect as viewer');
       throw err;
     } finally {
-      const pendingTarget = pendingViewerTargetRef.current;
-      if (pendingTarget?.roomName === roomName && pendingTarget.userId === targetUserId) {
-        pendingViewerTargetRef.current = null;
-      }
+      unregisterPendingViewerAttempt(pendingAttempt);
       endViewerConnectAttempt();
     }
-  }, [activeShares, ensureRoom, addWatchingShare, removeWatchingShare, maybeDisconnectRoom, beginViewerConnectAttempt, endViewerConnectAttempt]);
+  }, [activeShares, ensureRoom, addWatchingShare, removeWatchingShare, maybeDisconnectRoom, beginViewerConnectAttempt, endViewerConnectAttempt, registerPendingViewerAttempt, unregisterPendingViewerAttempt]);
 
   const disconnectViewer = useCallback(async (userId?: number) => {
     const room = roomRef.current;
@@ -782,9 +816,9 @@ export function useScreenShare(
 
       // If we were watching this user, remove their tile
       const wasWatching = watchingSharesRef.current.some(s => s.roomName === d.roomName && s.userId === d.userId);
-      const pendingViewerTarget = pendingViewerTargetRef.current;
-      if (pendingViewerTarget?.roomName === d.roomName && pendingViewerTarget.userId === d.userId) {
-        pendingViewerTargetRef.current = null;
+      cancelPendingViewerAttempts(attempt => attempt.roomName === d.roomName && attempt.userId === d.userId);
+      const hasRemainingPendingViewersForRoom = Array.from(pendingViewerAttemptsRef.current.values()).some(attempt => attempt.roomName === d.roomName);
+      if (pendingRoomRequestRef.current?.roomName === d.roomName && !hasRemainingPendingViewersForRoom && watchingSharesRef.current.length === 0 && !isSharingRef.current) {
         invalidateRoomLifecycle();
       }
       if (wasWatching) {
@@ -893,10 +927,10 @@ export function useScreenShare(
   useEffect(() => {
     return () => {
       clearLocalShareEndListener();
-      pendingViewerTargetRef.current = null;
+      cancelPendingViewerAttempts();
       invalidateRoomLifecycle();
     };
-  }, [clearLocalShareEndListener, invalidateRoomLifecycle]);
+  }, [clearLocalShareEndListener, cancelPendingViewerAttempts, invalidateRoomLifecycle]);
 
   // Backward compat: expose first active share as activeShare
   const activeShare: ActiveShare | null = activeShares.length > 0

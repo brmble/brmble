@@ -1419,6 +1419,89 @@ describe('useScreenShare', () => {
     expect(mockRoom.connect).not.toHaveBeenCalled();
   });
 
+  it('multiple pending viewer connects keep active target pending when another target stops', async () => {
+    const tokenHandlers: Array<(data: unknown) => void> = [];
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+    let shareStoppedHandler: ((data: unknown) => void) | null = null;
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandlers.push(handler);
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+      if (type === 'livekit.screenShareStopped') shareStoppedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'bob', userId: 20, matrixUserId: '@bob:test' });
+    });
+
+    const aliceSettled = vi.fn();
+    const bobSettled = vi.fn();
+    let alicePromise: Promise<void> | null = null;
+    let bobPromise: Promise<void> | null = null;
+    act(() => {
+      alicePromise = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      bobPromise = result.current.connectAsViewer('channel-1', 20, '@bob:test');
+      alicePromise.then(aliceSettled, aliceSettled);
+      bobPromise.then(bobSettled, bobSettled);
+    });
+
+    await act(async () => {
+      shareStoppedHandler?.({ roomName: 'channel-1', userId: 20 });
+      await Promise.resolve();
+    });
+
+    expect(bobSettled).toHaveBeenCalledTimes(1);
+    expect(aliceSettled).not.toHaveBeenCalled();
+    expect(result.current.isViewerConnectPending).toBe(true);
+
+    await act(async () => {
+      tokenHandlers[0]?.({ token: 'viewer-jwt', url: 'ws://localhost/livekit', requestId: 1 });
+      await alicePromise;
+      await bobPromise;
+    });
+
+    expect(result.current.isViewerConnectPending).toBe(false);
+    expect(result.current.watchingShares).toEqual([expect.objectContaining({ userId: 10 })]);
+    expect(mockRoom.connect).toHaveBeenCalledTimes(1);
+  });
+
+  it('first pending target stops after another target registers and settles promptly', async () => {
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+    let shareStoppedHandler: ((data: unknown) => void) | null = null;
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+      if (type === 'livekit.screenShareStopped') shareStoppedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'bob', userId: 20, matrixUserId: '@bob:test' });
+    });
+
+    const aliceSettled = vi.fn();
+    const bobSettled = vi.fn();
+    act(() => {
+      result.current.connectAsViewer('channel-1', 10, '@alice:test').then(aliceSettled, aliceSettled);
+      result.current.connectAsViewer('channel-1', 20, '@bob:test').then(bobSettled, bobSettled);
+    });
+
+    await act(async () => {
+      shareStoppedHandler?.({ roomName: 'channel-1', userId: 10 });
+      await Promise.resolve();
+    });
+
+    expect(aliceSettled).toHaveBeenCalledTimes(1);
+    expect(bobSettled).not.toHaveBeenCalled();
+    expect(result.current.isViewerConnectPending).toBe(true);
+    expect(mockRoom.connect).not.toHaveBeenCalled();
+  });
+
   it('superseded viewer connect settles and clears its pending attempt', async () => {
     const tokenHandlers: Array<(data: unknown) => void> = [];
     let shareStartedHandler: ((data: unknown) => void) | null = null;
