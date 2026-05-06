@@ -520,7 +520,7 @@ export function useScreenShare(
 
     const shareInfo = activeShares.find(s => s.userId === targetUserId && s.roomName === roomName);
     const participantIdentity = matrixUserId ?? shareInfo?.matrixUserId ?? String(targetUserId);
-    const newShare: ShareInfo = shareInfo ?? { roomName, userName: '', userId: targetUserId, matrixUserId };
+    const newShare: ShareInfo = { ...(shareInfo ?? { roomName, userName: '', userId: targetUserId }), matrixUserId: participantIdentity };
 
     try {
       const room = await ensureRoom(roomName, 'subscribe');
