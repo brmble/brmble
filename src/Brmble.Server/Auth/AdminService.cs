@@ -33,44 +33,24 @@ public class AdminService
 
     public async Task<List<AdminUserDto>> GetRegisteredUsersAsync()
     {
-        var sqliteUsers = await _userRepo.GetAllAsync();
+        // Mumble's registered user list is the authoritative source of truth.
+        // Only return what Mumble has registered — this mirrors the Mumble admin UI.
         var mumbleUsers = await _mumbleService.GetRegisteredUsersAsync("");
 
         var result = new List<AdminUserDto>();
 
-        // Add SQLite users, checking Mumble registration status
-        foreach (var user in sqliteUsers)
-        {
-            var mumbleEntry = mumbleUsers.FirstOrDefault(m => m.Value == user.DisplayName);
-            result.Add(new AdminUserDto(
-                Id: user.Id,
-                DisplayName: user.DisplayName,
-                CertHash: user.CertHash,
-                MatrixUserId: user.MatrixUserId,
-                IsAdmin: user.IsAdmin,
-                IsBrmbleUser: true,
-                IsMumbleRegistered: mumbleEntry.Key > 0,
-                MumbleUserId: mumbleEntry.Key > 0 ? mumbleEntry.Key : null
-            ));
-        }
-
-        // Add Mumble-only users (not in SQLite)
         foreach (var mumbleEntry in mumbleUsers)
         {
-            var existsInSqlite = sqliteUsers.Any(u => u.DisplayName == mumbleEntry.Value);
-            if (!existsInSqlite)
-            {
-                result.Add(new AdminUserDto(
-                    Id: null,
-                    DisplayName: mumbleEntry.Value,
-                    CertHash: null,
-                    MatrixUserId: null,
-                    IsAdmin: 0,
-                    IsBrmbleUser: false,
-                    IsMumbleRegistered: true,
-                    MumbleUserId: mumbleEntry.Key
-                ));
-            }
+            result.Add(new AdminUserDto(
+                Id: null,
+                DisplayName: mumbleEntry.Value,
+                CertHash: null,
+                MatrixUserId: null,
+                IsAdmin: 0,
+                IsBrmbleUser: false,
+                IsMumbleRegistered: true,
+                MumbleUserId: mumbleEntry.Key
+            ));
         }
 
         return result;

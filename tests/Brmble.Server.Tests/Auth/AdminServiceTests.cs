@@ -39,43 +39,42 @@ public class AdminServiceTests
     public void Cleanup() => _keepAlive?.Dispose();
 
     [TestMethod]
-    public async Task GetRegisteredUsersAsync_MergesSqliteAndMumble()
+    public async Task GetRegisteredUsersAsync_ReturnsMumbleRegisteredUsers()
     {
-        // Arrange: Add a user to SQLite
-        var user = await _repo!.Insert("cert1", "Alice");
-        await _repo.SetAdmin(user.Id, false);
-
-        // Arrange: Mock Mumble returning a registered user
+        // Arrange: Mock Mumble returning registered users
         _mumbleMock.Setup(m => m.GetRegisteredUsersAsync(""))
-            .ReturnsAsync(new Dictionary<int, string> { { 42, "Alice" } });
+            .ReturnsAsync(new Dictionary<int, string> 
+            { 
+                { 42, "Alice" },
+                { 99, "Bob" }
+            });
 
         // Act
         var result = await _service!.GetRegisteredUsersAsync();
 
         // Assert
-        Assert.AreEqual(1, result.Count);
+        Assert.AreEqual(2, result.Count);
         Assert.AreEqual("Alice", result[0].DisplayName);
+        Assert.AreEqual(42, result[0].MumbleUserId);
         Assert.IsTrue(result[0].IsMumbleRegistered);
-        Assert.AreEqual(0, result[0].IsAdmin);
+        Assert.AreEqual("Bob", result[1].DisplayName);
+        Assert.AreEqual(99, result[1].MumbleUserId);
+        Assert.IsTrue(result[1].IsMumbleRegistered);
     }
 
-     [TestMethod]
-     public async Task GetRegisteredUsersAsync_IncludesMumbleOnlyUsers()
-     {
-         // Arrange: No SQLite users
-         // Arrange: Mock Mumble returning a registered user not in SQLite
-         _mumbleMock.Setup(m => m.GetRegisteredUsersAsync(""))
-             .ReturnsAsync(new Dictionary<int, string> { { 99, "Bob" } });
+      [TestMethod]
+      public async Task GetRegisteredUsersAsync_EmptyWhenNoMumbleUsers()
+      {
+          // Arrange: Mock Mumble returning no registered users
+          _mumbleMock.Setup(m => m.GetRegisteredUsersAsync(""))
+              .ReturnsAsync(new Dictionary<int, string>());
 
-         // Act
-         var result = await _service!.GetRegisteredUsersAsync();
+          // Act
+          var result = await _service!.GetRegisteredUsersAsync();
 
-         // Assert
-         Assert.AreEqual(1, result.Count);
-         Assert.AreEqual("Bob", result[0].DisplayName);
-         Assert.IsTrue(result[0].IsMumbleRegistered);
-         Assert.IsFalse(result[0].IsBrmbleUser);
-     }
+          // Assert
+          Assert.AreEqual(0, result.Count);
+      }
 
      [TestMethod]
      public async Task DeleteUserAsync_RemovesUserAndMumble()
