@@ -22,7 +22,7 @@ If the user is sharing and tries to move to another voice channel, Brmble shows 
 
 - Title: `Screen share active`
 - Message: `Moving to another channel will end your screen share. Move and stop sharing?`
-- Confirm: `Move and Stop Sharing`
+- Confirm: `Move`
 - Cancel: `Stay Here`
 
 Confirming stops the local screen share, clears local sharing state, then joins the target channel. Cancelling leaves the user in the current channel and keeps sharing.
@@ -33,7 +33,7 @@ If the user is sharing and presses leave voice, Brmble shows one prompt:
 
 - Title: `Screen share active`
 - Message: `Leaving voice will end your screen share. Leave voice and stop sharing?`
-- Confirm: `Leave and Stop Sharing`
+- Confirm: `Leave`
 - Cancel: `Stay Here`
 
 Confirming stops the local screen share, clears local sharing state, then sends `voice.leaveVoice`. Cancelling leaves the user in the current channel and keeps sharing.

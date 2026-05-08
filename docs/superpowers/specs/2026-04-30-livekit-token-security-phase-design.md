@@ -1,8 +1,8 @@
 # LiveKit Token & Security Phase Design
 
 **Date:** 2026-04-30
-**Status:** Approved
-**Scope:** Define the next LiveKit security phase as two sub-phases: `E1: Access Control Foundation` and `E2: Token Lifecycle Hardening`.
+**Status:** Partially implemented. E1 and the first E2 hardening pass have landed; token rotation and early revocation remain future work.
+**Scope:** Historical design for the LiveKit security phase split into `E1: Access Control Foundation` and `E2: Token Lifecycle Hardening`.
 
 ## Overview
 
@@ -17,7 +17,7 @@ One product clarification is important: share discovery metadata and share watch
 - Make the server the single authority for LiveKit publish and subscribe permissions while keeping share discovery as authenticated visibility metadata.
 - Separate publisher and viewer access through explicit token scoping.
 - Tie actual LiveKit watch/publish access to actual channel membership and permission state rather than room-name knowledge.
-- Add short-lived token lifecycle controls: rotation, early revocation, and rate limiting.
+- Add short-lived token lifecycle controls and abuse resistance. The landed E2 pass includes shorter token expiry metadata, targeted rate limiting, and duplicate-start suppression; token rotation and early revocation remain future work.
 - Include one tiny client-side guardrail that prevents duplicate share-start attempts during the token/connect path.
 
 ## Non-Goals
@@ -43,14 +43,18 @@ Deliverables:
 
 ### E2. Token Lifecycle Hardening
 
-`E2` builds on `E1` by controlling duration, revocation, and abuse resistance. It does not invent new authorization rules; it only enforces and maintains the access model established in `E1`.
+`E2` builds on `E1` by controlling duration and abuse resistance first, then leaving full revocation/rotation for follow-up work. It does not invent new authorization rules; it only enforces and maintains the access model established in `E1`.
 
 Deliverables:
 
-- token rotation before expiry
-- early revocation on kick, leave, or permission loss
+- short-lived token expiry metadata
 - rate limiting on relevant LiveKit endpoints
 - one tiny duplicate-start guardrail during the LiveKit auth/connect path
+
+Deferred E2 deliverables:
+
+- token rotation before expiry
+- early revocation on kick, leave, or permission loss
 
 ## Core Design
 
@@ -104,10 +108,10 @@ This means share discovery remains visible product metadata, while publish and s
 ### E2 lifecycle flow
 
 1. Server issues shorter-lived tokens
-2. Client refreshes before expiry
-3. Server can terminate access early when the user is kicked, leaves, or loses permission
-4. Rate limiting constrains repeated token/discovery abuse
-5. The duplicate-start guard prevents overlapping share-start/token-connect attempts on the client
+2. Server returns expiry metadata so the client flow is rotation-ready
+3. Rate limiting constrains repeated token/discovery abuse
+4. The duplicate-start guard prevents overlapping share-start/token-connect attempts on the client
+5. Future work adds token refresh before expiry and early revocation on kick, leave, or permission loss
 
 The lifecycle layer should not create a second set of rules. It only maintains and enforces the access model defined by `E1`.
 
@@ -151,8 +155,8 @@ The rate limiter should be scoped narrowly enough to protect these endpoints wit
 ### Token rotation
 
 - Tokens should become short-lived enough that long-lived unauthorized access is materially reduced.
-- The client refreshes before expiry so a valid session continues without interrupting an active share or view.
-- Rotation belongs in `E2`, after `E1` has made the access model correct.
+- The landed client flow accepts expiry metadata so token refresh can be added without changing the response contract again.
+- Full refresh before expiry remains future E work.
 
 ### Early revocation
 
@@ -232,11 +236,15 @@ Keeping those separate prevents future `F`-phase reconnect work from being pollu
 
 ### E2 tests
 
+- short-lived token metadata is returned with an expiry timestamp
+- rate limiting blocks repeated token/discovery abuse
+- duplicate-start guard suppresses a second in-flight share-start request
+
+Future E tests:
+
 - token refresh occurs before expiry without dropping a valid session
 - expired token without refresh ends access cleanly
 - kick, leave, or permission loss revokes active access
-- rate limiting blocks repeated token/discovery abuse
-- duplicate-start guard suppresses a second in-flight share-start request
 
 ### Manual verification
 
@@ -279,7 +287,7 @@ Still out of scope for this spec:
 - LiveKit discovery is authenticated and visible to known users across channels.
 - LiveKit token issuance is authenticated and permission-checked server-side.
 - Viewer and sharer tokens are scoped to least privilege.
-- Active access can be rotated and revoked without waiting for a long TTL to expire.
+- Active access is limited by short-lived token metadata and prepared for future refresh/revocation work.
 - Repeated token/discovery abuse is constrained by rate limiting.
 - Duplicate share-start attempts do not create overlapping token/connect requests.
 - The phase remains security-focused and does not absorb the broader `F` reconnect/reliability work.

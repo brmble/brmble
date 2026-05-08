@@ -1,10 +1,12 @@
 # LiveKit Token & Security E2 Implementation Plan
 
+> **Status note:** Implemented with narrowed scope. This plan is retained as the historical record for the landed E2 pass: 1-hour token expiry metadata, targeted LiveKit endpoint rate limiting, expiry-aware client token handling, duplicate share-start suppression, and an App-level connecting guard. Full token rotation and early revocation remain future work.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement the token lifecycle hardening phase for LiveKit: short-lived tokens, rotation-ready client flow, early revocation hooks, endpoint rate limiting, and one duplicate-start guardrail.
+**Goal:** Implement the landed E2 token lifecycle hardening pass for LiveKit: short-lived token expiry metadata, rotation-ready client response handling, endpoint rate limiting, and duplicate-start guardrails.
 
-**Architecture:** Build E2 on top of E1 instead of redefining authorization. Server work stays in the LiveKit service/endpoints and ASP.NET pipeline, while the client changes remain narrow: request tokens with the right access mode, refresh before expiry, and suppress duplicate share-start attempts while a token/connect path is in flight. Revocation is modeled as early access loss tied to existing server-side participant removal and permission state transitions.
+**Architecture:** Build E2 on top of E1 instead of redefining authorization. Server work stays in the LiveKit service/endpoints and ASP.NET pipeline, while the client changes remain narrow: accept token expiry metadata, preserve explicit access modes, and suppress duplicate share-start attempts while a token/connect path is in flight. Full refresh before expiry and early revocation are intentionally deferred.
 
 **Tech Stack:** ASP.NET Core, C#, Microsoft.AspNetCore.RateLimiting, React, TypeScript, MSTest, Vitest
 
@@ -15,7 +17,7 @@
 - Modify: `src/Brmble.Server/LiveKit/LiveKitService.cs`
   Purpose: shorten token TTL and expose token-lifecycle metadata needed by the client refresh path.
 - Modify: `src/Brmble.Server/LiveKit/LiveKitEndpoints.cs`
-  Purpose: return token-expiry metadata and hook early revocation/permission-loss behavior into existing endpoint semantics.
+  Purpose: return token-expiry metadata and apply targeted rate limiting to LiveKit endpoint mappings.
 - Modify: `src/Brmble.Server/Program.cs`
   Purpose: register and apply targeted rate limiting to LiveKit-related endpoints.
 - Modify: `tests/Brmble.Server.Tests/LiveKit/LiveKitServiceTests.cs`
@@ -372,7 +374,7 @@ try {
 In `src/Brmble.Web/src/App.tsx`, add an early return in the share toggle path:
 
 ```ts
-if (serviceStatus.livekit.state === 'connecting') {
+if (statuses.livekit.state === 'connecting') {
   return;
 }
 ```

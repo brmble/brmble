@@ -477,7 +477,7 @@ For cancel:
 expect(confirm).toHaveBeenCalledWith(expect.objectContaining({
   title: 'Screen share active',
   message: 'Moving to another channel will end your screen share. Move and stop sharing?',
-  confirmLabel: 'Move and Stop Sharing',
+  confirmLabel: 'Move',
   cancelLabel: 'Stay Here',
 }));
 expect(bridge.send).not.toHaveBeenCalledWith('voice.joinChannel', { channelId: 2 });
@@ -500,7 +500,7 @@ For cancel:
 expect(confirm).toHaveBeenCalledWith(expect.objectContaining({
   title: 'Screen share active',
   message: 'Leaving voice will end your screen share. Leave voice and stop sharing?',
-  confirmLabel: 'Leave and Stop Sharing',
+  confirmLabel: 'Leave',
   cancelLabel: 'Stay Here',
 }));
 expect(bridge.send).not.toHaveBeenCalledWith('voice.leaveVoice', {});
@@ -532,7 +532,7 @@ In `src/Brmble.Web/src/App.tsx`, replace the sharing block in `handleJoinChannel
       const shouldMove = await confirm({
         title: 'Screen share active',
         message: 'Moving to another channel will end your screen share. Move and stop sharing?',
-        confirmLabel: 'Move and Stop Sharing',
+        confirmLabel: 'Move',
         cancelLabel: 'Stay Here',
       });
       if (!shouldMove) {
@@ -552,7 +552,7 @@ In `src/Brmble.Web/src/App.tsx`, replace the sharing block in `handleLeaveVoice`
       const shouldLeave = await confirm({
         title: 'Screen share active',
         message: 'Leaving voice will end your screen share. Leave voice and stop sharing?',
-        confirmLabel: 'Leave and Stop Sharing',
+        confirmLabel: 'Leave',
         cancelLabel: 'Stay Here',
       });
       if (!shouldLeave) {

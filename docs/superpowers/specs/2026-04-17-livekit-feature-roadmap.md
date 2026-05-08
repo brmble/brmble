@@ -1,7 +1,7 @@
 # LiveKit & Screen Sharing Feature Roadmap
 
 **Date:** 2026-04-17
-**Status:** Active roadmap. Foundation and recent follow-up fixes implemented; next recommended phase is E. Token & Security, then F. Connection & Reliability.
+**Status:** Active roadmap. Foundation, recent follow-up fixes, and the first E. Token & Security hardening pass are implemented; remaining E/F work should focus on token rotation/revocation and connection reliability.
 
 This is the master feature list for LiveKit and screen sharing work. Completed sub-projects and shipped follow-up fixes are tracked here, while future work should continue through design -> plan -> implementation cycles.
 
@@ -14,7 +14,7 @@ This is the master feature list for LiveKit and screen sharing work. Completed s
 | B | Broadcaster Controls | Not started | -- |
 | C | Viewing Experience | Not started | -- |
 | D | Game Overlay | Not started | -- |
-| E | Token & Security | Not started | -- |
+| E | Token & Security | Partially implemented | `2026-04-30-livekit-token-security-phase-design.md` |
 | F | Connection & Reliability | Not started | -- |
 | G | UI/UX Polish | Not started | -- |
 | H | Clips & Screenshots | Not started | -- |
@@ -85,12 +85,16 @@ See full spec: `2026-04-17-multi-share-foundation-design.md`
 
 > Hardening the LiveKit auth layer.
 
-28. Token scoping (publish vs. subscribe-only tokens for viewers)
-29. Token rotation (auto-refresh before expiry without interrupting stream)
-30. Token revocation (server-side, tied to channel kick via RemoveParticipant)
-31. Auth on `/livekit/active-share` endpoint (issue #349)
-32. Rate limiting on endpoints (issue #351)
+28. Token scoping (publish vs. subscribe-only tokens for viewers) -- implemented in E1
+29. Token rotation (auto-refresh before expiry without interrupting stream) -- future
+30. Token revocation (server-side, tied to channel kick via RemoveParticipant) -- future
+31. Auth on `/livekit/active-share` endpoint (issue #349) -- implemented in E1
+32. Rate limiting on LiveKit endpoints (issue #351) -- implemented in E2 for token and active-share endpoints
 33. Room-level permissions tied to channel permissions
+
+**Implemented E-pass behavior:** authenticated active-share discovery, explicit publish/subscribe token access modes, server-side channel permission checks for token issuance, 1-hour token expiry metadata, targeted LiveKit endpoint rate limiting, duplicate share-start suppression, and idle/leave-voice screenshare cleanup.
+
+**Remaining E work:** token refresh/rotation before expiry, early revocation on kick/permission loss, and any deeper room-level permission model beyond current channel membership checks.
 
 **Deferred:** Share passwords -- not needed, channel membership is the access boundary.
 
@@ -110,7 +114,7 @@ See full spec: `2026-04-17-multi-share-foundation-design.md`
 
 > Making it feel great.
 
-41. Disable share button while connecting (issue #359)
+41. Disable share button while connecting (issue #359) -- partially implemented for duplicate in-flight share starts; broader UI disabled-state polish remains future
 42. Share preview thumbnail in sidebar
 43. Animated share indicator in channel tree
 44. Drag-to-resize viewer
@@ -176,13 +180,16 @@ These items were discussed and explicitly parked:
 
 ## Next-Phase Issue Shortlist
 
-The next-priority work around E/F should start with these open issues, plus one adjacent guardrail fix:
+The remaining priority work around E/F should start with these still-open or partially completed issues:
 
-- `#349` `[SECURITY] /livekit/active-share endpoint has no authentication`
-- `#351` `[SECURITY] No rate limiting on any endpoint`
 - `#354` `[SECURITY] LiveKit tokens have no early revocation`
 - `#380` `feat: Reconnect non-voice services independently when Mumble stays connected`
-- `#359` `Disable Screenshare button and keybinding while LiveKit is connecting`
+
+Implemented by the current E-pass:
+
+- `#349` `[SECURITY] /livekit/active-share endpoint has no authentication`
+- `#351` `[SECURITY] No rate limiting on any endpoint` for LiveKit token/active-share paths
+- `#359` `Disable Screenshare button and keybinding while LiveKit is connecting` for duplicate in-flight share starts
 
 Known roadmap gaps with no dedicated issue yet:
 
@@ -199,8 +206,8 @@ The recommended next sequence is:
 
 1. **A. Multi-Share Foundation** -- implemented
 2. **A2. Multi-Share Layouts** -- implemented
-3. **E. Token & Security** -- next priority; close the current auth and permission gaps before expanding feature surface
-4. **F. Connection & Reliability** -- address reconnect, recovery, and connection-state behavior immediately after E
+3. **E. Token & Security remaining work** -- token rotation, early revocation, and deeper permission lifecycle hardening
+4. **F. Connection & Reliability** -- address reconnect, recovery, and connection-state behavior after the current E-pass
 5. **C. Viewing Experience** -- pop-out, PiP, fullscreen (needed before overlay)
 6. **B. Broadcaster Controls** -- window picker, audio, quality presets
 7. **D. Game Overlay** -- depends on C (PiP/pop-out patterns) and voice system
