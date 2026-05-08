@@ -59,21 +59,41 @@ public class AdminServiceTests
         Assert.AreEqual(0, result[0].IsAdmin);
     }
 
-    [TestMethod]
-    public async Task GetRegisteredUsersAsync_IncludesMumbleOnlyUsers()
-    {
-        // Arrange: No SQLite users
-        // Arrange: Mock Mumble returning a registered user not in SQLite
-        _mumbleMock.Setup(m => m.GetRegisteredUsersAsync(""))
-            .ReturnsAsync(new Dictionary<int, string> { { 99, "Bob" } });
+     [TestMethod]
+     public async Task GetRegisteredUsersAsync_IncludesMumbleOnlyUsers()
+     {
+         // Arrange: No SQLite users
+         // Arrange: Mock Mumble returning a registered user not in SQLite
+         _mumbleMock.Setup(m => m.GetRegisteredUsersAsync(""))
+             .ReturnsAsync(new Dictionary<int, string> { { 99, "Bob" } });
 
-        // Act
-        var result = await _service!.GetRegisteredUsersAsync();
+         // Act
+         var result = await _service!.GetRegisteredUsersAsync();
 
-        // Assert
-        Assert.AreEqual(1, result.Count);
-        Assert.AreEqual("Bob", result[0].DisplayName);
-        Assert.IsTrue(result[0].IsMumbleRegistered);
-        Assert.IsFalse(result[0].IsBrmbleUser);
-    }
+         // Assert
+         Assert.AreEqual(1, result.Count);
+         Assert.AreEqual("Bob", result[0].DisplayName);
+         Assert.IsTrue(result[0].IsMumbleRegistered);
+         Assert.IsFalse(result[0].IsBrmbleUser);
+     }
+
+     [TestMethod]
+     public async Task DeleteUserAsync_RemovesUserAndMumble()
+     {
+         // Arrange
+         var user = await _repo!.Insert("cert_del", "ToDelete");
+         _mumbleMock.Setup(m => m.GetRegisteredUsersAsync(""))
+             .ReturnsAsync(new Dictionary<int, string> { { 50, "ToDelete" } });
+         _mumbleMock.Setup(m => m.UnregisterUserAsync(50))
+             .Returns(Task.CompletedTask);
+
+         // Act
+         var result = await _service!.DeleteUserAsync(user.Id);
+
+         // Assert
+         Assert.IsTrue(result);
+         _mumbleMock.Verify(m => m.UnregisterUserAsync(50), Times.Once);
+         var found = await _repo.GetByCertHash("cert_del");
+         Assert.IsNull(found);
+     }
 }
