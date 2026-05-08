@@ -412,23 +412,6 @@ function App() {
   const selfVoiceChannelIdForIdle = users.find(u => u.self)?.channelId;
   const inVoiceChannelForIdle =
     !selfLeftVoice && selfVoiceChannelIdForIdle != null && selfVoiceChannelIdForIdle !== 0;
-  const { autoLeftAt, dismissToast: dismissAutoLeftToast } = useIdleActions({
-    brmbleIdleSec,
-    systemIdleSec: systemIdle,
-    isLocked,
-    inVoiceChannel: inVoiceChannelForIdle,
-  });
-
-  // Register the auto-leave-voice toast in the notification queue when fired.
-  // notifQueue intentionally omitted from deps: the object identity changes on
-  // every render, but `register` is idempotent and we only care about the
-  // autoLeftAt edge.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (autoLeftAt !== null) {
-      notifQueue.register('idle-auto-leave', 'info');
-    }
-  }, [autoLeftAt]);
   const [hotkeyPressedBtn, setHotkeyPressedBtn] = useState<string | null>(null);
   const pendingChannelActionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -664,6 +647,8 @@ function App() {
   // Refs to avoid re-registering bridge handlers on every state change
   const usersRef = useRef(users);
   usersRef.current = users;
+  const isSharingRef = useRef(false);
+  const stopSharingRef = useRef<(() => Promise<void>) | null>(null);
   const previousChannelIdRef = useRef<Map<number, number | undefined>>(new Map());
   const channelsRef = useRef(channels);
   channelsRef.current = channels;
@@ -691,6 +676,53 @@ function App() {
   matrixClientRef.current = matrixClient.client;
   const handleToggleScreenShareRef = useRef<(() => void) | null>(null);
   const disconnectViewerRef = useRef<(() => void) | null>(null);
+
+  const stopSharesForVoiceExit = useCallback(async () => {
+    disconnectViewerRef.current?.();
+    if (isSharingRef.current) {
+      await stopSharingRef.current?.();
+    }
+    setSharingChannelId(undefined);
+    setScreenShareToast(null);
+  }, []);
+
+  const {
+    autoLeftAt,
+    preLeaveStartedAt,
+    preLeaveCancelledAt,
+    dismissToast: dismissAutoLeftToast,
+    dismissPreLeaveCancelled,
+  } = useIdleActions({
+    brmbleIdleSec,
+    systemIdleSec: systemIdle,
+    isLocked,
+    inVoiceChannel: inVoiceChannelForIdle,
+    onBeforeAutoLeave: stopSharesForVoiceExit,
+  });
+
+  // Register the auto-leave-voice toast in the notification queue when fired.
+  // notifQueue intentionally omitted from deps: the object identity changes on
+  // every render, but `register` is idempotent and we only care about the
+  // autoLeftAt edge.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (autoLeftAt !== null) {
+      notifQueue.register('idle-auto-leave', 'info');
+    }
+  }, [autoLeftAt]);
+
+  useEffect(() => {
+    if (preLeaveStartedAt !== null) {
+      notifQueue.register('idle-pre-leave', 'info');
+    }
+  }, [preLeaveStartedAt]);
+
+  useEffect(() => {
+    if (preLeaveCancelledAt !== null) {
+      notifQueue.unregister('idle-pre-leave');
+      notifQueue.register('idle-pre-leave-cancelled', 'info');
+    }
+  }, [preLeaveCancelledAt]);
 
   // Fetch avatar for a specific user by matrixUserId and session, updating user state.
   // Uses refs so it can be called from both bridge event handlers (which capture initial
@@ -1197,9 +1229,7 @@ function App() {
       if (d?.leftVoice !== undefined) {
         setSelfLeftVoice(d.leftVoice);
         if (d.leftVoice) {
-          disconnectViewerRef.current?.();
-          setSharingChannelId(undefined);
-          setScreenShareToast(null);
+          void stopSharesForVoiceExit();
           handleSelectServer();
         }
       }
@@ -1684,18 +1714,17 @@ const handleConnect = (serverData: SavedServer) => {
       return;
     }
     if (isSharing && sharingChannelId && String(channelId) !== sharingChannelId) {
-      const sharingChannel = channels.find(c => String(c.id) === sharingChannelId);
-      const sharingChannelName = sharingChannel?.name || `channel ${sharingChannelId}`;
-      const shouldStop = await confirm({
+      const shouldMove = await confirm({
         title: 'Screen share active',
-        message: `You are sharing your screen to "${sharingChannelName}". Stop sharing?`,
-        confirmLabel: 'Stop Sharing',
-        cancelLabel: 'Keep Sharing',
+        message: 'Moving to another channel will end your screen share. Move and stop sharing?',
+        confirmLabel: 'Move',
+        cancelLabel: 'Stay Here',
       });
-      if (shouldStop) {
-        await stopSharing();
-        setSharingChannelId(undefined);
+      if (!shouldMove) {
+        return;
       }
+      await stopSharing();
+      setSharingChannelId(undefined);
     }
     startPendingAction(channelId);
     bridge.send('voice.joinChannel', { channelId });
@@ -1894,16 +1923,17 @@ const handleConnect = (serverData: SavedServer) => {
     triggerLeaveVoiceCooldown();
 
     if (isSharing) {
-      const shouldStop = await confirm({
+      const shouldLeave = await confirm({
         title: 'Screen share active',
-        message: 'You are currently sharing your screen. Stop sharing?',
-        confirmLabel: 'Stop Sharing',
-        cancelLabel: 'Keep Sharing',
+        message: 'Leaving voice will end your screen share. Leave voice and stop sharing?',
+        confirmLabel: 'Leave',
+        cancelLabel: 'Stay Here',
       });
-      if (shouldStop) {
-        await stopSharing();
-        setSharingChannelId(undefined);
+      if (!shouldLeave) {
+        return;
       }
+      await stopSharing();
+      setSharingChannelId(undefined);
     }
     startPendingAction('leave');
     bridge.send('voice.leaveVoice', {});
@@ -2137,6 +2167,8 @@ const handleConnect = (serverData: SavedServer) => {
   const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, disconnectViewer, connectAsViewer, isViewerConnectPending } = useScreenShare(() => {
     setSharingChannelId(undefined);
   }, screenShareSettings, handleLocalScreenShareEnded);
+  isSharingRef.current = isSharing;
+  stopSharingRef.current = stopSharing;
   disconnectViewerRef.current = disconnectViewer;
 
   const handleServersImported = useCallback((labels: string[]) => {
@@ -2815,6 +2847,39 @@ const handleConnect = (serverData: SavedServer) => {
             }}
           />
         )}
+        {preLeaveStartedAt !== null && notifQueue.isVisible('idle-pre-leave') && (
+          <Notification
+            status="info"
+            position="top-right"
+            visible={preLeaveStartedAt !== null}
+            duration={60000}
+            title="Still there?"
+            detail="You'll leave voice soon due to inactivity."
+            onDismiss={() => {
+              notifQueue.unregister('idle-pre-leave');
+            }}
+            onExited={() => {
+              notifQueue.unregister('idle-pre-leave');
+            }}
+          />
+        )}
+        {preLeaveCancelledAt !== null && notifQueue.isVisible('idle-pre-leave-cancelled') && (
+          <Notification
+            status="info"
+            position="top-right"
+            visible={preLeaveCancelledAt !== null}
+            duration={5000}
+            title="Welcome back"
+            detail="Auto leave cancelled."
+            onDismiss={() => {
+              notifQueue.unregister('idle-pre-leave-cancelled');
+              dismissPreLeaveCancelled();
+            }}
+            onExited={() => {
+              notifQueue.unregister('idle-pre-leave-cancelled');
+            }}
+          />
+        )}
         {autoLeftAt !== null && notifQueue.isVisible('idle-auto-leave') && (
           <Notification
             status="info"
@@ -2822,7 +2887,7 @@ const handleConnect = (serverData: SavedServer) => {
             visible={autoLeftAt !== null}
             duration={6000}
             title="Out of voice"
-            detail="You were moved out of voice after 10 minutes of inactivity."
+            detail="You were moved out of voice after inactivity. Screen sharing and watched streams were stopped."
             onDismiss={() => {
               notifQueue.unregister('idle-auto-leave');
               dismissAutoLeftToast();
