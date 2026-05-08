@@ -61,5 +61,11 @@ public class Database
             "SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='texture_hash'");
         if (hasTextureHash == 0)
             conn.Execute("ALTER TABLE users ADD COLUMN texture_hash TEXT");
+
+        // Migrate: add is_admin column
+        var hasIsAdmin = conn.ExecuteScalar<int>(
+            "SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='is_admin'");
+        if (hasIsAdmin == 0)
+            conn.Execute("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0");
     }
 }

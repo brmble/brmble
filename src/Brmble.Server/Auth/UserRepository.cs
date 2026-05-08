@@ -6,7 +6,10 @@ using Microsoft.Extensions.Options;
 
 namespace Brmble.Server.Auth;
 
-public record User(long Id, string CertHash, string DisplayName, string MatrixUserId, string? MatrixAccessToken);
+public record User(long Id, string CertHash, string DisplayName, string MatrixUserId, string? MatrixAccessToken, long IsAdmin = 0)
+{
+    public bool IsAdminBool => IsAdmin != 0;
+}
 
 public class UserRepository
 {
@@ -24,7 +27,7 @@ public class UserRepository
         using var conn = _db.CreateConnection();
         return await conn.QuerySingleOrDefaultAsync<User>(
             """
-            SELECT id AS Id, cert_hash AS CertHash, display_name AS DisplayName, matrix_user_id AS MatrixUserId, matrix_access_token AS MatrixAccessToken
+            SELECT id AS Id, cert_hash AS CertHash, display_name AS DisplayName, matrix_user_id AS MatrixUserId, matrix_access_token AS MatrixAccessToken, is_admin AS IsAdmin
             FROM users
             WHERE cert_hash = @CertHash
             """,
@@ -76,7 +79,7 @@ public class UserRepository
         using var conn = _db.CreateConnection();
         var users = await conn.QueryAsync<User>(
             """
-            SELECT id AS Id, cert_hash AS CertHash, display_name AS DisplayName, matrix_user_id AS MatrixUserId, matrix_access_token AS MatrixAccessToken
+            SELECT id AS Id, cert_hash AS CertHash, display_name AS DisplayName, matrix_user_id AS MatrixUserId, matrix_access_token AS MatrixAccessToken, is_admin AS IsAdmin
             FROM users
             """);
         return users.ToList();
@@ -119,7 +122,7 @@ public class UserRepository
         using var conn = _db.CreateConnection();
         return await conn.QuerySingleOrDefaultAsync<User>(
             """
-            SELECT id AS Id, cert_hash AS CertHash, display_name AS DisplayName, matrix_user_id AS MatrixUserId, matrix_access_token AS MatrixAccessToken
+            SELECT id AS Id, cert_hash AS CertHash, display_name AS DisplayName, matrix_user_id AS MatrixUserId, matrix_access_token AS MatrixAccessToken, is_admin AS IsAdmin
             FROM users
             WHERE matrix_user_id = @MatrixUserId
             """,

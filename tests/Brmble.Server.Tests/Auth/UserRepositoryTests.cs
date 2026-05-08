@@ -143,4 +143,13 @@ public class UserRepositoryTests
         var source = await _repo.GetAvatarSource(user.Id);
         Assert.IsNull(source);
     }
+
+    [TestMethod]
+    public async Task IsAdmin_DefaultsToFalse()
+    {
+        var user = await _repo!.Insert("hash_admin_test", "AdminUser");
+        var found = await _repo.GetByCertHash("hash_admin_test");
+        Assert.AreEqual(0, found!.IsAdmin);
+        Assert.IsFalse(found.IsAdminBool);
+    }
 }
