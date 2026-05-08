@@ -125,15 +125,35 @@ public class UserRepository
             new { IsAdmin = isAdmin ? 1 : 0, Id = userId });
     }
 
-    public virtual async Task<User?> GetByMatrixUserId(string matrixUserId)
-    {
-        using var conn = _db.CreateConnection();
-        return await conn.QuerySingleOrDefaultAsync<User>(
-            """
-            SELECT id AS Id, cert_hash AS CertHash, display_name AS DisplayName, matrix_user_id AS MatrixUserId, matrix_access_token AS MatrixAccessToken, is_admin AS IsAdmin
-            FROM users
-            WHERE matrix_user_id = @MatrixUserId
-            """,
-            new { MatrixUserId = matrixUserId });
-    }
+     public virtual async Task<User?> GetByMatrixUserId(string matrixUserId)
+     {
+         using var conn = _db.CreateConnection();
+         return await conn.QuerySingleOrDefaultAsync<User>(
+             """
+             SELECT id AS Id, cert_hash AS CertHash, display_name AS DisplayName, matrix_user_id AS MatrixUserId, matrix_access_token AS MatrixAccessToken, is_admin AS IsAdmin
+             FROM users
+             WHERE matrix_user_id = @MatrixUserId
+             """,
+             new { MatrixUserId = matrixUserId });
+     }
+
+     public virtual async Task<User?> GetAsync(long userId)
+     {
+         using var conn = _db.CreateConnection();
+         return await conn.QuerySingleOrDefaultAsync<User>(
+             """
+             SELECT id AS Id, cert_hash AS CertHash, display_name AS DisplayName, matrix_user_id AS MatrixUserId, matrix_access_token AS MatrixAccessToken, is_admin AS IsAdmin
+             FROM users
+             WHERE id = @Id
+             """,
+             new { Id = userId });
+     }
+
+     public async Task DeleteAsync(long userId)
+     {
+         using var conn = _db.CreateConnection();
+         await conn.ExecuteAsync(
+             "DELETE FROM users WHERE id = @Id",
+             new { Id = userId });
+     }
 }

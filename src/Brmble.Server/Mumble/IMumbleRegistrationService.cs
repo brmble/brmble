@@ -32,6 +32,12 @@ public interface IMumbleRegistrationService
     /// Returns a dictionary mapping user IDs to usernames.
     /// </summary>
     Task<Dictionary<int, string>> GetRegisteredUsersAsync(string filter = "");
+
+    /// <summary>
+    /// Unregister a Mumble user by their Mumble user ID.
+    /// Throws MumbleRegistrationException if the operation fails.
+    /// </summary>
+    Task UnregisterUserAsync(int mumbleUserId);
 }
 
 /// <summary>Thrown when a requested username is already registered in Mumble.</summary>

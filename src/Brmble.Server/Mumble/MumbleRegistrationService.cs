@@ -88,18 +88,36 @@ public class MumbleRegistrationService : IMumbleRegistrationService
         }
     }
 
-    public async Task<Dictionary<int, string>> GetRegisteredUsersAsync(string filter = "")
-    {
-        var proxy = GetProxy();
-        try
-        {
-            var users = await proxy.getRegisteredUsersAsync(filter);
-            _logger.LogDebug("Retrieved {Count} registered users from Mumble", users.Count);
-            return users;
-        }
-        catch (Exception ex)
-        {
-            throw new MumbleRegistrationException($"ICE error getting registered users.", ex);
-        }
-    }
+     public async Task<Dictionary<int, string>> GetRegisteredUsersAsync(string filter = "")
+     {
+         var proxy = GetProxy();
+         try
+         {
+             var users = await proxy.getRegisteredUsersAsync(filter);
+             _logger.LogDebug("Retrieved {Count} registered users from Mumble", users.Count);
+             return users;
+         }
+         catch (Exception ex)
+         {
+             throw new MumbleRegistrationException($"ICE error getting registered users.", ex);
+         }
+     }
+
+     public async Task UnregisterUserAsync(int mumbleUserId)
+     {
+         var proxy = GetProxy();
+         try
+         {
+             await proxy.unregisterUserAsync(mumbleUserId);
+             _logger.LogInformation("Unregistered Mumble user {MumbleUserId}", mumbleUserId);
+         }
+         catch (MumbleServer.InvalidUserException)
+         {
+             throw new MumbleRegistrationException($"Mumble user {mumbleUserId} not found.");
+         }
+         catch (Exception ex) when (ex is not MumbleRegistrationException)
+         {
+             throw new MumbleRegistrationException($"ICE error unregistering user {mumbleUserId}.", ex);
+         }
+     }
 }
