@@ -119,6 +119,7 @@ interface ToggleLocalScreenShareOptions {
   isSharing: boolean;
   selfLeftVoice: boolean;
   voiceChannelId?: number;
+  liveKitState?: ServiceStatus['state'];
   startSharing: (roomName: string) => Promise<void>;
   stopSharing: () => Promise<void>;
   markLocalShareTeardownIntent?: (reason: LocalShareStopReason) => void;
@@ -207,6 +208,7 @@ export async function toggleLocalScreenShare({
   isSharing,
   selfLeftVoice,
   voiceChannelId,
+  liveKitState,
   startSharing,
   stopSharing,
   setSharingChannelId,
@@ -218,6 +220,10 @@ export async function toggleLocalScreenShare({
   }
 
   if (selfLeftVoice || voiceChannelId == null || voiceChannelId === 0) {
+    return;
+  }
+
+  if (liveKitState === 'connecting') {
     return;
   }
 
@@ -2301,6 +2307,7 @@ const handleConnect = (serverData: SavedServer) => {
       isSharing,
       selfLeftVoice,
       voiceChannelId: selfUser?.channelId,
+      liveKitState: statuses.livekit.state,
       startSharing,
       stopSharing,
       setSharingChannelId,

@@ -5,9 +5,11 @@ using Microsoft.Extensions.Options;
 
 namespace Brmble.Server.LiveKit;
 
+public sealed record LiveKitTokenMetadata(string Token, DateTimeOffset ExpiresAt);
+
 public class LiveKitService : ILiveKitRoomQuery
 {
-    private static readonly TimeSpan DefaultTokenTtl = TimeSpan.FromHours(6);
+    private static readonly TimeSpan DefaultTokenTtl = TimeSpan.FromHours(1);
 
     private readonly LiveKitSettings _settings;
     private readonly UserRepository _userRepo;
@@ -64,6 +66,19 @@ public class LiveKitService : ILiveKitRoomQuery
             .WithTtl(DefaultTokenTtl);
 
         return token.ToJwt();
+    }
+
+    public async Task<LiveKitTokenMetadata?> GenerateTokenMetadata(
+        string certHash,
+        string roomName,
+        LiveKitAccessMode accessMode,
+        DateTimeOffset issuedAt)
+    {
+        var token = await GenerateToken(certHash, roomName, accessMode);
+        if (token is null)
+            return null;
+
+        return new LiveKitTokenMetadata(token, issuedAt.Add(DefaultTokenTtl));
     }
 
     public Task<LiveKitAuthorizationResult> AuthorizeTokenRequest(

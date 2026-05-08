@@ -91,8 +91,9 @@ public static class LiveKitEndpoints
                 };
             }
 
-            var token = await liveKitService.GenerateToken(certHash, roomName, accessMode.Value);
-            if (token is null)
+            var issuedAt = DateTimeOffset.UtcNow;
+            var metadata = await liveKitService.GenerateTokenMetadata(certHash, roomName, accessMode.Value, issuedAt);
+            if (metadata is null)
                 return Results.Unauthorized();
 
             // Build the LiveKit WebSocket URL relative to the request origin.
@@ -102,8 +103,8 @@ public static class LiveKitEndpoints
             var wsScheme = request.Scheme == "https" ? "wss" : "ws";
             var url = $"{wsScheme}://{request.Host}/livekit";
 
-            return Results.Ok(new { token, url });
-        });
+            return Results.Ok(new { token = metadata.Token, url, expiresAt = metadata.ExpiresAt });
+        }).RequireRateLimiting("livekit-token");
 
         app.MapPost("/livekit/share-started", async (
             HttpContext httpContext,
@@ -233,7 +234,7 @@ public static class LiveKitEndpoints
             }
 
             return Results.Ok(new { shares = result });
-        });
+        }).RequireRateLimiting("livekit-active-share");
 
         return app;
     }

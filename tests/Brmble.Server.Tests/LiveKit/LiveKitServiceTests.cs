@@ -127,6 +127,20 @@ public class LiveKitServiceTests
     }
 
     [TestMethod]
+    public async Task GenerateTokenMetadata_UsesShortLivedExpiry()
+    {
+        _mockUserRepo.Setup(r => r.GetByCertHash("cert123"))
+            .ReturnsAsync(new User(1, "cert123", "TestUser", "@test:example.com", "tok"));
+
+        var issuedAt = DateTimeOffset.UtcNow;
+        var metadata = await _svc.GenerateTokenMetadata("cert123", "channel-1", LiveKitAccessMode.Subscribe, issuedAt);
+
+        Assert.IsNotNull(metadata);
+        Assert.IsTrue(metadata.ExpiresAt > issuedAt);
+        Assert.IsTrue(metadata.ExpiresAt <= issuedAt.AddHours(1).AddMinutes(1));
+    }
+
+    [TestMethod]
     public async Task AuthorizeTokenRequest_PublishDenied_ReturnsForbidden()
     {
         var result = await _svc.AuthorizeTokenRequest(

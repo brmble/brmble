@@ -150,6 +150,26 @@ public class LiveKitEndpointsTests
     }
 
     [TestMethod]
+    public async Task TokenRequest_RepeatedRapidCalls_EventuallyReturnsTooManyRequests()
+    {
+        using var factory = new BrmbleServerFactory();
+        using var client = factory.CreateClient();
+
+        HttpResponseMessage? limited = null;
+        for (var i = 0; i < 20; i++)
+        {
+            var response = await client.PostAsJsonAsync("/livekit/token", new { roomName = "channel-1", accessMode = "subscribe" });
+            if (response.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                limited = response;
+                break;
+            }
+        }
+
+        Assert.IsNotNull(limited);
+    }
+
+    [TestMethod]
     public async Task ActiveShare_WithoutCurrentChannelAccess_ReturnsShareMetadata()
     {
         using var factory = new BrmbleServerFactory();

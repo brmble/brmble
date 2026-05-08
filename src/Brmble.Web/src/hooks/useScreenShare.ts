@@ -34,6 +34,7 @@ type LocalTrackLike = {
 };
 
 type LiveKitAccessMode = 'publish' | 'subscribe';
+type LiveKitTokenResponse = { token: string; url: string; expiresAt?: string };
 
 type DiscoveryTarget = (({ scope: 'all' } | { roomName: string }) & { requestId?: number; baselineShareEventVersion?: number }) | null;
 
@@ -159,6 +160,7 @@ export function useScreenShare(
   const watchingSharesRef = useRef<ShareInfo[]>([]);
   const activeSharesRef = useRef<ShareInfo[]>([]);
   const isSharingRef = useRef(false);
+  const isStartingShareRef = useRef(false);
   const focusedShareRef = useRef<ShareInfo | null>(null);
   const discoveryTargetRef = useRef<DiscoveryTarget>(null);
   const shareEventVersionRef = useRef(0);
@@ -295,7 +297,7 @@ export function useScreenShare(
 
   // Helper: request a LiveKit token via bridge
   const requestToken = useCallback((roomName: string, accessMode: LiveKitAccessMode) => {
-    return new Promise<{ token: string; url: string }>((resolve, reject) => {
+    return new Promise<LiveKitTokenResponse>((resolve, reject) => {
       const requestId = ++nextTokenRequestIdRef.current;
       let settled = false;
       const cancel = () => {
@@ -321,7 +323,7 @@ export function useScreenShare(
           return;
         }
 
-        settle(() => resolve(data as { token: string; url: string }));
+        settle(() => resolve(data as LiveKitTokenResponse));
       };
       const onError = (data: unknown) => {
         const responseRequestId = (data as { requestId?: number }).requestId;
@@ -618,6 +620,11 @@ export function useScreenShare(
   }, [requestToken, stopLocalShare, removeWatchingShare, clearWatchingState, invalidateRoomLifecycle]);
 
   const startSharing = useCallback(async (roomName: string) => {
+    if (isStartingShareRef.current) {
+      return;
+    }
+
+    isStartingShareRef.current = true;
     setError(null);
     localShareStopHandledRef.current = false;
 
@@ -695,6 +702,8 @@ export function useScreenShare(
       }
       // Disconnect room if we're not watching anyone either
       await maybeDisconnectRoom();
+    } finally {
+      isStartingShareRef.current = false;
     }
   }, [screenShareSettings, ensureRoom, bindLocalShareEndListener, clearLocalShareEndListener, maybeDisconnectRoom, stopLocalShare]);
 

@@ -253,6 +253,26 @@ describe('toggleLocalScreenShare', () => {
     expect(setSharingChannelId).toHaveBeenCalledWith('7');
     expect(stopSharing).not.toHaveBeenCalled();
   });
+
+  it('ignores local share start while LiveKit is already connecting', async () => {
+    const startSharing = vi.fn().mockResolvedValue(undefined);
+    const stopSharing = vi.fn();
+    const setSharingChannelId = vi.fn();
+
+    await toggleLocalScreenShare({
+      isSharing: false,
+      selfLeftVoice: false,
+      voiceChannelId: 7,
+      liveKitState: 'connecting',
+      startSharing,
+      stopSharing,
+      setSharingChannelId,
+    });
+
+    expect(startSharing).not.toHaveBeenCalled();
+    expect(stopSharing).not.toHaveBeenCalled();
+    expect(setSharingChannelId).not.toHaveBeenCalled();
+  });
 });
 
 describe('getNextLiveKitStatusUpdate', () => {
