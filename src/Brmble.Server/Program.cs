@@ -49,6 +49,7 @@ app.UseMiddleware<ConnectionLoggingMiddleware>();
 app.MapGet("/health", (IServerVersionProvider version) =>
     Results.Ok(new { status = "healthy", version = version.Version }));
 app.MapAuthEndpoints();
+app.MapAdminEndpoints();
 app.MapDmEndpoints();
 app.Map("/ws", BrmbleWebSocketHandler.HandleAsync);
 app.MapServerInfoEndpoints();
