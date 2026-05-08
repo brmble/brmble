@@ -30,6 +30,12 @@ export interface User {
   isBrmbleClient?: boolean;
 }
 
+export interface IdleUpdate {
+  voiceIdle: Record<number, number>;
+  systemIdle: number;
+  isLocked: boolean;
+}
+
 export interface MediaAttachment {
   type: 'image' | 'gif';
   url: string;

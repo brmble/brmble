@@ -2,12 +2,12 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Buffers;
+using Brmble.Audio;
 using Brmble.Audio.Codecs;
 using Brmble.Audio.Processing;
 using Brmble.Audio.NetEQ;
 using Brmble.Audio.NetEQ.Models;
 using Brmble.Client.Services.AppConfig;
-using Brmble.Client.Services.SpeechEnhancement;
 using MumbleVoiceEngine.Audio;
 using MumbleVoiceEngine.Pipeline;
 using NAudio.Wave;
@@ -222,6 +222,9 @@ internal sealed class AudioManager : IDisposable
     private volatile bool _muted;
     private volatile bool _deafened;
     private volatile TransmissionMode _transmissionMode = TransmissionMode.Continuous;
+    private string? _lastTransmissionKey;
+    private bool _transmissionConfigured;
+    internal int TransmissionApplyCount { get; private set; } // diagnostic/test signal: increments each time SetTransmissionMode body runs
     private volatile bool _pttActive;
 internal const int PttHotkeyId = 1;
 internal const int MuteHotkeyId = 2;
@@ -275,10 +278,20 @@ private int _screenShareHotkeyId = -1;
     // Speaking detection (polls per-user JitterBuffer.IsSpeaking directly)
     private readonly HashSet<uint> _currentlySpeaking = new();
     private readonly Timer _speakingTimer;
-    private const int PttSilenceTailFrames = 4; // 4 × 20 ms = 80 ms tail
     private uint _localUserId = 0;
     private long _lastLocalAudioMs; // monotonic timestamp of last local audio submission
     private int _voiceHoldMs = 200;
+
+    // VAD gate (active only in TransmissionMode.VoiceActivity)
+    private IVadDetector? _vad;
+    private VadGate? _vadGate;
+    private readonly object _vadLock = new();
+    private VadSensitivity _vadSensitivity = VadSensitivity.Balanced;
+    private short[]? _vadFrameScratch; // reusable byte→short conversion buffer (capture thread only)
+
+    // VAD meter event throttle
+    private int _vadMeterSubscribers; // ref-counted; > 0 means publish events
+    private long _vadMeterLastPostMs;
 
     // Volume controls
     private volatile float _inputVolume = 1.0f;
@@ -291,14 +304,14 @@ private int _screenShareHotkeyId = -1;
     private int _opusFrameMs = 20;
     private bool _dtxEnabled;
 
-    // Virtual mic (testing). Not persisted across restarts.
-    private string? _virtualMicPath;
-    private volatile bool _virtualMicActive;
-
-    // Speech enhancement
-    // Capture-side processor (swappable). Default = Legacy stack.
-    private IAudioCapturePostProcessor? _processor;
-    private ProcessingStack _processingStack = ProcessingStack.Legacy;
+    // Capture-side WebRTC APM processor. Hot-swapped when NS level changes.
+    // Dedicated lock guards both the slot AND the in-flight Process() call:
+    // the underlying APM owns native handles, so we cannot let SetNoiseSuppression
+    // dispose the processor while the mic thread is mid-Process.
+    private readonly object _processorLock = new();
+    private WebRtcApmProcessor? _processor;
+    private NoiseSuppressionLevel _noiseSuppressionLevel = NoiseSuppressionLevel.High;
+    private bool _processorCreateFailed;
     [ThreadStatic] private static byte[]? _processorOutputScratch;
 
     // Packet loss tracking per user (EMA smoothing to prevent UI jitter)
@@ -315,19 +328,10 @@ private int _screenShareHotkeyId = -1;
         public int LostUnits;
     }
 
-    private SpeechEnhancementService? _speechEnhancement;
-    private AudioResampler? _to16kResampler;
-    private AudioResampler? _to48kResampler;
-
     // Device→48kHz resampler (r8brain)
     private R8BrainResampler? _deviceResampler;
     private int _deviceSampleRate;
     private int _deviceMaxInLen;
-
-    // RNNoise denoising
-    private RnnoiseService? _rnnoise;
-    private SpeechDenoiseMode _lastDenoiseMode = SpeechDenoiseMode.Disabled;
-    private float[]? _rnnoiseRemainder;
 
     public void SetLocalUserId(uint sessionId) => _localUserId = sessionId;
 
@@ -351,6 +355,12 @@ private int _screenShareHotkeyId = -1;
     public event Action<string>? ShortcutPressed;
     /// <summary>Fired when a shortcut key is released (action should fire on release).</summary>
     public event Action<string>? ShortcutReleased;
+
+    /// <summary>
+    /// Fired at most every 50 ms while VAD mode is active and at least one subscriber is registered
+    /// via <see cref="SetVadMeterSubscribed"/>. Args: (rms, isOpen).
+    /// </summary>
+    public event Action<double, bool>? VadMeterUpdated;
 
     public bool IsMuted => _muted;
     public bool IsDeafened => _deafened;
@@ -458,118 +468,31 @@ private int _screenShareHotkeyId = -1;
         }
     }
 
-    public void ConfigureSpeechEnhancement(string modelsPath, bool enabled, GtcrnModelVariant variant)
+    public void SetNoiseSuppression(NoiseSuppressionLevel level)
     {
-        lock (_lock)
+        lock (_processorLock)
         {
-            _speechEnhancement?.Dispose();
-            _to16kResampler?.Dispose();
-            _to48kResampler?.Dispose();
-            _to16kResampler = null;
-            _to48kResampler = null;
-
-            if (!enabled)
-            {
-                _speechEnhancement = null;
-                return;
-            }
-
-            _speechEnhancement = new SpeechEnhancementService(modelsPath, enabled, variant);
-            _to16kResampler = new AudioResampler(48000, 16000, 1);
-            _to48kResampler = new AudioResampler(16000, 48000, 1);
-        }
-    }
-
-    public void ConfigureRnnoise(SpeechDenoiseMode mode)
-    {
-        lock (_lock)
-        {
-            if (mode == _lastDenoiseMode)
-                return;
-
-            _lastDenoiseMode = mode;
-            _rnnoise?.Dispose();
-            _rnnoise = mode == SpeechDenoiseMode.Rnnoise ? new RnnoiseService(mode) : null;
-            _rnnoiseRemainder = null;
-
-            // If we're on the Legacy stack, rebuild it so its RnnoiseProcess hook picks up the new service.
-            if (_processingStack == ProcessingStack.Legacy)
-            {
-                _processor?.Dispose();
-                _processor = CreateProcessorLocked(ProcessingStack.Legacy);
-            }
-        }
-    }
-
-    public void SetVirtualMic(string? wavPath)
-    {
-        lock (_lock)
-        {
-            if (string.IsNullOrWhiteSpace(wavPath))
-            {
-                _virtualMicPath = null;
-                _virtualMicActive = false;
-            }
-            else
-            {
-                // Relative paths come from the frontend as e.g. "fixtures/apm/near_speech.wav".
-                // Resolve against the binary's directory, where the MSBuild <None Link> rule
-                // copies the WAVs — not against the .NET process CWD.
-                _virtualMicPath = Path.IsPathRooted(wavPath)
-                    ? wavPath
-                    : Path.Combine(AppContext.BaseDirectory, wavPath);
-                _virtualMicActive = true;
-            }
-            AudioLog.Write($"[Audio] Virtual mic {(_virtualMicActive ? $"enabled: {_virtualMicPath}" : "disabled")}");
-
-            // If mic is currently running, restart it so StartMicLocked picks the right source.
-            // StopMicLocked only stops recording — it doesn't null _waveIn. Dispose it here so
-            // StartMicLocked creates a fresh IWaveIn matching the new _virtualMicActive state
-            // (otherwise a stale FixtureWaveProvider would get StartRecording()'d again).
-            if (_micStarted)
-            {
-                StopMicLocked();
-                _waveIn?.Dispose();
-                _waveIn = null;
-                StartMicLocked();
-            }
-        }
-    }
-
-    public void SetProcessingStack(ProcessingStack stack)
-    {
-        lock (_lock)
-        {
-            if (_processingStack == stack && _processor != null) return;
-            _processingStack = stack;
+            if (_noiseSuppressionLevel == level && _processor != null) return;
             _processor?.Dispose();
-            _processor = CreateProcessorLocked(stack);
-            AudioLog.Write($"[Audio] Processing stack set to {stack}");
+            _processor = CreateProcessor(level);
+            _processorCreateFailed = _processor == null;
+            if (_processor != null)
+            {
+                _noiseSuppressionLevel = level;
+                AudioLog.Write($"[Audio] Noise suppression set to {level}");
+            }
         }
     }
 
-    private IAudioCapturePostProcessor? CreateProcessorLocked(ProcessingStack stack)
+    private static WebRtcApmProcessor? CreateProcessor(NoiseSuppressionLevel level)
     {
         try
         {
-            return stack switch
-            {
-                ProcessingStack.None => new PassthroughProcessor(),
-                ProcessingStack.Legacy => new LegacyAudioProcessor
-                {
-                    // MaxAmplification was dropped from AudioManager on main in favour of
-                    // EncodePipeline-based volume. Legacy AGC now only compresses loud audio.
-                    MaxAmplification = 1.0f,
-                    RnnoiseEnabled = _rnnoise?.IsEnabled == true,
-                    RnnoiseProcess = frame => _rnnoise?.Process(frame),
-                },
-                ProcessingStack.WebRtcApm => new WebRtcApmProcessor(),
-                _ => throw new ArgumentOutOfRangeException(nameof(stack)),
-            };
+            return new WebRtcApmProcessor(level);
         }
         catch (Exception ex)
         {
-            AudioLog.Write($"[Audio] Failed to create processor for {stack}: {ex.Message}");
+            AudioLog.Write($"[Audio] Failed to create WebRTC APM processor: {ex.Message}");
             return null;
         }
     }
@@ -707,28 +630,6 @@ private int _screenShareHotkeyId = -1;
         if (_encodePipeline == null)
             RecreateEncodePipelineLocked();
 
-        // Virtual mic branch: use fixture replay instead of real hardware.
-        if (_virtualMicActive && _virtualMicPath != null)
-        {
-            try
-            {
-                _waveIn?.Dispose();
-                _waveIn = new FixtureWaveProvider(_virtualMicPath, frameMs: 20, loop: true);
-                _waveIn.DataAvailable += OnMicData;
-                _waveIn.StartRecording();
-                AudioLog.Write("[Audio] Mic started (virtual — fixture replay)");
-                return;
-            }
-            catch (Exception ex)
-            {
-                AudioLog.Write($"[Audio] Virtual mic failed ({_virtualMicPath}): {ex.Message} — falling back to real microphone.");
-                _waveIn?.Dispose();
-                _waveIn = null;
-                _virtualMicActive = false;
-                _virtualMicPath = null;
-                // Fall through to the live-mic branch below.
-            }
-        }
 
         if (_waveIn == null)
         {
@@ -825,6 +726,16 @@ private int _screenShareHotkeyId = -1;
         if (!_micStarted) return (false, 0);
 
         _waveIn?.StopRecording();
+        // Flush any partial Opus frame with the Mumble end-of-transmission
+        // terminator bit set, matching upstream Mumble behaviour.
+        try
+        {
+            _encodePipeline?.FlushFinal();
+        }
+        catch (Exception ex)
+        {
+            AudioLog.Write($"[Audio] FlushFinal failed: {ex.Message}");
+        }
         _encodePipeline?.Dispose();
         _encodePipeline = null;
         _deviceResampler?.Dispose();
@@ -834,55 +745,6 @@ private int _screenShareHotkeyId = -1;
         bool wasSpeaking = capturedUserId != 0 && _currentlySpeaking.Remove(capturedUserId);
         AudioLog.Write("[Audio] Mic stopped");
         return (wasSpeaking, capturedUserId);
-    }
-
-    /// <summary>
-    /// Submits <see cref="PttSilenceTailFrames"/> silence frames through the encode pipeline
-    /// then disposes it. Call only when the pipeline is still alive (i.e. mic is running).
-    /// </summary>
-    private void StopMicWithSilenceTail()
-    {
-        bool wasSpeaking = false;
-        uint capturedUserId = 0;
-        lock (_lock)
-        {
-            if (!_micStarted) return;
-
-            // Submit silence frames before stopping so the receiver gets a graceful end-of-stream
-            if (_encodePipeline != null)
-            {
-                // Derive frame size from the actual capture format and the current encoder
-                // frame duration (_opusFrameMs) so the tail is correct for all frame sizes.
-                int frameDurationMs = _opusFrameMs;
-                var fmt = _waveIn?.WaveFormat;
-                int sampleRate = fmt?.SampleRate ?? 48000;
-                int channels = fmt?.Channels ?? 1;
-                int bytesPerSample = (fmt?.BitsPerSample ?? 16) / 8;
-                int frameSizeBytes = sampleRate * frameDurationMs / 1000 * channels * bytesPerSample;
-                var silence = new byte[frameSizeBytes * PttSilenceTailFrames];
-                try
-                {
-                    _encodePipeline.SubmitPcm(new ReadOnlySpan<byte>(silence));
-                    AudioLog.Write($"[Audio] Sent {PttSilenceTailFrames} silence tail frames");
-                }
-                catch (Exception ex)
-                {
-                    AudioLog.Write($"[Audio] Silence tail encode failed: {ex.Message}");
-                }
-            }
-
-            _waveIn?.StopRecording();
-            _encodePipeline?.Dispose();
-            _encodePipeline = null;
-            _deviceResampler?.Dispose();
-            _deviceResampler = null;
-            _micStarted = false;
-            capturedUserId = _localUserId;
-            wasSpeaking = capturedUserId != 0 && _currentlySpeaking.Remove(capturedUserId);
-            AudioLog.Write("[Audio] Mic stopped (with silence tail)");
-        }
-        if (wasSpeaking)
-            UserStoppedSpeaking?.Invoke(capturedUserId);
     }
 
     // Reusable scratch buffers for WASAPI float→int16 conversion (avoid per-callback GC allocations).
@@ -988,132 +850,133 @@ private int _screenShareHotkeyId = -1;
             processedBytes = requiredInt16Bytes;
         }
 
-        bool virtualMic = _virtualMicActive;
         if (_muted) return;
-        if (!virtualMic && _transmissionMode == TransmissionMode.PushToTalk && !_pttActive) return;
+        if (_transmissionMode == TransmissionMode.PushToTalk && !_pttActive) return;
 
-        // Capture-side processor (swappable).
-        IAudioCapturePostProcessor? processor;
-        lock (_lock)
+        // Capture-side WebRTC APM processor. Hold _processorLock for the duration
+        // of Process() so SetNoiseSuppression cannot dispose the native APM handle
+        // mid-call. Process() is fast (sub-ms for a 10–20 ms frame).
+        lock (_processorLock)
         {
-            if (_processor == null) _processor = CreateProcessorLocked(_processingStack);
-            processor = _processor;
-        }
-
-        if (processor != null)
-        {
-            int needed = processedBytes + WebRtcApmProcessor.FrameBytes;
-            if (_processorOutputScratch == null || _processorOutputScratch.Length < needed)
-                _processorOutputScratch = new byte[needed];
-
-            try
+            if (_processor == null && !_processorCreateFailed)
             {
-                int written = processor.Process(
-                    new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes),
-                    _processorOutputScratch.AsSpan());
-
-                processedBuffer = _processorOutputScratch;
-                processedBytes = written;
+                _processor = CreateProcessor(_noiseSuppressionLevel);
+                _processorCreateFailed = _processor == null;
             }
-            catch (ObjectDisposedException)
+            if (_processor != null)
             {
-                return;
-            }
+                int needed = processedBytes + WebRtcApmProcessor.FrameBytes;
+                if (_processorOutputScratch == null || _processorOutputScratch.Length < needed)
+                    _processorOutputScratch = new byte[needed];
 
-            if (processedBytes == 0) return;
+                try
+                {
+                    int written = _processor.Process(
+                        new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes),
+                        _processorOutputScratch.AsSpan());
+
+                    processedBuffer = _processorOutputScratch;
+                    processedBytes = written;
+                }
+                catch (Exception ex)
+                {
+                    // Native APM error or unexpected internal failure. Drop this
+                    // frame instead of crashing the capture callback.
+                    AudioLog.Write($"[Audio] APM Process failed: {ex.Message}");
+                    return;
+                }
+
+                if (processedBytes == 0) return;
+            }
         }
 
         // Input volume is applied inside EncodePipeline (see SetInputVolume → _encodePipeline.SetVolume).
 
-        // Apply speech enhancement if enabled
-        if (_speechEnhancement?.IsEnabled == true && _to16kResampler != null && _to48kResampler != null)
+        // Voice Activity: per-frame gate. Continuous and PTT modes go through unchanged.
+        if (_transmissionMode == TransmissionMode.VoiceActivity)
         {
-            try
+            var gate = GetOrCreateVadGate();
+            int offset = 0;
+            int frameIndex = 0;
+            long baseNowMs = Environment.TickCount64;
+            if (_vadFrameScratch is null) _vadFrameScratch = new short[VadGate.FrameSamples];
+
+            while (offset + (VadGate.FrameSamples * 2) <= processedBytes)
             {
-                // Convert byte buffer to normalized float samples (48kHz, range [-1, 1])
-                // Use ArrayPool to avoid per-frame allocations (important for PTT+ continuous processing)
-                var sampleCount = processedBytes / 2;
-                var samples48k = ArrayPool<float>.Shared.Rent(sampleCount);
-                try
+                var frameSpan = new ReadOnlySpan<byte>(processedBuffer, offset, VadGate.FrameSamples * 2);
+                for (int i = 0; i < VadGate.FrameSamples; i++)
+                    _vadFrameScratch[i] = (short)(frameSpan[i * 2] | (frameSpan[i * 2 + 1] << 8));
+
+                var decision = gate.Process(_vadFrameScratch, baseNowMs + frameIndex * 10);
+
+                EncodePipeline? pipelineRef;
+                bool fireStartedSpeaking = false;
+                bool fireStoppedSpeaking = false;
+                lock (_lock)
                 {
-                    for (int i = 0; i < sampleCount; i++)
+                    pipelineRef = _encodePipeline;
+                    switch (decision)
                     {
-                        samples48k[i] = (short)(processedBuffer[i * 2] | (processedBuffer[i * 2 + 1] << 8)) / 32768f;
-                    }
-
-                    // Resample to 16kHz
-                    var samples16k = _to16kResampler.Resample(samples48k.AsSpan(0, sampleCount));
-
-                    // Enhance
-                    var enhanced16k = _speechEnhancement.Enhance(samples16k);
-
-                    if (enhanced16k != null)
-                    {
-                        // Resample back to 48kHz
-                        var enhanced48k = _to48kResampler.Resample(enhanced16k);
-
-                        // Convert normalized floats back to int16 bytes
-                        int samplesToCopy = Math.Min(enhanced48k.Length, sampleCount);
-                        for (int i = 0; i < samplesToCopy; i++)
-                        {
-                            var sample = (short)Math.Clamp(enhanced48k[i] * 32768f, short.MinValue, short.MaxValue);
-                            processedBuffer[i * 2] = (byte)(sample & 0xFF);
-                            processedBuffer[i * 2 + 1] = (byte)((sample >> 8) & 0xFF);
-                        }
-
-                        // If the enhanced buffer is shorter than the original, zero-fill the remainder
-                        if (samplesToCopy < sampleCount)
-                        {
-                            for (int i = samplesToCopy; i < sampleCount; i++)
-                            {
-                                processedBuffer[i * 2] = 0;
-                                processedBuffer[i * 2 + 1] = 0;
-                            }
-                        }
+                        case GateDecision.OpenWithLookback open:
+                            if (_currentlySpeaking.Add(_localUserId)) fireStartedSpeaking = true;
+                            _lastLocalAudioMs = Environment.TickCount64;
+                            foreach (var f in open.Frames)
+                                pipelineRef?.SubmitPcm(MemoryMarshal.AsBytes(f.AsSpan()));
+                            break;
+                        case GateDecision.PassThrough pt:
+                            _lastLocalAudioMs = Environment.TickCount64;
+                            pipelineRef?.SubmitPcm(MemoryMarshal.AsBytes(pt.Frame.AsSpan()));
+                            break;
+                        case GateDecision.CloseWithTerminator:
+                            pipelineRef?.EmitTerminator();
+                            // Gate close is authoritative for VAD: clear local speaking
+                            // state immediately so the indicator turns off without waiting
+                            // for the polling timer (which would race with the next frame
+                            // and produce flickering).
+                            if (_currentlySpeaking.Remove(_localUserId)) fireStoppedSpeaking = true;
+                            break;
+                        case GateDecision.Stay:
+                            break;
                     }
                 }
-                finally
-                {
-                    ArrayPool<float>.Shared.Return(samples48k);
-                }
+                if (fireStartedSpeaking) UserStartedSpeaking?.Invoke(_localUserId);
+                if (fireStoppedSpeaking) UserStoppedSpeaking?.Invoke(_localUserId);
+
+                // Throttled meter publication (subscribed only when settings tab is open on VAD).
+                if (Volatile.Read(ref _vadMeterSubscribers) > 0)
+                    PublishVadMeterThrottled(gate.LastRms, gate.IsOpen);
+
+                offset += VadGate.FrameSamples * 2;
+                frameIndex++;
             }
-            catch (Exception ex)
-            {
-                // Enhancement failed — disable it so voice is never silenced by an error
-                AudioLog.Write($"[Audio] Speech enhancement error, disabling: {ex.Message}");
-                _speechEnhancement = null;
-            }
+            return; // VAD path handles SubmitPcm itself; skip the legacy continuous block below
         }
 
-        // Voice activity check on processed signal
-        if (!virtualMic && _transmissionMode == TransmissionMode.VoiceActivity && !IsAboveThreshold(processedBuffer, processedBytes)) return;
-
-        // Snapshot the pipeline reference and update speaking state under lock.
+        // Continuous + PTT: snapshot the pipeline reference and update speaking state under lock.
         // This prevents a race where RecreateEncodePipelineLocked disposes _encodePipeline
         // while SubmitPcm is executing on the mic thread.
         EncodePipeline? pipeline;
         bool shouldBeSpeaking;
         bool shouldSubmitPcm;
-        
+
         lock (_lock)
         {
             // Capture transmission mode and PTT state under lock for consistent decision-making
             var mode = _transmissionMode;
             var pttActive = _pttActive;
-            
+
             // Determine if we should be considered "speaking" based on transmission mode
             shouldBeSpeaking = mode switch
             {
                 TransmissionMode.Continuous => true,
-                TransmissionMode.VoiceActivity => true, // VAD filtering already happened above, before speaking-state update / submission
                 TransmissionMode.PushToTalk => pttActive,
                 TransmissionMode.PushToTalkPlus => pttActive,
                 _ => false
             };
-            
+
             // For PTT+, only submit audio when PTT is active (software gate)
             shouldSubmitPcm = mode != TransmissionMode.PushToTalkPlus || pttActive;
-            
+
             // Only trigger speaking events if we should be speaking based on transmission mode
             if (shouldBeSpeaking && _currentlySpeaking.Add(_localUserId))
             {
@@ -1131,23 +994,56 @@ private int _screenShareHotkeyId = -1;
         // else: encoded audio is ignored (the encoder keeps running)
     }
 
-    
 
-    private const double VoiceActivityRmsThreshold = 300;
-
-    /// <summary>RMS check: returns true if the audio chunk is loud enough to transmit.</summary>
-    private static bool IsAboveThreshold(byte[] buffer, int bytesRecorded)
+    private VadGate GetOrCreateVadGate()
     {
-        long sumSq = 0;
-        int samples = bytesRecorded / 2; // 16-bit samples
-        for (int i = 0; i < bytesRecorded - 1; i += 2)
+        lock (_vadLock)
         {
-            short sample = (short)(buffer[i] | (buffer[i + 1] << 8));
-            sumSq += sample * sample;
+            if (_vadGate != null) return _vadGate;
+
+            try
+            {
+                _vad = new WebRtcVad(VadAggressiveness.Aggressive);
+            }
+            catch (Exception ex)
+            {
+                AudioLog.Write($"[Audio] WebRtcVad init failed, using RMS-only fallback: {ex.Message}");
+                _vad = new RmsOnlyVadFallback();
+            }
+            _vadGate = new VadGate(_vad, VadGateConfig.FromSensitivity(_vadSensitivity));
+            return _vadGate;
         }
-        if (samples == 0) return false;
-        var rms = Math.Sqrt(sumSq / (double)samples);
-        return rms >= VoiceActivityRmsThreshold;
+    }
+
+    private void PublishVadMeterThrottled(double rms, bool isOpen)
+    {
+        long now = Environment.TickCount64;
+        if (now - _vadMeterLastPostMs < 50) return;
+        _vadMeterLastPostMs = now;
+        VadMeterUpdated?.Invoke(rms, isOpen);
+    }
+
+    public void SetVadSensitivity(VadSensitivity level)
+    {
+        lock (_vadLock)
+        {
+            _vadSensitivity = level;
+            _vadGate?.SetSensitivity(level);
+        }
+    }
+
+    public void SetVadMeterSubscribed(bool subscribed)
+    {
+        if (subscribed)
+            Interlocked.Increment(ref _vadMeterSubscribers);
+        else
+        {
+            // CAS loop to clamp at 0 — duplicate unmounts or error paths could
+            // otherwise drive the count negative and permanently disable the meter.
+            int current;
+            do { current = Volatile.Read(ref _vadMeterSubscribers); }
+            while (current > 0 && Interlocked.CompareExchange(ref _vadMeterSubscribers, current - 1, current) != current);
+        }
     }
 
     /// <summary>
@@ -1335,14 +1231,12 @@ private int _screenShareHotkeyId = -1;
         string action = GetActionName(id);
         if (string.IsNullOrEmpty(action)) return;
 
-        bool isMouseButton = key is "XButton1" or "XButton2" or "MouseLeft" or "MouseRight" or "MouseMiddle";
-        
-        if (isMouseButton)
+        if (IsMouseButtonKey(key))
         {
             RegisterMouseHookForShortcut(action, key);
             return;
         }
-        
+
         var vk = KeyNameToVirtualKey(key);
         if (vk == 0) return;
         
@@ -1375,6 +1269,23 @@ private int _screenShareHotkeyId = -1;
     /// </summary>
     public void SetTransmissionMode(TransmissionMode mode, string? key, IntPtr hwnd)
     {
+        // Idempotency guard: bail out if nothing changed AND the mouse hook /
+        // PTT polling we configured last time is still intact. Without this,
+        // repeated calls (e.g. from a UI refresh storm) would tear down and
+        // re-register the mouse hook within milliseconds, which historically
+        // caused PTT to silently fail (#470). The consistency check
+        // (IsTransmissionConfigStillValid) detects when the shared mouse hook
+        // was stolen by SetShortcut or when hook/polling registration failed
+        // on the previous call — in those cases we must reconfigure.
+        if (_transmissionConfigured
+            && mode == _transmissionMode
+            && key == _lastTransmissionKey
+            && hwnd == _hwnd
+            && IsTransmissionConfigStillValid(mode, key, hwnd, CurrentPttInputState()))
+        {
+            return;
+        }
+
         _pttActive = false;
         _hwnd = hwnd;
         _transmissionMode = mode;
@@ -1400,12 +1311,10 @@ private int _screenShareHotkeyId = -1;
             var vk = KeyNameToVirtualKey(key);
             AudioLog.Write($"[Audio] SetTransmissionMode: mode={mode}, key={key}, vk=0x{vk:X2}, hwnd={hwnd}");
 
-            bool isMouseButton = key is "XButton1" or "XButton2" or "MouseLeft" or "MouseRight" or "MouseMiddle";
-
             // Stop any existing polling before reconfiguring (switching from keyboard to mouse PTT)
             StopPttPolling();
 
-            if (isMouseButton)
+            if (IsMouseButtonKey(key))
             {
                 RegisterMouseHookForButton(key);
             }
@@ -1435,6 +1344,85 @@ private int _screenShareHotkeyId = -1;
             StartMic(); // Always-on: keep mic running
         else if (!_muted)
             StartMic();
+
+        // Mark configured at the end so an exception thrown mid-body leaves
+        // the flag false (next call retries from scratch). For *silent*
+        // failures inside the body — e.g. SetWindowsHookEx returning
+        // IntPtr.Zero, or KeyNameToVirtualKey returning 0 — the flag still
+        // gets set here, but IsTransmissionConfigStillValid will detect the
+        // missing hook/timer/vk on the next call and force a re-run.
+        _lastTransmissionKey = key;
+        _transmissionConfigured = true;
+        TransmissionApplyCount++;
+    }
+
+    /// <summary>
+    /// Snapshot of the input plumbing relevant to PTT validity. Extracted as
+    /// a record so <see cref="IsTransmissionConfigStillValid"/> can be a pure
+    /// function (testable without mocking Win32).
+    /// </summary>
+    internal readonly record struct PttInputState(
+        IntPtr MouseHookHandle,
+        string? ShortcutActionForMouse,
+        string? ShortcutKeyForMouse,
+        int PttVk,
+        bool PttPollingActive);
+
+    // Sentinel string the mouse hook uses when registered for PTT. Both
+    // PushToTalk and PushToTalkPlus modes route through this single literal —
+    // see RegisterMouseHookForButton. If you ever introduce a separate
+    // "pushToTalkPlus" action, update this and IsTransmissionConfigStillValid
+    // together.
+    private const string MouseHookPttAction = "pushToTalk";
+
+    /// <summary>
+    /// Single source of truth for whether a key name refers to a mouse button.
+    /// Must stay in sync with <see cref="KeyNameToVirtualKey"/> and the
+    /// <c>expectedButton</c> map in <see cref="MouseHookCallback"/>.
+    /// </summary>
+    internal static bool IsMouseButtonKey(string? key) => key is
+        "XButton1" or "XButton2" or "MouseXButton1" or "MouseXButton2"
+        or "MouseLeft" or "MouseRight" or "MouseMiddle";
+
+    private PttInputState CurrentPttInputState() => new(
+        _mouseHookHandle,
+        _shortcutActionForMouse,
+        _shortcutKeyForMouse,
+        _pttVk,
+        _pttPollingTimer != null);
+
+    /// <summary>
+    /// Pure check: does the captured input plumbing still match what
+    /// SetTransmissionMode set up last time? Returning false forces
+    /// SetTransmissionMode to redo configuration even when the inputs haven't
+    /// changed — used to recover from the shared mouse hook being stolen by
+    /// SetShortcut, or from a previous SetWindowsHookEx returning IntPtr.Zero.
+    /// </summary>
+    internal static bool IsTransmissionConfigStillValid(
+        TransmissionMode mode, string? key, IntPtr hwnd, PttInputState state)
+    {
+        bool isPttMode = mode == TransmissionMode.PushToTalk || mode == TransmissionMode.PushToTalkPlus;
+        if (!isPttMode || key == null || hwnd == IntPtr.Zero)
+        {
+            // Non-PTT modes (and PTT without a key / without a window) don't
+            // own a hook or polling timer that another caller could disturb.
+            return true;
+        }
+
+        if (IsMouseButtonKey(key))
+        {
+            // The mouse hook is shared with SetShortcut; verify it's still
+            // ours (not stolen by a non-PTT shortcut) and actually registered.
+            return state.MouseHookHandle != IntPtr.Zero
+                && state.ShortcutActionForMouse == MouseHookPttAction
+                && state.ShortcutKeyForMouse == key;
+        }
+
+        // Keyboard PTT: polling timer must be live for our VK. If the key is
+        // unparseable (vk == 0), we deliberately return false so the body
+        // re-runs — there's nothing meaningful to skip.
+        var vk = KeyNameToVirtualKey(key);
+        return vk != 0 && state.PttVk == vk && state.PttPollingActive;
     }
 
     private void StartPttPolling()
@@ -1622,9 +1610,7 @@ private int _screenShareHotkeyId = -1;
         AudioLog.Write($"[Audio] SetShortcut: action={action}, key={key}, _hwnd={_hwnd}");
         if (_hwnd == IntPtr.Zero) return;
 
-        bool isMouseButton = key is "XButton1" or "XButton2" or "MouseLeft" or "MouseRight" or "MouseMiddle";
-
-        if (isMouseButton)
+        if (IsMouseButtonKey(key))
         {
             RegisterMouseHookForShortcut(action, key);
             return;
@@ -1824,8 +1810,8 @@ private int _screenShareHotkeyId = -1;
                     "MouseLeft" => 0,
                     "MouseMiddle" => 2,
                     "MouseRight" => 1,
-                    "XButton1" => 3,
-                    "XButton2" => 4,
+                    "XButton1" or "MouseXButton1" => 3,
+                    "XButton2" or "MouseXButton2" => 4,
                     _ => -1
                 };
 
@@ -2119,7 +2105,7 @@ private int _screenShareHotkeyId = -1;
                 if (Interlocked.CompareExchange(ref _pttSilenceTailGeneration, generation, generation) != generation)
                     return;
                 if (_pttActive || _muted) return;
-                StopMicWithSilenceTail();
+                StopMic();
             }, null, dueTime: holdMs, period: Timeout.Infinite);
         }
     }
@@ -2148,9 +2134,13 @@ private int _screenShareHotkeyId = -1;
                 }
             }
 
-            // Check local user: if no audio submitted recently, mark as stopped speaking
-            // Only apply hold time for PTT mode to avoid affecting VAD/continuous mode behavior
-            if (_localUserId != 0 && _currentlySpeaking.Contains(_localUserId) && _transmissionMode == TransmissionMode.PushToTalk)
+            // Check local user: if no audio submitted recently, mark as stopped speaking.
+            // VAD mode is NOT included here — its gate-close decision is authoritative
+            // and clears _currentlySpeaking inline (see OnMicData → CloseWithTerminator).
+            // Including VAD here previously caused indicator-flicker because the timer
+            // races with the per-frame _lastLocalAudioMs update.
+            if (_localUserId != 0 && _currentlySpeaking.Contains(_localUserId)
+                && _transmissionMode == TransmissionMode.PushToTalk)
             {
                 long elapsed = Environment.TickCount64 - _lastLocalAudioMs;
                 if (elapsed > _voiceHoldMs)
@@ -2180,13 +2170,17 @@ private int _screenShareHotkeyId = -1;
     {
         _deviceResampler?.Dispose();
         _deviceResampler = null;
-        _processor?.Dispose();
-        _processor = null;
-        _rnnoise?.Dispose();
-        _rnnoiseRemainder = null;
-        _speechEnhancement?.Dispose();
-        _to16kResampler?.Dispose();
-        _to48kResampler?.Dispose();
+        lock (_processorLock)
+        {
+            _processor?.Dispose();
+            _processor = null;
+        }
+        lock (_vadLock)
+        {
+            _vadGate = null;
+            (_vad as IDisposable)?.Dispose();
+            _vad = null;
+        }
         _speakingTimer.Dispose();
         StopPttPolling();
         StopShortcutKeyboardPolling();
@@ -2331,5 +2325,15 @@ private int _screenShareHotkeyId = -1;
 
         _ => 0
     };
+}
+
+/// <summary>
+/// No-op VAD detector used when WebRtcVad native init fails.
+/// Always returns true so that the VadGate's RMS threshold does all the gating work.
+/// </summary>
+internal sealed class RmsOnlyVadFallback : IVadDetector
+{
+    public VadAggressiveness Mode { get; set; }
+    public bool IsSpeech(ReadOnlySpan<short> frame) => true; // gate RMS threshold does the work
 }
 

@@ -8,6 +8,8 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { prompt } from '../../hooks/usePrompt';
 import bridge from '../../bridge';
 import Avatar from '../Avatar/Avatar';
+import { formatIdleDuration } from '../../utils/formatIdleDuration';
+import { AFK_THRESHOLD_SEC } from '../../hooks/useIdleActions';
 import type { ShareInfo } from '../../hooks/useScreenShare';
 import { EditChannelDialog } from '../EditChannelDialog/EditChannelDialog';
 import { RenameConfirmDialog } from '../RenameConfirmDialog/RenameConfirmDialog';
@@ -48,6 +50,7 @@ interface ChannelTreeProps {
   onSelectChannel?: (channelId: number) => void;
   onStartDM?: (userId: string, userName: string) => void;
   speakingUsers?: Map<number, boolean>;
+  voiceIdle?: Record<number, number>;
   pendingChannelAction?: number | 'leave' | null;
   channelUnreads?: Map<string, { notificationCount: number; highlightCount: number }>;
   sharingChannelId?: number;
@@ -60,7 +63,7 @@ interface ChannelTreeProps {
   onMoveUser?: (session: number, channelId: number) => void;
 }
 
-export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, speakingUsers, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, onStopWatching, activeShares, watchingShares, onEditAvatar, onMoveUser }: ChannelTreeProps) {
+export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, speakingUsers, voiceIdle, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, onStopWatching, activeShares, watchingShares, onEditAvatar, onMoveUser }: ChannelTreeProps) {
   const [sortByNamePerChannel, setSortByNamePerChannel] = useState<Record<number, boolean>>({});
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string; isSelf: boolean; channelId?: number } | null>(null);
   const [channelContextMenu, setChannelContextMenu] = useState<{ x: number; y: number; channelId: number; channelName: string } | null>(null);
@@ -358,6 +361,13 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                       )}
                       {user.muted && (
                         <Icon name="mic-off" size={11} className="user-status-icon user-status-icon--muted" strokeWidth={2.5} />
+                      )}
+                      {voiceIdle && voiceIdle[user.session] !== undefined && voiceIdle[user.session] >= AFK_THRESHOLD_SEC && (
+                        <Tooltip content={formatIdleDuration(voiceIdle[user.session])}>
+                          <span tabIndex={0} role="img" aria-label={formatIdleDuration(voiceIdle[user.session])}>
+                            <Icon name="moon" size={11} className="user-status-icon user-status-icon--idle" strokeWidth={2.5} />
+                          </span>
+                        </Tooltip>
                       )}
                     </span>
                     <Avatar user={{ name: user.name, matrixUserId: user.matrixUserId, avatarUrl: user.avatarUrl }} size={20} isMumbleOnly={!user.self && !user.isBrmbleClient} />

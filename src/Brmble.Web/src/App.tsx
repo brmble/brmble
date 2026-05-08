@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import bridge from './bridge';
 import type { ConnectionStatus, ChatMessage, ServiceStatus } from './types';
 import { encodeForMumble } from './utils/imageUpload';
@@ -8,6 +8,9 @@ import { useScreenShare } from './hooks/useScreenShare';
 import type { LocalShareStopReason } from './hooks/useScreenShare';
 import { useLeaveVoiceCooldown } from './hooks/useLeaveVoiceCooldown';
 import { useNotificationQueue } from './hooks/useNotificationQueue';
+import { useBrmbleIdle } from './hooks/useBrmbleIdle';
+import { useIdleStatus } from './hooks/useIdleStatus';
+import { useIdleActions } from './hooks/useIdleActions';
 import { useUnreadTracker, resetMarkersCache } from './hooks/useUnreadTracker';
 import { useServiceStatus } from './hooks/useServiceStatus';
 import { useServerHealth } from './hooks/useServerHealth';
@@ -29,6 +32,7 @@ import { Version } from './components/Version/Version';
 import { ZoomIndicator } from './components/ZoomIndicator/ZoomIndicator';
 import { useChatStore, addMessageToStore, clearChatStorage, purgeEphemeralMessages } from './hooks/useChatStore';
 import { parseMessageMedia } from './utils/parseMessageMedia';
+import { linkifyForMumble } from './utils/linkifyForMumble';
 import { useDMStore } from './hooks/useDMStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
 import { usePrompt, confirm } from './hooks/usePrompt';
@@ -401,6 +405,30 @@ function App() {
   const [selfSession, setSelfSession] = useState<number>(0);
   const [speakingUsers, setSpeakingUsers] = useState<Map<number, boolean>>(new Map());
   const [pendingChannelAction, setPendingChannelAction] = useState<number | 'leave' | null>(null);
+
+  // Idle / AFK tracking — see docs/research/2026-05-03-idle-status-research.md
+  const brmbleIdleSec = useBrmbleIdle();
+  const { voiceIdle, systemIdle, isLocked } = useIdleStatus();
+  const selfVoiceChannelIdForIdle = users.find(u => u.self)?.channelId;
+  const inVoiceChannelForIdle =
+    !selfLeftVoice && selfVoiceChannelIdForIdle != null && selfVoiceChannelIdForIdle !== 0;
+  const { autoLeftAt, dismissToast: dismissAutoLeftToast } = useIdleActions({
+    brmbleIdleSec,
+    systemIdleSec: systemIdle,
+    isLocked,
+    inVoiceChannel: inVoiceChannelForIdle,
+  });
+
+  // Register the auto-leave-voice toast in the notification queue when fired.
+  // notifQueue intentionally omitted from deps: the object identity changes on
+  // every render, but `register` is idempotent and we only care about the
+  // autoLeftAt edge.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (autoLeftAt !== null) {
+      notifQueue.register('idle-auto-leave', 'info');
+    }
+  }, [autoLeftAt]);
   const [hotkeyPressedBtn, setHotkeyPressedBtn] = useState<string | null>(null);
   const pendingChannelActionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -549,8 +577,13 @@ function App() {
   const { messages, addMessage } = useChatStore(channelKey);
   const [optimisticImages, setOptimisticImages] = useState<ChatMessage[]>([]);
 
+  const activeChannelId = currentChannelId && currentChannelId !== 'server-root'
+    ? currentChannelId
+    : undefined;
+
   const dmStore = useDMStore({
-    matrixDmMessages: matrixClient.dmMessages,
+    matrixDmLastMessages: matrixClient.dmLastMessages,
+    activeDmMessages: matrixClient.activeDmMessages,
     matrixDmRoomMap: matrixClient.dmRoomMap,
     matrixDmUserDisplayNames: matrixClient.dmUserDisplayNames,
     matrixDmUserAvatarUrls: matrixClient.dmUserAvatarUrls,
@@ -559,9 +592,17 @@ function App() {
     users,
     username,
     sendMumbleDM: (targetSession: number, text: string) => {
-      bridge.send('voice.sendPrivateMessage', { message: text, targetSession });
+      bridge.send('voice.sendPrivateMessage', { message: linkifyForMumble(text), targetSession });
     },
   });
+
+  useLayoutEffect(() => {
+    matrixClient.setActiveChannel(activeChannelId ?? null);
+  }, [activeChannelId, matrixClient.setActiveChannel]);
+
+  useLayoutEffect(() => {
+    matrixClient.setActiveDmContact(dmStore.selectedContact?.id ?? null);
+  }, [dmStore.selectedContact?.id, matrixClient.setActiveDmContact]);
 
   // Determine active Matrix room ID (depends on dmStore.selectedContact)
   const activeMatrixRoomId = useMemo(() => {
@@ -1700,10 +1741,11 @@ const handleConnect = (serverData: SavedServer) => {
         addMessage(username, content);
       }
 
+      const mumbleHtml = linkifyForMumble(content);
       if (channelId === 'server-root') {
-        bridge.send('voice.sendMessage', { message: content, channelId: 0 });
+        bridge.send('voice.sendMessage', { message: mumbleHtml, channelId: 0 });
       } else {
-        bridge.send('voice.sendMessage', { message: content, channelId: Number(channelId) });
+        bridge.send('voice.sendMessage', { message: mumbleHtml, channelId: Number(channelId) });
         if (isMatrixChannel) {
           matrixClient.sendMessage(channelId, content).catch(console.error);
         }
@@ -1986,13 +2028,18 @@ const handleConnect = (serverData: SavedServer) => {
     }
   }, [notifQueue]);
 
-  const activeChannelId = currentChannelId && currentChannelId !== 'server-root'
-    ? currentChannelId
-    : undefined;
   const isMatrixActive = !!activeChannelId && matrixCredentials?.roomMap[activeChannelId] !== undefined;
   const matrixMessages = activeChannelId
-    ? matrixClient.messages.get(activeChannelId)
+    ? matrixClient.activeMessages
     : undefined;
+
+  const channelChatMessages = useMemo(
+    () => [
+      ...(isMatrixActive ? (matrixMessages ?? []) : messages),
+      ...optimisticImages.filter(m => m.channelId === currentChannelId),
+    ],
+    [isMatrixActive, matrixMessages, messages, optimisticImages, currentChannelId],
+  );
 
   const { Prompt, PromptWithInput } = usePrompt();
 
@@ -2505,6 +2552,7 @@ const handleConnect = (serverData: SavedServer) => {
           onDisconnect={handleDisconnect}
           onStartDM={handleStartDMFromContextMenu}
           speakingUsers={speakingUsers}
+          voiceIdle={voiceIdle}
           connectionStatus={connectionStatus}
           onCancelReconnect={handleCancelReconnect}
           pendingChannelAction={pendingChannelAction}
@@ -2543,7 +2591,7 @@ const handleConnect = (serverData: SavedServer) => {
                    <ChatPanel
                     channelId={currentChannelId || undefined}
                     channelName={currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName}
-                    messages={[...(isMatrixActive ? (matrixMessages ?? []) : messages), ...optimisticImages.filter(m => m.channelId === currentChannelId)]}
+                    messages={channelChatMessages}
                     currentUsername={username}
                     onSendMessage={handleSendMessage}
                     onDismissMessage={handleDismissMessage}
@@ -2764,6 +2812,23 @@ const handleConnect = (serverData: SavedServer) => {
             }}
             onExited={() => {
               notifQueue.unregister('copy');
+            }}
+          />
+        )}
+        {autoLeftAt !== null && notifQueue.isVisible('idle-auto-leave') && (
+          <Notification
+            status="info"
+            position="top-right"
+            visible={autoLeftAt !== null}
+            duration={6000}
+            title="Out of voice"
+            detail="You were moved out of voice after 10 minutes of inactivity."
+            onDismiss={() => {
+              notifQueue.unregister('idle-auto-leave');
+              dismissAutoLeftToast();
+            }}
+            onExited={() => {
+              notifQueue.unregister('idle-auto-leave');
             }}
           />
         )}

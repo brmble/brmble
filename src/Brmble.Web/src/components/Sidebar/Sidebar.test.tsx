@@ -236,3 +236,27 @@ describe('Sidebar root user screen share behavior', () => {
     expect(indicator?.firstElementChild).toHaveTextContent('Sharing');
   });
 });
+
+describe('Sidebar root user idle (moon) icon', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('does not render moon when voiceIdle is below threshold', () => {
+    renderSidebar({
+      users: [{ session: 7, name: 'Bob', channelId: 0 }],
+      voiceIdle: { 7: 599 },
+    });
+    const row = screen.getByText('Bob').closest('.root-user-row');
+    expect(row?.querySelector('[data-icon="moon"]')).toBeNull();
+  });
+
+  it('renders moon icon when voiceIdle exceeds threshold', () => {
+    renderSidebar({
+      users: [{ session: 7, name: 'Bob', channelId: 0 }],
+      voiceIdle: { 7: 700 },
+    });
+    const row = screen.getByText('Bob').closest('.root-user-row');
+    expect(row?.querySelector('.user-status-area [data-icon="moon"]')).not.toBeNull();
+  });
+});

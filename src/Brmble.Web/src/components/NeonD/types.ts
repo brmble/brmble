@@ -3,19 +3,21 @@ export interface ProductionItem {
   name: string;
   stock: number;
   rate: number;
+  yieldPerLevel: number;
+  costMultiplier: number;
   level: number;
   upgradeCost: number;
 }
 
-export type UpgradeType = 'VOLUME' | 'MARGIN' | 'SIDE_HUSTLE' | 'NETWORK' | 'ALL_AROUNDER' | 'BULK';
+export type UpgradeType = 'VOLUME' | 'MARGIN' | 'SIDE_HUSTLE' | 'ALL_AROUNDER' | 'BULK';
 
 export interface DealerUpgrade {
   type: UpgradeType;
   label: string;
   description: string;
   value: number;
-  targetProductId?: string;
   marginPenalty?: number;
+  sideVolumeValue?: number;
 }
 
 export interface Dealer {
@@ -26,9 +28,12 @@ export interface Dealer {
   margin: number;
   volumeBonus: number;
   marginBonus: number;
-  sideHustle: Record<string, number>;
-  networkBonus: number;
+  sideVolume: number;
   equipmentCount: number;
+  baseVolumeGps: number;
+  baseMarginMult: number;
+  volumeStars: number;
+  marginStars: number;
 }
 
 export interface GameState {
@@ -41,4 +46,5 @@ export interface GameState {
   availableDealers: Dealer[];
   unlockedSlots: number;
   lastRefreshTime: number;
+  lastEarningsPerDealer: Record<string, number>;
 }

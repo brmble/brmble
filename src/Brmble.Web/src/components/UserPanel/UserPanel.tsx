@@ -146,7 +146,6 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
         outputDevice: existingAudio.outputDevice || 'default',
         inputVolume: inputVolume ?? existingAudio.inputVolume ?? 250,
         outputVolume: outputVolume ?? existingAudio.outputVolume ?? 250,
-        maxAmplification: existingAudio.maxAmplification || 100,
         transmissionMode: transmissionMode ?? existingAudio.transmissionMode ?? 'pushToTalk',
         pushToTalkKey: existingAudio.pushToTalkKey ?? null,
         opusBitrate: existingAudio.opusBitrate || 72000,

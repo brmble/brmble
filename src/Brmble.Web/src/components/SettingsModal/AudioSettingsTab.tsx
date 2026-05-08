@@ -3,40 +3,41 @@ import bridge from '../../bridge';
 import { type AllBindings, BINDING_LABELS } from './SettingsModal';
 import { confirm } from '../../hooks/usePrompt';
 import { Select } from '../Select';
-import { VirtualMicControls } from './VirtualMicControls';
+import { VadLevelMeter } from '../VadLevelMeter/VadLevelMeter';
 import './AudioSettingsTab.css';
 import './ShortcutsSettingsTab.css';
 
-export type ProcessingStack = 'None' | 'Legacy' | 'WebRtcApm';
+export type NoiseSuppressionLevel = 'Off' | 'Low' | 'Moderate' | 'High' | 'VeryHigh';
 
 interface AudioSettingsTabProps {
   settings: AudioSettings;
-  speechDenoise: SpeechDenoiseSettings;
+  noiseSuppression: NoiseSuppressionSettings;
   onChange: (settings: AudioSettings) => void;
-  onSpeechDenoiseChange: (settings: SpeechDenoiseSettings) => void;
+  onNoiseSuppressionChange: (settings: NoiseSuppressionSettings) => void;
   allBindings: AllBindings;
   onClearBinding: (bindingId: string) => void;
 }
 
 export type TransmissionMode = 'pushToTalk' | 'voiceActivity' | 'continuous' | 'pushToTalkPlus';
 
+export type VadSensitivity = 'low' | 'balanced' | 'high';
+
 export interface AudioSettings {
   inputDevice: string;
   outputDevice: string;
   inputVolume: number;
   outputVolume: number;
-  maxAmplification: number;
   transmissionMode: TransmissionMode;
   pushToTalkKey: string | null;
   opusBitrate: number;
   opusFrameSize: number;
   voiceHoldMs: number;
   captureApi: 'waveIn' | 'wasapi';
-  processingStack: ProcessingStack;
+  vadSensitivity: VadSensitivity;
 }
 
-export interface SpeechDenoiseSettings {
-  mode: 'rnnoise' | 'gtcrn' | 'disabled';
+export interface NoiseSuppressionSettings {
+  level: NoiseSuppressionLevel;
 }
 
 export const DEFAULT_SETTINGS: AudioSettings = {
@@ -44,21 +45,20 @@ export const DEFAULT_SETTINGS: AudioSettings = {
   outputDevice: 'default',
   inputVolume: 250,
   outputVolume: 250,
-  maxAmplification: 100,
   transmissionMode: 'pushToTalk',
   pushToTalkKey: null,
   opusBitrate: 72000,
   opusFrameSize: 20,
   voiceHoldMs: 200,
   captureApi: 'wasapi',
-  processingStack: 'Legacy',
+  vadSensitivity: 'balanced',
 };
 
-export const DEFAULT_SPEECH_DENOISE: SpeechDenoiseSettings = {
-  mode: 'rnnoise',
+export const DEFAULT_NOISE_SUPPRESSION: NoiseSuppressionSettings = {
+  level: 'High',
 };
 
-export function AudioSettingsTab({ settings, speechDenoise, onChange, onSpeechDenoiseChange, allBindings, onClearBinding }: AudioSettingsTabProps) {
+export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoiseSuppressionChange, allBindings, onClearBinding }: AudioSettingsTabProps) {
   const [localSettings, setLocalSettings] = useState<AudioSettings>(settings);
   const [recording, setRecording] = useState(false);
   const [isPromptOpen, setIsPromptOpen] = useState(false);
@@ -170,16 +170,6 @@ export function AudioSettingsTab({ settings, speechDenoise, onChange, onSpeechDe
           />
         </div>
 
-        <div className="settings-item settings-slider">
-          <label>Max Amplification: {localSettings.maxAmplification}%</label>
-          <input
-            type="range"
-            min="100"
-            max="400"
-            value={localSettings.maxAmplification}
-            onChange={(e) => handleChange('maxAmplification', parseInt(e.target.value, 10))}
-          />
-        </div>
       </div>
 
       {/* Output Section */}
@@ -251,42 +241,48 @@ export function AudioSettingsTab({ settings, speechDenoise, onChange, onSpeechDe
           </>
         )}
 
-        <div className="settings-item">
-          <label>
-            Noise Suppression
-            <span className="tooltip-icon" data-tooltip="RNNoise: lightweight noise suppression that runs efficiently on the CPU. GTCRN: deep learning-based noise suppression for higher quality (requires more CPU).">?</span>
-          </label>
-          <Select
-            value={speechDenoise.mode}
-            onChange={(v) => onSpeechDenoiseChange({ ...speechDenoise, mode: v as SpeechDenoiseSettings['mode'] })}
-            options={[
-              { value: 'disabled', label: 'Disabled' },
-              { value: 'rnnoise', label: 'RNNoise' },
-              { value: 'gtcrn', label: 'GTCRN' },
-            ]}
-          />
-        </div>
+        {localSettings.transmissionMode === 'voiceActivity' && (
+          <>
+            <div className="settings-item">
+              <label>
+                Sensitivity
+                <span className="tooltip-icon" data-tooltip="How strictly background noise is rejected. Higher rejects more noise but needs clearer speech to trigger; lower picks up softer voices.">?</span>
+              </label>
+              <Select
+                value={localSettings.vadSensitivity}
+                onChange={(v) => handleChange('vadSensitivity', v as VadSensitivity)}
+                options={[
+                  { value: 'low',      label: 'Low' },
+                  { value: 'balanced', label: 'Balanced (recommended)' },
+                  { value: 'high',     label: 'High' },
+                ]}
+              />
+            </div>
+            <div className="settings-item">
+              <label>Mic level</label>
+              <VadLevelMeter />
+            </div>
+          </>
+        )}
 
         <div className="settings-item">
           <label>
-            Processing Stack
-            <span className="tooltip-icon" data-tooltip="None: raw passthrough — no processing. Legacy: amplitude AGC + RNNoise (default). WebRTC APM: AGC2 + noise suppression + high-pass filter (experimental).">?</span>
+            Noise Suppression
+            <span className="tooltip-icon" data-tooltip="How aggressively to suppress background noise. Higher levels remove more noise but can muffle speech. AGC and high-pass filter run regardless of this setting.">?</span>
           </label>
           <Select
-            value={localSettings.processingStack}
-            onChange={(v) => handleChange('processingStack', v as ProcessingStack)}
+            value={noiseSuppression.level}
+            onChange={(v) => onNoiseSuppressionChange({ level: v as NoiseSuppressionLevel })}
             options={[
-              { value: 'None', label: 'None' },
-              { value: 'Legacy', label: 'Legacy (default)' },
-              { value: 'WebRtcApm', label: 'WebRTC APM (experimental)' },
+              { value: 'Off', label: 'Off' },
+              { value: 'Low', label: 'Low' },
+              { value: 'Moderate', label: 'Moderate' },
+              { value: 'High', label: 'High (default)' },
+              { value: 'VeryHigh', label: 'Very High' },
             ]}
           />
         </div>
       </div>
-
-      <VirtualMicControls
-        onChange={(path) => bridge.send('voice.setVirtualMic', { path })}
-      />
 
       {/* Encoding Section */}
       {(() => {

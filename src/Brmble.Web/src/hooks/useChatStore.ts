@@ -4,6 +4,7 @@ import type { ChatMessage, MediaAttachment } from '../types';
 const STORAGE_KEY_PREFIX = 'brmble_chat_';
 const SERVER_ROOT_KEY = 'server-root';
 const SERVER_ROOT_MAX_MESSAGES = 200;
+const NON_SERVER_ROOT_MAX_MESSAGES = 200;
 const DEBOUNCE_MS = 500;
 
 const EPHEMERAL_TYPES = new Set(['connecting', 'welcome', 'userJoined', 'userLeft']);
@@ -201,8 +202,9 @@ export function useChatStore(channelId: string) {
     };
     setMessages(prev => {
       let updated = [...prev, newMessage];
-      if (isServerRoot && updated.length > SERVER_ROOT_MAX_MESSAGES) {
-        updated = updated.slice(updated.length - SERVER_ROOT_MAX_MESSAGES);
+      const cap = isServerRoot ? SERVER_ROOT_MAX_MESSAGES : NON_SERVER_ROOT_MAX_MESSAGES;
+      if (updated.length > cap) {
+        updated = updated.slice(updated.length - cap);
       }
       saveMessages(updated);
       return updated;
@@ -266,6 +268,9 @@ export function addMessageToStore(
     }
   }
   messages.push(newMessage);
+  if (messages.length > NON_SERVER_ROOT_MAX_MESSAGES) {
+    messages = messages.slice(messages.length - NON_SERVER_ROOT_MAX_MESSAGES);
+  }
   localStorage.setItem(fullKey, JSON.stringify(messages));
 }
 

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace Brmble.Client;
@@ -229,6 +230,23 @@ internal static class Win32Window
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr LoadImage(IntPtr hInst, string name, uint type,
         int cx, int cy, uint fuLoad);
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
+    private static extern void SetCurrentProcessExplicitAppUserModelID(
+        [MarshalAs(UnmanagedType.LPWStr)] string AppID);
+
+    /// <summary>
+    /// Sets an explicit AppUserModelID for the current process so the Windows taskbar
+    /// treats this app as its own grouping. Without this, Velopack-installed builds
+    /// can have the taskbar bind to the launcher stub's icon resource, which makes
+    /// runtime WM_SETICON updates (theme-aware icons) appear to do nothing.
+    /// Must be called before any window is created.
+    /// </summary>
+    public static void SetAppUserModelId(string appId)
+    {
+        try { SetCurrentProcessExplicitAppUserModelID(appId); }
+        catch (Exception ex) { Debug.WriteLine($"[AppUserModelID] Failed to set '{appId}': {ex.Message}"); }
+    }
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

@@ -254,3 +254,51 @@ describe('ChannelTree screen share behavior', () => {
     expect(indicator?.firstElementChild).toHaveTextContent('Sharing');
   });
 });
+
+describe('ChannelTree idle (moon) icon', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('does not render moon when voiceIdle is missing for the user', () => {
+    render(
+      <ChannelTree
+        channels={channels}
+        users={[{ session: 7, name: 'Bob', channelId: 1 }]}
+        currentChannelId={1}
+        onJoinChannel={vi.fn()}
+        voiceIdle={{}}
+      />
+    );
+    const row = screen.getByText('Bob').closest('.user-row');
+    expect(row?.querySelector('[data-icon="moon"]')).toBeNull();
+  });
+
+  it('does not render moon when voiceIdle is below threshold', () => {
+    render(
+      <ChannelTree
+        channels={channels}
+        users={[{ session: 7, name: 'Bob', channelId: 1 }]}
+        currentChannelId={1}
+        onJoinChannel={vi.fn()}
+        voiceIdle={{ 7: 599 }}
+      />
+    );
+    const row = screen.getByText('Bob').closest('.user-row');
+    expect(row?.querySelector('[data-icon="moon"]')).toBeNull();
+  });
+
+  it('renders moon icon when voiceIdle exceeds threshold', () => {
+    render(
+      <ChannelTree
+        channels={channels}
+        users={[{ session: 7, name: 'Bob', channelId: 1 }]}
+        currentChannelId={1}
+        onJoinChannel={vi.fn()}
+        voiceIdle={{ 7: 700 }}
+      />
+    );
+    const row = screen.getByText('Bob').closest('.user-row');
+    expect(row?.querySelector('.user-status-area [data-icon="moon"]')).not.toBeNull();
+  });
+});

@@ -11,11 +11,12 @@ using MumbleSharp.Audio.Codecs;
 using MumbleSharp.Model;
 using MumbleProto;
 using PacketType = MumbleSharp.Packets.PacketType;
+using Brmble.Audio;
 using Brmble.Audio.Processing;
 using Brmble.Client.Bridge;
 using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.Certificate;
-using Brmble.Client.Services.SpeechEnhancement;
+using Brmble.Client.Services.Idle;
 
 namespace Brmble.Client.Services.Voice;
 
@@ -53,6 +54,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private readonly ConcurrentDictionary<uint, SessionMappingEntry> _sessionMappings = new();
     private CancellationTokenSource? _wsCts;
     private readonly IAppConfigService? _appConfigService;
+    private readonly VoiceIdleTracker? _voiceIdleTracker;
+    private System.Threading.Timer? _voiceIdlePollTimer;
+    private int _voiceIdlePollOffset;
+    private int _voiceIdlePollInProgress;   // 0 = idle, 1 = tick running (Interlocked guard)
+    private int _voiceIdlePollGeneration;   // bumped on Stop so stale callbacks bail
+    // 5-second tick × 4-message batch = 0.8 msg/s sustained, burst 4 — comfortably
+    // under Mumble's documented leaky-bucket budget (~1 msg/s sustained, burst 5).
+    // Sweep cycle for N users: ceil(N/4) × 5s. 30-user channel = ~37.5s.
+    private const int VOICE_IDLE_POLL_INTERVAL_MS = 5_000;
+    private const int VOICE_IDLE_POLL_BATCH_SIZE = 4;
+    private long _lastLocalTransmitNotifyTicks;  // Environment.TickCount64 baseline
+    private const int LOCAL_TRANSMIT_NOTIFY_THROTTLE_MS = 5_000;
     private System.Threading.Timer? _healthTimer;
     private long _healthGeneration;
     private BanList? _cachedBanList;
@@ -100,12 +113,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// <summary>The ID of the ServerEntry that initiated the current connection, if any.</summary>
     public string? ActiveServerId => _activeServerId;
 
-    public MumbleAdapter(NativeBridge bridge, IntPtr hwnd, CertificateService? certService = null, IAppConfigService? appConfigService = null)
+    public MumbleAdapter(NativeBridge bridge, IntPtr hwnd, CertificateService? certService = null, IAppConfigService? appConfigService = null, VoiceIdleTracker? voiceIdleTracker = null)
     {
         _bridge = bridge;
         _hwnd = hwnd;
         _certService = certService;
         _appConfigService = appConfigService;
+        _voiceIdleTracker = voiceIdleTracker;
         _audioManager = new AudioManager(_hwnd);
         _audioManager.ToggleMuteRequested += ToggleMute;
         _audioManager.ToggleDeafenRequested += ToggleDeaf;
@@ -142,6 +156,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         };
         _audioManager.OnLossReport += loss => {
             _bridge?.Send("voice.loss", new { loss });
+        };
+        _audioManager.VadMeterUpdated += (rms, isOpen) =>
+        {
+            _bridge?.Send("voice.vadMeter", new { rms, isOpen });
+            // Audio thread → must wake the UI thread so WebView2 actually flushes the queue.
+            _bridge?.NotifyUiThread();
         };
     }
 
@@ -270,14 +290,15 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _processThread?.Join(2000);
         _processThread = null;
 
+        StopVoiceIdlePolling();
+        _voiceIdleTracker?.Clear();
+
         _audioManager?.Dispose();
         _audioManager = null;
 
-        // Reset cached speech-enhancement state so that when a new AudioManager
-        // is created on reconnect, ConfigureSpeechEnhancement is always called.
-        _lastSpeechEnhancementEnabled = false;
-        _lastSpeechEnhancementModel = "";
-        _lastSpeechDenoiseMode = SpeechDenoiseMode.Disabled;
+        // Reset cached NS state so that the next ApplySettings on a fresh
+        // AudioManager always re-applies the level.
+        _lastNoiseSuppressionLevel = null;
 
         try
         {
@@ -695,13 +716,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.SetTransmissionMode(parsed, key, _hwnd);
     }
 
-    private bool _lastSpeechEnhancementEnabled = false;
-    private string _lastSpeechEnhancementModel = "";
-    private SpeechDenoiseMode _lastSpeechDenoiseMode = SpeechDenoiseMode.Disabled;
+    private NoiseSuppressionLevel? _lastNoiseSuppressionLevel;
 
     public void ApplySettings(AppSettings settings)
     {
         SetTransmissionMode(settings.Audio.TransmissionMode, settings.Audio.PushToTalkKey);
+        var vadSensitivity = settings.Audio.VadSensitivity switch
+        {
+            "low" => VadSensitivity.Low,
+            "high" => VadSensitivity.High,
+            _ => VadSensitivity.Balanced,
+        };
+        _audioManager?.SetVadSensitivity(vadSensitivity);
         _audioManager?.SetShortcut("toggleMute", settings.Shortcuts.ToggleMuteKey);
         _audioManager?.SetShortcut("toggleMuteDeafen", settings.Shortcuts.ToggleMuteDeafenKey);
         _audioManager?.SetShortcut("toggleLeaveVoice", settings.Shortcuts.ToggleLeaveVoiceKey);
@@ -716,45 +742,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.SetCaptureApi(settings.Audio.CaptureApi);
         _audioManager?.SetVoiceHoldMs(settings.Audio.VoiceHoldMs);
 
-        // Determine effective speech enhancement state.
-        // The SpeechDenoise dropdown can select GTCRN, which should activate the
-        // GTCRN speech enhancement model.  The separate SpeechEnhancement settings
-        // also control this, so we merge both: GTCRN denoise mode forces it on,
-        // otherwise we fall back to the explicit SpeechEnhancement setting.
-        var denoiseMode = settings.SpeechDenoise.Mode;
-        var gtcrnViaDenoise = denoiseMode == SpeechDenoiseMode.Gtcrn;
-
-        var seEnabled = gtcrnViaDenoise || settings.SpeechEnhancement.Enabled;
-        var seModel = gtcrnViaDenoise
-            ? "dns3"
-            : (settings.SpeechEnhancement.Model ?? "").Trim().ToLowerInvariant();
-
-        // Only reinitialise speech enhancement when its settings actually change.
-        // ConfigureSpeechEnhancement disposes and recreates the ONNX InferenceSession,
-        // which causes a native crash if the mic callback is mid-inference at that moment.
-
-        if (seEnabled != _lastSpeechEnhancementEnabled || seModel != _lastSpeechEnhancementModel)
+        var nsLevel = settings.NoiseSuppression.Level;
+        if (_lastNoiseSuppressionLevel != nsLevel)
         {
-            _lastSpeechEnhancementEnabled = seEnabled;
-            _lastSpeechEnhancementModel = seModel;
-
-            var modelVariant = seModel switch
-            {
-                "vctk-demand" => GtcrnModelVariant.VctkDemand,
-                _ => GtcrnModelVariant.Dns3
-            };
-            var modelsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "models");
-            _audioManager?.ConfigureSpeechEnhancement(modelsPath, seEnabled, modelVariant);
-        }
-
-        // Configure RNNoise denoising.
-        // GTCRN and RNNoise are mutually exclusive — when GTCRN is active via the
-        // denoise dropdown, force RNNoise off so they don't both process audio.
-        var effectiveDenoiseMode = gtcrnViaDenoise ? SpeechDenoiseMode.Disabled : denoiseMode;
-        if (effectiveDenoiseMode != _lastSpeechDenoiseMode)
-        {
-            _lastSpeechDenoiseMode = effectiveDenoiseMode;
-            _audioManager?.ConfigureRnnoise(effectiveDenoiseMode);
+            _lastNoiseSuppressionLevel = nsLevel;
+            _audioManager?.SetNoiseSuppression(nsLevel);
         }
     }
 
@@ -2456,19 +2448,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             }
         });
 
-        bridge.RegisterHandler("voice.setProcessingStack", data =>
+        bridge.RegisterHandler("voice.setNoiseSuppression", data =>
         {
-            var stackStr = data.TryGetProperty("stack", out var stack) ? stack.GetString() ?? "Legacy" : "Legacy";
-            if (!Enum.TryParse<ProcessingStack>(stackStr, ignoreCase: true, out var processingStack))
-                processingStack = ProcessingStack.Legacy;
-            _audioManager?.SetProcessingStack(processingStack);
-            return Task.CompletedTask;
-        });
-
-        bridge.RegisterHandler("voice.setVirtualMic", data =>
-        {
-            string? path = data.TryGetProperty("path", out var p) ? p.GetString() : null;
-            _audioManager?.SetVirtualMic(path);
+            var levelStr = data.TryGetProperty("level", out var lv) ? lv.GetString() ?? "High" : "High";
+            if (!Enum.TryParse<NoiseSuppressionLevel>(levelStr, ignoreCase: true, out var level))
+                level = NoiseSuppressionLevel.High;
+            _lastNoiseSuppressionLevel = level;
+            _audioManager?.SetNoiseSuppression(level);
             return Task.CompletedTask;
         });
 
@@ -2520,6 +2506,32 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 _bridge?.Send("dm.roomError", new { targetMatrixUserId, error = ex.Message });
                 _bridge?.NotifyUiThread();
             }
+        });
+
+        bridge.RegisterHandler("voice.vadSensitivity", data =>
+        {
+            var value = data.TryGetProperty("value", out var v) ? v.GetString() : null;
+            var level = value switch
+            {
+                "low" => VadSensitivity.Low,
+                "balanced" => VadSensitivity.Balanced,
+                "high" => VadSensitivity.High,
+                _ => (VadSensitivity?)null,
+            };
+            if (level is null)
+            {
+                AudioLog.Write($"[Bridge] Ignored voice.vadSensitivity with invalid value '{value}'");
+                return Task.CompletedTask;
+            }
+            _audioManager?.SetVadSensitivity(level.Value);
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.vadMeterSubscribe", data =>
+        {
+            var enabled = data.TryGetProperty("enabled", out var e) && e.GetBoolean();
+            _audioManager?.SetVadMeterSubscribed(enabled);
+            return Task.CompletedTask;
         });
     }
 
@@ -2574,12 +2586,31 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.SendVoicePacket += packet =>
             Connection?.SendVoice(new ArraySegment<byte>(packet.ToArray()));
         _audioManager?.UserStartedSpeaking += userId =>
+        {
             _bridge?.Send("voice.userSpeaking", new { session = userId });
+            // Local user spoke → reset Brmble-app idle timer (synthetic activity ping).
+            // Throttled so we don't spam the bridge during normal continuous speech.
+            // AudioManager events may fire from multiple threads; use Interlocked on
+            // a TickCount64 timestamp instead of a non-atomic Stopwatch.Restart().
+            if (LocalUser != null && userId == LocalUser.Id)
+            {
+                var now = Environment.TickCount64;
+                var last = Interlocked.Read(ref _lastLocalTransmitNotifyTicks);
+                if (now - last >= LOCAL_TRANSMIT_NOTIFY_THROTTLE_MS
+                    && Interlocked.CompareExchange(ref _lastLocalTransmitNotifyTicks, now, last) == last)
+                {
+                    _bridge?.Send("voice.localTransmit", new { });
+                    _bridge?.NotifyUiThread();
+                }
+            }
+        };
         _audioManager?.UserStoppedSpeaking += userId =>
             _bridge?.Send("voice.userSilent", new { session = userId });
         if (LocalUser != null)
             _audioManager?.SetLocalUserId(LocalUser.Id);
         _audioManager?.StartMic();
+
+        StartVoiceIdlePolling();
 
         // Check which channel the server placed us in.  Unregistered users
         // land in root (channel 0).  Registered users may be placed in their
@@ -2860,6 +2891,95 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _bridge?.NotifyUiThread();
     }
 
+    public override void UserStats(UserStats userStats)
+    {
+        base.UserStats(userStats);
+        if (userStats != null
+            && userStats.ShouldSerializeSession()
+            && userStats.ShouldSerializeIdlesecs()
+            && _voiceIdleTracker != null)
+        {
+            _voiceIdleTracker.UpdateUserStats(userStats.Session, userStats.Idlesecs);
+        }
+    }
+
+    /// <summary>
+    /// Starts the periodic UserStats poll so we can surface peer idle times
+    /// (Mumble has no UserState.idlesecs broadcast — pull-only via UserStats).
+    /// Idempotent; stops any existing timer first.
+    /// </summary>
+    private void StartVoiceIdlePolling()
+    {
+        if (_voiceIdleTracker == null) return;
+        StopVoiceIdlePolling();
+        _voiceIdlePollOffset = 0;
+        // Bump generation so any callback queued from a previous lifetime bails.
+        var generation = Interlocked.Increment(ref _voiceIdlePollGeneration);
+        _voiceIdlePollTimer = new System.Threading.Timer(
+            _ => PollVoiceIdleTick(generation),
+            state: null,
+            dueTime: VOICE_IDLE_POLL_INTERVAL_MS,
+            period: VOICE_IDLE_POLL_INTERVAL_MS);
+    }
+
+    private void StopVoiceIdlePolling()
+    {
+        // Bump generation BEFORE disposing — if a callback is already queued on
+        // the threadpool, it will see the stale generation and exit cleanly.
+        Interlocked.Increment(ref _voiceIdlePollGeneration);
+        _voiceIdlePollTimer?.Dispose();
+        _voiceIdlePollTimer = null;
+    }
+
+    /// <summary>
+    /// Sweeps a batch of currently-known users for fresh UserStats. Stays
+    /// under Mumble's leaky-bucket budget by capping batch size to
+    /// <see cref="VOICE_IDLE_POLL_BATCH_SIZE"/> per <see cref="VOICE_IDLE_POLL_INTERVAL_MS"/>
+    /// and rolling offset for fairness across users.
+    /// Non-reentrant: a slow tick won't pile up overlapping callbacks.
+    /// </summary>
+    private void PollVoiceIdleTick(int generation)
+    {
+        // Non-reentrant guard. CompareExchange returns the original value;
+        // if a tick was already running we bail without ever entering the body.
+        if (Interlocked.CompareExchange(ref _voiceIdlePollInProgress, 1, 0) != 0) return;
+        try
+        {
+            // Stale-callback guard: a callback can be queued on the threadpool
+            // before Stop disposes the timer; the generation bump invalidates it.
+            if (generation != Volatile.Read(ref _voiceIdlePollGeneration)) return;
+
+            var conn = Connection;
+            if (conn == null || conn.State != ConnectionStates.Connected) return;
+
+            // Snapshot sessions; ConcurrentDictionary.Values is a live view but
+            // ToArray gives us a stable list for the batch.
+            var sessions = UserDictionary.Keys.OrderBy(s => s).ToArray();
+            if (sessions.Length == 0) return;
+
+            var plan = PollBatchPlanner.Plan(_voiceIdlePollOffset, sessions.Length, VOICE_IDLE_POLL_BATCH_SIZE);
+            foreach (var idx in plan.IndicesToPoll)
+            {
+                SendRequestUserStats(new UserStats { Session = sessions[idx], StatsOnly = true });
+            }
+            _voiceIdlePollOffset = plan.NewOffset;
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                System.IO.File.AppendAllText(
+                    System.IO.Path.Combine(System.IO.Path.GetTempPath(), "brmble-tls.log"),
+                    $"[{DateTime.Now:HH:mm:ss.fff}] PollVoiceIdleTick error: {ex.Message}\n");
+            }
+            catch { /* logging is best-effort */ }
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _voiceIdlePollInProgress, 0);
+        }
+    }
+
     public override void UserRemove(UserRemove userRemove)
     {
         // Look up user name before base call removes them from dictionary
@@ -2874,6 +2994,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         Debug.WriteLine($"[Mumble] UserRemove: session {userRemove.Session}, name: {userName}, isSelf: {isSelf}");
 
+        _voiceIdleTracker?.RemoveUser(userRemove.Session);
         _audioManager?.RemoveUser(userRemove.Session);
         var channelId = user?.Channel?.Id;
         var certHash = user?.CertificateHash;

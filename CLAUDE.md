@@ -86,20 +86,6 @@ git push -u origin feature/my-feature
 - ❌ Commit directly to main
 - ❌ Push to main
 - ❌ Merge PRs without review
-- ❌ Commit plans or any changes before moving work to a worktree
-
-## Review Notes
-
-- This patch updates CLAUDE.md to improve guidance for multi-agent collaboration and contributor onboarding.
-- No code changes; intended to support the open Bridge PR with better context for reviewers.
-- Please verify the added sections render clearly in the PR diff and that terminology remains consistent with the rest of CLAUDE.md.
-- If minor wording tweaks are needed, we can push a follow-up small edit.
-
-## Extra: Design for Multi-Agent Collaboration
-
-This project supports modular bridge architecture. The following guidelines help AI agents collaborate:
-- Never commit to main; create feature branches and PRs
-- Use a consistent, explicit planning and review workflow
 
 ## Tech Stack (Summary)
 - Frontend: React + TypeScript + Vite
@@ -138,10 +124,10 @@ See `docs/UI_GUIDE.md` section 11 for full icon list, adding new icons, and conv
 
 ## Running Docker (local dev)
 
-Docker runs in WSL. Use `wsl` to execute docker commands:
+Docker runs natively via Rancher Desktop. No WSL prefix needed:
 ```bash
-wsl docker compose -f docker-local/docker-compose.yml up -d --build brmble
-wsl docker compose -f docker-local/docker-compose.yml logs -f brmble
+docker compose -f docker-local/docker-compose.yml up -d --build brmble
+docker compose -f docker-local/docker-compose.yml logs -f brmble
 ```
 
 ## Build & Test (repeatable commands)

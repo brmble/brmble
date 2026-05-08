@@ -10,6 +10,7 @@ using Brmble.Client.Services.Certificate;
 using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.Voice;
 using Brmble.Client.Services.Update;
+using Brmble.Client.Services.Idle;
 
 namespace Brmble.Client;
 
@@ -24,6 +25,7 @@ static class Program
     private static CertificateService? _certService;
     private static MumbleAdapter? _mumbleClient;
     private static UpdateService? _updateService;
+    private static IdleService? _idleService;
     private static IntPtr _hwnd;
     private static volatile bool _muted;
     private static volatile bool _deafened;
@@ -67,10 +69,39 @@ static class Program
     [STAThread]
     static void Main()
     {
+        // Unhandled-exception trap for diagnosis. WinExe has no console; without
+        // this hook a crashing background thread leaves no trace beyond exit
+        // code 1. Log to %TEMP%/brmble-tls.log so it survives the process end.
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
+            try
+            {
+                var ex = args.ExceptionObject as Exception;
+                File.AppendAllText(
+                    Path.Combine(Path.GetTempPath(), "brmble-tls.log"),
+                    $"[{DateTime.Now:HH:mm:ss.fff}] UNHANDLED ({(args.IsTerminating ? "TERMINATING" : "non-terminating")}): {ex}\n\n");
+            }
+            catch { /* logging is best-effort */ }
+        };
+        System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            try
+            {
+                File.AppendAllText(
+                    Path.Combine(Path.GetTempPath(), "brmble-tls.log"),
+                    $"[{DateTime.Now:HH:mm:ss.fff}] UNOBSERVED TASK EX: {args.Exception}\n\n");
+            }
+            catch { /* logging is best-effort */ }
+            args.SetObserved();
+        };
+
         try
         {
             VelopackApp.Build().Run();
             DevLog.Init();
+
+            Win32Window.SetAppUserModelId(AppIdentity.AppUserModelId);
+            ShortcutAppId.StampVelopackShortcuts(AppIdentity.AppUserModelId, AppIdentity.PackId);
 
             var useDevServer = IsDevServerRunning();
             Debug.WriteLine(useDevServer
@@ -262,7 +293,13 @@ static class Program
             _updateService.Initialize(_bridge);
             _updateService.RegisterHandlers(_bridge);
 
-            _mumbleClient = new MumbleAdapter(_bridge, _hwnd, _certService, _appConfigService);
+            _idleService = new IdleService();
+            _idleService.Initialize(_bridge);
+            _idleService.RegisterHandlers(_bridge);
+            _idleService.AttachWindow(_hwnd);
+            _idleService.Start();
+
+            _mumbleClient = new MumbleAdapter(_bridge, _hwnd, _certService, _appConfigService, _idleService.VoiceTracker);
             _mumbleClient.ApplySettings(_appConfigService!.GetSettings());
             _mumbleClient.OnApiUrlDiscovered = discoveredUrl =>
             {
@@ -600,6 +637,7 @@ static class Program
                     ));
                 }
                 _updateService?.Dispose();
+                _idleService?.Dispose();
                 _mumbleClient?.Disconnect();
                 TrayIcon.Destroy();
                 TaskbarBadge.Destroy();
@@ -613,6 +651,10 @@ static class Program
             case Win32Window.WM_INPUT:
                 _mumbleClient?.HandleRawInput(wParam, lParam);
                 return Win32Window.DefWindowProc(hwnd, msg, wParam, lParam);
+
+            case SystemIdleTracker.WM_WTSSESSION_CHANGE:
+                _idleService?.SystemTracker?.OnSessionChange((int)wParam.ToInt64());
+                return IntPtr.Zero;
 
             case 0x0400: // WM_USER
                 _bridge?.ProcessUiMessage();

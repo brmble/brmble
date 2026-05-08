@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import type { ChatMessage, User } from '../types';
+import type { MessagePreview } from './useMatrixClient';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -20,7 +21,8 @@ export interface DMContact {
 }
 
 export interface DMStoreOptions {
-  matrixDmMessages: Map<string, ChatMessage[]> | undefined;
+  matrixDmLastMessages: Map<string, MessagePreview> | undefined;
+  activeDmMessages: ChatMessage[] | undefined;
   matrixDmRoomMap: Map<string, string> | undefined;
   matrixDmUserDisplayNames: Map<string, string> | undefined;
   matrixDmUserAvatarUrls: Map<string, string> | undefined;
@@ -51,12 +53,19 @@ export interface DMStore {
 }
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const MUMBLE_MESSAGES_MAX_PER_CONTACT = 200;
+
+// ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
 
 export function useDMStore(options: DMStoreOptions): DMStore {
   const {
-    matrixDmMessages,
+    matrixDmLastMessages,
+    activeDmMessages,
     matrixDmRoomMap,
     matrixDmUserDisplayNames,
     matrixDmUserAvatarUrls,
@@ -114,8 +123,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
       for (const [matrixUserId] of matrixDmRoomMap) {
         seen.add(matrixUserId);
         const user = users.find(u => u.matrixUserId === matrixUserId);
-        const msgs = matrixDmMessages?.get(matrixUserId);
-        const lastMsg = msgs && msgs.length > 0 ? msgs[msgs.length - 1] : undefined;
+        const lastPreview = matrixDmLastMessages?.get(matrixUserId);
 
         // Resolve display name: Matrix room membership > Mumble user list > parse Matrix ID
         const displayName = matrixDmUserDisplayNames?.get(matrixUserId)
@@ -126,8 +134,8 @@ export function useDMStore(options: DMStoreOptions): DMStore {
           id: matrixUserId,
           displayName,
           avatarUrl: user?.avatarUrl ?? matrixDmUserAvatarUrls?.get(matrixUserId),
-          lastMessage: lastMsg?.content,
-          lastMessageTime: lastMsg?.timestamp.getTime(),
+          lastMessage: lastPreview?.content,
+          lastMessageTime: lastPreview?.ts,
           unreadCount: 0, // Matrix unread is tracked globally via matrixDmUnreadCount
         });
       }
@@ -153,7 +161,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
 
     result.sort((a, b) => (b.lastMessageTime ?? 0) - (a.lastMessageTime ?? 0));
     return result;
-  }, [matrixDmRoomMap, matrixDmMessages, matrixDmUserDisplayNames, matrixDmUserAvatarUrls, users, pendingMatrixContacts, mumbleContacts, mumbleMessages]);
+  }, [matrixDmRoomMap, matrixDmLastMessages, matrixDmUserDisplayNames, matrixDmUserAvatarUrls, users, pendingMatrixContacts, mumbleContacts, mumbleMessages]);
 
   // ---- Selected contact ----------------------------------------------------
 
@@ -170,10 +178,10 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     const mumbleMsgs = mumbleMessages.get(selectedContactId);
     if (mumbleMsgs) return mumbleMsgs;
     // Otherwise Matrix messages
-    const matrixMsgs = matrixDmMessages?.get(selectedContactId) ?? [];
+    const matrixMsgs = activeDmMessages ?? [];
     const pending = pendingMessages.get(selectedContactId) ?? [];
     return [...matrixMsgs, ...pending];
-  }, [selectedContactId, matrixDmMessages, pendingMessages, mumbleMessages]);
+  }, [selectedContactId, activeDmMessages, pendingMessages, mumbleMessages]);
 
   // ---- Actions -------------------------------------------------------------
 
@@ -246,7 +254,11 @@ export function useDMStore(options: DMStoreOptions): DMStore {
       setMumbleMessages(prev => {
         const next = new Map(prev);
         const existing = next.get(selectedContactId!) ?? [];
-        next.set(selectedContactId!, [...existing, msg]);
+        let updated = [...existing, msg];
+        if (updated.length > MUMBLE_MESSAGES_MAX_PER_CONTACT) {
+          updated = updated.slice(updated.length - MUMBLE_MESSAGES_MAX_PER_CONTACT);
+        }
+        next.set(selectedContactId!, updated);
         return next;
       });
       sendMumbleDM?.(contact.mumbleSessionId, content);
@@ -270,17 +282,25 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     });
 
     if (sendMatrixDM) {
-      sendMatrixDM(selectedContactId, content)
+      const contactId = selectedContactId;
+      sendMatrixDM(contactId, content)
         .then(() => {
-          // Remove optimistic message -- the real one arrives via sync
           setPendingMessages(prev => {
             const next = new Map(prev);
-            const existing = next.get(selectedContactId!) ?? [];
-            next.set(selectedContactId!, existing.filter(m => m.id !== optimisticMsg.id));
+            const existing = next.get(contactId!) ?? [];
+            next.set(contactId!, existing.filter(m => m.id !== optimisticMsg.id));
             return next;
           });
         })
-        .catch(console.error);
+        .catch(err => {
+          console.error('Matrix DM send failed:', err);
+          setPendingMessages(prev => {
+            const next = new Map(prev);
+            const existing = next.get(contactId!) ?? [];
+            next.set(contactId!, existing.filter(m => m.id !== optimisticMsg.id));
+            return next;
+          });
+        });
     }
   }, [selectedContactId, username, sendMatrixDM, mumbleContacts, sendMumbleDM]);
 
@@ -333,7 +353,11 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     setMumbleMessages(prev => {
       const next = new Map(prev);
       const existing = next.get(certHash) ?? [];
-      next.set(certHash, [...existing, msg]);
+      let updated = [...existing, msg];
+      if (updated.length > MUMBLE_MESSAGES_MAX_PER_CONTACT) {
+        updated = updated.slice(updated.length - MUMBLE_MESSAGES_MAX_PER_CONTACT);
+      }
+      next.set(certHash, updated);
       return next;
     });
     // Increment unread if not currently viewing this contact

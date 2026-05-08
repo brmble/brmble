@@ -80,10 +80,50 @@ public class EncodePipeline : IDisposable
 
             if (_accumulatorPos >= _frameSizeBytes)
             {
-                EncodeAndEmit();
+                EncodeAndEmit(terminator: false);
                 _accumulatorPos = 0;
             }
         }
+    }
+
+    /// <summary>
+    /// End the current voice transmission. If the accumulator contains a partial
+    /// frame, it is zero-padded to a full frame, encoded, and emitted with the
+    /// Mumble Opus terminator flag set so receivers see a clean end-of-stream.
+    /// If the accumulator is empty, no packet is emitted (matches upstream
+    /// Mumble behaviour). After this call, no further packets will be produced
+    /// unless new PCM is submitted (which restarts the stream at the next
+    /// sequence number — callers normally Dispose() right after FlushFinal()).
+    /// </summary>
+    public void FlushFinal()
+    {
+        if (_accumulatorPos == 0)
+            return;
+
+        // Zero-pad the partial frame so Opus encodes a fixed-size frame.
+        Array.Clear(_accumulator, _accumulatorPos, _frameSizeBytes - _accumulatorPos);
+        _accumulatorPos = _frameSizeBytes;
+        EncodeAndEmit(terminator: true);
+        _accumulatorPos = 0;
+    }
+
+    /// <summary>
+    /// End the current voice transmission without disposing the pipeline. Always
+    /// emits exactly one Opus packet with the Mumble terminator flag set so the
+    /// receiver clears the speaker indicator. Unlike <see cref="FlushFinal"/>,
+    /// this path emits a zero-padded packet even if the accumulator is empty —
+    /// which is required for VAD gate-close to land cleanly on packet boundaries.
+    /// </summary>
+    public void EmitTerminator()
+    {
+        if (_accumulatorPos < _frameSizeBytes)
+        {
+            // Zero-pad whatever is in the accumulator (possibly all of it) to a full frame.
+            Array.Clear(_accumulator, _accumulatorPos, _frameSizeBytes - _accumulatorPos);
+            _accumulatorPos = _frameSizeBytes;
+        }
+        EncodeAndEmit(terminator: true);
+        _accumulatorPos = 0;
     }
 
     // Opus specification guarantees a single packet never exceeds 1275 bytes.
@@ -92,7 +132,7 @@ public class EncodePipeline : IDisposable
     // encode failures. Use the spec-defined safe maximum instead.
     private const int MaxOpusPacketBytes = 1275;
 
-    private void EncodeAndEmit()
+    private void EncodeAndEmit(bool terminator)
     {
         byte[] scaled;
 
@@ -132,7 +172,7 @@ public class EncodePipeline : IDisposable
             var opusData = new byte[encodedLen];
             Array.Copy(encoded, opusData, encodedLen);
 
-            byte[] packet = VoicePacketBuilder.Build(opusData, _sequenceNumber, _target);
+            byte[] packet = VoicePacketBuilder.Build(opusData, _sequenceNumber, _target, terminator);
             _sequenceNumber++;
 
             _onPacketReady(packet);
