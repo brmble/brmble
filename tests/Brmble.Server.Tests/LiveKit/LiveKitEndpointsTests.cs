@@ -97,7 +97,7 @@ public class LiveKitEndpointsTests
     }
 
     [TestMethod]
-    public async Task TokenRequest_SubscribeWithoutCurrentChannelAccess_ReturnsOk()
+    public async Task TokenRequest_SubscribeWithoutCurrentChannelAccess_ReturnsForbidden()
     {
         using var factory = new BrmbleServerFactory();
         using var client = factory.CreateClient();

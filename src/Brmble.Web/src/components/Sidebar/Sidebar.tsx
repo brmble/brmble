@@ -325,7 +325,7 @@ export function Sidebar({
                               onStopWatching?.(share.userId);
                             }}
                             aria-label={`Watching screen share from ${user.name}`}
-                            aria-pressed="true"
+                            aria-pressed={true}
                           >
                             <Icon name="monitor" size={11} className="user-status-icon user-status-icon--sharing user-status-icon--watching" stroke="var(--accent-primary)" strokeWidth="2.5" />
                           </button>

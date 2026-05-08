@@ -675,10 +675,10 @@ function App() {
   const matrixClientRef = useRef(matrixClient.client);
   matrixClientRef.current = matrixClient.client;
   const handleToggleScreenShareRef = useRef<(() => void) | null>(null);
-  const disconnectViewerRef = useRef<(() => void) | null>(null);
+  const disconnectViewerRef = useRef<(() => Promise<void>) | null>(null);
 
   const stopSharesForVoiceExit = useCallback(async () => {
-    disconnectViewerRef.current?.();
+    await disconnectViewerRef.current?.();
     if (isSharingRef.current) {
       await stopSharingRef.current?.();
     }
@@ -704,24 +704,34 @@ function App() {
   // notifQueue intentionally omitted from deps: the object identity changes on
   // every render, but `register` is idempotent and we only care about the
   // autoLeftAt edge.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (autoLeftAt !== null) {
       notifQueue.register('idle-auto-leave', 'info');
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoLeftAt]);
 
+  // Register the pre-leave toast only when the timestamp changes.
+  // notifQueue intentionally omitted from deps: the object identity changes on
+  // every render, but `register` is idempotent and we only care about the
+  // preLeaveStartedAt edge.
   useEffect(() => {
     if (preLeaveStartedAt !== null) {
       notifQueue.register('idle-pre-leave', 'info');
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preLeaveStartedAt]);
 
+  // Replace the pre-leave toast with the cancellation toast only when fired.
+  // notifQueue intentionally omitted from deps: the object identity changes on
+  // every render, but these operations are idempotent and we only care about
+  // the preLeaveCancelledAt edge.
   useEffect(() => {
     if (preLeaveCancelledAt !== null) {
       notifQueue.unregister('idle-pre-leave');
       notifQueue.register('idle-pre-leave-cancelled', 'info');
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preLeaveCancelledAt]);
 
   // Fetch avatar for a specific user by matrixUserId and session, updating user state.
