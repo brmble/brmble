@@ -152,4 +152,23 @@ public class UserRepositoryTests
         Assert.AreEqual(0, found!.IsAdmin);
         Assert.IsFalse(found.IsAdminBool);
     }
+
+    [TestMethod]
+    public async Task SetAdmin_MakesUserAdmin()
+    {
+        var user = await _repo!.Insert("hash_set_admin", "AdminToBe");
+        await _repo.SetAdmin(user.Id, true);
+        var found = await _repo.GetByCertHash("hash_set_admin");
+        Assert.IsTrue(found!.IsAdminBool);
+    }
+
+    [TestMethod]
+    public async Task SetAdmin_RemoveAdmin()
+    {
+        var user = await _repo!.Insert("hash_remove_admin", "AdminRemove");
+        await _repo.SetAdmin(user.Id, true);
+        await _repo.SetAdmin(user.Id, false);
+        var found = await _repo.GetByCertHash("hash_remove_admin");
+        Assert.IsFalse(found!.IsAdminBool);
+    }
 }

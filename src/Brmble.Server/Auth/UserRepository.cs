@@ -117,6 +117,14 @@ public class UserRepository
             new { Hash = hash, Id = userId });
     }
 
+    public async Task SetAdmin(long userId, bool isAdmin)
+    {
+        using var conn = _db.CreateConnection();
+        await conn.ExecuteAsync(
+            "UPDATE users SET is_admin = @IsAdmin WHERE id = @Id",
+            new { IsAdmin = isAdmin ? 1 : 0, Id = userId });
+    }
+
     public virtual async Task<User?> GetByMatrixUserId(string matrixUserId)
     {
         using var conn = _db.CreateConnection();
