@@ -531,7 +531,7 @@ git commit -m "feat: add UpdateDisplayName and DeleteAsync methods to UserReposi
 
 **Files:**
 - Modify: `src/Brmble.Server/Mumble/IMumbleRegistrationService.cs`
-- Modify: `src/Brmble.Server/Mumble/MumbleRegistrationService.cs` (or similar implementation)
+- Modify: `src/Brmble.Server/Mumble/MumbleRegistrationService.cs`
 
 - [ ] **Step 1: Add interface method**
 
@@ -540,12 +540,9 @@ git commit -m "feat: add UpdateDisplayName and DeleteAsync methods to UserReposi
 Task UnregisterUserAsync(int mumbleUserId);
 ```
 
-- [ ] **Step 2: Implement UnregisterUserAsync**
+- [ ] **Step 2: Locate the implementation file**
 
-First, find the existing implementation file:
-```bash
-Get-ChildItem -Path "src/Brmble.Server/Mumble" -Recurse -Include "*Registration*.cs"
-```
+Run: `ls src/Brmble.Server/Mumble/` to find the MumbleRegistrationService implementation file (typically `MumbleRegistrationService.cs` or similar).
 
 Then add the implementation (check the pattern used by other Mumble operations in that file):
 
@@ -833,12 +830,33 @@ git commit -m "feat: implement registered users UI in AdminSettingsTab"
 **Files:**
 - Modify: `src/Brmble.Server/Auth/AdminService.cs`
 
-- [ ] **Step 1: Update DeleteUserAsync to complete implementation**
+- [ ] **Step 1: Add GetAsync method to UserRepository (if missing)**
+
+Check if `UserRepository.GetAsync(long userId)` exists. If not, add it:
+
+```csharp
+// In UserRepository.cs:
+public async Task<User?> GetAsync(long userId)
+{
+    using var conn = _db.CreateConnection();
+    return await conn.QuerySingleOrDefaultAsync<User>(
+        """
+        SELECT id AS Id, cert_hash AS CertHash, display_name AS DisplayName,
+               matrix_user_id AS MatrixUserId, matrix_access_token AS MatrixAccessToken,
+               is_admin AS IsAdmin
+        FROM users
+        WHERE id = @Id
+        """,
+        new { Id = userId });
+}
+```
+
+- [ ] **Step 2: Update DeleteUserAsync to complete implementation**
 
 Replace the incomplete DeleteUserAsync method (currently has TODOs) with the full implementation:
 
 ```csharp
-public async Task<bool> DeleteUserAsync(long userId, IMumbleRegistrationService mumbleService)
+public async Task<bool> DeleteUserAsync(long userId)
 {
     try
     {
@@ -851,14 +869,14 @@ public async Task<bool> DeleteUserAsync(long userId, IMumbleRegistrationService 
         }
 
         // Unregister from Mumble if registered
-        var mumbleUsers = await mumbleService.GetRegisteredUsersAsync("");
+        var mumbleUsers = await _mumbleService.GetRegisteredUsersAsync("");
         var mumbleEntry = mumbleUsers.FirstOrDefault(m => m.Value == user.DisplayName);
         
         if (mumbleEntry.Key > 0)
         {
             try
             {
-                await mumbleService.UnregisterUserAsync(mumbleEntry.Key);
+                await _mumbleService.UnregisterUserAsync(mumbleEntry.Key);
                 _logger.LogInformation("Unregistered Mumble user {MumbleUserId} for {DisplayName}", 
                     mumbleEntry.Key, user.DisplayName);
             }
@@ -883,27 +901,6 @@ public async Task<bool> DeleteUserAsync(long userId, IMumbleRegistrationService 
 }
 ```
 
-- [ ] **Step 2: Add GetAsync method to UserRepository (if missing)**
-
-Check if `UserRepository.GetAsync(long userId)` exists. If not, add it:
-
-```csharp
-// In UserRepository.cs:
-public async Task<User?> GetAsync(long userId)
-{
-    using var conn = _db.CreateConnection();
-    return await conn.QuerySingleOrDefaultAsync<User>(
-        """
-        SELECT id AS Id, cert_hash AS CertHash, display_name AS DisplayName,
-               matrix_user_id AS MatrixUserId, matrix_access_token AS MatrixAccessToken,
-               is_admin AS IsAdmin
-        FROM users
-        WHERE id = @Id
-        """,
-        new { Id = userId });
-}
-```
-
 - [ ] **Step 3: Update AdminServiceTests to verify DeleteUserAsync works**
 
 ```csharp
@@ -918,7 +915,7 @@ public async Task DeleteUserAsync_RemovesUserAndMumble()
         .Returns(Task.CompletedTask);
 
     // Act
-    var result = await _service!.DeleteUserAsync(user.Id, _mumbleMock.Object);
+    var result = await _service!.DeleteUserAsync(user.Id);
 
     // Assert
     Assert.IsTrue(result);
@@ -1046,7 +1043,7 @@ public static class AdminEndpoints
             return Results.Forbid();
         
         var service = new AdminService(userRepo, mumbleService, logger);
-        var deleted = await service.DeleteUserAsync(id, mumbleService);
+        var deleted = await service.DeleteUserAsync(id);
         
         if (!deleted)
             return Results.NotFound();
@@ -1060,9 +1057,11 @@ public static class AdminEndpoints
 - [ ] **Step 2: Register endpoints in Program.cs**
 
 ```csharp
-// In Program.cs, add after app.MapAuthEndpoints():
+// In Program.cs, add after app.MapAuthEndpoints() (after line 51):
 app.MapAdminEndpoints();
 ```
+
+This registers the `/admin` route group with GET /admin/registered-users, PUT /admin/registered-users/{id}, and DELETE /admin/registered-users/{id}.
 
 - [ ] **Step 3: Build to verify**
 
@@ -1153,6 +1152,11 @@ useEffect(() => {
 ```typescript
 // Add these helper functions:
 const handleRenameUser = async (user: AdminUser) => {
+  if (!user.id) {
+    setError('Cannot rename Mumble-only users (not in Brmble database)');
+    return;
+  }
+  
   const newName = prompt('Enter new display name:', user.displayName);
   if (newName && newName !== user.displayName) {
     setLoading(true);
@@ -1178,6 +1182,11 @@ const handleRenameUser = async (user: AdminUser) => {
 };
 
 const handleDeleteUser = async (user: AdminUser) => {
+  if (!user.id) {
+    setError('Cannot delete Mumble-only users (not in Brmble database)');
+    return;
+  }
+  
   const confirmed = await confirm({
     title: 'Delete User',
     message: `Are you sure you want to delete ${user.displayName}?`,
@@ -1233,34 +1242,36 @@ Replace lines 167-176 (or the current users panel) with:
           <span>Status</span>
           <span>Actions</span>
         </div>
-        {users.map((user) => (
-          <div key={user.id ?? `mumble-${user.mumbleUserId}`} className="admin-user-row">
-            <div className="admin-user-name-col">
-              {user.displayName}
-              {user.isAdmin && <span className="admin-badge">Admin</span>}
-            </div>
-            <div className="admin-user-status-col">
-              {user.isBrmbleUser && <span className="status-badge brmble">Brmble</span>}
-              {user.isMumbleRegistered && <span className="status-badge mumble">Mumble</span>}
-            </div>
-            <div className="admin-user-actions-col">
-              <button 
-                className="btn btn-secondary btn-sm" 
-                onClick={() => handleRenameUser(user)}
-                disabled={loading}
-              >
-                Rename
-              </button>
-              <button 
-                className="btn btn-danger btn-sm" 
-                onClick={() => handleDeleteUser(user)}
-                disabled={loading}
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        ))}
+         {users.map((user) => (
+           <div key={user.id ?? `mumble-${user.mumbleUserId}`} className="admin-user-row">
+             <div className="admin-user-name-col">
+               {user.displayName}
+               {user.isAdmin && <span className="admin-badge">Admin</span>}
+             </div>
+             <div className="admin-user-status-col">
+               {user.isBrmbleUser && <span className="status-badge brmble">Brmble</span>}
+               {user.isMumbleRegistered && <span className="status-badge mumble">Mumble</span>}
+             </div>
+             <div className="admin-user-actions-col">
+               <button 
+                 className="btn btn-secondary btn-sm" 
+                 onClick={() => handleRenameUser(user)}
+                 disabled={loading || !user.id}
+                 title={!user.id ? "Cannot rename Mumble-only users" : ""}
+               >
+                 Rename
+               </button>
+               <button 
+                 className="btn btn-danger btn-sm" 
+                 onClick={() => handleDeleteUser(user)}
+                 disabled={loading || !user.id}
+                 title={!user.id ? "Cannot delete Mumble-only users" : ""}
+               >
+                 Delete
+               </button>
+             </div>
+           </div>
+         ))}
       </div>
     )}
   </div>
@@ -1477,20 +1488,24 @@ git commit -m "feat: complete registered users management feature"
 1. **Database migration is idempotent** — can be run multiple times safely (checks if column exists)
 
 2. **Admin status needs manual setup** — After implementing Task 1-2, run:
-   ```bash
-   dotnet run --project src/Brmble.Server
-   # Then manually update in SQLite:
-   # UPDATE users SET is_admin = 1 WHERE cert_hash = 'your_cert_hash';
-   ```
+    ```bash
+    dotnet run --project src/Brmble.Server
+    # Then manually update in SQLite:
+    # UPDATE users SET is_admin = 1 WHERE cert_hash = 'your_cert_hash';
+    ```
 
 3. **REST endpoints require mTLS certificates** — Clients must provide client certificates. This is automatic for the Brmble client, but testing with curl requires:
-   ```bash
-   curl --cert client.pem --key client-key.pem https://localhost:8080/admin/registered-users
-   ```
+    ```bash
+    curl --cert client.pem --key client-key.pem https://localhost:8080/admin/registered-users
+    ```
 
-4. **React tests** — Task 8 doesn't include React component tests. Add tests as needed for your project's testing standards.
+4. **Mumble unregistration partial failures** — In Task 6, `DeleteUserAsync` continues with SQLite deletion even if Mumble unregistration fails. This is intentional: a user should always be removed from the database, even if Mumble is temporarily unavailable. The error is logged for debugging.
 
-5. **Mumble server must be running** — Task 5-6 require a working Mumble server for UnregisterUserAsync to work.
+5. **React tests** — Task 8 doesn't include React component tests. Add tests as needed for your project's testing standards.
+
+6. **Mumble server must be running** — Task 5-6 require a working Mumble server for UnregisterUserAsync to work.
+
+7. **Mumble-only users cannot be renamed or deleted** — The API returns null for `id` for Mumble-only users (those not in the Brmble SQLite database). The React UI disables rename/delete buttons for these users and shows helpful tooltips.
 
 ---
 
