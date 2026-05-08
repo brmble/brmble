@@ -1,13 +1,15 @@
 # Screen Share Self-Slot Bugfix Batch — Design Spec
 
 **Date:** 2026-04-21
-**Status:** Approved
+**Status:** Implemented
 **Depends on:** Sub-project A2 (Multi-Share Layouts) — implemented
 **Branch:** `fix/screenshare-self-slot`
 
 ## Overview
 
 Fix the A2 regression where clicking your own sharing row can reserve an empty slot in the screen-share grid even though self-preview does not exist. In the same patch, clean up the channel-list sharing UI so the share monitor icon no longer occupies the status-icon area near the avatar and no longer displaces mute/deafen indicators.
+
+This fix has landed and is kept here as the design record for the shipped behavior.
 
 ## Goals
 

@@ -1,12 +1,14 @@
 # Screen Share Picker Cancel Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Historical note:** This implementation plan is retained as an implemented historical record for the shipped fix. The task-by-task checklist body below is intentionally preserved as the original implementation record.
 
 **Goal:** Make screen-share picker cancel behave like a manual pre-share abort, with no technical failure notification and no misleading LiveKit error status.
 
 **Architecture:** Narrow the `startSharing()` failure path in `useScreenShare` so known picker-cancel/abort errors do not flow into the generic `error` branch. In `App.tsx`, stop setting LiveKit status to `connecting` before the picker resolves so cancel naturally settles back to `idle` or remains `connected` if the user is already watching shares.
 
 **Tech Stack:** React, TypeScript, Vitest, Testing Library, LiveKit client, existing status/notification plumbing in `App.tsx`
+
+> **Status note:** Implemented. This plan is kept as a historical implementation record for the shipped fix, including the preserved task-by-task checklist.
 
 ---
 

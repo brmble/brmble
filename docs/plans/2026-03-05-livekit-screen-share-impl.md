@@ -1,5 +1,7 @@
 # LiveKit Screen Share (Publish-Only) Implementation Plan
 
+> **Historical note:** This document describes the original publish-only LiveKit phase. The current source of truth for LiveKit/screenshare status and sequencing is `docs/superpowers/specs/2026-04-17-livekit-feature-roadmap.md`.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Enable users to publish their screen to a LiveKit room from the voice controls bar.

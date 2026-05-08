@@ -1,12 +1,14 @@
 # Screen Share Auto-Stop Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Historical note:** This implementation plan is retained as an implemented historical record for the shipped fix. The task-by-task checklist body below is intentionally preserved as the original implementation record.
 
 **Goal:** Automatically stop local screen sharing when the captured source ends externally, classify the stop reason for sharer-only notifications, and keep viewer cleanup silent and reliable.
 
 **Architecture:** Keep `useScreenShare` as the single owner of local share lifecycle and introduce one idempotent local stop pipeline that handles `manual`, `source-closed`, `interrupted`, and `error` reasons. Expose just enough reasoned signal to `App.tsx` so the sharer can get the correct notification copy while remote viewers continue to rely on the existing `livekit.shareStopped` cleanup path.
 
 **Tech Stack:** React, TypeScript, Vitest, Testing Library, LiveKit client, existing notification queue + notification component
+
+> **Status note:** Implemented. This plan is kept as a historical implementation record for the shipped fix, including the preserved task-by-task checklist.
 
 ---
 

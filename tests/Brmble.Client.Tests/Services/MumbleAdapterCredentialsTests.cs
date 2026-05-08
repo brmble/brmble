@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using Brmble.Client.Services.Voice;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -73,5 +74,36 @@ public class MumbleAdapterCredentialsTests
         Assert.IsNotNull(captured);
         Assert.AreEqual(HttpMethod.Post, captured!.Method);
         Assert.IsNull(captured.Content); // empty body — identity comes from TLS handshake
+    }
+
+    [TestMethod]
+    public void CreateLiveKitTokenRequestBody_Publish_UsesNamedAccessMode()
+    {
+        var json = MumbleAdapter.CreateLiveKitTokenRequestBody("channel-1", "publish");
+
+        Assert.AreEqual("{\"roomName\":\"channel-1\",\"accessMode\":\"publish\"}", json);
+    }
+
+    [TestMethod]
+    public void CreateLiveKitTokenRequestBody_Subscribe_UsesNamedAccessMode()
+    {
+        var json = MumbleAdapter.CreateLiveKitTokenRequestBody("channel-1", "subscribe");
+
+        Assert.AreEqual("{\"roomName\":\"channel-1\",\"accessMode\":\"subscribe\"}", json);
+    }
+
+    [TestMethod]
+    public void TryGetLiveKitAccessMode_NonStringValue_ReturnsFalse()
+    {
+        using var doc = JsonDocument.Parse("""
+        {
+            "accessMode": 1
+        }
+        """);
+
+        var result = MumbleAdapter.TryGetLiveKitAccessMode(doc.RootElement, out var accessMode);
+
+        Assert.IsFalse(result);
+        Assert.IsNull(accessMode);
     }
 }

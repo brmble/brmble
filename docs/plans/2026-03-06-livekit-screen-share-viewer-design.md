@@ -1,5 +1,7 @@
 # LiveKit Screen Share Viewer — Design Document
 
+> **Historical note:** This document predates the current multi-share, manual-opt-in viewing architecture and is retained for history only. See `docs/superpowers/specs/2026-04-17-livekit-feature-roadmap.md` and the April LiveKit specs for the current direction.
+
 **Date:** 2026-03-06
 **Scope:** Receive and view screen shares from other users via LiveKit
 

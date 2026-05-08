@@ -1,13 +1,15 @@
 # Screen Share Auto-Stop Design
 
 **Date:** 2026-04-25
-**Status:** Approved
+**Status:** Implemented
 **Branch:** `fix/screenshare-self-slot`
 **Related roadmap item:** `docs/superpowers/specs/2026-04-17-livekit-feature-roadmap.md` — Broadcaster Controls / Connection & Reliability
 
 ## Overview
 
 Brmble should stop local screen sharing automatically when the captured source ends externally, instead of remaining stuck in a sharing state. The sharer should get a reason-appropriate notification for non-manual endings, while viewers should silently stop receiving the feed and clean up their UI through the existing remote stop path.
+
+This fix has landed and is kept here as the design record for the shipped behavior.
 
 This design keeps the fix focused on local share lifecycle handling in `useScreenShare`, without broadening into new viewer UX, native-window behavior, or unrelated LiveKit architecture changes.
 

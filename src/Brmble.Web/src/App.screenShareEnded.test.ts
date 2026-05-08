@@ -1,19 +1,31 @@
 import { act, renderHook } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as AppModule from './App';
-import { createQueuedScreenShareEndedNotification, getScreenShareEndedNotification } from './App';
+import {
+  createQueuedScreenShareEndedNotification,
+  getScreenShareEndedNotification,
+  runIntentionalDisconnect,
+} from './App';
 import { useNotificationQueue } from './hooks/useNotificationQueue';
 
 type ReplaceScreenShareEndedNotification = (
   current: ReturnType<typeof createQueuedScreenShareEndedNotification>,
-  reason: 'manual' | 'source-closed' | 'interrupted' | 'error',
+  reason: 'manual' | 'source-closed' | 'interrupted' | 'error' | 'blocked-capture',
   sequence: number,
   notifQueue: { unregister: (id: string) => void },
 ) => ReturnType<typeof createQueuedScreenShareEndedNotification>;
 
 describe('getScreenShareEndedNotification', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it('keeps manual share endings silent', () => {
+    expect(getScreenShareEndedNotification('manual')).toBeNull();
+  });
+
+  it('returns null notification for manual share stop', () => {
     expect(getScreenShareEndedNotification('manual')).toBeNull();
   });
 
@@ -33,7 +45,15 @@ describe('getScreenShareEndedNotification', () => {
     });
   });
 
-  it('maps error to an error notification', () => {
+  it('maps blocked-capture to a clearer error notification', () => {
+    expect(getScreenShareEndedNotification('blocked-capture')).toEqual({
+      status: 'error',
+      title: 'Screen share failed',
+      detail: 'Brmble could not start or keep your screen share running. Windows may have blocked sharing that app or window.',
+    });
+  });
+
+  it('maps error to the generic technical issue notification', () => {
     expect(getScreenShareEndedNotification('error')).toEqual({
       status: 'error',
       title: 'Screen share failed',
@@ -90,5 +110,66 @@ describe('getScreenShareEndedNotification', () => {
 
     expect(unregister).toHaveBeenCalledWith(interrupted!.id);
     expect(errored).toEqual(createQueuedScreenShareEndedNotification('error', 1));
+  });
+
+  it('does not create a queued notification for manual share stop', () => {
+    expect(createQueuedScreenShareEndedNotification('manual', 1)).toBeNull();
+  });
+});
+
+describe('runIntentionalDisconnect', () => {
+  it('marks manual intent and stops sharing before disconnecting', async () => {
+    const events: string[] = [];
+    const markLocalShareTeardownIntent = vi.fn(() => {
+      events.push('mark');
+    });
+    const stopSharing = vi.fn(async () => {
+      events.push('stop');
+    });
+    const disconnect = vi.fn(() => {
+      events.push('disconnect');
+    });
+
+    await runIntentionalDisconnect({
+      isSharing: true,
+      stopSharing,
+      markLocalShareTeardownIntent,
+      disconnect,
+    });
+
+    expect(markLocalShareTeardownIntent).toHaveBeenCalledWith('manual');
+    expect(stopSharing).toHaveBeenCalledTimes(1);
+    expect(disconnect).toHaveBeenCalledTimes(1);
+    expect(events).toEqual(['mark', 'stop', 'disconnect']);
+  });
+
+  it('runs back-to-server follow-up after disconnecting when sharing', async () => {
+    const events: string[] = [];
+    const markLocalShareTeardownIntent = vi.fn(() => {
+      events.push('mark');
+    });
+    const stopSharing = vi.fn(async () => {
+      events.push('stop');
+    });
+    const disconnect = vi.fn(() => {
+      events.push('disconnect');
+    });
+    const afterDisconnect = vi.fn(() => {
+      events.push('after');
+    });
+
+    await runIntentionalDisconnect({
+      isSharing: true,
+      stopSharing,
+      markLocalShareTeardownIntent,
+      disconnect,
+      afterDisconnect,
+    });
+
+    expect(markLocalShareTeardownIntent).toHaveBeenCalledWith('manual');
+    expect(stopSharing).toHaveBeenCalledTimes(1);
+    expect(disconnect).toHaveBeenCalledTimes(1);
+    expect(afterDisconnect).toHaveBeenCalledTimes(1);
+    expect(events).toEqual(['mark', 'stop', 'disconnect', 'after']);
   });
 });

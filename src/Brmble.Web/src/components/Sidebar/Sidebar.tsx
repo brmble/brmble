@@ -294,7 +294,6 @@ export function Sidebar({
                       e.preventDefault();
                       setContextMenu({ x: e.clientX, y: e.clientY, userId: String(user.session), userName: user.name, isSelf: !!user.self });
                     }}
-                    onDoubleClick={isRemoteSharer ? () => onWatchScreenShare?.(`channel-${rootChannel?.id ?? 0}`, share.userId, share.matrixUserId) : undefined}
                   >
                     <span className="user-status-area">
                       {user.deafened && (
@@ -317,22 +316,18 @@ export function Sidebar({
                     {isSharer && (
                       <span className="sharing-indicator">
                         <span className="sharing-badge">Sharing</span>
-                        {isRemoteSharer ? (
+                        {isRemoteSharer && isWatchingRemoteShare ? (
                           <button
-                            className={`user-status-icon-btn${isWatchingRemoteShare ? ' user-status-icon-btn--watching' : ''}`}
+                            className="user-status-icon-btn user-status-icon-btn--watching"
                             onClick={(e) => {
                               e.stopPropagation();
                               if (!share) return;
-                              if (isWatchingRemoteShare) {
-                                onStopWatching?.(share.userId);
-                              } else {
-                                onWatchScreenShare?.(`channel-${rootChannel?.id ?? 0}`, share.userId, share.matrixUserId);
-                              }
+                              onStopWatching?.(share.userId);
                             }}
-                            aria-label={`${isWatchingRemoteShare ? 'Watching' : 'Watch'} screen share from ${user.name}`}
-                            aria-pressed={isWatchingRemoteShare}
+                            aria-label={`Watching screen share from ${user.name}`}
+                            aria-pressed={true}
                           >
-                            <Icon name="monitor" size={11} className={`user-status-icon user-status-icon--sharing${isWatchingRemoteShare ? ' user-status-icon--watching' : ''}`} stroke="var(--accent-primary)" strokeWidth="2.5" />
+                            <Icon name="monitor" size={11} className="user-status-icon user-status-icon--sharing user-status-icon--watching" stroke="var(--accent-primary)" strokeWidth="2.5" />
                           </button>
                         ) : (
                           <Icon name="monitor" size={11} className="user-status-icon user-status-icon--sharing" stroke="var(--accent-primary)" strokeWidth="2.5" />

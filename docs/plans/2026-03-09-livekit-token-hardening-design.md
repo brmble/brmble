@@ -1,5 +1,7 @@
 # LiveKit Token Flow Hardening
 
+> **Historical note:** This document is useful precursor material for the upcoming Token & Security / Connection & Reliability hardening phase, but it is not the primary current roadmap.
+
 ## Problem
 
 Screen sharing doesn't always work. When it fails, nothing happens — no error, no feedback. If it works on the first attempt, it continues working reliably. The failure is binary and silent.

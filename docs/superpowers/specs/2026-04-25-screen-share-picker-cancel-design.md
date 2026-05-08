@@ -1,13 +1,15 @@
 # Screen Share Picker Cancel Design
 
 **Date:** 2026-04-25
-**Status:** Approved
+**Status:** Implemented
 **Branch:** `fix/screenshare-self-slot`
 **Related issue:** `#483` - misleading screen share status when user cancels the share picker
 
 ## Overview
 
 Canceling the OS/browser screen-share picker is normal user behavior and must not be treated as a technical failure. Brmble should treat picker cancel exactly like a manual abort before sharing begins: no sharer notification, no retained screen-share error, and LiveKit status returning to the correct non-error state.
+
+This fix has landed and is kept here as the design record for the shipped behavior.
 
 This design is a focused follow-up to the recent screen-share auto-stop work. It narrows the start-sharing failure path so benign picker cancellation does not flow into the generic `error` handling intended for actual technical failures.
 

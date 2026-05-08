@@ -1,5 +1,7 @@
 # LiveKit Screen Share Viewer — Implementation Plan
 
+> **Historical note:** This document predates the current multi-share, manual-opt-in viewing architecture and is retained for history only. See `docs/superpowers/specs/2026-04-17-livekit-feature-roadmap.md` and the April LiveKit specs for the current direction.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Enable users to receive and view screen shares from other users in the same voice channel, with a split-panel video viewer above the chat area.
