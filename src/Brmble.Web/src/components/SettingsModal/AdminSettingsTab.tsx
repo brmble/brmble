@@ -13,9 +13,21 @@ interface BanEntry {
   duration: number;
 }
 
+interface AdminUser {
+  id: number | null;
+  displayName: string;
+  certHash: string | null;
+  matrixUserId: string | null;
+  isAdmin: number;
+  isBrmbleUser: boolean;
+  isMumbleRegistered: boolean;
+  mumbleUserId: number | null;
+}
+
 export function AdminSettingsTab() {
   const [activeSubTab, setActiveSubTab] = useState<'bans' | 'requests' | 'users'>('bans');
   const [bans, setBans] = useState<BanEntry[]>([]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedBan, setExpandedBan] = useState<number | null>(null);
@@ -23,6 +35,8 @@ export function AdminSettingsTab() {
   useEffect(() => {
     if (activeSubTab === 'bans') {
       loadBans();
+    } else if (activeSubTab === 'users') {
+      loadUsers();
     }
   }, [activeSubTab]);
 
@@ -46,6 +60,33 @@ export function AdminSettingsTab() {
     bridge.send('voice.getBans');
   };
 
+  const loadUsers = async () => {
+    if (loading) return;
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch('/admin/registered-users', {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (response.status === 403) {
+        setError('You do not have permission to view this page.');
+        setUsers([]);
+      } else if (response.ok) {
+        const data = await response.json();
+        setUsers(data as AdminUser[]);
+      } else {
+        setError('Failed to load users');
+      }
+    } catch (err) {
+      setError('Failed to load users: network error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleUnban = async (index: number) => {
     const ban = bans[index];
     const confirmed = await confirm({
@@ -55,6 +96,68 @@ export function AdminSettingsTab() {
     });
     if (!confirmed) return;
     bridge.send('voice.unban', { index });
+  };
+
+  const handleRenameUser = async (user: AdminUser) => {
+    if (!user.id) {
+      setError('Cannot rename Mumble-only users (not in Brmble database)');
+      return;
+    }
+    
+    const newName = prompt('Enter new display name:', user.displayName);
+    if (newName && newName !== user.displayName) {
+      setLoading(true);
+      try {
+        const response = await fetch(`/admin/registered-users/${user.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ displayName: newName }),
+        });
+
+        if (response.ok) {
+          await loadUsers();
+        } else {
+          const error = await response.json();
+          setError(error.error || 'Failed to rename user');
+        }
+      } catch (err) {
+        setError('Failed to rename user: network error');
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
+  const handleDeleteUser = async (user: AdminUser) => {
+    if (!user.id) {
+      setError('Cannot delete Mumble-only users (not in Brmble database)');
+      return;
+    }
+    
+    const confirmed = await confirm({
+      title: 'Delete User',
+      message: `Are you sure you want to delete ${user.displayName}?`,
+      confirmLabel: 'Delete',
+    });
+    if (!confirmed) return;
+
+    setLoading(true);
+    try {
+      const response = await fetch(`/admin/registered-users/${user.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (response.ok) {
+        await loadUsers();
+      } else {
+        setError('Failed to delete user');
+      }
+    } catch (err) {
+      setError('Failed to delete user: network error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -168,10 +271,57 @@ export function AdminSettingsTab() {
         <div className="admin-subpanel">
           <div className="admin-panel-header">
             <h3 className="heading-section">Registered Users</h3>
+            <button className="btn btn-secondary btn-sm" onClick={loadUsers} disabled={loading}>
+              Refresh
+            </button>
           </div>
-          <div className="admin-empty">
-            <p>Registered Users feature coming soon.</p>
-          </div>
+
+          {loading && <div className="admin-loading">Loading...</div>}
+          {error && <div className="admin-error">{error}</div>}
+
+          {!loading && !error && users.length === 0 && (
+            <div className="admin-empty">No registered users found.</div>
+          )}
+
+          {!loading && users.length > 0 && (
+            <div className="admin-user-list">
+              <div className="admin-user-header">
+                <span>Name</span>
+                <span>Status</span>
+                <span>Actions</span>
+              </div>
+              {users.map((user) => (
+                <div key={user.id ?? `mumble-${user.mumbleUserId}`} className="admin-user-row">
+                  <div className="admin-user-name-col">
+                    {user.displayName}
+                    {user.isAdmin !== 0 && <span className="admin-badge">Admin</span>}
+                  </div>
+                  <div className="admin-user-status-col">
+                    {user.isBrmbleUser && <span className="status-badge brmble">Brmble</span>}
+                    {user.isMumbleRegistered && <span className="status-badge mumble">Mumble</span>}
+                  </div>
+                  <div className="admin-user-actions-col">
+                    <button 
+                      className="btn btn-secondary btn-sm" 
+                      onClick={() => handleRenameUser(user)}
+                      disabled={loading || !user.id}
+                      title={!user.id ? "Cannot rename Mumble-only users" : ""}
+                    >
+                      Rename
+                    </button>
+                    <button 
+                      className="btn btn-danger btn-sm" 
+                      onClick={() => handleDeleteUser(user)}
+                      disabled={loading || !user.id}
+                      title={!user.id ? "Cannot delete Mumble-only users" : ""}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

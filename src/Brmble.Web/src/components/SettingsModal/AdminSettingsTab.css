@@ -156,6 +156,7 @@
   font-size: var(--text-sm);
   color: var(--text-primary);
   border-bottom: 1px solid var(--border-subtle);
+  align-items: center;
 }
 
 .admin-user-row:last-child {
@@ -168,12 +169,42 @@
 
 .admin-user-name-col {
   font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
 }
 
-.admin-user-email-col {
-  color: var(--text-muted);
+.admin-badge {
+  font-size: var(--text-xs);
+  padding: 2px 6px;
+  background: var(--accent-primary);
+  color: white;
+  border-radius: var(--radius-sm);
 }
 
-.admin-user-last-col {
-  color: var(--text-muted);
+.admin-user-status-col {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.status-badge {
+  font-size: var(--text-xs);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.status-badge.brmble {
+  background: var(--accent-info);
+  color: white;
+}
+
+.status-badge.mumble {
+  background: var(--accent-success);
+  color: white;
+}
+
+.admin-user-actions-col {
+  display: flex;
+  gap: var(--space-xs);
+  justify-content: flex-end;
 }
