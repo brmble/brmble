@@ -8,13 +8,15 @@
 
 Brmble's current LiveKit screenshare stack is functionally working, but the security model is still incomplete. Tokens are too coarse, some discovery paths are insufficiently protected, and long-lived access is not tightly tied to current channel membership and permission state.
 
-This design defines the next LiveKit phase as a focused security project, not a general reliability or UX wave. The phase is intentionally split into two sub-phases so Brmble can first make the access model correct, then make that access durable, revocable, and resistant to abuse.
+This design defines the next LiveKit phase as a focused security project, not a general reliability or UX wave. The phase is intentionally split into two sub-phases so Brmble can first make watch/publish authorization correct, then make that access durable, revocable, and resistant to abuse.
+
+One product clarification is important: share discovery metadata and share watch permission are not the same thing. Brmble should allow authenticated users to see who is currently sharing, including across channels, while still restricting actual watch access to the correct channel membership context.
 
 ## Goals
 
-- Make the server the single authority for LiveKit publish, subscribe, and share-discovery permissions.
+- Make the server the single authority for LiveKit publish and subscribe permissions while keeping share discovery as authenticated visibility metadata.
 - Separate publisher and viewer access through explicit token scoping.
-- Tie LiveKit access to actual channel membership and permission state rather than room-name knowledge.
+- Tie actual LiveKit watch/publish access to actual channel membership and permission state rather than room-name knowledge.
 - Add short-lived token lifecycle controls: rotation, early revocation, and rate limiting.
 - Include one tiny client-side guardrail that prevents duplicate share-start attempts during the token/connect path.
 
@@ -30,14 +32,14 @@ This design defines the next LiveKit phase as a focused security project, not a 
 
 ### E1. Access Control Foundation
 
-`E1` establishes the authorization model. It answers who is allowed to discover active shares, who is allowed to subscribe as a viewer, and who is allowed to publish as a sharer.
+`E1` establishes the access model. It answers who is allowed to discover active shares as product metadata, who is allowed to subscribe as a viewer, and who is allowed to publish as a sharer.
 
 Deliverables:
 
 - auth on `GET /livekit/active-share`
-- room-level permission checks tied to actual channel permissions
+- room-level permission checks tied to actual channel permissions for watch/publish actions
 - explicit token scoping for `publish` vs `subscribe`
-- server-side decision rules for publish, subscribe, and discovery access
+- server-side decision rules for publish and subscribe access, with authenticated discovery kept separate
 
 ### E2. Token Lifecycle Hardening
 
@@ -61,7 +63,7 @@ This is the smallest decomposition that still feels architectural rather than ar
 
 ## Authorization Model
 
-The server should be the single authority for every LiveKit action. For each relevant request, the server evaluates:
+The server should be the single authority for every LiveKit watch/publish action. For each relevant request, the server evaluates:
 
 - who the user is
 - which room/channel they are targeting
@@ -71,18 +73,20 @@ The server should be the single authority for every LiveKit action. For each rel
 
 This model applies consistently to:
 
-- `GET /livekit/active-share`
 - `POST /livekit/token`
 - share-start/share-stop validation paths where they still depend on server-side state
+
+`GET /livekit/active-share` remains authenticated, but it should be treated as discovery metadata rather than as the same permission gate used for watch access.
 
 Recommended behavior:
 
 - `active-share` requires the same authenticated identity model already used by the other LiveKit endpoints
+- `active-share` returns current share metadata to authenticated known users even if they are not in the sharer's channel
 - token requests must declare intended access mode: `publish` or `subscribe`
 - the server issues a token with only the grants required for that mode
 - the server refuses publish tokens if the user is not allowed to share in that channel
 - the server refuses subscribe tokens if the user is not allowed to view that channel's shares
-- room names remain channel-derived, but access is checked against current channel membership/permissions rather than simply trusting room-name knowledge
+- room names remain channel-derived, but watch/publish access is checked against current channel membership/permissions rather than simply trusting room-name knowledge
 
 ## Data Flow
 
@@ -90,11 +94,12 @@ Recommended behavior:
 
 1. Client requests `active-share` or `token`
 2. Server authenticates the client identity
-3. Server resolves the user's current channel/membership/permission state
-4. Server validates the requested room/action against that state
-5. Server either rejects the request or returns the scoped result/token
+3. For `active-share`, server returns current share metadata for authenticated known users
+4. For `token`, server resolves the user's current channel/membership/permission state
+5. Server validates the requested watch/publish action against that state
+6. Server either rejects the request or returns the scoped token/result
 
-This means publish, subscribe, and share discovery all flow through the same server-side access rules.
+This means share discovery remains visible product metadata, while publish and subscribe flow through the stricter server-side access rules.
 
 ### E2 lifecycle flow
 
@@ -111,9 +116,9 @@ The lifecycle layer should not create a second set of rules. It only maintains a
 ### `GET /livekit/active-share`
 
 - Require the same certificate-based identity validation used by the other LiveKit endpoints.
-- Reject unauthenticated callers with `401`.
-- Return share information only when the caller is currently allowed to discover screenshare activity in the target room/channel.
-- Reject authenticated but unauthorized callers with `403`.
+- Reject unauthenticated or unknown-cert callers with `401`.
+- Return current share metadata to authenticated known users, including shares from other channels.
+- This endpoint is discovery-only and must not be treated as watch authorization.
 
 ### `POST /livekit/token`
 
@@ -174,10 +179,16 @@ Security failures should be explicit and non-misleading.
 - return `401`
 - do not fall back to anonymous share discovery or token issuance
 
-### Authenticated but unauthorized request
+### Authenticated but unauthorized watch/publish request
 
 - return `403`
 - use this for wrong channel, missing permission, or requesting publish access when only subscribe access is allowed
+
+### Discovery failure
+
+- distinguish transport/server failure from authoritative empty state
+- do not silently collapse every failure into `shares: []`
+- a successful empty discovery response may clear share badges, but a failed discovery request should remain diagnosable
 
 ### Rate-limited request
 
@@ -211,6 +222,7 @@ Keeping those separate prevents future `F`-phase reconnect work from being pollu
 ### E1 tests
 
 - `active-share` rejects unauthenticated callers
+- `active-share` returns visible share metadata for authenticated users even when they are outside the sharer's channel
 - viewer token request returns subscribe-only grants
 - sharer token request returns publish-capable grants only when allowed
 - publish request is rejected when the user lacks share permission
@@ -230,6 +242,8 @@ Keeping those separate prevents future `F`-phase reconnect work from being pollu
 
 - normal share start
 - normal viewer join
+- connect late and still see the existing share badge
+- remain in another channel and still see that a user is sharing
 - user kicked while sharing
 - user kicked while viewing
 - permission removed mid-session
@@ -254,6 +268,7 @@ Still out of scope for this spec:
 
 ## Risks
 
+- If discovery and watch authorization are conflated, the product will hide useful share metadata even when the user is supposed to see that someone is sharing.
 - If room/channel permission rules are underspecified, the token model may become inconsistent between discovery, viewing, and sharing.
 - If rotation is introduced before access rules are stable, bugs become harder to diagnose because lifecycle and authorization failures look similar.
 - If revocation relies on stale client-side assumptions rather than server-side authority, kicked or moved users may retain access longer than intended.
@@ -261,7 +276,8 @@ Still out of scope for this spec:
 
 ## Success Criteria
 
-- LiveKit discovery and token issuance are authenticated and permission-checked server-side.
+- LiveKit discovery is authenticated and visible to known users across channels.
+- LiveKit token issuance is authenticated and permission-checked server-side.
 - Viewer and sharer tokens are scoped to least privilege.
 - Active access can be rotated and revoked without waiting for a long TTL to expire.
 - Repeated token/discovery abuse is constrained by rate limiting.
