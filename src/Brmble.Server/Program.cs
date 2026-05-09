@@ -10,6 +10,8 @@ using Brmble.Server.Matrix;
 using Brmble.Server.Mumble;
 using Brmble.Server.ServerInfo;
 using Brmble.Server.WebSockets;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -40,11 +42,32 @@ builder.Services.AddOptions<ServerInfoSettings>()
 builder.Services.AddSingleton<IServerVersionProvider, ServerVersionProvider>();
 builder.Services.AddReverseProxy()
     .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    options.AddFixedWindowLimiter("livekit-token", limiterOptions =>
+    {
+        limiterOptions.PermitLimit = 10;
+        limiterOptions.Window = TimeSpan.FromMinutes(1);
+        limiterOptions.QueueLimit = 0;
+        limiterOptions.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+    });
+
+    options.AddFixedWindowLimiter("livekit-active-share", limiterOptions =>
+    {
+        limiterOptions.PermitLimit = 30;
+        limiterOptions.Window = TimeSpan.FromMinutes(1);
+        limiterOptions.QueueLimit = 0;
+        limiterOptions.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+    });
+});
 
 var app = builder.Build();
 
 app.UseWebSockets();
 app.UseMiddleware<ConnectionLoggingMiddleware>();
+app.UseRateLimiter();
 
 app.MapGet("/health", (IServerVersionProvider version) =>
     Results.Ok(new { status = "healthy", version = version.Version }));

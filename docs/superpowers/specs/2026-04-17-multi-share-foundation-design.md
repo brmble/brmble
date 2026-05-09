@@ -1,12 +1,14 @@
 # Multi-Share Foundation Design
 
 **Date:** 2026-04-17
-**Status:** Approved
+**Status:** Implemented
 **Scope:** Allow multiple users to share screens simultaneously within a channel
 
 ## Overview
 
-Currently, Brmble's screen sharing is limited to one active share per channel. This design extends the system so any number of users in a channel can share their screen at the same time, and viewers can switch between them near-instantly.
+This design has landed and is kept here as the historical foundation record for the shipped multi-share architecture.
+
+At the time it was written, Brmble's screen sharing was limited to one active share per channel. This design extends the system so any number of users in a channel can share their screen at the same time, and viewers can switch between them near-instantly.
 
 This is foundational infrastructure. Features like grid view, picture-in-picture, the game overlay, and multi-view all depend on multi-share working first.
 
@@ -19,7 +21,7 @@ This is foundational infrastructure. Features like grid view, picture-in-picture
 | Room cleanup | LiveKit auto-cleans empty rooms | No explicit destroy needed |
 | Shares per user | One at a time | User stops current share before starting a new one (swap) |
 | Sharers per channel | Unlimited | Any channel member can share |
-| Viewer model | Manual opt-in, one view at a time | Toast notification per new share. Data model supports multi-view later. |
+| Viewer model | Manual opt-in viewing | Foundation behavior shipped with single-view watch switching; later A2 work added multi-view layouts and focus mode. |
 | Share switcher UI | Channel user list monitor icons | Clickable icons, no new UI surface needed |
 | Channel leave/kick | Auto-remove from LiveKit room | `RemoveParticipant` API, instant disconnection |
 | Ghost share cleanup | Periodic server-side reconciliation | Every 30-60s, compare tracker to actual LiveKit room participants |
@@ -206,7 +208,7 @@ isSharing: boolean                     // are YOU sharing
 remoteVideoEl: HTMLVideoElement | null  // video element for watchingShare
 ```
 
-Data model designed so `watchingShares: ScreenShareInfo[]` is a future drop-in replacement for multi-view.
+At the time this foundation spec was written, the data model was shaped so `watchingShares: ScreenShareInfo[]` could become a later drop-in replacement for multi-view. That later expansion shipped in A2.
 
 ## API & Bridge Changes
 
@@ -415,4 +417,4 @@ This spec is part of a larger LiveKit feature roadmap. The following sub-project
 - **G. UI/UX Polish** -- keyboard shortcuts, context menus, notification sounds, viewer list
 - **H. Clips & Screenshots** -- frame capture, short clip recording, auto-post to chat
 - **I. Performance & Quality** -- simulcast, dynacast, hardware encoding, codec selection
-- **J. Viewer Interaction** -- remote cursor display, emoji reactions, invite to watch
+- **J. Viewer Interaction** -- remote cursor display, emoji reactions

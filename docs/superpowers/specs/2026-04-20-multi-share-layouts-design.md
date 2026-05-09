@@ -3,7 +3,7 @@
 **Date:** 2026-04-20
 **Status:** Implemented
 **Depends on:** Sub-project A (Multi-Share Foundation) — completed
-**Branch:** TBD (will branch from `docs/livekit-feature-roadmap` after merge, or from `main`)
+**Branch:** Historical implementation record; originally planned before landing on `main`
 
 ## Overview
 

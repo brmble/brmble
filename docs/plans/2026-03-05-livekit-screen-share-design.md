@@ -1,5 +1,7 @@
 # LiveKit Screen Share — Design Document
 
+> **Historical note:** This document describes the original publish-only LiveKit phase. The current source of truth for LiveKit/screenshare status and sequencing is `docs/superpowers/specs/2026-04-17-livekit-feature-roadmap.md`.
+
 **Date:** 2026-03-05
 **Scope:** Publish-only screen sharing via LiveKit SFU
 

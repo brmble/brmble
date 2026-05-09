@@ -5,9 +5,11 @@ using Microsoft.Extensions.Options;
 
 namespace Brmble.Server.LiveKit;
 
+public sealed record LiveKitTokenMetadata(string Token, DateTimeOffset ExpiresAt);
+
 public class LiveKitService : ILiveKitRoomQuery
 {
-    private static readonly TimeSpan DefaultTokenTtl = TimeSpan.FromHours(6);
+    private static readonly TimeSpan DefaultTokenTtl = TimeSpan.FromHours(1);
 
     private readonly LiveKitSettings _settings;
     private readonly UserRepository _userRepo;
@@ -23,7 +25,13 @@ public class LiveKitService : ILiveKitRoomQuery
         _logger = logger;
     }
 
-    public async Task<string?> GenerateToken(string certHash, string roomName)
+    [Obsolete("Use GenerateToken(certHash, roomName, accessMode) so LiveKit token scope is explicit by access mode.")]
+    public Task<string?> GenerateToken(string certHash, string roomName)
+    {
+        return GenerateToken(certHash, roomName, LiveKitAccessMode.Publish);
+    }
+
+    public async Task<string?> GenerateToken(string certHash, string roomName, LiveKitAccessMode accessMode)
     {
         var user = await _userRepo.GetByCertHash(certHash);
         if (user is null)
@@ -32,19 +40,71 @@ public class LiveKitService : ILiveKitRoomQuery
             return null;
         }
 
-        var token = new AccessToken(_settings.ApiKey, _settings.ApiSecret)
-            .WithIdentity(user.MatrixUserId)
-            .WithName(user.DisplayName)
-            .WithGrants(new VideoGrants
+        var grants = accessMode switch
+        {
+            LiveKitAccessMode.Subscribe => new VideoGrants
+            {
+                RoomJoin = true,
+                Room = roomName,
+                CanPublish = false,
+                CanSubscribe = true,
+            },
+            LiveKitAccessMode.Publish => new VideoGrants
             {
                 RoomJoin = true,
                 Room = roomName,
                 CanPublish = true,
-                CanSubscribe = true
-            })
+                CanSubscribe = true,
+            },
+            _ => throw new ArgumentOutOfRangeException(nameof(accessMode), accessMode, null),
+        };
+
+        var token = new AccessToken(_settings.ApiKey, _settings.ApiSecret)
+            .WithIdentity(user.MatrixUserId)
+            .WithName(user.DisplayName)
+            .WithGrants(grants)
             .WithTtl(DefaultTokenTtl);
 
         return token.ToJwt();
+    }
+
+    public async Task<LiveKitTokenMetadata?> GenerateTokenMetadata(
+        string certHash,
+        string roomName,
+        LiveKitAccessMode accessMode,
+        DateTimeOffset issuedAt)
+    {
+        var token = await GenerateToken(certHash, roomName, accessMode);
+        if (token is null)
+            return null;
+
+        return new LiveKitTokenMetadata(token, issuedAt.Add(DefaultTokenTtl));
+    }
+
+    public Task<LiveKitAuthorizationResult> AuthorizeTokenRequest(
+        string certHash,
+        string roomName,
+        LiveKitAccessMode accessMode,
+        bool canPublish,
+        bool canSubscribe)
+    {
+        if (string.IsNullOrWhiteSpace(certHash))
+            return Task.FromResult(LiveKitAuthorizationResult.Denied(LiveKitAuthorizationFailure.Unauthorized));
+
+        if (!roomName.StartsWith("channel-") || !int.TryParse(roomName.AsSpan("channel-".Length), out _))
+            return Task.FromResult(LiveKitAuthorizationResult.Denied(LiveKitAuthorizationFailure.InvalidRoom));
+
+        var allowed = accessMode switch
+        {
+            LiveKitAccessMode.Publish => canPublish,
+            LiveKitAccessMode.Subscribe => canSubscribe,
+            _ => false,
+        };
+
+        return Task.FromResult(
+            allowed
+                ? LiveKitAuthorizationResult.Success(certHash, roomName, accessMode)
+                : LiveKitAuthorizationResult.Denied(LiveKitAuthorizationFailure.Forbidden));
     }
 
     public async Task RemoveParticipant(string roomName, string participantIdentity)
