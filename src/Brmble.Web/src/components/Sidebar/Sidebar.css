@@ -45,6 +45,11 @@
   color: var(--accent-secondary);
 }
 
+.root-drop-target {
+  border-color: var(--accent-primary);
+  background: var(--accent-primary-ghost);
+}
+
 .server-integrated-stats {
   margin: var(--space-xs) 0 var(--space-md);
   display: flex;

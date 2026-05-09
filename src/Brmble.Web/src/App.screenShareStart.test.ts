@@ -19,6 +19,9 @@ const {
   getIdleActionsArgs,
   clearIdleActionsArgs,
   captureIdleActionsArgs,
+  getLocalShareEndedHandler,
+  clearLocalShareEndedHandler,
+  captureLocalShareEndedHandler,
 } = vi.hoisted(() => {
   const handlers = new Map<string, Set<BridgeHandler>>();
   const disconnect = vi.fn();
@@ -50,6 +53,7 @@ const {
     dismissPreLeaveCancelled: vi.fn(),
   };
   let idleActionsArgs: { onBeforeAutoLeave?: () => void | Promise<void> } | null = null;
+  let localShareEndedHandler: ((reason: 'manual' | 'source-closed' | 'interrupted' | 'error' | 'blocked-capture' | 'moved-channel') => void) | null = null;
   const mockBridge = {
     send: vi.fn(),
     on: vi.fn((type: string, handler: BridgeHandler) => {
@@ -92,6 +96,13 @@ const {
     captureIdleActionsArgs: (args: { onBeforeAutoLeave?: () => void | Promise<void> }) => {
       idleActionsArgs = args;
     },
+    getLocalShareEndedHandler: () => localShareEndedHandler,
+    clearLocalShareEndedHandler: () => {
+      localShareEndedHandler = null;
+    },
+    captureLocalShareEndedHandler: (handler?: (reason: 'manual' | 'source-closed' | 'interrupted' | 'error' | 'blocked-capture' | 'moved-channel') => void) => {
+      localShareEndedHandler = handler ?? null;
+    },
     notifQueue: {
       register: vi.fn(),
       unregister: vi.fn(),
@@ -119,9 +130,11 @@ vi.mock('./hooks/useMatrixClient', () => ({
 }));
 
 vi.mock('./hooks/useScreenShare', () => ({
-  useScreenShare: () => ({
+  useScreenShare: (_onDisconnected?: () => void, _settings?: unknown, onLocalShareEnded?: (reason: 'manual' | 'source-closed' | 'interrupted' | 'error' | 'blocked-capture' | 'moved-channel') => void) => {
+    captureLocalShareEndedHandler(onLocalShareEnded);
+    return {
     isSharing: screenShareState.isSharing,
-    startSharing: vi.fn(),
+    startSharing: vi.fn().mockResolvedValue(true),
     stopSharing,
     markLocalShareTeardownIntent,
     error: screenShareState.error,
@@ -135,7 +148,8 @@ vi.mock('./hooks/useScreenShare', () => ({
     disconnectViewer,
     connectAsViewer,
     isViewerConnectPending: screenShareState.isViewerConnectPending,
-  }),
+    };
+  },
 }));
 
 vi.mock('./hooks/useLeaveVoiceCooldown', () => ({
@@ -305,9 +319,10 @@ import App, { canWatchShareFromChannel, getNextLiveKitStatusUpdate, shouldClearL
 
 describe('toggleLocalScreenShare', () => {
   it('starts sharing in the current voice channel without changing LiveKit status first', async () => {
-    const startSharing = vi.fn().mockResolvedValue(undefined);
+    const startSharing = vi.fn().mockResolvedValue(true);
     const stopSharing = vi.fn();
     const setSharingChannelId = vi.fn();
+    const onSharingChannelIdChanged = vi.fn();
 
     await toggleLocalScreenShare({
       isSharing: false,
@@ -316,11 +331,34 @@ describe('toggleLocalScreenShare', () => {
       startSharing,
       stopSharing,
       setSharingChannelId,
+      onSharingChannelIdChanged,
     });
 
     expect(startSharing).toHaveBeenCalledWith('channel-7');
     expect(setSharingChannelId).toHaveBeenCalledWith('7');
+    expect(onSharingChannelIdChanged).toHaveBeenCalledWith('7');
     expect(stopSharing).not.toHaveBeenCalled();
+  });
+
+  it('does not set sharing channel when startSharing returns false after cancellation', async () => {
+    const startSharing = vi.fn().mockResolvedValue(false);
+    const stopSharing = vi.fn();
+    const setSharingChannelId = vi.fn();
+    const onSharingChannelIdChanged = vi.fn();
+
+    await toggleLocalScreenShare({
+      isSharing: false,
+      selfLeftVoice: false,
+      voiceChannelId: 7,
+      startSharing,
+      stopSharing,
+      setSharingChannelId,
+      onSharingChannelIdChanged,
+    });
+
+    expect(startSharing).toHaveBeenCalledWith('channel-7');
+    expect(setSharingChannelId).not.toHaveBeenCalled();
+    expect(onSharingChannelIdChanged).not.toHaveBeenCalled();
   });
 
   it('ignores local share start while LiveKit is already connecting', async () => {
@@ -425,6 +463,7 @@ describe('active share discovery', () => {
     idleActionsState.preLeaveStartedAt = null;
     idleActionsState.preLeaveCancelledAt = null;
     clearIdleActionsArgs();
+    clearLocalShareEndedHandler();
     vi.mocked(notifQueue.isVisible).mockReturnValue(false);
   });
 
@@ -909,6 +948,408 @@ describe('active share discovery', () => {
       ['livekit.checkActiveShare', expect.objectContaining({ roomName: 'channel-1' })],
       ['livekit.checkActiveShare', expect.objectContaining({ roomName: 'channel-2' })],
     ]);
+  });
+
+  it('unregisters previous moved-channel notification before registering a replacement', async () => {
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming' },
+          { id: 3, name: 'Raid' },
+        ],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    act(() => {
+      bridge.emit('voice.channelChanged', {
+        channelId: 2,
+        previousChannelId: 1,
+        actorName: 'Moderator',
+        reason: 'moved',
+      });
+    });
+
+    await waitFor(() => {
+      expect(notifQueue.register).toHaveBeenCalledWith('channel-moved-0', 'info');
+    });
+
+    act(() => {
+      bridge.emit('voice.channelChanged', {
+        channelId: 3,
+        previousChannelId: 2,
+        actorName: 'Moderator',
+        reason: 'moved',
+      });
+    });
+
+    await waitFor(() => {
+      expect(notifQueue.unregister).toHaveBeenCalledWith('channel-moved-0');
+      expect(notifQueue.register).toHaveBeenCalledWith('channel-moved-1', 'info');
+    });
+  });
+
+  it('keeps showing moved notifications after many replacements', async () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id.startsWith('channel-moved-'));
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming' },
+          { id: 3, name: 'Raid' },
+          { id: 4, name: 'Ops' },
+        ],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    for (let i = 0; i < 25; i++) {
+      const previousChannelId = (i % 4) + 1;
+      const channelId = ((i + 1) % 4) + 1;
+      act(() => {
+        bridge.emit('voice.channelChanged', {
+          channelId,
+          previousChannelId,
+          actorName: 'Moderator',
+          reason: 'moved',
+        });
+      });
+    }
+
+    await waitFor(() => {
+      expect(notifQueue.register).toHaveBeenCalledWith('channel-moved-24', 'info');
+      expect(document.body.textContent).toContain('Moved to');
+    });
+    expect(notifQueue.unregister).toHaveBeenCalledWith('channel-moved-23');
+  });
+
+  it('treats repeated admin moves as sharing-related when user resumes sharing after each move', async () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id.startsWith('channel-moved-'));
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming' },
+          { id: 3, name: 'Raid' },
+        ],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    for (let i = 0; i < 6; i++) {
+      await act(async () => {
+        view.getByTestId('header-toggle-screen-share').click();
+        await Promise.resolve();
+      });
+      act(() => {
+        bridge.emit('voice.channelChanged', {
+          channelId: i % 2 === 0 ? 2 : 3,
+          previousChannelId: i % 2 === 0 ? 1 : 2,
+          actorName: 'Moderator',
+          reason: 'moved',
+        });
+      });
+      await waitFor(() => {
+        expect(document.body.textContent).toContain('Screen sharing was stopped.');
+      });
+      screenShareState.isSharing = false;
+    }
+
+    expect(markLocalShareTeardownIntent).toHaveBeenCalledTimes(6);
+    expect(stopSharing).toHaveBeenCalledTimes(6);
+  });
+
+  it('admin move while sharing stops local publishing with moved-channel intent', async () => {
+    screenShareState.isSharing = true;
+    vi.mocked(stopSharing).mockResolvedValueOnce(undefined);
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming' },
+        ],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    act(() => {
+      bridge.emit('voice.channelChanged', {
+        channelId: 2,
+        previousChannelId: 1,
+        actorName: 'Moderator',
+        reason: 'moved',
+      });
+    });
+
+    await waitFor(() => {
+      expect(markLocalShareTeardownIntent).toHaveBeenCalledWith('moved-channel');
+      expect(stopSharing).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('admin move after a LiveKit interruption replaces the technical share warning with moved sharing notification', async () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id.startsWith('screen-share-ended-') || id.startsWith('channel-moved-'));
+    screenShareState.isSharing = true;
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming' },
+        ],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    act(() => {
+      getLocalShareEndedHandler()?.('interrupted');
+    });
+    screenShareState.isSharing = false;
+
+    act(() => {
+      bridge.emit('voice.channelChanged', {
+        channelId: 2,
+        previousChannelId: 1,
+        actorName: 'Moderator',
+        reason: 'moved',
+      });
+    });
+
+    await waitFor(() => {
+      expect(notifQueue.unregister).toHaveBeenCalledWith('screen-share-ended-0');
+      expect(notifQueue.register).toHaveBeenCalledWith('channel-moved-0', 'info');
+      expect(document.body.textContent).toContain('Moved to Gaming');
+      expect(document.body.textContent).toContain('Screen sharing was stopped.');
+      expect(document.body.textContent).not.toContain('technical issue');
+    });
+  });
+
+  it('manual share stop does not make a later admin move look sharing-related', async () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id.startsWith('channel-moved-'));
+    screenShareState.isSharing = true;
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming' },
+        ],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    act(() => {
+      getLocalShareEndedHandler()?.('manual');
+    });
+    screenShareState.isSharing = false;
+
+    act(() => {
+      bridge.emit('voice.channelChanged', {
+        channelId: 2,
+        previousChannelId: 1,
+        actorName: 'Moderator',
+        reason: 'moved',
+      });
+    });
+
+    await waitFor(() => {
+      expect(notifQueue.register).toHaveBeenCalledWith('channel-moved-0', 'info');
+      expect(document.body.textContent).toContain('Moved to Gaming');
+      expect(document.body.textContent).not.toContain('Screen sharing was stopped.');
+    });
+    expect(markLocalShareTeardownIntent).not.toHaveBeenCalledWith('moved-channel');
+    expect(stopSharing).not.toHaveBeenCalled();
+  });
+
+  it('admin move while not sharing does not set moved-channel teardown intent', async () => {
+    screenShareState.isSharing = false;
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming' },
+        ],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    act(() => {
+      bridge.emit('voice.channelChanged', {
+        channelId: 2,
+        previousChannelId: 1,
+        actorName: 'Moderator',
+        reason: 'moved',
+      });
+    });
+
+    await waitFor(() => {
+      expect(notifQueue.register).toHaveBeenCalledWith('channel-moved-0', 'info');
+    });
+    expect(markLocalShareTeardownIntent).not.toHaveBeenCalledWith('moved-channel');
+    expect(stopSharing).not.toHaveBeenCalled();
+  });
+
+  it('describes admin move to root as moved out of voice', async () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id.startsWith('channel-moved-'));
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 0, name: 'Connected', parent: 0 },
+          { id: 1, name: 'General' },
+        ],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    act(() => {
+      bridge.emit('voice.channelChanged', {
+        channelId: 0,
+        previousChannelId: 1,
+        actorName: 'Moderator',
+        reason: 'moved',
+      });
+    });
+
+    await waitFor(() => {
+      expect(document.body.textContent).toContain('Moved out of voice');
+      expect(document.body.textContent).toContain('Moderator moved you out of General.');
+      expect(document.body.textContent).not.toContain('Moved to Connected');
+    });
+  });
+
+  it('describes admin move to root while sharing as moved out of voice and stopped sharing', async () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id.startsWith('channel-moved-'));
+    screenShareState.isSharing = true;
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 0, name: 'Connected', parent: 0 },
+          { id: 1, name: 'General' },
+        ],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    act(() => {
+      bridge.emit('voice.channelChanged', {
+        channelId: 0,
+        previousChannelId: 1,
+        actorName: 'Moderator',
+        reason: 'moved',
+      });
+    });
+
+    await waitFor(() => {
+      expect(document.body.textContent).toContain('Moved out of voice');
+      expect(document.body.textContent).toContain('Moderator moved you out of General. Screen sharing was stopped.');
+    });
+  });
+
+  it('shows a warning notification when kicked from the server', async () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id === 'server-removal');
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.disconnected', {
+        reason: 'kicked',
+        actorName: 'Moderator',
+        message: 'Too loud',
+        reconnectAvailable: true,
+      });
+    });
+
+    await waitFor(() => {
+      expect(notifQueue.register).toHaveBeenCalledWith('server-removal', 'warning');
+      expect(document.body.textContent).toContain('Kicked from server');
+      expect(document.body.textContent).toContain('Moderator kicked you from the server. Reason: Too loud');
+    });
+  });
+
+  it('shows an error notification when banned from the server', async () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id === 'server-removal');
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.disconnected', {
+        reason: 'banned',
+        actorName: 'Admin',
+        message: 'Spam',
+        reconnectAvailable: true,
+      });
+    });
+
+    await waitFor(() => {
+      expect(notifQueue.register).toHaveBeenCalledWith('server-removal', 'error');
+      expect(document.body.textContent).toContain('Banned from server');
+      expect(document.body.textContent).toContain('Admin banned you from the server. Reason: Spam');
+    });
+  });
+
+  it('clears server removal notification after reconnecting successfully', async () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id === 'server-removal');
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.disconnected', {
+        reason: 'kicked',
+        actorName: 'Moderator',
+        reconnectAvailable: true,
+      });
+    });
+
+    await waitFor(() => {
+      expect(notifQueue.register).toHaveBeenCalledWith('server-removal', 'warning');
+      expect(document.body.textContent).toContain('Kicked from server');
+    });
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    await waitFor(() => {
+      expect(notifQueue.unregister).toHaveBeenCalledWith('server-removal');
+      expect(document.body.textContent).not.toContain('Kicked from server');
+    });
   });
 
   it('screen share active channel switch cancel keeps sharing and does not join the new channel', async () => {

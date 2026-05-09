@@ -94,7 +94,7 @@ namespace MumbleVoiceEngine.Codec
         /// <param name="dstOffset">The zero-based byte offset in dstBuffer at which to begin writing decoded audio samples.</param>
         /// <returns>The number of bytes decoded and written to dstBuffer.</returns>
         /// <remarks>Set srcEncodedBuffer to null to instruct the decoder that a packet was dropped.</remarks>
-        public unsafe int Decode(byte[] srcEncodedBuffer, int srcOffset, int srcLength, byte[] dstBuffer, int dstOffset)
+        public unsafe int Decode(byte[]? srcEncodedBuffer, int srcOffset, int srcLength, byte[] dstBuffer, int dstOffset)
         {
             var availableBytes = dstBuffer.Length - dstOffset;
             var frameCount = availableBytes / _sampleSize;

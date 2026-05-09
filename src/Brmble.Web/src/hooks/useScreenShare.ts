@@ -24,7 +24,7 @@ export interface ScreenShareSettings {
   systemAudio: boolean;
 }
 
-export type LocalShareStopReason = 'manual' | 'source-closed' | 'interrupted' | 'error' | 'blocked-capture';
+export type LocalShareStopReason = 'manual' | 'source-closed' | 'interrupted' | 'error' | 'blocked-capture' | 'moved-channel';
 
 type LocalTrackLike = {
   addEventListener?: (event: string, handler: () => void) => void;
@@ -346,6 +346,7 @@ export function useScreenShare(
   const roomAccessModeRef = useRef<LiveKitAccessMode | null>(null);
   const roomReconnectUpgradeRef = useRef(false);
   const roomLifecycleGenerationRef = useRef(0);
+  const shareStartCancelGenerationRef = useRef(0);
   const pendingRoomRequestRef = useRef<PendingRoomRequest | null>(null);
 
   const cancelPendingRoomRequest = useCallback(() => {
@@ -619,14 +620,15 @@ export function useScreenShare(
     }
   }, [requestToken, stopLocalShare, removeWatchingShare, clearWatchingState, invalidateRoomLifecycle]);
 
-  const startSharing = useCallback(async (roomName: string) => {
+  const startSharing = useCallback(async (roomName: string): Promise<boolean> => {
     if (isStartingShareRef.current) {
-      return;
+      return false;
     }
 
     isStartingShareRef.current = true;
     setError(null);
     localShareStopHandledRef.current = false;
+    const shareStartCancelGeneration = shareStartCancelGenerationRef.current;
 
     try {
       const room = await ensureRoom(roomName, 'publish');
@@ -676,21 +678,28 @@ export function useScreenShare(
 
       await room.localParticipant.setScreenShareEnabled(true, captureOptions);
 
+      if (shareStartCancelGenerationRef.current !== shareStartCancelGeneration || roomRef.current !== room) {
+        try { await room.localParticipant.setScreenShareEnabled(false); } catch { /* ignore */ }
+        try { await maybeDisconnectRoom(); } catch { /* ignore */ }
+        return false;
+      }
+
       isSharingRef.current = true;
       setIsSharing(true);
       bindLocalShareEndListener(room);
 
       bridge.send('livekit.shareStarted', { roomName });
+      return true;
     } catch (err) {
       clearLocalShareEndListener();
 
       if (isSupersededRoomRequestError(err)) {
-        return;
+        return false;
       }
 
       if (isScreenSharePickerCancel(err)) {
         await maybeDisconnectRoom();
-        return;
+        return false;
       }
 
       if (isBlockedWindowCaptureError(err)) {
@@ -702,14 +711,19 @@ export function useScreenShare(
       }
       // Disconnect room if we're not watching anyone either
       await maybeDisconnectRoom();
+      return false;
     } finally {
       isStartingShareRef.current = false;
     }
   }, [screenShareSettings, ensureRoom, bindLocalShareEndListener, clearLocalShareEndListener, maybeDisconnectRoom, stopLocalShare]);
 
   const stopSharing = useCallback(async () => {
+    if (isStartingShareRef.current) {
+      shareStartCancelGenerationRef.current += 1;
+      invalidateRoomLifecycle();
+    }
     await stopLocalShare('manual');
-  }, [stopLocalShare]);
+  }, [invalidateRoomLifecycle, stopLocalShare]);
 
   // --- Viewer logic ---
 

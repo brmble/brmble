@@ -147,6 +147,57 @@ describe('useScreenShare', () => {
     expect(result.current.isSharing).toBe(true);
   });
 
+  it('stopSharing cancels a pending share start before token resolution', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    const sharePromise = result.current.startSharing('channel-1');
+    await act(async () => {
+      await result.current.stopSharing();
+      tokenHandler?.(liveKitToken('test-jwt'));
+      await sharePromise;
+    });
+
+    expect(mockRoom.connect).not.toHaveBeenCalled();
+    expect(mockRoom.localParticipant.setScreenShareEnabled).not.toHaveBeenCalled();
+    expect(result.current.isSharing).toBe(false);
+    expect((bridge.send as ReturnType<typeof vi.fn>).mock.calls.filter(([type]) => type === 'livekit.shareStarted')).toHaveLength(0);
+  });
+
+  it('stopSharing cancels a pending share start after room connect before capture publishes', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    let resolveCapture: (() => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+    });
+    mockRoom.localParticipant.setScreenShareEnabled.mockImplementationOnce(() => new Promise<void>(resolve => {
+      resolveCapture = resolve;
+    }));
+
+    const { result } = renderHook(() => useScreenShare());
+
+    const sharePromise = result.current.startSharing('channel-1');
+    await act(async () => {
+      tokenHandler?.(liveKitToken('test-jwt'));
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await result.current.stopSharing();
+      resolveCapture?.();
+      await sharePromise;
+    });
+
+    expect(mockRoom.localParticipant.setScreenShareEnabled).toHaveBeenCalledWith(true, undefined);
+    expect(mockRoom.localParticipant.setScreenShareEnabled).toHaveBeenCalledWith(false);
+    expect(result.current.isSharing).toBe(false);
+    expect((bridge.send as ReturnType<typeof vi.fn>).mock.calls.filter(([type]) => type === 'livekit.shareStarted')).toHaveLength(0);
+  });
+
   it('requests subscribe token via bridge when connecting as viewer', async () => {
     let tokenHandler: ((data: unknown) => void) | null = null;
     let shareStartedHandler: ((data: unknown) => void) | null = null;
@@ -1316,7 +1367,7 @@ describe('useScreenShare', () => {
       resolveDisconnect = resolve;
     }));
 
-    let startPromise: Promise<void> | null = null;
+    let startPromise: Promise<boolean> | null = null;
     act(() => {
       startPromise = result.current.startSharing('channel-1');
     });
@@ -1820,7 +1871,7 @@ describe('useScreenShare', () => {
     });
 
     let viewerPromise: Promise<void> | null = null;
-    let sharePromise: Promise<void> | null = null;
+    let sharePromise: Promise<boolean> | null = null;
     act(() => {
       viewerPromise = result.current.connectAsViewer('channel-1', 10, '@alice:test');
       sharePromise = result.current.startSharing('channel-1');
@@ -1854,7 +1905,7 @@ describe('useScreenShare', () => {
     });
 
     let viewerPromise: Promise<void> | null = null;
-    let sharePromise: Promise<void> | null = null;
+    let sharePromise: Promise<boolean> | null = null;
     act(() => {
       viewerPromise = result.current.connectAsViewer('channel-1', 10, '@alice:test');
       sharePromise = result.current.startSharing('channel-1');
@@ -1886,7 +1937,7 @@ describe('useScreenShare', () => {
 
     const { result } = renderHook(() => useScreenShare());
 
-    let sharePromise: Promise<void> | null = null;
+    let sharePromise: Promise<boolean> | null = null;
     act(() => {
       sharePromise = result.current.startSharing('channel-1');
     });
@@ -1923,7 +1974,7 @@ describe('useScreenShare', () => {
       shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
     });
 
-    let sharePromise: Promise<void> | null = null;
+    let sharePromise: Promise<boolean> | null = null;
     let viewerPromise: Promise<void> | null = null;
     act(() => {
       sharePromise = result.current.startSharing('channel-1');

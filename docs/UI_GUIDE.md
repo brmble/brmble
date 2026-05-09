@@ -751,6 +751,7 @@ The `status` prop drives icon, color, ARIA role, and auto-dismiss behavior:
 4. **Does it need a dismiss button?** Persistent notifications: yes. Blocking with no fallback: no dismiss.
 5. **What actions does it need?** Max 1 primary action. Action must be reachable elsewhere in UI since notifications can be missed.
 6. **What title + detail?** Title = what happened (short, one line). Detail = context or next step (optional).
+7. **What lifecycle model?** Choose one: stable singleton, replacement, or historical/multi-entry. This determines the ID and cleanup strategy.
 
 ### Props
 
@@ -818,6 +819,21 @@ Top-right notifications are managed by the `useNotificationQueue` hook (`src/Brm
 - `unregister(id)` — call from `onExited` (after exit animation), not from `onDismiss`. This ensures the exit animation completes before the slot is freed.
 - `isVisible(id)` — pass as the `visible` prop to `<Notification>`.
 - Bottom-center notifications (`Toast`) bypass the queue — they position independently.
+
+### Queue Lifecycle Checklist
+
+Before adding a top-right notification, decide and document the lifecycle model:
+
+- **Stable singleton:** One logical notification exists at a time. Use a stable ID (`update`, `copy`, `idle-auto-leave`) and unregister that same ID when it is no longer relevant.
+- **Replacement:** Repeated events should overwrite the previous notification. Use generated IDs only if you unregister the previous ID before registering the next one. Example: repeated channel-move notifications should replace the last move notification, not accumulate forever.
+- **Historical/multi-entry:** Repeated events should remain separate because each entry matters. Use generated IDs, but prove every generated ID is eventually unregistered. Example: imported server notifications may show one notification per imported server.
+
+Generated IDs require extra care:
+
+- Matching title/detail/status does **not** deduplicate notifications; only the `id` matters.
+- If a notification clears React state in `onDismiss`, do not assume `onExited` will run afterward. Either keep the component mounted with `visible={false}` until exit, or explicitly unregister the queue ID in the same dismissal path.
+- For replacement notifications, unregister the previous ID before setting/registering the next generated ID.
+- Add a repeated-event test for any generated-ID top-right notification. The test must emit at least **4** events, or otherwise prove stale entries cannot fill the max-3 queue and block future notifications.
 
 **Integration pattern in App.tsx:**
 ```tsx
