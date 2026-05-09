@@ -56,7 +56,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     {
         var user = ToMumbleUser(state);
         _logger.LogDebug("ICE callback: user connected {User}", user.Name);
-        Task.Run(() => SafeDispatch(() => DispatchUserConnected(user), nameof(userConnected)));
+        Task.Run(() => SafeDispatch(() => DispatchUserConnected(user, state.channel), nameof(userConnected)));
     }
 
     public override void userDisconnected(MumbleServer.User state, Ice.Current current)
@@ -114,9 +114,12 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     public Task DispatchTextMessage(MumbleUser sender, string text, int channelId)
         => Task.WhenAll(_handlers.Select(h => h.OnUserTextMessage(sender, text, channelId)));
 
-    public async Task DispatchUserConnected(MumbleUser user)
+    public async Task DispatchUserConnected(MumbleUser user, int? initialChannelId = null)
     {
         _sessionMapping.SetNameForSession(user.Name, user.SessionId);
+
+        if (initialChannelId.HasValue)
+            _channelMembership.Update(user.SessionId, initialChannelId.Value);
 
         // Try cert-based resolution — await so handlers see the cert hash
         var enriched = await TryResolveCertAsync(user);

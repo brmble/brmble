@@ -68,17 +68,20 @@ public class VoiceEngine : IDisposable
             return;
 
         var p = parsed.Value;
-        UserAudioPipeline pipeline;
-        if (!_users.TryGetValue(p.Session, out pipeline))
+        if (!_users.TryGetValue(p.Session, out var pipeline))
         {
-            pipeline = new UserAudioPipeline();
-            OnUserPipelineCreated(pipeline);
+            var newPipeline = new UserAudioPipeline();
+            OnUserPipelineCreated(newPipeline);
 
-            if (!_users.TryAdd(p.Session, pipeline))
+            if (!_users.TryAdd(p.Session, newPipeline))
             {
-                pipeline.Dispose();
+                newPipeline.Dispose();
                 if (!_users.TryGetValue(p.Session, out pipeline))
                     return;
+            }
+            else
+            {
+                pipeline = newPipeline;
             }
         }
         pipeline.FeedEncodedPacket(p.OpusData, p.Sequence);

@@ -8,7 +8,7 @@ const { bridgeMock, usePermissionsMock, useServiceStatusMock, useResizableMock }
     send: vi.fn(),
   },
   usePermissionsMock: vi.fn(() => ({
-    hasPermission: vi.fn(() => false),
+    hasPermission: vi.fn((_channelId: number, _permission: number) => false),
     Permission: {
       Kick: 0x10000,
       Ban: 0x20000,
@@ -258,5 +258,70 @@ describe('Sidebar root user idle (moon) icon', () => {
     });
     const row = screen.getByText('Bob').closest('.root-user-row');
     expect(row?.querySelector('.user-status-area [data-icon="moon"]')).not.toBeNull();
+  });
+});
+
+describe('Sidebar root move drop targets', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    usePermissionsMock.mockReturnValue({
+      hasPermission: vi.fn((channelId: number, permission: number) => channelId === 0 && permission === 0x20),
+      Permission: {
+        Kick: 0x10000,
+        Ban: 0x20000,
+        MuteDeafen: 0x10,
+        Move: 0x20,
+        MakeChannel: 0x40,
+        Write: 0x1,
+      },
+      requestPermissions: vi.fn(),
+    });
+  });
+
+  const dragPayload = (session: string) => ({
+    dataTransfer: {
+      getData: vi.fn((type: string) => type === 'text/plain' ? session : ''),
+      setData: vi.fn(),
+      effectAllowed: 'move',
+    },
+  });
+
+  it('moves a dragged user to root when dropped on the server info panel', () => {
+    renderSidebar({
+      channels: [
+        { id: 0, name: 'Connected', parent: 0 },
+        { id: 1, name: 'General' },
+      ],
+      users: [{ session: 7, name: 'Alice', channelId: 1 }],
+      serverLabel: 'Test Server',
+    });
+
+    const panel = screen.getByText('Test Server').closest('.server-info-panel')!;
+    const event = dragPayload('7');
+    fireEvent.dragOver(panel, event);
+    fireEvent.drop(panel, event);
+
+    expect(bridgeMock.send).toHaveBeenCalledWith('voice.move', { session: 7, channelId: 0 });
+  });
+
+  it('moves a dragged user to root when dropped on the Connected users panel', () => {
+    renderSidebar({
+      channels: [
+        { id: 0, name: 'Connected', parent: 0 },
+        { id: 1, name: 'General' },
+      ],
+      users: [
+        { session: 7, name: 'Alice', channelId: 1 },
+        { session: 8, name: 'RootUser', channelId: 0 },
+      ],
+      serverLabel: 'Test Server',
+    });
+
+    const panel = screen.getByText('RootUser').closest('.root-users-panel')!;
+    const event = dragPayload('7');
+    fireEvent.dragOver(panel, event);
+    fireEvent.drop(panel, event);
+
+    expect(bridgeMock.send).toHaveBeenCalledWith('voice.move', { session: 7, channelId: 0 });
   });
 });

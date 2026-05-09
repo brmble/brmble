@@ -10,7 +10,7 @@ const { bridgeMock, usePermissionsMock } = vi.hoisted(() => ({
     send: vi.fn(),
   },
   usePermissionsMock: vi.fn(() => ({
-    hasPermission: vi.fn(() => false),
+    hasPermission: vi.fn((_channelId: number, _permission: number) => false),
     Permission: {
       Move: 0x20,
       MakeChannel: 0x40,
@@ -252,6 +252,57 @@ describe('ChannelTree screen share behavior', () => {
     const indicator = screen.getByText('Sharing').closest('.sharing-indicator');
     expect(indicator).not.toBeNull();
     expect(indicator?.firstElementChild).toHaveTextContent('Sharing');
+  });
+});
+
+describe('ChannelTree user move drag and drop', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('allows admin drag and drop while self is in root', () => {
+    const onMoveUser = vi.fn();
+    usePermissionsMock.mockReturnValue({
+      hasPermission: vi.fn((channelId: number, permission: number) => channelId === 0 && permission === 0x20),
+      Permission: {
+        Move: 0x20,
+        MakeChannel: 0x40,
+        Write: 0x1,
+        Kick: 0x10000,
+        Ban: 0x20000,
+        MuteDeafen: 0x10,
+      },
+      requestPermissions: vi.fn(),
+    });
+
+    render(
+      <ChannelTree
+        channels={[{ id: 1, name: 'General' }, { id: 2, name: 'Gaming' }]}
+        users={[{ session: 7, name: 'Alice', channelId: 1 }]}
+        currentChannelId={0}
+        onJoinChannel={vi.fn()}
+        onMoveUser={onMoveUser}
+      />
+    );
+
+    const userRow = screen.getByText('Alice').closest('.user-row')!;
+    const targetChannel = screen.getByText('Gaming').closest('.channel-row')!;
+    const dragData = new Map<string, string>();
+    const dataTransfer = {
+      effectAllowed: '',
+      setData: vi.fn((type: string, value: string) => dragData.set(type, value)),
+      getData: vi.fn((type: string) => dragData.get(type) ?? ''),
+    };
+
+    expect(userRow).toHaveAttribute('draggable', 'true');
+
+    fireEvent.dragStart(userRow, { dataTransfer });
+    expect(dataTransfer.setData).toHaveBeenCalledWith('text/plain', '7');
+    fireEvent.dragOver(targetChannel, { dataTransfer });
+    fireEvent.drop(targetChannel, { dataTransfer });
+    expect(dataTransfer.getData).toHaveBeenCalledWith('text/plain');
+
+    expect(onMoveUser).toHaveBeenCalledWith(7, 2);
   });
 });
 

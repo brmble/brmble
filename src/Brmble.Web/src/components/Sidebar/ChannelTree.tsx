@@ -94,7 +94,8 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     return ids;
   }, [activeShares, sharingChannelId]);
 
-  const canDragUsers = currentChannelId != null && hasPermission(currentChannelId, Permission.Move);
+  const canDragUsers = hasPermission(0, Permission.Move)
+    || (currentChannelId != null && hasPermission(currentChannelId, Permission.Move));
 
   useEffect(() => {
     if (currentChannelId) {
@@ -260,7 +261,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
           }}
           onDragLeave={() => setDropTargetChannel(null)}
           onDrop={(e) => {
-            if (!canDragUsers || draggedUser === null) return;
+            if (!canDragUsers) return;
             e.preventDefault();
             const session = parseInt(e.dataTransfer.getData('text/plain'));
             if (!isNaN(session) && onMoveUser) {

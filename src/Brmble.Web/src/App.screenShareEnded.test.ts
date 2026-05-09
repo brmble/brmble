@@ -4,14 +4,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as AppModule from './App';
 import {
   createQueuedScreenShareEndedNotification,
+  getMovedChannelNotification,
   getScreenShareEndedNotification,
   runIntentionalDisconnect,
+  shouldTreatMoveAsSharingRelated,
 } from './App';
 import { useNotificationQueue } from './hooks/useNotificationQueue';
 
 type ReplaceScreenShareEndedNotification = (
   current: ReturnType<typeof createQueuedScreenShareEndedNotification>,
-  reason: 'manual' | 'source-closed' | 'interrupted' | 'error' | 'blocked-capture',
+  reason: 'manual' | 'source-closed' | 'interrupted' | 'error' | 'blocked-capture' | 'moved-channel',
   sequence: number,
   notifQueue: { unregister: (id: string) => void },
 ) => ReturnType<typeof createQueuedScreenShareEndedNotification>;
@@ -23,6 +25,10 @@ describe('getScreenShareEndedNotification', () => {
 
   it('keeps manual share endings silent', () => {
     expect(getScreenShareEndedNotification('manual')).toBeNull();
+  });
+
+  it('keeps moved-channel share endings silent because the move notification owns the message', () => {
+    expect(getScreenShareEndedNotification('moved-channel')).toBeNull();
   });
 
   it('returns null notification for manual share stop', () => {
@@ -114,6 +120,72 @@ describe('getScreenShareEndedNotification', () => {
 
   it('does not create a queued notification for manual share stop', () => {
     expect(createQueuedScreenShareEndedNotification('manual', 1)).toBeNull();
+  });
+});
+
+describe('getMovedChannelNotification', () => {
+  it('mentions actor and stopped sharing when a move interrupts sharing', () => {
+    expect(getMovedChannelNotification({
+      actorName: 'Moderator',
+      previousChannelName: 'General',
+      channelName: 'Raid',
+      wasSharing: true,
+    })).toEqual({
+      status: 'info',
+      title: 'Moved to Raid',
+      detail: 'Moderator moved you from General to Raid. Screen sharing was stopped.',
+    });
+  });
+
+  it('uses generic wording when actor and previous channel are unknown', () => {
+    expect(getMovedChannelNotification({
+      actorName: undefined,
+      previousChannelName: undefined,
+      channelName: 'Raid',
+      wasSharing: false,
+    })).toEqual({
+      status: 'info',
+      title: 'Moved to Raid',
+      detail: 'You were moved to Raid.',
+    });
+  });
+});
+
+describe('shouldTreatMoveAsSharingRelated', () => {
+  it('treats a move as sharing-related when the sharing channel ref is still set', () => {
+    expect(shouldTreatMoveAsSharingRelated({
+      isSharing: false,
+      isLocalShareStartPending: false,
+      sharingChannelId: '2',
+      currentShareEndedNotification: null,
+    })).toBe(true);
+  });
+
+  it('treats a move as sharing-related while a local share start is pending', () => {
+    expect(shouldTreatMoveAsSharingRelated({
+      isSharing: false,
+      isLocalShareStartPending: true,
+      sharingChannelId: undefined,
+      currentShareEndedNotification: null,
+    })).toBe(true);
+  });
+
+  it('treats a move as sharing-related when a share-ended notification already exists', () => {
+    expect(shouldTreatMoveAsSharingRelated({
+      isSharing: false,
+      isLocalShareStartPending: false,
+      sharingChannelId: undefined,
+      currentShareEndedNotification: createQueuedScreenShareEndedNotification('error', 1),
+    })).toBe(true);
+  });
+
+  it('does not treat a move as sharing-related when no share signal exists', () => {
+    expect(shouldTreatMoveAsSharingRelated({
+      isSharing: false,
+      isLocalShareStartPending: false,
+      sharingChannelId: undefined,
+      currentShareEndedNotification: null,
+    })).toBe(false);
   });
 });
 

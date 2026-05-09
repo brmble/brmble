@@ -147,8 +147,26 @@ export function Sidebar({
   const [requestChannelDialog, setRequestChannelDialog] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
   const [newChannelDescription, setNewChannelDescription] = useState('');
+  const [rootDropTarget, setRootDropTarget] = useState<'server' | 'connected' | null>(null);
 
   const { hasPermission, Permission, requestPermissions } = usePermissions();
+  const canDropToRoot = connected && hasPermission(0, Permission.Move);
+
+  const moveDroppedUserToRoot = (e: React.DragEvent) => {
+    if (!canDropToRoot) return;
+    e.preventDefault();
+    const session = parseInt(e.dataTransfer.getData('text/plain'));
+    if (!isNaN(session)) {
+      bridge.send('voice.move', { session, channelId: 0 });
+    }
+    setRootDropTarget(null);
+  };
+
+  const allowRootDrop = (target: 'server' | 'connected') => (e: React.DragEvent) => {
+    if (!canDropToRoot) return;
+    e.preventDefault();
+    setRootDropTarget(target);
+  };
 
   useEffect(() => {
     if (connected) {
@@ -158,7 +176,12 @@ export function Sidebar({
 
   return (
     <aside className={`sidebar${isDragging ? ' sidebar--resizing' : ''}`} style={{ width }}>
-      <div className={`server-info-panel${isServerChatActive ? ' server-info-active' : ''}`}>
+      <div
+        className={`server-info-panel${isServerChatActive ? ' server-info-active' : ''}${rootDropTarget === 'server' ? ' root-drop-target' : ''}`}
+        onDragOver={allowRootDrop('server')}
+        onDragLeave={() => setRootDropTarget(null)}
+        onDrop={moveDroppedUserToRoot}
+      >
         {serverLabel ? (
           <div 
             className={`server-info-header${onSelectServer ? ' server-info-clickable' : ''}`}
@@ -272,7 +295,12 @@ export function Sidebar({
       </div>
       
       {connected && rootUsers.length > 0 && (
-        <div className="root-users-panel">
+        <div
+          className={`root-users-panel${rootDropTarget === 'connected' ? ' root-drop-target' : ''}`}
+          onDragOver={allowRootDrop('connected')}
+          onDragLeave={() => setRootDropTarget(null)}
+          onDrop={moveDroppedUserToRoot}
+        >
           <div className="root-users-header">
             <h4 className="heading-label">Connected</h4>
             <span className="root-users-count">{rootUsers.length}</span>

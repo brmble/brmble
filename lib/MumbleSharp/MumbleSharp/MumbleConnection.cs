@@ -126,6 +126,9 @@ namespace MumbleSharp
 
         public void SendControl<T>(PacketType type, T packet)
         {
+            if (_tcp == null)
+                return;
+
             _tcp.Send<T>(type, packet);
         }
 
