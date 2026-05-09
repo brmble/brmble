@@ -398,13 +398,9 @@ const [replyState, setReplyState] = useState<{
   }, []);
 
   const scrollToMessage = useCallback((eventId: string) => {
-    if (!eventId || !messagesContainerRef.current) return;
+    if (!eventId) return;
 
-    const escapedEventId = typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
-      ? CSS.escape(eventId)
-      : eventId.replace(/["\\]/g, '\\$&');
-    const target = messagesContainerRef.current.querySelector<HTMLElement>(`[data-msg-track="${escapedEventId}"]`);
-
+    const target = messageElMapRef.current.get(eventId);
     if (!target) return;
 
     clearReplyHighlightTimeout();

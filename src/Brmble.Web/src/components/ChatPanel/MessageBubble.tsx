@@ -197,12 +197,6 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
               type="button"
               className="message-reply-preview message-reply-preview--interactive"
               onClick={handleReplyActivation}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  handleReplyActivation();
-                }
-              }}
               aria-label={replyPreviewLabel}
             >
               <span className="message-reply-sender">{replyToSender}</span>
