@@ -1144,6 +1144,46 @@ describe('active share discovery', () => {
     });
   });
 
+  it('manual share stop does not make a later admin move look sharing-related', async () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id.startsWith('channel-moved-'));
+    screenShareState.isSharing = true;
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming' },
+        ],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    act(() => {
+      getLocalShareEndedHandler()?.('manual');
+    });
+    screenShareState.isSharing = false;
+
+    act(() => {
+      bridge.emit('voice.channelChanged', {
+        channelId: 2,
+        previousChannelId: 1,
+        actorName: 'Moderator',
+        reason: 'moved',
+      });
+    });
+
+    await waitFor(() => {
+      expect(notifQueue.register).toHaveBeenCalledWith('channel-moved-0', 'info');
+      expect(document.body.textContent).toContain('Moved to Gaming');
+      expect(document.body.textContent).not.toContain('Screen sharing was stopped.');
+    });
+    expect(markLocalShareTeardownIntent).not.toHaveBeenCalledWith('moved-channel');
+    expect(stopSharing).not.toHaveBeenCalled();
+  });
+
   it('admin move while not sharing does not set moved-channel teardown intent', async () => {
     screenShareState.isSharing = false;
     render(React.createElement(App));

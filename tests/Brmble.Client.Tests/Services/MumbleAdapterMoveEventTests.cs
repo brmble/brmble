@@ -115,6 +115,7 @@ public class MumbleAdapterMoveEventTests
         var sent = NativeBridgeTestHarness.DrainMessages(bridge);
         Assert.IsTrue(adapter.LocalUser!.SelfMuted);
         Assert.IsTrue(adapter.LocalUser!.SelfDeaf);
+        Assert.IsNull(GetField<uint?>(adapter, "_pendingLocalJoinChannelId"));
         Assert.IsFalse(sent.Any(m => m.Type == "voice.leftVoiceChanged" && m.DataJson.Contains("\"leftVoice\":false")));
     }
 
@@ -156,6 +157,9 @@ public class MumbleAdapterMoveEventTests
 
     private static void SetField(object instance, string name, object? value)
         => instance.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(instance, value);
+
+    private static T? GetField<T>(object instance, string name)
+        => (T?)instance.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(instance);
 
     private static void SetBaseField(object instance, string name, object? value)
         => instance.GetType().BaseType!.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(instance, value);

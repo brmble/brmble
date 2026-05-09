@@ -2937,6 +2937,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             if (_leaveVoiceInProgress)
             {
                 _leaveVoiceInProgress = false;
+                if (_pendingLocalJoinChannelId == currentChannelId)
+                    _pendingLocalJoinChannelId = null;
             }
             else if (_pendingLocalJoinChannelId == currentChannelId)
             {

@@ -2307,7 +2307,14 @@ const handleConnect = (serverData: SavedServer) => {
   const handleLocalScreenShareEnded = useCallback((reason: LocalShareStopReason) => {
     setSharingChannelId(undefined);
     sharingChannelIdRef.current = undefined;
-    wasLocalShareRecentlyActiveRef.current = true;
+    isSharingRef.current = false;
+    if (reason === 'manual') {
+      wasLocalShareRecentlyActiveRef.current = false;
+      screenShareEndedNotificationRef.current = null;
+      setScreenShareEndedNotification(null);
+    } else {
+      wasLocalShareRecentlyActiveRef.current = true;
+    }
 
     const notification = replaceScreenShareEndedNotification(
       screenShareEndedNotificationRef.current,
