@@ -28,6 +28,7 @@ public record ShortcutsSettings(
 public record MessagesSettings(
     bool TtsEnabled = false,
     int TtsVolume = 100,
+    string TtsVoice = "",
     bool NotificationsEnabled = true
 );
 
