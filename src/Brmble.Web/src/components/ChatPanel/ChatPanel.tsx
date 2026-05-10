@@ -43,6 +43,7 @@ interface ChatPanelProps {
 const SCROLL_THRESHOLD = 150;
 const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
 const DEFAULT_SPLIT = 50;
+const REPLY_TARGET_HIGHLIGHT_MS = 1600;
 
 export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, watchingShares, focusedShare, remoteVideoEls, onFocusShare, onCloseShare, screenShareViewerMode, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard }: ChatPanelProps) {
   // Build lookup maps from sender name and matrixUserId → avatar data for MessageBubble.
@@ -147,6 +148,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
   const unreadDividerRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
@@ -158,6 +160,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
   const messageObserverRef = useRef<IntersectionObserver | null>(null);
   const messageElMapRef = useRef<Map<string, HTMLDivElement>>(new Map());
   const hiddenSetRef = useRef<Set<string>>(new Set());
+  const replyHighlightTimeoutRef = useRef<number | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; sender: string; senderMatrixUserId?: string; content?: string; messageId?: string; msgType?: string } | null>(null);
 const [replyState, setReplyState] = useState<{
   eventId: string;
@@ -387,6 +390,29 @@ const [replyState, setReplyState] = useState<{
     setShowScrollButton(distanceFromBottom > SCROLL_THRESHOLD);
   }, []);
 
+  const clearReplyHighlightTimeout = useCallback(() => {
+    if (replyHighlightTimeoutRef.current !== null) {
+      window.clearTimeout(replyHighlightTimeoutRef.current);
+      replyHighlightTimeoutRef.current = null;
+    }
+  }, []);
+
+  const scrollToMessage = useCallback((eventId: string) => {
+    if (!eventId) return;
+
+    const target = messageElMapRef.current.get(eventId);
+    if (!target) return;
+
+    clearReplyHighlightTimeout();
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setHighlightedMessageId(eventId);
+
+    replyHighlightTimeoutRef.current = window.setTimeout(() => {
+      setHighlightedMessageId((current) => (current === eventId ? null : current));
+      replyHighlightTimeoutRef.current = null;
+    }, REPLY_TARGET_HIGHLIGHT_MS);
+  }, [clearReplyHighlightTimeout]);
+
   // One-shot flag: allow the ResizeObserver to auto-scroll only once after
   // a channel/DM switch (i.e. during the initial slide-in transition).
   // Cleared after the first resize fires, so subsequent resizes (e.g.
@@ -421,6 +447,17 @@ const [replyState, setReplyState] = useState<{
     const rafId = requestAnimationFrame(checkScrollButton);
     return () => cancelAnimationFrame(rafId);
   }, [channelId, messages, checkScrollButton]);
+
+  useEffect(() => {
+    return () => {
+      clearReplyHighlightTimeout();
+    };
+  }, [clearReplyHighlightTimeout]);
+
+  useEffect(() => {
+    clearReplyHighlightTimeout();
+    setHighlightedMessageId(null);
+  }, [channelId, clearReplyHighlightTimeout]);
 
   useEffect(() => {
     const container = messagesContainerRef.current;
@@ -899,6 +936,8 @@ const [replyState, setReplyState] = useState<{
                     replyToEventId={item.message.replyToEventId}
                     replyToSender={(item.message.replyToSender) || (item.message.replyToEventId ? lookupMessageById(item.message.replyToEventId)?.sender : undefined)}
                     replyToContent={(item.message.replyToContent) || (item.message.replyToEventId ? lookupMessageById(item.message.replyToEventId)?.content : undefined)}
+                    isReplyTargetHighlighted={highlightedMessageId === item.message.id}
+                    onReplyClick={scrollToMessage}
                     onDismiss={onDismissMessage}
                     onOpenContextMenu={onMessageContextMenu ? (x, y, s, m, c, msgId, msgType = 'm.text') => {
                       if (s !== currentUsername) {

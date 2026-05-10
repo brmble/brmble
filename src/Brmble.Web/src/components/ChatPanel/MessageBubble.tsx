@@ -33,6 +33,8 @@ interface MessageBubbleProps {
   replyToEventId?: string;
   replyToSender?: string;
   replyToContent?: string;
+  isReplyTargetHighlighted?: boolean;
+  onReplyClick?: (eventId: string) => void;
   onDismiss?: (messageId: string) => void;
   onOpenContextMenu?: (x: number, y: number, sender: string, senderMatrixUserId?: string, content?: string, messageId?: string) => void;
 }
@@ -138,7 +140,7 @@ function processMessageContent(
   return mentionified;
 }
 
-export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & React.HTMLAttributes<HTMLDivElement>>(function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId, currentUsername, knownUsernames, messageId, pending, error, replyToEventId, replyToSender, replyToContent, onDismiss, onOpenContextMenu, className, ...rest }, ref) {
+export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & React.HTMLAttributes<HTMLDivElement>>(function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId, currentUsername, knownUsernames, messageId, pending, error, replyToEventId, replyToSender, replyToContent, isReplyTargetHighlighted, onReplyClick, onDismiss, onOpenContextMenu, className, ...rest }, ref) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const formatTime = (date: Date) => {
@@ -152,9 +154,19 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
   if (isActiveMatch) classes.push('search-active-match');
   if (pending) classes.push('message-bubble--pending');
   if (error) classes.push('message-bubble--error');
+  if (isReplyTargetHighlighted) classes.push('message-bubble--reply-target');
   if (className) classes.push(className);
 
   const firstUrl = (!isSystem && content) ? extractFirstUrl(content) : null;
+  const hasReplyPreview = Boolean(replyToEventId && (replyToSender || replyToContent));
+  const canJumpToReply = Boolean(hasReplyPreview && replyToEventId && onReplyClick);
+  const replyPreviewLabel = `Jump to replied message from ${replyToSender ?? 'unknown sender'}: ${replyToContent ?? 'empty message'}`;
+
+  const handleReplyActivation = () => {
+    if (replyToEventId) {
+      onReplyClick?.(replyToEventId);
+    }
+  };
 
   return (
     <div ref={ref} className={classes.join(' ')} data-message-index={messageIndex} {...rest} onContextMenu={(e) => {
@@ -179,11 +191,23 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
             <span className="message-time">{formatTime(timestamp)}</span>
           </div>
         )}
-        {replyToEventId && (replyToSender || replyToContent) && (
-          <div className="message-reply-preview">
-            <span className="message-reply-sender">{replyToSender}</span>
-            <span className="message-reply-content">{replyToContent}</span>
-          </div>
+        {hasReplyPreview && (
+          canJumpToReply ? (
+            <button
+              type="button"
+              className="message-reply-preview message-reply-preview--interactive"
+              onClick={handleReplyActivation}
+              aria-label={replyPreviewLabel}
+            >
+              <span className="message-reply-sender">{replyToSender}</span>
+              <span className="message-reply-content">{replyToContent}</span>
+            </button>
+          ) : (
+            <div className="message-reply-preview">
+              <span className="message-reply-sender">{replyToSender}</span>
+              <span className="message-reply-content">{replyToContent}</span>
+            </div>
+          )
         )}
         {content && (
           html ? (

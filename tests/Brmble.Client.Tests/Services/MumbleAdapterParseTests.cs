@@ -12,6 +12,7 @@ using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.Certificate;
 using Brmble.Client.Services.Serverlist;
 using Brmble.Client.Services.Voice;
+using MumbleSharp.Model;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Brmble.Client.Tests.Services;
@@ -66,16 +67,23 @@ internal static class MumbleAdapterTestHarness
         AudioManager? audioManager = null)
     {
         var adapter = (MumbleAdapter)RuntimeHelpers.GetUninitializedObject(typeof(MumbleAdapter));
+        SetBaseField(adapter, "UserDictionary", new ConcurrentDictionary<uint, User>());
+        SetBaseField(adapter, "ChannelDictionary", new ConcurrentDictionary<uint, Channel>());
         SetField(adapter, "_bridge", bridge);
         SetField(adapter, "_apiUrl", apiUrl);
         SetField(adapter, "_certService", certService);
         SetField(adapter, "_appConfigService", appConfigService);
         SetField(adapter, "_audioManager", audioManager);
+        SetField(adapter, "_userMappings", new Dictionary<string, string>());
+        SetField(adapter, "_sessionMappings", new ConcurrentDictionary<uint, MumbleAdapter.SessionMappingEntry>());
         return adapter;
     }
 
     public static void SetField(object instance, string name, object? value)
         => instance.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(instance, value);
+
+    private static void SetBaseField(object instance, string name, object? value)
+        => instance.GetType().BaseType!.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(instance, value);
 }
 
 internal sealed class TestAppConfigService : IAppConfigService

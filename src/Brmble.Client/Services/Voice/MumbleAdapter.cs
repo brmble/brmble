@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using Org.BouncyCastle.Tls;
@@ -34,6 +35,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private string? _lastWelcomeText;
     private readonly CertificateService? _certService;
     private uint? _previousChannelId;
+    private uint? _pendingLocalJoinChannelId;
     private bool _leftVoice;
     private bool _leaveVoiceInProgress;
     private bool _canRejoin;
@@ -41,6 +43,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private volatile bool _intentionalDisconnect = false;
     private volatile bool _rejected = false;
     private volatile bool _isReconnect = false;
+    private volatile bool _serverRemovalDisconnect = false;
     private volatile CancellationTokenSource? _reconnectCts;
     private string? _reconnectHost;
     private int _reconnectPort;
@@ -287,7 +290,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     {
         _isReconnect = false;
         _cts?.Cancel();
-        _processThread?.Join(2000);
+        var processThread = _processThread;
+        if (processThread != null && processThread != Thread.CurrentThread)
+            processThread.Join(2000);
         _processThread = null;
 
         StopVoiceIdlePolling();
@@ -326,6 +331,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         ChannelDictionary.Clear();
         _lastWelcomeText = null;
         _previousChannelId = null;
+        _pendingLocalJoinChannelId = null;
         if (_intentionalDisconnect || _reconnectHost == null)
         {
             _apiUrl = null;
@@ -338,7 +344,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         // Only emit voice.disconnected for intentional disconnects or when no reconnect is possible.
         // When _intentionalDisconnect is false and we have reconnect params, ReconnectLoop will take over.
-        if (_intentionalDisconnect || _reconnectHost == null)
+        if (_serverRemovalDisconnect)
+        {
+            _serverRemovalDisconnect = false;
+        }
+        else if (_intentionalDisconnect || _reconnectHost == null)
         {
             _bridge?.Send("voice.disconnected", null);
             _bridge?.NotifyUiThread();
@@ -602,6 +612,25 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         EmitCanRejoin(_previousChannelId != null);
     }
 
+    private void ClearLeaveVoiceState()
+    {
+        if (LocalUser == null) return;
+
+        _leftVoice = false;
+        _previousChannelId = null;
+
+        LocalUser.SelfMuted = false;
+        LocalUser.SelfDeaf = false;
+        LocalUser.SendMuteDeaf();
+        _audioManager?.SetMuted(false);
+        _audioManager?.SetDeafened(false);
+
+        _bridge?.Send("voice.selfMuteChanged", new { muted = false });
+        _bridge?.Send("voice.selfDeafChanged", new { deafened = false });
+        _bridge?.Send("voice.leftVoiceChanged", new { leftVoice = false });
+        EmitCanRejoin(false);
+    }
+
     /// <summary>
     /// Updates <see cref="_canRejoin"/> and emits <c>voice.canRejoinChanged</c>.
     /// Call whenever <see cref="_previousChannelId"/> is assigned or cleared.
@@ -815,6 +844,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (Connection is not { State: ConnectionStates.Connected })
             return;
 
+        _pendingLocalJoinChannelId = channelId;
         Connection.SendControl(PacketType.UserState, new UserState { ChannelId = channelId });
         SendPermissionQuery(new PermissionQuery { ChannelId = channelId });
     }
@@ -1199,7 +1229,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         return System.Text.Json.JsonSerializer.Serialize(new { roomName, accessMode = normalizedAccessMode });
     }
 
-    internal static bool TryGetLiveKitAccessMode(System.Text.Json.JsonElement data, out string? accessMode)
+    internal static bool TryGetLiveKitAccessMode(System.Text.Json.JsonElement data, [NotNullWhen(true)] out string? accessMode)
     {
         accessMode = null;
 
@@ -1208,6 +1238,43 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         accessMode = modeElement.GetString();
         return !string.IsNullOrWhiteSpace(accessMode);
+    }
+
+    internal sealed record ChannelChangedPayload(
+        uint ChannelId,
+        uint? PreviousChannelId,
+        uint? ActorSession,
+        string? ActorName,
+        string Reason);
+
+    internal static ChannelChangedPayload CreateChannelChangedPayload(
+        uint? previousChannelId,
+        uint currentChannelId,
+        uint? actorSession,
+        string? actorName,
+        bool movedByOtherUser)
+    {
+        return new ChannelChangedPayload(
+            currentChannelId,
+            previousChannelId,
+            actorSession,
+            string.IsNullOrWhiteSpace(actorName) ? null : actorName,
+            movedByOtherUser ? "moved" : "unknown");
+    }
+
+    internal sealed record ServerRemovalPayload(
+        string Reason,
+        string ActorName,
+        string? Message,
+        bool ReconnectAvailable);
+
+    internal static ServerRemovalPayload CreateServerRemovalPayload(bool banned, string? actorName, string? reason)
+    {
+        return new ServerRemovalPayload(
+            banned ? "banned" : "kicked",
+            string.IsNullOrWhiteSpace(actorName) ? "the server" : actorName,
+            string.IsNullOrWhiteSpace(reason) ? null : reason,
+            true);
     }
 
     private static async Task<TlsResult> GetViaBcTls(X509Certificate2 cert, Uri uri)
@@ -2310,7 +2377,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         bridge.RegisterHandler("livekit.requestToken", async data =>
         {
             var roomName = data.TryGetProperty("roomName", out var rn) ? rn.GetString() : null;
-            var hasAccessMode = TryGetLiveKitAccessMode(data, out var accessMode);
             var requestId = data.TryGetProperty("requestId", out var requestIdProp) && requestIdProp.ValueKind == System.Text.Json.JsonValueKind.Number
                 ? requestIdProp.GetInt32()
                 : (int?)null;
@@ -2321,7 +2387,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 return;
             }
 
-            if (!hasAccessMode)
+            if (!TryGetLiveKitAccessMode(data, out var accessMode))
             {
                 _bridge?.Send("livekit.tokenError", new { error = "Missing or invalid accessMode", requestId });
                 _bridge?.NotifyUiThread();
@@ -2906,29 +2972,49 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         if (previousChannel.HasValue && currentChannelId != previousChannel && isSelf)
         {
-            _bridge?.Send("voice.channelChanged", new { channelId = currentChannelId });
+            uint? actorSession = null;
+            string? actorName = null;
+            var movedByOtherUser = false;
+            if (userState.ShouldSerializeActor() && userState.Actor != userState.Session)
+            {
+                actorSession = userState.Actor;
+                movedByOtherUser = true;
+                if (UserDictionary.TryGetValue(userState.Actor, out var actor))
+                    actorName = actor.Name;
+            }
+
+            var isExpectedLocalJoin = _pendingLocalJoinChannelId == currentChannelId;
+            if (!movedByOtherUser && !isExpectedLocalJoin && !_leaveVoiceInProgress)
+            {
+                movedByOtherUser = true;
+            }
+
+            _bridge?.Send("voice.channelChanged", CreateChannelChangedPayload(
+                previousChannel,
+                currentChannelId,
+                actorSession,
+                actorName,
+                movedByOtherUser));
 
             // If this channel change was initiated by LeaveVoice toggle, just clear the flag
             if (_leaveVoiceInProgress)
             {
                 _leaveVoiceInProgress = false;
+                if (_pendingLocalJoinChannelId == currentChannelId)
+                    _pendingLocalJoinChannelId = null;
+            }
+            else if (_pendingLocalJoinChannelId == currentChannelId)
+            {
+                _pendingLocalJoinChannelId = null;
+                if (_leftVoice && LocalUser != null)
+                {
+                    ClearLeaveVoiceState();
+                }
             }
             // If user manually joins a channel while in left-voice mode, clear it
             else if (_leftVoice && LocalUser != null)
             {
-                _leftVoice = false;
-                _previousChannelId = null;
-
-                LocalUser.SelfMuted = false;
-                LocalUser.SelfDeaf = false;
-                LocalUser.SendMuteDeaf();
-                _audioManager?.SetMuted(false);
-                _audioManager?.SetDeafened(false);
-
-                _bridge?.Send("voice.selfMuteChanged", new { muted = false });
-                _bridge?.Send("voice.selfDeafChanged", new { deafened = false });
-                _bridge?.Send("voice.leftVoiceChanged", new { leftVoice = false });
-                EmitCanRejoin(false);
+                ClearLeaveVoiceState();
             }
             // If the user moves to root while not in leave-voice, treat it as activating leave-voice.
             // Store the channel they came from so they can rejoin.
@@ -3073,6 +3159,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 actorName = actor.Name ?? "Unknown";
             }
             var reason = !string.IsNullOrEmpty(userRemove.Reason) ? $": {userRemove.Reason}" : "";
+            _intentionalDisconnect = true;
+            _serverRemovalDisconnect = true;
+            _reconnectCts?.Cancel();
+            _reconnectCts = null;
+            _reconnectHost = null;
+            _reconnectUsername = null;
+            _reconnectPassword = null;
 
             if (userRemove.Ban == true)
             {
@@ -3082,6 +3175,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             {
                 SendSystemMessage($"You were kicked by {actorName}{reason}", "kicked");
             }
+
+            _bridge?.Send("voice.disconnected", CreateServerRemovalPayload(
+                userRemove.Ban == true,
+                actorName,
+                userRemove.Reason));
+            _bridge?.NotifyUiThread();
+            Disconnect();
         }
         else if (userName != null)
         {

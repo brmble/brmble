@@ -200,6 +200,19 @@ public class MumbleServerCallbackTests
     }
 
     [TestMethod]
+    public async Task DispatchUserConnected_WithInitialChannel_UpdatesChannelMembership()
+    {
+        var handler = new Mock<IMumbleEventHandler>();
+        handler.Setup(h => h.OnUserConnected(It.IsAny<MumbleUser>())).Returns(Task.CompletedTask);
+        var channelMembership = new Mock<IChannelMembershipService>();
+        var callback = CreateCallback([handler.Object], channelMembership: channelMembership.Object);
+
+        await callback.DispatchUserConnected(new MumbleUser("Alice", "abc", 42), initialChannelId: 5);
+
+        channelMembership.Verify(cm => cm.Update(42, 5), Times.Once);
+    }
+
+    [TestMethod]
     public async Task DispatchUserStateChanged_StopsShareWhenUserChangesChannel()
     {
         var bus = new Mock<IBrmbleEventBus>();

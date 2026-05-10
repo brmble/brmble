@@ -56,9 +56,19 @@ export interface QueuedScreenShareEndedNotification extends ScreenShareEndedNoti
   id: string;
 }
 
+export interface MovedChannelNotificationInput {
+  actorName?: string;
+  previousChannelName?: string;
+  channelName: string;
+  movedToRoot?: boolean;
+  wasSharing: boolean;
+}
+
 export function getScreenShareEndedNotification(reason: LocalShareStopReason): ScreenShareEndedNotification | null {
   switch (reason) {
     case 'manual':
+      return null;
+    case 'moved-channel':
       return null;
     case 'source-closed':
       return {
@@ -91,6 +101,35 @@ export function getScreenShareEndedNotification(reason: LocalShareStopReason): S
   }
 }
 
+export function getMovedChannelNotification(input: MovedChannelNotificationInput): ScreenShareEndedNotification {
+  if (input.movedToRoot) {
+    const actor = input.actorName || 'Someone';
+    const route = input.previousChannelName
+      ? `${actor} moved you out of ${input.previousChannelName}`
+      : input.actorName
+        ? `${input.actorName} moved you out of voice`
+        : 'You were moved out of voice';
+
+    return {
+      status: 'info',
+      title: 'Moved out of voice',
+      detail: `${route}.${input.wasSharing ? ' Screen sharing was stopped.' : ''}`,
+    };
+  }
+
+  const route = input.previousChannelName
+    ? `${input.actorName || 'Someone'} moved you from ${input.previousChannelName} to ${input.channelName}`
+    : input.actorName
+      ? `${input.actorName} moved you to ${input.channelName}`
+      : `You were moved to ${input.channelName}`;
+
+  return {
+    status: 'info',
+    title: `Moved to ${input.channelName}`,
+    detail: `${route}.${input.wasSharing ? ' Screen sharing was stopped.' : ''}`,
+  };
+}
+
 export function createQueuedScreenShareEndedNotification(
   reason: LocalShareStopReason,
   sequence: number,
@@ -119,15 +158,38 @@ export function replaceScreenShareEndedNotification(
   return createQueuedScreenShareEndedNotification(reason, sequence);
 }
 
+export function shouldTreatMoveAsSharingRelated(options: {
+  isSharing: boolean;
+  isLocalShareStartPending: boolean;
+  sharingChannelId: string | undefined;
+  currentShareEndedNotification: QueuedScreenShareEndedNotification | null;
+}) {
+  return options.isSharing
+    || options.isLocalShareStartPending
+    || options.sharingChannelId !== undefined
+    || options.currentShareEndedNotification !== null;
+}
+
+export function getServerRemovalNotification(input: { reason: 'kicked' | 'banned'; actorName?: string; message?: string }): ScreenShareEndedNotification {
+  const actorName = input.actorName || 'the server';
+  const action = input.reason === 'banned' ? 'banned' : 'kicked';
+  return {
+    status: input.reason === 'banned' ? 'error' : 'warning',
+    title: input.reason === 'banned' ? 'Banned from server' : 'Kicked from server',
+    detail: `${actorName} ${action} you from the server.${input.message ? ` Reason: ${input.message}` : ''}`,
+  };
+}
+
 interface ToggleLocalScreenShareOptions {
   isSharing: boolean;
   selfLeftVoice: boolean;
   voiceChannelId?: number;
   liveKitState?: ServiceStatus['state'];
-  startSharing: (roomName: string) => Promise<void>;
+  startSharing: (roomName: string) => Promise<boolean>;
   stopSharing: () => Promise<void>;
   markLocalShareTeardownIntent?: (reason: LocalShareStopReason) => void;
   setSharingChannelId: (channelId: string | undefined) => void;
+  onSharingChannelIdChanged?: (channelId: string | undefined) => void;
 }
 
 interface NextLiveKitStatusOptions {
@@ -216,10 +278,12 @@ export async function toggleLocalScreenShare({
   startSharing,
   stopSharing,
   setSharingChannelId,
+  onSharingChannelIdChanged,
 }: ToggleLocalScreenShareOptions) {
   if (isSharing) {
     await stopSharing();
     setSharingChannelId(undefined);
+    onSharingChannelIdChanged?.(undefined);
     return;
   }
 
@@ -232,8 +296,13 @@ export async function toggleLocalScreenShare({
   }
 
   try {
-    await startSharing(`channel-${voiceChannelId}`);
-    setSharingChannelId(String(voiceChannelId));
+    const started = await startSharing(`channel-${voiceChannelId}`);
+    if (!started) {
+      return;
+    }
+    const nextSharingChannelId = String(voiceChannelId);
+    setSharingChannelId(nextSharingChannelId);
+    onSharingChannelIdChanged?.(nextSharingChannelId);
   } catch {
     // startSharing sets error state internally; App effects handle status updates.
   }
@@ -329,6 +398,14 @@ interface User {
   avatarUrl?: string;
   certHash?: string;
   isBrmbleClient?: boolean;
+}
+
+interface QueuedMovedChannelNotification extends ScreenShareEndedNotification {
+  id: string;
+}
+
+interface ServerRemovalNotification extends ScreenShareEndedNotification {
+  id: 'server-removal';
 }
 
 
@@ -912,6 +989,8 @@ function App() {
     const onVoiceConnected = ((data: unknown) => {
       setConnectionStatus('connected');
       updateStatus('voice', { state: 'connected', error: undefined });
+      notifQueue.unregister('server-removal');
+      setServerRemovalNotification(null);
       const d = data as { username?: string; channelId?: number; channels?: Channel[]; users?: User[] } | undefined;
 
       // Use actual channel from server instead of assuming root.
@@ -983,7 +1062,19 @@ function App() {
     const onVoiceDisconnected = (data: unknown) => {
       clearPendingAction();
       purgeEphemeralMessages('server-root');
-      const d = data as { reconnectAvailable?: boolean } | null;
+      const d = data as { reconnectAvailable?: boolean; reason?: 'kicked' | 'banned' | string; actorName?: string; message?: string } | null;
+
+      if (d?.reason === 'kicked' || d?.reason === 'banned') {
+        const notification = {
+          id: 'server-removal' as const,
+          ...getServerRemovalNotification({
+            reason: d.reason,
+            actorName: d.actorName,
+            message: d.message,
+          }),
+        };
+        setServerRemovalNotification(notification);
+      }
 
       if (d?.reconnectAvailable && userSawConnectedRef.current) {
         // User was connected and saw the UI, then lost connection
@@ -1174,10 +1265,55 @@ function App() {
       }
     });
 
-    const onVoiceChannelChanged = ((data: unknown) => {
+  const onVoiceChannelChanged = ((data: unknown) => {
       clearPendingAction();
-      const d = data as { channelId: number; name?: string } | undefined;
+      const d = data as { channelId: number; name?: string; previousChannelId?: number; actorName?: string; reason?: 'moved' | 'unknown' } | undefined;
       if (d?.channelId !== undefined && d?.channelId !== null) {
+        const wasSharing = shouldTreatMoveAsSharingRelated({
+          isSharing: isSharingRef.current || wasLocalShareRecentlyActiveRef.current,
+          isLocalShareStartPending: isLocalShareStartPendingRef.current,
+          sharingChannelId: sharingChannelIdRef.current,
+          currentShareEndedNotification: screenShareEndedNotificationRef.current,
+        });
+        if (d.reason === 'moved') {
+          if (movedChannelNotificationRef.current) {
+            notifQueue.unregister(movedChannelNotificationRef.current.id);
+            movedChannelNotificationRef.current = null;
+          }
+
+          if (wasSharing) {
+            markLocalShareTeardownIntent('moved-channel');
+            void stopSharingRef.current?.();
+          }
+          if (screenShareEndedNotificationRef.current) {
+            notifQueue.unregister(screenShareEndedNotificationRef.current.id);
+            screenShareEndedNotificationRef.current = null;
+            setScreenShareEndedNotification(null);
+          }
+
+          const channelName = d.name
+            || channelsRef.current.find(c => c.id === d.channelId)?.name
+            || (d.channelId === 0 ? (serverLabel || 'Server') : `Channel ${d.channelId}`);
+          const previousChannelName = d.previousChannelId !== undefined
+            ? channelsRef.current.find(c => c.id === d.previousChannelId)?.name
+            : undefined;
+          const notification = {
+            id: `channel-moved-${nextMovedChannelNotificationIdRef.current++}`,
+            ...getMovedChannelNotification({
+              actorName: d.actorName,
+              previousChannelName,
+              channelName,
+              movedToRoot: d.channelId === 0,
+              wasSharing,
+            }),
+          };
+          movedChannelNotificationRef.current = notification;
+          setMovedChannelNotification(notification);
+          sharingChannelIdRef.current = undefined;
+          setSharingChannelId(undefined);
+          wasLocalShareRecentlyActiveRef.current = false;
+        }
+
         if (d.channelId === 0) {
           setCurrentChannelId('server-root');
           setCurrentChannelName('');
@@ -2140,14 +2276,21 @@ const handleConnect = (serverData: SavedServer) => {
   }, []);
 
   const [sharingChannelId, setSharingChannelId] = useState<string | undefined>();
+  const sharingChannelIdRef = useRef<string | undefined>(undefined);
+  const wasLocalShareRecentlyActiveRef = useRef(false);
   const [isLocalShareStartPending, setIsLocalShareStartPending] = useState(false);
+  const isLocalShareStartPendingRef = useRef(false);
   const [screenShareToast, setScreenShareToast] = useState<{
     userName: string; roomName: string; userId?: number; matrixUserId?: string;
   } | null>(null);
   const [screenShareEndedNotification, setScreenShareEndedNotification] = useState<QueuedScreenShareEndedNotification | null>(null);
+  const [movedChannelNotification, setMovedChannelNotification] = useState<QueuedMovedChannelNotification | null>(null);
+  const [serverRemovalNotification, setServerRemovalNotification] = useState<ServerRemovalNotification | null>(null);
   const nextScreenShareEndedNotificationIdRef = useRef(0);
+  const nextMovedChannelNotificationIdRef = useRef(0);
   const nextActiveShareDiscoveryRequestIdRef = useRef(0);
   const screenShareEndedNotificationRef = useRef<QueuedScreenShareEndedNotification | null>(null);
+  const movedChannelNotificationRef = useRef<QueuedMovedChannelNotification | null>(null);
   const [copyToast, setCopyToast] = useState<{ message: string } | null>(null);
   const [updateInfo, setUpdateInfo] = useState<{ version: string } | null>(null);
   const [updateProgress, setUpdateProgress] = useState<number | null>(null);
@@ -2163,6 +2306,15 @@ const handleConnect = (serverData: SavedServer) => {
 
   const handleLocalScreenShareEnded = useCallback((reason: LocalShareStopReason) => {
     setSharingChannelId(undefined);
+    sharingChannelIdRef.current = undefined;
+    isSharingRef.current = false;
+    if (reason === 'manual') {
+      wasLocalShareRecentlyActiveRef.current = false;
+      screenShareEndedNotificationRef.current = null;
+      setScreenShareEndedNotification(null);
+    } else {
+      wasLocalShareRecentlyActiveRef.current = true;
+    }
 
     const notification = replaceScreenShareEndedNotification(
       screenShareEndedNotificationRef.current,
@@ -2176,8 +2328,12 @@ const handleConnect = (serverData: SavedServer) => {
 
   const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, disconnectViewer, connectAsViewer, isViewerConnectPending } = useScreenShare(() => {
     setSharingChannelId(undefined);
+    sharingChannelIdRef.current = undefined;
   }, screenShareSettings, handleLocalScreenShareEnded);
   isSharingRef.current = isSharing;
+  if (isSharing) {
+    wasLocalShareRecentlyActiveRef.current = true;
+  }
   stopSharingRef.current = stopSharing;
   disconnectViewerRef.current = disconnectViewer;
 
@@ -2220,6 +2376,18 @@ const handleConnect = (serverData: SavedServer) => {
       // from dismissal/exit handlers so a replacement event gets fresh metadata.
     }
   }, [screenShareEndedNotification, notifQueue]);
+
+  useEffect(() => {
+    if (movedChannelNotification) {
+      notifQueue.register(movedChannelNotification.id, movedChannelNotification.status);
+    }
+  }, [movedChannelNotification, notifQueue]);
+
+  useEffect(() => {
+    if (serverRemovalNotification) {
+      notifQueue.register(serverRemovalNotification.id, serverRemovalNotification.status);
+    }
+  }, [serverRemovalNotification, notifQueue]);
 
   const { isOnCooldown: leaveVoiceOnCooldown, trigger: triggerLeaveVoiceCooldown } = useLeaveVoiceCooldown(1000);
   const { isOnCooldown: muteOnCooldown, trigger: triggerMuteCooldown } = useLeaveVoiceCooldown(1000);
@@ -2311,6 +2479,7 @@ const handleConnect = (serverData: SavedServer) => {
       selfLeftVoice,
       voiceChannelId: selfVoiceChannelId,
     })) {
+      isLocalShareStartPendingRef.current = false;
       setIsLocalShareStartPending(false);
     }
   }, [isLocalShareStartPending, selfLeftVoice, selfVoiceChannelId]);
@@ -2390,6 +2559,7 @@ const handleConnect = (serverData: SavedServer) => {
 
     if (shouldStartSharing) {
       setIsLocalShareStartPending(true);
+      isLocalShareStartPendingRef.current = true;
     }
 
     await toggleLocalScreenShare({
@@ -2400,10 +2570,15 @@ const handleConnect = (serverData: SavedServer) => {
       startSharing,
       stopSharing,
       setSharingChannelId,
+      onSharingChannelIdChanged: (channelId) => {
+        sharingChannelIdRef.current = channelId;
+        wasLocalShareRecentlyActiveRef.current = channelId !== undefined;
+      },
     });
 
     if (shouldStartSharing) {
       setIsLocalShareStartPending(false);
+      isLocalShareStartPendingRef.current = false;
     }
   }, [isSharing, startSharing, stopSharing, selfLeftVoice]);
   handleToggleScreenShareRef.current = handleToggleScreenShare;
@@ -2839,6 +3014,43 @@ const handleConnect = (serverData: SavedServer) => {
               if (screenShareEndedNotificationRef.current?.id === screenShareEndedNotification.id) {
                 screenShareEndedNotificationRef.current = null;
               }
+            }}
+          />
+        )}
+        {movedChannelNotification && notifQueue.isVisible(movedChannelNotification.id) && (
+          <Notification
+            key={movedChannelNotification.id}
+            status={movedChannelNotification.status}
+            position="top-right"
+            visible={!!movedChannelNotification}
+            title={movedChannelNotification.title}
+            detail={movedChannelNotification.detail}
+            onDismiss={() => {
+              notifQueue.unregister(movedChannelNotification.id);
+              movedChannelNotificationRef.current = null;
+              setMovedChannelNotification(null);
+            }}
+            onExited={() => {
+              notifQueue.unregister(movedChannelNotification.id);
+              if (movedChannelNotificationRef.current?.id === movedChannelNotification.id) {
+                movedChannelNotificationRef.current = null;
+              }
+            }}
+          />
+        )}
+        {serverRemovalNotification && notifQueue.isVisible(serverRemovalNotification.id) && (
+          <Notification
+            status={serverRemovalNotification.status}
+            position="top-right"
+            visible={!!serverRemovalNotification}
+            title={serverRemovalNotification.title}
+            detail={serverRemovalNotification.detail}
+            onDismiss={() => {
+              notifQueue.unregister(serverRemovalNotification.id);
+              setServerRemovalNotification(null);
+            }}
+            onExited={() => {
+              notifQueue.unregister(serverRemovalNotification.id);
             }}
           />
         )}
