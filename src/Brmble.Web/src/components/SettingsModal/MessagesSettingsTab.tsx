@@ -38,8 +38,9 @@ export function MessagesSettingsTab({ settings, onChange }: MessagesSettingsTabP
     const synth = window.speechSynthesis;
     const loadVoices = () => {
       const availableVoices = synth.getVoices();
-      const signature = availableVoices
-        .map(v => `${v.name}|${v.lang}|${v.default ? 1 : 0}`)
+      const signature = [...availableVoices]
+        .sort((a, b) => a.voiceURI.localeCompare(b.voiceURI))
+        .map(v => `${v.voiceURI}|${v.name}|${v.lang}|${v.default ? 1 : 0}`)
         .join('||');
       if (signature !== voiceSignatureRef.current) {
         voiceSignatureRef.current = signature;
