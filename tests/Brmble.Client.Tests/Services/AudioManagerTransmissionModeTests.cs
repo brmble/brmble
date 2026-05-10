@@ -1,5 +1,6 @@
 using Brmble.Client.Services.Voice;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System.Reflection;
 
 namespace Brmble.Client.Tests.Services;
 
@@ -12,6 +13,11 @@ namespace Brmble.Client.Tests.Services;
 [TestClass]
 public class AudioManagerTransmissionModeTests
 {
+    private static string GetPrivateStringField(AudioManager audio, string fieldName)
+        => (string)typeof(AudioManager)
+            .GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(audio)!;
+
     [TestMethod]
     public void FirstCall_AppliesConfiguration()
     {
@@ -107,6 +113,46 @@ public class AudioManagerTransmissionModeTests
         }
 
         Assert.AreEqual(1, audio.TransmissionApplyCount);
+    }
+
+    [TestMethod]
+    public void SetInputDevice_NullOrWhitespace_NormalizesToDefault()
+    {
+        using var audio = new AudioManager();
+
+        audio.SetInputDevice("   ");
+
+        Assert.AreEqual("default", GetPrivateStringField(audio, "_inputDeviceId"));
+    }
+
+    [TestMethod]
+    public void SetOutputDevice_NullOrWhitespace_NormalizesToDefault()
+    {
+        using var audio = new AudioManager();
+
+        audio.SetOutputDevice(null);
+
+        Assert.AreEqual("default", GetPrivateStringField(audio, "_outputDeviceId"));
+    }
+
+    [TestMethod]
+    public void SetInputDevice_StoresSelectedDeviceId()
+    {
+        using var audio = new AudioManager();
+
+        audio.SetInputDevice("mic-device-123");
+
+        Assert.AreEqual("mic-device-123", GetPrivateStringField(audio, "_inputDeviceId"));
+    }
+
+    [TestMethod]
+    public void SetOutputDevice_StoresSelectedDeviceId()
+    {
+        using var audio = new AudioManager();
+
+        audio.SetOutputDevice("speaker-device-456");
+
+        Assert.AreEqual("speaker-device-456", GetPrivateStringField(audio, "_outputDeviceId"));
     }
 
     // -- IsTransmissionConfigStillValid (pure helper) ---------------------

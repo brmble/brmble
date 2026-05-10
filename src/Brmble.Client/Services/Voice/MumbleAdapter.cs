@@ -736,6 +736,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.SetShortcut("toggleGame", settings.Shortcuts.ToggleGameKey);
         _audioManager?.SetInputVolume(settings.Audio.InputVolume);
         _audioManager?.SetOutputVolume(settings.Audio.OutputVolume);
+        ApplyAudioDeviceSettings(settings);
 
         _audioManager?.SetOpusBitrate(settings.Audio.OpusBitrate);
         _audioManager?.SetOpusFrameMs(settings.Audio.OpusFrameSize);
@@ -747,6 +748,57 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         {
             _lastNoiseSuppressionLevel = nsLevel;
             _audioManager?.SetNoiseSuppression(nsLevel);
+        }
+    }
+
+    private void ApplyAudioDeviceSettings(AppSettings settings)
+    {
+        if (_audioManager is null)
+            return;
+
+        var repairedSettings = settings;
+        var inputDevice = string.IsNullOrWhiteSpace(settings.Audio.InputDevice) ? "default" : settings.Audio.InputDevice;
+        var outputDevice = string.IsNullOrWhiteSpace(settings.Audio.OutputDevice) ? "default" : settings.Audio.OutputDevice;
+        bool repaired = false;
+
+        if (string.Equals(settings.Audio.CaptureApi, "waveIn", StringComparison.OrdinalIgnoreCase)
+            && inputDevice != "default")
+        {
+            LogToFile($"[Audio] waveIn does not support specific input device '{inputDevice}', falling back to default");
+            inputDevice = "default";
+            repaired = true;
+        }
+
+        if (!_audioManager.IsInputDeviceAvailable(inputDevice))
+        {
+            LogToFile($"[Audio] Saved input device unavailable: {inputDevice}");
+            inputDevice = "default";
+            repaired = true;
+        }
+
+        if (!_audioManager.IsOutputDeviceAvailable(outputDevice))
+        {
+            LogToFile($"[Audio] Saved output device unavailable: {outputDevice}");
+            outputDevice = "default";
+            repaired = true;
+        }
+
+        _audioManager.SetInputDevice(inputDevice);
+        _audioManager.SetOutputDevice(outputDevice);
+
+        if (repaired)
+        {
+            repairedSettings = repairedSettings with
+            {
+                Audio = repairedSettings.Audio with
+                {
+                    InputDevice = inputDevice,
+                    OutputDevice = outputDevice,
+                }
+            };
+            _appConfigService?.SetSettings(repairedSettings);
+            _bridge?.Send("settings.updated", repairedSettings);
+            SendSystemMessage("Saved audio device unavailable; switched to Default (System).", "audioDeviceFallback");
         }
     }
 
@@ -1935,6 +1987,17 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         bridge.RegisterHandler("voice.resumeHotkeys", _ =>
         {
             _audioManager?.ResumeHotkeys();
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.getAudioDevices", _ =>
+        {
+            var payload = _audioManager?.GetAudioDevices()
+                ?? new AudioDevicesPayload(
+                    [new AudioDeviceOption("default", "Default (System)")],
+                    [new AudioDeviceOption("default", "Default (System)")]);
+            _bridge?.Send("voice.audioDevices", payload);
+            _bridge?.NotifyUiThread();
             return Task.CompletedTask;
         });
 

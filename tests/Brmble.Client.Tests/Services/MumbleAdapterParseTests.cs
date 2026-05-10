@@ -58,16 +58,23 @@ internal static class NativeBridgeTestHarness
 
 internal static class MumbleAdapterTestHarness
 {
-    public static MumbleAdapter CreateWithBridge(NativeBridge bridge, string? apiUrl = null, CertificateService? certService = null)
+    public static MumbleAdapter CreateWithBridge(
+        NativeBridge bridge,
+        string? apiUrl = null,
+        CertificateService? certService = null,
+        IAppConfigService? appConfigService = null,
+        AudioManager? audioManager = null)
     {
         var adapter = (MumbleAdapter)RuntimeHelpers.GetUninitializedObject(typeof(MumbleAdapter));
         SetField(adapter, "_bridge", bridge);
         SetField(adapter, "_apiUrl", apiUrl);
         SetField(adapter, "_certService", certService);
+        SetField(adapter, "_appConfigService", appConfigService);
+        SetField(adapter, "_audioManager", audioManager);
         return adapter;
     }
 
-    private static void SetField(object instance, string name, object? value)
+    public static void SetField(object instance, string name, object? value)
         => instance.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(instance, value);
 }
 
@@ -82,8 +89,14 @@ internal sealed class TestAppConfigService : IAppConfigService
     public void AddServer(ServerEntry server) { }
     public ServerEntry? UpdateServer(ServerEntry server) => server;
     public void RemoveServer(string id) { }
-    public AppSettings GetSettings() => AppSettings.Default;
-    public void SetSettings(AppSettings settings) { }
+    public AppSettings CurrentSettings { get; private set; } = AppSettings.Default;
+    public AppSettings? LastSetSettings { get; private set; }
+    public AppSettings GetSettings() => CurrentSettings;
+    public void SetSettings(AppSettings settings)
+    {
+        CurrentSettings = settings;
+        LastSetSettings = settings;
+    }
     public WindowState? GetWindowState() => null;
     public void SaveWindowState(WindowState state) { }
     public string? GetClosePreference() => null;
@@ -462,5 +475,51 @@ public class MumbleAdapterParseTests
     public void ShouldEnableDtx_Continuous_ReturnsTrue()
     {
         Assert.IsTrue(MumbleAdapter.ShouldEnableDtx(TransmissionMode.Continuous));
+    }
+
+    [TestMethod]
+    public async Task VoiceGetAudioDevices_EmitsDefaultDeviceEntries()
+    {
+        var bridge = NativeBridgeTestHarness.Create();
+        using var audioManager = new AudioManager();
+        var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge, audioManager: audioManager);
+        adapter.RegisterHandlers(bridge);
+
+        using var doc = JsonDocument.Parse("{}");
+        await NativeBridgeTestHarness.InvokeAsync(bridge, "voice.getAudioDevices", doc.RootElement.Clone());
+        var sent = NativeBridgeTestHarness.DrainMessages(bridge);
+
+        var payloadJson = sent.Single(x => x.Type == "voice.audioDevices").DataJson;
+        using var payload = JsonDocument.Parse(payloadJson);
+        Assert.AreEqual("default", payload.RootElement.GetProperty("input")[0].GetProperty("id").GetString());
+        Assert.AreEqual("default", payload.RootElement.GetProperty("output")[0].GetProperty("id").GetString());
+    }
+
+    [TestMethod]
+    public void ApplySettings_InvalidAudioDevices_AreRepairedToDefault()
+    {
+        var bridge = NativeBridgeTestHarness.Create();
+        using var audioManager = new AudioManager();
+        var config = new TestAppConfigService(Path.GetTempPath());
+        var adapter = MumbleAdapterTestHarness.CreateWithBridge(
+            bridge,
+            appConfigService: config,
+            audioManager: audioManager);
+
+        var settings = AppSettings.Default with
+        {
+            Audio = AppSettings.Default.Audio with
+            {
+                InputDevice = "missing-input-device",
+                OutputDevice = "missing-output-device",
+                CaptureApi = "waveIn",
+            }
+        };
+
+        adapter.ApplySettings(settings);
+
+        Assert.IsNotNull(config.LastSetSettings);
+        Assert.AreEqual("default", config.LastSetSettings!.Audio.InputDevice);
+        Assert.AreEqual("default", config.LastSetSettings!.Audio.OutputDevice);
     }
 }
