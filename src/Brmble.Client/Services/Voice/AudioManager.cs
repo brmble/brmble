@@ -2446,7 +2446,17 @@ private int _screenShareHotkeyId = -1;
         try
         {
             using var enumerator = new MMDeviceEnumerator();
-            using var _ = enumerator.GetDevice(deviceId);
+            using var device = enumerator.GetDevice(deviceId);
+            if (device.DataFlow != flow)
+            {
+                AudioLog.Write($"[Audio] Device mismatch ({flow}): {deviceId} is {device.DataFlow}");
+                return false;
+            }
+            if (device.State != DeviceState.Active)
+            {
+                AudioLog.Write($"[Audio] Device not active ({flow}): {deviceId} ({device.State})");
+                return false;
+            }
             return true;
         }
         catch (Exception ex)
