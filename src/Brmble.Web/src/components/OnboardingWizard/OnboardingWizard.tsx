@@ -100,6 +100,15 @@ interface OnboardingWizardProps {
 
 type TransmissionMode = 'pushToTalk' | 'voiceActivity' | 'continuous' | 'pushToTalkPlus';
 
+type AudioDeviceOption = { id: string; name: string };
+
+type AudioDevicesPayload = {
+  input?: AudioDeviceOption[];
+  output?: AudioDeviceOption[];
+};
+
+const DEFAULT_DEVICE_OPTION: AudioDeviceOption = { id: 'default', name: 'Default (System)' };
+
 interface WizardSettings {
   // Interface
   theme: string;
@@ -200,6 +209,8 @@ export function OnboardingWizard({ onComplete, onServersImported, isMaximized }:
 
   // Preferences state
   const [settings, setSettings] = useState<WizardSettings>(loadInitialSettings);
+  const [inputDevices, setInputDevices] = useState<AudioDeviceOption[]>([DEFAULT_DEVICE_OPTION]);
+  const [outputDevices, setOutputDevices] = useState<AudioDeviceOption[]>([DEFAULT_DEVICE_OPTION]);
 
   // Server import step state
   interface MumbleServer { label: string; host: string; port: number; username: string; alreadySaved: boolean; }
@@ -280,6 +291,11 @@ export function OnboardingWizard({ onComplete, onServersImported, isMaximized }:
       setBusy(false);
       setStep('backup');
     };
+    const onAudioDevices = (data: unknown) => {
+      const payload = data as AudioDevicesPayload | undefined;
+      setInputDevices(payload?.input?.length ? payload.input : [DEFAULT_DEVICE_OPTION]);
+      setOutputDevices(payload?.output?.length ? payload.output : [DEFAULT_DEVICE_OPTION]);
+    };
 
     bridge.on('profiles.added', onProfileAdded);
     bridge.on('profiles.activeChanged', onActiveChanged);
@@ -289,6 +305,7 @@ export function OnboardingWizard({ onComplete, onServersImported, isMaximized }:
     bridge.on('cert.error', onCertError);
     bridge.on('mumble.detectedServers', onDetectedServers);
     bridge.on('mumble.serversImported', onServersImported);
+    bridge.on('voice.audioDevices', onAudioDevices);
 
     return () => {
       bridge.off('profiles.added', onProfileAdded);
@@ -299,8 +316,15 @@ export function OnboardingWizard({ onComplete, onServersImported, isMaximized }:
       bridge.off('cert.error', onCertError);
       bridge.off('mumble.detectedServers', onDetectedServers);
       bridge.off('mumble.serversImported', onServersImported);
+      bridge.off('voice.audioDevices', onAudioDevices);
     };
   }, [fingerprint, onComplete]);
+
+  useEffect(() => {
+    if (step === 'audio') {
+      bridge.send('voice.getAudioDevices');
+    }
+  }, [step]);
 
   // When detectedCerts arrives, advance to identity
   const setCertsAndAdvance = useCallback((certs: ScannedCert[]) => {
@@ -945,7 +969,7 @@ export function OnboardingWizard({ onComplete, onServersImported, isMaximized }:
                 <Select
                   value={settings.outputDevice}
                   onChange={v => updateSettings({ outputDevice: v })}
-                  options={[{ value: 'default', label: 'Default' }]}
+                  options={outputDevices.map(device => ({ value: device.id, label: device.name }))}
                 />
               </div>
               <div className="settings-item">
@@ -953,7 +977,7 @@ export function OnboardingWizard({ onComplete, onServersImported, isMaximized }:
                 <Select
                   value={settings.inputDevice}
                   onChange={v => updateSettings({ inputDevice: v })}
-                  options={[{ value: 'default', label: 'Default' }]}
+                  options={inputDevices.map(device => ({ value: device.id, label: device.name }))}
                 />
               </div>
               <div className="settings-item">

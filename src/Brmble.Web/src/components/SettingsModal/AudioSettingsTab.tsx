@@ -40,6 +40,15 @@ export interface NoiseSuppressionSettings {
   level: NoiseSuppressionLevel;
 }
 
+type AudioDeviceOption = { id: string; name: string };
+
+type AudioDevicesPayload = {
+  input?: AudioDeviceOption[];
+  output?: AudioDeviceOption[];
+};
+
+const DEFAULT_DEVICE_OPTION: AudioDeviceOption = { id: 'default', name: 'Default (System)' };
+
 export const DEFAULT_SETTINGS: AudioSettings = {
   inputDevice: 'default',
   outputDevice: 'default',
@@ -62,10 +71,28 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
   const [localSettings, setLocalSettings] = useState<AudioSettings>(settings);
   const [recording, setRecording] = useState(false);
   const [isPromptOpen, setIsPromptOpen] = useState(false);
+  const [inputDevices, setInputDevices] = useState<AudioDeviceOption[]>([DEFAULT_DEVICE_OPTION]);
+  const [outputDevices, setOutputDevices] = useState<AudioDeviceOption[]>([DEFAULT_DEVICE_OPTION]);
 
   useEffect(() => {
     setLocalSettings(settings);
   }, [settings]);
+
+  useEffect(() => {
+    const fallback = [DEFAULT_DEVICE_OPTION];
+    const onAudioDevices = (data: unknown) => {
+      const payload = data as AudioDevicesPayload | undefined;
+      setInputDevices(payload?.input?.length ? payload.input : fallback);
+      setOutputDevices(payload?.output?.length ? payload.output : fallback);
+    };
+
+    bridge.on('voice.audioDevices', onAudioDevices);
+    bridge.send('voice.getAudioDevices');
+
+    return () => {
+      bridge.off('voice.audioDevices', onAudioDevices);
+    };
+  }, []);
 
   const handleChange = (key: keyof AudioSettings, value: string | number | TransmissionMode) => {
     const newSettings = { ...localSettings, [key]: value };
@@ -74,7 +101,13 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
   };
 
   const handleCaptureApiChange = (value: 'waveIn' | 'wasapi') => {
-    handleChange('captureApi', value);
+    const nextSettings: AudioSettings = {
+      ...localSettings,
+      captureApi: value,
+      inputDevice: value === 'waveIn' ? 'default' : localSettings.inputDevice,
+    };
+    setLocalSettings(nextSettings);
+    onChange(nextSettings);
   };
 
   const handleInput = useCallback(async (key: string) => {
@@ -155,9 +188,15 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
           <Select
             value={localSettings.inputDevice}
             onChange={(v) => handleChange('inputDevice', v)}
-            options={[{ value: 'default', label: 'Default' }]}
+            options={(localSettings.captureApi === 'waveIn' ? [DEFAULT_DEVICE_OPTION] : inputDevices).map((device) => ({ value: device.id, label: device.name }))}
+            disabled={localSettings.captureApi === 'waveIn'}
           />
         </div>
+        {localSettings.captureApi === 'waveIn' && (
+          <p className="settings-hint">
+            WaveIn uses the system default microphone only. Switch to WASAPI to choose a specific input device.
+          </p>
+        )}
 
         <div className="settings-item settings-slider">
           <label>Input Volume: {localSettings.inputVolume}%</label>
@@ -180,7 +219,7 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
           <Select
             value={localSettings.outputDevice}
             onChange={(v) => handleChange('outputDevice', v)}
-            options={[{ value: 'default', label: 'Default' }]}
+            options={outputDevices.map((device) => ({ value: device.id, label: device.name }))}
           />
         </div>
 

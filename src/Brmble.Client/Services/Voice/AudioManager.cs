@@ -17,6 +17,13 @@ namespace Brmble.Client.Services.Voice;
 
 public enum TransmissionMode { Continuous, VoiceActivity, PushToTalk, PushToTalkPlus }
 
+public sealed record AudioDeviceOption(string Id, string Name);
+
+public sealed record AudioDevicesPayload(
+    IReadOnlyList<AudioDeviceOption> Input,
+    IReadOnlyList<AudioDeviceOption> Output
+);
+
 internal static class AudioLog
 {
     private const int MaxQueueSize = 10000;
@@ -212,10 +219,12 @@ internal sealed class AudioManager : IDisposable
     private IWaveIn? _waveIn;
     private volatile bool _micStarted;
     private string _captureApi = "wasapi";
+    private string _inputDeviceId = "default";
+    private string _outputDeviceId = "default";
 
     // Decode (network → speakers) — per-user JitterBuffer pipeline
     private readonly Dictionary<uint, JitterBuffer> _jitterBuffers = new();
-    private readonly Dictionary<uint, WaveOutEvent> _players = new();
+    private readonly Dictionary<uint, IWavePlayer> _players = new();
     private readonly long _startTimestamp = Stopwatch.GetTimestamp();
 
     // State
@@ -528,6 +537,90 @@ private int _screenShareHotkeyId = -1;
             StartMic();
     }
 
+    public AudioDevicesPayload GetAudioDevices()
+    {
+        try
+        {
+            return new AudioDevicesPayload(
+                EnumerateAudioDevices(DataFlow.Capture),
+                EnumerateAudioDevices(DataFlow.Render));
+        }
+        catch (Exception ex)
+        {
+            AudioLog.Write($"[Audio] GetAudioDevices failed: {ex.Message}");
+            return new AudioDevicesPayload(
+                [new AudioDeviceOption("default", "Default (System)")],
+                [new AudioDeviceOption("default", "Default (System)")]);
+        }
+    }
+
+    public void SetInputDevice(string? deviceId)
+    {
+        var normalized = string.IsNullOrWhiteSpace(deviceId) ? "default" : deviceId;
+        bool restartMic = false;
+
+        lock (_lock)
+        {
+            if (string.Equals(_inputDeviceId, normalized, StringComparison.Ordinal))
+                return;
+
+            if (_micStarted)
+            {
+                restartMic = true;
+                StopMicLocked();
+            }
+
+            _waveIn?.Dispose();
+            _waveIn = null;
+            _inputDeviceId = normalized;
+            AudioLog.Write($"[Audio] SetInputDevice: {_inputDeviceId}");
+        }
+
+        if (restartMic)
+            StartMic();
+    }
+
+    public void SetOutputDevice(string? deviceId)
+    {
+        var normalized = string.IsNullOrWhiteSpace(deviceId) ? "default" : deviceId;
+
+        lock (_lock)
+        {
+            if (string.Equals(_outputDeviceId, normalized, StringComparison.Ordinal))
+                return;
+
+            _outputDeviceId = normalized;
+
+            foreach (var player in _players.Values)
+            {
+                try
+                {
+                    player.Stop();
+                    player.Dispose();
+                }
+                catch { }
+            }
+
+            _players.Clear();
+
+            foreach (var (userId, jb) in _jitterBuffers)
+            {
+                var player = CreatePlayerFor(jb);
+                player.Init(new JitterBufferWaveProvider(jb));
+                player.Play();
+                _players[userId] = player;
+            }
+
+            AudioLog.Write($"[Audio] SetOutputDevice: {_outputDeviceId}");
+        }
+    }
+
+    public bool IsInputDeviceAvailable(string? deviceId)
+        => IsDeviceAvailable(deviceId, DataFlow.Capture);
+
+    public bool IsOutputDeviceAvailable(string? deviceId)
+        => IsDeviceAvailable(deviceId, DataFlow.Render);
+
     public void SetOutputVolume(int percentage)
     {
         _outputVolume = Math.Clamp(percentage, 0, 250) / 100f;
@@ -636,7 +729,7 @@ private int _screenShareHotkeyId = -1;
             if (_captureApi == "wasapi")
             {
                 using var enumerator = new MMDeviceEnumerator();
-                using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Communications);
+                using var device = ResolveCaptureDevice(enumerator);
                 var wasapi = new WasapiCapture(device, true, 20)
                 {
                     ShareMode = AudioClientShareMode.Shared
@@ -1103,11 +1196,7 @@ private int _screenShareHotkeyId = -1;
 
                 _jitterBuffers[userId] = jb;
 
-                var player = new WaveOutEvent
-                {
-                    DesiredLatency = 80,
-                    NumberOfBuffers = 4
-                };
+                var player = CreatePlayerFor(jb);
                 player.Init(new JitterBufferWaveProvider(jb));
                 player.Play();
                 _players[userId] = player;
@@ -2325,6 +2414,97 @@ private int _screenShareHotkeyId = -1;
 
         _ => 0
     };
+
+    private IReadOnlyList<AudioDeviceOption> EnumerateAudioDevices(DataFlow flow)
+    {
+        var devices = new List<AudioDeviceOption>
+        {
+            new("default", "Default (System)")
+        };
+
+        try
+        {
+            using var enumerator = new MMDeviceEnumerator();
+            foreach (var device in enumerator.EnumerateAudioEndPoints(flow, DeviceState.Active))
+            {
+                devices.Add(new AudioDeviceOption(device.ID, device.FriendlyName));
+            }
+        }
+        catch (Exception ex)
+        {
+            AudioLog.Write($"[Audio] EnumerateAudioDevices({flow}) failed: {ex.Message}");
+        }
+
+        return devices;
+    }
+
+    private bool IsDeviceAvailable(string? deviceId, DataFlow flow)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId) || deviceId == "default")
+            return true;
+
+        try
+        {
+            using var enumerator = new MMDeviceEnumerator();
+            using var device = enumerator.GetDevice(deviceId);
+            if (device.DataFlow != flow)
+            {
+                AudioLog.Write($"[Audio] Device mismatch ({flow}): {deviceId} is {device.DataFlow}");
+                return false;
+            }
+            if (device.State != DeviceState.Active)
+            {
+                AudioLog.Write($"[Audio] Device not active ({flow}): {deviceId} ({device.State})");
+                return false;
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AudioLog.Write($"[Audio] Device unavailable ({flow}): {deviceId} ({ex.Message})");
+            return false;
+        }
+    }
+
+    private MMDevice ResolveCaptureDevice(MMDeviceEnumerator enumerator)
+    {
+        if (!string.IsNullOrWhiteSpace(_inputDeviceId) && _inputDeviceId != "default")
+        {
+            try
+            {
+                return enumerator.GetDevice(_inputDeviceId);
+            }
+            catch (Exception ex)
+            {
+                AudioLog.Write($"[Audio] Falling back to default capture device from '{_inputDeviceId}': {ex.Message}");
+            }
+        }
+
+        return enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Communications);
+    }
+
+    private IWavePlayer CreatePlayerFor(JitterBuffer jb)
+    {
+        if (_outputDeviceId != "default")
+        {
+            try
+            {
+                using var enumerator = new MMDeviceEnumerator();
+                var device = enumerator.GetDevice(_outputDeviceId);
+                return new WasapiOut(device, AudioClientShareMode.Shared, false, 80);
+            }
+            catch (Exception ex)
+            {
+                AudioLog.Write($"[Audio] Falling back to default output device from '{_outputDeviceId}': {ex.Message}");
+            }
+        }
+
+        return new WaveOutEvent
+        {
+            DesiredLatency = 80,
+            NumberOfBuffers = 4
+        };
+    }
 }
 
 /// <summary>
@@ -2336,4 +2516,3 @@ internal sealed class RmsOnlyVadFallback : IVadDetector
     public VadAggressiveness Mode { get; set; }
     public bool IsSpeech(ReadOnlySpan<short> frame) => true; // gate RMS threshold does the work
 }
-
