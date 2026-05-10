@@ -3149,6 +3149,27 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         var certHash = user?.CertificateHash;
         _bridge?.Send("voice.userLeft", new { session = userRemove.Session, name = userName, channelId, certHash, moved = false });
 
+        if (!isSelf && userName != null && userRemove.ShouldSerializeActor() && userRemove.Actor != 0)
+        {
+            string? actorName = null;
+            if (UserDictionary.TryGetValue(userRemove.Actor, out var actorUser))
+            {
+                actorName = actorUser.Name;
+            }
+
+            _bridge?.Send("voice.moderation", new
+            {
+                kind = userRemove.Ban ? "user-banned" : "user-kicked",
+                session = userRemove.Session,
+                name = userName,
+                channelId,
+                actorSession = userRemove.Actor,
+                actorName,
+                reason = userRemove.Reason,
+            });
+            _bridge?.NotifyUiThread();
+        }
+
         // Emit system message
         if (isSelf)
         {

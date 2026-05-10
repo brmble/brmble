@@ -505,3 +505,5 @@ src/.github/
 
 # Playwright MCP session artifacts (generated on every browser run)
 .playwright-mcp/
+. a g e n t s /  
+ 

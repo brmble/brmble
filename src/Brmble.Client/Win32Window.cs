@@ -6,12 +6,18 @@ namespace Brmble.Client;
 internal static class Win32Window
 {
     private const uint WS_OVERLAPPEDWINDOW = 0x00CF0000;
+    private const uint WS_POPUP = 0x80000000;
     private const uint WS_VISIBLE = 0x10000000;
+    private const uint WS_EX_LAYERED = 0x00080000;
+    private const uint WS_EX_TRANSPARENT = 0x00000020;
+    private const uint WS_EX_TOOLWINDOW = 0x00000080;
+    private const uint WS_EX_NOACTIVATE = 0x08000000;
     public const int CW_USEDEFAULT = unchecked((int)0x80000000);
     private const uint CS_HREDRAW = 0x0002;
     private const uint CS_VREDRAW = 0x0001;
 
     public const uint WM_DESTROY = 0x0002;
+    public const uint WM_MOVE = 0x0003;
     public const uint WM_CLOSE = 0x0010;
     public const uint WM_SIZE = 0x0005;
     public const uint WM_ACTIVATE = 0x0006;
@@ -155,6 +161,15 @@ internal static class Win32Window
         public RECT rcDevice;
     }
 
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+    public struct MONITORINFO
+    {
+        public uint cbSize;
+        public RECT rcMonitor;
+        public RECT rcWork;
+        public uint dwFlags;
+    }
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern ushort RegisterClassEx(ref WNDCLASSEX lpwcx);
 
@@ -223,6 +238,12 @@ internal static class Win32Window
 
     [DllImport("user32.dll")]
     public static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    public static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
 
     [DllImport("user32.dll")]
     private static extern IntPtr LoadCursor(IntPtr instance, int cursorName);
@@ -311,7 +332,7 @@ internal static class Win32Window
     [DllImport("dwmapi.dll")]
     public static extern int DwmDefWindowProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam, out IntPtr result);
 
-    private static WndProc? _wndProcRef; // prevent GC of delegate
+    private static readonly List<WndProc> _wndProcRefs = []; // prevent GC of delegates
 
     /// <summary>
     /// Loads the Brmble application icon from the Resources folder next to the executable.
@@ -355,7 +376,7 @@ internal static class Win32Window
     public static IntPtr Create(string className, string title, int x, int y, int width, int height, WndProc wndProc)
     {
         var hInstance = GetModuleHandle(null);
-        _wndProcRef = wndProc;
+        _wndProcRefs.Add(wndProc);
 
         var hIconLg = LoadAppIcon(32);  // taskbar / Alt+Tab
         var hIconSm = LoadAppIcon(16);  // title bar (if visible)
@@ -364,7 +385,7 @@ internal static class Win32Window
         {
             cbSize = (uint)Marshal.SizeOf<WNDCLASSEX>(),
             style = CS_HREDRAW | CS_VREDRAW,
-            lpfnWndProc = _wndProcRef,
+            lpfnWndProc = wndProc,
             hInstance = hInstance,
             hIcon = hIconLg,
             hIconSm = hIconSm,
@@ -378,6 +399,57 @@ internal static class Win32Window
             WS_OVERLAPPEDWINDOW | WS_VISIBLE,
             x, y, width, height,
             IntPtr.Zero, IntPtr.Zero, hInstance, IntPtr.Zero);
+    }
+
+    public static IntPtr CreateOverlay(string className, string title, IntPtr anchorHwnd, WndProc wndProc)
+    {
+        var hInstance = GetModuleHandle(null);
+        _wndProcRefs.Add(wndProc);
+
+        var workArea = GetMonitorWorkArea(anchorHwnd);
+
+        var wc = new WNDCLASSEX
+        {
+            cbSize = (uint)Marshal.SizeOf<WNDCLASSEX>(),
+            style = CS_HREDRAW | CS_VREDRAW,
+            lpfnWndProc = wndProc,
+            hInstance = hInstance,
+            hCursor = IntPtr.Zero,
+            hbrBackground = IntPtr.Zero,
+            lpszClassName = className
+        };
+        RegisterClassEx(ref wc);
+
+        return CreateWindowEx(
+            WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+            className,
+            title,
+            WS_POPUP,
+            workArea.Left,
+            workArea.Top,
+            workArea.Right - workArea.Left,
+            workArea.Bottom - workArea.Top,
+            IntPtr.Zero,
+            IntPtr.Zero,
+            hInstance,
+            IntPtr.Zero);
+    }
+
+    public static RECT GetMonitorWorkArea(IntPtr hwnd)
+    {
+        var monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONULL);
+        if (monitor == IntPtr.Zero)
+        {
+            return new RECT { Left = 0, Top = 0, Right = 1920, Bottom = 1080 };
+        }
+
+        var monitorInfo = new MONITORINFO { cbSize = (uint)Marshal.SizeOf<MONITORINFO>() };
+        if (!GetMonitorInfo(monitor, ref monitorInfo))
+        {
+            return new RECT { Left = 0, Top = 0, Right = 1920, Bottom = 1080 };
+        }
+
+        return monitorInfo.rcWork;
     }
 
     public static void ExtendFrameIntoClientArea(IntPtr hwnd)

@@ -127,7 +127,15 @@ export interface MessagePreview {
   sender: string;
 }
 
-export function useMatrixClient(credentials: MatrixCredentials | null) {
+interface MatrixClientOverlayCallbacks {
+  onChannelMessage?: (channelId: string, message: ChatMessage) => void;
+  onDirectMessage?: (matrixUserId: string, message: ChatMessage) => void;
+}
+
+export function useMatrixClient(
+  credentials: MatrixCredentials | null,
+  callbacks?: MatrixClientOverlayCallbacks,
+) {
   const clientRef = useRef<MatrixClient | null>(null);
   const [client, setClient] = useState<MatrixClient | null>(null);
   const { updateStatus } = useServiceStatus();
@@ -198,6 +206,9 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       if (channelId) {
         const message = transformEventToChatMessage(event, room, channelId, clientRef.current);
         if (!message) return;
+        if (credentials && message.senderMatrixUserId !== credentials.userId) {
+          callbacks?.onChannelMessage?.(channelId, message);
+        }
 
         setLastMessages(prev => {
           const existing = prev.get(channelId);
@@ -230,6 +241,9 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
 
       const dmMessage = transformEventToChatMessage(event, room, dmUserId, clientRef.current);
       if (!dmMessage) return;
+      if (credentials && dmMessage.senderMatrixUserId !== credentials.userId) {
+        callbacks?.onDirectMessage?.(dmUserId, dmMessage);
+      }
 
       setDmLastMessages(prev => {
         const existing = prev.get(dmUserId);
@@ -493,7 +507,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       setClient(null);
       updateStatus('chat', { state: 'idle', error: undefined });
     };
-  }, [credentials, roomIdToChannelId, updateStatus]);
+  }, [callbacks, credentials, roomIdToChannelId, updateStatus]);
 
   const sendMessage = useCallback(async (channelId: string, text: string) => {
     if (!credentials || !clientRef.current) return;

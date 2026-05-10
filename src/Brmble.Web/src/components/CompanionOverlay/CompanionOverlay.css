@@ -1,0 +1,103 @@
+.companion-overlay {
+  pointer-events: none;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+}
+
+.companion-overlay--minimal {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  width: min(360px, calc(100vw - 48px));
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+}
+
+.overlay-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  gap: 10px;
+}
+
+.overlay-panel-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.65);
+}
+
+.overlay-panel-channel {
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.65);
+}
+
+.overlay-speaker-stack {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.overlay-speaker-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  width: fit-content;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+}
+
+.overlay-speaker-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+}
+
+.overlay-event-feed {
+  margin: 10px 0 0;
+  padding-left: 16px;
+}
+
+.overlay-event-line {
+  margin: 4px 0;
+  font-size: 12px;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.8);
+}
+
+.companion-overlay--full {
+  position: fixed;
+  right: 28px;
+  bottom: 22px;
+  display: grid;
+  gap: 12px;
+  justify-items: end;
+}
+
+.companion-anchor {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.companion-sprite {
+  width: 120px;
+  image-rendering: pixelated;
+}
+
+.companion-bubble {
+  max-width: min(320px, calc(100vw - 96px));
+  padding: 0;
+}
+
+.companion-bubble p {
+  margin: 0;
+  font-size: 13px;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.85);
+}

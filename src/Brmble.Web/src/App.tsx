@@ -14,6 +14,7 @@ import { useIdleActions } from './hooks/useIdleActions';
 import { useUnreadTracker, resetMarkersCache } from './hooks/useUnreadTracker';
 import { useServiceStatus } from './hooks/useServiceStatus';
 import { useServerHealth } from './hooks/useServerHealth';
+import { useCompanionOverlayPublisher } from './hooks/useCompanionOverlayPublisher';
 
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Header } from './components/Header/Header';
@@ -37,12 +38,21 @@ import { useDMStore } from './hooks/useDMStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
 import { usePrompt, confirm } from './hooks/usePrompt';
 import { NeonDGame } from './components/NeonD/NeonDGame';
-import { Brmblegotchi } from './components/Brmblegotchi/Brmblegotchi';
 import { ProfileProvider } from './contexts/ProfileContext';
 import { UpdateNotification } from './components/UpdateNotification/UpdateNotification';
 import { BrokenCertNotification } from './components/BrokenCertNotification/BrokenCertNotification';
 import { Notification } from './components/Notification/Notification';
 import type { NotificationStatus } from './components/Notification/Notification';
+import { DEFAULT_OVERLAY, type OverlaySettings } from './components/SettingsModal/InterfaceSettingsTypes';
+import type { CompanionOverlaySnapshot } from './components/CompanionOverlay/overlayTypes';
+import {
+  appendOverlayEvent,
+  createChannelMessageOverlayEvent,
+  createMembershipOverlayEvent,
+  createOverlaySnapshot,
+  pruneOverlaySnapshot,
+  setSpeakerActivity,
+} from './components/CompanionOverlay/overlayModel';
 import { migrateLocalStorage } from './utils/migrateLocalStorage';
 import './App.css';
 
@@ -436,6 +446,21 @@ function App() {
   }, []);
   // --- end Brmblegotchi settings state ---
 
+  const [overlaySettings, setOverlaySettings] = useState<OverlaySettings>(() => {
+    try {
+      const stored = localStorage.getItem('brmble-settings');
+      if (!stored) return DEFAULT_OVERLAY;
+      const parsed = JSON.parse(stored);
+      return { ...DEFAULT_OVERLAY, ...(parsed.overlay ?? {}) };
+    } catch {
+      return DEFAULT_OVERLAY;
+    }
+  });
+  const [overlaySnapshot, setOverlaySnapshot] = useState<CompanionOverlaySnapshot>(() =>
+    createOverlaySnapshot(null, ''),
+  );
+  const overlaySettingsRef = useRef(overlaySettings);
+
   // null = status not yet received, false = no cert, true = cert exists
   const [certExists, setCertExists] = useState<boolean | null>(null);
   // Stays true for the entire onboarding flow so the wizard isn't unmounted
@@ -483,6 +508,26 @@ function App() {
   const [speakingUsers, setSpeakingUsers] = useState<Map<number, boolean>>(new Map());
   const [pendingChannelAction, setPendingChannelAction] = useState<number | 'leave' | null>(null);
 
+  useEffect(() => {
+    setOverlaySnapshot((prev) => ({
+      ...prev,
+      currentChannelId: currentChannelId && currentChannelId !== 'server-root' ? currentChannelId : null,
+      currentChannelName: currentChannelName || '',
+    }));
+  }, [currentChannelId, currentChannelName]);
+
+  useEffect(() => {
+    overlaySettingsRef.current = overlaySettings;
+  }, [overlaySettings]);
+
+  useEffect(() => {
+    if (!overlaySettings.overlayEnabled) return;
+    const interval = window.setInterval(() => {
+      setOverlaySnapshot((prev) => pruneOverlaySnapshot(prev, Date.now()));
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [overlaySettings.overlayEnabled]);
+
   // Idle / AFK tracking — see docs/research/2026-05-03-idle-status-research.md
   const brmbleIdleSec = useBrmbleIdle();
   const { voiceIdle, systemIdle, isLocked } = useIdleStatus();
@@ -516,7 +561,46 @@ function App() {
   const [hasPendingInvite] = useState(false);
 
   const [matrixCredentials, setMatrixCredentials] = useState<MatrixCredentials | null>(null);
-  const matrixClient = useMatrixClient(matrixCredentials);
+  const matrixOverlayCallbacks = useMemo(() => ({
+    onChannelMessage: (channelId: string, message: ChatMessage) => {
+      const settings = overlaySettingsRef.current;
+      if (!settings.overlayEnabled) return;
+      setOverlaySnapshot((prev) => {
+        const next = appendOverlayEvent(
+          prev,
+          createChannelMessageOverlayEvent({
+            actorName: message.sender,
+            text: message.content,
+            channelId,
+            currentChannelId: prev.currentChannelId,
+            timestamp: message.timestamp.getTime(),
+          }),
+          settings,
+        );
+        return next;
+      });
+    },
+    onDirectMessage: (_matrixUserId: string, message: ChatMessage) => {
+      const settings = overlaySettingsRef.current;
+      if (!settings.overlayEnabled) return;
+      setOverlaySnapshot((prev) => {
+        const safeName = message.sender?.trim() || 'Unknown user';
+        return appendOverlayEvent(
+          prev,
+          {
+            id: `evt-${message.id}-dm`,
+            kind: 'direct-message',
+            actorName: safeName,
+            line: `DM from ${safeName}: ${message.content || 'Message unavailable'}`,
+            timestamp: message.timestamp.getTime(),
+          },
+          settings,
+        );
+      });
+    },
+  }), []);
+  const matrixClient = useMatrixClient(matrixCredentials, matrixOverlayCallbacks);
+  useCompanionOverlayPublisher(overlaySettings, overlaySnapshot);
   useServerHealth();
 
   // Avatar state and management
@@ -919,6 +1003,7 @@ function App() {
       const d = data as { settings?: any } | undefined;
       if (d?.settings) {
         updatePttKeyFromSettings(d.settings);
+        setOverlaySettings({ ...DEFAULT_OVERLAY, ...(d.settings.overlay ?? {}) });
       }
     };
 
@@ -1238,10 +1323,26 @@ function App() {
         
         previousChannelIdRef.current.set(d.session, d.channelId);
 
+        const overlaySettings = overlaySettingsRef.current;
+        if (overlaySettings.overlayEnabled && !d.self) {
+          setOverlaySnapshot((prev) => appendOverlayEvent(
+            prev,
+            createMembershipOverlayEvent({
+              kind: 'user-joined',
+              actorName: d.name,
+              currentChannelId: prev.currentChannelId,
+              eventChannelId: String(d.channelId),
+              timestamp: Date.now(),
+            }),
+            overlaySettings,
+          ));
+        }
+
         // Update Mumble DM contact session on reconnect
         if (d.certHash && !d.self) {
           dmStoreRef.current.updateMumbleSession(d.certHash, d.session, d.name);
         }
+
       }
     });
 
@@ -1269,12 +1370,16 @@ function App() {
       clearPendingAction();
       const d = data as { channelId: number; name?: string; previousChannelId?: number; actorName?: string; reason?: 'moved' | 'unknown' } | undefined;
       if (d?.channelId !== undefined && d?.channelId !== null) {
-        const wasSharing = shouldTreatMoveAsSharingRelated({
+        const computedWasSharing = shouldTreatMoveAsSharingRelated({
           isSharing: isSharingRef.current || wasLocalShareRecentlyActiveRef.current,
           isLocalShareStartPending: isLocalShareStartPendingRef.current,
           sharingChannelId: sharingChannelIdRef.current,
           currentShareEndedNotification: screenShareEndedNotificationRef.current,
         });
+        const wasSharing = (d.reason === 'moved' && ignoreNextMovedSharingRef.current) ? false : computedWasSharing;
+        if (d.reason === 'moved' && ignoreNextMovedSharingRef.current) {
+          ignoreNextMovedSharingRef.current = false;
+        }
         if (d.reason === 'moved') {
           if (movedChannelNotificationRef.current) {
             notifQueue.unregister(movedChannelNotificationRef.current.id);
@@ -1351,6 +1456,23 @@ function App() {
           dmStoreRef.current.updateMumbleSession(certHash, null);
         }
 
+        const overlaySettings = overlaySettingsRef.current;
+        if (overlaySettings.overlayEnabled && d.name && d.channelId !== undefined) {
+          const userName = d.name;
+          const eventChannelId = String(d.channelId);
+          setOverlaySnapshot((prev) => appendOverlayEvent(
+            prev,
+            createMembershipOverlayEvent({
+              kind: 'user-left',
+              actorName: userName,
+              currentChannelId: prev.currentChannelId,
+              eventChannelId,
+              timestamp: Date.now(),
+            }),
+            overlaySettings,
+          ));
+        }
+
         setUsers(prev => prev.filter(u => u.session !== d.session));
       }
     });
@@ -1396,6 +1518,26 @@ function App() {
           next.set(d.session, true);
           return next;
         });
+
+        const overlaySettings = overlaySettingsRef.current;
+        if (overlaySettings.overlayEnabled && overlaySettings.showActiveSpeakers) {
+          const user = usersRef.current.find((entry) => entry.session === d.session);
+          if (user?.channelId !== undefined) {
+            const speakerChannelId = user.channelId;
+            setOverlaySnapshot((prev) => {
+              if (prev.currentChannelId !== String(speakerChannelId)) {
+                return prev;
+              }
+
+              return setSpeakerActivity(
+                prev,
+                { session: d.session, name: user.name, channelId: speakerChannelId },
+                true,
+                Date.now(),
+              );
+            });
+          }
+        }
       }
     });
 
@@ -1407,6 +1549,41 @@ function App() {
           next.delete(d.session);
           return next;
         });
+
+        const overlaySettings = overlaySettingsRef.current;
+        if (overlaySettings.overlayEnabled && overlaySettings.showActiveSpeakers) {
+          const user = usersRef.current.find((entry) => entry.session === d.session);
+          if (user?.channelId !== undefined) {
+            const speakerChannelId = user.channelId;
+            setOverlaySnapshot((prev) => setSpeakerActivity(
+              prev,
+              { session: d.session, name: user.name, channelId: speakerChannelId },
+              false,
+              Date.now(),
+            ));
+          }
+        }
+      }
+    });
+
+    const onVoiceModeration = ((data: unknown) => {
+      const d = data as { kind?: 'user-kicked' | 'user-banned'; name?: string; channelId?: number } | undefined;
+      const overlaySettings = overlaySettingsRef.current;
+      if (d?.kind && d.name && d.channelId !== undefined && overlaySettings.overlayEnabled) {
+        const kind = d.kind;
+        const userName = d.name;
+        const eventChannelId = String(d.channelId);
+        setOverlaySnapshot((prev) => appendOverlayEvent(
+          prev,
+          createMembershipOverlayEvent({
+            kind,
+            actorName: userName,
+            currentChannelId: prev.currentChannelId,
+            eventChannelId,
+            timestamp: Date.now(),
+          }),
+          overlaySettings,
+        ));
       }
     });
 
@@ -1669,6 +1846,7 @@ function App() {
     bridge.on('voice.canRejoinChanged', onCanRejoinChanged);
     bridge.on('voice.userSpeaking', onVoiceUserSpeaking);
     bridge.on('voice.userSilent', onVoiceUserSilent);
+    bridge.on('voice.moderation', onVoiceModeration);
     bridge.on('voice.userCommentChanged', onVoiceUserCommentChanged);
     bridge.on('voice.shortcutPressed', onShortcutPressed);
     bridge.on('voice.shortcutReleased', onShortcutReleased);
@@ -1751,6 +1929,7 @@ function App() {
       bridge.off('voice.canRejoinChanged', onCanRejoinChanged);
       bridge.off('voice.userSpeaking', onVoiceUserSpeaking);
       bridge.off('voice.userSilent', onVoiceUserSilent);
+      bridge.off('voice.moderation', onVoiceModeration);
       bridge.off('voice.userCommentChanged', onVoiceUserCommentChanged);
       bridge.off('voice.loss', onVoiceLoss);
       bridge.off('voice.shortcutPressed', onShortcutPressed);
@@ -2278,6 +2457,7 @@ const handleConnect = (serverData: SavedServer) => {
   const [sharingChannelId, setSharingChannelId] = useState<string | undefined>();
   const sharingChannelIdRef = useRef<string | undefined>(undefined);
   const wasLocalShareRecentlyActiveRef = useRef(false);
+  const ignoreNextMovedSharingRef = useRef(false);
   const [isLocalShareStartPending, setIsLocalShareStartPending] = useState(false);
   const isLocalShareStartPendingRef = useRef(false);
   const [screenShareToast, setScreenShareToast] = useState<{
@@ -2308,8 +2488,11 @@ const handleConnect = (serverData: SavedServer) => {
     setSharingChannelId(undefined);
     sharingChannelIdRef.current = undefined;
     isSharingRef.current = false;
+    setIsLocalShareStartPending(false);
+    isLocalShareStartPendingRef.current = false;
     if (reason === 'manual') {
       wasLocalShareRecentlyActiveRef.current = false;
+      ignoreNextMovedSharingRef.current = true;
       screenShareEndedNotificationRef.current = null;
       setScreenShareEndedNotification(null);
     } else {
@@ -2331,9 +2514,6 @@ const handleConnect = (serverData: SavedServer) => {
     sharingChannelIdRef.current = undefined;
   }, screenShareSettings, handleLocalScreenShareEnded);
   isSharingRef.current = isSharing;
-  if (isSharing) {
-    wasLocalShareRecentlyActiveRef.current = true;
-  }
   stopSharingRef.current = stopSharing;
   disconnectViewerRef.current = disconnectViewer;
 
@@ -2573,6 +2753,9 @@ const handleConnect = (serverData: SavedServer) => {
       onSharingChannelIdChanged: (channelId) => {
         sharingChannelIdRef.current = channelId;
         wasLocalShareRecentlyActiveRef.current = channelId !== undefined;
+        if (channelId !== undefined) {
+          ignoreNextMovedSharingRef.current = false;
+        }
       },
     });
 
@@ -3125,7 +3308,6 @@ const handleConnect = (serverData: SavedServer) => {
 
       <ZoomIndicator />
       <Version />
-      <Brmblegotchi enabled={brmblegotchiEnabled} onOpenSettings={() => { setSettingsTab('appearance'); setShowSettings(true); }} />
       </ProfileProvider>
     </div>
   );
