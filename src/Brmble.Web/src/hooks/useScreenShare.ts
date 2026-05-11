@@ -605,7 +605,8 @@ export function useScreenShare(
         && lease.roomName === room.name
         && lease.accessMode === currentAccessMode
         && Date.parse(lease.expiresAt) > Date.now()
-        && (watchingSharesRef.current.length > 0 || isSharingRef.current);
+        && watchingSharesRef.current.length > 0
+        && !isSharingRef.current;
 
       if (canRecoverWithLease) {
         const reconnectGeneration = roomLifecycleGenerationRef.current;
