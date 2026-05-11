@@ -41,12 +41,17 @@ public sealed class LiveKitParticipantTracker
         var removed = new List<LiveKitParticipantRecord>();
         foreach (var pair in _participants)
         {
-            if (predicate(pair.Value) && _participants.TryRemove(pair.Key, out var record))
+            if (predicate(pair.Value) && TryRemoveMatched(_participants, pair))
             {
-                removed.Add(record);
+                removed.Add(pair.Value);
             }
         }
 
         return removed;
     }
+
+    internal static bool TryRemoveMatched(
+        ConcurrentDictionary<(string RoomName, string MatrixUserId), LiveKitParticipantRecord> participants,
+        KeyValuePair<(string RoomName, string MatrixUserId), LiveKitParticipantRecord> participant)
+        => ((ICollection<KeyValuePair<(string RoomName, string MatrixUserId), LiveKitParticipantRecord>>)participants).Remove(participant);
 }

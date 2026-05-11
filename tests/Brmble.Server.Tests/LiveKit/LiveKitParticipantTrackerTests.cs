@@ -1,4 +1,5 @@
 using Brmble.Server.LiveKit;
+using System.Collections.Concurrent;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Brmble.Server.Tests.LiveKit;
@@ -80,5 +81,21 @@ public class LiveKitParticipantTrackerTests
         Assert.IsNotNull(removed);
         Assert.AreEqual("@alice:test", removed.MatrixUserId);
         Assert.AreEqual(0, tracker.GetSnapshot().Count);
+    }
+
+    [TestMethod]
+    public void TryRemoveMatched_DoesNotRemoveReplacementRecord()
+    {
+        var participants = new ConcurrentDictionary<(string RoomName, string MatrixUserId), LiveKitParticipantRecord>();
+        var key = ("channel-1", "@alice:test");
+        var expiry = DateTimeOffset.UtcNow.AddMinutes(5);
+        var matched = new LiveKitParticipantRecord(key.Item1, key.Item2, 10, 7, LiveKitAccessMode.Subscribe, expiry);
+        var replacement = new LiveKitParticipantRecord(key.Item1, key.Item2, 10, 8, LiveKitAccessMode.Publish, expiry);
+        participants[key] = replacement;
+
+        var removed = LiveKitParticipantTracker.TryRemoveMatched(participants, new KeyValuePair<(string RoomName, string MatrixUserId), LiveKitParticipantRecord>(key, matched));
+
+        Assert.IsFalse(removed);
+        Assert.AreEqual(replacement, participants[key]);
     }
 }
