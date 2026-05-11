@@ -20,6 +20,7 @@ public class MumbleServerCallbackTests
         IChannelMembershipService? channelMembership = null,
         ScreenShareTracker? screenShareTracker = null,
         ILiveKitParticipantRemover? liveKitParticipantRemover = null,
+        LiveKitParticipantTracker? liveKitParticipantTracker = null,
         ILogger<MumbleServerCallback>? logger = null)
     {
         if (mapping is null)
@@ -36,6 +37,7 @@ public class MumbleServerCallbackTests
             channelMembership ?? new Mock<IChannelMembershipService>().Object,
             screenShareTracker ?? new ScreenShareTracker(),
             liveKitParticipantRemover ?? new Mock<ILiveKitParticipantRemover>().Object,
+            liveKitParticipantTracker ?? new LiveKitParticipantTracker(),
             logger ?? NullLogger<MumbleServerCallback>.Instance);
     }
 
@@ -275,5 +277,94 @@ public class MumbleServerCallbackTests
         Assert.AreEqual("channel-5", stopMsg.RootElement.GetProperty("roomName").GetString());
         channelMembership.Verify(cm => cm.Remove(42), Times.Once);
         mapping.Verify(m => m.RemoveSession(42), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task DispatchUserDisconnected_RevokesViewerOnlyParticipantWithoutShareStopped()
+    {
+        var bus = new Mock<IBrmbleEventBus>();
+        var capturedMessages = new List<object>();
+        bus.Setup(b => b.BroadcastAsync(It.IsAny<object>()))
+            .Callback<object>(msg => capturedMessages.Add(msg))
+            .Returns(Task.CompletedTask);
+
+        var mapping = new Mock<ISessionMappingService>();
+        mapping.Setup(m => m.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>
+        {
+            { 42, new SessionMapping("@alice:test", "Alice", 100L) }
+        });
+
+        var participantTracker = new LiveKitParticipantTracker();
+        participantTracker.Upsert(new LiveKitParticipantRecord("channel-5", "@alice:test", 100L, 42, LiveKitAccessMode.Subscribe, DateTimeOffset.UtcNow.AddMinutes(5)));
+
+        var remover = new Mock<ILiveKitParticipantRemover>();
+        remover.Setup(r => r.RemoveParticipant(It.IsAny<string>(), It.IsAny<string>())).Returns(Task.CompletedTask);
+
+        var callback = CreateCallback([], mapping: mapping.Object, bus: bus.Object, liveKitParticipantRemover: remover.Object, liveKitParticipantTracker: participantTracker);
+
+        await callback.DispatchUserDisconnected(new MumbleUser("Alice", "abc", 42));
+
+        remover.Verify(r => r.RemoveParticipant("channel-5", "@alice:test"), Times.Once);
+        Assert.AreEqual(0, participantTracker.GetSnapshot().Count);
+        Assert.IsFalse(capturedMessages.Any(m => JsonSerializer.Serialize(m).Contains("screenShare.stopped")));
+    }
+
+    [TestMethod]
+    public async Task DispatchUserDisconnected_RevokesPublisherAndViewerRecords()
+    {
+        var bus = new Mock<IBrmbleEventBus>();
+        bus.Setup(b => b.BroadcastAsync(It.IsAny<object>())).Returns(Task.CompletedTask);
+        var mapping = new Mock<ISessionMappingService>();
+        mapping.Setup(m => m.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>
+        {
+            { 42, new SessionMapping("@alice:test", "Alice", 100L) }
+        });
+
+        var tracker = new ScreenShareTracker();
+        tracker.Start("channel-5", "Alice", 100L, "@alice:test");
+        var participantTracker = new LiveKitParticipantTracker();
+        participantTracker.Upsert(new LiveKitParticipantRecord("channel-5", "@alice:test", 100L, 42, LiveKitAccessMode.Publish, DateTimeOffset.UtcNow.AddMinutes(5)));
+        participantTracker.Upsert(new LiveKitParticipantRecord("channel-9", "@alice:test", 100L, 42, LiveKitAccessMode.Subscribe, DateTimeOffset.UtcNow.AddMinutes(5)));
+
+        var remover = new Mock<ILiveKitParticipantRemover>();
+        remover.Setup(r => r.RemoveParticipant(It.IsAny<string>(), It.IsAny<string>())).Returns(Task.CompletedTask);
+        var callback = CreateCallback([], mapping: mapping.Object, bus: bus.Object, screenShareTracker: tracker, liveKitParticipantRemover: remover.Object, liveKitParticipantTracker: participantTracker);
+
+        await callback.DispatchUserDisconnected(new MumbleUser("Alice", "abc", 42));
+
+        remover.Verify(r => r.RemoveParticipant("channel-5", "@alice:test"), Times.Once);
+        remover.Verify(r => r.RemoveParticipant("channel-9", "@alice:test"), Times.Once);
+        Assert.IsNull(tracker.GetActive("channel-5"));
+        Assert.AreEqual(0, participantTracker.GetSnapshot().Count);
+    }
+
+    [TestMethod]
+    public async Task DispatchUserStateChanged_RevokesOldRoomParticipantAndKeepsNewRoomParticipant()
+    {
+        var bus = new Mock<IBrmbleEventBus>();
+        bus.Setup(b => b.BroadcastAsync(It.IsAny<object>())).Returns(Task.CompletedTask);
+        var channelMembership = new Mock<IChannelMembershipService>();
+        var mapping = new Mock<ISessionMappingService>();
+        mapping.Setup(m => m.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>
+        {
+            { 42, new SessionMapping("@alice:test", "Alice", 100L) }
+        });
+
+        var screenShareTracker = new ScreenShareTracker();
+        screenShareTracker.Start("channel-5", "Alice", 100L, "@alice:test");
+        var participantTracker = new LiveKitParticipantTracker();
+        participantTracker.Upsert(new LiveKitParticipantRecord("channel-5", "@alice:test", 100L, 42, LiveKitAccessMode.Publish, DateTimeOffset.UtcNow.AddMinutes(5)));
+        participantTracker.Upsert(new LiveKitParticipantRecord("channel-10", "@alice:test", 100L, 42, LiveKitAccessMode.Subscribe, DateTimeOffset.UtcNow.AddMinutes(5)));
+
+        var remover = new Mock<ILiveKitParticipantRemover>();
+        remover.Setup(r => r.RemoveParticipant(It.IsAny<string>(), It.IsAny<string>())).Returns(Task.CompletedTask);
+        var callback = CreateCallback([], mapping: mapping.Object, bus: bus.Object, channelMembership: channelMembership.Object, screenShareTracker: screenShareTracker, liveKitParticipantRemover: remover.Object, liveKitParticipantTracker: participantTracker);
+
+        await callback.DispatchUserStateChanged(new MumbleUser("Alice", "abc", 42), 10);
+
+        remover.Verify(r => r.RemoveParticipant("channel-5", "@alice:test"), Times.Once);
+        remover.Verify(r => r.RemoveParticipant("channel-10", "@alice:test"), Times.Never);
+        Assert.IsNull(screenShareTracker.GetActive("channel-5"));
+        Assert.AreEqual("channel-10", participantTracker.GetSnapshot().Single().RoomName);
     }
 }

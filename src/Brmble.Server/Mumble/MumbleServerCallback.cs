@@ -12,6 +12,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     private readonly IChannelMembershipService _channelMembership;
     private readonly ScreenShareTracker _screenShareTracker;
     private readonly ILiveKitParticipantRemover _liveKitParticipantRemover;
+    private readonly LiveKitParticipantTracker _liveKitParticipantTracker;
     private readonly ILogger<MumbleServerCallback> _logger;
     private MumbleServer.ServerPrx? _serverProxy;
 
@@ -22,6 +23,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         IChannelMembershipService channelMembership,
         ScreenShareTracker screenShareTracker,
         ILiveKitParticipantRemover liveKitParticipantRemover,
+        LiveKitParticipantTracker liveKitParticipantTracker,
         ILogger<MumbleServerCallback> logger)
     {
         _handlers = handlers;
@@ -30,6 +32,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         _channelMembership = channelMembership;
         _screenShareTracker = screenShareTracker;
         _liveKitParticipantRemover = liveKitParticipantRemover;
+        _liveKitParticipantTracker = liveKitParticipantTracker;
         _logger = logger;
     }
 
@@ -159,9 +162,11 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
             foreach (var roomName in stoppedRooms)
             {
                 await _eventBus.BroadcastAsync(new { type = "screenShare.stopped", roomName, userId = mapping.UserId });
-                await _liveKitParticipantRemover.RemoveParticipant(roomName, mapping.MatrixUserId);
             }
         }
+
+        var revokedRecords = _liveKitParticipantTracker.RemoveBySession(user.SessionId);
+        await RevokeParticipants(revokedRecords);
 
         _sessionMapping.RemoveSession(user.SessionId);
         _channelMembership.Remove(user.SessionId);
@@ -184,9 +189,11 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
                 {
                     _screenShareTracker.StopByUserId(roomName, mapping.UserId);
                     await _eventBus.BroadcastAsync(new { type = "screenShare.stopped", roomName, userId = mapping.UserId });
-                    await _liveKitParticipantRemover.RemoveParticipant(roomName, mapping.MatrixUserId);
                 }
             }
+
+            var revokedRecords = _liveKitParticipantTracker.RemoveBySessionExceptRoom(user.SessionId, currentRoom);
+            await RevokeParticipants(revokedRecords);
         }
     }
 
@@ -198,6 +205,14 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
 
     public Task DispatchChannelRenamed(MumbleChannel channel)
         => Task.WhenAll(_handlers.Select(h => h.OnChannelRenamed(channel)));
+
+    private async Task RevokeParticipants(IReadOnlyList<LiveKitParticipantRecord> records)
+    {
+        foreach (var record in records)
+        {
+            await _liveKitParticipantRemover.RemoveParticipant(record.RoomName, record.MatrixUserId);
+        }
+    }
 
     private async Task<MumbleUser> TryResolveCertAsync(MumbleUser user)
     {
