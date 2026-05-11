@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Select } from '../Select';
 import './MessagesSettingsTab.css';
 
@@ -24,6 +24,7 @@ export const DEFAULT_MESSAGES: MessagesSettings = {
 export function MessagesSettingsTab({ settings, onChange }: MessagesSettingsTabProps) {
   const [localSettings, setLocalSettings] = useState<MessagesSettings>({ ...DEFAULT_MESSAGES, ...settings });
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const voiceSignatureRef = useRef('');
 
   useEffect(() => {
     setLocalSettings({ ...DEFAULT_MESSAGES, ...settings });
@@ -37,7 +38,14 @@ export function MessagesSettingsTab({ settings, onChange }: MessagesSettingsTabP
     const synth = window.speechSynthesis;
     const loadVoices = () => {
       const availableVoices = synth.getVoices();
-      setVoices(availableVoices);
+      const signature = [...availableVoices]
+        .sort((a, b) => a.voiceURI.localeCompare(b.voiceURI))
+        .map(v => `${v.voiceURI}|${v.name}|${v.lang}|${v.default ? 1 : 0}`)
+        .join('||');
+      if (signature !== voiceSignatureRef.current) {
+        voiceSignatureRef.current = signature;
+        setVoices(availableVoices);
+      }
     };
     loadVoices();
 
@@ -68,6 +76,14 @@ export function MessagesSettingsTab({ settings, onChange }: MessagesSettingsTabP
       }
     }
   }, [voices, localSettings.ttsEnabled, localSettings.ttsVoice]);
+
+  const ttsVoiceOptions = useMemo(
+    () => [
+      { value: '', label: 'Default' },
+      ...voices.map(voice => ({ value: voice.name, label: voice.name })),
+    ],
+    [voices]
+  );
 
   const handleChange = (key: keyof MessagesSettings, value: boolean | number | string) => {
     let newSettings = { ...localSettings, [key]: value };
@@ -117,10 +133,7 @@ export function MessagesSettingsTab({ settings, onChange }: MessagesSettingsTabP
               <Select
                 value={localSettings.ttsVoice}
                 onChange={(v) => handleChange('ttsVoice', v)}
-                options={[
-                  { value: '', label: 'Default' },
-                  ...voices.map(voice => ({ value: voice.name, label: voice.name })),
-                ]}
+                options={ttsVoiceOptions}
               />
             </div>
           </>
