@@ -11,7 +11,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     private readonly IBrmbleEventBus _eventBus;
     private readonly IChannelMembershipService _channelMembership;
     private readonly ScreenShareTracker _screenShareTracker;
-    private readonly ILiveKitParticipantRemover _liveKitParticipantRemover;
+    private readonly ILiveKitParticipantRevocationScheduler _liveKitRevocationScheduler;
     private readonly LiveKitParticipantTracker _liveKitParticipantTracker;
     private readonly ILogger<MumbleServerCallback> _logger;
     private MumbleServer.ServerPrx? _serverProxy;
@@ -22,7 +22,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         IBrmbleEventBus eventBus,
         IChannelMembershipService channelMembership,
         ScreenShareTracker screenShareTracker,
-        ILiveKitParticipantRemover liveKitParticipantRemover,
+        ILiveKitParticipantRevocationScheduler liveKitRevocationScheduler,
         LiveKitParticipantTracker liveKitParticipantTracker,
         ILogger<MumbleServerCallback> logger)
     {
@@ -31,7 +31,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         _eventBus = eventBus;
         _channelMembership = channelMembership;
         _screenShareTracker = screenShareTracker;
-        _liveKitParticipantRemover = liveKitParticipantRemover;
+        _liveKitRevocationScheduler = liveKitRevocationScheduler;
         _liveKitParticipantTracker = liveKitParticipantTracker;
         _logger = logger;
     }
@@ -176,7 +176,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
             }
         }
 
-        await RevokeParticipants(revokedRecords);
+        await _liveKitRevocationScheduler.RevokeParticipants(revokedRecords);
 
         await _eventBus.BroadcastAsync(new { type = "userMappingRemoved", sessionId = user.SessionId });
         await Task.WhenAll(_handlers.Select(h => h.OnUserDisconnected(user)));
@@ -202,7 +202,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
             }
 
             var revokedRecords = _liveKitParticipantTracker.RemoveBySessionExceptRoom(user.SessionId, currentRoom);
-            await RevokeParticipants(revokedRecords);
+            await _liveKitRevocationScheduler.RevokeParticipants(revokedRecords);
         }
     }
 
@@ -214,14 +214,6 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
 
     public Task DispatchChannelRenamed(MumbleChannel channel)
         => Task.WhenAll(_handlers.Select(h => h.OnChannelRenamed(channel)));
-
-    private async Task RevokeParticipants(IReadOnlyList<LiveKitParticipantRecord> records)
-    {
-        foreach (var record in records)
-        {
-            await _liveKitParticipantRemover.RemoveParticipant(record.RoomName, record.MatrixUserId);
-        }
-    }
 
     private async Task<MumbleUser> TryResolveCertAsync(MumbleUser user)
     {

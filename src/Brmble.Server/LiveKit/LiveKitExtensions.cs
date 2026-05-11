@@ -9,6 +9,7 @@ public static class LiveKitExtensions
         services.AddSingleton<LiveKitService>();
         services.AddSingleton<ILiveKitRoomQuery>(sp => sp.GetRequiredService<LiveKitService>());
         services.AddSingleton<ILiveKitParticipantRemover>(sp => sp.GetRequiredService<LiveKitService>());
+        services.AddSingleton<ILiveKitParticipantRevocationScheduler, LiveKitParticipantRevocationScheduler>();
         services.AddSingleton<LiveKitParticipantTracker>();
         services.AddSingleton<ScreenShareTracker>();
         services.AddSingleton<IUserIdMapper, SessionMappingUserIdMapper>();
