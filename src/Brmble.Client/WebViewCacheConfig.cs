@@ -4,7 +4,7 @@ namespace Brmble.Client;
 
 internal static class WebViewCacheConfig
 {
-    private const string VirtualHost = "brmble.local";
+    public const string VirtualHost = "brmble.local";
 
     // Vite content-hashes JS/CSS bundle filenames, so those are safe to cache
     // normally. index.html and overlay.html keep their names across releases,
@@ -42,14 +42,22 @@ internal static class WebViewCacheConfig
                 }
 
                 var stream = File.OpenRead(fullPath);
-                args.Response = env.CreateWebResourceResponse(
-                    stream,
-                    200,
-                    "OK",
-                    "Content-Type: text/html; charset=utf-8\r\n" +
-                    "Cache-Control: no-store, must-revalidate\r\n" +
-                    "Pragma: no-cache\r\n" +
-                    "Expires: 0");
+                try
+                {
+                    args.Response = env.CreateWebResourceResponse(
+                        stream,
+                        200,
+                        "OK",
+                        "Content-Type: text/html; charset=utf-8\r\n" +
+                        "Cache-Control: no-store, must-revalidate\r\n" +
+                        "Pragma: no-cache\r\n" +
+                        "Expires: 0");
+                }
+                catch
+                {
+                    stream.Dispose();
+                    throw;
+                }
             }
             catch
             {
