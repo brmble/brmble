@@ -396,6 +396,7 @@ internal sealed class AppConfigService : IAppConfigService
                 _profileRegistrations = data?.ProfileRegistrations ?? new();
                 _isFirstLaunch = false;
                 MigrateIdentityPfx();
+                if (HasLegacySettingsKeys(json)) Save();
                 return;
             }
 
@@ -553,6 +554,26 @@ internal sealed class AppConfigService : IAppConfigService
             _profiles.RemoveAll(p => p.Id == id);
             _activeProfileId = null;
         }
+    }
+
+    private static bool HasLegacySettingsKeys(string rawJson)
+    {
+        // Detect keys from the pre-WebRTC-only voice refactor (5dbd3b6).
+        // Deserialization silently drops them, but the file keeps the dead keys
+        // until something else triggers a Save — clean them up on next launch.
+        try
+        {
+            using var doc = JsonDocument.Parse(rawJson);
+            if (!doc.RootElement.TryGetProperty("settings", out var settings)
+                || settings.ValueKind != JsonValueKind.Object) return false;
+            if (settings.TryGetProperty("speechDenoise", out _)) return true;
+            if (settings.TryGetProperty("speechEnhancement", out _)) return true;
+            if (settings.TryGetProperty("audio", out var audio)
+                && audio.ValueKind == JsonValueKind.Object
+                && audio.TryGetProperty("processingStack", out _)) return true;
+        }
+        catch { /* malformed JSON — Load already handled the broken-file path */ }
+        return false;
     }
 
     private record LegacyServerlistData

@@ -438,5 +438,29 @@ public class AppConfigServiceTests
         Assert.AreEqual(96000, settings.Audio.OpusBitrate);
         // Removed fields are gone — but the new NS setting takes its default
         Assert.AreEqual(NoiseSuppressionLevel.High, settings.NoiseSuppression.Level);
+
+        // The on-disk file should be rewritten without the legacy keys.
+        var rewritten = File.ReadAllText(Path.Combine(_tempDir, "config.json"));
+        StringAssert.DoesNotMatch(rewritten, new System.Text.RegularExpressions.Regex("processingStack", System.Text.RegularExpressions.RegexOptions.IgnoreCase));
+        StringAssert.DoesNotMatch(rewritten, new System.Text.RegularExpressions.Regex("speechDenoise", System.Text.RegularExpressions.RegexOptions.IgnoreCase));
+        StringAssert.DoesNotMatch(rewritten, new System.Text.RegularExpressions.Regex("speechEnhancement", System.Text.RegularExpressions.RegexOptions.IgnoreCase));
+    }
+
+    [TestMethod]
+    public void LoadsCleanSettings_DoesNotRewriteFile()
+    {
+        // A clean config should not be needlessly rewritten on every launch.
+        var svc1 = new AppConfigService(_tempDir, null);
+        svc1.SetSettings(svc1.GetSettings()); // ensure file exists in canonical form
+
+        var path = Path.Combine(_tempDir, "config.json");
+        var before = File.GetLastWriteTimeUtc(path);
+        System.Threading.Thread.Sleep(50);
+
+        // Re-load: no legacy keys → no rewrite
+        _ = new AppConfigService(_tempDir, null);
+        var after = File.GetLastWriteTimeUtc(path);
+
+        Assert.AreEqual(before, after, "Clean config.json should not be rewritten on load");
     }
 }
