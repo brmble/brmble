@@ -7,21 +7,6 @@ namespace Brmble.Server.LiveKit;
 
 public static class LiveKitEndpoints
 {
-    private static bool IsUserInRoom(
-        long userId,
-        string roomName,
-        ISessionMappingService sessionMapping,
-        IChannelMembershipService channelMembership)
-    {
-        if (!sessionMapping.TryGetSessionByUserId(userId, out var sessionId)
-            || !channelMembership.TryGetChannel(sessionId, out var channelId))
-        {
-            return false;
-        }
-
-        return string.Equals(roomName, $"channel-{channelId}", StringComparison.Ordinal);
-    }
-
     public static IEndpointRouteBuilder MapLiveKitEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapPost("/livekit/token", async (
