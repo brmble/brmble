@@ -7,7 +7,7 @@ namespace Brmble.Server.LiveKit;
 
 public sealed record LiveKitTokenMetadata(string Token, DateTimeOffset ExpiresAt);
 
-public class LiveKitService : ILiveKitRoomQuery
+public class LiveKitService : ILiveKitRoomQuery, ILiveKitParticipantRemover
 {
     private static readonly TimeSpan DefaultTokenTtl = TimeSpan.FromHours(1);
 
