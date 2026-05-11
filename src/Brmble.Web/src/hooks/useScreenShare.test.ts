@@ -7,6 +7,7 @@ const roomEventHandlers = new Map<string, Set<(...args: unknown[]) => void>>();
 const localTrackEventHandlers = new Map<string, Set<() => void>>();
 let localSharePublicationEnabled = false;
 let mockRoomConstructionCount = 0;
+const mockRoomInstances: Array<{ connect: ReturnType<typeof vi.fn> }> = [];
 
 const mockLocalScreenShareTrack = {
   addEventListener: vi.fn((event: string, handler: () => void) => {
@@ -28,7 +29,7 @@ const mockLocalScreenShareTrack = {
 };
 
 const emitRoomEvent = (event: string, ...args: unknown[]) => {
-  for (const handler of roomEventHandlers.get(event) ?? []) {
+  for (const handler of [...(roomEventHandlers.get(event) ?? [])]) {
     handler(...args);
   }
 };
@@ -71,17 +72,21 @@ const mockRoom = {
 
 vi.mock('livekit-client', () => ({
   Room: class MockRoom {
-    constructor() {
-      mockRoomConstructionCount += 1;
-    }
-
-    connect = mockRoom.connect;
-    disconnect = mockRoom.disconnect;
+    connect = vi.fn((...args: unknown[]) => mockRoom.connect(...args));
+    disconnect = vi.fn((...args: unknown[]) => mockRoom.disconnect(...args));
     name = mockRoom.name;
     get state() { return mockRoom.state; }
     localParticipant = mockRoom.localParticipant;
     remoteParticipants = mockRoom.remoteParticipants;
-    on = mockRoom.on;
+    on = vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+      mockRoom.on(event, handler);
+      return this;
+    });
+
+    constructor() {
+      mockRoomConstructionCount += 1;
+      mockRoomInstances.push(this);
+    }
   },
   RoomEvent: {
     Disconnected: 'disconnected',
@@ -117,6 +122,7 @@ describe('useScreenShare', () => {
     localTrackEventHandlers.clear();
     localSharePublicationEnabled = false;
     mockRoomConstructionCount = 0;
+    mockRoomInstances.length = 0;
   });
 
   afterEach(() => {
@@ -293,7 +299,7 @@ describe('useScreenShare', () => {
     expect(result.current.watchingShares).toHaveLength(1);
   });
 
-  it('uses refreshed viewer token to recover a disconnected room without clearing watch state', async () => {
+  it('uses a fresh room and refreshed viewer token to recover a disconnected room without clearing watch state', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-11T12:00:00.000Z'));
     const tokenHandlers: Array<(data: unknown) => void> = [];
@@ -331,8 +337,11 @@ describe('useScreenShare', () => {
       await Promise.resolve();
     });
 
-    expect(mockRoom.connect).toHaveBeenNthCalledWith(1, 'ws://localhost/livekit', 'viewer-jwt');
-    expect(mockRoom.connect).toHaveBeenNthCalledWith(2, 'ws://localhost/livekit', 'viewer-jwt-2');
+    expect(mockRoomConstructionCount).toBe(2);
+    expect(mockRoomInstances[0]?.connect).toHaveBeenCalledTimes(1);
+    expect(mockRoomInstances[0]?.connect).toHaveBeenCalledWith('ws://localhost/livekit', 'viewer-jwt');
+    expect(mockRoomInstances[1]?.connect).toHaveBeenCalledTimes(1);
+    expect(mockRoomInstances[1]?.connect).toHaveBeenCalledWith('ws://localhost/livekit', 'viewer-jwt-2');
     expect(result.current.watchingShares).toEqual([expect.objectContaining({ roomName: 'channel-1', userId: 10 })]);
   });
 

@@ -536,6 +536,125 @@ export function useScreenShare(
     }
   }, [clearLocalShareEndListener, stopLocalShare]);
 
+  const bindRoomEvents = useCallback((room: Room) => {
+    room.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
+      if (roomRef.current !== room) {
+        return;
+      }
+
+      const watching = watchingSharesRef.current;
+      const matchedShare = watching.find(s => {
+        const identity = s.matrixUserId ?? String(s.userId);
+        return identity === participant.identity;
+      });
+      if (!matchedShare) return;
+      if (
+        track.kind === Track.Kind.Video &&
+        track.source === Track.Source.ScreenShare
+      ) {
+        const el = track.attach() as HTMLVideoElement;
+        setRemoteVideoEls(prev => new Map(prev).set(matchedShare.userId, el));
+      }
+    });
+
+    room.on(RoomEvent.TrackUnsubscribed, (track, _pub, participant) => {
+      if (roomRef.current !== room) {
+        return;
+      }
+
+      const watching = watchingSharesRef.current;
+      const matchedShare = watching.find(s => {
+        const identity = s.matrixUserId ?? String(s.userId);
+        return identity === participant.identity;
+      });
+      if (!matchedShare) return;
+      if (
+        track.kind === Track.Kind.Video &&
+        track.source === Track.Source.ScreenShare
+      ) {
+        track.detach();
+        const remainingWatchedShares = removeWatchingShare(matchedShare.userId);
+
+        if (remainingWatchedShares.length === 0 && !isSharingRef.current) {
+          const room = roomRef.current;
+          roomRef.current = null;
+          roomAccessModeRef.current = null;
+          roomReconnectUpgradeRef.current = false;
+          clearTokenLease();
+          invalidateRoomLifecycle();
+          room?.disconnect().catch(() => {});
+        }
+      }
+    });
+
+    room.on(RoomEvent.Disconnected, () => {
+      if (roomRef.current !== room) {
+        return;
+      }
+
+      const isUpgradeReconnect = roomReconnectUpgradeRef.current;
+      if (isUpgradeReconnect) {
+        roomReconnectUpgradeRef.current = false;
+        return;
+      }
+
+      const lease = activeTokenLeaseRef.current;
+      const currentAccessMode = roomAccessModeRef.current;
+      const canRecoverWithLease = lease
+        && lease.isRefreshed
+        && lease.roomName === room.name
+        && lease.accessMode === currentAccessMode
+        && Date.parse(lease.expiresAt) > Date.now()
+        && (watchingSharesRef.current.length > 0 || isSharingRef.current);
+
+      if (canRecoverWithLease) {
+        const reconnectGeneration = roomLifecycleGenerationRef.current;
+        const nextRoom = new Room();
+        bindRoomEvents(nextRoom);
+        roomRef.current = nextRoom;
+        roomAccessModeRef.current = lease.accessMode;
+
+        void (async () => {
+          try {
+            await nextRoom.connect(lease.url, lease.token);
+            if (roomRef.current !== nextRoom || roomLifecycleGenerationRef.current !== reconnectGeneration) {
+              return;
+            }
+            roomAccessModeRef.current = lease.accessMode;
+          } catch {
+            if (roomRef.current !== nextRoom || roomLifecycleGenerationRef.current !== reconnectGeneration) {
+              return;
+            }
+
+            roomRef.current = null;
+            roomAccessModeRef.current = null;
+            clearTokenLease();
+            invalidateRoomLifecycle();
+            clearWatchingState();
+            const teardownIntent = localShareTeardownIntentRef.current;
+            localShareTeardownIntentRef.current = null;
+            if (isSharingRef.current) {
+              void stopLocalShare(teardownIntent ?? 'interrupted', room);
+            }
+            try { await nextRoom.disconnect(); } catch { /* ignore */ }
+          }
+        })();
+        return;
+      }
+
+      roomRef.current = null;
+      roomAccessModeRef.current = null;
+      clearTokenLease();
+      invalidateRoomLifecycle();
+      clearWatchingState();
+      const teardownIntent = localShareTeardownIntentRef.current;
+      localShareTeardownIntentRef.current = null;
+      if (isSharingRef.current) {
+        void stopLocalShare(teardownIntent ?? 'interrupted', room);
+      }
+    });
+  }, [clearTokenLease, clearWatchingState, invalidateRoomLifecycle, removeWatchingShare, stopLocalShare]);
+
   // Ensure we have a connected room for the given channel.
   // Returns the existing room if already connected to this channel, otherwise connects.
   const ensureRoom = useCallback(async (roomName: string, accessMode: LiveKitAccessMode): Promise<Room> => {
@@ -580,117 +699,7 @@ export function useScreenShare(
       }
 
       const room = new Room();
-
-      room.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
-        if (roomRef.current !== room) {
-          return;
-        }
-
-        const watching = watchingSharesRef.current;
-        const matchedShare = watching.find(s => {
-          const identity = s.matrixUserId ?? String(s.userId);
-          return identity === participant.identity;
-        });
-        if (!matchedShare) return;
-        if (
-          track.kind === Track.Kind.Video &&
-          track.source === Track.Source.ScreenShare
-        ) {
-          const el = track.attach() as HTMLVideoElement;
-          setRemoteVideoEls(prev => new Map(prev).set(matchedShare.userId, el));
-        }
-      });
-
-      room.on(RoomEvent.TrackUnsubscribed, (track, _pub, participant) => {
-        if (roomRef.current !== room) {
-          return;
-        }
-
-        const watching = watchingSharesRef.current;
-        const matchedShare = watching.find(s => {
-          const identity = s.matrixUserId ?? String(s.userId);
-          return identity === participant.identity;
-        });
-        if (!matchedShare) return;
-        if (
-          track.kind === Track.Kind.Video &&
-          track.source === Track.Source.ScreenShare
-        ) {
-          track.detach();
-          const remainingWatchedShares = removeWatchingShare(matchedShare.userId);
-
-          if (remainingWatchedShares.length === 0 && !isSharingRef.current) {
-            const room = roomRef.current;
-            roomRef.current = null;
-            roomAccessModeRef.current = null;
-            roomReconnectUpgradeRef.current = false;
-            clearTokenLease();
-            invalidateRoomLifecycle();
-            room?.disconnect().catch(() => {});
-          }
-        }
-      });
-
-      room.on(RoomEvent.Disconnected, () => {
-        if (roomRef.current !== room) {
-          return;
-        }
-
-        const isUpgradeReconnect = roomReconnectUpgradeRef.current;
-        if (isUpgradeReconnect) {
-          roomReconnectUpgradeRef.current = false;
-          return;
-        }
-
-        const lease = activeTokenLeaseRef.current;
-        const currentAccessMode = roomAccessModeRef.current;
-        const canRecoverWithLease = lease
-          && lease.isRefreshed
-          && lease.roomName === room.name
-          && lease.accessMode === currentAccessMode
-          && Date.parse(lease.expiresAt) > Date.now()
-          && (watchingSharesRef.current.length > 0 || isSharingRef.current);
-
-        if (canRecoverWithLease) {
-          const reconnectGeneration = roomLifecycleGenerationRef.current;
-          void (async () => {
-            try {
-              await room.connect(lease.url, lease.token);
-              if (roomRef.current !== room || roomLifecycleGenerationRef.current !== reconnectGeneration) {
-                return;
-              }
-              roomAccessModeRef.current = lease.accessMode;
-            } catch {
-              if (roomRef.current !== room || roomLifecycleGenerationRef.current !== reconnectGeneration) {
-                return;
-              }
-
-              roomRef.current = null;
-              roomAccessModeRef.current = null;
-              clearTokenLease();
-              invalidateRoomLifecycle();
-              clearWatchingState();
-              const teardownIntent = localShareTeardownIntentRef.current;
-              localShareTeardownIntentRef.current = null;
-              if (isSharingRef.current) {
-                void stopLocalShare(teardownIntent ?? 'interrupted', room);
-              }
-            }
-          })();
-          return;
-        }
-
-        roomRef.current = null;
-        roomAccessModeRef.current = null;
-        clearTokenLease();
-        invalidateRoomLifecycle();
-        clearWatchingState();
-        const teardownIntent = localShareTeardownIntentRef.current;
-        localShareTeardownIntentRef.current = null;
-        if (isSharingRef.current) {
-          void stopLocalShare(teardownIntent ?? 'interrupted', room);
-        }
-      });
+      bindRoomEvents(room);
 
       roomRef.current = room;
       roomAccessModeRef.current = accessMode;
@@ -754,7 +763,7 @@ export function useScreenShare(
         pendingRoomRequestRef.current = null;
       }
     }
-  }, [requestToken, stopLocalShare, removeWatchingShare, clearWatchingState, invalidateRoomLifecycle, clearTokenLease, scheduleTokenRefresh]);
+  }, [requestToken, clearWatchingState, invalidateRoomLifecycle, clearTokenLease, scheduleTokenRefresh, bindRoomEvents]);
 
   const startSharing = useCallback(async (roomName: string): Promise<boolean> => {
     if (isStartingShareRef.current) {
