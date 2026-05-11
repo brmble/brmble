@@ -24,13 +24,14 @@ public sealed class LiveKitParticipantRevocationScheduler : ILiveKitParticipantR
             return;
 
         var snapshot = records.ToArray();
-        await RemoveParticipants(snapshot);
+        var removedAll = await RemoveParticipants(snapshot);
 
         foreach (var delay in _retryDelays)
         {
             if (delay == TimeSpan.Zero)
             {
-                await RemoveParticipants(snapshot);
+                if (!removedAll)
+                    removedAll = await RemoveParticipants(snapshot);
             }
             else
             {
@@ -52,11 +53,15 @@ public sealed class LiveKitParticipantRevocationScheduler : ILiveKitParticipantR
         }
     }
 
-    private async Task RemoveParticipants(IReadOnlyList<LiveKitParticipantRecord> records)
+    private async Task<bool> RemoveParticipants(IReadOnlyList<LiveKitParticipantRecord> records)
     {
+        var removedAll = true;
         foreach (var record in records)
         {
-            await _participantRemover.RemoveParticipant(record.RoomName, record.MatrixUserId);
+            var removed = await _participantRemover.RemoveParticipant(record.RoomName, record.MatrixUserId);
+            removedAll &= removed;
         }
+
+        return removedAll;
     }
 }

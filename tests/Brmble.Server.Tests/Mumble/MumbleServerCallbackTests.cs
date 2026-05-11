@@ -31,7 +31,17 @@ public class MumbleServerCallbackTests
             mapping = defaultMapping.Object;
         }
 
-        var remover = liveKitParticipantRemover ?? new Mock<ILiveKitParticipantRemover>().Object;
+        ILiveKitParticipantRemover remover;
+        if (liveKitParticipantRemover is not null)
+        {
+            remover = liveKitParticipantRemover;
+        }
+        else
+        {
+            var defaultRemover = new Mock<ILiveKitParticipantRemover>();
+            defaultRemover.Setup(r => r.RemoveParticipant(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(true);
+            remover = defaultRemover.Object;
+        }
         var revocationScheduler = new LiveKitParticipantRevocationScheduler(
             remover,
             NullLogger<LiveKitParticipantRevocationScheduler>.Instance,
@@ -305,7 +315,7 @@ public class MumbleServerCallbackTests
         participantTracker.Upsert(new LiveKitParticipantRecord("channel-5", "@alice:test", 100L, 42, LiveKitAccessMode.Subscribe, DateTimeOffset.UtcNow.AddMinutes(5)));
 
         var remover = new Mock<ILiveKitParticipantRemover>();
-        remover.Setup(r => r.RemoveParticipant(It.IsAny<string>(), It.IsAny<string>())).Returns(Task.CompletedTask);
+        remover.Setup(r => r.RemoveParticipant(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(true);
 
         var callback = CreateCallback([], mapping: mapping.Object, bus: bus.Object, liveKitParticipantRemover: remover.Object, liveKitParticipantTracker: participantTracker);
 
@@ -332,7 +342,9 @@ public class MumbleServerCallbackTests
         participantTracker.Upsert(new LiveKitParticipantRecord("channel-5", "@alice:test", 100L, 42, LiveKitAccessMode.Subscribe, DateTimeOffset.UtcNow.AddMinutes(5)));
 
         var remover = new Mock<ILiveKitParticipantRemover>();
-        remover.Setup(r => r.RemoveParticipant(It.IsAny<string>(), It.IsAny<string>())).Returns(Task.CompletedTask);
+        remover.SetupSequence(r => r.RemoveParticipant(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(false)
+            .ReturnsAsync(true);
 
         var callback = CreateCallback([], mapping: mapping.Object, bus: bus.Object, liveKitParticipantRemover: remover.Object, liveKitRevocationRetryDelays: [TimeSpan.Zero], liveKitParticipantTracker: participantTracker);
 
@@ -362,7 +374,7 @@ public class MumbleServerCallbackTests
         participantTracker.Upsert(new LiveKitParticipantRecord("channel-9", "@alice:test", 100L, 42, LiveKitAccessMode.Subscribe, DateTimeOffset.UtcNow.AddMinutes(5)));
 
         var remover = new Mock<ILiveKitParticipantRemover>();
-        remover.Setup(r => r.RemoveParticipant(It.IsAny<string>(), It.IsAny<string>())).Returns(Task.CompletedTask);
+        remover.Setup(r => r.RemoveParticipant(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(true);
         var callback = CreateCallback([], mapping: mapping.Object, bus: bus.Object, screenShareTracker: tracker, liveKitParticipantRemover: remover.Object, liveKitParticipantTracker: participantTracker);
 
         await callback.DispatchUserDisconnected(new MumbleUser("Alice", "abc", 42));
@@ -394,7 +406,7 @@ public class MumbleServerCallbackTests
         var remover = new Mock<ILiveKitParticipantRemover>();
         remover.Setup(r => r.RemoveParticipant(It.IsAny<string>(), It.IsAny<string>()))
             .Callback(() => order.Add("remove-participant"))
-            .Returns(Task.CompletedTask);
+            .ReturnsAsync(true);
         var callback = CreateCallback([], mapping: mapping.Object, bus: bus.Object, channelMembership: channelMembership.Object, liveKitParticipantRemover: remover.Object, liveKitParticipantTracker: participantTracker);
 
         await callback.DispatchUserDisconnected(new MumbleUser("Alice", "abc", 42));
@@ -421,7 +433,7 @@ public class MumbleServerCallbackTests
         participantTracker.Upsert(new LiveKitParticipantRecord("channel-10", "@alice:test", 100L, 42, LiveKitAccessMode.Subscribe, DateTimeOffset.UtcNow.AddMinutes(5)));
 
         var remover = new Mock<ILiveKitParticipantRemover>();
-        remover.Setup(r => r.RemoveParticipant(It.IsAny<string>(), It.IsAny<string>())).Returns(Task.CompletedTask);
+        remover.Setup(r => r.RemoveParticipant(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(true);
         var callback = CreateCallback([], mapping: mapping.Object, bus: bus.Object, channelMembership: channelMembership.Object, screenShareTracker: screenShareTracker, liveKitParticipantRemover: remover.Object, liveKitParticipantTracker: participantTracker);
 
         await callback.DispatchUserStateChanged(new MumbleUser("Alice", "abc", 42), 10);

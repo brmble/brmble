@@ -107,7 +107,7 @@ public class LiveKitService : ILiveKitRoomQuery, ILiveKitParticipantRemover
                 : LiveKitAuthorizationResult.Denied(LiveKitAuthorizationFailure.Forbidden));
     }
 
-    public async Task RemoveParticipant(string roomName, string participantIdentity)
+    public async Task<bool> RemoveParticipant(string roomName, string participantIdentity)
     {
         try
         {
@@ -123,11 +123,13 @@ public class LiveKitService : ILiveKitRoomQuery, ILiveKitParticipantRemover
             });
 
             _logger.LogInformation("Removed participant {Identity} from room {Room}", participantIdentity, roomName);
+            return true;
         }
         catch (Exception ex)
         {
             // Idempotent: if room/participant doesn't exist, that's fine
             _logger.LogDebug(ex, "Could not remove participant {Identity} from room {Room} (may not exist)", participantIdentity, roomName);
+            return false;
         }
     }
 
