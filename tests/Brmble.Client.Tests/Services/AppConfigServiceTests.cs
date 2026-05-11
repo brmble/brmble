@@ -64,6 +64,21 @@ public class AppConfigServiceTests
     }
 
     [TestMethod]
+    public void SavesAndReloads_OverlayCompanionSelection()
+    {
+        var svc = new AppConfigService(_tempDir, null);
+        var updated = AppSettings.Default with
+        {
+            Overlay = new OverlaySettings(OverlayEnabled: true, Mode: "full", MyCompanion: "eren")
+        };
+
+        svc.SetSettings(updated);
+        var svc2 = new AppConfigService(_tempDir, null);
+
+        Assert.AreEqual("eren", svc2.GetSettings().Overlay.MyCompanion);
+    }
+
+    [TestMethod]
     public void SavesAndReloads_Servers()
     {
         var svc = new AppConfigService(_tempDir, null);

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Select } from '../Select';
 import './InterfaceSettingsTab.css';
-import type { OverlaySettings, AppearanceSettings, BrmblegotchiSettings, CompanionOverlayMode, CompanionOverlayPosition } from './InterfaceSettingsTypes';
+import type { OverlaySettings, AppearanceSettings, BrmblegotchiSettings, CompanionOverlayMode, CompanionOverlayPosition, CompanionSelection } from './InterfaceSettingsTypes';
 import { themes } from '../../themes/theme-registry';
 
 interface InterfaceSettingsTabProps {
@@ -61,6 +61,14 @@ export function InterfaceSettingsTab({
     });
   };
 
+  const handleMyCompanionChange = (companion: string) => {
+    const validCompanions: CompanionSelection[] = ['clip', 'eren', 'kid-goku', 'kirito', 'paul'];
+    const validCompanion: CompanionSelection = validCompanions.includes(companion as CompanionSelection)
+      ? companion as CompanionSelection
+      : 'clip';
+    onOverlayChange({ ...overlaySettings, myCompanion: validCompanion });
+  };
+
   return (
     <div className="interface-settings-tab">
       
@@ -103,6 +111,22 @@ export function InterfaceSettingsTab({
             ]}
           />
         </div>
+        {overlaySettings.mode === 'full' && (
+          <div className="settings-item">
+            <label>My Companion</label>
+            <Select
+              value={overlaySettings.myCompanion}
+              onChange={handleMyCompanionChange}
+              options={[
+                { value: 'clip', label: 'Clip' },
+                { value: 'eren', label: 'Eren' },
+                { value: 'kid-goku', label: 'Kid Goku' },
+                { value: 'kirito', label: 'Kirito' },
+                { value: 'paul', label: 'Paul' },
+              ]}
+            />
+          </div>
+        )}
         <div className="settings-item">
           <label>Overlay Position</label>
           <Select

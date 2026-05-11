@@ -1,7 +1,7 @@
-import type { CompanionOverlaySnapshot } from './overlayTypes';
 import type { OverlaySettings } from '../SettingsModal/InterfaceSettingsTypes';
 import { CompanionSprite } from './CompanionSprite';
 import { SpeakerStack } from './SpeakerStack';
+import type { CompanionOverlaySnapshot } from './overlayTypes';
 
 export function FullCompanionOverlay({
   snapshot,
@@ -10,7 +10,11 @@ export function FullCompanionOverlay({
   snapshot: CompanionOverlaySnapshot;
   position: OverlaySettings['position'];
 }) {
-  const latestEvent = snapshot.recentEvents[snapshot.recentEvents.length - 1] ?? null;
+  const display = snapshot.fullCompanion.activeDisplay;
+
+  if (!display) {
+    return null;
+  }
 
   return (
     <section
@@ -18,10 +22,10 @@ export function FullCompanionOverlay({
       data-testid="companion-overlay-root"
     >
       <div className="companion-anchor">
-        <CompanionSprite visualState={snapshot.visualState} />
-        {latestEvent && (
-          <aside className="companion-bubble" aria-live="polite">
-            <p>{latestEvent.line}</p>
+        <CompanionSprite companionId={display.companionId} row={display.row} badges={display.badges} />
+        {display.bubble && (
+          <aside className="companion-bubble" role="status" aria-live="polite">
+            <p>{display.bubble}</p>
           </aside>
         )}
       </div>

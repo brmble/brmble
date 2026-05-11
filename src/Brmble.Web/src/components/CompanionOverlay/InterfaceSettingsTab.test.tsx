@@ -14,7 +14,7 @@ describe('InterfaceSettingsTab overlay controls', () => {
     render(
       <InterfaceSettingsTab
         appearanceSettings={DEFAULT_APPEARANCE}
-        overlaySettings={DEFAULT_OVERLAY}
+        overlaySettings={{ ...DEFAULT_OVERLAY, mode: 'full' }}
         brmblegotchiSettings={DEFAULT_BRMBLEGOTCHI}
         onAppearanceChange={vi.fn()}
         onOverlayChange={onOverlayChange}
@@ -23,9 +23,9 @@ describe('InterfaceSettingsTab overlay controls', () => {
     );
 
     fireEvent.click(screen.getByLabelText('Enable Companion Overlay'));
-    fireEvent.click(screen.getAllByRole('combobox')[1]);
-    fireEvent.click(screen.getByRole('option', { name: 'Minimal' }));
-    fireEvent.click(screen.getAllByRole('combobox')[2]);
+    fireEvent.click(screen.getByText('My Companion').closest('.settings-item')!.querySelector('[role="combobox"]')!);
+    fireEvent.click(screen.getByRole('option', { name: 'Eren' }));
+    fireEvent.click(screen.getAllByRole('combobox')[3]);
     fireEvent.click(screen.getByRole('option', { name: 'Top Left' }));
     fireEvent.click(screen.getByLabelText('Show Direct Messages'));
 
@@ -33,7 +33,7 @@ describe('InterfaceSettingsTab overlay controls', () => {
       overlayEnabled: true,
     }));
     expect(onOverlayChange).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      mode: 'minimal',
+      myCompanion: 'eren',
     }));
     expect(onOverlayChange).toHaveBeenNthCalledWith(3, expect.objectContaining({
       position: 'top-left',

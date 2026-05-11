@@ -1,14 +1,45 @@
 import type { OverlaySettings } from '../SettingsModal/InterfaceSettingsTypes';
-import type { CompanionOverlayEvent, CompanionOverlaySnapshot, CompanionSpeakerEntry, OverlayEventKind, OverlayVisualState } from './overlayTypes';
+import type {
+  CompanionId,
+  CompanionOverlayEvent,
+  CompanionOverlaySnapshot,
+  CompanionSpeakerCandidate,
+  CompanionSpeakerEntry,
+  OverlayEventKind,
+  OverlayVisualState,
+} from './overlayTypes';
 
 const MAX_EVENTS = 8;
 const MAX_VISIBLE_SPEAKERS = 3;
-const SPEAKER_DECAY_MS = 2_500;
+const SPEAKER_DECAY_MS = 3_000;
 const EVENT_TTL_MS = 5_000;
 const QUIET_AFTER_MS = 15_000;
+const CHAT_DISPLAY_MS = 5_000;
+const JOIN_LEAVE_DISPLAY_MS = 3_000;
+const SPEAKER_ELIGIBLE_AFTER_MS = 500;
+let speakerArrivalOrder = 0;
 
 const UNKNOWN_USER = 'Unknown user';
 const MESSAGE_UNAVAILABLE = 'Message unavailable';
+
+function createDefaultFullCompanionState(): CompanionOverlaySnapshot['fullCompanion'] {
+  return {
+    activeDisplay: null,
+    chatQueue: [],
+    eventQueue: [],
+    speakerCandidates: [],
+    companionsByUser: {},
+    localUser: {
+      session: 0,
+      name: 'You',
+      companionId: 'clip',
+    },
+    flags: {
+      localMuted: false,
+      liveUserSessions: [],
+    },
+  };
+}
 
 function safeName(name: string | null | undefined): string {
   return name?.trim() || UNKNOWN_USER;
@@ -16,6 +47,129 @@ function safeName(name: string | null | undefined): string {
 
 function safeMessage(text: string | null | undefined): string {
   return text?.trim() || MESSAGE_UNAVAILABLE;
+}
+
+function isChatEvent(event: CompanionOverlayEvent): boolean {
+  return event.kind === 'channel-message' || event.kind === 'direct-message';
+}
+
+function isJoinLeaveEvent(event: CompanionOverlayEvent): boolean {
+  return event.kind === 'user-joined' || event.kind === 'user-left';
+}
+
+function displayNameFromEvent(event: CompanionOverlayEvent): string {
+  return safeName(event.actorName);
+}
+
+function representedSessionForName(
+  state: CompanionOverlaySnapshot['fullCompanion'],
+  name: string,
+): number {
+  const match = Object.values(state.companionsByUser).find((entry) => entry.name === name);
+  return match?.session ?? state.localUser.session;
+}
+
+function resolveCompanionId(
+  state: CompanionOverlaySnapshot['fullCompanion'],
+  representedSession: number,
+): CompanionId {
+  if (representedSession === state.localUser.session) {
+    return state.localUser.companionId;
+  }
+
+  return state.companionsByUser[representedSession]?.companionId ?? state.localUser.companionId;
+}
+
+function displayFromEvent(
+  snapshot: CompanionOverlaySnapshot,
+  event: CompanionOverlayEvent,
+  now: number,
+): CompanionOverlaySnapshot['fullCompanion']['activeDisplay'] {
+  const representedName = displayNameFromEvent(event);
+  const representedSession = representedSessionForName(snapshot.fullCompanion, representedName);
+  const companion = snapshot.fullCompanion.companionsByUser[representedSession];
+  const companionId = resolveCompanionId(snapshot.fullCompanion, representedSession);
+  const isProxy = !companion?.companionId && representedSession !== snapshot.fullCompanion.localUser.session;
+  const isLocal = representedSession === snapshot.fullCompanion.localUser.session;
+  const kind = event.kind === 'user-joined' ? 'join' : event.kind === 'user-left' ? 'leave' : 'chat';
+
+  return {
+    id: event.id,
+    kind,
+    representedSession,
+    representedName,
+    companionId,
+    row: 4,
+    bubble: event.line,
+    startedAt: now,
+    expiresAt: now + (kind === 'chat' ? CHAT_DISPLAY_MS : JOIN_LEAVE_DISPLAY_MS),
+    isProxy,
+    badges: {
+      muted: isLocal && snapshot.fullCompanion.flags.localMuted,
+      live: snapshot.fullCompanion.flags.liveUserSessions.includes(representedSession),
+    },
+  };
+}
+
+function idleDisplay(
+  snapshot: CompanionOverlaySnapshot,
+  now: number,
+): CompanionOverlaySnapshot['fullCompanion']['activeDisplay'] {
+  const local = snapshot.fullCompanion.localUser;
+  return {
+    id: 'idle-local',
+    kind: 'idle',
+    representedSession: local.session,
+    representedName: local.name,
+    companionId: local.companionId,
+    row: 1,
+    bubble: null,
+    startedAt: now,
+    expiresAt: null,
+    isProxy: false,
+    badges: {
+      muted: snapshot.fullCompanion.flags.localMuted,
+      live: snapshot.fullCompanion.flags.liveUserSessions.includes(local.session),
+    },
+  };
+}
+
+function candidateToDisplay(
+  snapshot: CompanionOverlaySnapshot,
+  candidate: CompanionSpeakerCandidate,
+  now: number,
+): CompanionOverlaySnapshot['fullCompanion']['activeDisplay'] {
+  const companion = snapshot.fullCompanion.companionsByUser[candidate.session];
+  const companionId = resolveCompanionId(snapshot.fullCompanion, candidate.session);
+  const isProxy = !companion?.companionId && candidate.session !== snapshot.fullCompanion.localUser.session;
+  const isLocal = candidate.session === snapshot.fullCompanion.localUser.session;
+
+  return {
+    id: `speaking-${candidate.session}`,
+    kind: 'speaking',
+    representedSession: candidate.session,
+    representedName: candidate.name,
+    companionId,
+    row: 9,
+    bubble: null,
+    startedAt: now,
+    expiresAt: null,
+    isProxy,
+    badges: {
+      muted: isLocal && snapshot.fullCompanion.flags.localMuted,
+      live: snapshot.fullCompanion.flags.liveUserSessions.includes(candidate.session),
+    },
+  };
+}
+
+function eligibleSpeaker(snapshot: CompanionOverlaySnapshot, now: number): CompanionSpeakerCandidate | null {
+  if (snapshot.fullCompanion.flags.localMuted) return null;
+
+  const activeSessions = new Set(snapshot.activeSpeakers.filter((speaker) => speaker.isSpeaking).map((speaker) => speaker.session));
+  return snapshot.fullCompanion.speakerCandidates
+    .filter((candidate) => activeSessions.has(candidate.session))
+    .filter((candidate) => candidate.eligibleAt <= now)
+    .sort((a, b) => a.eligibleAt - b.eligibleAt || a.arrivalOrder - b.arrivalOrder)[0] ?? null;
 }
 
 function deriveVisualState(
@@ -42,6 +196,7 @@ export function createOverlaySnapshot(currentChannelId: string | null, currentCh
     activeSpeakers: [],
     visualState: 'quiet',
     lastActivityAt: 0,
+    fullCompanion: createDefaultFullCompanionState(),
   };
 }
 
@@ -62,11 +217,79 @@ export function appendOverlayEvent(
   }
 
   const nextEvents = [...snapshot.recentEvents, event].slice(-MAX_EVENTS);
+  let nextFullCompanion = snapshot.fullCompanion;
+  if (isChatEvent(event)) {
+    const active = snapshot.fullCompanion.activeDisplay;
+    nextFullCompanion = {
+      ...snapshot.fullCompanion,
+      chatQueue: active?.kind === 'chat'
+        ? [...snapshot.fullCompanion.chatQueue, event]
+        : active && active.kind !== 'idle'
+          ? [...snapshot.fullCompanion.chatQueue, event]
+          : snapshot.fullCompanion.chatQueue,
+      activeDisplay: !active || active.kind === 'idle' ? displayFromEvent(snapshot, event, event.timestamp) : active,
+    };
+  } else if (isJoinLeaveEvent(event)) {
+    const active = snapshot.fullCompanion.activeDisplay;
+    nextFullCompanion = {
+      ...snapshot.fullCompanion,
+      eventQueue: active && active.kind !== 'idle'
+        ? [...snapshot.fullCompanion.eventQueue, event]
+        : snapshot.fullCompanion.eventQueue,
+      activeDisplay: !active || active.kind === 'idle' ? displayFromEvent(snapshot, event, event.timestamp) : active,
+    };
+  }
+
   return {
     ...snapshot,
     recentEvents: nextEvents,
     visualState: deriveVisualState(nextEvents, snapshot.activeSpeakers, event.timestamp, event.kind),
     lastActivityAt: event.timestamp,
+    fullCompanion: nextFullCompanion,
+  };
+}
+
+export function updateFullCompanionContext(
+  snapshot: CompanionOverlaySnapshot,
+  context: {
+    localUser?: Partial<CompanionOverlaySnapshot['fullCompanion']['localUser']>;
+    companionsByUser?: CompanionOverlaySnapshot['fullCompanion']['companionsByUser'];
+    localMuted?: boolean;
+    liveUserSessions?: number[];
+  },
+): CompanionOverlaySnapshot {
+  const nextLocalUser = {
+    ...snapshot.fullCompanion.localUser,
+    ...context.localUser,
+  };
+  const nextFullCompanion = {
+    ...snapshot.fullCompanion,
+    companionsByUser: context.companionsByUser ?? snapshot.fullCompanion.companionsByUser,
+    localUser: nextLocalUser,
+    flags: {
+      ...snapshot.fullCompanion.flags,
+      localMuted: context.localMuted ?? snapshot.fullCompanion.flags.localMuted,
+      liveUserSessions: context.liveUserSessions ?? snapshot.fullCompanion.flags.liveUserSessions,
+    },
+  };
+  const activeDisplay = nextFullCompanion.activeDisplay;
+  const localCompanionChanged = context.localUser?.companionId !== undefined
+    && context.localUser.companionId !== snapshot.fullCompanion.localUser.companionId;
+  const nextActiveDisplay = localCompanionChanged
+    && activeDisplay
+    && activeDisplay.representedSession === nextLocalUser.session
+      ? {
+        ...activeDisplay,
+        companionId: nextLocalUser.companionId,
+      }
+      : activeDisplay;
+
+  return {
+    ...snapshot,
+    fullCompanion: {
+      ...nextFullCompanion,
+      activeDisplay: nextActiveDisplay,
+    },
   };
 }
 
@@ -77,6 +300,22 @@ export function setSpeakerActivity(
   now: number,
 ): CompanionOverlaySnapshot {
   const name = safeName(speaker.name);
+  if (snapshot.fullCompanion.flags.localMuted) {
+    return {
+      ...snapshot,
+      activeSpeakers: [],
+      fullCompanion: {
+        ...snapshot.fullCompanion,
+        speakerCandidates: [],
+        activeDisplay: snapshot.fullCompanion.activeDisplay?.kind === 'speaking'
+          ? null
+          : snapshot.fullCompanion.activeDisplay,
+      },
+      visualState: deriveVisualState(snapshot.recentEvents, [], now),
+      lastActivityAt: now,
+    };
+  }
+
   const next = snapshot.activeSpeakers.filter((entry) => entry.session !== speaker.session);
 
   if (speaking) {
@@ -103,10 +342,44 @@ export function setSpeakerActivity(
   }
 
   next.sort((a, b) => b.lastSpokeAt - a.lastSpokeAt);
+  const existingCandidate = snapshot.fullCompanion.speakerCandidates.find((entry) => entry.session === speaker.session);
+  const remainingCandidates = snapshot.fullCompanion.speakerCandidates.filter((entry) => entry.session !== speaker.session);
+  const speakerCandidates = speaking
+    ? [
+      ...remainingCandidates,
+      {
+        session: speaker.session,
+        name,
+        channelId: speaker.channelId,
+        startedAt: existingCandidate?.startedAt ?? now,
+        eligibleAt: (existingCandidate?.startedAt ?? now) + SPEAKER_ELIGIBLE_AFTER_MS,
+        lastSpokeAt: now,
+        stoppedAt: null,
+        arrivalOrder: existingCandidate?.arrivalOrder ?? speakerArrivalOrder++,
+      },
+    ]
+    : existingCandidate
+      ? [
+        ...remainingCandidates,
+        {
+          ...existingCandidate,
+          name,
+          lastSpokeAt: now,
+          stoppedAt: now,
+        },
+      ]
+      : remainingCandidates;
 
   return {
     ...snapshot,
     activeSpeakers: next.slice(0, MAX_VISIBLE_SPEAKERS),
+    fullCompanion: {
+      ...snapshot.fullCompanion,
+      speakerCandidates,
+      activeDisplay: !speaking && snapshot.fullCompanion.activeDisplay?.kind === 'speaking' && snapshot.fullCompanion.activeDisplay.representedSession === speaker.session
+        ? null
+        : snapshot.fullCompanion.activeDisplay,
+    },
     visualState: deriveVisualState(snapshot.recentEvents, next, now),
     lastActivityAt: now,
   };
@@ -137,6 +410,65 @@ export function pruneOverlaySnapshot(snapshot: CompanionOverlaySnapshot, now: nu
     recentEvents,
     activeSpeakers,
     visualState: deriveVisualState(recentEvents, activeSpeakers, now),
+  };
+}
+
+export function resolveFullCompanionDisplay(snapshot: CompanionOverlaySnapshot, now: number): CompanionOverlaySnapshot {
+  const active = snapshot.fullCompanion.activeDisplay;
+  const activeExpired = active?.expiresAt !== null && active?.expiresAt !== undefined && active.expiresAt <= now;
+  let nextState = snapshot.fullCompanion;
+
+  if (activeExpired) {
+    nextState = { ...nextState, activeDisplay: null };
+  }
+
+  if (!nextState.activeDisplay && nextState.chatQueue.length > 0) {
+    const [nextChat, ...remaining] = nextState.chatQueue;
+    const nextSnapshot = { ...snapshot, fullCompanion: { ...nextState, chatQueue: remaining } };
+    return {
+      ...nextSnapshot,
+      fullCompanion: {
+        ...nextSnapshot.fullCompanion,
+        activeDisplay: displayFromEvent(nextSnapshot, nextChat, now),
+      },
+    };
+  }
+
+  const currentActive = nextState.activeDisplay;
+  const canReplaceForSpeaking = !currentActive || currentActive.kind === 'idle' || currentActive.kind === 'join' || currentActive.kind === 'leave';
+  const speaker = canReplaceForSpeaking ? eligibleSpeaker({ ...snapshot, fullCompanion: nextState }, now) : null;
+  if (speaker) {
+    return {
+      ...snapshot,
+      fullCompanion: {
+        ...nextState,
+        activeDisplay: candidateToDisplay({ ...snapshot, fullCompanion: nextState }, speaker, now),
+      },
+    };
+  }
+
+  if (!nextState.activeDisplay && nextState.eventQueue.length > 0) {
+    const [nextEvent, ...remaining] = nextState.eventQueue;
+    const nextSnapshot = { ...snapshot, fullCompanion: { ...nextState, eventQueue: remaining } };
+    return {
+      ...nextSnapshot,
+      fullCompanion: {
+        ...nextSnapshot.fullCompanion,
+        activeDisplay: displayFromEvent(nextSnapshot, nextEvent, now),
+      },
+    };
+  }
+
+  if (!nextState.activeDisplay) {
+    nextState = {
+      ...nextState,
+      activeDisplay: idleDisplay({ ...snapshot, fullCompanion: nextState }, now),
+    };
+  }
+
+  return {
+    ...snapshot,
+    fullCompanion: nextState,
   };
 }
 
