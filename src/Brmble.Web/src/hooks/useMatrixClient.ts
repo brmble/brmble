@@ -127,10 +127,24 @@ export interface MessagePreview {
   sender: string;
 }
 
-export function useMatrixClient(credentials: MatrixCredentials | null) {
+interface MatrixClientOverlayCallbacks {
+  onChannelMessage?: (channelId: string, message: ChatMessage) => void;
+  onDirectMessage?: (matrixUserId: string, message: ChatMessage) => void;
+}
+
+export function useMatrixClient(
+  credentials: MatrixCredentials | null,
+  callbacks?: MatrixClientOverlayCallbacks,
+) {
   const clientRef = useRef<MatrixClient | null>(null);
   const [client, setClient] = useState<MatrixClient | null>(null);
   const { updateStatus } = useServiceStatus();
+
+  // Store callbacks in refs to avoid reconnect loops from object identity changes
+  const callbacksRef = useRef(callbacks);
+  useEffect(() => {
+    callbacksRef.current = callbacks;
+  }, [callbacks]);
 
   // DM room tracking: matrixUserId -> roomId
   const [dmRoomMap, setDmRoomMap] = useState<Map<string, string>>(new Map());
@@ -198,6 +212,9 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       if (channelId) {
         const message = transformEventToChatMessage(event, room, channelId, clientRef.current);
         if (!message) return;
+        if (credentials && message.senderMatrixUserId !== credentials.userId) {
+          callbacksRef.current?.onChannelMessage?.(channelId, message);
+        }
 
         setLastMessages(prev => {
           const existing = prev.get(channelId);
@@ -230,6 +247,9 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
 
       const dmMessage = transformEventToChatMessage(event, room, dmUserId, clientRef.current);
       if (!dmMessage) return;
+      if (credentials && dmMessage.senderMatrixUserId !== credentials.userId) {
+        callbacksRef.current?.onDirectMessage?.(dmUserId, dmMessage);
+      }
 
       setDmLastMessages(prev => {
         const existing = prev.get(dmUserId);
@@ -493,7 +513,7 @@ export function useMatrixClient(credentials: MatrixCredentials | null) {
       setClient(null);
       updateStatus('chat', { state: 'idle', error: undefined });
     };
-  }, [credentials, roomIdToChannelId, updateStatus]);
+  }, [callbacks, credentials, roomIdToChannelId, updateStatus]);
 
   const sendMessage = useCallback(async (channelId: string, text: string) => {
     if (!credentials || !clientRef.current) return;

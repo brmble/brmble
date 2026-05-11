@@ -11,6 +11,8 @@ using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.Voice;
 using Brmble.Client.Services.Update;
 using Brmble.Client.Services.Idle;
+using Brmble.Client.Overlay;
+using System.Text.Json;
 
 namespace Brmble.Client;
 
@@ -26,6 +28,8 @@ static class Program
     private static MumbleAdapter? _mumbleClient;
     private static UpdateService? _updateService;
     private static IdleService? _idleService;
+    private static CompanionOverlayRelay? _overlayRelay;
+    private static CompanionOverlayHost? _overlayHost;
     private static IntPtr _hwnd;
     private static volatile bool _muted;
     private static volatile bool _deafened;
@@ -255,6 +259,9 @@ static class Program
                 "brmble.local", webRoot, CoreWebView2HostResourceAccessKind.Allow);
 
             _bridge = new NativeBridge(_controller.CoreWebView2, hwnd);
+            _overlayRelay = new CompanionOverlayRelay();
+            _overlayHost = new CompanionOverlayHost(env, _overlayRelay, hwnd, useDevServer, webRoot);
+            await _overlayHost.InitializeAsync();
 
             // Send zoom percentage to the frontend whenever the user zooms (Ctrl+scroll)
             // and debounce-save the zoom level to config for persistence across restarts.
@@ -437,6 +444,15 @@ static class Program
             }
             return Task.CompletedTask;
         });
+
+        _bridge.RegisterHandler("overlay.sync", data =>
+        {
+            var enabled = data.TryGetProperty("enabled", out var e) && e.GetBoolean();
+            var payload = JsonSerializer.Serialize(new { type = "overlay.sync", data });
+            _overlayRelay?.UpdatePayload(payload);
+            _overlayHost?.SetEnabled(enabled);
+            return Task.CompletedTask;
+        });
     }
  
     private static void TryAutoConnect()
@@ -514,12 +530,17 @@ static class Program
                 {
                     _controller.Bounds = GetWebViewBounds(hwnd);
                 }
+                _overlayHost?.SyncToMainWindow();
                 var sizeType = (int)(wParam.ToInt64() & 0xFFFF);
                 if (sizeType == Win32Window.SIZE_MAXIMIZED || sizeType == Win32Window.SIZE_RESTORED)
                 {
                     _bridge?.Send("window.stateChanged", new { maximized = Win32Window.IsZoomed(hwnd) });
                     _bridge?.NotifyUiThread();
                 }
+                return IntPtr.Zero;
+
+            case Win32Window.WM_MOVE:
+                _overlayHost?.SyncToMainWindow();
                 return IntPtr.Zero;
 
             case Win32Window.WM_CLOSE:
@@ -638,6 +659,8 @@ static class Program
                 }
                 _updateService?.Dispose();
                 _idleService?.Dispose();
+                _overlayHost?.Dispose();
+                _overlayHost = null;
                 _mumbleClient?.Disconnect();
                 TrayIcon.Destroy();
                 TaskbarBadge.Destroy();

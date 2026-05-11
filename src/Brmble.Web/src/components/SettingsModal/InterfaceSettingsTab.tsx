@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Select } from '../Select';
 import './InterfaceSettingsTab.css';
-import type { OverlaySettings, AppearanceSettings, BrmblegotchiSettings } from './InterfaceSettingsTypes';
+import type { OverlaySettings, AppearanceSettings, BrmblegotchiSettings, CompanionOverlayMode, CompanionOverlayPosition } from './InterfaceSettingsTypes';
 import { themes } from '../../themes/theme-registry';
 
 interface InterfaceSettingsTabProps {
@@ -18,26 +18,20 @@ interface InterfaceSettingsTabProps {
 export function InterfaceSettingsTab({ 
   appearanceSettings, 
   overlaySettings,
-  brmblegotchiSettings,
+  brmblegotchiSettings: _brmblegotchiSettings,
   onAppearanceChange, 
   onOverlayChange,
-  onBrmblegotchiChange,
-  brmblegotchiEnabled,
-  setBrmblegotchiEnabled
+  onBrmblegotchiChange: _onBrmblegotchiChange,
+  brmblegotchiEnabled: _brmblegotchiEnabled,
+  setBrmblegotchiEnabled: _setBrmblegotchiEnabled
 }: InterfaceSettingsTabProps) {
   
   const [localAppearance, setLocalAppearance] = useState<AppearanceSettings>(appearanceSettings);
-  const [localBrmblegotchi, setLocalBrmblegotchi] = useState<BrmblegotchiSettings>(brmblegotchiSettings ?? { enabled: true, theme: 'original' });
-  const effectiveEnabled = typeof brmblegotchiEnabled === 'boolean' ? brmblegotchiEnabled : localBrmblegotchi.enabled;
 
 
   useEffect(() => {
     setLocalAppearance(appearanceSettings);
   }, [appearanceSettings]);
-
-  useEffect(() => {
-    setLocalBrmblegotchi(brmblegotchiSettings ?? { enabled: true, theme: 'original' });
-  }, [brmblegotchiSettings]);
 
   const handleThemeChange = (theme: string) => {
     const newSettings = { ...localAppearance, theme };
@@ -49,12 +43,22 @@ export function InterfaceSettingsTab({
     onOverlayChange({ ...overlaySettings, overlayEnabled: !overlaySettings.overlayEnabled });
   };
 
-  const handleBrmblegotchiToggle = () => {
-    const newEnabled = !effectiveEnabled;
-    const newSettings = { ...localBrmblegotchi, enabled: newEnabled };
-    setLocalBrmblegotchi(newSettings);
-    onBrmblegotchiChange(newSettings);
-    if (setBrmblegotchiEnabled) setBrmblegotchiEnabled(newEnabled);
+  const handleOverlayModeChange = (mode: string) => {
+    const validMode: CompanionOverlayMode = 
+      mode === 'full' || mode === 'minimal' ? mode : 'minimal';
+    onOverlayChange({ ...overlaySettings, mode: validMode });
+  };
+
+  const handleOverlayPositionChange = (position: string) => {
+    const validPositions: CompanionOverlayPosition[] = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
+    const validPosition: OverlaySettings['position'] = 
+      validPositions.includes(position as CompanionOverlayPosition)
+        ? (position as CompanionOverlayPosition)
+        : 'bottom-right';
+    onOverlayChange({
+      ...overlaySettings,
+      position: validPosition,
+    });
   };
 
   return (
@@ -77,9 +81,10 @@ export function InterfaceSettingsTab({
       <div className="settings-section">
         <h3 className="heading-section settings-section-title">In-Game Overlay</h3>
         <div className="settings-item settings-toggle">
-          <label>Enable Overlay</label>
+          <label htmlFor="overlay-enabled">Enable Companion Overlay</label>
           <label className="brmble-toggle">
             <input
+              id="overlay-enabled"
               type="checkbox"
               checked={overlaySettings.overlayEnabled}
               onChange={handleOverlayToggle}
@@ -87,46 +92,92 @@ export function InterfaceSettingsTab({
             <span className="brmble-toggle-slider"></span>
           </label>
         </div>
-        <p className="settings-hint">
-          Overlay feature coming soon. This will allow you to see status information over other applications.
-        </p>
-      </div>
-
-      {/* Brmblegotchi Section */}
-      <div className="settings-section">
-        <h3 className="heading-section settings-section-title">Brmblegotchi</h3>
+        <div className="settings-item">
+          <label>Overlay Mode</label>
+          <Select
+            value={overlaySettings.mode}
+            onChange={handleOverlayModeChange}
+            options={[
+              { value: 'full', label: 'Full Companion' },
+              { value: 'minimal', label: 'Minimal' },
+            ]}
+          />
+        </div>
+        <div className="settings-item">
+          <label>Overlay Position</label>
+          <Select
+            value={overlaySettings.position}
+            onChange={handleOverlayPositionChange}
+            options={[
+              { value: 'top-left', label: 'Top Left' },
+              { value: 'top-right', label: 'Top Right' },
+              { value: 'bottom-left', label: 'Bottom Left' },
+              { value: 'bottom-right', label: 'Bottom Right' },
+            ]}
+          />
+        </div>
         <div className="settings-item settings-toggle">
-          <label htmlFor="brmblegotchi-enabled">Enable Pet</label>
+          <label htmlFor="overlay-channel-messages">Show Channel Messages</label>
           <label className="brmble-toggle">
             <input
-              id="brmblegotchi-enabled"
+              id="overlay-channel-messages"
               type="checkbox"
-              checked={effectiveEnabled}
-              onChange={handleBrmblegotchiToggle}
+              checked={overlaySettings.showChannelMessages}
+              onChange={() => onOverlayChange({ ...overlaySettings, showChannelMessages: !overlaySettings.showChannelMessages })}
             />
             <span className="brmble-toggle-slider"></span>
           </label>
         </div>
-        {effectiveEnabled && (
-          <div className="settings-item">
-            <label>Pet Theme</label>
-            <Select
-              value={localBrmblegotchi.theme || 'original'}
-              onChange={(theme) => {
-                const newSettings = { ...localBrmblegotchi, theme: (theme || 'original') as 'original' | 'dino' | 'cat' };
-                setLocalBrmblegotchi(newSettings);
-                onBrmblegotchiChange(newSettings);
-              }}
-              options={[
-                { value: 'original', label: 'Original' },
-                { value: 'dino', label: 'Dino' },
-                { value: 'cat', label: 'Cat (Passive)' },
-              ]}
+        <div className="settings-item settings-toggle">
+          <label htmlFor="overlay-direct-messages">Show Direct Messages</label>
+          <label className="brmble-toggle">
+            <input
+              id="overlay-direct-messages"
+              type="checkbox"
+              checked={overlaySettings.showDirectMessages}
+              onChange={() => onOverlayChange({ ...overlaySettings, showDirectMessages: !overlaySettings.showDirectMessages })}
             />
-          </div>
-        )}
+            <span className="brmble-toggle-slider"></span>
+          </label>
+        </div>
+        <div className="settings-item settings-toggle">
+          <label htmlFor="overlay-join-leave">Show Join/Leave Events</label>
+          <label className="brmble-toggle">
+            <input
+              id="overlay-join-leave"
+              type="checkbox"
+              checked={overlaySettings.showJoinLeaveEvents}
+              onChange={() => onOverlayChange({ ...overlaySettings, showJoinLeaveEvents: !overlaySettings.showJoinLeaveEvents })}
+            />
+            <span className="brmble-toggle-slider"></span>
+          </label>
+        </div>
+        <div className="settings-item settings-toggle">
+          <label htmlFor="overlay-moderation">Show Moderation Events</label>
+          <label className="brmble-toggle">
+            <input
+              id="overlay-moderation"
+              type="checkbox"
+              checked={overlaySettings.showModerationEvents}
+              onChange={() => onOverlayChange({ ...overlaySettings, showModerationEvents: !overlaySettings.showModerationEvents })}
+            />
+            <span className="brmble-toggle-slider"></span>
+          </label>
+        </div>
+        <div className="settings-item settings-toggle">
+          <label htmlFor="overlay-speakers">Show Active Speakers</label>
+          <label className="brmble-toggle">
+            <input
+              id="overlay-speakers"
+              type="checkbox"
+              checked={overlaySettings.showActiveSpeakers}
+              onChange={() => onOverlayChange({ ...overlaySettings, showActiveSpeakers: !overlaySettings.showActiveSpeakers })}
+            />
+            <span className="brmble-toggle-slider"></span>
+          </label>
+        </div>
         <p className="settings-hint">
-          Show the Brmblegotchi virtual pet companion.
+          Keep a small Brmblegotchi companion overlay on top of games and desktop apps for current-channel activity, DMs, moderation, and speakers.
         </p>
       </div>
 

@@ -1,5 +1,6 @@
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
+import { resolve } from 'node:path'
 
 export default defineConfig({
   plugins: [react()],
@@ -11,6 +12,10 @@ export default defineConfig({
   build: {
     chunkSizeWarningLimit: 850,
     rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        overlay: resolve(__dirname, 'overlay.html'),
+      },
       output: {
         manualChunks(id) {
           if (id.includes('matrix-js-sdk') || id.includes('matrix-widget-api') || id.includes('another-json')) {

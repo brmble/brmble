@@ -32,7 +32,14 @@ public record MessagesSettings(
 );
 
 public record OverlaySettings(
-    bool OverlayEnabled = false
+    bool OverlayEnabled = false,
+    string Mode = "minimal",
+    string Position = "bottom-right",
+    bool ShowChannelMessages = true,
+    bool ShowDirectMessages = true,
+    bool ShowJoinLeaveEvents = true,
+    bool ShowModerationEvents = true,
+    bool ShowActiveSpeakers = true
 );
 
 public record NoiseSuppressionSettings(

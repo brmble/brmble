@@ -58,6 +58,59 @@ beforeEach(() => {
 });
 
 describe('useMatrixClient', () => {
+  it('calls onDirectMessage only for incoming DM messages', () => {
+    mockClient.getRoom.mockReturnValue(null);
+    const onDirectMessage = vi.fn();
+    const credsWithDm: MatrixCredentials = {
+      ...creds,
+      dmRoomMap: { '@alice:example.com': '!dm:example.com' },
+    };
+
+    renderHook(() => useMatrixClient(credsWithDm, { onDirectMessage }), { wrapper });
+
+    const onSync = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'sync')?.[1] as
+      | ((state: string) => void)
+      | undefined;
+    act(() => onSync?.('PREPARED'));
+
+    const onTimeline = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'Room.timeline')?.[1] as
+      | ((ev: unknown, r: unknown) => void)
+      | undefined;
+
+    const incoming = {
+      getType: () => 'm.room.message',
+      getId: () => '$dm-1',
+      getSender: () => '@alice:example.com',
+      getContent: () => ({ body: 'ping' }),
+      getTs: () => 1_700_000_000_000,
+    };
+    const outgoing = {
+      getType: () => 'm.room.message',
+      getId: () => '$dm-2',
+      getSender: () => '@1:example.com',
+      getContent: () => ({ body: 'pong' }),
+      getTs: () => 1_700_000_000_001,
+    };
+    const dmRoom = {
+      roomId: '!dm:example.com',
+      getMember: (userId: string) =>
+        userId === '@alice:example.com'
+          ? { name: 'Alice', rawDisplayName: 'Alice', getAvatarUrl: () => null }
+          : null,
+    };
+
+    act(() => {
+      onTimeline?.(incoming, dmRoom);
+      onTimeline?.(outgoing, dmRoom);
+    });
+
+    expect(onDirectMessage).toHaveBeenCalledTimes(1);
+    expect(onDirectMessage).toHaveBeenCalledWith(
+      '@alice:example.com',
+      expect.objectContaining({ sender: 'Alice', content: 'ping' }),
+    );
+  });
+
   it('calls startClient when credentials are provided', () => {
     renderHook(() => useMatrixClient(creds), { wrapper });
     expect(mockClient.startClient).toHaveBeenCalledWith({ initialSyncLimit: 5 });

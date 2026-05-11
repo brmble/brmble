@@ -928,7 +928,7 @@ export function OnboardingWizard({ onComplete, onServersImported, isMaximized }:
                 />
               </div>
               <div className="settings-item settings-toggle">
-                <label>Enable Pet</label>
+                <label>Enable Companion Overlay</label>
                 <label className="brmble-toggle">
                   <input
                     type="checkbox"
@@ -939,7 +939,7 @@ export function OnboardingWizard({ onComplete, onServersImported, isMaximized }:
                 </label>
               </div>
               <p className="onboarding-hint">
-                Brmblegotchi is a small virtual companion that lives in your sidebar.
+                Show Brmblegotchi as a companion overlay for speakers, DMs, and channel activity.
               </p>
             </div>
 
