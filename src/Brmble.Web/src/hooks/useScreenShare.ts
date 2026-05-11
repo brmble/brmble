@@ -643,6 +643,7 @@ export function useScreenShare(
         roomRef.current = null;
         roomAccessModeRef.current = null;
         clearTokenLease();
+        invalidateRoomLifecycle();
         clearWatchingState();
         const teardownIntent = localShareTeardownIntentRef.current;
         localShareTeardownIntentRef.current = null;

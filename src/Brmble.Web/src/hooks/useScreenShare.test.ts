@@ -364,6 +364,60 @@ describe('useScreenShare', () => {
     expect(tokenRequests).toHaveLength(1);
   });
 
+  it('ignores stale in-flight refresh failure after reconnecting to the same room', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-11T12:00:00.000Z'));
+    const tokenHandlers: Array<(data: unknown) => void> = [];
+    const tokenErrorHandlers: Array<(data: unknown) => void> = [];
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandlers.push(handler);
+      if (type === 'livekit.tokenError') tokenErrorHandlers.push(handler);
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    await act(async () => {
+      const promise = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      tokenHandlers[0]?.({ token: 'viewer-jwt', url: 'ws://localhost/livekit', expiresAt: '2026-05-11T12:10:00.000Z', requestId: 1 });
+      await promise;
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8 * 60 * 1000);
+    });
+    expect(bridge.send).toHaveBeenCalledWith('livekit.requestToken', { roomName: 'channel-1', accessMode: 'subscribe', requestId: 2 });
+
+    act(() => {
+      emitRoomEvent('disconnected');
+    });
+    expect(result.current.watchingShares).toEqual([]);
+
+    await act(async () => {
+      const promise = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      tokenHandlers[2]?.({ token: 'viewer-jwt-3', url: 'ws://localhost/livekit', expiresAt: '2026-05-11T12:20:00.000Z', requestId: 3 });
+      await promise;
+    });
+
+    expect(result.current.watchingShares).toHaveLength(1);
+    const disconnectCallsAfterReconnect = mockRoom.disconnect.mock.calls.length;
+
+    await act(async () => {
+      tokenErrorHandlers[1]?.({ error: 'forbidden', requestId: 2 });
+      await Promise.resolve();
+    });
+
+    expect(result.current.watchingShares).toHaveLength(1);
+    expect(result.current.error).toBeNull();
+    expect(mockRoom.disconnect).toHaveBeenCalledTimes(disconnectCallsAfterReconnect);
+  });
+
   it('suppresses a second startSharing call while one is already connecting', async () => {
     let tokenHandler: ((data: unknown) => void) | null = null;
 
