@@ -107,6 +107,19 @@ public class LiveKitParticipantTrackerTests
     }
 
     [TestMethod]
+    public void TryUpsert_AllowsSessionAfterRevokingGraceExpires()
+    {
+        var tracker = new LiveKitParticipantTracker();
+        var now = DateTimeOffset.Parse("2026-01-01T00:00:00Z");
+        var record = new LiveKitParticipantRecord("channel-1", "@alice:test", 10, 7, LiveKitAccessMode.Subscribe, now.AddMinutes(5));
+
+        tracker.MarkSessionRevoking(7, now);
+
+        Assert.IsTrue(tracker.TryUpsert(record, now.AddMinutes(3)));
+        Assert.AreEqual(1, tracker.GetSnapshot().Count);
+    }
+
+    [TestMethod]
     public void TryUpsert_ReturnsFalseForStaleRoomAndTrueForCurrentRoom()
     {
         var tracker = new LiveKitParticipantTracker();
@@ -117,6 +130,19 @@ public class LiveKitParticipantTrackerTests
         Assert.IsFalse(tracker.TryUpsert(new LiveKitParticipantRecord("channel-1", "@alice:test", 10, 7, LiveKitAccessMode.Subscribe, expiry)));
         Assert.IsTrue(tracker.TryUpsert(new LiveKitParticipantRecord("channel-2", "@alice:test", 10, 7, LiveKitAccessMode.Subscribe, expiry)));
         Assert.AreEqual("channel-2", tracker.GetSnapshot().Single().RoomName);
+    }
+
+    [TestMethod]
+    public void PruneExpired_RemovesExpiredSessionRoomMarker()
+    {
+        var tracker = new LiveKitParticipantTracker();
+        var now = DateTimeOffset.Parse("2026-01-01T00:00:00Z");
+        var record = new LiveKitParticipantRecord("channel-1", "@alice:test", 10, 7, LiveKitAccessMode.Subscribe, now.AddMinutes(5));
+
+        tracker.MarkSessionRoom(7, "channel-2", now);
+        tracker.PruneExpired(now.AddMinutes(3));
+
+        Assert.IsTrue(tracker.TryUpsert(record, now.AddMinutes(3)));
     }
 
     [TestMethod]
