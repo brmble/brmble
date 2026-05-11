@@ -122,6 +122,16 @@ export function pruneOverlaySnapshot(snapshot: CompanionOverlaySnapshot, now: nu
     .sort((a, b) => b.lastSpokeAt - a.lastSpokeAt)
     .slice(0, MAX_VISIBLE_SPEAKERS);
 
+  // Return original snapshot when nothing changed to prevent unnecessary React updates
+  if (
+    recentEvents.length === snapshot.recentEvents.length &&
+    activeSpeakers.length === snapshot.activeSpeakers.length &&
+    recentEvents.every((event, i) => event === snapshot.recentEvents[i]) &&
+    activeSpeakers.every((speaker, i) => speaker === snapshot.activeSpeakers[i])
+  ) {
+    return snapshot;
+  }
+
   return {
     ...snapshot,
     recentEvents,

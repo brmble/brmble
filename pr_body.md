@@ -1,92 +1,95 @@
 ## Summary
 
-Fixed TTS voice dropdown selection persistence and flickering issues by:
-- Adding `TtsVoice` persistence to the settings model
-- Implementing voice signature-based change detection to prevent unnecessary re-renders
-- Memoizing voice options to ensure stable object references across renders
+This PR implements the Brmblegotchi companion overlay feature - Phase 1 of bringing interactive companion mechanics to Brmble. The overlay appears as a persistent in-game element displaying the user's Brmblegotchi companion with real-time voice activity, speaker presence, and event feeds.
 
-## Problem
+### Key Features
 
-The TTS voice dropdown was:
-1. Not persisting the selected voice across sessions
-2. Flickering/re-rendering on every voice list update
-3. Losing selection state when voices were reloaded
+- **Companion Overlay UI**: Dual-mode overlay system with full companion display and minimal mode for low-visibility scenarios
+- **Voice Activity Integration**: Real-time visual feedback from Mumble voice channel state
+- **Speaker Stack**: Live display of active speakers with speaker icons and activity indicators
+- **Event Feed System**: Event notification system for companion interactions and channel events
+- **Bridge Integration**: Full C# ↔ JavaScript bridge for native overlay window communication
+- **Settings Integration**: New Interface Settings tab for overlay customization and voice event preferences
+- **Overlay Window**: Separate WebView2 overlay window (overlay.html) rendered as topmost window
 
-## Solution
+### Technical Highlights
 
-### Backend Changes (AppSettings.cs)
-- Added `string TtsVoice = ""` field to `MessagesSettings` record to persist voice selection across sessions
+**Frontend (React + TypeScript)**
+- New `CompanionOverlay` component directory with modular architecture
+- Overlay model system with state management (minimal/full modes, sprite positioning)
+- Speaker stack component for displaying active voice participants
+- Event feed for companion notifications
+- Hook: `useCompanionOverlayPublisher` for event publishing to companion overlay
+- CSS system with overlay-specific styling and animations
 
-### Frontend Changes (MessagesSettingsTab.tsx)
+**Backend (C# + WebView2)**
+- `CompanionOverlayHost` class for managing native overlay window lifecycle
+- `CompanionOverlayRelay` for bridging Mumble events to overlay
+- Integration with `MumbleAdapter` for voice channel state events
+- Overlay window configuration and native interop
 
-1. **Voice Signature Detection**: Implemented a signature-based approach to detect actual changes in the voice list:
-   - Creates a signature from voice properties (name, language, default status)
-   - Only updates state when the signature changes, preventing spurious re-renders
-   - Uses `voiceSignatureRef` to track the last known signature
+**Testing**
+- Unit tests for overlay model logic and state transitions
+- Component tests for UI behavior (full/minimal modes, speaker stack)
+- Relay tests for event bridging between core and overlay
+- Voice event integration tests with MumbleAdapter
 
-2. **Memoized Voice Options**: Used `useMemo` to memoize voice options:
-   - Ensures object reference stability across renders
-   - Prevents unnecessary Select component re-renders
-   - Dependencies limited to `voices` array
+**Configuration**
+- Vite configuration updated for dual-entry-point build (main app + overlay)
+- AppSettings extended with companion overlay preferences
+- Integration with existing Settings modal
 
-3. **Selection Auto-Recovery**: When TTS is enabled without a voice selected, automatically selects the first available voice (via existing logic)
+### Architecture Changes
 
-## Testing
-
-- [x] Voice selection persists across settings close/reopen
-- [x] Dropdown no longer flickers when voices list loads
-- [x] Default voice selection works correctly
-- [x] Existing TTS functionality unaffected
-
-## Technical Details
+- **New Overlay Window Model**: Separate WebView2 window for overlay rendering (topmost, always-visible)
+- **Bridge Extension**: Added overlay-specific message protocols for event publishing
+- **Settings Tab Extension**: New Companion section in Interface Settings for overlay controls
 
 ### Files Changed
 
-1. **src/Brmble.Client/Services/AppConfig/AppSettings.cs**
-   - Added `string TtsVoice = ""` to `MessagesSettings` record
-   - Enables persistent storage of user's TTS voice preference
+**New Files (34)**
+- Companion overlay components and tests
+- Overlay host and relay services
+- Overlay entry point and HTML
+- Design specs and implementation plans
+- Investigation documentation
 
-2. **src/Brmble.Web/src/components/SettingsModal/MessagesSettingsTab.tsx**
-   - Added imports: `useRef`, `useMemo`
-   - Added `voiceSignatureRef` to track voice list state
-   - Modified `loadVoices()` to use signature-based detection
-   - Wrapped voice options in `useMemo` to prevent re-creation
-   - Maintains backward compatibility with existing TTS features
+**Modified Files (8)**
+- Core client program setup
+- App settings configuration
+- Mumble adapter voice events
+- Win32 window interop
+- Settings modal and types
+- Vite build config
 
-### Key Implementation Details
+### Testing
 
-**Voice Signature Approach:**
-```javascript
-const signature = availableVoices
-  .map(v => `${v.name}|${v.lang}|${v.default ? 1 : 0}`)
-  .join('||');
-if (signature !== voiceSignatureRef.current) {
-  voiceSignatureRef.current = signature;
-  setVoices(availableVoices);
-}
-```
-This prevents state updates when voices haven't actually changed, reducing unnecessary renders.
+All new code includes comprehensive unit and component tests:
+- Overlay model state transitions
+- Speaker stack display logic
+- Event feed rendering
+- Bridge relay communication
+- Settings integration
 
-**Memoized Options:**
-```javascript
-const ttsVoiceOptions = useMemo(
-  () => [
-    { value: '', label: 'Default' },
-    ...voices.map(voice => ({ value: voice.name, label: voice.name })),
-  ],
-  [voices]
-);
-```
-Ensures the options array is only recreated when the voices list changes.
+Run tests: `dotnet test`
 
-## Impact
+### Breaking Changes
 
-- **User Experience**: Voice selection is now stable and persistent
-- **Performance**: Eliminated unnecessary re-renders when voice lists load
-- **Data Persistence**: TTS voice preference survives application restarts
-- **Compatibility**: No breaking changes to existing functionality
+None. This feature is fully backward compatible.
 
-**Stats:**
-- Files changed: 2
-- Insertions: +19
-- Deletions: -6
+### Notes for Review
+
+1. **Overlay Window Lifecycle**: Review `CompanionOverlayHost.cs` for window creation and cleanup patterns
+2. **Bridge Message Protocol**: Overlay uses new `overlay.*` message namespacing (e.g., `overlay.event`, `overlay.error`)
+3. **Settings Integration**: New Companion settings tab follows existing patterns in `InterfaceSettingsTab.tsx`
+4. **Performance**: Overlay uses event-driven updates via bridge to minimize performance impact
+
+### Fase 1 Scope
+
+This initial implementation focuses on:
+- Core overlay UI and rendering
+- Voice activity visualization
+- Settings integration
+- Foundation for future companion features (interaction, state persistence, etc.)
+
+Future phases will add interactive mechanics and persistence layers.

@@ -522,6 +522,8 @@ function App() {
 
   useEffect(() => {
     if (!overlaySettings.overlayEnabled) return;
+    // Prune immediately on enable to prevent flash of stale content
+    setOverlaySnapshot((prev) => pruneOverlaySnapshot(prev, Date.now()));
     const interval = window.setInterval(() => {
       setOverlaySnapshot((prev) => pruneOverlaySnapshot(prev, Date.now()));
     }, 1000);
@@ -1017,6 +1019,7 @@ function App() {
         if (stored) {
           const settings = JSON.parse(stored);
           updatePttKeyFromSettings(settings);
+          setOverlaySettings({ ...DEFAULT_OVERLAY, ...(settings.overlay ?? {}) });
         }
       } catch {}
     };

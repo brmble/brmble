@@ -107,12 +107,12 @@ internal sealed class CompanionOverlayHost : IDisposable
         var workArea = Win32Window.GetMonitorWorkArea(_mainWindow);
         Win32Window.SetWindowPos(
             _overlayWindow,
-            new IntPtr(-1),
+            Win32Window.HWND_TOPMOST,
             workArea.Left,
             workArea.Top,
             workArea.Right - workArea.Left,
             workArea.Bottom - workArea.Top,
-            0x0010);
+            Win32Window.SWP_NOACTIVATE);
 
         if (_controller is not null)
         {

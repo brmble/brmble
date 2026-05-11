@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Select } from '../Select';
 import './InterfaceSettingsTab.css';
-import type { OverlaySettings, AppearanceSettings, BrmblegotchiSettings } from './InterfaceSettingsTypes';
+import type { OverlaySettings, AppearanceSettings, BrmblegotchiSettings, CompanionOverlayMode, CompanionOverlayPosition } from './InterfaceSettingsTypes';
 import { themes } from '../../themes/theme-registry';
 
 interface InterfaceSettingsTabProps {
@@ -44,13 +44,20 @@ export function InterfaceSettingsTab({
   };
 
   const handleOverlayModeChange = (mode: string) => {
-    onOverlayChange({ ...overlaySettings, mode: (mode as 'full' | 'minimal') ?? 'minimal' });
+    const validMode: CompanionOverlayMode = 
+      mode === 'full' || mode === 'minimal' ? mode : 'minimal';
+    onOverlayChange({ ...overlaySettings, mode: validMode });
   };
 
   const handleOverlayPositionChange = (position: string) => {
+    const validPositions: CompanionOverlayPosition[] = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
+    const validPosition: OverlaySettings['position'] = 
+      validPositions.includes(position as CompanionOverlayPosition)
+        ? (position as CompanionOverlayPosition)
+        : 'bottom-right';
     onOverlayChange({
       ...overlaySettings,
-      position: (position as OverlaySettings['position']) ?? 'bottom-right',
+      position: validPosition,
     });
   };
 

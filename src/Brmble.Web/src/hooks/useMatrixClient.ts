@@ -140,6 +140,12 @@ export function useMatrixClient(
   const [client, setClient] = useState<MatrixClient | null>(null);
   const { updateStatus } = useServiceStatus();
 
+  // Store callbacks in refs to avoid reconnect loops from object identity changes
+  const callbacksRef = useRef(callbacks);
+  useEffect(() => {
+    callbacksRef.current = callbacks;
+  }, [callbacks]);
+
   // DM room tracking: matrixUserId -> roomId
   const [dmRoomMap, setDmRoomMap] = useState<Map<string, string>>(new Map());
 
@@ -207,7 +213,7 @@ export function useMatrixClient(
         const message = transformEventToChatMessage(event, room, channelId, clientRef.current);
         if (!message) return;
         if (credentials && message.senderMatrixUserId !== credentials.userId) {
-          callbacks?.onChannelMessage?.(channelId, message);
+          callbacksRef.current?.onChannelMessage?.(channelId, message);
         }
 
         setLastMessages(prev => {
@@ -242,7 +248,7 @@ export function useMatrixClient(
       const dmMessage = transformEventToChatMessage(event, room, dmUserId, clientRef.current);
       if (!dmMessage) return;
       if (credentials && dmMessage.senderMatrixUserId !== credentials.userId) {
-        callbacks?.onDirectMessage?.(dmUserId, dmMessage);
+        callbacksRef.current?.onDirectMessage?.(dmUserId, dmMessage);
       }
 
       setDmLastMessages(prev => {

@@ -39,6 +39,14 @@ internal static class Win32Window
 
     public const uint RIDEV_INPUTSINK = 0x00000001;
 
+    // SetWindowPos constants
+    public static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+    public const uint SWP_NOACTIVATE = 0x0010;
+    public const uint SWP_FRAMECHANGED = 0x0020;
+    public const uint SWP_NOMOVE = 0x0002;
+    public const uint SWP_NOSIZE = 0x0001;
+    public const uint SWP_NOZORDER = 0x0004;
+
     [StructLayout(LayoutKind.Sequential)]
     public struct RAWINPUTDEVICE
     {
@@ -232,6 +240,13 @@ internal static class Win32Window
     public static extern bool IsWindowVisible(IntPtr hwnd);
 
     public const uint MONITOR_DEFAULTTONULL = 0x00000000;
+    public const uint MONITOR_DEFAULTTOPRIMARY = 0x00000001;
+
+    private const int SM_CXSCREEN = 0;
+    private const int SM_CYSCREEN = 1;
+
+    [DllImport("user32.dll")]
+    public static extern int GetSystemMetrics(int nIndex);
 
     [DllImport("user32.dll")]
     public static extern bool GetWindowPlacement(IntPtr hwnd, ref WINDOWPLACEMENT lpwndpl);
@@ -440,16 +455,24 @@ internal static class Win32Window
         var monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONULL);
         if (monitor == IntPtr.Zero)
         {
-            return new RECT { Left = 0, Top = 0, Right = 1920, Bottom = 1080 };
+            // Fall back to primary monitor using MonitorFromWindow with MONITOR_DEFAULTTOPRIMARY
+            monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTOPRIMARY);
         }
 
         var monitorInfo = new MONITORINFO { cbSize = (uint)Marshal.SizeOf<MONITORINFO>() };
-        if (!GetMonitorInfo(monitor, ref monitorInfo))
+        if (monitor != IntPtr.Zero && GetMonitorInfo(monitor, ref monitorInfo))
         {
-            return new RECT { Left = 0, Top = 0, Right = 1920, Bottom = 1080 };
+            return monitorInfo.rcWork;
         }
 
-        return monitorInfo.rcWork;
+        // Last resort: use system metrics for primary screen
+        return new RECT
+        {
+            Left = 0,
+            Top = 0,
+            Right = GetSystemMetrics(SM_CXSCREEN),
+            Bottom = GetSystemMetrics(SM_CYSCREEN)
+        };
     }
 
     public static void ExtendFrameIntoClientArea(IntPtr hwnd)
@@ -464,12 +487,6 @@ internal static class Win32Window
 
     public static void ForceFrameChange(IntPtr hwnd)
     {
-        const uint SWP_FRAMECHANGED = 0x0020;
-        const uint SWP_NOMOVE = 0x0002;
-        const uint SWP_NOSIZE = 0x0001;
-        const uint SWP_NOZORDER = 0x0004;
-        const uint SWP_NOACTIVATE = 0x0010;
-
         GetWindowRect(hwnd, out var rect);
         SetWindowPos(hwnd, IntPtr.Zero,
             rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top,
