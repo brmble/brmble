@@ -47,6 +47,14 @@ describe('overlayModel', () => {
     );
     snapshot = setSpeakerActivity(snapshot, { session: 11, name: '', channelId: 7 }, true, 3_000);
     snapshot = setSpeakerActivity(snapshot, { session: 11, name: '', channelId: 7 }, false, 4_000);
+
+    expect(snapshot.activeSpeakers).toEqual([
+      expect.objectContaining({
+        isSpeaking: false,
+        name: 'Unknown user',
+      }),
+    ]);
+
     snapshot = pruneOverlaySnapshot(snapshot, 6_600);
 
     expect(snapshot.recentEvents[0].line).toBe('Unknown user: Message unavailable');

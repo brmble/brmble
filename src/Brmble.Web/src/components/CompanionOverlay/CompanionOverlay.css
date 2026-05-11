@@ -1,17 +1,14 @@
 .companion-overlay {
+  position: fixed;
+  display: grid;
   pointer-events: none;
   color: var(--text-primary);
   font-family: var(--font-body);
 }
 
 .companion-overlay--minimal {
-  position: fixed;
-  right: 24px;
-  bottom: 24px;
   width: min(360px, calc(100vw - 48px));
-  display: grid;
   gap: 8px;
-  justify-items: end;
 }
 
 .overlay-panel-header {
@@ -50,14 +47,31 @@
   gap: 8px;
   padding: 0;
   width: fit-content;
+  transition: opacity 180ms ease, filter 180ms ease, color 180ms ease;
   text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+}
+
+.overlay-speaker-pill--silent {
+  opacity: 0.6;
+  filter: saturate(0.25);
+  color: var(--text-secondary);
 }
 
 .overlay-speaker-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  background: var(--text-secondary);
+  transition: background-color 180ms ease, transform 180ms ease, opacity 180ms ease;
+}
+
+.overlay-speaker-pill--speaking .overlay-speaker-dot {
   background: var(--accent-primary);
+  transform: scale(1);
+}
+
+.overlay-speaker-pill--silent .overlay-speaker-dot {
+  opacity: 0.7;
 }
 
 .overlay-event-feed {
@@ -72,17 +86,11 @@
 }
 
 .companion-overlay--full {
-  position: fixed;
-  right: 28px;
-  bottom: 22px;
-  display: grid;
   gap: 12px;
-  justify-items: end;
 }
 
 .companion-anchor {
   display: grid;
-  justify-items: end;
   gap: 8px;
 }
 
@@ -100,4 +108,38 @@
   margin: 0;
   font-size: 13px;
   text-shadow: 0 2px 12px rgba(0, 0, 0, 0.85);
+}
+
+.companion-overlay--position-top-left {
+  top: 24px;
+  left: 24px;
+  justify-items: start;
+}
+
+.companion-overlay--position-top-right {
+  top: 24px;
+  right: 24px;
+  justify-items: end;
+}
+
+.companion-overlay--position-bottom-left {
+  left: 24px;
+  bottom: 24px;
+  justify-items: start;
+}
+
+.companion-overlay--position-bottom-right {
+  right: 24px;
+  bottom: 24px;
+  justify-items: end;
+}
+
+.companion-overlay--position-top-left .companion-anchor,
+.companion-overlay--position-bottom-left .companion-anchor {
+  justify-items: start;
+}
+
+.companion-overlay--position-top-right .companion-anchor,
+.companion-overlay--position-bottom-right .companion-anchor {
+  justify-items: end;
 }

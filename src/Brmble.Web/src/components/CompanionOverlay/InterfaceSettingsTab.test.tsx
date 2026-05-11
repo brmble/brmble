@@ -25,6 +25,8 @@ describe('InterfaceSettingsTab overlay controls', () => {
     fireEvent.click(screen.getByLabelText('Enable Companion Overlay'));
     fireEvent.click(screen.getAllByRole('combobox')[1]);
     fireEvent.click(screen.getByRole('option', { name: 'Minimal' }));
+    fireEvent.click(screen.getAllByRole('combobox')[2]);
+    fireEvent.click(screen.getByRole('option', { name: 'Top Left' }));
     fireEvent.click(screen.getByLabelText('Show Direct Messages'));
 
     expect(onOverlayChange).toHaveBeenNthCalledWith(1, expect.objectContaining({
@@ -34,6 +36,9 @@ describe('InterfaceSettingsTab overlay controls', () => {
       mode: 'minimal',
     }));
     expect(onOverlayChange).toHaveBeenNthCalledWith(3, expect.objectContaining({
+      position: 'top-left',
+    }));
+    expect(onOverlayChange).toHaveBeenNthCalledWith(4, expect.objectContaining({
       showDirectMessages: false,
     }));
   });

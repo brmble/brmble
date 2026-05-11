@@ -12,6 +12,7 @@ export function OverlayApp({ initialState }: { initialState?: OverlayBridgeState
   return (
     <CompanionOverlayRoot
       mode={state.mode}
+      position={state.settings?.position ?? 'bottom-right'}
       snapshot={state.snapshot}
     />
   );

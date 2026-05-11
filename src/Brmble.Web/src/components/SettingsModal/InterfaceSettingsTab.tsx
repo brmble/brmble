@@ -47,6 +47,13 @@ export function InterfaceSettingsTab({
     onOverlayChange({ ...overlaySettings, mode: (mode as 'full' | 'minimal') ?? 'minimal' });
   };
 
+  const handleOverlayPositionChange = (position: string) => {
+    onOverlayChange({
+      ...overlaySettings,
+      position: (position as OverlaySettings['position']) ?? 'bottom-right',
+    });
+  };
+
   return (
     <div className="interface-settings-tab">
       
@@ -86,6 +93,19 @@ export function InterfaceSettingsTab({
             options={[
               { value: 'full', label: 'Full Companion' },
               { value: 'minimal', label: 'Minimal' },
+            ]}
+          />
+        </div>
+        <div className="settings-item">
+          <label>Overlay Position</label>
+          <Select
+            value={overlaySettings.position}
+            onChange={handleOverlayPositionChange}
+            options={[
+              { value: 'top-left', label: 'Top Left' },
+              { value: 'top-right', label: 'Top Right' },
+              { value: 'bottom-left', label: 'Bottom Left' },
+              { value: 'bottom-right', label: 'Bottom Right' },
             ]}
           />
         </div>

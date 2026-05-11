@@ -28,6 +28,7 @@ export interface CompanionSpeakerEntry {
   session: number;
   name: string;
   channelId: number;
+  isSpeaking: boolean;
   startedAt: number;
   lastSpokeAt: number;
   expiresAt: number;

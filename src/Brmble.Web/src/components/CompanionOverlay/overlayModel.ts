@@ -84,6 +84,7 @@ export function setSpeakerActivity(
       session: speaker.session,
       name,
       channelId: speaker.channelId,
+      isSpeaking: true,
       startedAt: now,
       lastSpokeAt: now,
       expiresAt: now + SPEAKER_DECAY_MS,
@@ -94,6 +95,7 @@ export function setSpeakerActivity(
       next.push({
         ...existing,
         name,
+        isSpeaking: false,
         lastSpokeAt: now,
         expiresAt: now + SPEAKER_DECAY_MS,
       });

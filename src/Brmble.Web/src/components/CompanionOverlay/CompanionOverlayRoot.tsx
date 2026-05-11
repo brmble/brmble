@@ -6,14 +6,16 @@ import './CompanionOverlay.css';
 
 export function CompanionOverlayRoot({
   mode,
+  position,
   snapshot,
 }: {
   mode: OverlaySettings['mode'];
+  position: OverlaySettings['position'];
   snapshot: CompanionOverlaySnapshot;
 }) {
   if (mode === 'full') {
-    return <FullCompanionOverlay snapshot={snapshot} />;
+    return <FullCompanionOverlay snapshot={snapshot} position={position} />;
   }
 
-  return <MinimalOverlay snapshot={snapshot} />;
+  return <MinimalOverlay snapshot={snapshot} position={position} />;
 }
