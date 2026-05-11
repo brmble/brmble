@@ -1308,6 +1308,14 @@ function App() {
       const d = data as { session: number; name: string; channelId?: number; muted?: boolean; deafened?: boolean; self?: boolean; comment?: string; matrixUserId?: string; certHash?: string; isBrmbleClient?: boolean } | undefined;
       if (d?.session && d.channelId !== undefined) {
         const previousChannelId = previousChannelIdRef.current.get(d.session);
+        const knownUser = usersRef.current.find(u => u.session === d.session);
+        const lastKnownChannelId = previousChannelId ?? knownUser?.channelId;
+        const selfUser = usersRef.current.find(u => u.self);
+        const selfChannelId = selfUser?.channelId;
+        const enteredSelfChannel = !d.self
+          && selfChannelId !== undefined
+          && d.channelId === selfChannelId
+          && lastKnownChannelId !== selfChannelId;
         
         setUsers(prev => {
           const existing = prev.find(u => u.session === d.session);
@@ -1327,18 +1335,14 @@ function App() {
           fetchAvatarForUser(d.session, d.matrixUserId);
         }
 
-        if (!d.self) {
-          const selfUser = usersRef.current.find(u => u.self);
-          const selfChannelId = selfUser?.channelId;
-          if (selfChannelId !== undefined && d.channelId === selfChannelId && previousChannelId !== selfChannelId) {
-            speakText(`${d.name} joined`);
-          }
+        if (enteredSelfChannel) {
+          speakText(`${d.name} joined`);
         }
         
         previousChannelIdRef.current.set(d.session, d.channelId);
 
         const overlaySettings = overlaySettingsRef.current;
-        if (overlaySettings.overlayEnabled && !d.self) {
+        if (overlaySettings.overlayEnabled && enteredSelfChannel) {
           setOverlaySnapshot((prev) => {
             const now = Date.now();
             const next = appendOverlayEvent(

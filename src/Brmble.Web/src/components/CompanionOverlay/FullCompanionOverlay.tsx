@@ -24,7 +24,12 @@ export function FullCompanionOverlay({
       <div className="companion-anchor">
         <CompanionSprite companionId={display.companionId} row={display.row} badges={display.badges} />
         {display.bubble && (
-          <aside className="companion-bubble" role="status" aria-live="polite">
+          <aside
+            className="companion-bubble"
+            data-testid="companion-speech-balloon"
+            role="status"
+            aria-live="polite"
+          >
             <p>{display.bubble}</p>
           </aside>
         )}
