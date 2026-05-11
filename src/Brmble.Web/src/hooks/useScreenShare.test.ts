@@ -293,6 +293,49 @@ describe('useScreenShare', () => {
     expect(result.current.watchingShares).toHaveLength(1);
   });
 
+  it('uses refreshed viewer token to recover a disconnected room without clearing watch state', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-11T12:00:00.000Z'));
+    const tokenHandlers: Array<(data: unknown) => void> = [];
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandlers.push(handler);
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    await act(async () => {
+      const promise = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      tokenHandlers[0]?.({ token: 'viewer-jwt', url: 'ws://localhost/livekit', expiresAt: '2026-05-11T12:10:00.000Z', requestId: 1 });
+      await promise;
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8 * 60 * 1000);
+    });
+
+    await act(async () => {
+      tokenHandlers[1]?.({ token: 'viewer-jwt-2', url: 'ws://localhost/livekit', expiresAt: '2026-05-11T12:20:00.000Z', requestId: 2 });
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      mockRoom.state = 'disconnected';
+      emitRoomEvent('disconnected');
+      await Promise.resolve();
+    });
+
+    expect(mockRoom.connect).toHaveBeenNthCalledWith(1, 'ws://localhost/livekit', 'viewer-jwt');
+    expect(mockRoom.connect).toHaveBeenNthCalledWith(2, 'ws://localhost/livekit', 'viewer-jwt-2');
+    expect(result.current.watchingShares).toEqual([expect.objectContaining({ roomName: 'channel-1', userId: 10 })]);
+  });
+
   it('disconnects and clears watching state when token refresh fails', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-11T12:00:00.000Z'));

@@ -52,8 +52,10 @@ type PendingTokenRequest = {
 type ActiveTokenLease = {
   roomName: string;
   accessMode: LiveKitAccessMode;
+  token: string;
   url: string;
   expiresAt: string;
+  isRefreshed: boolean;
   generation: number;
 };
 
@@ -481,7 +483,7 @@ export function useScreenShare(
             return;
           }
 
-          const nextLease = { ...currentLease, url: refreshed.url, expiresAt: refreshed.expiresAt };
+          const nextLease = { ...currentLease, token: refreshed.token, url: refreshed.url, expiresAt: refreshed.expiresAt, isRefreshed: true };
           activeTokenLeaseRef.current = nextLease;
           scheduleTokenRefresh(nextLease);
         } catch {
@@ -640,6 +642,44 @@ export function useScreenShare(
           return;
         }
 
+        const lease = activeTokenLeaseRef.current;
+        const currentAccessMode = roomAccessModeRef.current;
+        const canRecoverWithLease = lease
+          && lease.isRefreshed
+          && lease.roomName === room.name
+          && lease.accessMode === currentAccessMode
+          && Date.parse(lease.expiresAt) > Date.now()
+          && (watchingSharesRef.current.length > 0 || isSharingRef.current);
+
+        if (canRecoverWithLease) {
+          const reconnectGeneration = roomLifecycleGenerationRef.current;
+          void (async () => {
+            try {
+              await room.connect(lease.url, lease.token);
+              if (roomRef.current !== room || roomLifecycleGenerationRef.current !== reconnectGeneration) {
+                return;
+              }
+              roomAccessModeRef.current = lease.accessMode;
+            } catch {
+              if (roomRef.current !== room || roomLifecycleGenerationRef.current !== reconnectGeneration) {
+                return;
+              }
+
+              roomRef.current = null;
+              roomAccessModeRef.current = null;
+              clearTokenLease();
+              invalidateRoomLifecycle();
+              clearWatchingState();
+              const teardownIntent = localShareTeardownIntentRef.current;
+              localShareTeardownIntentRef.current = null;
+              if (isSharingRef.current) {
+                void stopLocalShare(teardownIntent ?? 'interrupted', room);
+              }
+            }
+          })();
+          return;
+        }
+
         roomRef.current = null;
         roomAccessModeRef.current = null;
         clearTokenLease();
@@ -677,8 +717,10 @@ export function useScreenShare(
         const lease = {
           roomName,
           accessMode,
+          token,
           url,
           expiresAt: tokenResponse.expiresAt,
+          isRefreshed: false,
           generation: roomLifecycleGenerationRef.current,
         };
         activeTokenLeaseRef.current = lease;
