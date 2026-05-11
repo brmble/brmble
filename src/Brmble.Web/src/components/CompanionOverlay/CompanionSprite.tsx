@@ -7,7 +7,7 @@ import paulAtlas from '../../assets/Sprites/Paul/Paul.webp';
 import type { CSSProperties } from 'react';
 import type { CompanionAtlasRow, CompanionId } from './overlayTypes';
 
-const COMPANION_FRAME_MS = 180;
+const COMPANION_FRAME_MS = 1000;
 const ATLAS_COLUMN_COUNT = 8;
 const frameCountByRow: Record<CompanionAtlasRow, number> = {
   1: 6,

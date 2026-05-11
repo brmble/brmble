@@ -23,7 +23,7 @@ describe('CompanionSprite', () => {
     expect(sprite).toHaveStyle({
       '--companion-frame-count': '6',
       '--companion-frame-step-count': '5',
-      '--companion-cycle-duration': '1080ms',
+      '--companion-cycle-duration': '6000ms',
     });
   });
 
@@ -46,7 +46,7 @@ describe('CompanionSprite', () => {
     expect(sprite).toHaveStyle({
       '--companion-frame-count': '4',
       '--companion-frame-step-count': '3',
-      '--companion-cycle-duration': '720ms',
+      '--companion-cycle-duration': '4000ms',
     });
   });
 });
