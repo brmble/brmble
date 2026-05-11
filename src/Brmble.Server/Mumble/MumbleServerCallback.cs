@@ -154,22 +154,29 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
 
     public async Task DispatchUserDisconnected(MumbleUser user)
     {
+        IReadOnlyList<string> stoppedRooms = [];
+
         // Check if user was sharing and stop all shares before removing session
         var snapshot = _sessionMapping.GetSnapshot();
         if (snapshot.TryGetValue(user.SessionId, out var mapping))
         {
-            var stoppedRooms = _screenShareTracker.StopAllByUserId(mapping.UserId);
+            stoppedRooms = _screenShareTracker.StopAllByUserId(mapping.UserId);
+        }
+
+        var revokedRecords = _liveKitParticipantTracker.RemoveBySession(user.SessionId);
+        _sessionMapping.RemoveSession(user.SessionId);
+        _channelMembership.Remove(user.SessionId);
+
+        if (snapshot.TryGetValue(user.SessionId, out mapping))
+        {
             foreach (var roomName in stoppedRooms)
             {
                 await _eventBus.BroadcastAsync(new { type = "screenShare.stopped", roomName, userId = mapping.UserId });
             }
         }
 
-        var revokedRecords = _liveKitParticipantTracker.RemoveBySession(user.SessionId);
         await RevokeParticipants(revokedRecords);
 
-        _sessionMapping.RemoveSession(user.SessionId);
-        _channelMembership.Remove(user.SessionId);
         await _eventBus.BroadcastAsync(new { type = "userMappingRemoved", sessionId = user.SessionId });
         await Task.WhenAll(_handlers.Select(h => h.OnUserDisconnected(user)));
     }

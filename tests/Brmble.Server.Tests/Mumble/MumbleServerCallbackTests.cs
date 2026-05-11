@@ -339,6 +339,34 @@ public class MumbleServerCallbackTests
     }
 
     [TestMethod]
+    public async Task DispatchUserDisconnected_RemovesAuthStateBeforeRevokingParticipants()
+    {
+        var order = new List<string>();
+        var bus = new Mock<IBrmbleEventBus>();
+        bus.Setup(b => b.BroadcastAsync(It.IsAny<object>())).Returns(Task.CompletedTask);
+        var mapping = new Mock<ISessionMappingService>();
+        mapping.Setup(m => m.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>
+        {
+            { 42, new SessionMapping("@alice:test", "Alice", 100L) }
+        });
+        mapping.Setup(m => m.RemoveSession(42)).Callback(() => order.Add("remove-session"));
+        var channelMembership = new Mock<IChannelMembershipService>();
+        channelMembership.Setup(cm => cm.Remove(42)).Callback(() => order.Add("remove-channel"));
+        var participantTracker = new LiveKitParticipantTracker();
+        participantTracker.Upsert(new LiveKitParticipantRecord("channel-5", "@alice:test", 100L, 42, LiveKitAccessMode.Subscribe, DateTimeOffset.UtcNow.AddMinutes(5)));
+
+        var remover = new Mock<ILiveKitParticipantRemover>();
+        remover.Setup(r => r.RemoveParticipant(It.IsAny<string>(), It.IsAny<string>()))
+            .Callback(() => order.Add("remove-participant"))
+            .Returns(Task.CompletedTask);
+        var callback = CreateCallback([], mapping: mapping.Object, bus: bus.Object, channelMembership: channelMembership.Object, liveKitParticipantRemover: remover.Object, liveKitParticipantTracker: participantTracker);
+
+        await callback.DispatchUserDisconnected(new MumbleUser("Alice", "abc", 42));
+
+        CollectionAssert.AreEqual(new[] { "remove-session", "remove-channel", "remove-participant" }, order);
+    }
+
+    [TestMethod]
     public async Task DispatchUserStateChanged_RevokesOldRoomParticipantAndKeepsNewRoomParticipant()
     {
         var bus = new Mock<IBrmbleEventBus>();
