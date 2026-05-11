@@ -396,7 +396,14 @@ internal sealed class AppConfigService : IAppConfigService
                 _profileRegistrations = data?.ProfileRegistrations ?? new();
                 _isFirstLaunch = false;
                 MigrateIdentityPfx();
-                if (HasLegacySettingsKeys(json)) Save();
+                if (HasLegacySettingsKeys(json))
+                {
+                    // Isolate the cleanup write — a failure here (read-only file,
+                    // locked, perms) must not bubble up and trigger the outer
+                    // catch, which would reset all state to defaults.
+                    try { Save(); }
+                    catch { /* leave legacy keys in place; we'll try again next launch */ }
+                }
                 return;
             }
 
@@ -561,9 +568,13 @@ internal sealed class AppConfigService : IAppConfigService
         // Detect keys from the pre-WebRTC-only voice refactor (5dbd3b6).
         // Deserialization silently drops them, but the file keeps the dead keys
         // until something else triggers a Save — clean them up on next launch.
-        try
+        JsonDocument doc;
+        try { doc = JsonDocument.Parse(rawJson); }
+        catch (JsonException) { return false; }
+        catch (ArgumentException) { return false; }
+
+        using (doc)
         {
-            using var doc = JsonDocument.Parse(rawJson);
             if (!doc.RootElement.TryGetProperty("settings", out var settings)
                 || settings.ValueKind != JsonValueKind.Object) return false;
             if (settings.TryGetProperty("speechDenoise", out _)) return true;
@@ -572,7 +583,6 @@ internal sealed class AppConfigService : IAppConfigService
                 && audio.ValueKind == JsonValueKind.Object
                 && audio.TryGetProperty("processingStack", out _)) return true;
         }
-        catch { /* malformed JSON — Load already handled the broken-file path */ }
         return false;
     }
 

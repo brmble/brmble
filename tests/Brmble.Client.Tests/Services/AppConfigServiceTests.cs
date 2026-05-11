@@ -440,10 +440,15 @@ public class AppConfigServiceTests
         Assert.AreEqual(NoiseSuppressionLevel.High, settings.NoiseSuppression.Level);
 
         // The on-disk file should be rewritten without the legacy keys.
+        // Parse it back rather than substring-matching the raw text.
         var rewritten = File.ReadAllText(Path.Combine(_tempDir, "config.json"));
-        StringAssert.DoesNotMatch(rewritten, new System.Text.RegularExpressions.Regex("processingStack", System.Text.RegularExpressions.RegexOptions.IgnoreCase));
-        StringAssert.DoesNotMatch(rewritten, new System.Text.RegularExpressions.Regex("speechDenoise", System.Text.RegularExpressions.RegexOptions.IgnoreCase));
-        StringAssert.DoesNotMatch(rewritten, new System.Text.RegularExpressions.Regex("speechEnhancement", System.Text.RegularExpressions.RegexOptions.IgnoreCase));
+        using var doc = System.Text.Json.JsonDocument.Parse(rewritten);
+        var settingsEl = doc.RootElement.GetProperty("settings");
+        Assert.IsFalse(settingsEl.TryGetProperty("speechDenoise", out _), "speechDenoise should be removed");
+        Assert.IsFalse(settingsEl.TryGetProperty("speechEnhancement", out _), "speechEnhancement should be removed");
+        Assert.IsFalse(
+            settingsEl.GetProperty("audio").TryGetProperty("processingStack", out _),
+            "audio.processingStack should be removed");
     }
 
     [TestMethod]
@@ -453,14 +458,15 @@ public class AppConfigServiceTests
         var svc1 = new AppConfigService(_tempDir, null);
         svc1.SetSettings(svc1.GetSettings()); // ensure file exists in canonical form
 
+        // Stamp a known sentinel timestamp; if Load() writes the file, this changes.
+        // (Avoids relying on filesystem clock resolution + Thread.Sleep.)
         var path = Path.Combine(_tempDir, "config.json");
-        var before = File.GetLastWriteTimeUtc(path);
-        System.Threading.Thread.Sleep(50);
+        var sentinel = new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(path, sentinel);
 
-        // Re-load: no legacy keys → no rewrite
         _ = new AppConfigService(_tempDir, null);
-        var after = File.GetLastWriteTimeUtc(path);
 
-        Assert.AreEqual(before, after, "Clean config.json should not be rewritten on load");
+        Assert.AreEqual(sentinel, File.GetLastWriteTimeUtc(path),
+            "Clean config.json should not be rewritten on load");
     }
 }
