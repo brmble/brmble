@@ -12,17 +12,55 @@ public sealed record LiveKitParticipantRecord(
 
 public sealed class LiveKitParticipantTracker
 {
+    private readonly object _lock = new();
     private readonly ConcurrentDictionary<(string RoomName, string MatrixUserId), LiveKitParticipantRecord> _participants = new();
     private readonly ConcurrentDictionary<int, byte> _revokingSessions = new();
+    private readonly ConcurrentDictionary<int, string> _sessionRooms = new();
 
     public void Upsert(LiveKitParticipantRecord record)
-        => _participants[(record.RoomName, record.MatrixUserId)] = record;
+        => TryUpsert(record);
+
+    public bool TryUpsert(LiveKitParticipantRecord record)
+    {
+        lock (_lock)
+        {
+            if (_revokingSessions.ContainsKey(record.SessionId))
+                return false;
+
+            if (_sessionRooms.TryGetValue(record.SessionId, out var currentRoom)
+                && !string.Equals(record.RoomName, currentRoom, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            _participants[(record.RoomName, record.MatrixUserId)] = record;
+            return true;
+        }
+    }
 
     public void MarkSessionRevoking(int sessionId)
-        => _revokingSessions[sessionId] = 0;
+    {
+        lock (_lock)
+        {
+            _revokingSessions[sessionId] = 0;
+        }
+    }
+
+    public void MarkSessionRoom(int sessionId, string roomName)
+    {
+        lock (_lock)
+        {
+            _sessionRooms[sessionId] = roomName;
+        }
+    }
 
     public bool IsSessionRevoking(int sessionId)
-        => _revokingSessions.ContainsKey(sessionId);
+    {
+        lock (_lock)
+        {
+            return _revokingSessions.ContainsKey(sessionId);
+        }
+    }
 
     public LiveKitParticipantRecord? Remove(string roomName, string matrixUserId)
     {
@@ -41,20 +79,28 @@ public sealed class LiveKitParticipantTracker
         => RemoveWhere(record => record.ExpiresAt <= now);
 
     public IReadOnlyList<LiveKitParticipantRecord> GetSnapshot()
-        => _participants.Values.ToList();
+    {
+        lock (_lock)
+        {
+            return _participants.Values.ToList();
+        }
+    }
 
     private IReadOnlyList<LiveKitParticipantRecord> RemoveWhere(Func<LiveKitParticipantRecord, bool> predicate)
     {
-        var removed = new List<LiveKitParticipantRecord>();
-        foreach (var pair in _participants)
+        lock (_lock)
         {
-            if (predicate(pair.Value) && TryRemoveMatched(_participants, pair))
+            var removed = new List<LiveKitParticipantRecord>();
+            foreach (var pair in _participants)
             {
-                removed.Add(pair.Value);
+                if (predicate(pair.Value) && TryRemoveMatched(_participants, pair))
+                {
+                    removed.Add(pair.Value);
+                }
             }
-        }
 
-        return removed;
+            return removed;
+        }
     }
 
     internal static bool TryRemoveMatched(

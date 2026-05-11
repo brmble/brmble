@@ -14,8 +14,8 @@ public class LiveKitParticipantTrackerTests
         var firstExpiry = DateTimeOffset.UtcNow.AddMinutes(5);
         var secondExpiry = DateTimeOffset.UtcNow.AddMinutes(10);
 
-        tracker.Upsert(new LiveKitParticipantRecord("channel-1", "@alice:test", 10, 7, LiveKitAccessMode.Subscribe, firstExpiry));
-        tracker.Upsert(new LiveKitParticipantRecord("channel-1", "@alice:test", 10, 7, LiveKitAccessMode.Publish, secondExpiry));
+        Assert.IsTrue(tracker.TryUpsert(new LiveKitParticipantRecord("channel-1", "@alice:test", 10, 7, LiveKitAccessMode.Subscribe, firstExpiry)));
+        Assert.IsTrue(tracker.TryUpsert(new LiveKitParticipantRecord("channel-1", "@alice:test", 10, 7, LiveKitAccessMode.Publish, secondExpiry)));
 
         var records = tracker.GetSnapshot();
 
@@ -92,6 +92,31 @@ public class LiveKitParticipantTrackerTests
 
         Assert.IsTrue(tracker.IsSessionRevoking(7));
         Assert.IsFalse(tracker.IsSessionRevoking(8));
+    }
+
+    [TestMethod]
+    public void TryUpsert_ReturnsFalseAfterSessionRevoking()
+    {
+        var tracker = new LiveKitParticipantTracker();
+        var record = new LiveKitParticipantRecord("channel-1", "@alice:test", 10, 7, LiveKitAccessMode.Subscribe, DateTimeOffset.UtcNow.AddMinutes(5));
+
+        tracker.MarkSessionRevoking(7);
+
+        Assert.IsFalse(tracker.TryUpsert(record));
+        Assert.AreEqual(0, tracker.GetSnapshot().Count);
+    }
+
+    [TestMethod]
+    public void TryUpsert_ReturnsFalseForStaleRoomAndTrueForCurrentRoom()
+    {
+        var tracker = new LiveKitParticipantTracker();
+        var expiry = DateTimeOffset.UtcNow.AddMinutes(5);
+
+        tracker.MarkSessionRoom(7, "channel-2");
+
+        Assert.IsFalse(tracker.TryUpsert(new LiveKitParticipantRecord("channel-1", "@alice:test", 10, 7, LiveKitAccessMode.Subscribe, expiry)));
+        Assert.IsTrue(tracker.TryUpsert(new LiveKitParticipantRecord("channel-2", "@alice:test", 10, 7, LiveKitAccessMode.Subscribe, expiry)));
+        Assert.AreEqual("channel-2", tracker.GetSnapshot().Single().RoomName);
     }
 
     [TestMethod]

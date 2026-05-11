@@ -85,19 +85,18 @@ public static class LiveKitEndpoints
             if (metadata is null)
                 return Results.Unauthorized();
 
-            if (hasSession && participantTracker.IsSessionRevoking(sessionId))
-                return Results.StatusCode(StatusCodes.Status403Forbidden);
-
             if (hasSession)
             {
                 participantTracker.PruneExpired(issuedAt);
-                participantTracker.Upsert(new LiveKitParticipantRecord(
+                var recorded = participantTracker.TryUpsert(new LiveKitParticipantRecord(
                     roomName,
                     user.MatrixUserId,
                     user.Id,
                     sessionId,
                     accessMode.Value,
                     metadata.ExpiresAt));
+                if (!recorded)
+                    return Results.StatusCode(StatusCodes.Status403Forbidden);
             }
 
             // Build the LiveKit WebSocket URL relative to the request origin.

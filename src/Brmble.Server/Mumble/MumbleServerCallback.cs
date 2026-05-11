@@ -185,11 +185,12 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     public async Task DispatchUserStateChanged(MumbleUser user, int channelId)
     {
         _channelMembership.Update(user.SessionId, channelId);
+        var currentRoom = $"channel-{channelId}";
+        _liveKitParticipantTracker.MarkSessionRoom(user.SessionId, currentRoom);
 
         var snapshot = _sessionMapping.GetSnapshot();
         if (snapshot.TryGetValue(user.SessionId, out var mapping))
         {
-            var currentRoom = $"channel-{channelId}";
             var shareRooms = _screenShareTracker.GetSharesByUserId(mapping.UserId);
             foreach (var roomName in shareRooms)
             {
