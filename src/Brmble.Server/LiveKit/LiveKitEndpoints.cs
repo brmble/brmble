@@ -85,6 +85,9 @@ public static class LiveKitEndpoints
             if (metadata is null)
                 return Results.Unauthorized();
 
+            if (hasSession && participantTracker.IsSessionRevoking(sessionId))
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+
             if (hasSession)
             {
                 participantTracker.PruneExpired(issuedAt);

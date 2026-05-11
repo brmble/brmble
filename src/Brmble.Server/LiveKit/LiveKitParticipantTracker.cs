@@ -13,9 +13,16 @@ public sealed record LiveKitParticipantRecord(
 public sealed class LiveKitParticipantTracker
 {
     private readonly ConcurrentDictionary<(string RoomName, string MatrixUserId), LiveKitParticipantRecord> _participants = new();
+    private readonly ConcurrentDictionary<int, byte> _revokingSessions = new();
 
     public void Upsert(LiveKitParticipantRecord record)
         => _participants[(record.RoomName, record.MatrixUserId)] = record;
+
+    public void MarkSessionRevoking(int sessionId)
+        => _revokingSessions[sessionId] = 0;
+
+    public bool IsSessionRevoking(int sessionId)
+        => _revokingSessions.ContainsKey(sessionId);
 
     public LiveKitParticipantRecord? Remove(string roomName, string matrixUserId)
     {

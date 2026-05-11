@@ -163,6 +163,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
             stoppedRooms = _screenShareTracker.StopAllByUserId(mapping.UserId);
         }
 
+        _liveKitParticipantTracker.MarkSessionRevoking(user.SessionId);
         var revokedRecords = _liveKitParticipantTracker.RemoveBySession(user.SessionId);
         _sessionMapping.RemoveSession(user.SessionId);
         _channelMembership.Remove(user.SessionId);

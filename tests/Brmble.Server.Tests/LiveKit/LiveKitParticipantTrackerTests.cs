@@ -84,6 +84,17 @@ public class LiveKitParticipantTrackerTests
     }
 
     [TestMethod]
+    public void MarkSessionRevoking_MarksOnlyThatSession()
+    {
+        var tracker = new LiveKitParticipantTracker();
+
+        tracker.MarkSessionRevoking(7);
+
+        Assert.IsTrue(tracker.IsSessionRevoking(7));
+        Assert.IsFalse(tracker.IsSessionRevoking(8));
+    }
+
+    [TestMethod]
     public void TryRemoveMatched_DoesNotRemoveReplacementRecord()
     {
         var participants = new ConcurrentDictionary<(string RoomName, string MatrixUserId), LiveKitParticipantRecord>();
