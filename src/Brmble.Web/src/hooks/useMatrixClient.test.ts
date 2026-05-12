@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { render, renderHook, screen, act } from '@testing-library/react';
 import React from 'react';
 import { useMatrixClient } from './useMatrixClient';
 import type { MatrixCredentials } from './useMatrixClient';
-import { ServiceStatusProvider } from './useServiceStatus';
+import { ServiceStatusProvider, useServiceStatus } from './useServiceStatus';
 
 // --- mock bridge ---
 vi.mock('../bridge', () => ({
@@ -53,6 +53,12 @@ function wrapper({ children }: { children: React.ReactNode }) {
   return React.createElement(ServiceStatusProvider, null, children);
 }
 
+function MatrixClientStatusProbe({ credentials }: { credentials: MatrixCredentials }) {
+  useMatrixClient(credentials);
+  const { statuses } = useServiceStatus();
+  return React.createElement('div', { 'data-testid': 'chat-state' }, statuses.chat.state);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -65,8 +71,9 @@ describe('useMatrixClient', () => {
       ...creds,
       dmRoomMap: { '@alice:example.com': '!dm:example.com' },
     };
+    const callbacks = { onDirectMessage };
 
-    renderHook(() => useMatrixClient(credsWithDm, { onDirectMessage }), { wrapper });
+    renderHook(() => useMatrixClient(credsWithDm, callbacks), { wrapper });
 
     const onSync = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'sync')?.[1] as
       | ((state: string) => void)
@@ -114,6 +121,27 @@ describe('useMatrixClient', () => {
   it('calls startClient when credentials are provided', () => {
     renderHook(() => useMatrixClient(creds), { wrapper });
     expect(mockClient.startClient).toHaveBeenCalledWith({ initialSyncLimit: 5 });
+  });
+
+  it('maps Matrix reconnect sync states to chat status', () => {
+    render(
+      React.createElement(
+        ServiceStatusProvider,
+        null,
+        React.createElement(MatrixClientStatusProbe, { credentials: creds }),
+      ),
+    );
+
+    const onSync = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'sync')?.[1] as
+      | ((state: string) => void)
+      | undefined;
+    expect(onSync).toBeDefined();
+
+    act(() => onSync!('RECONNECTING'));
+    expect(screen.getByTestId('chat-state').textContent).toBe('connecting');
+
+    act(() => onSync!('PREPARED'));
+    expect(screen.getByTestId('chat-state').textContent).toBe('connected');
   });
 
   it('does not call startClient when credentials are null', () => {

@@ -57,6 +57,7 @@ import {
 } from './components/CompanionOverlay/overlayModel';
 import { migrateLocalStorage } from './utils/migrateLocalStorage';
 import { mapBrmbleServiceStatus } from './utils/brmbleServiceStatus';
+import { areMatrixCredentialsEqual } from './utils/matrixCredentials';
 import './App.css';
 
 export interface ScreenShareEndedNotification {
@@ -1238,9 +1239,13 @@ function App() {
       const wrapped = data as { matrix?: MatrixCredentials } | undefined;
       const d = wrapped?.matrix;
       if (d?.homeserverUrl && d.accessToken && d.userId && d.roomMap) {
-        // Clear stale chat data from previous sessions
-        clearChatStorage();
-        setMatrixCredentials(d);
+        setMatrixCredentials(prev => {
+          if (!prev) {
+            clearChatStorage();
+            return d;
+          }
+          return areMatrixCredentialsEqual(prev, d) ? prev : d;
+        });
       }
     };
 
