@@ -256,7 +256,9 @@ static class Program
 
             var webRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "web");
             _controller.CoreWebView2.SetVirtualHostNameToFolderMapping(
-                "brmble.local", webRoot, CoreWebView2HostResourceAccessKind.Allow);
+                WebViewCacheConfig.VirtualHost, webRoot, CoreWebView2HostResourceAccessKind.Allow);
+            WebViewCacheConfig.DisableHtmlCacheForVirtualHost(
+                _controller.CoreWebView2, env, webRoot);
 
             _bridge = new NativeBridge(_controller.CoreWebView2, hwnd);
             _overlayRelay = new CompanionOverlayRelay();

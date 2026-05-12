@@ -50,9 +50,11 @@ internal sealed class CompanionOverlayHost : IDisposable
         if (!_useDevServer)
         {
             _controller.CoreWebView2.SetVirtualHostNameToFolderMapping(
-                "brmble.local",
+                WebViewCacheConfig.VirtualHost,
                 _webRoot,
                 CoreWebView2HostResourceAccessKind.Allow);
+            WebViewCacheConfig.DisableHtmlCacheForVirtualHost(
+                _controller.CoreWebView2, _environment, _webRoot);
         }
 
         _controller.CoreWebView2.NavigationStarting += (_, args) =>
