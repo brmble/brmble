@@ -6,15 +6,18 @@ public sealed class LiveKitParticipantRevocationScheduler : ILiveKitParticipantR
 
     private readonly ILiveKitParticipantRemover _participantRemover;
     private readonly IReadOnlyList<TimeSpan> _retryDelays;
+    private readonly Func<TimeSpan, Task> _delay;
     private readonly ILogger<LiveKitParticipantRevocationScheduler> _logger;
 
     public LiveKitParticipantRevocationScheduler(
         ILiveKitParticipantRemover participantRemover,
         ILogger<LiveKitParticipantRevocationScheduler> logger,
-        IReadOnlyList<TimeSpan>? retryDelays = null)
+        IReadOnlyList<TimeSpan>? retryDelays = null,
+        Func<TimeSpan, Task>? delay = null)
     {
         _participantRemover = participantRemover;
         _retryDelays = retryDelays ?? DefaultRetryDelays;
+        _delay = delay ?? Task.Delay;
         _logger = logger;
     }
 
@@ -33,7 +36,7 @@ public sealed class LiveKitParticipantRevocationScheduler : ILiveKitParticipantR
                 if (!removedAll)
                     removedAll = await RemoveParticipants(snapshot);
             }
-            else
+            else if (!removedAll)
             {
                 _ = RetryAfterDelay(snapshot, delay);
             }
@@ -44,7 +47,7 @@ public sealed class LiveKitParticipantRevocationScheduler : ILiveKitParticipantR
     {
         try
         {
-            await Task.Delay(delay);
+            await _delay(delay);
             await RemoveParticipants(records);
         }
         catch (Exception ex)
