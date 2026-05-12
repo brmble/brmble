@@ -141,6 +141,17 @@ public class MumbleAdapterCredentialsTests
     }
 
     [TestMethod]
+    public void ShouldEmitSessionStoppedStatus_StaleCanceledGeneration_ReturnsFalse()
+    {
+        var result = MumbleAdapter.ShouldEmitSessionStoppedStatus(
+            isCancellationRequested: true,
+            currentGeneration: 2,
+            taskGeneration: 1);
+
+        Assert.IsFalse(result);
+    }
+
+    [TestMethod]
     public void CreateBrmbleServiceStatusPayload_WithReconnectContext_UsesExpectedShape()
     {
         var payload = MumbleAdapter.CreateBrmbleServiceStatusPayload(

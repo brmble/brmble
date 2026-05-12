@@ -56,6 +56,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private Dictionary<string, string> _userMappings = new();
     private readonly ConcurrentDictionary<uint, SessionMappingEntry> _sessionMappings = new();
     private CancellationTokenSource? _wsCts;
+    private long _wsGeneration;
     private readonly IAppConfigService? _appConfigService;
     private readonly VoiceIdleTracker? _voiceIdleTracker;
     private System.Threading.Timer? _voiceIdlePollTimer;
@@ -327,6 +328,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _wsCts?.Cancel();
         _wsCts?.Dispose();
         _wsCts = null;
+        Interlocked.Increment(ref _wsGeneration);
         StopHealthCheck();
         _serverHealthWasConnected = false;
         _credentialsAlreadyFetched = false;
@@ -1289,6 +1291,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         bool sawHealthFailureSinceCredentials)
         => credentialsAlreadyFetched && !previousHealthWasConnected && sawHealthFailureSinceCredentials;
 
+    internal static bool ShouldEmitSessionStoppedStatus(
+        bool isCancellationRequested,
+        long currentGeneration,
+        long taskGeneration)
+        => isCancellationRequested && currentGeneration == taskGeneration;
+
     internal sealed record ServerRemovalPayload(
         string Reason,
         string ActorName,
@@ -1579,6 +1587,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     private void StartWebSocketConnection(string apiUrl)
     {
+        var wsGeneration = Interlocked.Increment(ref _wsGeneration);
         var old = _wsCts;
         old?.Cancel();
         old?.Dispose();
@@ -1737,7 +1746,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 backoff = TimeSpan.FromSeconds(Math.Min(backoff.TotalSeconds * 2, maxBackoff.TotalSeconds));
             }
 
-            if (ct.IsCancellationRequested)
+            if (ShouldEmitSessionStoppedStatus(ct.IsCancellationRequested, Interlocked.Read(ref _wsGeneration), wsGeneration))
             {
                 SendBrmbleServiceStatus("session", "disconnected", reason: "stopped");
             }
