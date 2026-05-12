@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_OVERLAY } from '../SettingsModal/InterfaceSettingsTypes';
 import {
   appendOverlayEvent,
@@ -25,7 +25,7 @@ describe('overlayModel', () => {
       localUser: {
         session: 0,
         name: 'You',
-        companionId: 'clip',
+        companionId: 'bee',
       },
       flags: {
         localMuted: false,
@@ -113,7 +113,7 @@ describe('overlayModel', () => {
       kind: 'idle',
       representedSession: 0,
       representedName: 'You',
-      companionId: 'clip',
+      companionId: 'bee',
       row: 1,
       bubble: null,
       expiresAt: null,
@@ -125,17 +125,20 @@ describe('overlayModel', () => {
 
     snapshot = updateFullCompanionContext(snapshot, {
       localUser: {
-        companionId: 'eren',
+        companionId: 'engineer',
       },
     });
 
     expect(snapshot.fullCompanion.activeDisplay).toEqual(expect.objectContaining({
       kind: 'idle',
-      companionId: 'eren',
+      companionId: 'engineer',
     }));
   });
 
   it('chat preempts idle and expires after five seconds', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2_000));
+
     let snapshot = createOverlaySnapshot('7', 'Raid');
     snapshot = appendOverlayEvent(
       snapshot,
@@ -165,9 +168,14 @@ describe('overlayModel', () => {
       kind: 'idle',
       row: 1,
     }));
+
+    vi.useRealTimers();
   });
 
   it('serializes multiple chats through the chat queue', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(1_000));
+
     let snapshot = createOverlaySnapshot('7', 'Raid');
     snapshot = appendOverlayEvent(snapshot, {
       id: 'chat-1',
@@ -199,6 +207,8 @@ describe('overlayModel', () => {
       startedAt: 6_001,
       expiresAt: 11_001,
     }));
+
+    vi.useRealTimers();
   });
 
   it('promotes speakers only after half a second of continuous speech', () => {
@@ -223,13 +233,13 @@ describe('overlayModel', () => {
       localUser: {
         session: 42,
         name: 'You',
-        companionId: 'eren',
+        companionId: 'engineer',
       },
       companionsByUser: {
         42: {
           session: 42,
           name: 'You',
-          companionId: 'clip',
+          companionId: 'bee',
         },
       },
     });
@@ -240,7 +250,7 @@ describe('overlayModel', () => {
     expect(snapshot.fullCompanion.activeDisplay).toEqual(expect.objectContaining({
       kind: 'speaking',
       representedSession: 42,
-      companionId: 'eren',
+      companionId: 'engineer',
     }));
   });
 
@@ -249,7 +259,7 @@ describe('overlayModel', () => {
       localUser: {
         session: 42,
         name: 'You',
-        companionId: 'kirito',
+        companionId: 'retro',
       },
       companionsByUser: {
         99: {
@@ -265,7 +275,7 @@ describe('overlayModel', () => {
     expect(snapshot.fullCompanion.activeDisplay).toEqual(expect.objectContaining({
       kind: 'speaking',
       representedSession: 99,
-      companionId: 'kirito',
+      companionId: 'retro',
       isProxy: true,
     }));
   });
@@ -275,7 +285,7 @@ describe('overlayModel', () => {
       localUser: {
         session: 42,
         name: 'You',
-        companionId: 'kirito',
+        companionId: 'retro',
       },
       companionsByUser: {
         99: {
@@ -296,7 +306,7 @@ describe('overlayModel', () => {
     expect(snapshot.fullCompanion.activeDisplay).toEqual(expect.objectContaining({
       kind: 'join',
       representedSession: 99,
-      companionId: 'kirito',
+      companionId: 'retro',
       isProxy: true,
     }));
   });

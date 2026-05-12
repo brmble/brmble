@@ -38,7 +38,7 @@ export interface CompanionSpeakerEntry {
 
 export type CompanionAtlasRow = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 export type CompanionDisplayKind = 'idle' | 'chat' | 'speaking' | 'join' | 'leave';
-export type CompanionId = 'clip' | 'eren' | 'kid-goku' | 'kirito' | 'paul';
+export type CompanionId = 'bee' | 'engineer' | 'floppy' | 'patch' | 'pip' | 'retro';
 
 export interface CompanionLookupEntry {
   session: number;
