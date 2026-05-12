@@ -1145,13 +1145,14 @@ export function useScreenShare(
     roomReconnectUpgradeRef.current = false;
     clearTokenLease();
     invalidateRoomLifecycle();
+    setDiscoveryTarget(null);
     notifyUnexpectedWatchedShareEnds();
     clearWatchingState();
     if (isSharingRef.current) {
       await stopLocalShare('interrupted', room);
     }
     try { await room?.disconnect(); } catch { /* ignore */ }
-  }, [cancelPendingViewerAttempts, clearTokenLease, clearWatchingState, invalidateRoomLifecycle, notifyUnexpectedWatchedShareEnds, stopLocalShare]);
+  }, [cancelPendingViewerAttempts, clearTokenLease, clearWatchingState, invalidateRoomLifecycle, notifyUnexpectedWatchedShareEnds, setDiscoveryTarget, stopLocalShare]);
 
   return {
     isSharing,
