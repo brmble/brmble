@@ -94,20 +94,94 @@
   gap: 8px;
 }
 
+.companion-sprite-frame {
+  position: relative;
+  width: 120px;
+  height: 120px;
+}
+
 .companion-sprite {
   width: 120px;
+  height: 120px;
   image-rendering: pixelated;
 }
 
+.companion-sprite--atlas {
+  background-repeat: no-repeat;
+  background-size: calc(100% * 8) calc(100% * 9);
+}
+
+.companion-sprite--animated {
+  will-change: background-position;
+}
+
+.companion-badges {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  display: flex;
+  gap: 4px;
+}
+
+.companion-badge {
+  display: inline-flex;
+  min-width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0 6px;
+  background: rgba(0, 0, 0, 0.72);
+  color: white;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-shadow: none;
+}
+
+.companion-badge--muted {
+  background: rgba(230, 74, 74, 0.88);
+}
+
+.companion-badge--live {
+  background: rgba(64, 188, 111, 0.88);
+}
+
 .companion-bubble {
+  position: relative;
   max-width: min(320px, calc(100vw - 96px));
-  padding: 0;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(34, 40, 52, 0.94), rgba(19, 23, 32, 0.94));
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.28), 0 6px 14px rgba(0, 0, 0, 0.24);
+}
+
+.companion-bubble::before,
+.companion-bubble::after {
+  content: '';
+  position: absolute;
+  top: -7px;
+  width: 14px;
+  height: 14px;
+  transform: rotate(45deg);
+}
+
+.companion-bubble::before {
+  background: inherit;
+  z-index: -1;
+}
+
+.companion-bubble::after {
+  background: rgba(19, 23, 32, 0.94);
+  border-top: 1px solid rgba(255, 255, 255, 0.22);
 }
 
 .companion-bubble p {
   margin: 0;
   font-size: 13px;
-  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.85);
+  line-height: 1.4;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.7);
 }
 
 .companion-overlay--position-top-left {
@@ -139,7 +213,41 @@
   justify-items: start;
 }
 
+.companion-overlay--position-top-left .companion-bubble,
+.companion-overlay--position-bottom-left .companion-bubble {
+  margin-left: 18px;
+}
+
+.companion-overlay--position-top-left .companion-bubble::before,
+.companion-overlay--position-bottom-left .companion-bubble::before,
+.companion-overlay--position-top-left .companion-bubble::after,
+.companion-overlay--position-bottom-left .companion-bubble::after {
+  left: -7px;
+}
+
+.companion-overlay--position-top-left .companion-bubble::after,
+.companion-overlay--position-bottom-left .companion-bubble::after {
+  border-left: 1px solid rgba(255, 255, 255, 0.22);
+}
+
 .companion-overlay--position-top-right .companion-anchor,
 .companion-overlay--position-bottom-right .companion-anchor {
   justify-items: end;
+}
+
+.companion-overlay--position-top-right .companion-bubble,
+.companion-overlay--position-bottom-right .companion-bubble {
+  margin-right: 18px;
+}
+
+.companion-overlay--position-top-right .companion-bubble::before,
+.companion-overlay--position-bottom-right .companion-bubble::before,
+.companion-overlay--position-top-right .companion-bubble::after,
+.companion-overlay--position-bottom-right .companion-bubble::after {
+  right: -7px;
+}
+
+.companion-overlay--position-top-right .companion-bubble::after,
+.companion-overlay--position-bottom-right .companion-bubble::after {
+  border-right: 1px solid rgba(255, 255, 255, 0.22);
 }

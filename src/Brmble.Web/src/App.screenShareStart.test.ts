@@ -1715,4 +1715,44 @@ describe('active share discovery', () => {
     expect(disconnectCall?.order).toBeGreaterThan(stopCall);
     expect(getShareEndedQueueRegistrations()).toEqual([]);
   });
+
+  it('does not publish a joined balloon for same-channel user state updates like self-mute', async () => {
+    localStorage.setItem('brmble-settings', JSON.stringify({
+      overlay: {
+        overlayEnabled: true,
+        showJoinLeaveEvents: true,
+      },
+    }));
+
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [
+          { session: 7, name: 'TestUser', self: true, channelId: 1 },
+          { session: 8, name: 'Alice', channelId: 1, muted: false },
+        ],
+      });
+    });
+
+    act(() => {
+      bridge.emit('voice.userJoined', {
+        session: 8,
+        name: 'Alice',
+        channelId: 1,
+        muted: true,
+        self: false,
+      });
+    });
+
+    await waitFor(() => {
+      const overlaySyncCalls = vi.mocked(bridge.send).mock.calls
+        .filter(([type]) => type === 'overlay.sync');
+      const lastPayload = overlaySyncCalls.at(-1)?.[1] as { snapshot?: { recentEvents?: Array<{ line: string }> } } | undefined;
+      expect(lastPayload?.snapshot?.recentEvents ?? []).toEqual([]);
+    });
+  });
 });

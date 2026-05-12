@@ -51,7 +51,9 @@ import {
   createMembershipOverlayEvent,
   createOverlaySnapshot,
   pruneOverlaySnapshot,
+  resolveFullCompanionDisplay,
   setSpeakerActivity,
+  updateFullCompanionContext,
 } from './components/CompanionOverlay/overlayModel';
 import { migrateLocalStorage } from './utils/migrateLocalStorage';
 import './App.css';
@@ -522,10 +524,25 @@ function App() {
 
   useEffect(() => {
     if (!overlaySettings.overlayEnabled) return;
-    // Prune immediately on enable to prevent flash of stale content
-    setOverlaySnapshot((prev) => pruneOverlaySnapshot(prev, Date.now()));
+    // Clear fullCompanion state and prune immediately on enable to prevent flash of stale content
+    setOverlaySnapshot((prev) => {
+      const now = Date.now();
+      return resolveFullCompanionDisplay(pruneOverlaySnapshot({
+        ...prev,
+        fullCompanion: {
+          ...prev.fullCompanion,
+          activeDisplay: null,
+          chatQueue: [],
+          eventQueue: [],
+          speakerCandidates: [],
+        },
+      }, now), now);
+    });
     const interval = window.setInterval(() => {
-      setOverlaySnapshot((prev) => pruneOverlaySnapshot(prev, Date.now()));
+      setOverlaySnapshot((prev) => {
+        const now = Date.now();
+        return resolveFullCompanionDisplay(pruneOverlaySnapshot(prev, now), now);
+      });
     }, 1000);
     return () => window.clearInterval(interval);
   }, [overlaySettings.overlayEnabled]);
@@ -568,6 +585,7 @@ function App() {
       const settings = overlaySettingsRef.current;
       if (!settings.overlayEnabled) return;
       setOverlaySnapshot((prev) => {
+        const now = Date.now();
         const next = appendOverlayEvent(
           prev,
           createChannelMessageOverlayEvent({
@@ -579,15 +597,16 @@ function App() {
           }),
           settings,
         );
-        return next;
+        return resolveFullCompanionDisplay(next, now);
       });
     },
     onDirectMessage: (_matrixUserId: string, message: ChatMessage) => {
       const settings = overlaySettingsRef.current;
       if (!settings.overlayEnabled) return;
       setOverlaySnapshot((prev) => {
+        const now = Date.now();
         const safeName = message.sender?.trim() || 'Unknown user';
-        return appendOverlayEvent(
+        const next = appendOverlayEvent(
           prev,
           {
             id: `evt-${message.id}-dm`,
@@ -598,6 +617,7 @@ function App() {
           },
           settings,
         );
+        return resolveFullCompanionDisplay(next, now);
       });
     },
   }), []);
@@ -1297,6 +1317,14 @@ function App() {
       const d = data as { session: number; name: string; channelId?: number; muted?: boolean; deafened?: boolean; self?: boolean; comment?: string; matrixUserId?: string; certHash?: string; isBrmbleClient?: boolean } | undefined;
       if (d?.session && d.channelId !== undefined) {
         const previousChannelId = previousChannelIdRef.current.get(d.session);
+        const knownUser = usersRef.current.find(u => u.session === d.session);
+        const lastKnownChannelId = previousChannelId ?? knownUser?.channelId;
+        const selfUser = usersRef.current.find(u => u.self);
+        const selfChannelId = selfUser?.channelId;
+        const enteredSelfChannel = !d.self
+          && selfChannelId !== undefined
+          && d.channelId === selfChannelId
+          && lastKnownChannelId !== selfChannelId;
         
         setUsers(prev => {
           const existing = prev.find(u => u.session === d.session);
@@ -1316,29 +1344,29 @@ function App() {
           fetchAvatarForUser(d.session, d.matrixUserId);
         }
 
-        if (!d.self) {
-          const selfUser = usersRef.current.find(u => u.self);
-          const selfChannelId = selfUser?.channelId;
-          if (selfChannelId !== undefined && d.channelId === selfChannelId && previousChannelId !== selfChannelId) {
-            speakText(`${d.name} joined`);
-          }
+        if (enteredSelfChannel) {
+          speakText(`${d.name} joined`);
         }
         
         previousChannelIdRef.current.set(d.session, d.channelId);
 
         const overlaySettings = overlaySettingsRef.current;
-        if (overlaySettings.overlayEnabled && !d.self) {
-          setOverlaySnapshot((prev) => appendOverlayEvent(
-            prev,
-            createMembershipOverlayEvent({
-              kind: 'user-joined',
-              actorName: d.name,
-              currentChannelId: prev.currentChannelId,
-              eventChannelId: String(d.channelId),
-              timestamp: Date.now(),
-            }),
-            overlaySettings,
-          ));
+        if (overlaySettings.overlayEnabled && enteredSelfChannel) {
+          setOverlaySnapshot((prev) => {
+            const now = Date.now();
+            const next = appendOverlayEvent(
+              prev,
+              createMembershipOverlayEvent({
+                kind: 'user-joined',
+                actorName: d.name,
+                currentChannelId: prev.currentChannelId,
+                eventChannelId: String(d.channelId),
+                timestamp: now,
+              }),
+              overlaySettings,
+            );
+            return resolveFullCompanionDisplay(next, now);
+          });
         }
 
         // Update Mumble DM contact session on reconnect
@@ -1463,17 +1491,21 @@ function App() {
         if (overlaySettings.overlayEnabled && d.name && d.channelId !== undefined) {
           const userName = d.name;
           const eventChannelId = String(d.channelId);
-          setOverlaySnapshot((prev) => appendOverlayEvent(
-            prev,
-            createMembershipOverlayEvent({
-              kind: 'user-left',
-              actorName: userName,
-              currentChannelId: prev.currentChannelId,
-              eventChannelId,
-              timestamp: Date.now(),
-            }),
-            overlaySettings,
-          ));
+          setOverlaySnapshot((prev) => {
+            const now = Date.now();
+            const next = appendOverlayEvent(
+              prev,
+              createMembershipOverlayEvent({
+                kind: 'user-left',
+                actorName: userName,
+                currentChannelId: prev.currentChannelId,
+                eventChannelId,
+                timestamp: now,
+              }),
+              overlaySettings,
+            );
+            return resolveFullCompanionDisplay(next, now);
+          });
         }
 
         setUsers(prev => prev.filter(u => u.session !== d.session));
@@ -1532,12 +1564,14 @@ function App() {
                 return prev;
               }
 
-              return setSpeakerActivity(
+              const now = Date.now();
+              const next = setSpeakerActivity(
                 prev,
                 { session: d.session, name: user.name, channelId: speakerChannelId },
                 true,
-                Date.now(),
+                now,
               );
+              return resolveFullCompanionDisplay(next, now);
             });
           }
         }
@@ -1558,12 +1592,16 @@ function App() {
           const user = usersRef.current.find((entry) => entry.session === d.session);
           if (user?.channelId !== undefined) {
             const speakerChannelId = user.channelId;
-            setOverlaySnapshot((prev) => setSpeakerActivity(
-              prev,
-              { session: d.session, name: user.name, channelId: speakerChannelId },
-              false,
-              Date.now(),
-            ));
+            setOverlaySnapshot((prev) => {
+              const now = Date.now();
+              const next = setSpeakerActivity(
+                prev,
+                { session: d.session, name: user.name, channelId: speakerChannelId },
+                false,
+                now,
+              );
+              return resolveFullCompanionDisplay(next, now);
+            });
           }
         }
       }
@@ -1576,17 +1614,21 @@ function App() {
         const kind = d.kind;
         const userName = d.name;
         const eventChannelId = String(d.channelId);
-        setOverlaySnapshot((prev) => appendOverlayEvent(
-          prev,
-          createMembershipOverlayEvent({
-            kind,
-            actorName: userName,
-            currentChannelId: prev.currentChannelId,
-            eventChannelId,
-            timestamp: Date.now(),
-          }),
-          overlaySettings,
-        ));
+        setOverlaySnapshot((prev) => {
+          const now = Date.now();
+          const next = appendOverlayEvent(
+            prev,
+            createMembershipOverlayEvent({
+              kind,
+              actorName: userName,
+              currentChannelId: prev.currentChannelId,
+              eventChannelId,
+              timestamp: now,
+            }),
+            overlaySettings,
+          );
+          return resolveFullCompanionDisplay(next, now);
+        });
       }
     });
 
@@ -2519,6 +2561,35 @@ const handleConnect = (serverData: SavedServer) => {
   isSharingRef.current = isSharing;
   stopSharingRef.current = stopSharing;
   disconnectViewerRef.current = disconnectViewer;
+
+  useEffect(() => {
+    const localUser = users.find((user) => user.self);
+    const companionsByUser = users.reduce<CompanionOverlaySnapshot['fullCompanion']['companionsByUser']>((acc, user) => {
+      if (user.session === undefined) return acc;
+      acc[user.session] = {
+        session: user.session,
+        name: user.name || 'Unknown user',
+        companionId: user.self ? overlaySettings.myCompanion : undefined,
+        isProxy: false,
+      };
+      return acc;
+    }, {});
+    const liveUserSessions = Array.from(new Set([
+      ...(isSharing && localUser?.session !== undefined ? [localUser.session] : []),
+      ...activeShares.map((share) => share.sessionId).filter((session): session is number => session !== undefined),
+    ]));
+
+    setOverlaySnapshot((prev) => updateFullCompanionContext(prev, {
+      localUser: {
+        session: localUser?.session ?? selfSession ?? 0,
+        name: localUser?.name || username || 'You',
+        companionId: overlaySettings.myCompanion,
+      },
+      companionsByUser,
+      localMuted: selfMuted,
+      liveUserSessions,
+    }));
+  }, [activeShares, isSharing, overlaySettings.myCompanion, selfMuted, selfSession, username, users]);
 
   const handleServersImported = useCallback((labels: string[]) => {
     const toasts = labels.map((label) => ({ id: `srv-${nextServerImportToastIdRef.current++}`, label, visible: true }));

@@ -10,6 +10,7 @@ export interface OverlaySettings {
   overlayEnabled: boolean;
   mode: CompanionOverlayMode;
   position: CompanionOverlayPosition;
+  myCompanion: CompanionSelection;
   showChannelMessages: boolean;
   showDirectMessages: boolean;
   showJoinLeaveEvents: boolean;
@@ -19,11 +20,13 @@ export interface OverlaySettings {
 
 export type CompanionOverlayMode = 'full' | 'minimal';
 export type CompanionOverlayPosition = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+export type CompanionSelection = 'clip' | 'eren' | 'kid-goku' | 'kirito' | 'paul';
 
 export const DEFAULT_OVERLAY: OverlaySettings = {
   overlayEnabled: false,
   mode: 'minimal',
   position: 'bottom-right',
+  myCompanion: 'clip',
   showChannelMessages: true,
   showDirectMessages: true,
   showJoinLeaveEvents: true,
