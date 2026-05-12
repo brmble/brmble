@@ -25,6 +25,8 @@ export interface ScreenShareSettings {
 }
 
 export type LocalShareStopReason = 'manual' | 'source-closed' | 'interrupted' | 'error' | 'blocked-capture' | 'moved-channel';
+export type WatchedShareEndReason = 'ended' | 'unexpected';
+export type WatchedShareEndedCallback = (share: ShareInfo, reason: WatchedShareEndReason) => void;
 
 type LocalTrackLike = {
   addEventListener?: (event: string, handler: () => void) => void;
@@ -159,6 +161,7 @@ export function useScreenShare(
   onDisconnected?: () => void,
   screenShareSettings?: ScreenShareSettings,
   onLocalShareEnded?: (reason: LocalShareStopReason) => void,
+  onWatchedShareEnded?: WatchedShareEndedCallback,
 ) {
   const [isSharing, setIsSharing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -184,6 +187,7 @@ export function useScreenShare(
   const tokenRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onDisconnectedRef = useRef(onDisconnected);
   const onLocalShareEndedRef = useRef(onLocalShareEnded);
+  const onWatchedShareEndedRef = useRef<WatchedShareEndedCallback | undefined>(onWatchedShareEnded);
   const localShareEndCleanupRef = useRef<(() => void) | null>(null);
   const localShareStopHandledRef = useRef(false);
   const localShareTeardownIntentRef = useRef<LocalShareStopReason | null>(null);
@@ -192,6 +196,7 @@ export function useScreenShare(
   const pendingViewerAttemptsRef = useRef(new Map<number, PendingViewerAttempt>());
   onDisconnectedRef.current = onDisconnected;
   onLocalShareEndedRef.current = onLocalShareEnded;
+  onWatchedShareEndedRef.current = onWatchedShareEnded;
 
   const clearLocalShareEndListener = useCallback(() => {
     localShareEndCleanupRef.current?.();
@@ -321,6 +326,12 @@ export function useScreenShare(
     updateWatchingShares([]);
     setFocusedShare(null);
   }, [setFocusedShare, updateWatchingShares]);
+
+  const notifyUnexpectedWatchedShareEnds = useCallback(() => {
+    for (const share of watchingSharesRef.current) {
+      onWatchedShareEndedRef.current?.(share, 'unexpected');
+    }
+  }, []);
 
   // Helper: request a LiveKit token via bridge
   const requestToken = useCallback((roomName: string, accessMode: LiveKitAccessMode) => {
@@ -499,6 +510,7 @@ export function useScreenShare(
           clearTokenLease();
           invalidateRoomLifecycle();
           cancelPendingViewerAttempts();
+          notifyUnexpectedWatchedShareEnds();
           clearWatchingState();
           if (isSharingRef.current) {
             await stopLocalShare('interrupted', room);
@@ -507,7 +519,7 @@ export function useScreenShare(
         }
       })();
     }, delayMs);
-  }, [cancelPendingViewerAttempts, clearTokenLease, clearTokenRefreshTimer, clearWatchingState, invalidateRoomLifecycle, requestToken, stopLocalShare]);
+  }, [cancelPendingViewerAttempts, clearTokenLease, clearTokenRefreshTimer, clearWatchingState, invalidateRoomLifecycle, notifyUnexpectedWatchedShareEnds, requestToken, stopLocalShare]);
 
   const bindLocalShareEndListener = useCallback((room: Room) => {
     clearLocalShareEndListener();
@@ -602,6 +614,7 @@ export function useScreenShare(
       roomAccessModeRef.current = null;
       clearTokenLease();
       invalidateRoomLifecycle();
+      notifyUnexpectedWatchedShareEnds();
       clearWatchingState();
       const teardownIntent = localShareTeardownIntentRef.current;
       localShareTeardownIntentRef.current = null;
@@ -609,7 +622,7 @@ export function useScreenShare(
         void stopLocalShare(teardownIntent ?? 'interrupted', room);
       }
     });
-  }, [clearTokenLease, clearWatchingState, invalidateRoomLifecycle, removeWatchingShare, stopLocalShare]);
+  }, [clearTokenLease, clearWatchingState, invalidateRoomLifecycle, notifyUnexpectedWatchedShareEnds, removeWatchingShare, stopLocalShare]);
 
   // Ensure we have a connected room for the given channel.
   // Returns the existing room if already connected to this channel, otherwise connects.
@@ -975,6 +988,11 @@ export function useScreenShare(
       const wasWatching = watchingSharesRef.current.some(s => s.roomName === d.roomName && s.userId === d.userId);
       cancelPendingViewerAttempts(attempt => attempt.roomName === d.roomName && attempt.userId === d.userId);
       if (wasWatching) {
+        const stoppedShare = watchingSharesRef.current.find(s => s.roomName === d.roomName && s.userId === d.userId)
+          ?? activeSharesRef.current.find(s => s.roomName === d.roomName && s.userId === d.userId);
+        if (stoppedShare) {
+          onWatchedShareEndedRef.current?.(stoppedShare, 'ended');
+        }
         const room = roomRef.current;
         if (room) {
           const share = watchingSharesRef.current.find(s => s.userId === d.userId);
@@ -1104,12 +1122,13 @@ export function useScreenShare(
     roomReconnectUpgradeRef.current = false;
     clearTokenLease();
     invalidateRoomLifecycle();
+    notifyUnexpectedWatchedShareEnds();
     clearWatchingState();
     if (isSharingRef.current) {
       await stopLocalShare('interrupted', room);
     }
     try { await room?.disconnect(); } catch { /* ignore */ }
-  }, [cancelPendingViewerAttempts, clearTokenLease, clearWatchingState, invalidateRoomLifecycle, stopLocalShare]);
+  }, [cancelPendingViewerAttempts, clearTokenLease, clearWatchingState, invalidateRoomLifecycle, notifyUnexpectedWatchedShareEnds, stopLocalShare]);
 
   return {
     isSharing,

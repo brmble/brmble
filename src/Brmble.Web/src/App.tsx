@@ -5,7 +5,7 @@ import { encodeForMumble } from './utils/imageUpload';
 import { useMatrixClient } from './hooks/useMatrixClient';
 import type { MatrixCredentials } from './hooks/useMatrixClient';
 import { useScreenShare } from './hooks/useScreenShare';
-import type { LocalShareStopReason } from './hooks/useScreenShare';
+import type { LocalShareStopReason, ShareInfo, WatchedShareEndReason } from './hooks/useScreenShare';
 import { useLeaveVoiceCooldown } from './hooks/useLeaveVoiceCooldown';
 import { useNotificationQueue } from './hooks/useNotificationQueue';
 import { useBrmbleIdle } from './hooks/useBrmbleIdle';
@@ -68,6 +68,13 @@ export interface ScreenShareEndedNotification {
 
 export interface QueuedScreenShareEndedNotification extends ScreenShareEndedNotification {
   id: string;
+}
+
+interface WatchedShareEndedNotification {
+  id: string;
+  status: NotificationStatus;
+  title: string;
+  detail: string;
 }
 
 export interface MovedChannelNotificationInput {
@@ -156,6 +163,19 @@ export function createQueuedScreenShareEndedNotification(
   return {
     id: `screen-share-ended-${sequence}`,
     ...notification,
+  };
+}
+
+export function createWatchedShareEndedNotification(
+  share: ShareInfo,
+  reason: WatchedShareEndReason,
+  sequence: number,
+): WatchedShareEndedNotification {
+  return {
+    id: `watched-share-ended-${sequence}`,
+    status: reason === 'unexpected' ? 'warning' : 'info',
+    title: reason === 'unexpected' ? 'Share ended unexpectedly' : 'Share ended',
+    detail: `${share.userName || 'Someone'}'s share ended${reason === 'unexpected' ? ' because the screen-share connection was interrupted.' : '.'}`,
   };
 }
 
@@ -2531,9 +2551,11 @@ const handleConnect = (serverData: SavedServer) => {
     userName: string; roomName: string; userId?: number; matrixUserId?: string;
   } | null>(null);
   const [screenShareEndedNotification, setScreenShareEndedNotification] = useState<QueuedScreenShareEndedNotification | null>(null);
+  const [watchedShareEndedNotification, setWatchedShareEndedNotification] = useState<WatchedShareEndedNotification | null>(null);
   const [movedChannelNotification, setMovedChannelNotification] = useState<QueuedMovedChannelNotification | null>(null);
   const [serverRemovalNotification, setServerRemovalNotification] = useState<ServerRemovalNotification | null>(null);
   const nextScreenShareEndedNotificationIdRef = useRef(0);
+  const nextWatchedShareEndedNotificationIdRef = useRef(0);
   const nextMovedChannelNotificationIdRef = useRef(0);
   const nextActiveShareDiscoveryRequestIdRef = useRef(0);
   const screenShareEndedNotificationRef = useRef<QueuedScreenShareEndedNotification | null>(null);
@@ -2576,10 +2598,18 @@ const handleConnect = (serverData: SavedServer) => {
     setScreenShareEndedNotification(notification);
   }, [notifQueue]);
 
+  const handleWatchedShareEnded = useCallback((share: ShareInfo, reason: WatchedShareEndReason) => {
+    setWatchedShareEndedNotification(createWatchedShareEndedNotification(
+      share,
+      reason,
+      nextWatchedShareEndedNotificationIdRef.current++,
+    ));
+  }, []);
+
   const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, disconnectViewer, connectAsViewer, isViewerConnectPending, handleScreenShareServiceUnavailable } = useScreenShare(() => {
     setSharingChannelId(undefined);
     sharingChannelIdRef.current = undefined;
-  }, screenShareSettings, handleLocalScreenShareEnded);
+  }, screenShareSettings, handleLocalScreenShareEnded, handleWatchedShareEnded);
   isSharingRef.current = isSharing;
   stopSharingRef.current = stopSharing;
   disconnectViewerRef.current = disconnectViewer;
@@ -2653,6 +2683,12 @@ const handleConnect = (serverData: SavedServer) => {
       // from dismissal/exit handlers so a replacement event gets fresh metadata.
     }
   }, [screenShareEndedNotification, notifQueue]);
+
+  useEffect(() => {
+    if (watchedShareEndedNotification) {
+      notifQueue.register(watchedShareEndedNotification.id, watchedShareEndedNotification.status);
+    }
+  }, [watchedShareEndedNotification, notifQueue]);
 
   useEffect(() => {
     if (movedChannelNotification) {
@@ -3294,6 +3330,23 @@ const handleConnect = (serverData: SavedServer) => {
               if (screenShareEndedNotificationRef.current?.id === screenShareEndedNotification.id) {
                 screenShareEndedNotificationRef.current = null;
               }
+            }}
+          />
+        )}
+        {watchedShareEndedNotification && notifQueue.isVisible(watchedShareEndedNotification.id) && (
+          <Notification
+            key={watchedShareEndedNotification.id}
+            status={watchedShareEndedNotification.status}
+            position="top-right"
+            visible={!!watchedShareEndedNotification}
+            title={watchedShareEndedNotification.title}
+            detail={watchedShareEndedNotification.detail}
+            onDismiss={() => {
+              notifQueue.unregister(watchedShareEndedNotification.id);
+              setWatchedShareEndedNotification(null);
+            }}
+            onExited={() => {
+              notifQueue.unregister(watchedShareEndedNotification.id);
             }}
           />
         )}

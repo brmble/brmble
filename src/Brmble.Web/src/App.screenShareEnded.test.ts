@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as AppModule from './App';
 import {
   createQueuedScreenShareEndedNotification,
+  createWatchedShareEndedNotification,
   getMovedChannelNotification,
   getScreenShareEndedNotification,
   runIntentionalDisconnect,
@@ -120,6 +121,36 @@ describe('getScreenShareEndedNotification', () => {
 
   it('does not create a queued notification for manual share stop', () => {
     expect(createQueuedScreenShareEndedNotification('manual', 1)).toBeNull();
+  });
+});
+
+describe('createWatchedShareEndedNotification', () => {
+  it('returns notification text for a watched share ended normally', () => {
+    expect(createWatchedShareEndedNotification({
+      roomName: 'channel-1',
+      userName: 'alice',
+      userId: 10,
+      matrixUserId: '@alice:test',
+    }, 'ended', 0)).toEqual({
+      id: 'watched-share-ended-0',
+      status: 'info',
+      title: 'Share ended',
+      detail: "alice's share ended.",
+    });
+  });
+
+  it('returns notification text for a watched share ended unexpectedly', () => {
+    expect(createWatchedShareEndedNotification({
+      roomName: 'channel-1',
+      userName: 'alice',
+      userId: 10,
+      matrixUserId: '@alice:test',
+    }, 'unexpected', 1)).toEqual({
+      id: 'watched-share-ended-1',
+      status: 'warning',
+      title: 'Share ended unexpectedly',
+      detail: "alice's share ended because the screen-share connection was interrupted.",
+    });
   });
 });
 

@@ -454,6 +454,50 @@ describe('useScreenShare', () => {
     expect(result.current.error).toBe('LiveKit access could not be renewed');
   });
 
+  it('reports explicit watched share stop through callback', async () => {
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+    let shareStoppedHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+      if (type === 'livekit.screenShareStopped') shareStoppedHandler = handler;
+    });
+
+    const onWatchedShareEnded = vi.fn();
+    const { result } = renderHook(() => useScreenShare(undefined, undefined, undefined, onWatchedShareEnded));
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+    act(() => {
+      result.current.addWatchingShare({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+    act(() => {
+      shareStoppedHandler?.({ roomName: 'channel-1', userId: 10 });
+    });
+
+    expect(onWatchedShareEnded).toHaveBeenCalledWith(
+      expect.objectContaining({ userName: 'alice', userId: 10 }),
+      'ended',
+    );
+  });
+
+  it('reports unexpected watched share end on room disconnect', async () => {
+    const onWatchedShareEnded = vi.fn();
+    const { result } = renderHook(() => useScreenShare(undefined, undefined, undefined, onWatchedShareEnded));
+
+    act(() => {
+      result.current.addWatchingShare({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+    await act(async () => {
+      await result.current.handleScreenShareServiceUnavailable();
+    });
+
+    expect(onWatchedShareEnded).toHaveBeenCalledWith(
+      expect.objectContaining({ userName: 'alice', userId: 10 }),
+      'unexpected',
+    );
+  });
+
   it('cancels pending token refresh when viewer disconnects', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-11T12:00:00.000Z'));
