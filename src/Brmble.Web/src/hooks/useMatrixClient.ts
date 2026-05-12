@@ -319,7 +319,7 @@ export function useMatrixClient(
 
           // Replay any DM timeline events that arrived before room maps were ready
           for (const { room, event } of bufferedDmEvents) {
-            onTimeline(event, room);
+            onTimeline(event, room, undefined, undefined, { liveEvent: false });
           }
           bufferedDmEvents.length = 0;
 

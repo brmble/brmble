@@ -96,7 +96,10 @@ function displayFromEvent(
   const companionId = resolveCompanionId(snapshot.fullCompanion, representedSession);
   const isProxy = !companion?.companionId && representedSession !== snapshot.fullCompanion.localUser.session;
   const isLocal = representedSession === snapshot.fullCompanion.localUser.session;
-  const kind = event.kind === 'user-joined' ? 'join' : event.kind === 'user-left' ? 'leave' : 'chat';
+  const kind = event.kind === 'user-joined' ? 'join' 
+    : event.kind === 'user-left' ? 'leave' 
+    : event.kind === 'user-muted' || event.kind === 'user-unmuted' ? 'join'
+    : 'chat';
 
   return {
     id: event.id,
@@ -221,7 +224,7 @@ export function appendOverlayEvent(
     return snapshot;
   }
 
-  const now = event.timestamp;
+  const now = Date.now();
   const nextEvents = [...snapshot.recentEvents, event].slice(-MAX_EVENTS);
   let nextFullCompanion = snapshot.fullCompanion;
   if (isChatEvent(event)) {
