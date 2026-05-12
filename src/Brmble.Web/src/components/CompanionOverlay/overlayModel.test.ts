@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_OVERLAY } from '../SettingsModal/InterfaceSettingsTypes';
 import {
   appendOverlayEvent,
@@ -13,6 +13,9 @@ import {
 } from './overlayModel';
 
 describe('overlayModel', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
   it('creates full companion defaults for local idle display', () => {
     const snapshot = createOverlaySnapshot('7', 'Raid');
 
@@ -168,8 +171,6 @@ describe('overlayModel', () => {
       kind: 'idle',
       row: 1,
     }));
-
-    vi.useRealTimers();
   });
 
   it('serializes multiple chats through the chat queue', () => {
@@ -207,8 +208,6 @@ describe('overlayModel', () => {
       startedAt: 6_001,
       expiresAt: 11_001,
     }));
-
-    vi.useRealTimers();
   });
 
   it('promotes speakers only after half a second of continuous speech', () => {
