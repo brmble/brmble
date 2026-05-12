@@ -1247,6 +1247,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         string? ActorName,
         string Reason);
 
+    internal sealed record BrmbleServiceStatusPayload(
+        string Service,
+        string State,
+        string? Reason = null,
+        int? Attempt = null,
+        int? DelayMs = null);
+
     internal static ChannelChangedPayload CreateChannelChangedPayload(
         uint? previousChannelId,
         uint currentChannelId,
@@ -1261,6 +1268,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             string.IsNullOrWhiteSpace(actorName) ? null : actorName,
             movedByOtherUser ? "moved" : "unknown");
     }
+
+    internal static BrmbleServiceStatusPayload CreateBrmbleServiceStatusPayload(
+        string service,
+        string state,
+        string? reason = null,
+        int? attempt = null,
+        int? delayMs = null)
+        => new(service, state, reason, attempt, delayMs);
 
     internal sealed record ServerRemovalPayload(
         string Reason,
@@ -1301,6 +1316,17 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 $"[{DateTime.Now:HH:mm:ss.fff}] {message}\n");
         }
         catch { /* logging should never throw */ }
+    }
+
+    private void SendBrmbleServiceStatus(
+        string service,
+        string state,
+        string? reason = null,
+        int? attempt = null,
+        int? delayMs = null)
+    {
+        _bridge?.Send("brmble.serviceStatus", CreateBrmbleServiceStatusPayload(service, state, reason, attempt, delayMs));
+        _bridge?.NotifyUiThread();
     }
 
     /// Pure HTTP helper: POSTs to /auth/token and returns the parsed response body.
