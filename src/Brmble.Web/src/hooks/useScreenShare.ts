@@ -598,51 +598,6 @@ export function useScreenShare(
         return;
       }
 
-      const lease = activeTokenLeaseRef.current;
-      const currentAccessMode = roomAccessModeRef.current;
-      const canRecoverWithLease = lease
-        && lease.isRefreshed
-        && lease.roomName === room.name
-        && lease.accessMode === currentAccessMode
-        && Date.parse(lease.expiresAt) > Date.now()
-        && watchingSharesRef.current.length > 0
-        && !isSharingRef.current;
-
-      if (canRecoverWithLease) {
-        const reconnectGeneration = roomLifecycleGenerationRef.current;
-        const nextRoom = new Room();
-        bindRoomEvents(nextRoom);
-        roomRef.current = nextRoom;
-        roomAccessModeRef.current = lease.accessMode;
-
-        void (async () => {
-          try {
-            await nextRoom.connect(lease.url, lease.token);
-            if (roomRef.current !== nextRoom || roomLifecycleGenerationRef.current !== reconnectGeneration) {
-              return;
-            }
-            roomAccessModeRef.current = lease.accessMode;
-          } catch {
-            if (roomRef.current !== nextRoom || roomLifecycleGenerationRef.current !== reconnectGeneration) {
-              return;
-            }
-
-            roomRef.current = null;
-            roomAccessModeRef.current = null;
-            clearTokenLease();
-            invalidateRoomLifecycle();
-            clearWatchingState();
-            const teardownIntent = localShareTeardownIntentRef.current;
-            localShareTeardownIntentRef.current = null;
-            if (isSharingRef.current) {
-              void stopLocalShare(teardownIntent ?? 'interrupted', room);
-            }
-            try { await nextRoom.disconnect(); } catch { /* ignore */ }
-          }
-        })();
-        return;
-      }
-
       roomRef.current = null;
       roomAccessModeRef.current = null;
       clearTokenLease();
@@ -1141,6 +1096,21 @@ export function useScreenShare(
   const watchingShare = watchingShares.length > 0 ? watchingShares[0] : null;
   const remoteVideoEl = remoteVideoEls.size > 0 ? remoteVideoEls.values().next().value ?? null : null;
 
+  const handleScreenShareServiceUnavailable = useCallback(async () => {
+    cancelPendingViewerAttempts();
+    const room = roomRef.current;
+    roomRef.current = null;
+    roomAccessModeRef.current = null;
+    roomReconnectUpgradeRef.current = false;
+    clearTokenLease();
+    invalidateRoomLifecycle();
+    clearWatchingState();
+    if (isSharingRef.current) {
+      await stopLocalShare('interrupted', room);
+    }
+    try { await room?.disconnect(); } catch { /* ignore */ }
+  }, [cancelPendingViewerAttempts, clearTokenLease, clearWatchingState, invalidateRoomLifecycle, stopLocalShare]);
+
   return {
     isSharing,
     startSharing,
@@ -1161,5 +1131,6 @@ export function useScreenShare(
     removeWatchingShare,   // new
     disconnectViewer,
     connectAsViewer,
+    handleScreenShareServiceUnavailable,
   };
 }

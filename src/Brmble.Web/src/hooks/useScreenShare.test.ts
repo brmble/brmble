@@ -299,7 +299,7 @@ describe('useScreenShare', () => {
     expect(result.current.watchingShares).toHaveLength(1);
   });
 
-  it('uses a fresh room and refreshed viewer token to recover a disconnected room without clearing watch state', async () => {
+  it('does not recover a disconnected watched room with a refreshed viewer token', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-11T12:00:00.000Z'));
     const tokenHandlers: Array<(data: unknown) => void> = [];
@@ -337,12 +337,43 @@ describe('useScreenShare', () => {
       await Promise.resolve();
     });
 
-    expect(mockRoomConstructionCount).toBe(2);
+    expect(mockRoomConstructionCount).toBe(1);
     expect(mockRoomInstances[0]?.connect).toHaveBeenCalledTimes(1);
     expect(mockRoomInstances[0]?.connect).toHaveBeenCalledWith('ws://localhost/livekit', 'viewer-jwt');
-    expect(mockRoomInstances[1]?.connect).toHaveBeenCalledTimes(1);
-    expect(mockRoomInstances[1]?.connect).toHaveBeenCalledWith('ws://localhost/livekit', 'viewer-jwt-2');
-    expect(result.current.watchingShares).toEqual([expect.objectContaining({ roomName: 'channel-1', userId: 10 })]);
+    expect(result.current.watchingShares).toEqual([]);
+  });
+
+  it('does not reconnect watched LiveKit room after room disconnect', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    await act(async () => {
+      const promise = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      tokenHandler?.({ token: 'viewer-jwt', url: 'ws://localhost/livekit', expiresAt: new Date(Date.now() + 3600_000).toISOString(), requestId: 1 });
+      await promise;
+    });
+
+    const connectCallsBeforeDisconnect = mockRoomInstances.reduce((count, room) => count + room.connect.mock.calls.length, 0);
+
+    await act(async () => {
+      emitRoomEvent('disconnected');
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const connectCallsAfterDisconnect = mockRoomInstances.reduce((count, room) => count + room.connect.mock.calls.length, 0);
+    expect(connectCallsAfterDisconnect).toBe(connectCallsBeforeDisconnect);
+    expect(result.current.watchingShares).toHaveLength(0);
   });
 
   it('does not recover a disconnected publisher with a fresh empty room', async () => {

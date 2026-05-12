@@ -862,6 +862,7 @@ function App() {
   matrixClientRef.current = matrixClient.client;
   const handleToggleScreenShareRef = useRef<(() => void) | null>(null);
   const disconnectViewerRef = useRef<(() => Promise<void>) | null>(null);
+  const handleScreenShareServiceUnavailableRef = useRef<(() => Promise<void>) | null>(null);
 
   const stopSharesForVoiceExit = useCallback(async () => {
     await disconnectViewerRef.current?.();
@@ -1102,6 +1103,9 @@ function App() {
       const mapped = mapBrmbleServiceStatus(status);
       if (!mapped) return;
       updateStatus(mapped.service, mapped.update);
+      if ((status.service === 'session' || status.service === 'screenshare') && status.state !== 'connected') {
+        void handleScreenShareServiceUnavailableRef.current?.();
+      }
     };
 
     const onVoiceConnected = ((data: unknown) => {
@@ -2572,13 +2576,14 @@ const handleConnect = (serverData: SavedServer) => {
     setScreenShareEndedNotification(notification);
   }, [notifQueue]);
 
-  const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, disconnectViewer, connectAsViewer, isViewerConnectPending } = useScreenShare(() => {
+  const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, disconnectViewer, connectAsViewer, isViewerConnectPending, handleScreenShareServiceUnavailable } = useScreenShare(() => {
     setSharingChannelId(undefined);
     sharingChannelIdRef.current = undefined;
   }, screenShareSettings, handleLocalScreenShareEnded);
   isSharingRef.current = isSharing;
   stopSharingRef.current = stopSharing;
   disconnectViewerRef.current = disconnectViewer;
+  handleScreenShareServiceUnavailableRef.current = handleScreenShareServiceUnavailable;
 
   useEffect(() => {
     const localUser = users.find((user) => user.self);
