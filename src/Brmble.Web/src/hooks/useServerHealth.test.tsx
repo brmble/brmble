@@ -64,18 +64,11 @@ describe('useServerHealth', () => {
     });
   });
 
-  it('does not overwrite an existing server connecting state with disconnected health', () => {
+  it('ignores disconnected health status from the default server state', () => {
     const { result } = renderHook(() => {
       useServerHealth();
       return useServiceStatus();
     }, { wrapper });
-
-    act(() => {
-      result.current.updateStatus('server', {
-        state: 'connecting',
-        error: 'Session reconnecting: connection-lost',
-      });
-    });
 
     act(() => {
       emitHealthStatus({
@@ -85,8 +78,7 @@ describe('useServerHealth', () => {
     });
 
     expect(result.current.statuses.server).toEqual({
-      state: 'connecting',
-      error: 'Session reconnecting: connection-lost',
+      state: 'idle',
     });
   });
 });

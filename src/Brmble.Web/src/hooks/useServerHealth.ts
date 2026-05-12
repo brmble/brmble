@@ -8,7 +8,7 @@ import type { ServiceState } from '../types';
  * which performs periodic health checks to avoid CORS issues with cross-origin fetches.
  */
 export function useServerHealth() {
-  const { statuses, updateStatus } = useServiceStatus();
+  const { updateStatus } = useServiceStatus();
 
   useEffect(() => {
     const onHealthStatus = (data: unknown) => {
@@ -19,7 +19,7 @@ export function useServerHealth() {
         version?: string;
       } | undefined;
       if (!d?.state) return;
-      if (d.state === 'disconnected' && statuses.server.state === 'connecting') return;
+      if (d.state === 'disconnected') return;
       updateStatus('server', {
         state: d.state,
         error: d.error,
@@ -32,5 +32,5 @@ export function useServerHealth() {
     return () => {
       bridge.off('server.healthStatus', onHealthStatus);
     };
-  }, [statuses.server.state, updateStatus]);
+  }, [updateStatus]);
 }
