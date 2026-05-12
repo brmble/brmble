@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { Sidebar } from './Sidebar';
 import type { ShareInfo } from '../../hooks/useScreenShare';
+import type { ServiceStatusMap } from '../../types';
 
 const { bridgeMock, usePermissionsMock, useServiceStatusMock, useResizableMock } = vi.hoisted(() => ({
   bridgeMock: {
@@ -25,7 +26,7 @@ const { bridgeMock, usePermissionsMock, useServiceStatusMock, useResizableMock }
       chat: { state: 'idle' },
       server: { state: 'idle' },
       livekit: { state: 'idle' },
-    },
+    } as ServiceStatusMap,
   })),
   useResizableMock: vi.fn(() => ({
     width: 340,
