@@ -74,6 +74,8 @@ type SupersededRoomRequest = Error & { code: 'LIVEKIT_ROOM_REQUEST_SUPERSEDED' }
 const TOKEN_REFRESH_SAFETY_WINDOW_MS = 2 * 60 * 1000;
 const MIN_TOKEN_REFRESH_DELAY_MS = 5 * 1000;
 
+const watchedShareKey = (roomName: string, userId: number) => `${roomName}:${userId}`;
+
 type ErrorLike = {
   name?: unknown;
   message?: unknown;
@@ -194,6 +196,7 @@ export function useScreenShare(
   const viewerConnectPendingCountRef = useRef(0);
   const pendingViewerAttemptIdRef = useRef(0);
   const pendingViewerAttemptsRef = useRef(new Map<number, PendingViewerAttempt>());
+  const endedWatchedShareKeysRef = useRef(new Set<string>());
   onDisconnectedRef.current = onDisconnected;
   onLocalShareEndedRef.current = onLocalShareEnded;
   onWatchedShareEndedRef.current = onWatchedShareEnded;
@@ -279,6 +282,7 @@ export function useScreenShare(
   }, [updateActiveShares]);
 
   const addWatchingShare = useCallback((share: ShareInfo) => {
+    endedWatchedShareKeysRef.current.delete(watchedShareKey(share.roomName, share.userId));
     setWatchingShares(prev => {
       if (prev.some(s => s.userId === share.userId)) return prev;
       let evictedUserId: number | undefined;
@@ -327,11 +331,20 @@ export function useScreenShare(
     setFocusedShare(null);
   }, [setFocusedShare, updateWatchingShares]);
 
-  const notifyUnexpectedWatchedShareEnds = useCallback(() => {
-    for (const share of watchingSharesRef.current) {
-      onWatchedShareEndedRef.current?.(share, 'unexpected');
+  const endWatchedShare = useCallback((share: ShareInfo, reason: WatchedShareEndReason) => {
+    const key = watchedShareKey(share.roomName, share.userId);
+    if (!endedWatchedShareKeysRef.current.has(key)) {
+      endedWatchedShareKeysRef.current.add(key);
+      onWatchedShareEndedRef.current?.(share, reason);
     }
-  }, []);
+    return removeWatchingShare(share.userId);
+  }, [removeWatchingShare]);
+
+  const notifyUnexpectedWatchedShareEnds = useCallback(() => {
+    for (const share of [...watchingSharesRef.current]) {
+      endWatchedShare(share, 'unexpected');
+    }
+  }, [endWatchedShare]);
 
   // Helper: request a LiveKit token via bridge
   const requestToken = useCallback((roomName: string, accessMode: LiveKitAccessMode) => {
@@ -585,7 +598,7 @@ export function useScreenShare(
         track.source === Track.Source.ScreenShare
       ) {
         track.detach();
-        const remainingWatchedShares = removeWatchingShare(matchedShare.userId);
+        const remainingWatchedShares = endWatchedShare(matchedShare, 'unexpected');
 
         if (remainingWatchedShares.length === 0 && !isSharingRef.current) {
           const room = roomRef.current;
@@ -622,7 +635,7 @@ export function useScreenShare(
         void stopLocalShare(teardownIntent ?? 'interrupted', room);
       }
     });
-  }, [clearTokenLease, clearWatchingState, invalidateRoomLifecycle, notifyUnexpectedWatchedShareEnds, removeWatchingShare, stopLocalShare]);
+  }, [clearTokenLease, clearWatchingState, endWatchedShare, invalidateRoomLifecycle, notifyUnexpectedWatchedShareEnds, stopLocalShare]);
 
   // Ensure we have a connected room for the given channel.
   // Returns the existing room if already connected to this channel, otherwise connects.
@@ -990,25 +1003,21 @@ export function useScreenShare(
       if (wasWatching) {
         const stoppedShare = watchingSharesRef.current.find(s => s.roomName === d.roomName && s.userId === d.userId)
           ?? activeSharesRef.current.find(s => s.roomName === d.roomName && s.userId === d.userId);
-        if (stoppedShare) {
-          onWatchedShareEndedRef.current?.(stoppedShare, 'ended');
-        }
         const room = roomRef.current;
-        if (room) {
-          const share = watchingSharesRef.current.find(s => s.userId === d.userId);
-          if (share) {
-            const targetIdentity = share.matrixUserId ?? String(share.userId);
-            const participant = room.remoteParticipants.get(targetIdentity);
-            if (participant) {
-              participant.trackPublications.forEach((pub: RemoteTrackPublication) => {
-                if (pub.track && pub.track.kind === Track.Kind.Video && pub.source === Track.Source.ScreenShare) {
-                  pub.track.detach();
-                }
-              });
-            }
+        if (room && stoppedShare) {
+          const targetIdentity = stoppedShare.matrixUserId ?? String(stoppedShare.userId);
+          const participant = room.remoteParticipants.get(targetIdentity);
+          if (participant) {
+            participant.trackPublications.forEach((pub: RemoteTrackPublication) => {
+              if (pub.track && pub.track.kind === Track.Kind.Video && pub.source === Track.Source.ScreenShare) {
+                pub.track.detach();
+              }
+            });
           }
         }
-        removeWatchingShare(d.userId);
+        if (stoppedShare) {
+          endWatchedShare(stoppedShare, 'ended');
+        }
         // Disconnect room if nothing left and not sharing
         if (watchingSharesRef.current.length === 0 && !isSharingRef.current && room) {
           room.disconnect().catch(() => {});
@@ -1094,7 +1103,7 @@ export function useScreenShare(
       bridge.off('livekit.activeShareResult', onActiveShareResult);
       bridge.off('livekit.activeShareError', onActiveShareError);
     };
-  }, [removeWatchingShare, updateActiveShares, invalidateRoomLifecycle, cancelPendingViewerAttempts, clearTokenLease]);
+  }, [endWatchedShare, removeWatchingShare, updateActiveShares, invalidateRoomLifecycle, cancelPendingViewerAttempts, clearTokenLease]);
 
   useEffect(() => {
     return () => {

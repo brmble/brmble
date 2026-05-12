@@ -179,6 +179,37 @@ export function createWatchedShareEndedNotification(
   };
 }
 
+export function WatchedShareEndedNotifications({
+  notifications,
+  notifQueue,
+  onRemove,
+}: {
+  notifications: WatchedShareEndedNotification[];
+  notifQueue: { isVisible: (id: string) => boolean; unregister: (id: string) => void };
+  onRemove: (id: string) => void;
+}) {
+  return notifications.map(notification => (
+    notifQueue.isVisible(notification.id) ? (
+      <Notification
+        key={notification.id}
+        status={notification.status}
+        position="top-right"
+        visible={true}
+        title={notification.title}
+        detail={notification.detail}
+        onDismiss={() => {
+          notifQueue.unregister(notification.id);
+          onRemove(notification.id);
+        }}
+        onExited={() => {
+          notifQueue.unregister(notification.id);
+          onRemove(notification.id);
+        }}
+      />
+    ) : null
+  ));
+}
+
 export function replaceScreenShareEndedNotification(
   current: QueuedScreenShareEndedNotification | null,
   reason: LocalShareStopReason,
@@ -2551,7 +2582,7 @@ const handleConnect = (serverData: SavedServer) => {
     userName: string; roomName: string; userId?: number; matrixUserId?: string;
   } | null>(null);
   const [screenShareEndedNotification, setScreenShareEndedNotification] = useState<QueuedScreenShareEndedNotification | null>(null);
-  const [watchedShareEndedNotification, setWatchedShareEndedNotification] = useState<WatchedShareEndedNotification | null>(null);
+  const [watchedShareEndedNotifications, setWatchedShareEndedNotifications] = useState<WatchedShareEndedNotification[]>([]);
   const [movedChannelNotification, setMovedChannelNotification] = useState<QueuedMovedChannelNotification | null>(null);
   const [serverRemovalNotification, setServerRemovalNotification] = useState<ServerRemovalNotification | null>(null);
   const nextScreenShareEndedNotificationIdRef = useRef(0);
@@ -2599,11 +2630,12 @@ const handleConnect = (serverData: SavedServer) => {
   }, [notifQueue]);
 
   const handleWatchedShareEnded = useCallback((share: ShareInfo, reason: WatchedShareEndReason) => {
-    setWatchedShareEndedNotification(createWatchedShareEndedNotification(
+    const notification = createWatchedShareEndedNotification(
       share,
       reason,
       nextWatchedShareEndedNotificationIdRef.current++,
-    ));
+    );
+    setWatchedShareEndedNotifications(prev => [...prev, notification]);
   }, []);
 
   const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, disconnectViewer, connectAsViewer, isViewerConnectPending, handleScreenShareServiceUnavailable } = useScreenShare(() => {
@@ -2685,10 +2717,10 @@ const handleConnect = (serverData: SavedServer) => {
   }, [screenShareEndedNotification, notifQueue]);
 
   useEffect(() => {
-    if (watchedShareEndedNotification) {
-      notifQueue.register(watchedShareEndedNotification.id, watchedShareEndedNotification.status);
+    for (const notification of watchedShareEndedNotifications) {
+      notifQueue.register(notification.id, notification.status);
     }
-  }, [watchedShareEndedNotification, notifQueue]);
+  }, [watchedShareEndedNotifications, notifQueue]);
 
   useEffect(() => {
     if (movedChannelNotification) {
@@ -3333,23 +3365,11 @@ const handleConnect = (serverData: SavedServer) => {
             }}
           />
         )}
-        {watchedShareEndedNotification && notifQueue.isVisible(watchedShareEndedNotification.id) && (
-          <Notification
-            key={watchedShareEndedNotification.id}
-            status={watchedShareEndedNotification.status}
-            position="top-right"
-            visible={!!watchedShareEndedNotification}
-            title={watchedShareEndedNotification.title}
-            detail={watchedShareEndedNotification.detail}
-            onDismiss={() => {
-              notifQueue.unregister(watchedShareEndedNotification.id);
-              setWatchedShareEndedNotification(null);
-            }}
-            onExited={() => {
-              notifQueue.unregister(watchedShareEndedNotification.id);
-            }}
-          />
-        )}
+        <WatchedShareEndedNotifications
+          notifications={watchedShareEndedNotifications}
+          notifQueue={notifQueue}
+          onRemove={(id) => setWatchedShareEndedNotifications(prev => prev.filter(notification => notification.id !== id))}
+        />
         {movedChannelNotification && notifQueue.isVisible(movedChannelNotification.id) && (
           <Notification
             key={movedChannelNotification.id}

@@ -1,10 +1,12 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, render, renderHook, screen } from '@testing-library/react';
+import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as AppModule from './App';
 import {
   createQueuedScreenShareEndedNotification,
   createWatchedShareEndedNotification,
+  WatchedShareEndedNotifications,
   getMovedChannelNotification,
   getScreenShareEndedNotification,
   runIntentionalDisconnect,
@@ -151,6 +153,26 @@ describe('createWatchedShareEndedNotification', () => {
       title: 'Share ended unexpectedly',
       detail: "alice's share ended because the screen-share connection was interrupted.",
     });
+  });
+
+  it('renders multiple watched share ended notifications', () => {
+    const notifications = [
+      createWatchedShareEndedNotification({ roomName: 'channel-1', userName: 'alice', userId: 10 }, 'ended', 0),
+      createWatchedShareEndedNotification({ roomName: 'channel-1', userName: 'bob', userId: 20 }, 'unexpected', 1),
+    ];
+    const notifQueue = {
+      isVisible: vi.fn(() => true),
+      unregister: vi.fn(),
+    };
+
+    render(React.createElement(WatchedShareEndedNotifications, {
+      notifications,
+      notifQueue,
+      onRemove: vi.fn(),
+    }));
+
+    expect(screen.getByText("alice's share ended.")).toBeInTheDocument();
+    expect(screen.getByText("bob's share ended because the screen-share connection was interrupted.")).toBeInTheDocument();
   });
 });
 
