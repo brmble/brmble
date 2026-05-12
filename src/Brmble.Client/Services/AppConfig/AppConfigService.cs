@@ -396,6 +396,14 @@ internal sealed class AppConfigService : IAppConfigService
                 _profileRegistrations = data?.ProfileRegistrations ?? new();
                 _isFirstLaunch = false;
                 MigrateIdentityPfx();
+                if (HasLegacySettingsKeys(json))
+                {
+                    // Isolate the cleanup write — a failure here (read-only file,
+                    // locked, perms) must not bubble up and trigger the outer
+                    // catch, which would reset all state to defaults.
+                    try { Save(); }
+                    catch { /* leave legacy keys in place; we'll try again next launch */ }
+                }
                 return;
             }
 
@@ -553,6 +561,29 @@ internal sealed class AppConfigService : IAppConfigService
             _profiles.RemoveAll(p => p.Id == id);
             _activeProfileId = null;
         }
+    }
+
+    private static bool HasLegacySettingsKeys(string rawJson)
+    {
+        // Detect keys from the pre-WebRTC-only voice refactor (5dbd3b6).
+        // Deserialization silently drops them, but the file keeps the dead keys
+        // until something else triggers a Save — clean them up on next launch.
+        JsonDocument doc;
+        try { doc = JsonDocument.Parse(rawJson); }
+        catch (JsonException) { return false; }
+        catch (ArgumentException) { return false; }
+
+        using (doc)
+        {
+            if (!doc.RootElement.TryGetProperty("settings", out var settings)
+                || settings.ValueKind != JsonValueKind.Object) return false;
+            if (settings.TryGetProperty("speechDenoise", out _)) return true;
+            if (settings.TryGetProperty("speechEnhancement", out _)) return true;
+            if (settings.TryGetProperty("audio", out var audio)
+                && audio.ValueKind == JsonValueKind.Object
+                && audio.TryGetProperty("processingStack", out _)) return true;
+        }
+        return false;
     }
 
     private record LegacyServerlistData
