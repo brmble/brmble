@@ -14,6 +14,7 @@ const {
   connectAsViewer,
   serviceStatus,
   screenShareState,
+  clearChatStorage,
   notifQueue,
   idleActionsState,
   getIdleActionsArgs,
@@ -33,6 +34,7 @@ const {
     updateStatus: vi.fn(),
     resetStatuses: vi.fn(),
   };
+  const clearChatStorageMock = vi.fn();
   const screenShare = {
     isSharing: false,
     error: null as string | null,
@@ -88,6 +90,7 @@ const {
     connectAsViewer: connectViewer,
     serviceStatus: status,
     screenShareState: screenShare,
+    clearChatStorage: clearChatStorageMock,
     idleActionsState: idleActions,
     getIdleActionsArgs: () => idleActionsArgs,
     clearIdleActionsArgs: () => {
@@ -191,7 +194,7 @@ vi.mock('./hooks/useServerHealth', () => ({ useServerHealth: vi.fn() }));
 vi.mock('./hooks/useChatStore', () => ({
   useChatStore: () => ({ messages: [], addMessage: vi.fn() }),
   addMessageToStore: vi.fn(),
-  clearChatStorage: vi.fn(),
+  clearChatStorage,
   purgeEphemeralMessages: vi.fn(),
 }));
 
@@ -479,6 +482,27 @@ describe('active share discovery', () => {
     expect(screen.getByText('Still there?')).toBeInTheDocument();
     expect(screen.getByText("You'll leave voice soon due to inactivity.")).toBeInTheDocument();
     expect(screen.getByText('Still there?').parentElement).toHaveAttribute('data-duration', '60000');
+  });
+
+  it('does not clear chat storage when credentials refresh after reconnect failure without session reset', () => {
+    render(React.createElement(App));
+
+    const credentials = {
+      matrix: {
+        homeserverUrl: 'https://matrix.example.com',
+        accessToken: 'tok_1',
+        userId: '@me:example.com',
+        roomMap: { '1': '!one:example.com' },
+      },
+    };
+
+    act(() => {
+      bridge.emit('server.credentials', credentials);
+      bridge.emit('voice.reconnectFailed', { reason: 'network' });
+      bridge.emit('server.credentials', { matrix: { ...credentials.matrix, accessToken: 'tok_2' } });
+    });
+
+    expect(clearChatStorage).toHaveBeenCalledTimes(1);
   });
 
   it('replaces the pre-idle warning with a cancellation notification', async () => {

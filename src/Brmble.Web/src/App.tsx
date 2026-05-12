@@ -1816,7 +1816,6 @@ function App() {
       setSelfCanRejoin(false);
       setSelfSession(0);
       setSpeakingUsers(new Map());
-      hasMatrixCredentialsForSessionRef.current = false;
       setCurrentUserAvatarUrl(undefined);
     };
 
