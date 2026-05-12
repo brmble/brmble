@@ -102,13 +102,13 @@ See full spec: `2026-04-17-multi-share-foundation-design.md`
 
 > Making it robust.
 
-34. Auto-reconnect on drop
-35. ICE fallback / TURN relay (groundwork partially implemented; formal F-phase hardening still not started)
-36. Connection quality indicator
-37. Graceful degradation (auto-reduce quality instead of freezing)
-38. Disconnect notification ("User X's share ended unexpectedly")
-39. Independent service reconnect -- LiveKit without restarting Mumble (issue #380)
-40. Share state recovery after crash
+- [x] 34. Auto-reconnect on drop -- implemented for Brmble server/session and Matrix reconnect after Brmble services restarts; LiveKit rooms intentionally clear and require manual restart/watch.
+- [ ] 35. ICE fallback / TURN relay hardening -- future work.
+- [ ] 36. Connection quality indicator -- F2.
+- [ ] 37. Graceful degradation -- F2.
+- [x] 38. Disconnect notification when share ends unexpectedly -- implemented through Brmble notifications for watched/local share interruption.
+- [x] 39. Reconnect non-voice services independently when Mumble stays connected -- implemented for Brmble server/session, Matrix chat, and screen-share support state.
+- [ ] 40. Share state recovery after crash -- intentionally deferred; users restart sharing/watching manually.
 
 ## G. UI/UX Polish
 

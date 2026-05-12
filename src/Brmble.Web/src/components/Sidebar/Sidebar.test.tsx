@@ -121,6 +121,22 @@ describe('Sidebar root user screen share behavior', () => {
     vi.clearAllMocks();
   });
 
+  it('shows server reconnect state through service dots', () => {
+    useServiceStatusMock.mockReturnValue({
+      statuses: {
+        voice: { state: 'connected' },
+        chat: { state: 'connected' },
+        server: { state: 'connecting', error: 'Session reconnecting: connection-lost' },
+        livekit: { state: 'disconnected', error: 'token-request-failed' },
+      },
+    });
+
+    renderSidebar();
+
+    expect(screen.getByLabelText(/Brmble: Connecting/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Screenshare: Disconnected/i)).toBeInTheDocument();
+  });
+
   it('shows local sharing without watch controls or watch actions', () => {
     const onWatchScreenShare = vi.fn();
 
