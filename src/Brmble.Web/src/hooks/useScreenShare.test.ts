@@ -1328,7 +1328,7 @@ describe('useScreenShare', () => {
     expect(result.current.watchingShares).toHaveLength(0);
   });
 
-  it('removes watched share when its screen-share track unsubscribes', async () => {
+  it('keeps watched share pending when its screen-share track unsubscribes', async () => {
     let tokenHandler: ((data: unknown) => void) | null = null;
     let shareStartedHandler: ((data: unknown) => void) | null = null;
     const screenShareTrack = {
@@ -1373,10 +1373,10 @@ describe('useScreenShare', () => {
     expect(result.current.watchingShares).toEqual([]);
     expect(result.current.focusedShare).toBeNull();
     expect(result.current.remoteVideoEls.has(10)).toBe(false);
-    expect(mockRoom.disconnect).toHaveBeenCalledTimes(1);
+    expect(mockRoom.disconnect).not.toHaveBeenCalled();
   });
 
-  it('reports track unsubscribe before share stop once as unexpected', async () => {
+  it('reports track unsubscribe before share stop once as ended', async () => {
     let tokenHandler: ((data: unknown) => void) | null = null;
     let shareStartedHandler: ((data: unknown) => void) | null = null;
     let shareStoppedHandler: ((data: unknown) => void) | null = null;
@@ -1409,6 +1409,8 @@ describe('useScreenShare', () => {
       emitRoomEvent('trackUnsubscribed', screenShareTrack, {}, { identity: '@alice:test' });
       await Promise.resolve();
     });
+    expect(onWatchedShareEnded).not.toHaveBeenCalled();
+
     act(() => {
       shareStoppedHandler?.({ roomName: 'channel-1', userId: 10 });
     });
@@ -1416,7 +1418,7 @@ describe('useScreenShare', () => {
     expect(onWatchedShareEnded).toHaveBeenCalledTimes(1);
     expect(onWatchedShareEnded).toHaveBeenCalledWith(
       expect.objectContaining({ userName: 'alice', userId: 10 }),
-      'unexpected',
+      'ended',
     );
   });
 
@@ -1555,7 +1557,7 @@ describe('useScreenShare', () => {
     expect(mockRoom.disconnect).not.toHaveBeenCalled();
   });
 
-  it('multiple watched shares unsubscribed in the same tick disconnect after the last cleanup', async () => {
+  it('multiple watched shares unsubscribed in the same tick stay pending', async () => {
     let tokenHandler: ((data: unknown) => void) | null = null;
     let shareStartedHandler: ((data: unknown) => void) | null = null;
     const aliceTrack = {
@@ -1598,7 +1600,7 @@ describe('useScreenShare', () => {
     });
 
     expect(result.current.watchingShares).toEqual([]);
-    expect(mockRoom.disconnect).toHaveBeenCalledTimes(1);
+    expect(mockRoom.disconnect).not.toHaveBeenCalled();
   });
 
   it('local sharing keeps the room connected when a remote track unsubscribes', async () => {
@@ -1643,6 +1645,7 @@ describe('useScreenShare', () => {
   it('stale disconnected events from an old room do not clear a newer watch state', async () => {
     let tokenHandler: ((data: unknown) => void) | null = null;
     let shareStartedHandler: ((data: unknown) => void) | null = null;
+    let shareStoppedHandler: ((data: unknown) => void) | null = null;
     const screenShareTrack = {
       kind: 'video',
       source: 'screen_share',
@@ -1652,6 +1655,7 @@ describe('useScreenShare', () => {
     (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
       if (type === 'livekit.token') tokenHandler = handler;
       if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+      if (type === 'livekit.screenShareStopped') shareStoppedHandler = handler;
     });
 
     const { result } = renderHook(() => useScreenShare());
@@ -1671,6 +1675,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       emitRoomEvent('trackUnsubscribed', screenShareTrack, {}, { identity: '@alice:test' });
+      shareStoppedHandler?.({ roomName: 'channel-1', userId: 10 });
       await Promise.resolve();
     });
 
@@ -1692,6 +1697,7 @@ describe('useScreenShare', () => {
   it('stale track unsubscribed events from an old room do not clear a newer watch state', async () => {
     let tokenHandler: ((data: unknown) => void) | null = null;
     let shareStartedHandler: ((data: unknown) => void) | null = null;
+    let shareStoppedHandler: ((data: unknown) => void) | null = null;
     const screenShareTrack = {
       kind: 'video',
       source: 'screen_share',
@@ -1701,6 +1707,7 @@ describe('useScreenShare', () => {
     (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
       if (type === 'livekit.token') tokenHandler = handler;
       if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+      if (type === 'livekit.screenShareStopped') shareStoppedHandler = handler;
     });
 
     const { result } = renderHook(() => useScreenShare());
@@ -1720,6 +1727,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       emitRoomEvent('trackUnsubscribed', screenShareTrack, {}, { identity: '@alice:test' });
+      shareStoppedHandler?.({ roomName: 'channel-1', userId: 10 });
       await Promise.resolve();
     });
 
@@ -1743,6 +1751,7 @@ describe('useScreenShare', () => {
   it('stale track subscribed events from an old room do not attach to a newer watch state', async () => {
     let tokenHandler: ((data: unknown) => void) | null = null;
     let shareStartedHandler: ((data: unknown) => void) | null = null;
+    let shareStoppedHandler: ((data: unknown) => void) | null = null;
     const screenShareTrack = {
       kind: 'video',
       source: 'screen_share',
@@ -1753,6 +1762,7 @@ describe('useScreenShare', () => {
     (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
       if (type === 'livekit.token') tokenHandler = handler;
       if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+      if (type === 'livekit.screenShareStopped') shareStoppedHandler = handler;
     });
 
     const { result } = renderHook(() => useScreenShare());
@@ -1772,6 +1782,7 @@ describe('useScreenShare', () => {
 
     await act(async () => {
       emitRoomEvent('trackUnsubscribed', screenShareTrack, {}, { identity: '@alice:test' });
+      shareStoppedHandler?.({ roomName: 'channel-1', userId: 10 });
       await Promise.resolve();
     });
 

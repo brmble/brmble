@@ -197,6 +197,7 @@ export function useScreenShare(
   const pendingViewerAttemptIdRef = useRef(0);
   const pendingViewerAttemptsRef = useRef(new Map<number, PendingViewerAttempt>());
   const endedWatchedShareKeysRef = useRef(new Set<string>());
+  const pendingUnsubscribedWatchedSharesRef = useRef(new Map<string, ShareInfo>());
   onDisconnectedRef.current = onDisconnected;
   onLocalShareEndedRef.current = onLocalShareEnded;
   onWatchedShareEndedRef.current = onWatchedShareEnded;
@@ -312,7 +313,13 @@ export function useScreenShare(
     });
   }, []);
 
-  const removeWatchingShare = useCallback((userId: number) => {
+  const removeWatchingShare = useCallback((userId: number, options?: { clearPending?: boolean }) => {
+    const removedShares = watchingSharesRef.current.filter(s => s.userId === userId);
+    if (options?.clearPending !== false) {
+      for (const share of removedShares) {
+        pendingUnsubscribedWatchedSharesRef.current.delete(watchedShareKey(share.roomName, share.userId));
+      }
+    }
     const next = watchingSharesRef.current.filter(s => s.userId !== userId);
     watchingSharesRef.current = next;
     setWatchingShares(next);
@@ -337,11 +344,15 @@ export function useScreenShare(
       endedWatchedShareKeysRef.current.add(key);
       onWatchedShareEndedRef.current?.(share, reason);
     }
+    pendingUnsubscribedWatchedSharesRef.current.delete(key);
     return removeWatchingShare(share.userId);
   }, [removeWatchingShare]);
 
   const notifyUnexpectedWatchedShareEnds = useCallback(() => {
     for (const share of [...watchingSharesRef.current]) {
+      endWatchedShare(share, 'unexpected');
+    }
+    for (const share of [...pendingUnsubscribedWatchedSharesRef.current.values()]) {
       endWatchedShare(share, 'unexpected');
     }
   }, [endWatchedShare]);
@@ -598,17 +609,8 @@ export function useScreenShare(
         track.source === Track.Source.ScreenShare
       ) {
         track.detach();
-        const remainingWatchedShares = endWatchedShare(matchedShare, 'unexpected');
-
-        if (remainingWatchedShares.length === 0 && !isSharingRef.current) {
-          const room = roomRef.current;
-          roomRef.current = null;
-          roomAccessModeRef.current = null;
-          roomReconnectUpgradeRef.current = false;
-          clearTokenLease();
-          invalidateRoomLifecycle();
-          room?.disconnect().catch(() => {});
-        }
+        pendingUnsubscribedWatchedSharesRef.current.set(watchedShareKey(matchedShare.roomName, matchedShare.userId), matchedShare);
+        removeWatchingShare(matchedShare.userId, { clearPending: false });
       }
     });
 
@@ -635,7 +637,7 @@ export function useScreenShare(
         void stopLocalShare(teardownIntent ?? 'interrupted', room);
       }
     });
-  }, [clearTokenLease, clearWatchingState, endWatchedShare, invalidateRoomLifecycle, notifyUnexpectedWatchedShareEnds, stopLocalShare]);
+  }, [clearTokenLease, clearWatchingState, invalidateRoomLifecycle, notifyUnexpectedWatchedShareEnds, removeWatchingShare, stopLocalShare]);
 
   // Ensure we have a connected room for the given channel.
   // Returns the existing room if already connected to this channel, otherwise connects.
@@ -998,10 +1000,12 @@ export function useScreenShare(
       updateActiveShares(prev => prev.filter(s => !(s.roomName === d.roomName && s.userId === d.userId)));
 
       // If we were watching this user, remove their tile
-      const wasWatching = watchingSharesRef.current.some(s => s.roomName === d.roomName && s.userId === d.userId);
+      const pendingUnsubscribedShare = pendingUnsubscribedWatchedSharesRef.current.get(watchedShareKey(d.roomName, d.userId));
+      const wasWatching = watchingSharesRef.current.some(s => s.roomName === d.roomName && s.userId === d.userId) || !!pendingUnsubscribedShare;
       cancelPendingViewerAttempts(attempt => attempt.roomName === d.roomName && attempt.userId === d.userId);
       if (wasWatching) {
         const stoppedShare = watchingSharesRef.current.find(s => s.roomName === d.roomName && s.userId === d.userId)
+          ?? pendingUnsubscribedShare
           ?? activeSharesRef.current.find(s => s.roomName === d.roomName && s.userId === d.userId);
         const room = roomRef.current;
         if (room && stoppedShare) {
