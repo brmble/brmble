@@ -348,6 +348,14 @@ export function useScreenShare(
     return removeWatchingShare(share.userId);
   }, [removeWatchingShare]);
 
+  const clearPendingUnsubscribedWatchedShare = useCallback((userId: number) => {
+    for (const [key, share] of pendingUnsubscribedWatchedSharesRef.current) {
+      if (share.userId === userId) {
+        pendingUnsubscribedWatchedSharesRef.current.delete(key);
+      }
+    }
+  }, []);
+
   const notifyUnexpectedWatchedShareEnds = useCallback(() => {
     for (const share of [...watchingSharesRef.current]) {
       endWatchedShare(share, 'unexpected');
@@ -952,6 +960,7 @@ export function useScreenShare(
         }
       }
       removeWatchingShare(userId);
+      clearPendingUnsubscribedWatchedShare(userId);
       if (watchingSharesRef.current.length === 0) {
         await maybeDisconnectRoom();
       }
@@ -975,11 +984,12 @@ export function useScreenShare(
     }
     setRemoteVideoEls(new Map());
     updateWatchingShares([]);
+    pendingUnsubscribedWatchedSharesRef.current.clear();
     setFocusedShare(null);
     clearTokenLease();
     invalidateRoomLifecycle();
     await maybeDisconnectRoom();
-  }, [removeWatchingShare, updateWatchingShares, maybeDisconnectRoom, invalidateRoomLifecycle, cancelPendingViewerAttempts, clearTokenLease]);
+  }, [removeWatchingShare, updateWatchingShares, maybeDisconnectRoom, invalidateRoomLifecycle, cancelPendingViewerAttempts, clearTokenLease, clearPendingUnsubscribedWatchedShare]);
 
   // Listen for screen share events from bridge
   useEffect(() => {

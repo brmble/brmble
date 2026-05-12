@@ -1422,6 +1422,46 @@ describe('useScreenShare', () => {
     );
   });
 
+  it('does not report pending track loss after manual viewer disconnect', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+    let shareStoppedHandler: ((data: unknown) => void) | null = null;
+    const screenShareTrack = {
+      kind: 'video',
+      source: 'screen_share',
+      detach: vi.fn(),
+    };
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+      if (type === 'livekit.screenShareStopped') shareStoppedHandler = handler;
+    });
+
+    const onWatchedShareEnded = vi.fn();
+    const { result } = renderHook(() => useScreenShare(undefined, undefined, undefined, onWatchedShareEnded));
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    await act(async () => {
+      const p = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      tokenHandler?.(liveKitToken('jwt'));
+      await p;
+    });
+
+    await act(async () => {
+      emitRoomEvent('trackUnsubscribed', screenShareTrack, {}, { identity: '@alice:test' });
+      await result.current.disconnectViewer(10);
+    });
+    act(() => {
+      shareStoppedHandler?.({ roomName: 'channel-1', userId: 10 });
+    });
+
+    expect(onWatchedShareEnded).not.toHaveBeenCalled();
+  });
+
   it('reports track unsubscribe before room disconnect once as unexpected', async () => {
     let tokenHandler: ((data: unknown) => void) | null = null;
     let shareStartedHandler: ((data: unknown) => void) | null = null;
