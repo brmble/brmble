@@ -4,6 +4,7 @@ import {
   appendOverlayEvent,
   createChannelMessageOverlayEvent,
   createMembershipOverlayEvent,
+  createServerMembershipOverlayEvent,
   createOverlaySnapshot,
   pruneOverlaySnapshot,
   resolveFullCompanionDisplay,
@@ -405,5 +406,32 @@ describe('overlayModel', () => {
     );
 
     expect(snapshot.recentEvents).toHaveLength(0);
+  });
+
+  it('includes server-level join/leave events regardless of current channel', () => {
+    let snapshot = createOverlaySnapshot('7', 'Raid');
+
+    snapshot = appendOverlayEvent(
+      snapshot,
+      createServerMembershipOverlayEvent({
+        kind: 'user-left',
+        actorName: 'MjG',
+        line: 'MjG disconnected from the server',
+        timestamp: 1_000,
+      }),
+      DEFAULT_OVERLAY,
+    );
+
+    expect(snapshot.recentEvents).toEqual([
+      expect.objectContaining({
+        kind: 'user-left',
+        actorName: 'MjG',
+        line: 'MjG disconnected from the server',
+      }),
+    ]);
+    expect(snapshot.fullCompanion.activeDisplay).toEqual(expect.objectContaining({
+      kind: 'leave',
+      bubble: 'MjG disconnected from the server',
+    }));
   });
 });

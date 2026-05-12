@@ -1,6 +1,7 @@
 .companion-overlay {
   position: fixed;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   pointer-events: none;
   color: var(--text-primary);
   font-family: var(--font-body);
@@ -90,7 +91,8 @@
 }
 
 .companion-anchor {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
 }
 
@@ -187,30 +189,37 @@
 .companion-overlay--position-top-left {
   top: 24px;
   left: 24px;
-  justify-items: start;
+  align-items: flex-start;
 }
 
 .companion-overlay--position-top-right {
   top: 24px;
   right: 24px;
-  justify-items: end;
+  align-items: flex-end;
 }
 
 .companion-overlay--position-bottom-left {
   left: 24px;
   bottom: 24px;
-  justify-items: start;
+  align-items: flex-start;
+  flex-direction: column-reverse;
 }
 
 .companion-overlay--position-bottom-right {
   right: 24px;
   bottom: 24px;
-  justify-items: end;
+  align-items: flex-end;
+  flex-direction: column-reverse;
 }
 
 .companion-overlay--position-top-left .companion-anchor,
 .companion-overlay--position-bottom-left .companion-anchor {
-  justify-items: start;
+  align-items: flex-start;
+}
+
+.companion-overlay--position-bottom-left .companion-anchor,
+.companion-overlay--position-bottom-right .companion-anchor {
+  flex-direction: column-reverse;
 }
 
 .companion-overlay--position-top-left .companion-bubble,
@@ -232,7 +241,7 @@
 
 .companion-overlay--position-top-right .companion-anchor,
 .companion-overlay--position-bottom-right .companion-anchor {
-  justify-items: end;
+  align-items: flex-end;
 }
 
 .companion-overlay--position-top-right .companion-bubble,

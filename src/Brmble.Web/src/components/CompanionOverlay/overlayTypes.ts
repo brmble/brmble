@@ -4,7 +4,9 @@ export type OverlayEventKind =
   | 'user-joined'
   | 'user-left'
   | 'user-kicked'
-  | 'user-banned';
+  | 'user-banned'
+  | 'user-muted'
+  | 'user-unmuted';
 
 export type OverlayVisualState =
   | 'idle'
