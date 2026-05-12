@@ -17,6 +17,8 @@ The remaining reliability gap is service-level resilience. Issue `#380` covers t
 
 The native client already has independent WebSocket retry and health polling for the Brmble API, and LiveKit token requests retry transient failures. Matrix also has SDK sync state, but the app does not have a unified reconnect story across these non-voice services. The frontend does not receive clear service-state events for every affected path, does not consistently expose per-service reconnect state in status dots, and does not always refresh credentials, session mappings, chat sync, or active share discovery after service reconnect.
 
+The production deployment has two relevant server-side containers: a Mumble container that keeps the primary voice connection alive, and a Brmble services container that hosts the Brmble API, Matrix proxy/services, and LiveKit support endpoints. During a Brmble services deployment, Mumble can remain connected while Brmble API, Matrix chat, and LiveKit/screen-share support disconnect. F1 is primarily about handling that deployment shape: Brmble server and Matrix chat should reconnect after the services container comes back, while active LiveKit screen shares should be treated as interrupted and manually restarted or watched again by users.
+
 ## Goals
 
 - Address issue `#380` by treating Brmble server, Matrix chat, and screen share as reconnectable non-voice services that can recover without restarting Mumble.
@@ -25,7 +27,7 @@ The native client already has independent WebSocket retry and health polling for
 - Refresh Brmble server credentials/session mappings after Brmble API or WebSocket reconnect.
 - Restart or refresh Matrix chat sync after credentials/API connectivity recovers.
 - Clear stale watched-share and active-share UI when screen share support becomes unavailable or its state can no longer be trusted.
-- Re-run active-share discovery after screen share support reconnects so the UI reflects current server state.
+- Re-run active-share discovery after screen share support reconnects so the UI reflects current server state, without auto-restoring previous LiveKit rooms.
 - Notify viewers when a watched share ends unexpectedly instead of silently removing the tile.
 - Document that share recovery is intentionally manual for F1.
 
@@ -36,6 +38,7 @@ The native client already has independent WebSocket retry and health polling for
 - Do not recover Brmble server in-memory share state after a server process restart.
 - Do not automatically restart browser screen capture after a publisher disconnect, token failure, or LiveKit room interruption.
 - Do not auto-rejoin watched shares as a stored preference. Re-discovery can show active shares again, but watching remains a user action.
+- Do not reconnect prior LiveKit publisher/viewer rooms after a Brmble services deployment. Treat them as ended/interrupted and require explicit user action.
 - Do not change TURN/ICE infrastructure in this slice. Existing groundwork remains as-is unless needed for reconnect cleanup tests.
 - Do not redesign Matrix rooms, DM creation, unread tracking, or message persistence.
 
@@ -46,6 +49,8 @@ Use reconnect plus cleanup rather than state recovery.
 The native client should own Brmble server transport state because it already manages the Brmble API health check, certificate-authenticated WebSocket connection, credential fetch, and certificate-authenticated LiveKit HTTP calls. React should own Matrix SDK sync state because the Matrix client lives in `useMatrixClient`. Both sides should report into the existing service-status model so the status dots can show which non-voice service is reconnecting.
 
 React should treat service state as a trust boundary for each affected feature. Brmble server reconnect should refresh credentials and session mappings. Matrix reconnect should restart sync and reload active channel or DM timelines from the SDK/server. Screen share reconnect should clear stale watched-share state, re-run active-share discovery for the current channel or all-shares view, and show concise Brmble notifications when watched shares end.
+
+For the expected Brmble services deployment path, voice remains connected through Mumble. Brmble server and Matrix chat reconnect after the services container returns. Screen-share support can become available again for new token requests and active-share discovery, but any pre-deploy LiveKit publisher/viewer rooms are not recovered.
 
 This keeps F1 small and predictable: users can restart sharing or watching with one click, while the app avoids stale or misleading LiveKit state.
 
@@ -118,6 +123,8 @@ The existing `livekit.requestToken` retry loop should remain short and bounded. 
 
 `livekit.checkActiveShare` should emit a service status failure when active-share discovery cannot reach the API. A later successful token, share-start/share-stop, or active-share request should emit `screenshare` `connected`.
 
+`screenshare:connected` means new screen-share operations can be attempted again. It does not mean the client should reconnect old LiveKit rooms, re-publish an interrupted screen capture, or re-watch previously watched shares.
+
 ## React Design
 
 ### Service Status State
@@ -176,6 +183,8 @@ When LiveKit support becomes unavailable:
 
 This cleanup should reuse existing `useScreenShare` interruption and disconnect paths rather than adding a second lifecycle system.
 
+When the Brmble services container is redeployed, this cleanup is expected to run for screen share while voice remains connected. The user can start sharing again or click Watch again after Brmble server and screen-share support reconnect.
+
 ### Rediscovery On Service Reconnect
 
 When WebSocket/LiveKit support transitions back to connected:
@@ -183,7 +192,7 @@ When WebSocket/LiveKit support transitions back to connected:
 - Request active-share discovery for the current voice channel.
 - If the user is on the server-root/all-shares view, request all active shares.
 - Ignore stale discovery responses using the existing request id and baseline event version logic.
-- Do not automatically watch previous shares. Users can click Watch again if the share is still active.
+- Do not automatically watch previous shares or reconnect previous LiveKit rooms. Users can click Watch again if a share is still active after rediscovery.
 
 ### Unexpected Share Notifications
 
@@ -258,6 +267,11 @@ Server work for F1 should be limited to ensuring existing endpoints return clear
 - Confirm the user must click Watch again to view an active share.
 - Stop a watched publisher normally and confirm the viewer sees an ended notification.
 - Drop the LiveKit room unexpectedly and confirm the viewer sees an unexpected-ended notification.
+- Deploy/restart only the Brmble services container while leaving the Mumble container running.
+- Confirm voice remains connected throughout the deployment.
+- Confirm Brmble server and Matrix chat reconnect after the services container returns.
+- Confirm pre-deploy LiveKit publisher/viewer rooms are not recovered automatically.
+- Confirm users can start sharing or click Watch again after reconnect.
 
 ## Roadmap Updates
 
@@ -283,8 +297,9 @@ After implementation, update `docs/superpowers/specs/2026-04-17-livekit-feature-
 - A Brmble API/WebSocket interruption does not disconnect Mumble voice.
 - Brmble server credentials/session mappings refresh without a voice reconnect.
 - Matrix chat reconnects or refreshes sync after server credentials/connectivity recover.
+- A Brmble services deployment that leaves Mumble running reconnects Brmble server and Matrix chat without a voice reconnect.
 - The frontend receives explicit non-voice service status events for server, session, and screen-share paths.
 - Screen-share UI does not show stale watched or active shares while service state is untrusted.
-- Active-share discovery runs automatically after service reconnect.
+- Active-share discovery runs automatically after service reconnect, but previous LiveKit rooms are not auto-reconnected.
 - Watched viewers get clear normal or unexpected share-ended notifications.
 - F2 remains clearly scoped to connection quality indicators and graceful degradation.
