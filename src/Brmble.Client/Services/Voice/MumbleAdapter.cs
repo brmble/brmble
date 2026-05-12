@@ -71,6 +71,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private const int LOCAL_TRANSMIT_NOTIFY_THROTTLE_MS = 5_000;
     private System.Threading.Timer? _healthTimer;
     private long _healthGeneration;
+    private volatile bool _serverHealthWasConnected;
+    private volatile bool _credentialsAlreadyFetched;
+    private volatile bool _sawServerHealthFailureSinceCredentials;
     private BanList? _cachedBanList;
     private readonly object _banListLock = new();
     private int _pendingBanQuery = 0;
@@ -325,6 +328,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _wsCts?.Dispose();
         _wsCts = null;
         StopHealthCheck();
+        _serverHealthWasConnected = false;
+        _credentialsAlreadyFetched = false;
+        _sawServerHealthFailureSinceCredentials = false;
         _sessionMappings.Clear();
 
         UserDictionary.Clear();
@@ -1277,6 +1283,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         int? delayMs = null)
         => new(service, state, reason, attempt, delayMs);
 
+    internal static bool ShouldRefreshCredentialsAfterHealthSuccess(
+        bool credentialsAlreadyFetched,
+        bool previousHealthWasConnected,
+        bool sawHealthFailureSinceCredentials)
+        => credentialsAlreadyFetched && !previousHealthWasConnected && sawHealthFailureSinceCredentials;
+
     internal sealed record ServerRemovalPayload(
         string Reason,
         string ActorName,
@@ -1433,6 +1445,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _bridge?.Send("server.credentials", rewritten);
             _bridge?.NotifyUiThread();
             _apiUrl = apiUrl;
+            _credentialsAlreadyFetched = true;
+            _sawServerHealthFailureSinceCredentials = false;
+            SendBrmbleServiceStatus("server", "connected");
 
             // Start WebSocket connection for real-time session mapping updates
             StartWebSocketConnection(apiUrl);
@@ -1500,16 +1515,35 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 if (res.IsSuccessStatusCode)
                 {
                     var version = await TryReadVersionAsync(res);
+                    var shouldRefreshCredentials = ShouldRefreshCredentialsAfterHealthSuccess(
+                        _credentialsAlreadyFetched,
+                        _serverHealthWasConnected,
+                        _sawServerHealthFailureSinceCredentials);
+
+                    _serverHealthWasConnected = true;
+                    _sawServerHealthFailureSinceCredentials = false;
                     _bridge?.Send("server.healthStatus", new { state = "connected", label = apiUrl, version });
+                    SendBrmbleServiceStatus("server", "connected");
+
+                    if (shouldRefreshCredentials)
+                    {
+                        _ = Task.Run(() => FetchAndSendCredentials(apiUrl));
+                    }
                 }
                 else
                 {
+                    _serverHealthWasConnected = false;
+                    _sawServerHealthFailureSinceCredentials = true;
+                    SendBrmbleServiceStatus("server", "reconnecting", reason: $"http-{(int)res.StatusCode}");
                     _bridge?.Send("server.healthStatus", new { state = "disconnected", error = $"Health check returned {(int)res.StatusCode}" });
                 }
             }
             catch (Exception ex)
             {
                 if (Interlocked.Read(ref _healthGeneration) != gen) return;
+                _serverHealthWasConnected = false;
+                _sawServerHealthFailureSinceCredentials = true;
+                SendBrmbleServiceStatus("server", "reconnecting", reason: "connection-lost");
                 _bridge?.Send("server.healthStatus", new { state = "disconnected", error = ex.Message });
             }
             _bridge?.NotifyUiThread();
@@ -1549,6 +1583,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         old?.Cancel();
         old?.Dispose();
         _wsCts = new CancellationTokenSource();
+        SendBrmbleServiceStatus("session", "connecting");
         var ct = _wsCts.Token;
 
         var builder = new UriBuilder(apiUrl);
@@ -1673,6 +1708,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
                     backoff = TimeSpan.FromSeconds(1); // reset on successful connect
                     Debug.WriteLine("[WS] Connected to Brmble WebSocket (BouncyCastle TLS)");
+                    SendBrmbleServiceStatus("session", "connected");
 
                     // Read WebSocket frames
                     while (!ct.IsCancellationRequested)
@@ -1695,9 +1731,15 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
                 if (ct.IsCancellationRequested) break;
 
+                SendBrmbleServiceStatus("session", "reconnecting", reason: "connection-lost", delayMs: (int)backoff.TotalMilliseconds);
                 Debug.WriteLine($"[WS] Reconnecting in {backoff.TotalSeconds}s...");
                 try { await Task.Delay(backoff, ct); } catch (OperationCanceledException) { break; }
                 backoff = TimeSpan.FromSeconds(Math.Min(backoff.TotalSeconds * 2, maxBackoff.TotalSeconds));
+            }
+
+            if (ct.IsCancellationRequested)
+            {
+                SendBrmbleServiceStatus("session", "disconnected", reason: "stopped");
             }
         }, ct);
     }

@@ -108,6 +108,39 @@ public class MumbleAdapterCredentialsTests
     }
 
     [TestMethod]
+    public void ShouldRefreshCredentialsAfterHealthSuccess_FirstSuccessAfterInitialCredentials_ReturnsFalse()
+    {
+        var result = MumbleAdapter.ShouldRefreshCredentialsAfterHealthSuccess(
+            credentialsAlreadyFetched: true,
+            previousHealthWasConnected: false,
+            sawHealthFailureSinceCredentials: false);
+
+        Assert.IsFalse(result);
+    }
+
+    [TestMethod]
+    public void ShouldRefreshCredentialsAfterHealthSuccess_RecoveryAfterFailure_ReturnsTrue()
+    {
+        var result = MumbleAdapter.ShouldRefreshCredentialsAfterHealthSuccess(
+            credentialsAlreadyFetched: true,
+            previousHealthWasConnected: false,
+            sawHealthFailureSinceCredentials: true);
+
+        Assert.IsTrue(result);
+    }
+
+    [TestMethod]
+    public void ShouldRefreshCredentialsAfterHealthSuccess_StillConnected_ReturnsFalse()
+    {
+        var result = MumbleAdapter.ShouldRefreshCredentialsAfterHealthSuccess(
+            credentialsAlreadyFetched: true,
+            previousHealthWasConnected: true,
+            sawHealthFailureSinceCredentials: true);
+
+        Assert.IsFalse(result);
+    }
+
+    [TestMethod]
     public void CreateBrmbleServiceStatusPayload_WithReconnectContext_UsesExpectedShape()
     {
         var payload = MumbleAdapter.CreateBrmbleServiceStatusPayload(
