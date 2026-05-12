@@ -513,7 +513,7 @@ export function useMatrixClient(
       setClient(null);
       updateStatus('chat', { state: 'idle', error: undefined });
     };
-  }, [callbacks, credentials, roomIdToChannelId, updateStatus]);
+  }, [credentials, roomIdToChannelId, updateStatus]);
 
   const sendMessage = useCallback(async (channelId: string, text: string) => {
     if (!credentials || !clientRef.current) return;

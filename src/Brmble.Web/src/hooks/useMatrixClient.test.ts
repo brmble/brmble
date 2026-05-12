@@ -123,6 +123,21 @@ describe('useMatrixClient', () => {
     expect(mockClient.startClient).toHaveBeenCalledWith({ initialSyncLimit: 5 });
   });
 
+  it('does not reconnect when callback object identity changes', () => {
+    const { rerender } = renderHook(
+      ({ callbacks }: { callbacks: { onDirectMessage: () => void } }) => useMatrixClient(creds, callbacks),
+      { initialProps: { callbacks: { onDirectMessage: vi.fn() } }, wrapper },
+    );
+
+    expect(mockClient.startClient).toHaveBeenCalledTimes(1);
+    expect(mockClient.stopClient).not.toHaveBeenCalled();
+
+    act(() => rerender({ callbacks: { onDirectMessage: vi.fn() } }));
+
+    expect(mockClient.startClient).toHaveBeenCalledTimes(1);
+    expect(mockClient.stopClient).not.toHaveBeenCalled();
+  });
+
   it('maps Matrix reconnect sync states to chat status', () => {
     render(
       React.createElement(

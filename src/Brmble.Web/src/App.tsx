@@ -511,6 +511,7 @@ function App() {
   const [selfSession, setSelfSession] = useState<number>(0);
   const [speakingUsers, setSpeakingUsers] = useState<Map<number, boolean>>(new Map());
   const [pendingChannelAction, setPendingChannelAction] = useState<number | 'leave' | null>(null);
+  const hasMatrixCredentialsForSessionRef = useRef(false);
 
   useEffect(() => {
     setOverlaySnapshot((prev) => ({
@@ -1220,6 +1221,7 @@ function App() {
       setSelfCanRejoin(false);
       setSelfSession(0);
       setSpeakingUsers(new Map());
+      hasMatrixCredentialsForSessionRef.current = false;
       setMatrixCredentials(null);
       setCurrentUserAvatarUrl(undefined);
       fetchedAvatarIdsRef.current.clear();
@@ -1239,11 +1241,11 @@ function App() {
       const wrapped = data as { matrix?: MatrixCredentials } | undefined;
       const d = wrapped?.matrix;
       if (d?.homeserverUrl && d.accessToken && d.userId && d.roomMap) {
+        if (!hasMatrixCredentialsForSessionRef.current) {
+          clearChatStorage();
+          hasMatrixCredentialsForSessionRef.current = true;
+        }
         setMatrixCredentials(prev => {
-          if (!prev) {
-            clearChatStorage();
-            return d;
-          }
           return areMatrixCredentialsEqual(prev, d) ? prev : d;
         });
       }
@@ -1814,6 +1816,7 @@ function App() {
       setSelfCanRejoin(false);
       setSelfSession(0);
       setSpeakingUsers(new Map());
+      hasMatrixCredentialsForSessionRef.current = false;
       setCurrentUserAvatarUrl(undefined);
     };
 
@@ -2284,6 +2287,7 @@ const handleConnect = (serverData: SavedServer) => {
         setSelfCanRejoin(false);
         setSelfSession(0);
         setSpeakingUsers(new Map());
+        hasMatrixCredentialsForSessionRef.current = false;
         setMatrixCredentials(null);
         setSharingChannelId(undefined);
       },
