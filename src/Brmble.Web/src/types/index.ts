@@ -81,6 +81,17 @@ export interface ServiceStatus {
 
 export type ServiceStatusMap = Record<ServiceName, ServiceStatus>;
 
+export type NativeBrmbleServiceName = 'server' | 'session' | 'screenshare';
+export type NativeBrmbleServiceState = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
+
+export interface NativeBrmbleServiceStatus {
+  service?: NativeBrmbleServiceName;
+  state?: NativeBrmbleServiceState;
+  reason?: string;
+  attempt?: number;
+  delayMs?: number;
+}
+
 export const SERVICE_DISPLAY_NAMES: Record<ServiceName, string> = {
   voice: 'Voice',
   chat: 'Chat',

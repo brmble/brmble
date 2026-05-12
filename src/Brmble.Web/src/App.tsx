@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import bridge from './bridge';
-import type { ConnectionStatus, ChatMessage, ServiceStatus } from './types';
+import type { ConnectionStatus, ChatMessage, NativeBrmbleServiceStatus, ServiceStatus } from './types';
 import { encodeForMumble } from './utils/imageUpload';
 import { useMatrixClient } from './hooks/useMatrixClient';
 import type { MatrixCredentials } from './hooks/useMatrixClient';
@@ -56,6 +56,7 @@ import {
   updateFullCompanionContext,
 } from './components/CompanionOverlay/overlayModel';
 import { migrateLocalStorage } from './utils/migrateLocalStorage';
+import { mapBrmbleServiceStatus } from './utils/brmbleServiceStatus';
 import './App.css';
 
 export interface ScreenShareEndedNotification {
@@ -1094,6 +1095,13 @@ function App() {
 
   // Register all bridge handlers once on mount
   useEffect(() => {
+    const onBrmbleServiceStatus = (data: unknown) => {
+      const status = data as NativeBrmbleServiceStatus;
+      const mapped = mapBrmbleServiceStatus(status);
+      if (!mapped) return;
+      updateStatus(mapped.service, mapped.update);
+    };
+
     const onVoiceConnected = ((data: unknown) => {
       setConnectionStatus('connected');
       updateStatus('voice', { state: 'connected', error: undefined });
@@ -1875,6 +1883,7 @@ function App() {
       } catch { /* ignore parse errors */ }
     };
 
+    bridge.on('brmble.serviceStatus', onBrmbleServiceStatus);
     bridge.on('voice.connected', onVoiceConnected);
     bridge.on('voice.disconnected', onVoiceDisconnected);
     bridge.on('voice.error', onVoiceError);
@@ -1958,6 +1967,7 @@ function App() {
     return () => {
       bridge.off('app.updateAvailable', onUpdateAvailable);
       bridge.off('app.updateProgress', onUpdateProgress);
+      bridge.off('brmble.serviceStatus', onBrmbleServiceStatus);
       bridge.off('voice.connected', onVoiceConnected);
       bridge.off('voice.disconnected', onVoiceDisconnected);
       bridge.off('voice.error', onVoiceError);
