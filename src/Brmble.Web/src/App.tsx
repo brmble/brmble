@@ -524,10 +524,19 @@ function App() {
 
   useEffect(() => {
     if (!overlaySettings.overlayEnabled) return;
-    // Prune immediately on enable to prevent flash of stale content
+    // Clear fullCompanion state and prune immediately on enable to prevent flash of stale content
     setOverlaySnapshot((prev) => {
       const now = Date.now();
-      return resolveFullCompanionDisplay(pruneOverlaySnapshot(prev, now), now);
+      return resolveFullCompanionDisplay(pruneOverlaySnapshot({
+        ...prev,
+        fullCompanion: {
+          ...prev.fullCompanion,
+          activeDisplay: null,
+          chatQueue: [],
+          eventQueue: [],
+          speakerCandidates: [],
+        },
+      }, now), now);
     });
     const interval = window.setInterval(() => {
       setOverlaySnapshot((prev) => {

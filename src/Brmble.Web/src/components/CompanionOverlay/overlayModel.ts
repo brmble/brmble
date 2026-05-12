@@ -17,6 +17,10 @@ const QUIET_AFTER_MS = 15_000;
 const CHAT_DISPLAY_MS = 5_000;
 const JOIN_LEAVE_DISPLAY_MS = 3_000;
 const SPEAKER_ELIGIBLE_AFTER_MS = 500;
+const MAX_CHAT_QUEUE = 20;
+const MAX_EVENT_QUEUE = 10;
+const MAX_SPEAKER_CANDIDATES = 30;
+const SPEAKER_CANDIDATE_PRUNE_MS = 60_000;
 let speakerArrivalOrder = 0;
 
 const UNKNOWN_USER = 'Unknown user';
@@ -216,6 +220,7 @@ export function appendOverlayEvent(
     return snapshot;
   }
 
+  const now = Date.now();
   const nextEvents = [...snapshot.recentEvents, event].slice(-MAX_EVENTS);
   let nextFullCompanion = snapshot.fullCompanion;
   if (isChatEvent(event)) {
@@ -227,7 +232,7 @@ export function appendOverlayEvent(
         : active && active.kind !== 'idle'
           ? [...snapshot.fullCompanion.chatQueue, event]
           : snapshot.fullCompanion.chatQueue,
-      activeDisplay: !active || active.kind === 'idle' ? displayFromEvent(snapshot, event, event.timestamp) : active,
+      activeDisplay: !active || active.kind === 'idle' ? displayFromEvent(snapshot, event, now) : active,
     };
   } else if (isJoinLeaveEvent(event)) {
     const active = snapshot.fullCompanion.activeDisplay;
@@ -236,7 +241,7 @@ export function appendOverlayEvent(
       eventQueue: active && active.kind !== 'idle'
         ? [...snapshot.fullCompanion.eventQueue, event]
         : snapshot.fullCompanion.eventQueue,
-      activeDisplay: !active || active.kind === 'idle' ? displayFromEvent(snapshot, event, event.timestamp) : active,
+      activeDisplay: !active || active.kind === 'idle' ? displayFromEvent(snapshot, event, now) : active,
     };
   }
 
@@ -275,14 +280,29 @@ export function updateFullCompanionContext(
   const activeDisplay = nextFullCompanion.activeDisplay;
   const localCompanionChanged = context.localUser?.companionId !== undefined
     && context.localUser.companionId !== snapshot.fullCompanion.localUser.companionId;
-  const nextActiveDisplay = localCompanionChanged
-    && activeDisplay
-    && activeDisplay.representedSession === nextLocalUser.session
-      ? {
-        ...activeDisplay,
-        companionId: nextLocalUser.companionId,
-      }
-      : activeDisplay;
+  const flagsChanged = context.localMuted !== undefined || context.liveUserSessions !== undefined;
+  
+  let nextActiveDisplay = activeDisplay;
+  
+  // Update companionId if local user's companion changed
+  if (localCompanionChanged && activeDisplay && (activeDisplay.representedSession === nextLocalUser.session || activeDisplay.isProxy)) {
+    nextActiveDisplay = {
+      ...activeDisplay,
+      companionId: nextLocalUser.companionId,
+    };
+  }
+  
+  // Recompute badges if flags changed
+  if (flagsChanged && nextActiveDisplay) {
+    const isLocal = nextActiveDisplay.representedSession === nextLocalUser.session;
+    nextActiveDisplay = {
+      ...nextActiveDisplay,
+      badges: {
+        muted: isLocal && nextFullCompanion.flags.localMuted,
+        live: nextFullCompanion.flags.liveUserSessions.includes(nextActiveDisplay.representedSession),
+      },
+    };
+  }
 
   return {
     ...snapshot,
@@ -395,12 +415,25 @@ export function pruneOverlaySnapshot(snapshot: CompanionOverlaySnapshot, now: nu
     .sort((a, b) => b.lastSpokeAt - a.lastSpokeAt)
     .slice(0, MAX_VISIBLE_SPEAKERS);
 
+  // Prune fullCompanion queues and candidates
+  const chatQueue = snapshot.fullCompanion.chatQueue.slice(-MAX_CHAT_QUEUE);
+  const eventQueue = snapshot.fullCompanion.eventQueue.slice(-MAX_EVENT_QUEUE);
+  const speakerCandidates = snapshot.fullCompanion.speakerCandidates
+    .filter((candidate) => !candidate.stoppedAt || now - candidate.stoppedAt < SPEAKER_CANDIDATE_PRUNE_MS)
+    .slice(-MAX_SPEAKER_CANDIDATES);
+
   // Return original snapshot when nothing changed to prevent unnecessary React updates
   if (
     recentEvents.length === snapshot.recentEvents.length &&
     activeSpeakers.length === snapshot.activeSpeakers.length &&
+    chatQueue.length === snapshot.fullCompanion.chatQueue.length &&
+    eventQueue.length === snapshot.fullCompanion.eventQueue.length &&
+    speakerCandidates.length === snapshot.fullCompanion.speakerCandidates.length &&
     recentEvents.every((event, i) => event === snapshot.recentEvents[i]) &&
-    activeSpeakers.every((speaker, i) => speaker === snapshot.activeSpeakers[i])
+    activeSpeakers.every((speaker, i) => speaker === snapshot.activeSpeakers[i]) &&
+    chatQueue.every((event, i) => event === snapshot.fullCompanion.chatQueue[i]) &&
+    eventQueue.every((event, i) => event === snapshot.fullCompanion.eventQueue[i]) &&
+    speakerCandidates.every((candidate, i) => candidate === snapshot.fullCompanion.speakerCandidates[i])
   ) {
     return snapshot;
   }
@@ -410,6 +443,12 @@ export function pruneOverlaySnapshot(snapshot: CompanionOverlaySnapshot, now: nu
     recentEvents,
     activeSpeakers,
     visualState: deriveVisualState(recentEvents, activeSpeakers, now),
+    fullCompanion: {
+      ...snapshot.fullCompanion,
+      chatQueue,
+      eventQueue,
+      speakerCandidates,
+    },
   };
 }
 
