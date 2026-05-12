@@ -6,7 +6,7 @@ import { AudioSettingsTab, type AudioSettings, type NoiseSuppressionSettings, DE
 import { ShortcutsSettingsTab, type ShortcutsSettings, DEFAULT_SHORTCUTS } from './ShortcutsSettingsTab';
 import { MessagesSettingsTab, type MessagesSettings, DEFAULT_MESSAGES } from './MessagesSettingsTab';
 import { InterfaceSettingsTab } from './InterfaceSettingsTab';
-import { type AppearanceSettings, type OverlaySettings, type BrmblegotchiSettings, DEFAULT_APPEARANCE, DEFAULT_OVERLAY, DEFAULT_BRMBLEGOTCHI } from './InterfaceSettingsTypes';
+import { type AppearanceSettings, type OverlaySettings, type BrmblegotchiSettings, DEFAULT_APPEARANCE, DEFAULT_OVERLAY, DEFAULT_BRMBLEGOTCHI, normalizeOverlaySettings } from './InterfaceSettingsTypes';
 import { ConnectionSettingsTab, type ConnectionSettings } from './ConnectionSettingsTab';
 import { ProfileSettingsTab } from './ProfileSettingsTab';
 import { AdminSettingsTab } from './AdminSettingsTab';
@@ -181,6 +181,7 @@ export function SettingsModal(props: SettingsModalProps) {
             ...DEFAULT_SETTINGS,
             ...d.settings!,
             audio: { ...DEFAULT_SETTINGS.audio, ...(d.settings!.audio ?? {}) },
+            overlay: normalizeOverlaySettings(d.settings!.overlay ?? {}),
             brmblegotchi: d.settings!.brmblegotchi ?? prev.brmblegotchi ?? DEFAULT_BRMBLEGOTCHI,
             screenShare: d.settings!.screenShare ?? prev.screenShare ?? DEFAULT_SCREEN_SHARE,
             noiseSuppression: normalizedNs,

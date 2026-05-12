@@ -6,7 +6,7 @@ describe('CompanionSprite', () => {
   it('renders row-aware playback metadata for a 6-frame row', () => {
     render(
       <CompanionSprite
-        companionId="kirito"
+        companionId="retro"
         row={9}
         badges={{ muted: false, live: true }}
       />,
@@ -30,7 +30,7 @@ describe('CompanionSprite', () => {
   it('renders row-aware playback metadata for a 4-frame row', () => {
     render(
       <CompanionSprite
-        companionId="kirito"
+        companionId="retro"
         row={4}
         badges={{ muted: false, live: false }}
       />,

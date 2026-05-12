@@ -36,7 +36,7 @@ public record OverlaySettings(
     bool OverlayEnabled = false,
     string Mode = "minimal",
     string Position = "bottom-right",
-    string MyCompanion = "clip",
+    string MyCompanion = "bee",
     bool ShowChannelMessages = true,
     bool ShowDirectMessages = true,
     bool ShowJoinLeaveEvents = true,

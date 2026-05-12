@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import clipAtlas from '../../assets/Sprites/Clip/Clip.webp';
-import erenAtlas from '../../assets/Sprites/Eren/Eren.webp';
-import kidGokuAtlas from '../../assets/Sprites/Kid Goku/Kid Goku.webp';
-import kiritoAtlas from '../../assets/Sprites/Kirito/Kirito.webp';
-import paulAtlas from '../../assets/Sprites/Paul/Paul.webp';
+import beeAtlas from '../../assets/Sprites/Bee/Bee.webp';
+import engineerAtlas from '../../assets/Sprites/Engineer/Engineer.webp';
+import floppyAtlas from '../../assets/Sprites/Floppy/Floppy.webp';
+import patchAtlas from '../../assets/Sprites/Patch/Patch.webp';
+import pipAtlas from '../../assets/Sprites/Pip/Pip.webp';
+import retroAtlas from '../../assets/Sprites/Retro/Retro.webp';
 import type { CSSProperties } from 'react';
 import type { CompanionAtlasRow, CompanionId } from './overlayTypes';
 
@@ -22,11 +23,12 @@ const frameCountByRow: Record<CompanionAtlasRow, number> = {
 };
 
 const atlasByCompanion: Record<CompanionId, string> = {
-  clip: clipAtlas,
-  eren: erenAtlas,
-  'kid-goku': kidGokuAtlas,
-  kirito: kiritoAtlas,
-  paul: paulAtlas,
+  bee: beeAtlas,
+  engineer: engineerAtlas,
+  floppy: floppyAtlas,
+  patch: patchAtlas,
+  pip: pipAtlas,
+  retro: retroAtlas,
 };
 
 function percentForFrameIndex(frameIndex: number): string {

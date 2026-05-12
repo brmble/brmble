@@ -30,13 +30,13 @@ describe('useCompanionOverlayPublisher', () => {
       localUser: {
         session: 42,
         name: 'Local',
-        companionId: 'clip',
+        companionId: 'bee',
       },
       companionsByUser: {
         99: {
           session: 99,
           name: 'Milo',
-          companionId: 'eren',
+          companionId: 'engineer',
         },
       },
       localMuted: true,

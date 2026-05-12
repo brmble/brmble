@@ -43,7 +43,7 @@ import { UpdateNotification } from './components/UpdateNotification/UpdateNotifi
 import { BrokenCertNotification } from './components/BrokenCertNotification/BrokenCertNotification';
 import { Notification } from './components/Notification/Notification';
 import type { NotificationStatus } from './components/Notification/Notification';
-import { DEFAULT_OVERLAY, type OverlaySettings } from './components/SettingsModal/InterfaceSettingsTypes';
+import { DEFAULT_OVERLAY, normalizeOverlaySettings, type OverlaySettings } from './components/SettingsModal/InterfaceSettingsTypes';
 import type { CompanionOverlaySnapshot } from './components/CompanionOverlay/overlayTypes';
 import {
   appendOverlayEvent,
@@ -454,7 +454,7 @@ function App() {
       const stored = localStorage.getItem('brmble-settings');
       if (!stored) return DEFAULT_OVERLAY;
       const parsed = JSON.parse(stored);
-      return { ...DEFAULT_OVERLAY, ...(parsed.overlay ?? {}) };
+      return normalizeOverlaySettings(parsed.overlay ?? {});
     } catch {
       return DEFAULT_OVERLAY;
     }
@@ -1026,7 +1026,7 @@ function App() {
       const d = data as { settings?: any } | undefined;
       if (d?.settings) {
         updatePttKeyFromSettings(d.settings);
-        setOverlaySettings({ ...DEFAULT_OVERLAY, ...(d.settings.overlay ?? {}) });
+        setOverlaySettings(normalizeOverlaySettings(d.settings.overlay ?? {}));
       }
     };
 
@@ -1040,7 +1040,7 @@ function App() {
         if (stored) {
           const settings = JSON.parse(stored);
           updatePttKeyFromSettings(settings);
-          setOverlaySettings({ ...DEFAULT_OVERLAY, ...(settings.overlay ?? {}) });
+          setOverlaySettings(normalizeOverlaySettings(settings.overlay ?? {}));
         }
       } catch {}
     };
