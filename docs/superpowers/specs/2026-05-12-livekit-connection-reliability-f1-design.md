@@ -1,22 +1,31 @@
-# LiveKit Connection Reliability F1 Design
+# Non-Voice Service Connection Reliability F1 Design
 
 **Date:** 2026-05-12
 **Status:** Approved design
 **Roadmap phase:** F. Connection & Reliability, first slice
+**Primary issue:** `#380` reconnect non-voice services independently when Mumble stays connected
 
 ## Context
 
 The E. Token & Security phase is implemented. It added scoped LiveKit tokens, token refresh, endpoint rate limiting, active participant tracking, and participant revocation on Mumble disconnects, kicks, bans, and channel moves. That work made authorization and revocation safe enough that F should not reintroduce persisted share recovery unless there is a clear user benefit.
 
-The remaining reliability gap is service-level resilience. The native client already has independent WebSocket retry and health polling for the Brmble API, and LiveKit token requests retry transient failures. However, the frontend does not receive a clear non-voice service connection state, does not consistently clear stale LiveKit UI when those services become unavailable, and does not always rediscover active shares after service reconnect. Issue `#380` is the first F priority: reconnect non-voice services independently when Mumble stays connected.
+The remaining reliability gap is service-level resilience. Issue `#380` covers three non-voice services that can fail while Mumble voice stays connected:
+
+- Brmble server auth/session tracking.
+- Matrix chat channel and DM messaging.
+- Screen share WebRTC and supporting LiveKit endpoints.
+
+The native client already has independent WebSocket retry and health polling for the Brmble API, and LiveKit token requests retry transient failures. Matrix also has SDK sync state, but the app does not have a unified reconnect story across these non-voice services. The frontend does not receive clear service-state events for every affected path, does not consistently expose per-service reconnect state in status dots, and does not always refresh credentials, session mappings, chat sync, or active share discovery after service reconnect.
 
 ## Goals
 
-- Address issue `#380` by treating Brmble API/WebSocket/LiveKit support paths as reconnectable non-voice services that can recover without restarting Mumble.
-- Keep Mumble voice connected when only Brmble API/WebSocket/LiveKit support paths drop.
-- Surface explicit non-voice service connection state from the native client to React.
-- Clear stale watched-share and active-share UI when LiveKit support becomes unavailable or its state can no longer be trusted.
-- Re-run active-share discovery after non-voice service reconnect so the UI reflects current server state.
+- Address issue `#380` by treating Brmble server, Matrix chat, and screen share as reconnectable non-voice services that can recover without restarting Mumble.
+- Keep Mumble voice connected when only Brmble server, Matrix chat, or screen share support paths drop.
+- Surface explicit non-voice service connection state to React and the existing per-service status dots.
+- Refresh Brmble server credentials/session mappings after Brmble API or WebSocket reconnect.
+- Restart or refresh Matrix chat sync after credentials/API connectivity recovers.
+- Clear stale watched-share and active-share UI when screen share support becomes unavailable or its state can no longer be trusted.
+- Re-run active-share discovery after screen share support reconnects so the UI reflects current server state.
 - Notify viewers when a watched share ends unexpectedly instead of silently removing the tile.
 - Document that share recovery is intentionally manual for F1.
 
@@ -28,14 +37,15 @@ The remaining reliability gap is service-level resilience. The native client alr
 - Do not automatically restart browser screen capture after a publisher disconnect, token failure, or LiveKit room interruption.
 - Do not auto-rejoin watched shares as a stored preference. Re-discovery can show active shares again, but watching remains a user action.
 - Do not change TURN/ICE infrastructure in this slice. Existing groundwork remains as-is unless needed for reconnect cleanup tests.
+- Do not redesign Matrix rooms, DM creation, unread tracking, or message persistence.
 
 ## Chosen Approach
 
 Use reconnect plus cleanup rather than state recovery.
 
-The native client should own non-voice service connection state because it already manages the Brmble API health check, certificate-authenticated WebSocket connection, and certificate-authenticated LiveKit HTTP calls. It should emit bridge events when those support paths are connecting, connected, disconnected, and reconnecting. These events are separate from `voice.connected` and `voice.disconnected`; a WebSocket or API drop must not imply that Mumble voice has dropped.
+The native client should own Brmble server transport state because it already manages the Brmble API health check, certificate-authenticated WebSocket connection, credential fetch, and certificate-authenticated LiveKit HTTP calls. React should own Matrix SDK sync state because the Matrix client lives in `useMatrixClient`. Both sides should report into the existing service-status model so the status dots can show which non-voice service is reconnecting.
 
-React should treat the non-voice service state as the trust boundary for LiveKit UI. When the service becomes unavailable, React clears watched-share UI and stops treating active-share discovery as current. When the service reconnects, React requests active-share discovery for the current channel or the all-shares view. If a watched share disappears because the publisher stopped, was revoked, moved, or the service state was invalidated, React shows a concise notification such as `Alice's share ended` or `Alice's share ended unexpectedly` depending on whether the stop was explicit or caused by service loss.
+React should treat service state as a trust boundary for each affected feature. Brmble server reconnect should refresh credentials and session mappings. Matrix reconnect should restart sync and reload active channel or DM timelines from the SDK/server. Screen share reconnect should clear stale watched-share state, re-run active-share discovery for the current channel or all-shares view, and show concise Brmble notifications when watched shares end.
 
 This keeps F1 small and predictable: users can restart sharing or watching with one click, while the app avoids stale or misleading LiveKit state.
 
@@ -48,12 +58,14 @@ This keeps F1 small and predictable: users can restart sharing or watching with 
 - Mumble lifecycle events revoke LiveKit participants and stop publisher shares when authorization changes.
 - The Brmble WebSocket already reconnects with exponential backoff while the native client process is running.
 - API health polling already emits `server.healthStatus` for general server status.
+- `useMatrixClient` already maps Matrix SDK sync states to the `chat` service status.
+- `server.credentials` already provides Matrix credentials, room maps, DM maps, and initial session mappings.
 
 ## Native Client Design
 
 ### Service State Model
 
-Add a native-side service status event for Brmble non-voice services:
+Add or normalize a native-side service status event for Brmble-managed non-voice services:
 
 ```text
 brmble.serviceStatus
@@ -63,7 +75,7 @@ Payload:
 
 ```json
 {
-  "service": "api" | "websocket" | "livekit",
+  "service": "server" | "session" | "screenshare",
   "state": "connecting" | "connected" | "reconnecting" | "disconnected",
   "reason": "connection-lost",
   "attempt": 1,
@@ -71,36 +83,85 @@ Payload:
 }
 ```
 
-`reason`, `attempt`, and `delayMs` are included when the native client has concrete reconnect context; connected events can omit them. The initial implementation can use `websocket` as the primary trust signal for real-time share events and `livekit` for token/active-share HTTP failures. `api` can mirror health polling when useful, but UI cleanup should key off the service that affects LiveKit correctness.
+`reason`, `attempt`, and `delayMs` are included when the native client has concrete reconnect context; connected events can omit them.
 
-### WebSocket Reconnect Events
+Service meanings:
+
+- `server`: Brmble API reachability, credential fetch, auth token availability, and health checks.
+- `session`: Brmble WebSocket session tracking, user mapping snapshots, share started/stopped broadcasts, and Brmble-client activation events.
+- `screenshare`: LiveKit token requests, active-share discovery, share-start/share-stop endpoint calls, and local WebRTC room trust.
+
+Matrix chat status should continue to report through the existing `chat` service status in React because the Matrix SDK runs in the web layer, not the native client.
+
+### Brmble Server Credential Refresh
+
+When `server` transitions from unavailable to connected while Mumble remains connected, the native client should fetch fresh Brmble credentials through the existing certificate-authenticated `/auth/token` flow. The refreshed payload should be sent through the existing `server.credentials` bridge event.
+
+This refresh is needed because the Matrix access token, room maps, DM maps, and session mappings can become stale during an outage. It should not reconnect Mumble or require a voice reconnect.
+
+### Session WebSocket Reconnect Events
 
 `StartWebSocketConnection` should emit:
 
 - `connecting` before the first connection attempt.
-- `connected` after a successful WebSocket upgrade.
+- `connected` after a successful WebSocket upgrade and receipt of a usable session snapshot.
 - `reconnecting` after a dropped connection before the backoff delay.
 - `disconnected` only when the reconnect loop stops because the service was intentionally stopped or credentials/API URL are no longer available.
 
 These events must not call `Disconnect()` and must not emit `voice.disconnected`.
 
-### LiveKit HTTP Reliability
+On reconnect, the WebSocket path should request or receive a fresh `sessionMappingSnapshot` so React can repair user Matrix IDs, Brmble-client markers, and share event routing without a voice reconnect.
 
-The existing `livekit.requestToken` retry loop should remain short and bounded. On transient failure after all retries, emit `brmble.serviceStatus` for `livekit` with `disconnected` or `reconnecting` depending on whether another retry loop is active. The frontend can use the existing `livekit.tokenError` for request-specific failures and the service status event for broader UI trust.
+### Screen Share HTTP Reliability
 
-`livekit.checkActiveShare` should emit a service status failure when active-share discovery cannot reach the API. A later successful token or active-share request should emit `livekit` `connected`.
+The existing `livekit.requestToken` retry loop should remain short and bounded. On transient failure after all retries, emit `brmble.serviceStatus` for `screenshare` with `disconnected` or `reconnecting` depending on whether another retry loop is active. The frontend can use the existing `livekit.tokenError` for request-specific failures and the service status event for broader UI trust.
+
+`livekit.checkActiveShare` should emit a service status failure when active-share discovery cannot reach the API. A later successful token, share-start/share-stop, or active-share request should emit `screenshare` `connected`.
 
 ## React Design
 
 ### Service Status State
 
-React should subscribe to `brmble.serviceStatus` and store a small connection-state map keyed by service. This state is distinct from the existing voice connection status.
+React should subscribe to `brmble.serviceStatus` and store or forward native service state into the existing `useServiceStatus` model. This state is distinct from the existing voice connection status.
 
-The LiveKit UI should treat these conditions as unavailable:
+Service mapping:
 
-- WebSocket service is reconnecting or disconnected.
-- LiveKit service is disconnected after token or active-share failures.
-- API health is disconnected and no WebSocket connection is available.
+- Native `server` updates the Brmble server status dot.
+- Native `session` updates the session-tracking/server-realtime status used by user mappings and share broadcasts.
+- Native `screenshare` updates the screen-share status dot.
+- Matrix SDK sync continues to update the `chat` status dot from `useMatrixClient`.
+
+The screen-share UI should treat these conditions as unavailable:
+
+- Session WebSocket service is reconnecting or disconnected.
+- Screen-share service is disconnected after token, share endpoint, or active-share failures.
+- Brmble server is disconnected and no session WebSocket connection is available.
+
+### Brmble Server Reconnect Handling
+
+When `server` reconnects:
+
+- Accept fresh `server.credentials` and replace stale Matrix credentials.
+- Update room maps and DM maps from the refreshed credentials.
+- Keep Mumble voice state unchanged.
+- Do not clear local chat history solely because credentials refreshed.
+
+When `server` becomes unavailable:
+
+- Mark dependent non-voice services as degraded if they cannot operate without the API.
+- Keep existing Matrix messages visible, but block or fail new sends through existing error paths if the Matrix client cannot sync.
+- Keep voice connected.
+
+### Matrix Chat Reconnect Handling
+
+When Matrix sync reports `RECONNECTING`, `ERROR`, or `STOPPED`, the `chat` status dot should show connecting or disconnected. When sync returns to `PREPARED` or `SYNCING`, it should show connected.
+
+When refreshed credentials arrive after Brmble server reconnect:
+
+- Recreate or refresh the Matrix client if the access token, homeserver URL, room map, or DM map changed.
+- Let the Matrix SDK perform a fresh sync.
+- Reload the active channel or DM messages from the Matrix SDK/server after sync is prepared.
+- Preserve already-rendered local message history until fresh sync replaces or augments it.
 
 ### Cleanup On Service Loss
 
@@ -132,7 +193,7 @@ When a watched share is removed, React should distinguish three cases:
 - Explicit `screenShare.stopped` event for a watched publisher: show `Alice's share ended`.
 - Service loss, LiveKit room disconnect, token refresh failure, or track loss without a matching explicit stop event: show `Alice's share ended unexpectedly`.
 
-The notification should be concise and reuse the existing notification/toast queue patterns. It should not block reconnect or discovery.
+The notification should be concise and reuse the existing Brmble notification queue patterns. It should not block reconnect or discovery.
 
 ## Server Design
 
@@ -148,7 +209,7 @@ Server work for F1 should be limited to ensuring existing endpoints return clear
 
 ## Error Handling
 
-- Service reconnect failures should not spam user-visible toasts on every retry.
+- Service reconnect failures should not spam user-visible notifications on every retry.
 - User-visible notifications should appear for meaningful state changes: watched share ended, LiveKit support unavailable, or reconnect restored.
 - Request-specific errors such as token denial should continue through existing `livekit.tokenError` handling.
 - Authorization failures must remain hard failures. Do not retry 4xx token or active-share responses as transient service outages.
@@ -158,17 +219,22 @@ Server work for F1 should be limited to ensuring existing endpoints return clear
 
 ### Native Client Tests
 
-- WebSocket connect emits `brmble.serviceStatus` `websocket:connected` after a valid upgrade.
-- WebSocket read failure emits `websocket:reconnecting` and continues without emitting `voice.disconnected`.
-- Intentional voice disconnect stops WebSocket reconnect and emits a terminal service status.
+- Brmble API recovery fetches fresh credentials and emits `server.credentials` without reconnecting Mumble.
+- WebSocket connect emits `brmble.serviceStatus` `session:connected` after a valid upgrade and usable snapshot.
+- WebSocket read failure emits `session:reconnecting` and continues without emitting `voice.disconnected`.
+- Intentional voice disconnect stops WebSocket reconnect and emits terminal non-voice service statuses.
 - LiveKit token request transient failures keep existing bounded retries.
-- LiveKit token request final failure emits both request-specific `livekit.tokenError` and service status for LiveKit.
-- Successful LiveKit token or active-share request marks LiveKit service connected again.
+- LiveKit token request final failure emits both request-specific `livekit.tokenError` and `screenshare` service status.
+- Successful LiveKit token or active-share request marks `screenshare` connected again.
 
 ### React Tests
 
-- `brmble.serviceStatus` WebSocket reconnecting clears watched shares and disconnects the LiveKit room without changing voice connection state.
-- A transition back to connected triggers active-share discovery for the current channel.
+- `brmble.serviceStatus` `session` reconnecting clears watched shares and disconnects the LiveKit room without changing voice connection state.
+- `brmble.serviceStatus` `screenshare` disconnected clears watched shares and marks screen share unavailable.
+- A `server.credentials` refresh updates Matrix credentials without clearing voice state.
+- Matrix SDK reconnecting/error states update the `chat` status dot.
+- Matrix SDK returning to prepared/syncing reloads active channel or DM messages.
+- A screen-share transition back to connected triggers active-share discovery for the current channel.
 - The all-shares view requests all active shares after reconnect.
 - An explicit `livekit.screenShareStopped` event for a watched share shows a normal ended notification.
 - A LiveKit room disconnect or service-loss cleanup for a watched share shows an unexpected-ended notification.
@@ -176,7 +242,7 @@ Server work for F1 should be limited to ensuring existing endpoints return clear
 
 ### Server Tests
 
-- Existing active-share endpoint tests continue to verify authentication and current tracker state.
+- Existing auth/session mapping and active-share endpoint tests continue to verify authentication and current tracker state.
 - No new persistence tests are required because F1 intentionally does not recover server process state.
 
 ## Manual Validation
@@ -184,8 +250,11 @@ Server work for F1 should be limited to ensuring existing endpoints return clear
 - Connect to a Brmble server, join voice, and start watching a share.
 - Temporarily interrupt the Brmble WebSocket/API path while Mumble stays connected.
 - Confirm voice remains connected.
+- Confirm Brmble server/session status dots show reconnecting or disconnected.
+- Restore the API path and confirm fresh credentials/session mappings arrive without reconnecting voice.
+- Confirm Matrix chat status returns connected and active chat messages sync again.
 - Confirm watched-share UI clears and does not show stale video.
-- Restore the API path and confirm active-share discovery refreshes the sidebar/current channel state.
+- Confirm active-share discovery refreshes the sidebar/current channel state.
 - Confirm the user must click Watch again to view an active share.
 - Stop a watched publisher normally and confirm the viewer sees an ended notification.
 - Drop the LiveKit room unexpectedly and confirm the viewer sees an unexpected-ended notification.
@@ -212,8 +281,10 @@ After implementation, update `docs/superpowers/specs/2026-04-17-livekit-feature-
 ## Success Criteria
 
 - A Brmble API/WebSocket interruption does not disconnect Mumble voice.
-- The frontend receives explicit non-voice service status events.
-- LiveKit UI does not show stale watched or active shares while service state is untrusted.
+- Brmble server credentials/session mappings refresh without a voice reconnect.
+- Matrix chat reconnects or refreshes sync after server credentials/connectivity recover.
+- The frontend receives explicit non-voice service status events for server, session, and screen-share paths.
+- Screen-share UI does not show stale watched or active shares while service state is untrusted.
 - Active-share discovery runs automatically after service reconnect.
 - Watched viewers get clear normal or unexpected share-ended notifications.
 - F2 remains clearly scoped to connection quality indicators and graceful degradation.
