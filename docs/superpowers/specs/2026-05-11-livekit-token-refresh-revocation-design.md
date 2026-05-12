@@ -1,10 +1,15 @@
 # LiveKit Token Refresh And Revocation Design
 
+**Date:** 2026-05-11
+**Status:** Implemented. This completes the remaining E2 token lifecycle hardening scope for issue `#354`; phase F is the next LiveKit roadmap focus.
+
 ## Context
 
 Issue #354 tracks the remaining E2 token lifecycle hardening work. The E1 access-control foundation is already in place: LiveKit token requests are scoped by access mode and authorized against the caller's current Mumble channel membership. The first E2 pass added shorter expiry metadata, rate limiting, and duplicate-start protection.
 
 The remaining gap is active access. A user who already joined a LiveKit room should be removed promptly when their voice/channel authorization changes, and valid users should refresh access before token expiry without dropping an active share or watch session.
+
+This design has landed. Manual two-client validation covered share/watch, viewer leave, sharer leave, viewer move, sharer move, reconnect after viewer disconnect, reconnect after sharer disconnect, and preservation of valid share sessions. The untested manual scenario is the three-client case where one viewer is revoked while another viewer continues watching; this is covered by the design and automated tests and remains useful for broader manual regression passes.
 
 ## Goals
 

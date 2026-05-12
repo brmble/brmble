@@ -1,7 +1,7 @@
 # LiveKit Token & Security Phase Design
 
 **Date:** 2026-04-30
-**Status:** Partially implemented. E1 and the first E2 hardening pass have landed; token rotation and early revocation remain future work.
+**Status:** Implemented. E1 and E2 have landed, including token refresh before expiry and participant-scoped early revocation for observed voice lifecycle changes.
 **Scope:** Historical design for the LiveKit security phase split into `E1: Access Control Foundation` and `E2: Token Lifecycle Hardening`.
 
 ## Overview
@@ -17,7 +17,7 @@ One product clarification is important: share discovery metadata and share watch
 - Make the server the single authority for LiveKit publish and subscribe permissions while keeping share discovery as authenticated visibility metadata.
 - Separate publisher and viewer access through explicit token scoping.
 - Tie actual LiveKit watch/publish access to actual channel membership and permission state rather than room-name knowledge.
-- Add short-lived token lifecycle controls and abuse resistance. The landed E2 pass includes shorter token expiry metadata, targeted rate limiting, and duplicate-start suppression; token rotation and early revocation remain future work.
+- Add short-lived token lifecycle controls and abuse resistance. E2 includes shorter token expiry metadata, targeted rate limiting, duplicate-start suppression, token refresh before expiry, and participant-scoped early revocation.
 - Include one tiny client-side guardrail that prevents duplicate share-start attempts during the token/connect path.
 
 ## Non-Goals
@@ -43,16 +43,13 @@ Deliverables:
 
 ### E2. Token Lifecycle Hardening
 
-`E2` builds on `E1` by controlling duration and abuse resistance first, then leaving full revocation/rotation for follow-up work. It does not invent new authorization rules; it only enforces and maintains the access model established in `E1`.
+`E2` builds on `E1` by controlling duration, abuse resistance, token rotation, and active-session revocation. It does not invent new authorization rules; it only enforces and maintains the access model established in `E1`.
 
 Deliverables:
 
 - short-lived token expiry metadata
 - rate limiting on relevant LiveKit endpoints
 - one tiny duplicate-start guardrail during the LiveKit auth/connect path
-
-Deferred E2 deliverables:
-
 - token rotation before expiry
 - early revocation on kick, leave, or permission loss
 
@@ -111,7 +108,9 @@ This means share discovery remains visible product metadata, while publish and s
 2. Server returns expiry metadata so the client flow is rotation-ready
 3. Rate limiting constrains repeated token/discovery abuse
 4. The duplicate-start guard prevents overlapping share-start/token-connect attempts on the client
-5. Future work adds token refresh before expiry and early revocation on kick, leave, or permission loss
+5. The client refreshes tokens before expiry for active share/watch sessions
+6. The server tracks active LiveKit participants and removes affected identities when observed voice lifecycle events revoke access
+7. Revocation uses retrying participant removal to cover transient LiveKit API failures and join-after-revoke timing windows
 
 The lifecycle layer should not create a second set of rules. It only maintains and enforces the access model defined by `E1`.
 
@@ -155,14 +154,16 @@ The rate limiter should be scoped narrowly enough to protect these endpoints wit
 ### Token rotation
 
 - Tokens should become short-lived enough that long-lived unauthorized access is materially reduced.
-- The landed client flow accepts expiry metadata so token refresh can be added without changing the response contract again.
-- Full refresh before expiry remains future E work.
+- The client uses expiry metadata to refresh active LiveKit authorization before expiry.
+- Refresh failure is treated as access loss and tears down the affected share/watch session.
 
 ### Early revocation
 
 - Access should end early when the user is kicked, leaves the channel, or loses the relevant permission.
 - Revocation should be tied to the same server-side source of truth used for token issuance.
 - A revoked session should be treated as access loss, not as a generic network failure.
+- Active participant identities should be removed without tearing down unrelated valid participants in the same LiveKit room.
+- Revocation attempts should be retried briefly because a token can be issued just before voice lifecycle revocation and the participant may join after the first removal attempt.
 
 ## Tiny Guardrail
 
@@ -239,12 +240,12 @@ Keeping those separate prevents future `F`-phase reconnect work from being pollu
 - short-lived token metadata is returned with an expiry timestamp
 - rate limiting blocks repeated token/discovery abuse
 - duplicate-start guard suppresses a second in-flight share-start request
-
-Future E tests:
-
 - token refresh occurs before expiry without dropping a valid session
 - expired token without refresh ends access cleanly
 - kick, leave, or permission loss revokes active access
+- viewer-only revocation removes only the affected participant and does not broadcast share stop
+- publisher revocation stops tracker state and broadcasts share stop
+- failed or early participant removal is retried
 
 ### Manual verification
 
