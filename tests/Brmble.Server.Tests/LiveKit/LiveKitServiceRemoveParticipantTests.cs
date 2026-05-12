@@ -14,7 +14,7 @@ namespace Brmble.Server.Tests.LiveKit;
 public class LiveKitServiceRemoveParticipantTests
 {
     [TestMethod]
-    public async Task RemoveParticipant_DoesNotThrow_WhenRoomDoesNotExist()
+    public async Task RemoveParticipant_ReturnsFalseAndDoesNotThrow_WhenRoomDoesNotExist()
     {
         var settings = Options.Create(new LiveKitSettings { ApiKey = "test", ApiSecret = "secret-must-be-long-enough-for-hmac", ServerUrl = "http://localhost:7880" });
         var matrixSettings = Options.Create(new MatrixSettings { ServerDomain = "test.local" });
@@ -25,6 +25,8 @@ public class LiveKitServiceRemoveParticipantTests
         var service = new LiveKitService(settings, userRepo.Object, NullLogger<LiveKitService>.Instance);
 
         // Should not throw even if LiveKit server isn't running (we catch the exception)
-        await service.RemoveParticipant("nonexistent-room", "nonexistent-user");
+        var removed = await service.RemoveParticipant("nonexistent-room", "nonexistent-user");
+
+        Assert.IsFalse(removed);
     }
 }

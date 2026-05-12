@@ -1,7 +1,7 @@
 # LiveKit & Screen Sharing Feature Roadmap
 
 **Date:** 2026-04-17
-**Status:** Active roadmap. Foundation, recent follow-up fixes, and the first E. Token & Security hardening pass are implemented; remaining E/F work should focus on token rotation/revocation and connection reliability.
+**Status:** Active roadmap. Foundation, recent follow-up fixes, and E. Token & Security are implemented; next recommended phase is F. Connection & Reliability.
 
 This is the master feature list for LiveKit and screen sharing work. Completed sub-projects and shipped follow-up fixes are tracked here, while future work should continue through design -> plan -> implementation cycles.
 
@@ -14,7 +14,7 @@ This is the master feature list for LiveKit and screen sharing work. Completed s
 | B | Broadcaster Controls | Not started | -- |
 | C | Viewing Experience | Not started | -- |
 | D | Game Overlay | Not started | -- |
-| E | Token & Security | Partially implemented | `2026-04-30-livekit-token-security-phase-design.md` |
+| E | Token & Security | Implemented | `2026-04-30-livekit-token-security-phase-design.md`, `2026-05-11-livekit-token-refresh-revocation-design.md` |
 | F | Connection & Reliability | Not started | -- |
 | G | UI/UX Polish | Not started | -- |
 | H | Clips & Screenshots | Not started | -- |
@@ -86,15 +86,15 @@ See full spec: `2026-04-17-multi-share-foundation-design.md`
 > Hardening the LiveKit auth layer.
 
 28. Token scoping (publish vs. subscribe-only tokens for viewers) -- implemented in E1
-29. Token rotation (auto-refresh before expiry without interrupting stream) -- future
-30. Token revocation (server-side, tied to channel kick via RemoveParticipant) -- future
+29. Token rotation (auto-refresh before expiry without interrupting stream) -- implemented in E2
+30. Token revocation (server-side, tied to channel kick via RemoveParticipant) -- implemented in E2
 31. Auth on `/livekit/active-share` endpoint (issue #349) -- implemented in E1
 32. Rate limiting on LiveKit endpoints (issue #351) -- implemented in E2 for token and active-share endpoints
 33. Room-level permissions tied to channel permissions
 
-**Implemented E-pass behavior:** authenticated active-share discovery, explicit publish/subscribe token access modes, server-side channel permission checks for token issuance, 1-hour token expiry metadata, targeted LiveKit endpoint rate limiting, duplicate share-start suppression, and idle/leave-voice screenshare cleanup.
+**Implemented E-pass behavior:** authenticated active-share discovery, explicit publish/subscribe token access modes, server-side channel permission checks for token issuance, 1-hour token expiry metadata, targeted LiveKit endpoint rate limiting, duplicate share-start suppression, idle/leave-voice screenshare cleanup, client token refresh before expiry, active LiveKit participant tracking, participant-scoped early revocation on observed voice lifecycle changes, and retrying participant removal to cover join-after-revoke timing windows.
 
-**Remaining E work:** token refresh/rotation before expiry, early revocation on kick/permission loss, and any deeper room-level permission model beyond current channel membership checks.
+**E completion note:** Issue `#354` is addressed by the current E2 work and is ready to close after PR review. Fine-grained permission-loss events beyond the current Mumble disconnect/move lifecycle remain reusable future hardening if the Mumble integration exposes additional ACL event sources, but they are not blocking for the E phase.
 
 **Deferred:** Share passwords -- not needed, channel membership is the access boundary.
 
@@ -180,22 +180,19 @@ These items were discussed and explicitly parked:
 
 ## Next-Phase Issue Shortlist
 
-The remaining priority work around E/F should start with these still-open or partially completed issues:
+The remaining priority work moves to phase F and should start with:
 
-- `#354` `[SECURITY] LiveKit tokens have no early revocation`
 - `#380` `feat: Reconnect non-voice services independently when Mumble stays connected`
 
 Implemented by the current E-pass:
 
 - `#349` `[SECURITY] /livekit/active-share endpoint has no authentication`
 - `#351` `[SECURITY] No rate limiting on any endpoint` for LiveKit token/active-share paths
+- `#354` `[SECURITY] LiveKit tokens have no early revocation`
 - `#359` `Disable Screenshare button and keybinding while LiveKit is connecting` for duplicate in-flight share starts
 
-Known roadmap gaps with no dedicated issue yet:
+Known phase-F roadmap gaps with no dedicated issue yet:
 
-- token scoping for publish vs subscribe-only tokens
-- token rotation / refresh before expiry
-- room-level permissions tied to channel permissions
 - auto-reconnect on drop
 - share state recovery after crash
 - connection quality indicator and graceful degradation
@@ -206,8 +203,8 @@ The recommended next sequence is:
 
 1. **A. Multi-Share Foundation** -- implemented
 2. **A2. Multi-Share Layouts** -- implemented
-3. **E. Token & Security remaining work** -- token rotation, early revocation, and deeper permission lifecycle hardening
-4. **F. Connection & Reliability** -- address reconnect, recovery, and connection-state behavior after the current E-pass
+3. **E. Token & Security** -- implemented
+4. **F. Connection & Reliability** -- next priority; address reconnect, recovery, and connection-state behavior
 5. **C. Viewing Experience** -- pop-out, PiP, fullscreen (needed before overlay)
 6. **B. Broadcaster Controls** -- window picker, audio, quality presets
 7. **D. Game Overlay** -- depends on C (PiP/pop-out patterns) and voice system

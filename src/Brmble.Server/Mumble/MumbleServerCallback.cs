@@ -11,7 +11,8 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     private readonly IBrmbleEventBus _eventBus;
     private readonly IChannelMembershipService _channelMembership;
     private readonly ScreenShareTracker _screenShareTracker;
-    private readonly LiveKitService _liveKitService;
+    private readonly ILiveKitParticipantRevocationScheduler _liveKitRevocationScheduler;
+    private readonly LiveKitParticipantTracker _liveKitParticipantTracker;
     private readonly ILogger<MumbleServerCallback> _logger;
     private MumbleServer.ServerPrx? _serverProxy;
 
@@ -21,7 +22,8 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         IBrmbleEventBus eventBus,
         IChannelMembershipService channelMembership,
         ScreenShareTracker screenShareTracker,
-        LiveKitService liveKitService,
+        ILiveKitParticipantRevocationScheduler liveKitRevocationScheduler,
+        LiveKitParticipantTracker liveKitParticipantTracker,
         ILogger<MumbleServerCallback> logger)
     {
         _handlers = handlers;
@@ -29,7 +31,8 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         _eventBus = eventBus;
         _channelMembership = channelMembership;
         _screenShareTracker = screenShareTracker;
-        _liveKitService = liveKitService;
+        _liveKitRevocationScheduler = liveKitRevocationScheduler;
+        _liveKitParticipantTracker = liveKitParticipantTracker;
         _logger = logger;
     }
 
@@ -151,20 +154,30 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
 
     public async Task DispatchUserDisconnected(MumbleUser user)
     {
+        IReadOnlyList<string> stoppedRooms = [];
+
         // Check if user was sharing and stop all shares before removing session
         var snapshot = _sessionMapping.GetSnapshot();
         if (snapshot.TryGetValue(user.SessionId, out var mapping))
         {
-            var stoppedRooms = _screenShareTracker.StopAllByUserId(mapping.UserId);
+            stoppedRooms = _screenShareTracker.StopAllByUserId(mapping.UserId);
+        }
+
+        _liveKitParticipantTracker.MarkSessionRevoking(user.SessionId);
+        var revokedRecords = _liveKitParticipantTracker.RemoveBySession(user.SessionId);
+        _sessionMapping.RemoveSession(user.SessionId);
+        _channelMembership.Remove(user.SessionId);
+
+        if (snapshot.TryGetValue(user.SessionId, out mapping))
+        {
             foreach (var roomName in stoppedRooms)
             {
                 await _eventBus.BroadcastAsync(new { type = "screenShare.stopped", roomName, userId = mapping.UserId });
-                await _liveKitService.RemoveParticipant(roomName, mapping.MatrixUserId);
             }
         }
 
-        _sessionMapping.RemoveSession(user.SessionId);
-        _channelMembership.Remove(user.SessionId);
+        await _liveKitRevocationScheduler.RevokeParticipants(revokedRecords);
+
         await _eventBus.BroadcastAsync(new { type = "userMappingRemoved", sessionId = user.SessionId });
         await Task.WhenAll(_handlers.Select(h => h.OnUserDisconnected(user)));
     }
@@ -172,11 +185,12 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     public async Task DispatchUserStateChanged(MumbleUser user, int channelId)
     {
         _channelMembership.Update(user.SessionId, channelId);
+        var currentRoom = $"channel-{channelId}";
+        _liveKitParticipantTracker.MarkSessionRoom(user.SessionId, currentRoom);
 
         var snapshot = _sessionMapping.GetSnapshot();
         if (snapshot.TryGetValue(user.SessionId, out var mapping))
         {
-            var currentRoom = $"channel-{channelId}";
             var shareRooms = _screenShareTracker.GetSharesByUserId(mapping.UserId);
             foreach (var roomName in shareRooms)
             {
@@ -184,9 +198,11 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
                 {
                     _screenShareTracker.StopByUserId(roomName, mapping.UserId);
                     await _eventBus.BroadcastAsync(new { type = "screenShare.stopped", roomName, userId = mapping.UserId });
-                    await _liveKitService.RemoveParticipant(roomName, mapping.MatrixUserId);
                 }
             }
+
+            var revokedRecords = _liveKitParticipantTracker.RemoveBySessionExceptRoom(user.SessionId, currentRoom);
+            await _liveKitRevocationScheduler.RevokeParticipants(revokedRecords);
         }
     }
 

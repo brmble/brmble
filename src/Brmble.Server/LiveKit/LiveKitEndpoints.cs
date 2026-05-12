@@ -7,21 +7,6 @@ namespace Brmble.Server.LiveKit;
 
 public static class LiveKitEndpoints
 {
-    private static bool IsUserInRoom(
-        long userId,
-        string roomName,
-        ISessionMappingService sessionMapping,
-        IChannelMembershipService channelMembership)
-    {
-        if (!sessionMapping.TryGetSessionByUserId(userId, out var sessionId)
-            || !channelMembership.TryGetChannel(sessionId, out var channelId))
-        {
-            return false;
-        }
-
-        return string.Equals(roomName, $"channel-{channelId}", StringComparison.Ordinal);
-    }
-
     public static IEndpointRouteBuilder MapLiveKitEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapPost("/livekit/token", async (
@@ -31,6 +16,7 @@ public static class LiveKitEndpoints
             UserRepository userRepo,
             ISessionMappingService sessionMapping,
             IChannelMembershipService channelMembership,
+            LiveKitParticipantTracker participantTracker,
             ILogger<LiveKitService> logger) =>
         {
             var certHash = certHashExtractor.GetCertHash(httpContext);
@@ -71,7 +57,10 @@ public static class LiveKitEndpoints
             if (accessMode is null)
                 return Results.BadRequest(new { error = "accessMode must be 'publish' or 'subscribe'" });
 
-            var isInRequestedRoom = IsUserInRoom(user.Id, roomName, sessionMapping, channelMembership);
+            var hasSession = sessionMapping.TryGetSessionByUserId(user.Id, out var sessionId);
+            var isInRequestedRoom = hasSession
+                && channelMembership.TryGetChannel(sessionId, out var channelId)
+                && string.Equals(roomName, $"channel-{channelId}", StringComparison.Ordinal);
 
             var authz = await liveKitService.AuthorizeTokenRequest(
                 certHash,
@@ -95,6 +84,20 @@ public static class LiveKitEndpoints
             var metadata = await liveKitService.GenerateTokenMetadata(certHash, roomName, accessMode.Value, issuedAt);
             if (metadata is null)
                 return Results.Unauthorized();
+
+            if (hasSession)
+            {
+                participantTracker.PruneExpired(issuedAt);
+                var recorded = participantTracker.TryUpsert(new LiveKitParticipantRecord(
+                    roomName,
+                    user.MatrixUserId,
+                    user.Id,
+                    sessionId,
+                    accessMode.Value,
+                    metadata.ExpiresAt));
+                if (!recorded)
+                    return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
 
             // Build the LiveKit WebSocket URL relative to the request origin.
             // LiveKit is proxied through YARP at /livekit/, so the client connects

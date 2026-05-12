@@ -150,6 +150,53 @@ public class LiveKitEndpointsTests
     }
 
     [TestMethod]
+    public async Task TokenRequest_WithCurrentChannelAccess_RecordsParticipant()
+    {
+        using var factory = new BrmbleServerFactory();
+        using var client = factory.CreateClient();
+
+        var sessionMapping = factory.Services.GetRequiredService<ISessionMappingService>();
+        var channelMembership = factory.Services.GetRequiredService<IChannelMembershipService>();
+        var participantTracker = factory.Services.GetRequiredService<LiveKitParticipantTracker>();
+
+        sessionMapping.SetNameForSession("TestUser", 7);
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "TestUser" });
+        channelMembership.Update(7, 1);
+
+        var response = await client.PostAsJsonAsync("/livekit/token", new { roomName = "channel-1", accessMode = "subscribe" });
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        var record = participantTracker.GetSnapshot().Single();
+        Assert.AreEqual("channel-1", record.RoomName);
+        Assert.AreEqual("@1:localhost", record.MatrixUserId);
+        Assert.AreEqual(1L, record.UserId);
+        Assert.AreEqual(7, record.SessionId);
+        Assert.AreEqual(LiveKitAccessMode.Subscribe, record.AccessMode);
+        Assert.IsTrue(record.ExpiresAt > DateTimeOffset.UtcNow);
+    }
+
+    [TestMethod]
+    public async Task TokenRequest_WhenSessionRevoking_ReturnsForbiddenAndDoesNotRecordParticipant()
+    {
+        using var factory = new BrmbleServerFactory();
+        using var client = factory.CreateClient();
+
+        var sessionMapping = factory.Services.GetRequiredService<ISessionMappingService>();
+        var channelMembership = factory.Services.GetRequiredService<IChannelMembershipService>();
+        var participantTracker = factory.Services.GetRequiredService<LiveKitParticipantTracker>();
+
+        sessionMapping.SetNameForSession("TestUser", 7);
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "TestUser" });
+        channelMembership.Update(7, 1);
+        participantTracker.MarkSessionRevoking(7);
+
+        var response = await client.PostAsJsonAsync("/livekit/token", new { roomName = "channel-1", accessMode = "subscribe" });
+
+        Assert.AreEqual(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.AreEqual(0, participantTracker.GetSnapshot().Count);
+    }
+
+    [TestMethod]
     public async Task TokenRequest_RepeatedRapidCalls_EventuallyReturnsTooManyRequests()
     {
         using var factory = new BrmbleServerFactory();
