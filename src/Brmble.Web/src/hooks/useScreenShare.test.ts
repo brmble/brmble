@@ -351,7 +351,8 @@ describe('useScreenShare', () => {
       if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
     });
 
-    const { result } = renderHook(() => useScreenShare());
+    const onWatchedShareEnded = vi.fn();
+    const { result } = renderHook(() => useScreenShare(undefined, undefined, undefined, onWatchedShareEnded));
 
     act(() => {
       shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
@@ -373,6 +374,10 @@ describe('useScreenShare', () => {
 
     const connectCallsAfterDisconnect = mockRoomInstances.reduce((count, room) => count + room.connect.mock.calls.length, 0);
     expect(connectCallsAfterDisconnect).toBe(connectCallsBeforeDisconnect);
+    expect(onWatchedShareEnded).toHaveBeenCalledWith(
+      expect.objectContaining({ userName: 'alice', userId: 10 }),
+      'unexpected',
+    );
     expect(result.current.watchingShares).toHaveLength(0);
   });
 
@@ -431,7 +436,11 @@ describe('useScreenShare', () => {
       if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
     });
 
-    const { result } = renderHook(() => useScreenShare());
+    let watchedSharesAtCallback: unknown;
+    const onWatchedShareEnded = vi.fn(() => {
+      watchedSharesAtCallback = result.current.watchingShares;
+    });
+    const { result } = renderHook(() => useScreenShare(undefined, undefined, undefined, onWatchedShareEnded));
 
     act(() => {
       shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
@@ -450,6 +459,11 @@ describe('useScreenShare', () => {
     });
 
     expect(mockRoom.disconnect).toHaveBeenCalled();
+    expect(onWatchedShareEnded).toHaveBeenCalledWith(
+      expect.objectContaining({ userName: 'alice', userId: 10 }),
+      'unexpected',
+    );
+    expect(watchedSharesAtCallback).toEqual([expect.objectContaining({ userName: 'alice', userId: 10 })]);
     expect(result.current.watchingShares).toEqual([]);
     expect(result.current.error).toBe('LiveKit access could not be renewed');
   });
