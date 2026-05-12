@@ -223,6 +223,26 @@ public class MumbleAdapterParseTests
     }
 
     [TestMethod]
+    public async Task ActiveShareFailure_EmitsScreenshareServiceStatus()
+    {
+        var bridge = NativeBridgeTestHarness.Create();
+        var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge, apiUrl: "https://api.example.com");
+        adapter.RegisterHandlers(bridge);
+
+        using var doc = JsonDocument.Parse("""
+        {
+            "roomName": "channel-1",
+            "requestId": 7
+        }
+        """);
+
+        await NativeBridgeTestHarness.InvokeAsync(bridge, "livekit.checkActiveShare", doc.RootElement.Clone());
+        var sent = NativeBridgeTestHarness.DrainMessages(bridge);
+
+        Assert.IsTrue(sent.Any(x => x.Type == "brmble.serviceStatus" && x.DataJson.Contains("\"service\":\"screenshare\"") && x.DataJson.Contains("\"state\":\"disconnected\"")));
+    }
+
+    [TestMethod]
     public async Task ActiveShareResult_EchoesRequestId()
     {
         var tempDir = Directory.CreateTempSubdirectory();

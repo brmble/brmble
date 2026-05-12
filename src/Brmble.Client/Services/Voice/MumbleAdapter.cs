@@ -2519,6 +2519,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                             };
                         }
                         dict["requestId"] = requestId;
+                        SendBrmbleServiceStatus("screenshare", "connected");
                         _bridge?.Send("livekit.token", dict);
                         _bridge?.NotifyUiThread();
                         return;
@@ -2543,6 +2544,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
             var errorMsg = lastResult?.Error ?? "Token request failed";
             LogToFile($"[LiveKit] Token request failed after all attempts: {errorMsg}");
+            SendBrmbleServiceStatus("screenshare", "disconnected", reason: "token-request-failed");
             _bridge?.Send("livekit.tokenError", new { error = errorMsg, requestId });
             _bridge?.NotifyUiThread();
         });
@@ -2560,11 +2562,16 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 var baseUri = new Uri(_apiUrl, UriKind.Absolute);
                 var uri = new Uri(baseUri, "livekit/share-started");
                 var result = await PostViaBcTls(cert, uri, System.Text.Json.JsonSerializer.Serialize(new { roomName }));
+                if (result.Success)
+                    SendBrmbleServiceStatus("screenshare", "connected");
+                else
+                    SendBrmbleServiceStatus("screenshare", "disconnected", reason: "share-started-failed");
                 if (!result.Success)
                     LogToFile($"[LiveKit] share-started notification failed: {result.Error}");
             }
             catch (Exception ex)
             {
+                SendBrmbleServiceStatus("screenshare", "disconnected", reason: "share-started-exception");
                 LogToFile($"[LiveKit] Failed to notify share-started: {ex.Message}");
             }
         });
@@ -2582,11 +2589,16 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 var baseUri = new Uri(_apiUrl, UriKind.Absolute);
                 var uri = new Uri(baseUri, "livekit/share-stopped");
                 var result = await PostViaBcTls(cert, uri, System.Text.Json.JsonSerializer.Serialize(new { roomName }));
+                if (result.Success)
+                    SendBrmbleServiceStatus("screenshare", "connected");
+                else
+                    SendBrmbleServiceStatus("screenshare", "disconnected", reason: "share-stopped-failed");
                 if (!result.Success)
                     LogToFile($"[LiveKit] share-stopped notification failed: {result.Error}");
             }
             catch (Exception ex)
             {
+                SendBrmbleServiceStatus("screenshare", "disconnected", reason: "share-stopped-exception");
                 LogToFile($"[LiveKit] Failed to notify share-stopped: {ex.Message}");
             }
         });
@@ -2608,6 +2620,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             using var cert = _certService?.GetExportableCertificate();
             if (cert is null)
             {
+                SendBrmbleServiceStatus("screenshare", "disconnected", reason: "active-share-request-failed");
                 _bridge?.Send("livekit.activeShareError", new { roomName, scope, requestId, reason = "missing-certificate" });
                 _bridge?.NotifyUiThread();
                 return;
@@ -2639,16 +2652,19 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                             shares.Add(new { roomName = sRoomName, userName = sUserName, userId = sUserId, matrixUserId = sMatrixUserId, sessionId = sSessionId });
                         }
                     }
+                    SendBrmbleServiceStatus("screenshare", "connected");
                     _bridge?.Send("livekit.activeShareResult", new { roomName, scope, requestId, shares });
                 }
                 else
                 {
+                    SendBrmbleServiceStatus("screenshare", "disconnected", reason: "active-share-request-failed");
                     _bridge?.Send("livekit.activeShareError", new { roomName, scope, requestId, reason = "request-failed", statusCode = result.StatusCode });
                 }
                 _bridge?.NotifyUiThread();
             }
             catch (Exception ex)
             {
+                SendBrmbleServiceStatus("screenshare", "disconnected", reason: "active-share-exception");
                 _bridge?.Send("livekit.activeShareError", new { roomName, scope, requestId, reason = "exception", message = ex.Message });
                 _bridge?.NotifyUiThread();
             }
