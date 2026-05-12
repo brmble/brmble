@@ -49,6 +49,7 @@ import {
   appendOverlayEvent,
   createChannelMessageOverlayEvent,
   createMembershipOverlayEvent,
+  createServerMembershipOverlayEvent,
   createOverlaySnapshot,
   pruneOverlaySnapshot,
   resolveFullCompanionDisplay,
@@ -1310,6 +1311,36 @@ function App() {
         } else {
           addMessageToStore('server-root', 'Server', d.message, 'system', d.html, undefined, d.systemType);
         }
+
+        const overlaySettings = overlaySettingsRef.current;
+        if (overlaySettings.overlayEnabled && overlaySettings.showJoinLeaveEvents) {
+          const systemType = d.systemType;
+          if (systemType === 'userJoined' || systemType === 'userLeft') {
+            const suffix = systemType === 'userJoined'
+              ? ' connected to the server'
+              : ' disconnected from the server';
+            const actor = d.message.endsWith(suffix)
+              ? d.message.slice(0, -suffix.length).trim()
+              : '';
+            const selfUser = usersRef.current.find(u => u.self);
+            if (actor && actor !== selfUser?.name) {
+              setOverlaySnapshot((prev) => {
+                const now = Date.now();
+                const next = appendOverlayEvent(
+                  prev,
+                  createServerMembershipOverlayEvent({
+                    kind: systemType === 'userJoined' ? 'user-joined' : 'user-left',
+                    actorName: actor,
+                    line: d.message,
+                    timestamp: now,
+                  }),
+                  overlaySettings,
+                );
+                return resolveFullCompanionDisplay(next, now);
+              });
+            }
+          }
+        }
       }
     });
 
@@ -1351,22 +1382,43 @@ function App() {
         previousChannelIdRef.current.set(d.session, d.channelId);
 
         const overlaySettings = overlaySettingsRef.current;
-        if (overlaySettings.overlayEnabled && enteredSelfChannel) {
-          setOverlaySnapshot((prev) => {
-            const now = Date.now();
-            const next = appendOverlayEvent(
-              prev,
-              createMembershipOverlayEvent({
-                kind: 'user-joined',
-                actorName: d.name,
-                currentChannelId: prev.currentChannelId,
-                eventChannelId: String(d.channelId),
-                timestamp: now,
-              }),
-              overlaySettings,
-            );
-            return resolveFullCompanionDisplay(next, now);
-          });
+        if (overlaySettings.overlayEnabled) {
+          if (enteredSelfChannel) {
+            setOverlaySnapshot((prev) => {
+              const now = Date.now();
+              const next = appendOverlayEvent(
+                prev,
+                createMembershipOverlayEvent({
+                  kind: 'user-joined',
+                  actorName: d.name,
+                  currentChannelId: prev.currentChannelId,
+                  eventChannelId: String(d.channelId),
+                  timestamp: now,
+                }),
+                overlaySettings,
+              );
+              return resolveFullCompanionDisplay(next, now);
+            });
+          } else if (knownUser && knownUser.muted !== undefined && d.muted !== undefined && knownUser.muted !== d.muted) {
+            const inSameChannel = !d.self && selfChannelId !== undefined && (d.channelId ?? knownUser.channelId) === selfChannelId;
+            if (inSameChannel) {
+              setOverlaySnapshot((prev) => {
+                const now = Date.now();
+                const next = appendOverlayEvent(
+                  prev,
+                  createMembershipOverlayEvent({
+                    kind: d.muted ? 'user-muted' : 'user-unmuted',
+                    actorName: d.name,
+                    currentChannelId: prev.currentChannelId,
+                    eventChannelId: String(d.channelId ?? knownUser.channelId),
+                    timestamp: now,
+                  }),
+                  overlaySettings,
+                );
+                return resolveFullCompanionDisplay(next, now);
+              });
+            }
+          }
         }
 
         // Update Mumble DM contact session on reconnect
@@ -1469,28 +1521,29 @@ function App() {
       const d = data as { session: number; name?: string; channelId?: number; certHash?: string } | undefined;
       if (d?.session) {
         const selfUser = usersRef.current.find(u => u.self);
-        const userName = d.name;
+        const leavingUser = usersRef.current.find(u => u.session === d.session);
+        const userName = d.name || leavingUser?.name;
+        const channelId = d.channelId !== undefined ? d.channelId : leavingUser?.channelId;
+
         if (
           userName &&
           selfUser &&
           d.session !== selfUser.session &&
           selfUser.channelId !== undefined &&
-          d.channelId === selfUser.channelId
+          channelId === selfUser.channelId
         ) {
           speakText(`${userName} left`);
         }
 
         // Update Mumble DM contact session to null (offline)
-        const leavingUser = usersRef.current.find(u => u.session === d.session);
         const certHash = d.certHash || leavingUser?.certHash;
         if (certHash) {
           dmStoreRef.current.updateMumbleSession(certHash, null);
         }
 
         const overlaySettings = overlaySettingsRef.current;
-        if (overlaySettings.overlayEnabled && d.name && d.channelId !== undefined) {
-          const userName = d.name;
-          const eventChannelId = String(d.channelId);
+        if (overlaySettings.overlayEnabled && userName && channelId !== undefined) {
+          const eventChannelId = String(channelId);
           setOverlaySnapshot((prev) => {
             const now = Date.now();
             const next = appendOverlayEvent(

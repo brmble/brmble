@@ -12,6 +12,7 @@ import type {
 const MAX_EVENTS = 8;
 const MAX_VISIBLE_SPEAKERS = 3;
 const SPEAKER_DECAY_MS = 3_000;
+const SPEAKER_ACTIVE_MS = 50_000;
 const EVENT_TTL_MS = 5_000;
 const QUIET_AFTER_MS = 15_000;
 const CHAT_DISPLAY_MS = 5_000;
@@ -58,7 +59,7 @@ function isChatEvent(event: CompanionOverlayEvent): boolean {
 }
 
 function isJoinLeaveEvent(event: CompanionOverlayEvent): boolean {
-  return event.kind === 'user-joined' || event.kind === 'user-left';
+  return event.kind === 'user-joined' || event.kind === 'user-left' || event.kind === 'user-muted' || event.kind === 'user-unmuted';
 }
 
 function displayNameFromEvent(event: CompanionOverlayEvent): string {
@@ -213,14 +214,14 @@ export function appendOverlayEvent(
   const allowed =
     (event.kind === 'channel-message' && settings.showChannelMessages && inCurrentChannel)
     || (event.kind === 'direct-message' && settings.showDirectMessages)
-    || ((event.kind === 'user-joined' || event.kind === 'user-left') && settings.showJoinLeaveEvents && inCurrentChannel)
+    || ((event.kind === 'user-joined' || event.kind === 'user-left' || event.kind === 'user-muted' || event.kind === 'user-unmuted') && settings.showJoinLeaveEvents && inCurrentChannel)
     || ((event.kind === 'user-kicked' || event.kind === 'user-banned') && settings.showModerationEvents && inCurrentChannel);
 
   if (!allowed) {
     return snapshot;
   }
 
-  const now = Date.now();
+  const now = event.timestamp;
   const nextEvents = [...snapshot.recentEvents, event].slice(-MAX_EVENTS);
   let nextFullCompanion = snapshot.fullCompanion;
   if (isChatEvent(event)) {
@@ -284,16 +285,25 @@ export function updateFullCompanionContext(
   
   let nextActiveDisplay = activeDisplay;
   
-  // Update companionId if local user's companion changed
-  if (localCompanionChanged && activeDisplay && (activeDisplay.representedSession === nextLocalUser.session || activeDisplay.isProxy)) {
+  // Keep the active display's representedSession in sync with the local user if it was representing the local user
+  if (nextActiveDisplay && nextActiveDisplay.representedSession === snapshot.fullCompanion.localUser.session) {
     nextActiveDisplay = {
-      ...activeDisplay,
+      ...nextActiveDisplay,
+      representedSession: nextLocalUser.session,
+      isProxy: false,
+    };
+  }
+  
+  // Update companionId if local user's companion changed
+  if (localCompanionChanged && nextActiveDisplay && (nextActiveDisplay.representedSession === nextLocalUser.session || nextActiveDisplay.isProxy)) {
+    nextActiveDisplay = {
+      ...nextActiveDisplay,
       companionId: nextLocalUser.companionId,
     };
   }
   
-  // Recompute badges if flags changed
-  if (flagsChanged && nextActiveDisplay) {
+  // Recompute badges if flags changed or if we just synced the session
+  if (nextActiveDisplay && (flagsChanged || nextActiveDisplay.representedSession !== activeDisplay?.representedSession)) {
     const isLocal = nextActiveDisplay.representedSession === nextLocalUser.session;
     nextActiveDisplay = {
       ...nextActiveDisplay,
@@ -346,7 +356,7 @@ export function setSpeakerActivity(
       isSpeaking: true,
       startedAt: now,
       lastSpokeAt: now,
-      expiresAt: now + SPEAKER_DECAY_MS,
+      expiresAt: now + SPEAKER_ACTIVE_MS,
     });
   } else {
     const existing = snapshot.activeSpeakers.find((entry) => entry.session === speaker.session);
@@ -411,6 +421,16 @@ export function pruneOverlaySnapshot(snapshot: CompanionOverlaySnapshot, now: nu
     .slice(-MAX_EVENTS);
 
   const activeSpeakers = snapshot.activeSpeakers
+    .map((entry) => {
+      // If still speaking, extend expiry to prevent disappearing during long continuous voice
+      if (entry.isSpeaking && entry.expiresAt - now < SPEAKER_ACTIVE_MS) {
+        return {
+          ...entry,
+          expiresAt: now + SPEAKER_ACTIVE_MS,
+        };
+      }
+      return entry;
+    })
     .filter((entry) => entry.expiresAt > now)
     .sort((a, b) => b.lastSpokeAt - a.lastSpokeAt)
     .slice(0, MAX_VISIBLE_SPEAKERS);
@@ -505,6 +525,10 @@ export function resolveFullCompanionDisplay(snapshot: CompanionOverlaySnapshot, 
     };
   }
 
+  if (nextState === snapshot.fullCompanion) {
+    return snapshot;
+  }
+
   return {
     ...snapshot,
     fullCompanion: nextState,
@@ -531,7 +555,7 @@ export function createChannelMessageOverlayEvent(input: {
 }
 
 export function createMembershipOverlayEvent(input: {
-  kind: 'user-joined' | 'user-left' | 'user-kicked' | 'user-banned';
+  kind: 'user-joined' | 'user-left' | 'user-kicked' | 'user-banned' | 'user-muted' | 'user-unmuted';
   actorName: string;
   currentChannelId: string | null;
   eventChannelId: string;
@@ -543,6 +567,8 @@ export function createMembershipOverlayEvent(input: {
     'user-left': `${actor} left the channel`,
     'user-kicked': `${actor} was kicked`,
     'user-banned': `${actor} was banned`,
+    'user-muted': `${actor} muted themselves`,
+    'user-unmuted': `${actor} unmuted themselves`,
   };
 
   return {
@@ -552,5 +578,23 @@ export function createMembershipOverlayEvent(input: {
     line: lineByKind[input.kind],
     timestamp: input.timestamp,
     channelId: input.eventChannelId,
+  };
+}
+
+export function createServerMembershipOverlayEvent(input: {
+  kind: 'user-joined' | 'user-left';
+  actorName: string;
+  line: string;
+  timestamp: number;
+}): CompanionOverlayEvent {
+  const actor = safeName(input.actorName);
+  const line = safeMessage(input.line);
+
+  return {
+    id: `evt-${input.timestamp}-${input.kind}-server`,
+    kind: input.kind,
+    actorName: actor,
+    line,
+    timestamp: input.timestamp,
   };
 }

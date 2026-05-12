@@ -137,6 +137,7 @@ export function useMatrixClient(
   callbacks?: MatrixClientOverlayCallbacks,
 ) {
   const clientRef = useRef<MatrixClient | null>(null);
+  const overlayLiveSinceRef = useRef<number | null>(null);
   const [client, setClient] = useState<MatrixClient | null>(null);
   const { updateStatus } = useServiceStatus();
 
@@ -182,6 +183,7 @@ export function useMatrixClient(
     if (!credentials) {
       clientRef.current?.stopClient();
       clientRef.current = null;
+      overlayLiveSinceRef.current = null;
       setClient(null);
       setLastMessages(new Map());
       setDmLastMessages(new Map());
@@ -206,13 +208,29 @@ export function useMatrixClient(
     let isPrepared = false;
     const bufferedDmEvents: Array<{ room: Room | undefined; event: MatrixEvent }> = [];
 
-    const onTimeline = (event: MatrixEvent, room: Room | undefined) => {
+    const shouldPublishOverlayEvent = (
+      event: MatrixEvent,
+      data?: { liveEvent?: boolean } | null,
+    ): boolean => {
+      const liveSince = overlayLiveSinceRef.current;
+      if (!isPrepared || liveSince === null) return false;
+      if (data && typeof data.liveEvent === 'boolean' && !data.liveEvent) return false;
+      return event.getTs() >= liveSince;
+    };
+
+    const onTimeline = (
+      event: MatrixEvent,
+      room: Room | undefined,
+      _toStartOfTimeline?: boolean,
+      _removed?: boolean,
+      data?: { liveEvent?: boolean } | null,
+    ) => {
       if (event.getType() !== EventType.RoomMessage) return;
       const channelId = roomIdToChannelId.get(room?.roomId ?? '');
       if (channelId) {
         const message = transformEventToChatMessage(event, room, channelId, clientRef.current);
         if (!message) return;
-        if (credentials && message.senderMatrixUserId !== credentials.userId) {
+        if (credentials && message.senderMatrixUserId !== credentials.userId && shouldPublishOverlayEvent(event, data)) {
           callbacksRef.current?.onChannelMessage?.(channelId, message);
         }
 
@@ -247,7 +265,7 @@ export function useMatrixClient(
 
       const dmMessage = transformEventToChatMessage(event, room, dmUserId, clientRef.current);
       if (!dmMessage) return;
-      if (credentials && dmMessage.senderMatrixUserId !== credentials.userId) {
+      if (credentials && dmMessage.senderMatrixUserId !== credentials.userId && shouldPublishOverlayEvent(event, data)) {
         callbacksRef.current?.onDirectMessage?.(dmUserId, dmMessage);
       }
 
@@ -282,6 +300,9 @@ export function useMatrixClient(
         derivedState = 'connected';
         if (state === 'PREPARED') {
           isPrepared = true;
+          // Only publish overlay messages for events that arrive after initial sync completes.
+          // This prevents the companion speech balloon from replaying message history.
+          overlayLiveSinceRef.current = Date.now();
 
           // Server-provided DM room map is the sole source of truth
           if (credentials.dmRoomMap) {
