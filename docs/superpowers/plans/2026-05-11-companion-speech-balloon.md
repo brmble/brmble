@@ -41,7 +41,7 @@ it('renders the shared speech balloon status for active chat', () => {
         kind: 'chat',
         representedSession: 0,
         representedName: 'You',
-        companionId: 'clip',
+        companionId: 'bee',
         row: 4,
         bubble: 'You: hello',
         startedAt: 1_000,

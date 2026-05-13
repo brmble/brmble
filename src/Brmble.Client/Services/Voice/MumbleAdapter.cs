@@ -3241,6 +3241,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         var channelId = user?.Channel?.Id;
         var certHash = user?.CertificateHash;
         _bridge?.Send("voice.userLeft", new { session = userRemove.Session, name = userName, channelId, certHash, moved = false });
+        _bridge?.NotifyUiThread();
 
         if (!isSelf && userName != null && userRemove.ShouldSerializeActor() && userRemove.Actor != 0)
         {

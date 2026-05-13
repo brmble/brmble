@@ -65,7 +65,7 @@ describe('MinimalOverlay', () => {
           kind: 'chat' as const,
           representedSession: 99,
           representedName: 'Milo',
-          companionId: 'clip' as const,
+          companionId: 'bee' as const,
           row: 4 as const,
           bubble: 'Milo: full mode only',
           startedAt: 1_000,

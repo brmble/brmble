@@ -1740,7 +1740,7 @@ describe('active share discovery', () => {
     expect(getShareEndedQueueRegistrations()).toEqual([]);
   });
 
-  it('does not publish a joined balloon for same-channel user state updates like self-mute', async () => {
+  it('publishes a user-muted or user-unmuted balloon for same-channel user state updates when self-mute changes', async () => {
     localStorage.setItem('brmble-settings', JSON.stringify({
       overlay: {
         overlayEnabled: true,
@@ -1776,7 +1776,29 @@ describe('active share discovery', () => {
       const overlaySyncCalls = vi.mocked(bridge.send).mock.calls
         .filter(([type]) => type === 'overlay.sync');
       const lastPayload = overlaySyncCalls.at(-1)?.[1] as { snapshot?: { recentEvents?: Array<{ line: string }> } } | undefined;
-      expect(lastPayload?.snapshot?.recentEvents ?? []).toEqual([]);
+      expect(lastPayload?.snapshot?.recentEvents ?? []).toEqual([
+        expect.objectContaining({ line: 'Alice muted themselves' }),
+      ]);
+    });
+
+    act(() => {
+      bridge.emit('voice.userJoined', {
+        session: 8,
+        name: 'Alice',
+        channelId: 1,
+        muted: false,
+        self: false,
+      });
+    });
+
+    await waitFor(() => {
+      const overlaySyncCalls = vi.mocked(bridge.send).mock.calls
+        .filter(([type]) => type === 'overlay.sync');
+      const lastPayload = overlaySyncCalls.at(-1)?.[1] as { snapshot?: { recentEvents?: Array<{ line: string }> } } | undefined;
+      expect(lastPayload?.snapshot?.recentEvents ?? []).toEqual([
+        expect.objectContaining({ line: 'Alice muted themselves' }),
+        expect.objectContaining({ line: 'Alice unmuted themselves' }),
+      ]);
     });
   });
 });

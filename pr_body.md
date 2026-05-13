@@ -1,95 +1,45 @@
 ## Summary
 
-This PR implements the Brmblegotchi companion overlay feature - Phase 1 of bringing interactive companion mechanics to Brmble. The overlay appears as a persistent in-game element displaying the user's Brmblegotchi companion with real-time voice activity, speaker presence, and event feeds.
+This PR fixes multiple companion overlay bugs and adds missing overlay events for self-mute/unmute and server-level user connect/disconnect. It also fixes Matrix message history bleeding into the overlay speech bubble and improves overlay layout for bottom positions.
 
-### Key Features
+## Changes
 
-- **Companion Overlay UI**: Dual-mode overlay system with full companion display and minimal mode for low-visibility scenarios
-- **Voice Activity Integration**: Real-time visual feedback from Mumble voice channel state
-- **Speaker Stack**: Live display of active speakers with speaker icons and activity indicators
-- **Event Feed System**: Event notification system for companion interactions and channel events
-- **Bridge Integration**: Full C# ↔ JavaScript bridge for native overlay window communication
-- **Settings Integration**: New Interface Settings tab for overlay customization and voice event preferences
-- **Overlay Window**: Separate WebView2 overlay window (overlay.html) rendered as topmost window
+### New overlay events (`overlayModel.ts`, `overlayTypes.ts`, `App.tsx`)
+- **Self-mute/unmute balloon:** When a user in the same channel toggles their mute state, a `user-muted` / `user-unmuted` overlay event is now published — previously only `user-joined`/`user-left` triggered in this path.
+- **Server-level join/leave balloon:** When `voice.serverMessage` carries a `userJoined`/`userLeft` system type, a server-level event is created via new `createServerMembershipOverlayEvent` and appended to the overlay. These events appear regardless of which channel the local user is in.
 
-### Technical Highlights
+### Overlay model stability (`overlayModel.ts`)
+- `updateFullCompanionContext` now keeps `representedSession` in sync with the local user's session across reconnects.
+- `resolveFullCompanionDisplay` has an early return when the computed state matches the current state, preventing unnecessary re-renders.
+- Speaker expiry is now extended during continuous speaking (`SPEAKER_ACTIVE_MS = 50s`) and `pruneOverlaySnapshot` re-extends expiry for actively-speaking speakers so they don't flicker during long voice activity.
+- `appendOverlayEvent` now uses `event.timestamp` instead of `Date.now()`, ensuring consistent timestamps for synthetic events.
 
-**Frontend (React + TypeScript)**
-- New `CompanionOverlay` component directory with modular architecture
-- Overlay model system with state management (minimal/full modes, sprite positioning)
-- Speaker stack component for displaying active voice participants
-- Event feed for companion notifications
-- Hook: `useCompanionOverlayPublisher` for event publishing to companion overlay
-- CSS system with overlay-specific styling and animations
+### Matrix history filtering (`useMatrixClient.ts`, `useMatrixClient.test.ts`)
+- Added `overlayLiveSinceRef` that captures `Date.now()` when the initial sync (`PREPARED`) completes.
+- The `onTimeline` handler now checks `shouldPublishOverlayEvent` — only events with `getTs() >= liveSince` and `data.liveEvent !== false` are published as overlay balloons. This prevents replaying historical Matrix messages into the companion speech bubble after reconnect.
+- Test updated with `vi.useFakeTimers` to properly verify timestamp ordering.
 
-**Backend (C# + WebView2)**
-- `CompanionOverlayHost` class for managing native overlay window lifecycle
-- `CompanionOverlayRelay` for bridging Mumble events to overlay
-- Integration with `MumbleAdapter` for voice channel state events
-- Overlay window configuration and native interop
+### Overlay CSS layout fix (`CompanionOverlay.css`)
+- Converted from `display: grid` to `display: flex` + `flex-direction: column` to support `column-reverse` for bottom-aligned overlays.
+- Bottom-left and bottom-right positions now use `flex-direction: column-reverse` so new events stack upward from the bottom edge.
 
-**Testing**
-- Unit tests for overlay model logic and state transitions
-- Component tests for UI behavior (full/minimal modes, speaker stack)
-- Relay tests for event bridging between core and overlay
-- Voice event integration tests with MumbleAdapter
+### C# MumbleAdapter fix (`MumbleAdapter.cs`)
+- Added `_bridge?.NotifyUiThread()` after `voice.userLeft` to ensure the UI thread processes user-removal events promptly.
 
-**Configuration**
-- Vite configuration updated for dual-entry-point build (main app + overlay)
-- AppSettings extended with companion overlay preferences
-- Integration with existing Settings modal
+## Files Modified
 
-### Architecture Changes
+- `src/Brmble.Client/Services/Voice/MumbleAdapter.cs`
+- `src/Brmble.Web/src/App.screenShareStart.test.ts`
+- `src/Brmble.Web/src/App.tsx`
+- `src/Brmble.Web/src/components/CompanionOverlay/CompanionOverlay.css`
+- `src/Brmble.Web/src/components/CompanionOverlay/overlayModel.test.ts`
+- `src/Brmble.Web/src/components/CompanionOverlay/overlayModel.ts`
+- `src/Brmble.Web/src/components/CompanionOverlay/overlayTypes.ts`
+- `src/Brmble.Web/src/hooks/useMatrixClient.test.ts`
+- `src/Brmble.Web/src/hooks/useMatrixClient.ts`
 
-- **New Overlay Window Model**: Separate WebView2 window for overlay rendering (topmost, always-visible)
-- **Bridge Extension**: Added overlay-specific message protocols for event publishing
-- **Settings Tab Extension**: New Companion section in Interface Settings for overlay controls
+## Testing
 
-### Files Changed
-
-**New Files (34)**
-- Companion overlay components and tests
-- Overlay host and relay services
-- Overlay entry point and HTML
-- Design specs and implementation plans
-- Investigation documentation
-
-**Modified Files (8)**
-- Core client program setup
-- App settings configuration
-- Mumble adapter voice events
-- Win32 window interop
-- Settings modal and types
-- Vite build config
-
-### Testing
-
-All new code includes comprehensive unit and component tests:
-- Overlay model state transitions
-- Speaker stack display logic
-- Event feed rendering
-- Bridge relay communication
-- Settings integration
-
-Run tests: `dotnet test`
-
-### Breaking Changes
-
-None. This feature is fully backward compatible.
-
-### Notes for Review
-
-1. **Overlay Window Lifecycle**: Review `CompanionOverlayHost.cs` for window creation and cleanup patterns
-2. **Bridge Message Protocol**: Overlay uses new `overlay.*` message namespacing (e.g., `overlay.event`, `overlay.error`)
-3. **Settings Integration**: New Companion settings tab follows existing patterns in `InterfaceSettingsTab.tsx`
-4. **Performance**: Overlay uses event-driven updates via bridge to minimize performance impact
-
-### Fase 1 Scope
-
-This initial implementation focuses on:
-- Core overlay UI and rendering
-- Voice activity visualization
-- Settings integration
-- Foundation for future companion features (interaction, state persistence, etc.)
-
-Future phases will add interactive mechanics and persistence layers.
+- ✅ Updated `App.screenShareStart.test.ts` to verify mute/unmute balloons appear
+- ✅ Added test in `overlayModel.test.ts` for server-level join/leave events
+- ✅ Fixed `useMatrixClient.test.ts` to use fake timers with proper timestamp ordering

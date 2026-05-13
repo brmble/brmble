@@ -62,10 +62,10 @@ export function InterfaceSettingsTab({
   };
 
   const handleMyCompanionChange = (companion: string) => {
-    const validCompanions: CompanionSelection[] = ['clip', 'eren', 'kid-goku', 'kirito', 'paul'];
+    const validCompanions: CompanionSelection[] = ['bee', 'engineer', 'floppy', 'patch', 'pip', 'retro'];
     const validCompanion: CompanionSelection = validCompanions.includes(companion as CompanionSelection)
       ? companion as CompanionSelection
-      : 'clip';
+      : 'bee';
     onOverlayChange({ ...overlaySettings, myCompanion: validCompanion });
   };
 
@@ -118,11 +118,12 @@ export function InterfaceSettingsTab({
               value={overlaySettings.myCompanion}
               onChange={handleMyCompanionChange}
               options={[
-                { value: 'clip', label: 'Clip' },
-                { value: 'eren', label: 'Eren' },
-                { value: 'kid-goku', label: 'Kid Goku' },
-                { value: 'kirito', label: 'Kirito' },
-                { value: 'paul', label: 'Paul' },
+                { value: 'bee', label: 'Bee' },
+                { value: 'engineer', label: 'Engineer' },
+                { value: 'floppy', label: 'Floppy' },
+                { value: 'patch', label: 'Patch' },
+                { value: 'pip', label: 'Pip' },
+                { value: 'retro', label: 'Retro' },
               ]}
             />
           </div>
