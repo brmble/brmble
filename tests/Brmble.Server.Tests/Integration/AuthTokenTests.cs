@@ -101,6 +101,31 @@ public class AuthTokenTests : IDisposable
     }
 
     [TestMethod]
+    public async Task PostAuthToken_SessionMappings_IncludeCompanionId()
+    {
+        using var factory = new BrmbleServerFactory();
+        using var client = factory.CreateClient();
+
+        var sessionMapping = factory.Services.GetRequiredService<ISessionMappingService>();
+        sessionMapping.SetNameForSession("OtherUser", 42);
+        sessionMapping.TryAddMatrixUser(42, "@other:localhost", "OtherUser", 999, "retro");
+
+        var response = await client.PostAsync("/auth/token", null);
+        response.EnsureSuccessStatusCode();
+
+        var json = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        var companionId = root
+            .GetProperty("sessionMappings")
+            .GetProperty("42")
+            .GetProperty("companionId")
+            .GetString();
+
+        Assert.AreEqual("retro", companionId);
+    }
+
+    [TestMethod]
     public async Task PostAuthToken_SelfSession_IsBrmbleClient_True()
     {
         // Verify that the authenticating user's own session gets isBrmbleClient = true
