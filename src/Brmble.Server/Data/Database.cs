@@ -66,6 +66,6 @@ public class Database
         var hasCompanionId = conn.ExecuteScalar<int>(
             "SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='companion_id'");
         if (hasCompanionId == 0)
-            conn.Execute("ALTER TABLE users ADD COLUMN companion_id TEXT DEFAULT 'bee'");
+            conn.Execute("ALTER TABLE users ADD COLUMN companion_id TEXT DEFAULT 'floppy'");
     }
 }

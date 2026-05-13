@@ -1841,7 +1841,7 @@ describe('active share discovery', () => {
     });
   });
 
-  it('reverts local overlay companion when voice.setCompanionResponse fails', async () => {
+  it('keeps the local overlay companion when voice.setCompanionResponse fails', async () => {
     localStorage.setItem('brmble-settings', JSON.stringify({
       overlay: {
         overlayEnabled: true,
@@ -1875,8 +1875,12 @@ describe('active share discovery', () => {
 
     await waitFor(() => {
       const stored = JSON.parse(localStorage.getItem('brmble-settings') ?? '{}');
-      expect(stored.overlay.myCompanion).toBe('bee');
+      expect(stored.overlay.myCompanion).toBe('floppy');
     });
+
+    expect(bridge.send).toHaveBeenCalledWith('voice.setCompanion', { companionId: 'floppy' });
   });
 
 });
+
+

@@ -98,7 +98,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             {
                 var matrixId = prop.Value.TryGetProperty("matrixUserId", out var m) ? m.GetString() : null;
                 var name = prop.Value.TryGetProperty("mumbleName", out var n) ? n.GetString() : null;
-                var companionId = prop.Value.TryGetProperty("companionId", out var c) ? c.GetString() : "bee";
+                var companionId = prop.Value.TryGetProperty("companionId", out var c) ? c.GetString() : "floppy";
                 if (matrixId is not null && name is not null && companionId is not null)
                 {
                     var isBrmble = prop.Value.TryGetProperty("isBrmbleClient", out var b) && b.GetBoolean();
@@ -1464,7 +1464,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             return mapping.CompanionId;
         }
 
-        return "bee";
+        return "floppy";
     }
 
     private void UpdateSelfCompanionMapping(string companionId)
@@ -1945,7 +1945,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     var addSid = root.TryGetProperty("sessionId", out var sidProp) ? sidProp.GetUInt32() : 0u;
                     var addMatrixId = root.TryGetProperty("matrixUserId", out var matrixProp) ? matrixProp.GetString() : null;
                     var addName = root.TryGetProperty("mumbleName", out var nameProp) ? nameProp.GetString() : null;
-                    var addCompanionId = root.TryGetProperty("companionId", out var companionProp) ? companionProp.GetString() : "bee";
+                    var addCompanionId = root.TryGetProperty("companionId", out var companionProp) ? companionProp.GetString() : "floppy";
                     var addIsBrmble = root.TryGetProperty("isBrmbleClient", out var brmbleProp) && brmbleProp.GetBoolean();
                     if (addSid > 0 && addMatrixId is not null && addName is not null && addCompanionId is not null)
                     {
@@ -1957,7 +1957,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
                 case "companionChanged":
                     var changedSid = root.GetProperty("sessionId").GetUInt32();
-                    var changedCompanionId = root.GetProperty("companionId").GetString() ?? "bee";
+                    var changedCompanionId = root.GetProperty("companionId").GetString() ?? "floppy";
                     if (_sessionMappings.TryGetValue(changedSid, out var changed))
                         _sessionMappings[changedSid] = changed with { CompanionId = changedCompanionId };
                     _bridge?.Send("voice.companionChanged", new

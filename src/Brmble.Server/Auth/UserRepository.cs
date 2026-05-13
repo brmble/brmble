@@ -128,7 +128,7 @@ public class UserRepository
             return true;
         }
 
-        normalized = "bee";
+        normalized = "floppy";
         return false;
     }
 

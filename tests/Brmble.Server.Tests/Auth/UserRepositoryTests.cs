@@ -155,7 +155,7 @@ public class UserRepositoryTests
 
         var companionId = await _repo.GetCompanionId(user.Id);
 
-        Assert.AreEqual("bee", companionId);
+        Assert.AreEqual("floppy", companionId);
     }
 
     [TestMethod]
