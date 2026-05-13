@@ -1493,11 +1493,34 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             var result = await PostViaBcTls(cert, uri, jsonBody);
             if (!result.Success)
             {
+                string errorMessage = "Failed to sync companion";
+                
+                // Try to parse JSON error response
+                if (!string.IsNullOrWhiteSpace(result.Body))
+                {
+                    try
+                    {
+                        using var doc = System.Text.Json.JsonDocument.Parse(result.Body);
+                        if (doc.RootElement.TryGetProperty("error", out var errorProp) && errorProp.GetString() is { } errMsg)
+                            errorMessage = errMsg;
+                        else
+                            errorMessage = result.Body; // fallback to raw body if no error field
+                    }
+                    catch
+                    {
+                        errorMessage = result.Body; // fallback to raw body on parse failure
+                    }
+                }
+                else if (!string.IsNullOrWhiteSpace(result.Error))
+                {
+                    errorMessage = result.Error;
+                }
+                
                 return new
                 {
                     success = false,
                     companionId = GetSelfCompanionOrDefault(),
-                    error = string.IsNullOrWhiteSpace(result.Body) ? (result.Error ?? "Failed to sync companion") : result.Body
+                    error = errorMessage
                 };
             }
 
@@ -2465,16 +2488,26 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         bridge.RegisterHandler("voice.setCompanion", async payload =>
         {
+            var requestId = payload.TryGetProperty("requestId", out var requestIdProp) && requestIdProp.ValueKind == System.Text.Json.JsonValueKind.Number
+                ? requestIdProp.GetInt32()
+                : (int?)null;
+            
             var companionId = payload.TryGetProperty("companionId", out var prop) ? prop.GetString() : null;
             if (string.IsNullOrWhiteSpace(companionId))
             {
-                _bridge?.Send("voice.setCompanionResponse", new { success = false, companionId = GetSelfCompanionOrDefault(), error = "Missing companion ID" });
+                var errorResponse = new { success = false, companionId = GetSelfCompanionOrDefault(), error = "Missing companion ID", requestId };
+                _bridge?.Send("voice.setCompanionResponse", errorResponse);
                 _bridge?.NotifyUiThread();
                 return;
             }
 
             var result = await SyncCompanionAsync(companionId);
-            _bridge?.Send("voice.setCompanionResponse", result);
+            // Merge requestId into result
+            var resultDict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(
+                System.Text.Json.JsonSerializer.Serialize(result)) ?? new Dictionary<string, object>();
+            if (requestId.HasValue)
+                resultDict["requestId"] = requestId.Value;
+            _bridge?.Send("voice.setCompanionResponse", resultDict);
             _bridge?.NotifyUiThread();
         });
 

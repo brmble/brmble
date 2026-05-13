@@ -862,7 +862,8 @@ function App() {
   matrixClientRef.current = matrixClient.client;
   const handleToggleScreenShareRef = useRef<(() => void) | null>(null);
   const disconnectViewerRef = useRef<(() => Promise<void>) | null>(null);
-  const pendingCompanionRef = useRef<{ next: CompanionId; previous: CompanionId } | null>(null);
+  const pendingCompanionRef = useRef<{ requestId: number; next: CompanionId; previous: CompanionId } | null>(null);
+  const companionRequestIdRef = useRef(0);
 
   const stopSharesForVoiceExit = useCallback(async () => {
     await disconnectViewerRef.current?.();
@@ -1131,11 +1132,13 @@ function App() {
           setSelfDeafened(selfUser.deafened || false);
           setSelfSession(selfUser.session);
           if (selfUser.companionId && selfUser.companionId !== overlaySettingsRef.current.myCompanion) {
+            const requestId = ++companionRequestIdRef.current;
             pendingCompanionRef.current = {
+              requestId,
               next: overlaySettingsRef.current.myCompanion,
               previous: selfUser.companionId,
             };
-            bridge.send('voice.setCompanion', { companionId: overlaySettingsRef.current.myCompanion });
+            bridge.send('voice.setCompanion', { companionId: overlaySettingsRef.current.myCompanion, requestId });
           }
         }
         // Fetch avatars for users already present at connect time
@@ -1914,27 +1917,22 @@ function App() {
     };
 
     const onVoiceSetCompanionResponse = (data: unknown) => {
-      const d = data as { success?: boolean; companionId?: CompanionId; error?: string } | undefined;
+      const d = data as { success?: boolean; companionId?: CompanionId; error?: string; requestId?: number } | undefined;
       const pending = pendingCompanionRef.current;
       if (!pending) {
         return;
       }
+      
+      // Verify response matches the pending request
+      if (d?.requestId !== undefined && d.requestId !== pending.requestId) {
+        // Out-of-order response - ignore it
+        return;
+      }
+      
       if (d?.success) {
         pendingCompanionRef.current = null;
         return;
       }
-
-      try {
-        const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
-        const parsed = stored ? JSON.parse(stored) : {};
-        parsed.overlay = { ...normalizeOverlaySettings(parsed.overlay ?? {}), myCompanion: pending.previous };
-        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(parsed));
-        bridge.send('settings.set', { settings: parsed });
-      } catch {
-        // no-op
-      }
-
-      setOverlaySettings(prev => ({ ...prev, myCompanion: pending.previous }));
       pendingCompanionRef.current = null;
       setConnectionError(d?.error ?? 'Failed to sync companion');
       notifQueue.register('companion-sync-error', 'error');
@@ -2674,8 +2672,9 @@ const handleConnect = (serverData: SavedServer) => {
       return;
     }
 
-    pendingCompanionRef.current = { next: nextCompanion, previous: previousCompanion };
-    bridge.send('voice.setCompanion', { companionId: nextCompanion });
+    const requestId = ++companionRequestIdRef.current;
+    pendingCompanionRef.current = { requestId, next: nextCompanion, previous: previousCompanion };
+    bridge.send('voice.setCompanion', { companionId: nextCompanion, requestId });
   }, []);
 
   useEffect(() => {
