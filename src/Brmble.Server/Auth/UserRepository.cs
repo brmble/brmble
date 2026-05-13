@@ -10,6 +10,11 @@ public record User(long Id, string CertHash, string DisplayName, string MatrixUs
 
 public class UserRepository
 {
+    private static readonly HashSet<string> ValidCompanionIds =
+    [
+        "bee", "engineer", "floppy", "patch", "pip", "retro"
+    ];
+
     private readonly Database _db;
     private readonly string _serverDomain;
 
@@ -112,6 +117,44 @@ public class UserRepository
         await conn.ExecuteAsync(
             "UPDATE users SET texture_hash = @Hash WHERE id = @Id",
             new { Hash = hash, Id = userId });
+    }
+
+    public static bool TryNormalizeCompanionId(string? companionId, out string normalized)
+    {
+        var candidate = companionId?.Trim().ToLowerInvariant();
+        if (candidate is not null && ValidCompanionIds.Contains(candidate))
+        {
+            normalized = candidate;
+            return true;
+        }
+
+        normalized = "bee";
+        return false;
+    }
+
+    public async Task<string> GetCompanionId(long userId)
+    {
+        using var conn = _db.CreateConnection();
+        var companionId = await conn.QuerySingleOrDefaultAsync<string?>(
+            "SELECT companion_id FROM users WHERE id = @Id",
+            new { Id = userId });
+
+        return NormalizeCompanionId(companionId);
+    }
+
+    public async Task SetCompanionId(long userId, string companionId)
+    {
+        using var conn = _db.CreateConnection();
+        var normalized = NormalizeCompanionId(companionId);
+        await conn.ExecuteAsync(
+            "UPDATE users SET companion_id = @CompanionId WHERE id = @Id",
+            new { CompanionId = normalized, Id = userId });
+    }
+
+    private static string NormalizeCompanionId(string? companionId)
+    {
+        TryNormalizeCompanionId(companionId, out var normalized);
+        return normalized;
     }
 
     public virtual async Task<User?> GetByMatrixUserId(string matrixUserId)
