@@ -6,7 +6,7 @@ import { AudioSettingsTab, type AudioSettings, type NoiseSuppressionSettings, DE
 import { ShortcutsSettingsTab, type ShortcutsSettings, DEFAULT_SHORTCUTS } from './ShortcutsSettingsTab';
 import { MessagesSettingsTab, type MessagesSettings, DEFAULT_MESSAGES } from './MessagesSettingsTab';
 import { InterfaceSettingsTab } from './InterfaceSettingsTab';
-import { type AppearanceSettings, type OverlaySettings, type BrmblegotchiSettings, DEFAULT_APPEARANCE, DEFAULT_OVERLAY, DEFAULT_BRMBLEGOTCHI, normalizeOverlaySettings } from './InterfaceSettingsTypes';
+import { type AppearanceSettings, type OverlaySettings, type BrmblegotchiSettings, type CompanionSelection, DEFAULT_APPEARANCE, DEFAULT_OVERLAY, DEFAULT_BRMBLEGOTCHI, normalizeOverlaySettings } from './InterfaceSettingsTypes';
 import { ConnectionSettingsTab, type ConnectionSettings } from './ConnectionSettingsTab';
 import { ProfileSettingsTab } from './ProfileSettingsTab';
 import { AdminSettingsTab } from './AdminSettingsTab';
@@ -45,6 +45,7 @@ interface SettingsModalProps {
   initialTab?: 'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'admin';
   brmblegotchiEnabled?: boolean;
   setBrmblegotchiEnabled?: (enabled: boolean) => void;
+  onLiveCompanionChange?: (nextCompanion: CompanionSelection, previousCompanion: CompanionSelection) => void;
 }
 
 export interface ScreenShareSettings {
@@ -344,10 +345,14 @@ export function SettingsModal(props: SettingsModalProps) {
   };
 
   const handleOverlayChange = (overlay: OverlaySettings) => {
+    const previousCompanion = settings.overlay.myCompanion;
     const newSettings = { ...settings, overlay };
     setSettings(newSettings);
     bridge.send('settings.set', { settings: newSettings });
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
+    if (overlay.myCompanion !== previousCompanion) {
+      props.onLiveCompanionChange?.(overlay.myCompanion, previousCompanion);
+    }
   };
 
   const handleBrmblegotchiChange = (brmblegotchi: BrmblegotchiSettings) => {

@@ -78,7 +78,7 @@ public class AuthTokenTests : IDisposable
 
         var sessionMapping = factory.Services.GetRequiredService<ISessionMappingService>();
         sessionMapping.SetNameForSession("OtherUser", 42);
-        sessionMapping.TryAddMatrixUser(42, "@other:localhost", "OtherUser", 999);
+        sessionMapping.TryAddMatrixUser(42, "@other:localhost", "OtherUser", 999, "bee");
         sessionMapping.TryUpdateBrmbleStatus(42, true);
 
         var response = await client.PostAsync("/auth/token", null);
@@ -98,6 +98,31 @@ public class AuthTokenTests : IDisposable
             "Session mapping entry should contain isBrmbleClient");
         Assert.IsTrue(isBrmble.GetBoolean(),
             "isBrmbleClient should be true for the seeded Brmble client");
+    }
+
+    [TestMethod]
+    public async Task PostAuthToken_SessionMappings_IncludeCompanionId()
+    {
+        using var factory = new BrmbleServerFactory();
+        using var client = factory.CreateClient();
+
+        var sessionMapping = factory.Services.GetRequiredService<ISessionMappingService>();
+        sessionMapping.SetNameForSession("OtherUser", 42);
+        sessionMapping.TryAddMatrixUser(42, "@other:localhost", "OtherUser", 999, "retro");
+
+        var response = await client.PostAsync("/auth/token", null);
+        response.EnsureSuccessStatusCode();
+
+        var json = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        var companionId = root
+            .GetProperty("sessionMappings")
+            .GetProperty("42")
+            .GetProperty("companionId")
+            .GetString();
+
+        Assert.AreEqual("retro", companionId);
     }
 
     [TestMethod]

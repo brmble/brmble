@@ -45,6 +45,7 @@ import { Notification } from './components/Notification/Notification';
 import type { NotificationStatus } from './components/Notification/Notification';
 import { DEFAULT_OVERLAY, normalizeOverlaySettings, type OverlaySettings } from './components/SettingsModal/InterfaceSettingsTypes';
 import type { CompanionOverlaySnapshot } from './components/CompanionOverlay/overlayTypes';
+import type { CompanionId } from './components/CompanionOverlay/overlayTypes';
 import {
   appendOverlayEvent,
   createChannelMessageOverlayEvent,
@@ -410,6 +411,7 @@ interface User {
   matrixUserId?: string;
   avatarUrl?: string;
   certHash?: string;
+  companionId?: CompanionId;
   isBrmbleClient?: boolean;
 }
 
@@ -860,6 +862,8 @@ function App() {
   matrixClientRef.current = matrixClient.client;
   const handleToggleScreenShareRef = useRef<(() => void) | null>(null);
   const disconnectViewerRef = useRef<(() => Promise<void>) | null>(null);
+  const pendingCompanionRef = useRef<{ requestId: number; next: CompanionId; previous: CompanionId } | null>(null);
+  const companionRequestIdRef = useRef(0);
 
   const stopSharesForVoiceExit = useCallback(async () => {
     await disconnectViewerRef.current?.();
@@ -1127,6 +1131,15 @@ function App() {
           setSelfMuted(selfUser.muted || false);
           setSelfDeafened(selfUser.deafened || false);
           setSelfSession(selfUser.session);
+          if (selfUser.companionId && selfUser.companionId !== overlaySettingsRef.current.myCompanion) {
+            const requestId = ++companionRequestIdRef.current;
+            pendingCompanionRef.current = {
+              requestId,
+              next: overlaySettingsRef.current.myCompanion,
+              previous: selfUser.companionId,
+            };
+            bridge.send('voice.setCompanion', { companionId: overlaySettingsRef.current.myCompanion, requestId });
+          }
         }
         // Fetch avatars for users already present at connect time
         for (const u of d.users) {
@@ -1345,7 +1358,7 @@ function App() {
     });
 
     const onVoiceUserJoined = ((data: unknown) => {
-      const d = data as { session: number; name: string; channelId?: number; muted?: boolean; deafened?: boolean; self?: boolean; comment?: string; matrixUserId?: string; certHash?: string; isBrmbleClient?: boolean } | undefined;
+      const d = data as { session: number; name: string; channelId?: number; muted?: boolean; deafened?: boolean; self?: boolean; comment?: string; matrixUserId?: string; certHash?: string; companionId?: CompanionId; isBrmbleClient?: boolean } | undefined;
       if (d?.session && d.channelId !== undefined) {
         const previousChannelId = previousChannelIdRef.current.get(d.session);
         const knownUser = usersRef.current.find(u => u.session === d.session);
@@ -1858,11 +1871,16 @@ function App() {
     };
 
     const onUserMappingUpdated = (data: unknown) => {
-      const d = data as { sessionId: number; matrixUserId?: string; isBrmbleClient?: boolean; action: string } | undefined;
+      const d = data as { sessionId: number; matrixUserId?: string; companionId?: CompanionId; isBrmbleClient?: boolean; action: string } | undefined;
       if (d?.sessionId !== undefined) {
         setUsers(prev => prev.map(u =>
           u.session === d.sessionId
-            ? { ...u, matrixUserId: d.action === 'added' ? d.matrixUserId : undefined, isBrmbleClient: d.action === 'added' ? d.isBrmbleClient : undefined }
+            ? {
+              ...u,
+              matrixUserId: d.action === 'added' ? d.matrixUserId : undefined,
+              companionId: d.action === 'added' ? d.companionId : u.companionId,
+              isBrmbleClient: d.action === 'added' ? d.isBrmbleClient : undefined,
+            }
             : u
         ));
         // Fetch avatar for the newly mapped user if they don't have one yet
@@ -1873,16 +1891,16 @@ function App() {
     };
 
     const onSessionMappingSnapshot = (data: unknown) => {
-      const d = data as { mappings: Record<string, { matrixUserId: string; mumbleName: string; isBrmbleClient?: boolean }> } | undefined;
+      const d = data as { mappings: Record<string, { matrixUserId: string; mumbleName: string; companionId?: CompanionId; isBrmbleClient?: boolean }> } | undefined;
       if (d?.mappings && typeof d.mappings === 'object') {
         setUsers(prev => {
-          const mappingMap = new Map<number, { matrixUserId: string; isBrmbleClient?: boolean }>();
+          const mappingMap = new Map<number, { matrixUserId: string; companionId?: CompanionId; isBrmbleClient?: boolean }>();
           for (const [sid, entry] of Object.entries(d.mappings)) {
-            mappingMap.set(Number(sid), { matrixUserId: entry.matrixUserId, isBrmbleClient: entry.isBrmbleClient });
+            mappingMap.set(Number(sid), { matrixUserId: entry.matrixUserId, companionId: entry.companionId, isBrmbleClient: entry.isBrmbleClient });
           }
           return prev.map(u => {
             const m = mappingMap.get(u.session);
-            return m ? { ...u, matrixUserId: m.matrixUserId, isBrmbleClient: m.isBrmbleClient } : u;
+            return m ? { ...u, matrixUserId: m.matrixUserId, companionId: m.companionId ?? u.companionId, isBrmbleClient: m.isBrmbleClient } : u;
           });
         });
         // Fetch avatars for users that gained a matrixUserId
@@ -1890,6 +1908,34 @@ function App() {
           fetchAvatarForUser(Number(sid), entry.matrixUserId);
         }
       }
+    };
+
+    const onVoiceCompanionChanged = (data: unknown) => {
+      const d = data as { session?: number; companionId?: CompanionId } | undefined;
+      if (d?.session === undefined || !d.companionId) return;
+      setUsers(prev => prev.map(u => u.session === d.session ? { ...u, companionId: d.companionId } : u));
+    };
+
+    const onVoiceSetCompanionResponse = (data: unknown) => {
+      const d = data as { success?: boolean; companionId?: CompanionId; error?: string; requestId?: number } | undefined;
+      const pending = pendingCompanionRef.current;
+      if (!pending) {
+        return;
+      }
+      
+      // Verify response matches the pending request
+      if (d?.requestId !== undefined && d.requestId !== pending.requestId) {
+        // Out-of-order response - ignore it
+        return;
+      }
+      
+      if (d?.success) {
+        pendingCompanionRef.current = null;
+        return;
+      }
+      pendingCompanionRef.current = null;
+      setConnectionError(d?.error ?? 'Failed to sync companion');
+      notifQueue.register('companion-sync-error', 'error');
     };
 
     const onBrmbleClientActivated = (data: unknown) => {
@@ -1990,6 +2036,8 @@ function App() {
     bridge.on('voice.authError', onVoiceAuthError);
     bridge.on('voice.userMappingUpdated', onUserMappingUpdated);
     bridge.on('voice.sessionMappingSnapshot', onSessionMappingSnapshot);
+    bridge.on('voice.companionChanged', onVoiceCompanionChanged);
+    bridge.on('voice.setCompanionResponse', onVoiceSetCompanionResponse);
     bridge.on('voice.brmbleClientActivated', onBrmbleClientActivated);
     bridge.on('voice.brmbleClientDeactivated', onBrmbleClientDeactivated);
     bridge.on('voice.registrationStatus', onRegistrationStatus);
@@ -2050,6 +2098,8 @@ function App() {
       bridge.off('voice.authError', onVoiceAuthError);
       bridge.off('voice.userMappingUpdated', onUserMappingUpdated);
       bridge.off('voice.sessionMappingSnapshot', onSessionMappingSnapshot);
+      bridge.off('voice.companionChanged', onVoiceCompanionChanged);
+      bridge.off('voice.setCompanionResponse', onVoiceSetCompanionResponse);
       bridge.off('voice.brmbleClientActivated', onBrmbleClientActivated);
       bridge.off('voice.brmbleClientDeactivated', onBrmbleClientDeactivated);
       bridge.off('voice.registrationStatus', onRegistrationStatus);
@@ -2615,6 +2665,18 @@ const handleConnect = (serverData: SavedServer) => {
   stopSharingRef.current = stopSharing;
   disconnectViewerRef.current = disconnectViewer;
 
+  const handleLiveCompanionChange = useCallback((nextCompanion: CompanionId, previousCompanion: CompanionId) => {
+    const selfUser = usersRef.current.find(user => user.self);
+    const liveBrmbleSession = !!selfUser?.isBrmbleClient && connectionStatusRef.current === 'connected';
+    if (!liveBrmbleSession) {
+      return;
+    }
+
+    const requestId = ++companionRequestIdRef.current;
+    pendingCompanionRef.current = { requestId, next: nextCompanion, previous: previousCompanion };
+    bridge.send('voice.setCompanion', { companionId: nextCompanion, requestId });
+  }, []);
+
   useEffect(() => {
     const localUser = users.find((user) => user.self);
     const companionsByUser = users.reduce<CompanionOverlaySnapshot['fullCompanion']['companionsByUser']>((acc, user) => {
@@ -2622,7 +2684,7 @@ const handleConnect = (serverData: SavedServer) => {
       acc[user.session] = {
         session: user.session,
         name: user.name || 'Unknown user',
-        companionId: user.self ? overlaySettings.myCompanion : undefined,
+        companionId: user.self ? overlaySettings.myCompanion : user.companionId,
         isProxy: false,
       };
       return acc;
@@ -3208,6 +3270,7 @@ const handleConnect = (serverData: SavedServer) => {
         onRemoveAvatar={onRemoveAvatar}
         brmblegotchiEnabled={brmblegotchiEnabled}
         setBrmblegotchiEnabled={setBrmblegotchiEnabled}
+        onLiveCompanionChange={handleLiveCompanionChange}
       />
 
       <ConnectModal

@@ -65,7 +65,7 @@ export function InterfaceSettingsTab({
     const validCompanions: CompanionSelection[] = ['bee', 'engineer', 'floppy', 'patch', 'pip', 'retro'];
     const validCompanion: CompanionSelection = validCompanions.includes(companion as CompanionSelection)
       ? companion as CompanionSelection
-      : 'bee';
+      : 'floppy';
     onOverlayChange({ ...overlaySettings, myCompanion: validCompanion });
   };
 
