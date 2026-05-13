@@ -1777,4 +1777,68 @@ describe('active share discovery', () => {
       ]);
     });
   });
+
+  it('stores remote companion ids from voice state in overlay companion lookup', async () => {
+    localStorage.setItem('brmble-settings', JSON.stringify({
+      overlay: {
+        overlayEnabled: true,
+        mode: 'full',
+        myCompanion: 'floppy',
+      },
+    }));
+
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'me',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [{ session: 1, name: 'me', self: true, channelId: 1, companionId: 'bee' }],
+      });
+    });
+
+    act(() => {
+      bridge.emit('voice.userJoined', {
+        session: 2,
+        name: 'alice',
+        self: false,
+        channelId: 1,
+        companionId: 'retro',
+      });
+    });
+
+    await waitFor(() => {
+      const overlaySyncCalls = vi.mocked(bridge.send).mock.calls
+        .filter(([type]) => type === 'overlay.sync');
+      const lastPayload = overlaySyncCalls.at(-1)?.[1] as { snapshot?: { fullCompanion?: { companionsByUser?: Record<string, { companionId?: string }> } } } | undefined;
+      expect(lastPayload?.snapshot?.fullCompanion?.companionsByUser?.['2']?.companionId).toBe('retro');
+    });
+  });
+
+  it('reconciles local myCompanion after connect when server state differs', async () => {
+    localStorage.setItem('brmble-settings', JSON.stringify({
+      overlay: {
+        overlayEnabled: true,
+        mode: 'full',
+        myCompanion: 'floppy',
+      },
+    }));
+
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'me',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [{ session: 1, name: 'me', self: true, channelId: 1, companionId: 'bee' }],
+      });
+    });
+
+    await waitFor(() => {
+      expect(bridge.send).toHaveBeenCalledWith('voice.setCompanion', { companionId: 'floppy' });
+    });
+  });
+
 });
