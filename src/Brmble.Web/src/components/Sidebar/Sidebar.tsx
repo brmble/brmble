@@ -46,6 +46,7 @@ interface SidebarProps {
   onStopWatching?: (userId: number) => void;
   activeShares?: ShareInfo[];
   watchingShares?: ShareInfo[];
+  isLiveKitRoomConnected?: boolean;
   onEditAvatar?: () => void;
 }
 
@@ -74,6 +75,7 @@ export function Sidebar({
   onStopWatching,
   activeShares,
   watchingShares,
+  isLiveKitRoomConnected = false,
   onEditAvatar
 }: SidebarProps) {
   const fingerprint = useProfileFingerprint();
@@ -116,6 +118,10 @@ export function Sidebar({
     const status = statuses[svc];
     const state = stateLabel(status.state);
     const error = status.error;
+
+    if (svc === 'livekit' && status.state === 'connected' && !error && !isLiveKitRoomConnected) {
+      return `${name}: Available`;
+    }
 
     if (svc === 'voice' && status.state === 'connected' && typeof status.loss === 'number') {
       const quality = status.loss < 2 ? ' (good)' : status.loss < 10 ? ' (fair)' : ' (poor)';

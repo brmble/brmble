@@ -149,7 +149,7 @@ describe('createWatchedShareEndedNotification', () => {
       matrixUserId: '@alice:test',
     }, 'unexpected', 1)).toEqual({
       id: 'watched-share-ended-1',
-      status: 'warning',
+      status: 'info',
       title: 'Share ended unexpectedly',
       detail: "alice's share ended because the screen-share connection was interrupted.",
     });

@@ -138,6 +138,35 @@ describe('Sidebar root user screen share behavior', () => {
     expect(screen.getByLabelText(/Screenshare: Disconnected/i)).toBeInTheDocument();
   });
 
+  it('labels connected screenshare service as available until a LiveKit room is joined', () => {
+    useServiceStatusMock.mockReturnValue({
+      statuses: {
+        voice: { state: 'connected' },
+        chat: { state: 'connected' },
+        server: { state: 'connected' },
+        livekit: { state: 'connected' },
+      },
+    });
+
+    const { rerender } = renderSidebar();
+
+    expect(screen.getByLabelText('Screenshare: Available')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Screenshare: Connected')).not.toBeInTheDocument();
+
+    rerender(
+      <Sidebar
+        channels={channels}
+        users={[]}
+        connectionStatus="connected"
+        onJoinChannel={vi.fn()}
+        onSelectChannel={vi.fn()}
+        isLiveKitRoomConnected={true}
+      />
+    );
+
+    expect(screen.getByLabelText('Screenshare: Connected')).toBeInTheDocument();
+  });
+
   it('shows local sharing without watch controls or watch actions', () => {
     const onWatchScreenShare = vi.fn();
 

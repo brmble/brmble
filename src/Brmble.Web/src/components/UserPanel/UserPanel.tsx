@@ -334,10 +334,11 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
         <button
           className={`btn btn-ghost btn-icon user-panel-btn screen-share-btn ${(screenSharing || (!screenSharing && !canScreenShare)) ? 'active' : ''} ${activeBtn === 'screen' ? 'pressed' : ''} ${(!screenSharing && !canScreenShare) ? 'disabled' : ''}`}
           onMouseDown={handleMouseDown('screen')}
-          onMouseUp={handleMouseUp('screen', onToggleScreenShare)}
+          onMouseUp={handleMouseUp('screen')}
           onMouseLeave={handleMouseLeave}
           onKeyDown={handleKeyDown('screen')}
-          onKeyUp={handleKeyUp('screen', onToggleScreenShare)}
+          onKeyUp={handleKeyUp('screen')}
+          onClick={onToggleScreenShare}
           disabled={!screenSharing && !canScreenShare}
         >
           {(!screenSharing && !canScreenShare) ? (

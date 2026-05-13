@@ -175,6 +175,7 @@ describe('useScreenShare', () => {
     expect(mockRoom.connect).not.toHaveBeenCalled();
     expect(mockRoom.localParticipant.setScreenShareEnabled).not.toHaveBeenCalled();
     expect(result.current.isSharing).toBe(false);
+    expect(bridge.send).toHaveBeenCalledWith('livekit.debug.invalidateRoomLifecycle.stopSharing', {});
     expect((bridge.send as ReturnType<typeof vi.fn>).mock.calls.filter(([type]) => type === 'livekit.shareStarted')).toHaveLength(0);
   });
 

@@ -174,7 +174,7 @@ export function createWatchedShareEndedNotification(
 ): WatchedShareEndedNotification {
   return {
     id: `watched-share-ended-${sequence}`,
-    status: reason === 'unexpected' ? 'warning' : 'info',
+    status: 'info',
     title: reason === 'unexpected' ? 'Share ended unexpectedly' : 'Share ended',
     detail: `${share.userName || 'Someone'}'s share ended${reason === 'unexpected' ? ' because the screen-share connection was interrupted.' : '.'}`,
   };
@@ -288,7 +288,7 @@ export function getNextLiveKitStatusUpdate({
   }
 
   if (!screenShareError) {
-    return { state: 'idle', error: undefined };
+    return null;
   }
 
   return null;
@@ -908,6 +908,8 @@ function App() {
   dmStoreRef.current = dmStore;
   const connectionStatusRef = useRef(connectionStatus);
   connectionStatusRef.current = connectionStatus;
+  const liveKitStateRef = useRef(statuses.livekit.state);
+  liveKitStateRef.current = statuses.livekit.state;
   const fetchAvatarUrlRef = useRef(matrixClient.fetchAvatarUrl);
   fetchAvatarUrlRef.current = matrixClient.fetchAvatarUrl;
   const matrixClientRef = useRef(matrixClient.client);
@@ -915,6 +917,7 @@ function App() {
   const handleToggleScreenShareRef = useRef<(() => void) | null>(null);
   const disconnectViewerRef = useRef<(() => Promise<void>) | null>(null);
   const handleScreenShareServiceUnavailableRef = useRef<(() => Promise<void>) | null>(null);
+  const requestActiveShareDiscoveryRef = useRef<((channelId: string | undefined) => void) | null>(null);
 
   const stopSharesForVoiceExit = useCallback(async () => {
     await disconnectViewerRef.current?.();
@@ -1155,8 +1158,11 @@ function App() {
       const mapped = mapBrmbleServiceStatus(status);
       if (!mapped) return;
       updateStatus(mapped.service, mapped.update);
-      if ((status.service === 'session' || status.service === 'screenshare') && status.state !== 'connected') {
+      if ((status.service === 'session' || status.service === 'screenshare') && mapped.update.state !== 'connected') {
         void handleScreenShareServiceUnavailableRef.current?.();
+      }
+      if (status.service === 'screenshare' && status.state === 'connected') {
+        requestActiveShareDiscoveryRef.current?.(currentChannelIdRef.current);
       }
     };
 
@@ -2870,6 +2876,20 @@ const handleConnect = (serverData: SavedServer) => {
   }, [isSharing, watchingShares.length, screenShareError, isLocalShareStartPending, isViewerConnectPending, updateStatus]);
 
   const selfVoiceChannelId = users.find(u => u.self)?.channelId;
+  const canScreenShare = connected && !selfLeftVoice && (selfVoiceChannelId ?? 0) !== 0;
+
+  useEffect(() => {
+    const connectedState = connected ? 'connected' : 'notConnected';
+    const leftVoiceState = selfLeftVoice ? 'leftVoice' : 'inVoice';
+    const channelState = selfVoiceChannelId == null ? 'noSelfChannel' : `channel-${selfVoiceChannelId}`;
+    const canState = canScreenShare ? 'canShare' : 'cannotShare';
+
+    try {
+      bridge.send(`livekit.debug.uiGate.${connectedState}.${leftVoiceState}.${channelState}.${canState}`, {});
+    } catch {
+      // Diagnostics must never affect UI state.
+    }
+  }, [canScreenShare, connected, selfLeftVoice, selfVoiceChannelId]);
 
   useEffect(() => {
     if (shouldClearLocalShareStartPending({
@@ -2925,6 +2945,8 @@ const handleConnect = (serverData: SavedServer) => {
     bridge.send('livekit.checkActiveShare', { roomName: `channel-${channelId}`, requestId });
   }, [setDiscoveryTarget]);
 
+  requestActiveShareDiscoveryRef.current = requestActiveShareDiscovery;
+
   // Check for active screen shares when switching channels
   useEffect(() => {
     disconnectViewer();
@@ -2954,17 +2976,28 @@ const handleConnect = (serverData: SavedServer) => {
   const handleToggleScreenShare = useCallback(async () => {
     const selfUser = usersRef.current.find(u => u.self);
     const shouldStartSharing = !isSharing && !selfLeftVoice && selfUser?.channelId != null && selfUser.channelId !== 0;
+    const sharingState = isSharing ? 'sharing' : 'notSharing';
+    const leftVoiceState = selfLeftVoice ? 'leftVoice' : 'inVoice';
+    const channelState = selfUser?.channelId == null ? 'noSelfChannel' : `channel-${selfUser.channelId}`;
+    const actionState = shouldStartSharing ? 'canStart' : 'blocked';
+
+    try {
+      bridge.send(`livekit.debug.toggleScreenShare.${sharingState}.${leftVoiceState}.${channelState}.${actionState}`, {});
+    } catch {
+      // Diagnostics must never affect the screen-share action.
+    }
 
     if (shouldStartSharing) {
       setIsLocalShareStartPending(true);
       isLocalShareStartPendingRef.current = true;
+      updateStatus('livekit', { state: 'connecting', error: undefined });
     }
 
     await toggleLocalScreenShare({
       isSharing,
       selfLeftVoice,
       voiceChannelId: selfUser?.channelId,
-      liveKitState: statuses.livekit.state,
+      liveKitState: liveKitStateRef.current,
       startSharing,
       stopSharing,
       setSharingChannelId,
@@ -2981,7 +3014,7 @@ const handleConnect = (serverData: SavedServer) => {
       setIsLocalShareStartPending(false);
       isLocalShareStartPendingRef.current = false;
     }
-  }, [isSharing, startSharing, stopSharing, selfLeftVoice]);
+  }, [isSharing, startSharing, stopSharing, selfLeftVoice, updateStatus]);
   handleToggleScreenShareRef.current = handleToggleScreenShare;
 
   const handleWatchScreenShare = useCallback((roomName: string, userId?: number, matrixUserId?: string) => {
@@ -3142,7 +3175,7 @@ const handleConnect = (serverData: SavedServer) => {
         screenSharing={isSharing}
         screenShareError={screenShareError}
         onToggleScreenShare={connected ? handleToggleScreenShare : undefined}
-        canScreenShare={connected && !selfLeftVoice && (users.find(u => u.self)?.channelId ?? 0) !== 0}
+        canScreenShare={canScreenShare}
         speaking={speakingUsers.has(selfSession) || false}
         pendingChannelAction={pendingChannelAction}
         hotkeyPressedBtn={hotkeyPressedBtn}
@@ -3178,7 +3211,8 @@ const handleConnect = (serverData: SavedServer) => {
           sharingChannelId={sharingChannelId ? Number(sharingChannelId) : (activeShares.length > 0 ? Number(activeShares[0].roomName.replace('channel-', '')) : undefined)}
           sharingUserSession={isSharing ? selfSession : activeShare?.sessionId}
           activeShares={activeShares}
-           watchingShares={watchingShares}
+          watchingShares={watchingShares}
+          isLiveKitRoomConnected={isSharing || watchingShares.length > 0}
           onWatchScreenShare={handleWatchScreenShare}
           onStopWatching={(userId) => disconnectViewer(userId)}
           onEditAvatar={connected ? () => setShowAvatarEditor(true) : undefined}

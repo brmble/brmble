@@ -76,6 +76,14 @@ const MIN_TOKEN_REFRESH_DELAY_MS = 5 * 1000;
 
 const watchedShareKey = (roomName: string, userId: number) => `${roomName}:${userId}`;
 
+const sendScreenShareDebugEvent = (eventName: string) => {
+  try {
+    bridge.send(`livekit.debug.${eventName}`, {});
+  } catch {
+    // Diagnostics must never affect the share lifecycle.
+  }
+};
+
 type ErrorLike = {
   name?: unknown;
   message?: unknown;
@@ -427,7 +435,8 @@ export function useScreenShare(
     pending?.reject(createSupersededRoomRequestError());
   }, []);
 
-  const invalidateRoomLifecycle = useCallback(() => {
+  const invalidateRoomLifecycle = useCallback((reason = 'unknown') => {
+    sendScreenShareDebugEvent(`invalidateRoomLifecycle.${reason}`);
     roomLifecycleGenerationRef.current += 1;
     cancelPendingRoomRequest();
   }, [cancelPendingRoomRequest]);
@@ -435,7 +444,7 @@ export function useScreenShare(
   const maybeCancelPendingRoomForViewerRoom = useCallback((roomName: string) => {
     const hasRemainingPendingViewersForRoom = Array.from(pendingViewerAttemptsRef.current.values()).some(attempt => attempt.roomName === roomName);
     if (pendingRoomRequestRef.current?.roomName === roomName && !hasRemainingPendingViewersForRoom && watchingSharesRef.current.length === 0 && !isSharingRef.current) {
-      invalidateRoomLifecycle();
+      invalidateRoomLifecycle('maybeCancelPendingRoomForViewerRoom');
     }
   }, [invalidateRoomLifecycle]);
 
@@ -457,12 +466,15 @@ export function useScreenShare(
   const maybeDisconnectRoom = useCallback(async () => {
     const room = roomRef.current;
     if (!isSharingRef.current && watchingSharesRef.current.length === 0 && room) {
+      sendScreenShareDebugEvent('maybeDisconnectRoom.disconnect');
       roomRef.current = null;
       roomAccessModeRef.current = null;
       roomReconnectUpgradeRef.current = false;
       clearTokenLease();
-      invalidateRoomLifecycle();
+      invalidateRoomLifecycle('maybeDisconnectRoom');
       try { await room.disconnect(); } catch { /* ignore */ }
+    } else {
+      sendScreenShareDebugEvent('maybeDisconnectRoom.skip');
     }
   }, [clearTokenLease, invalidateRoomLifecycle]);
 
@@ -473,7 +485,10 @@ export function useScreenShare(
     const wasSharing = isSharingRef.current;
     const shouldHandleErrorBeforeShareStarts = (reason === 'error' || reason === 'blocked-capture') && !localShareStopHandledRef.current;
 
+    sendScreenShareDebugEvent(`stopLocalShare.${reason}.entered`);
+
     if (localShareStopHandledRef.current || (!wasSharing && !shouldHandleErrorBeforeShareStarts)) {
+      sendScreenShareDebugEvent(`stopLocalShare.${reason}.ignored`);
       return;
     }
 
@@ -493,6 +508,7 @@ export function useScreenShare(
 
     if (wasSharing && roomName) {
       bridge.send('livekit.shareStopped', { roomName });
+      sendScreenShareDebugEvent(`stopLocalShare.${reason}.sentShareStopped`);
     }
 
     onLocalShareEndedRef.current?.(reason);
@@ -502,6 +518,7 @@ export function useScreenShare(
     }
 
     await maybeDisconnectRoom();
+    sendScreenShareDebugEvent(`stopLocalShare.${reason}.done`);
   }, [clearLocalShareEndListener, maybeDisconnectRoom]);
 
   const scheduleTokenRefresh = useCallback((lease: ActiveTokenLease) => {
@@ -540,7 +557,7 @@ export function useScreenShare(
           roomAccessModeRef.current = null;
           roomReconnectUpgradeRef.current = false;
           clearTokenLease();
-          invalidateRoomLifecycle();
+          invalidateRoomLifecycle('tokenRefreshFailed');
           cancelPendingViewerAttempts();
           notifyUnexpectedWatchedShareEnds();
           clearWatchingState();
@@ -561,10 +578,14 @@ export function useScreenShare(
     }).getTrackPublication?.(Track.Source.ScreenShare);
     const track = publication?.track;
     if (!track) {
+      sendScreenShareDebugEvent('bindLocalShareEndListener.noTrack');
       return;
     }
 
+    sendScreenShareDebugEvent('bindLocalShareEndListener.bound');
+
     const onEnded = () => {
+      sendScreenShareDebugEvent('localTrack.ended');
       void stopLocalShare('source-closed', room);
     };
 
@@ -623,25 +644,29 @@ export function useScreenShare(
     });
 
     room.on(RoomEvent.Disconnected, () => {
+      sendScreenShareDebugEvent('room.disconnected.event');
       if (roomRef.current !== room) {
+        sendScreenShareDebugEvent('room.disconnected.stale');
         return;
       }
 
       const isUpgradeReconnect = roomReconnectUpgradeRef.current;
       if (isUpgradeReconnect) {
         roomReconnectUpgradeRef.current = false;
+        sendScreenShareDebugEvent('room.disconnected.upgradeReconnect');
         return;
       }
 
       roomRef.current = null;
       roomAccessModeRef.current = null;
       clearTokenLease();
-      invalidateRoomLifecycle();
+      invalidateRoomLifecycle('roomDisconnected');
       notifyUnexpectedWatchedShareEnds();
       clearWatchingState();
       const teardownIntent = localShareTeardownIntentRef.current;
       localShareTeardownIntentRef.current = null;
       if (isSharingRef.current) {
+        sendScreenShareDebugEvent(`room.disconnected.stopLocalShare.${teardownIntent ?? 'interrupted'}`);
         void stopLocalShare(teardownIntent ?? 'interrupted', room);
       }
     });
@@ -664,7 +689,7 @@ export function useScreenShare(
     }
 
     if (pending) {
-      invalidateRoomLifecycle();
+      invalidateRoomLifecycle('ensureRoom.replacePending');
     }
 
     let lifecycleGeneration = roomLifecycleGenerationRef.current;
@@ -679,7 +704,7 @@ export function useScreenShare(
         roomRef.current = null;
         roomAccessModeRef.current = null;
         clearTokenLease();
-        invalidateRoomLifecycle();
+        invalidateRoomLifecycle('ensureRoom.disconnectExisting');
         lifecycleGeneration = roomLifecycleGenerationRef.current;
         try { await existing.disconnect(); } catch { /* ignore */ }
       }
@@ -759,16 +784,20 @@ export function useScreenShare(
 
   const startSharing = useCallback(async (roomName: string): Promise<boolean> => {
     if (isStartingShareRef.current) {
+      sendScreenShareDebugEvent('startSharing.alreadyStarting');
       return false;
     }
 
+    sendScreenShareDebugEvent('startSharing.begin');
     isStartingShareRef.current = true;
     setError(null);
     localShareStopHandledRef.current = false;
     const shareStartCancelGeneration = shareStartCancelGenerationRef.current;
 
     try {
+      sendScreenShareDebugEvent('startSharing.ensureRoom.begin');
       const room = await ensureRoom(roomName, 'publish');
+      sendScreenShareDebugEvent('startSharing.ensureRoom.done');
 
       let captureOptions: Record<string, unknown> | undefined;
       if (screenShareSettings) {
@@ -813,9 +842,12 @@ export function useScreenShare(
         }
       }
 
+      sendScreenShareDebugEvent('startSharing.setScreenShareEnabled.begin');
       await room.localParticipant.setScreenShareEnabled(true, captureOptions);
+      sendScreenShareDebugEvent('startSharing.setScreenShareEnabled.done');
 
       if (shareStartCancelGenerationRef.current !== shareStartCancelGeneration || roomRef.current !== room) {
+        sendScreenShareDebugEvent('startSharing.canceledAfterCapture');
         try { await room.localParticipant.setScreenShareEnabled(false); } catch { /* ignore */ }
         try { await maybeDisconnectRoom(); } catch { /* ignore */ }
         return false;
@@ -826,23 +858,28 @@ export function useScreenShare(
       bindLocalShareEndListener(room);
 
       bridge.send('livekit.shareStarted', { roomName });
+      sendScreenShareDebugEvent('startSharing.sentShareStarted');
       return true;
     } catch (err) {
       clearLocalShareEndListener();
 
       if (isSupersededRoomRequestError(err)) {
+        sendScreenShareDebugEvent('startSharing.error.superseded');
         return false;
       }
 
       if (isScreenSharePickerCancel(err)) {
+        sendScreenShareDebugEvent('startSharing.error.pickerCancel');
         await maybeDisconnectRoom();
         return false;
       }
 
       if (isBlockedWindowCaptureError(err)) {
+        sendScreenShareDebugEvent('startSharing.error.blockedCapture');
         setError('Windows could not share that app or window. Try sharing your full screen or a different window.');
         await stopLocalShare('blocked-capture', roomRef.current);
       } else {
+        sendScreenShareDebugEvent('startSharing.error.generic');
         setError(getErrorLikeDetails(err)?.message || 'Screen share failed');
         await stopLocalShare('error', roomRef.current);
       }
@@ -851,13 +888,14 @@ export function useScreenShare(
       return false;
     } finally {
       isStartingShareRef.current = false;
+      sendScreenShareDebugEvent('startSharing.finally');
     }
   }, [screenShareSettings, ensureRoom, bindLocalShareEndListener, clearLocalShareEndListener, maybeDisconnectRoom, stopLocalShare]);
 
   const stopSharing = useCallback(async () => {
     if (isStartingShareRef.current) {
       shareStartCancelGenerationRef.current += 1;
-      invalidateRoomLifecycle();
+      invalidateRoomLifecycle('stopSharing');
     }
     await stopLocalShare('manual');
   }, [invalidateRoomLifecycle, stopLocalShare]);
@@ -987,7 +1025,7 @@ export function useScreenShare(
     pendingUnsubscribedWatchedSharesRef.current.clear();
     setFocusedShare(null);
     clearTokenLease();
-    invalidateRoomLifecycle();
+    invalidateRoomLifecycle('disconnectViewer');
     await maybeDisconnectRoom();
   }, [removeWatchingShare, updateWatchingShares, maybeDisconnectRoom, invalidateRoomLifecycle, cancelPendingViewerAttempts, clearTokenLease, clearPendingUnsubscribedWatchedShare]);
 
@@ -1039,7 +1077,7 @@ export function useScreenShare(
           roomAccessModeRef.current = null;
           roomReconnectUpgradeRef.current = false;
           clearTokenLease();
-          invalidateRoomLifecycle();
+          invalidateRoomLifecycle('shareStoppedDisconnectRoom');
         }
       }
     };
@@ -1124,7 +1162,7 @@ export function useScreenShare(
       clearLocalShareEndListener();
       cancelPendingViewerAttempts();
       clearTokenLease();
-      invalidateRoomLifecycle();
+      invalidateRoomLifecycle('unmount');
     };
   }, [clearLocalShareEndListener, cancelPendingViewerAttempts, clearTokenLease, invalidateRoomLifecycle]);
 
@@ -1144,7 +1182,7 @@ export function useScreenShare(
     roomAccessModeRef.current = null;
     roomReconnectUpgradeRef.current = false;
     clearTokenLease();
-    invalidateRoomLifecycle();
+    invalidateRoomLifecycle('serviceUnavailable');
     setDiscoveryTarget(null);
     notifyUnexpectedWatchedShareEnds();
     clearWatchingState();

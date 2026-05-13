@@ -22,4 +22,11 @@ describe('mapBrmbleServiceStatus', () => {
       update: { state: 'disconnected', error: 'token-request-failed' },
     });
   });
+
+  it('keeps screenshare available when active-share discovery fails without an active room', () => {
+    expect(mapBrmbleServiceStatus({ service: 'screenshare', state: 'disconnected', reason: 'active-share-request-failed' })).toEqual({
+      service: 'livekit',
+      update: { state: 'connected', error: undefined },
+    });
+  });
 });
