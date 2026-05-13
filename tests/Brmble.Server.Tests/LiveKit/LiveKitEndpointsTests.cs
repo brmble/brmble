@@ -231,7 +231,7 @@ public class LiveKitEndpointsTests
         await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "TestUser" });
 
         channelMembership.Update(7, 2);
-        Assert.IsTrue(sessionMapping.TryAddMatrixUser(11, "@sharer:localhost", "Sharer", 42));
+        Assert.IsTrue(sessionMapping.TryAddMatrixUser(11, "@sharer:localhost", "Sharer", 42, "bee"));
         channelMembership.Update(11, 1);
         Assert.IsTrue(tracker.Start("channel-1", "Sharer", 42, "@sharer:localhost"));
 

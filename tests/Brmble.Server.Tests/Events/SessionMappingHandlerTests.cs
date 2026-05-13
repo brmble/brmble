@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
+using System.Text.Json;
 
 namespace Brmble.Server.Tests.Events;
 
@@ -45,11 +46,11 @@ public class SessionMappingHandlerTests
     public async Task OnUserConnected_WithKnownCert_AddsMappingAndBroadcasts()
     {
         var user = await _repo.Insert("abc123", "Alice");
-        _mapping.Setup(m => m.TryAddMatrixUser(1, user.MatrixUserId, "Alice", user.Id)).Returns(true);
+        _mapping.Setup(m => m.TryAddMatrixUser(1, user.MatrixUserId, "Alice", user.Id, "bee")).Returns(true);
 
         await _handler.OnUserConnected(new MumbleUser("Alice", "abc123", 1));
 
-        _mapping.Verify(m => m.TryAddMatrixUser(1, user.MatrixUserId, "Alice", user.Id), Times.Once);
+        _mapping.Verify(m => m.TryAddMatrixUser(1, user.MatrixUserId, "Alice", user.Id, "bee"), Times.Once);
         _bus.Verify(b => b.BroadcastAsync(It.IsAny<object>()), Times.Once);
     }
 
@@ -58,7 +59,7 @@ public class SessionMappingHandlerTests
     {
         await _handler.OnUserConnected(new MumbleUser("Bob", "", 2));
 
-        _mapping.Verify(m => m.TryAddMatrixUser(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<long>()), Times.Never);
+        _mapping.Verify(m => m.TryAddMatrixUser(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<long>(), It.IsAny<string>()), Times.Never);
         _bus.Verify(b => b.BroadcastAsync(It.IsAny<object>()), Times.Never);
     }
 
@@ -67,7 +68,7 @@ public class SessionMappingHandlerTests
     {
         await _handler.OnUserConnected(new MumbleUser("Charlie", "unknown_hash", 3));
 
-        _mapping.Verify(m => m.TryAddMatrixUser(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<long>()), Times.Never);
+        _mapping.Verify(m => m.TryAddMatrixUser(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<long>(), It.IsAny<string>()), Times.Never);
         _bus.Verify(b => b.BroadcastAsync(It.IsAny<object>()), Times.Never);
     }
 
@@ -75,11 +76,24 @@ public class SessionMappingHandlerTests
     public async Task OnUserConnected_AlreadyMapped_DoesNotBroadcast()
     {
         var user = await _repo.Insert("abc123", "Alice");
-        _mapping.Setup(m => m.TryAddMatrixUser(1, user.MatrixUserId, "Alice", user.Id)).Returns(false);
+        _mapping.Setup(m => m.TryAddMatrixUser(1, user.MatrixUserId, "Alice", user.Id, "bee")).Returns(false);
 
         await _handler.OnUserConnected(new MumbleUser("Alice", "abc123", 1));
 
-        _mapping.Verify(m => m.TryAddMatrixUser(1, user.MatrixUserId, "Alice", user.Id), Times.Once);
+        _mapping.Verify(m => m.TryAddMatrixUser(1, user.MatrixUserId, "Alice", user.Id, "bee"), Times.Once);
         _bus.Verify(b => b.BroadcastAsync(It.IsAny<object>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task OnUserConnected_BroadcastsCompanionId()
+    {
+        var user = await _repo.Insert("cert-a", "Alice");
+        await _repo.SetCompanionId(user.Id, "engineer");
+        _mapping.Setup(m => m.TryAddMatrixUser(1, user.MatrixUserId, "Alice", user.Id, "engineer")).Returns(true);
+
+        await _handler.OnUserConnected(new MumbleUser("Alice", "cert-a", 1));
+
+        _bus.Verify(b => b.BroadcastAsync(It.Is<object>(payload =>
+            JsonSerializer.Serialize(payload).Contains("\"companionId\":\"engineer\""))), Times.Once);
     }
 }

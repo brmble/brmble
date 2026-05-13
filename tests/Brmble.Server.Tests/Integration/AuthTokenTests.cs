@@ -78,7 +78,7 @@ public class AuthTokenTests : IDisposable
 
         var sessionMapping = factory.Services.GetRequiredService<ISessionMappingService>();
         sessionMapping.SetNameForSession("OtherUser", 42);
-        sessionMapping.TryAddMatrixUser(42, "@other:localhost", "OtherUser", 999);
+        sessionMapping.TryAddMatrixUser(42, "@other:localhost", "OtherUser", 999, "bee");
         sessionMapping.TryUpdateBrmbleStatus(42, true);
 
         var response = await client.PostAsync("/auth/token", null);
