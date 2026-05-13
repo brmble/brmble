@@ -82,11 +82,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     })
     { Timeout = TimeSpan.FromSeconds(5) };
 
-    internal record SessionMappingEntry(string MatrixUserId, string MumbleName, bool IsBrmbleClient = false);
+    internal record SessionMappingEntry(string MatrixUserId, string MumbleName, string CompanionId, bool IsBrmbleClient = false);
 
     /// <summary>
     /// Parses a JSON object whose keys are session IDs and values contain
-    /// matrixUserId, mumbleName, and optionally isBrmbleClient into a dictionary.
+    /// matrixUserId, mumbleName, companionId, and optionally isBrmbleClient into a dictionary.
     /// Shared by the auth-response and WebSocket snapshot parsers.
     /// </summary>
     internal static Dictionary<uint, SessionMappingEntry> ParseSessionMappings(System.Text.Json.JsonElement mappingsElement)
@@ -98,10 +98,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             {
                 var matrixId = prop.Value.TryGetProperty("matrixUserId", out var m) ? m.GetString() : null;
                 var name = prop.Value.TryGetProperty("mumbleName", out var n) ? n.GetString() : null;
-                if (matrixId is not null && name is not null)
+                var companionId = prop.Value.TryGetProperty("companionId", out var c) ? c.GetString() : "bee";
+                if (matrixId is not null && name is not null && companionId is not null)
                 {
                     var isBrmble = prop.Value.TryGetProperty("isBrmbleClient", out var b) && b.GetBoolean();
-                    result[sid] = new SessionMappingEntry(matrixId, name, isBrmble);
+                    result[sid] = new SessionMappingEntry(matrixId, name, companionId, isBrmble);
                 }
             }
         }
@@ -1454,6 +1455,70 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         }
     }
 
+    private string GetSelfCompanionOrDefault()
+    {
+        if (LocalUser is not null &&
+            _sessionMappings.TryGetValue(LocalUser.Id, out var mapping) &&
+            !string.IsNullOrWhiteSpace(mapping.CompanionId))
+        {
+            return mapping.CompanionId;
+        }
+
+        return "bee";
+    }
+
+    private void UpdateSelfCompanionMapping(string companionId)
+    {
+        if (LocalUser is null) return;
+        if (_sessionMappings.TryGetValue(LocalUser.Id, out var existing))
+        {
+            _sessionMappings[LocalUser.Id] = existing with { CompanionId = companionId };
+        }
+    }
+
+    private async Task<object> SyncCompanionAsync(string companionId)
+    {
+        if (string.IsNullOrWhiteSpace(_apiUrl))
+            return new { success = false, companionId = GetSelfCompanionOrDefault(), error = "Brmble API unavailable" };
+
+        using var cert = _certService?.GetExportableCertificate();
+        if (cert is null)
+            return new { success = false, companionId = GetSelfCompanionOrDefault(), error = "Client certificate unavailable" };
+
+        try
+        {
+            var baseUri = new Uri(_apiUrl, UriKind.Absolute);
+            var uri = new Uri(baseUri, "auth/companion");
+            var jsonBody = System.Text.Json.JsonSerializer.Serialize(new { companionId });
+            var result = await PostViaBcTls(cert, uri, jsonBody);
+            if (!result.Success)
+            {
+                return new
+                {
+                    success = false,
+                    companionId = GetSelfCompanionOrDefault(),
+                    error = string.IsNullOrWhiteSpace(result.Body) ? (result.Error ?? "Failed to sync companion") : result.Body
+                };
+            }
+
+            var synced = companionId;
+            if (!string.IsNullOrWhiteSpace(result.Body))
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(result.Body);
+                if (doc.RootElement.TryGetProperty("companionId", out var syncedProp) && syncedProp.GetString() is { } value)
+                    synced = value;
+            }
+
+            UpdateSelfCompanionMapping(synced);
+            return new { success = true, companionId = synced };
+        }
+        catch (Exception ex)
+        {
+            LogToFile($"[Companion] sync failed: {ex.Message}");
+            return new { success = false, companionId = GetSelfCompanionOrDefault(), error = "Failed to sync companion" };
+        }
+    }
+
     private void StartHealthCheck(string apiUrl)
     {
         StopHealthCheck();
@@ -1840,7 +1905,16 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                             _sessionMappings[sid] = entry;
                     }
                     _bridge?.Send("voice.sessionMappingSnapshot",
-                        new { mappings = _sessionMappings.ToDictionary(k => k.Key, k => new { k.Value.MatrixUserId, k.Value.MumbleName, k.Value.IsBrmbleClient }) });
+                        new
+                        {
+                            mappings = _sessionMappings.ToDictionary(k => k.Key, k => new
+                            {
+                                k.Value.MatrixUserId,
+                                k.Value.MumbleName,
+                                k.Value.CompanionId,
+                                k.Value.IsBrmbleClient
+                            })
+                        });
                     _bridge?.NotifyUiThread();
                     break;
 
@@ -1848,13 +1922,28 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     var addSid = root.TryGetProperty("sessionId", out var sidProp) ? sidProp.GetUInt32() : 0u;
                     var addMatrixId = root.TryGetProperty("matrixUserId", out var matrixProp) ? matrixProp.GetString() : null;
                     var addName = root.TryGetProperty("mumbleName", out var nameProp) ? nameProp.GetString() : null;
+                    var addCompanionId = root.TryGetProperty("companionId", out var companionProp) ? companionProp.GetString() : "bee";
                     var addIsBrmble = root.TryGetProperty("isBrmbleClient", out var brmbleProp) && brmbleProp.GetBoolean();
-                    if (addSid > 0 && addMatrixId is not null && addName is not null)
+                    if (addSid > 0 && addMatrixId is not null && addName is not null && addCompanionId is not null)
                     {
-                        _sessionMappings[addSid] = new SessionMappingEntry(addMatrixId, addName, addIsBrmble);
-                        _bridge?.Send("voice.userMappingUpdated", new { sessionId = addSid, matrixUserId = addMatrixId, mumbleName = addName, isBrmbleClient = addIsBrmble, action = "added" });
+                        _sessionMappings[addSid] = new SessionMappingEntry(addMatrixId, addName, addCompanionId, addIsBrmble);
+                        _bridge?.Send("voice.userMappingUpdated", new { sessionId = addSid, matrixUserId = addMatrixId, mumbleName = addName, companionId = addCompanionId, isBrmbleClient = addIsBrmble, action = "added" });
                         _bridge?.NotifyUiThread();
                     }
+                    break;
+
+                case "companionChanged":
+                    var changedSid = root.GetProperty("sessionId").GetUInt32();
+                    var changedCompanionId = root.GetProperty("companionId").GetString() ?? "bee";
+                    if (_sessionMappings.TryGetValue(changedSid, out var changed))
+                        _sessionMappings[changedSid] = changed with { CompanionId = changedCompanionId };
+                    _bridge?.Send("voice.companionChanged", new
+                    {
+                        session = changedSid,
+                        matrixUserId = root.TryGetProperty("matrixUserId", out var matrixIdProp) ? matrixIdProp.GetString() : null,
+                        companionId = changedCompanionId
+                    });
+                    _bridge?.NotifyUiThread();
                     break;
 
                 case "userMappingRemoved":
@@ -2374,6 +2463,21 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             }
         });
 
+        bridge.RegisterHandler("voice.setCompanion", async payload =>
+        {
+            var companionId = payload.TryGetProperty("companionId", out var prop) ? prop.GetString() : null;
+            if (string.IsNullOrWhiteSpace(companionId))
+            {
+                _bridge?.Send("voice.setCompanionResponse", new { success = false, companionId = GetSelfCompanionOrDefault(), error = "Missing companion ID" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            var result = await SyncCompanionAsync(companionId);
+            _bridge?.Send("voice.setCompanionResponse", result);
+            _bridge?.NotifyUiThread();
+        });
+
         bridge.RegisterHandler("livekit.requestToken", async data =>
         {
             var roomName = data.TryGetProperty("roomName", out var rn) ? rn.GetString() : null;
@@ -2852,6 +2956,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 comment = u.Comment,
                 certHash = u.CertificateHash,
                 matrixUserId = hasMap ? sm!.MatrixUserId : _userMappings.GetValueOrDefault(u.Name),
+                companionId = hasMap ? sm!.CompanionId : null,
                 isBrmbleClient = hasMap && sm!.IsBrmbleClient
             };
         }).ToList();
@@ -2959,6 +3064,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             comment = user?.Comment,
             certHash = user?.CertificateHash,
             matrixUserId = hasJoinMapping ? joinMapping!.MatrixUserId : _userMappings.GetValueOrDefault(joinedUserName),
+            companionId = hasJoinMapping ? joinMapping!.CompanionId : null,
             isBrmbleClient = hasJoinMapping && joinMapping!.IsBrmbleClient
         });
         _bridge?.NotifyUiThread();
