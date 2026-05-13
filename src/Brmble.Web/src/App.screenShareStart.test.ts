@@ -1841,4 +1841,42 @@ describe('active share discovery', () => {
     });
   });
 
+  it('reverts local overlay companion when voice.setCompanionResponse fails', async () => {
+    localStorage.setItem('brmble-settings', JSON.stringify({
+      overlay: {
+        overlayEnabled: true,
+        mode: 'full',
+        myCompanion: 'floppy',
+      },
+    }));
+
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'me',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [{ session: 1, name: 'me', self: true, channelId: 1, companionId: 'bee', isBrmbleClient: true }],
+      });
+    });
+
+    await waitFor(() => {
+      expect(bridge.send).toHaveBeenCalledWith('voice.setCompanion', { companionId: 'floppy' });
+    });
+
+    act(() => {
+      bridge.emit('voice.setCompanionResponse', {
+        success: false,
+        companionId: 'bee',
+        error: 'Invalid companion ID',
+      });
+    });
+
+    await waitFor(() => {
+      const stored = JSON.parse(localStorage.getItem('brmble-settings') ?? '{}');
+      expect(stored.overlay.myCompanion).toBe('bee');
+    });
+  });
+
 });
