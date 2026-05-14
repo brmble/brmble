@@ -34,6 +34,7 @@ const mockClient = {
 vi.mock('matrix-js-sdk', () => ({
   createClient: vi.fn(() => mockClient),
   RoomEvent: { Timeline: 'Room.timeline' },
+  RoomStateEvent: { Members: 'RoomState.members' },
   ClientEvent: { Sync: 'sync', AccountData: 'accountData' },
   EventType: { RoomMessage: 'm.room.message', Direct: 'm.direct' },
   MsgType: { Text: 'm.text' },
@@ -402,6 +403,41 @@ describe('useMatrixClient', () => {
       ts: 1_700_000_000_000,
       sender: 'Alice',
     });
+  });
+
+  it('notifies when a Matrix room member avatar changes', () => {
+    const onUserAvatarChanged = vi.fn();
+    renderHook(() => useMatrixClient(creds, { onUserAvatarChanged }), { wrapper });
+
+    const onMembers = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'RoomState.members')?.[1] as
+      | ((ev: unknown, state: unknown, member: { userId: string; getAvatarUrl: (...args: unknown[]) => string | null }) => void)
+      | undefined;
+    expect(onMembers).toBeDefined();
+
+    act(() => onMembers!(
+      { getType: () => 'm.room.member' },
+      {},
+      { userId: '@alice:example.com', getAvatarUrl: () => 'https://matrix.example.com/avatar/alice.png' },
+    ));
+
+    expect(onUserAvatarChanged).toHaveBeenCalledWith('@alice:example.com', 'https://matrix.example.com/avatar/alice.png');
+  });
+
+  it('notifies when a Matrix room member avatar is removed', () => {
+    const onUserAvatarChanged = vi.fn();
+    renderHook(() => useMatrixClient(creds, { onUserAvatarChanged }), { wrapper });
+
+    const onMembers = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'RoomState.members')?.[1] as
+      | ((ev: unknown, state: unknown, member: { userId: string; getAvatarUrl: (...args: unknown[]) => string | null }) => void)
+      | undefined;
+
+    act(() => onMembers!(
+      { getType: () => 'm.room.member' },
+      {},
+      { userId: '@alice:example.com', getAvatarUrl: () => null },
+    ));
+
+    expect(onUserAvatarChanged).toHaveBeenCalledWith('@alice:example.com', null);
   });
 
   it('setActiveChannel rebuilds activeMessages from SDK timeline', () => {

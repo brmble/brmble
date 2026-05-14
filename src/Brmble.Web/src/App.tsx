@@ -675,6 +675,12 @@ function App() {
         return resolveFullCompanionDisplay(next, now);
       });
     },
+    onUserAvatarChanged: (matrixUserId: string, avatarUrl: string | null) => {
+      fetchedAvatarIdsRef.current.delete(matrixUserId);
+      setUsers(prev => prev.map(u =>
+        u.matrixUserId === matrixUserId ? { ...u, avatarUrl: avatarUrl ?? undefined } : u
+      ));
+    },
   }), []);
   const matrixClient = useMatrixClient(matrixCredentials, matrixOverlayCallbacks);
   useCompanionOverlayPublisher(overlaySettings, overlaySnapshot);
