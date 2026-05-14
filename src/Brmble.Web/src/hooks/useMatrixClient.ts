@@ -294,11 +294,13 @@ export function useMatrixClient(
         if (channelId) {
           setLastMessages(prev => {
             const existing = prev.get(channelId);
-            if (existing?.eventId === redactedEventId) {
+            if (existing && existing.eventId === redactedEventId) {
               const next = new Map(prev);
               next.set(channelId, {
-                ...existing,
                 content: 'Message deleted',
+                ts: existing.ts,
+                sender: existing.sender,
+                eventId: existing.eventId,
               });
               return next;
             }
@@ -309,11 +311,13 @@ export function useMatrixClient(
         if (dmUserId) {
           setDmLastMessages(prev => {
             const existing = prev.get(dmUserId);
-            if (existing?.eventId === redactedEventId) {
+            if (existing && existing.eventId === redactedEventId) {
               const next = new Map(prev);
               next.set(dmUserId, {
-                ...existing,
                 content: 'Message deleted',
+                ts: existing.ts,
+                sender: existing.sender,
+                eventId: existing.eventId,
               });
               return next;
             }
@@ -700,11 +704,13 @@ export function useMatrixClient(
       if (channelRoomId) {
         setLastMessages(prev => {
           const existing = prev.get(targetId);
-          if (existing?.eventId === eventId) {
+          if (existing && existing.eventId === eventId) {
             const next = new Map(prev);
             next.set(targetId, {
-              ...existing,
               content: 'Message deleted',
+              ts: existing.ts,
+              sender: existing.sender,
+              eventId: existing.eventId,
             });
             return next;
           }
@@ -713,11 +719,13 @@ export function useMatrixClient(
       } else if (dmRoomId) {
         setDmLastMessages(prev => {
           const existing = prev.get(targetId);
-          if (existing?.eventId === eventId) {
+          if (existing && existing.eventId === eventId) {
             const next = new Map(prev);
             next.set(targetId, {
-              ...existing,
               content: 'Message deleted',
+              ts: existing.ts,
+              sender: existing.sender,
+              eventId: existing.eventId,
             });
             return next;
           }
