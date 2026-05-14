@@ -29,4 +29,11 @@ describe('mapBrmbleServiceStatus', () => {
       update: { state: 'connected', error: undefined },
     });
   });
+
+  it('keeps screenshare available when stopping an already-ended share fails', () => {
+    expect(mapBrmbleServiceStatus({ service: 'screenshare', state: 'disconnected', reason: 'share-stopped-failed' })).toEqual({
+      service: 'livekit',
+      update: { state: 'connected', error: undefined },
+    });
+  });
 });

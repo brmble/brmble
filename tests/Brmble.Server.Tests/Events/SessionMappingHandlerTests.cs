@@ -54,6 +54,41 @@ public class SessionMappingHandlerTests
     }
 
     [TestMethod]
+    public async Task OnUserConnected_WithKnownCert_RestoresActiveBrmbleName()
+    {
+        await _repo.Insert("abc123", "Alice");
+
+        await _handler.OnUserConnected(new MumbleUser("Alice", "abc123", 1));
+
+        _activeSessions.Verify(s => s.TrackMumbleName("Alice", "abc123"), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task OnUserConnected_WithKnownActiveBrmbleCert_PersistsBrmbleStatusInMapping()
+    {
+        var user = await _repo.Insert("abc123", "Alice");
+        _activeSessions.Setup(s => s.IsBrmbleClient("abc123")).Returns(true);
+        _mapping.Setup(m => m.TryAddMatrixUser(1, user.MatrixUserId, "Alice", user.Id)).Returns(true);
+
+        await _handler.OnUserConnected(new MumbleUser("Alice", "abc123", 1));
+
+        _mapping.Verify(m => m.TryUpdateBrmbleStatus(1, true), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task OnUserConnected_WithKnownActiveBrmbleCert_StoresBrmbleStatusInSnapshot()
+    {
+        var user = await _repo.Insert("abc123", "Alice");
+        var mapping = new SessionMappingService();
+        _activeSessions.Setup(s => s.IsBrmbleClient("abc123")).Returns(true);
+        var handler = new SessionMappingHandler(mapping, _bus.Object, _repo, _activeSessions.Object, NullLogger<SessionMappingHandler>.Instance);
+
+        await handler.OnUserConnected(new MumbleUser("Alice", "abc123", 1));
+
+        Assert.IsTrue(mapping.GetSnapshot()[1].IsBrmbleClient);
+    }
+
+    [TestMethod]
     public async Task OnUserConnected_EmptyCertHash_DoesNothing()
     {
         await _handler.OnUserConnected(new MumbleUser("Bob", "", 2));

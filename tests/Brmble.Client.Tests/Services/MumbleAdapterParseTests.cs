@@ -243,6 +243,42 @@ public class MumbleAdapterParseTests
     }
 
     [TestMethod]
+    public async Task ShareStoppedFailure_DoesNotEmitScreenshareDisconnectedStatus()
+    {
+        var tempDir = Directory.CreateTempSubdirectory();
+        try
+        {
+            var bridge = NativeBridgeTestHarness.Create();
+            using var clientCertificate = TestTlsHttpServer.CreateCertificate("CN=client");
+            await File.WriteAllBytesAsync(Path.Combine(tempDir.FullName, "Test_test.pfx"), clientCertificate.Export(X509ContentType.Pkcs12));
+
+            var certService = new CertificateService(bridge, new TestAppConfigService(tempDir.FullName));
+            var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge, apiUrl: "https://127.0.0.1:1/", certService: certService);
+            adapter.RegisterHandlers(bridge);
+            certService.RegisterHandlers(bridge);
+
+            using var statusDoc = JsonDocument.Parse("{}");
+            await NativeBridgeTestHarness.InvokeAsync(bridge, "cert.requestStatus", statusDoc.RootElement.Clone());
+            _ = NativeBridgeTestHarness.DrainMessages(bridge);
+
+            using var doc = JsonDocument.Parse("""
+            {
+                "roomName": "channel-1"
+            }
+            """);
+
+            await NativeBridgeTestHarness.InvokeAsync(bridge, "livekit.shareStopped", doc.RootElement.Clone());
+            var sent = NativeBridgeTestHarness.DrainMessages(bridge);
+
+            Assert.IsFalse(sent.Any(x => x.Type == "brmble.serviceStatus" && x.DataJson.Contains("\"service\":\"screenshare\"") && x.DataJson.Contains("\"state\":\"disconnected\"")));
+        }
+        finally
+        {
+            tempDir.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task ActiveShareResult_EchoesRequestId()
     {
         var tempDir = Directory.CreateTempSubdirectory();

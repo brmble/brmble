@@ -2591,14 +2591,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 var result = await PostViaBcTls(cert, uri, System.Text.Json.JsonSerializer.Serialize(new { roomName }));
                 if (result.Success)
                     SendBrmbleServiceStatus("screenshare", "connected");
-                else
-                    SendBrmbleServiceStatus("screenshare", "disconnected", reason: "share-stopped-failed");
                 if (!result.Success)
                     LogToFile($"[LiveKit] share-stopped notification failed: {result.Error}");
             }
             catch (Exception ex)
             {
-                SendBrmbleServiceStatus("screenshare", "disconnected", reason: "share-stopped-exception");
                 LogToFile($"[LiveKit] Failed to notify share-stopped: {ex.Message}");
             }
         });

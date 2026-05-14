@@ -82,6 +82,7 @@ public class AuthService : IActiveBrmbleSessions
                 }
 
                 _certToName[certHash] = mumbleName;
+                _activeSessions.Add(certHash);
             }
 
             _activeNames.Add(mumbleName);

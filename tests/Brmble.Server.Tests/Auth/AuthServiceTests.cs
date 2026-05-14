@@ -182,6 +182,15 @@ public class AuthServiceTests
     }
 
     [TestMethod]
+    public void TrackMumbleName_WithCertHash_RestoresActiveCertSession()
+    {
+        _svc!.TrackMumbleName("TrackedUser", "tracktest");
+
+        Assert.IsTrue(_svc.IsBrmbleClient("tracktest"));
+        Assert.IsTrue(_svc.IsBrmbleClientByName("TrackedUser"));
+    }
+
+    [TestMethod]
     public async Task TrackMumbleName_WrongName_IsNotBrmbleClientByCorrectName()
     {
         // Simulates the bug scenario: tracking "WrongName" means

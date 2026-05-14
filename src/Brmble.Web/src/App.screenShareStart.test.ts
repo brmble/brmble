@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ServiceStatusMap } from './types';
 
 type BridgeHandler = (data: unknown) => void;
 
@@ -33,6 +34,18 @@ const {
   const markIntent = vi.fn();
   const connectViewer = vi.fn();
   const status = {
+    statuses: {
+      voice: { state: 'connected' as const },
+      chat: { state: 'connected' as const },
+      server: { state: 'connected' as const },
+      livekit: { state: 'idle' as const, error: undefined },
+    } as ServiceStatusMap,
+    effectiveStatuses: {
+      voice: { state: 'connected' as const },
+      chat: { state: 'connected' as const },
+      server: { state: 'connected' as const },
+      livekit: { state: 'connected' as const, error: undefined },
+    } as ServiceStatusMap,
     updateStatus: vi.fn(),
     resetStatuses: vi.fn(),
   };
@@ -188,7 +201,8 @@ vi.mock('./hooks/useUnreadTracker', () => ({
 
 vi.mock('./hooks/useServiceStatus', () => ({
   useServiceStatus: () => ({
-    statuses: { voice: { error: undefined }, livekit: { state: 'idle', error: undefined } },
+    statuses: serviceStatus.statuses,
+    effectiveStatuses: serviceStatus.effectiveStatuses,
     updateStatus: serviceStatus.updateStatus,
     resetStatuses: serviceStatus.resetStatuses,
   }),
@@ -468,6 +482,10 @@ describe('active share discovery', () => {
     screenShareState.isViewerConnectPending = false;
     screenShareState.startSharing.mockResolvedValue(true);
     screenShareState.activeShares = [];
+    serviceStatus.statuses.server = { state: 'connected' };
+    serviceStatus.statuses.livekit = { state: 'idle', error: undefined };
+    serviceStatus.effectiveStatuses.server = { state: 'connected' };
+    serviceStatus.effectiveStatuses.livekit = { state: 'connected', error: undefined };
     handleScreenShareServiceUnavailable.mockClear();
     idleActionsState.autoLeftAt = null;
     idleActionsState.preLeaveStartedAt = null;
@@ -533,6 +551,56 @@ describe('active share discovery', () => {
     expect(screenShareState.startSharing).toHaveBeenCalledWith('channel-1');
     expect(bridge.send).toHaveBeenCalledWith('livekit.debug.toggleScreenShare.notSharing.inVoice.channel-1.canStart', {});
     expect(serviceStatus.updateStatus).toHaveBeenCalledWith('livekit', { state: 'connecting', error: undefined });
+  });
+
+  it('does not start local sharing while Brmble-dependent screenshare status is idle', async () => {
+    serviceStatus.statuses.server = { state: 'connecting' };
+    serviceStatus.statuses.livekit = { state: 'connected' };
+    serviceStatus.effectiveStatuses.server = { state: 'connecting' };
+    serviceStatus.effectiveStatuses.livekit = { state: 'idle' };
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    await act(async () => {
+      view.getByTestId('header-toggle-screen-share').click();
+      await Promise.resolve();
+    });
+
+    expect(screenShareState.startSharing).not.toHaveBeenCalled();
+    expect(serviceStatus.updateStatus).not.toHaveBeenCalledWith('livekit', { state: 'connecting', error: undefined });
+  });
+
+  it('does not start local sharing while Screenshare is still connecting', async () => {
+    serviceStatus.statuses.server = { state: 'connected' };
+    serviceStatus.statuses.livekit = { state: 'idle' };
+    serviceStatus.effectiveStatuses.server = { state: 'connected' };
+    serviceStatus.effectiveStatuses.livekit = { state: 'connecting' };
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    await act(async () => {
+      view.getByTestId('header-toggle-screen-share').click();
+      await Promise.resolve();
+    });
+
+    expect(screenShareState.startSharing).not.toHaveBeenCalled();
+    expect(serviceStatus.updateStatus).not.toHaveBeenCalledWith('livekit', { state: 'connecting', error: undefined });
   });
 
   it('rechecks active shares when screenshare service reconnects after an interruption', async () => {

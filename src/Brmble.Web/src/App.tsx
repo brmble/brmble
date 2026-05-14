@@ -530,7 +530,7 @@ function App() {
   profilesRef.current = profiles;
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
-  const { statuses, updateStatus, resetStatuses } = useServiceStatus();
+  const { statuses, effectiveStatuses, updateStatus, resetStatuses } = useServiceStatus();
   const connected = connectionStatus === 'connected';
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [username, setUsername] = useState('');
@@ -910,6 +910,8 @@ function App() {
   connectionStatusRef.current = connectionStatus;
   const liveKitStateRef = useRef(statuses.livekit.state);
   liveKitStateRef.current = statuses.livekit.state;
+  const effectiveLiveKitStateRef = useRef(effectiveStatuses.livekit.state);
+  effectiveLiveKitStateRef.current = effectiveStatuses.livekit.state;
   const fetchAvatarUrlRef = useRef(matrixClient.fetchAvatarUrl);
   fetchAvatarUrlRef.current = matrixClient.fetchAvatarUrl;
   const matrixClientRef = useRef(matrixClient.client);
@@ -2975,7 +2977,8 @@ const handleConnect = (serverData: SavedServer) => {
 
   const handleToggleScreenShare = useCallback(async () => {
     const selfUser = usersRef.current.find(u => u.self);
-    const shouldStartSharing = !isSharing && !selfLeftVoice && selfUser?.channelId != null && selfUser.channelId !== 0;
+    const canUseScreenshare = effectiveLiveKitStateRef.current === 'connected';
+    const shouldStartSharing = !isSharing && canUseScreenshare && !selfLeftVoice && selfUser?.channelId != null && selfUser.channelId !== 0;
     const sharingState = isSharing ? 'sharing' : 'notSharing';
     const leftVoiceState = selfLeftVoice ? 'leftVoice' : 'inVoice';
     const channelState = selfUser?.channelId == null ? 'noSelfChannel' : `channel-${selfUser.channelId}`;
@@ -2991,6 +2994,10 @@ const handleConnect = (serverData: SavedServer) => {
       setIsLocalShareStartPending(true);
       isLocalShareStartPendingRef.current = true;
       updateStatus('livekit', { state: 'connecting', error: undefined });
+    }
+
+    if (!isSharing && !canUseScreenshare) {
+      return;
     }
 
     await toggleLocalScreenShare({

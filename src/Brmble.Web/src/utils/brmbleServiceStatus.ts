@@ -16,7 +16,7 @@ export function mapBrmbleServiceStatus(data: NativeBrmbleServiceStatus): MappedB
   if (!data.service || !data.state) return null;
 
   if (data.service === 'screenshare') {
-    if (data.reason === 'active-share-request-failed') {
+    if (data.reason === 'active-share-request-failed' || data.reason === 'share-stopped-failed') {
       return {
         service: 'livekit',
         update: {
