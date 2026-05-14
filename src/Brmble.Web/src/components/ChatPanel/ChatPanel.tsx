@@ -959,9 +959,7 @@ const [replyState, setReplyState] = useState<{
                       const currentMatrixUserId = matrixClient?.getUserId();
                       const isOwnMessage = m && currentMatrixUserId ? m === currentMatrixUserId : s === currentUsername;
                       const canDelete = Boolean(isOwnMessage && onDeleteMessage && msgId?.startsWith('$') && !item.message.pending && !item.message.redacted && !item.message.type);
-                      if (!isOwnMessage || canDelete) {
-                        setContextMenu({ x, y, sender: s, senderMatrixUserId: m, content: c, messageId: msgId, msgType, isOwnMessage, canDelete });
-                      }
+                      setContextMenu({ x, y, sender: s, senderMatrixUserId: m, content: c, messageId: msgId, msgType, isOwnMessage, canDelete });
                     } : undefined}
                   />
                 </Fragment>
