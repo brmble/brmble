@@ -177,17 +177,17 @@ public class AuthServiceTests
     public async Task TrackMumbleName_AfterAuthenticate_IsBrmbleClientByName()
     {
         await _svc!.Authenticate("tracktest");
-        _svc.TrackMumbleName("TrackedUser");
+        _svc.TrackMumbleName("TrackedUser", active: true);
         Assert.IsTrue(_svc.IsBrmbleClientByName("TrackedUser"));
     }
 
     [TestMethod]
-    public void TrackMumbleName_WithCertHash_RestoresActiveCertSession()
+    public void TrackMumbleName_WithCertHash_DoesNotActivateBrmbleSession()
     {
         _svc!.TrackMumbleName("TrackedUser", "tracktest");
 
-        Assert.IsTrue(_svc.IsBrmbleClient("tracktest"));
-        Assert.IsTrue(_svc.IsBrmbleClientByName("TrackedUser"));
+        Assert.IsFalse(_svc.IsBrmbleClient("tracktest"));
+        Assert.IsFalse(_svc.IsBrmbleClientByName("TrackedUser"));
     }
 
     [TestMethod]
@@ -196,7 +196,7 @@ public class AuthServiceTests
         // Simulates the bug scenario: tracking "WrongName" means
         // IsBrmbleClientByName("RealName") returns false
         await _svc!.Authenticate("mismatchtest");
-        _svc.TrackMumbleName("WrongName");
+        _svc.TrackMumbleName("WrongName", active: true);
         Assert.IsTrue(_svc.IsBrmbleClientByName("WrongName"));
         Assert.IsFalse(_svc.IsBrmbleClientByName("RealName"));
     }
@@ -205,7 +205,7 @@ public class AuthServiceTests
     public async Task Deactivate_RemovesTrackedName()
     {
         await _svc!.Authenticate("deactivatetrack");
-        _svc.TrackMumbleName("TrackedDeactivate", "deactivatetrack");
+        _svc.TrackMumbleName("TrackedDeactivate", "deactivatetrack", active: true);
         Assert.IsTrue(_svc.IsBrmbleClientByName("TrackedDeactivate"));
         _svc.Deactivate("deactivatetrack");
         Assert.IsFalse(_svc.IsBrmbleClientByName("TrackedDeactivate"));
@@ -218,10 +218,10 @@ public class AuthServiceTests
         // under the resolved registered name with the same certHash.
         // The old name must be removed from _activeNames.
         await _svc!.Authenticate("retrackhash");
-        _svc.TrackMumbleName("RawName", "retrackhash");
+        _svc.TrackMumbleName("RawName", "retrackhash", active: true);
         Assert.IsTrue(_svc.IsBrmbleClientByName("RawName"));
 
-        _svc.TrackMumbleName("RegisteredName", "retrackhash");
+        _svc.TrackMumbleName("RegisteredName", "retrackhash", active: true);
         Assert.IsTrue(_svc.IsBrmbleClientByName("RegisteredName"));
         Assert.IsFalse(_svc.IsBrmbleClientByName("RawName"),
             "Stale name should be removed when re-tracked under same certHash");

@@ -23,7 +23,7 @@ public interface IActiveBrmbleSessions
 {
     bool IsBrmbleClient(string certHash);
     bool IsBrmbleClientByName(string mumbleName);
-    void TrackMumbleName(string mumbleName, string? certHash = null);
+    void TrackMumbleName(string mumbleName, string? certHash = null, bool active = false);
     void UntrackMumbleName(string mumbleName);
 }
 
@@ -70,7 +70,7 @@ public class AuthService : IActiveBrmbleSessions
     {
         lock (_lock) { return _activeNames.Contains(mumbleName); }
     }
-    public void TrackMumbleName(string mumbleName, string? certHash = null)
+    public void TrackMumbleName(string mumbleName, string? certHash = null, bool active = false)
     {
         lock (_lock)
         {
@@ -82,10 +82,10 @@ public class AuthService : IActiveBrmbleSessions
                 }
 
                 _certToName[certHash] = mumbleName;
-                _activeSessions.Add(certHash);
             }
 
-            _activeNames.Add(mumbleName);
+            if (active)
+                _activeNames.Add(mumbleName);
         }
     }
     public void UntrackMumbleName(string mumbleName)
