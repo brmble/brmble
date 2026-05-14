@@ -9,6 +9,7 @@ import type { ChatMessage, MentionableUser } from '../../types';
 import { ScreenShareGrid } from '../ScreenShareGrid';
 import type { ShareInfo } from '../../hooks/useScreenShare';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
+import type { ContextMenuItem } from '../ContextMenu/ContextMenu';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { Icon } from '../Icon/Icon';
 import Avatar from '../Avatar/Avatar';
@@ -961,48 +962,65 @@ const [replyState, setReplyState] = useState<{
           <ContextMenu
             x={contextMenu.x}
             y={contextMenu.y}
-            items={[
-              ...((contextMenu.messageId && onToggleReaction && channelId) ? [{
-                type: 'submenu' as const,
-                label: 'React',
-                items: ['👍', '❤️', '😂', '😮', '😢', '😡'].map(emoji => {
-                  const isReacted = currentUserMatrixId ? (contextMenu.reactions?.[emoji]?.includes(currentUserMatrixId) ?? false) : false;
-                  return {
-                    type: 'item' as const,
-                    label: `${emoji} ${isReacted ? '(Remove)' : ''}`,
-                    onClick: () => {
-                      onToggleReaction(channelId, contextMenu.messageId!, emoji, isReacted);
-                      setContextMenu(null);
-                    }
-                  };
-                })
-              }, { type: 'divider' as const }] : []),
-              { type: 'item' as const, label: 'Copy', onClick: () => {
-                if (contextMenu.content && onCopyToClipboard) {
-                  onCopyToClipboard(contextMenu.content);
+            items={((): ContextMenuItem[] => {
+              const items: ContextMenuItem[] = [];
+              if (contextMenu.messageId && onToggleReaction && channelId) {
+                items.push({
+                  type: 'item',
+                  label: 'React',
+                  children: ['\u{1F44D}', '\u{2764}\u{FE0F}', '\u{1F602}', '\u{1F62E}', '\u{1F622}', '\u{1F621}'].map((emoji) => {
+                    const isReacted = currentUserMatrixId ? (contextMenu.reactions?.[emoji]?.includes(currentUserMatrixId) ?? false) : false;
+                    return {
+                      type: 'item',
+                      label: `${emoji} ${isReacted ? '(Remove)' : ''}`,
+                      onClick: () => {
+                        onToggleReaction(channelId, contextMenu.messageId!, emoji, isReacted);
+                        setContextMenu(null);
+                      }
+                    };
+                  }),
+                });
+                items.push({ type: 'divider' });
+              }
+              items.push({
+                type: 'item',
+                label: 'Copy',
+                onClick: () => {
+                  if (contextMenu.content && onCopyToClipboard) {
+                    onCopyToClipboard(contextMenu.content);
+                  }
+                  setContextMenu(null);
                 }
-                setContextMenu(null);
-              }},
-              { type: 'item', label: 'Reply', onClick: () => {
-                if (contextMenu.messageId && contextMenu.sender) {
-                  setReplyState({
-                    eventId: contextMenu.messageId,
-                    sender: contextMenu.sender,
-                    senderMatrixUserId: contextMenu.senderMatrixUserId,
-                    content: contextMenu.content || '',
-                    msgType: contextMenu.msgType || 'm.text',
-                  });
+              });
+              items.push({
+                type: 'item',
+                label: 'Reply',
+                onClick: () => {
+                  if (contextMenu.messageId && contextMenu.sender) {
+                    setReplyState({
+                      eventId: contextMenu.messageId,
+                      sender: contextMenu.sender,
+                      senderMatrixUserId: contextMenu.senderMatrixUserId,
+                      content: contextMenu.content || '',
+                      msgType: contextMenu.msgType || 'm.text',
+                    });
+                  }
+                  setContextMenu(null);
                 }
-                setContextMenu(null);
-              }},
-              { type: 'divider' },
-              { type: 'item', label: 'Send DM', onClick: () => {
-                if (onMessageContextMenu) {
-                  onMessageContextMenu(contextMenu.x, contextMenu.y, contextMenu.sender, contextMenu.senderMatrixUserId);
+              });
+              items.push({ type: 'divider' });
+              items.push({
+                type: 'item',
+                label: 'Send DM',
+                onClick: () => {
+                  if (onMessageContextMenu) {
+                    onMessageContextMenu(contextMenu.x, contextMenu.y, contextMenu.sender, contextMenu.senderMatrixUserId);
+                  }
+                  setContextMenu(null);
                 }
-                setContextMenu(null);
-              }}
-            ]}
+              });
+              return items;
+            })()}
             onClose={() => setContextMenu(null)}
           />
         )}
@@ -1027,3 +1045,4 @@ const [replyState, setReplyState] = useState<{
     </div>
   );
 }
+

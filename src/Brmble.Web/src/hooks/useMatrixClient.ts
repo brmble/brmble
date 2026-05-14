@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { createClient, RoomEvent, ClientEvent, EventType, MsgType, KnownMembership } from 'matrix-js-sdk';
+import { createClient, RoomEvent, ClientEvent, EventType, MsgType, KnownMembership, RelationType } from 'matrix-js-sdk';
 import type { MatrixClient, MatrixEvent, Room } from 'matrix-js-sdk';
 import type { ChatMessage, MediaAttachment } from '../types';
 import { addReactionSender, removeReactionSender } from '../utils/chatReactions';
@@ -965,9 +965,9 @@ export function useMatrixClient(
     setActiveDmMessages(prev => applyReactionToMessages(prev, optimisticReaction));
 
     try {
-      const response = await client.sendMessage(roomId, {
+      const response = await client.sendEvent(roomId, EventType.Reaction, {
         'm.relates_to': {
-          rel_type: 'm.annotation',
+          rel_type: RelationType.Annotation,
           event_id: eventId,
           key: emoji,
         },
