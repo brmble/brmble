@@ -30,13 +30,14 @@ interface MessageBubbleProps {
   messageId?: string;
   pending?: boolean;
   error?: boolean;
+  redacted?: boolean;
   replyToEventId?: string;
   replyToSender?: string;
   replyToContent?: string;
   isReplyTargetHighlighted?: boolean;
   onReplyClick?: (eventId: string) => void;
   onDismiss?: (messageId: string) => void;
-  onOpenContextMenu?: (x: number, y: number, sender: string, senderMatrixUserId?: string, content?: string, messageId?: string) => void;
+  onOpenContextMenu?: (x: number, y: number, sender: string, senderMatrixUserId?: string, content?: string, messageId?: string, msgType?: string) => void;
 }
 
 /** Highlight search matches within a plain-text string, returning React nodes. */
@@ -140,7 +141,7 @@ function processMessageContent(
   return mentionified;
 }
 
-export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & React.HTMLAttributes<HTMLDivElement>>(function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId, currentUsername, knownUsernames, messageId, pending, error, replyToEventId, replyToSender, replyToContent, isReplyTargetHighlighted, onReplyClick, onDismiss, onOpenContextMenu, className, ...rest }, ref) {
+export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & React.HTMLAttributes<HTMLDivElement>>(function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId, currentUsername, knownUsernames, messageId, pending, error, redacted, replyToEventId, replyToSender, replyToContent, isReplyTargetHighlighted, onReplyClick, onDismiss, onOpenContextMenu, className, ...rest }, ref) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const formatTime = (date: Date) => {
@@ -154,11 +155,12 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
   if (isActiveMatch) classes.push('search-active-match');
   if (pending) classes.push('message-bubble--pending');
   if (error) classes.push('message-bubble--error');
+  if (redacted) classes.push('message-bubble--redacted');
   if (isReplyTargetHighlighted) classes.push('message-bubble--reply-target');
   if (className) classes.push(className);
 
-  const firstUrl = (!isSystem && content) ? extractFirstUrl(content) : null;
-  const hasReplyPreview = Boolean(replyToEventId && (replyToSender || replyToContent));
+  const firstUrl = (!isSystem && !redacted && content) ? extractFirstUrl(content) : null;
+  const hasReplyPreview = !redacted && Boolean(replyToEventId && (replyToSender || replyToContent));
   const canJumpToReply = Boolean(hasReplyPreview && replyToEventId && onReplyClick);
   const replyPreviewLabel = `Jump to replied message from ${replyToSender ?? 'unknown sender'}: ${replyToContent ?? 'empty message'}`;
 
@@ -209,25 +211,31 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
             </div>
           )
         )}
-        {content && (
-          html ? (
-            <div className="message-text" dangerouslySetInnerHTML={{ __html: searchQuery ? highlightHtml(content, searchQuery) : content }} />
-          ) : (
-            <p className="message-text">
-              {processMessageContent(content, knownUsernames, currentUsername, searchQuery || '')}
-            </p>
-          )
-        )}
-        {media && media.length > 0 && (
-          <div className="message-media">
-            {media.map((attachment, i) => (
-              <ImageAttachment
-                key={i}
-                attachment={attachment}
-                onOpenLightbox={setLightboxUrl}
-              />
-            ))}
-          </div>
+        {redacted ? (
+          <p className="message-text message-text--deleted">Message deleted</p>
+        ) : (
+          <>
+            {content && (
+              html ? (
+                <div className="message-text" dangerouslySetInnerHTML={{ __html: searchQuery ? highlightHtml(content, searchQuery) : content }} />
+              ) : (
+                <p className="message-text">
+                  {processMessageContent(content, knownUsernames, currentUsername, searchQuery || '')}
+                </p>
+              )
+            )}
+            {media && media.length > 0 && (
+              <div className="message-media">
+                {media.map((attachment, i) => (
+                  <ImageAttachment
+                    key={i}
+                    attachment={attachment}
+                    onOpenLightbox={setLightboxUrl}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         )}
         {firstUrl && matrixClient && (
           <LinkPreview url={firstUrl} client={matrixClient} />

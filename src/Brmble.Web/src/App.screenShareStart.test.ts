@@ -123,6 +123,7 @@ vi.mock('./hooks/useMatrixClient', () => ({
     dmUserDisplayNames: new Map(),
     dmUserAvatarUrls: new Map(),
     sendDMMessage: vi.fn(),
+    deleteMessage: vi.fn().mockResolvedValue(undefined),
     fetchDMHistory: vi.fn(),
     setActiveChannel: vi.fn(),
     setActiveDmContact: vi.fn(),
