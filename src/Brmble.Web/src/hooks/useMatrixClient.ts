@@ -173,6 +173,7 @@ export interface MessagePreview {
   content: string;
   ts: number;
   sender: string;
+  eventId?: string;
 }
 
 interface MatrixClientOverlayCallbacks {
@@ -278,15 +279,48 @@ export function useMatrixClient(
 
       if (eventType === EventType.RoomRedaction) {
         const redactedEventId = getRedactedEventId(event);
+        
+        // Update active messages if currently viewing this channel/DM
         if (channelId && activeChannelIdRef.current === channelId) {
           setActiveMessages(prev => markMessageRedacted(prev, redactedEventId));
-          return;
         }
 
         const dmUserId = roomIdToDMUserIdRef.current.get(room?.roomId ?? '');
         if (dmUserId && activeDmContactIdRef.current === dmUserId) {
           setActiveDmMessages(prev => markMessageRedacted(prev, redactedEventId));
         }
+
+        // Update last message previews if the redacted message is the preview
+        if (channelId) {
+          setLastMessages(prev => {
+            const existing = prev.get(channelId);
+            if (existing?.eventId === redactedEventId) {
+              const next = new Map(prev);
+              next.set(channelId, {
+                ...existing,
+                content: 'Message deleted',
+              });
+              return next;
+            }
+            return prev;
+          });
+        }
+
+        if (dmUserId) {
+          setDmLastMessages(prev => {
+            const existing = prev.get(dmUserId);
+            if (existing?.eventId === redactedEventId) {
+              const next = new Map(prev);
+              next.set(dmUserId, {
+                ...existing,
+                content: 'Message deleted',
+              });
+              return next;
+            }
+            return prev;
+          });
+        }
+        
         return;
       }
 
@@ -306,6 +340,7 @@ export function useMatrixClient(
             content: message.content,
             ts: message.timestamp.getTime(),
             sender: message.sender,
+            eventId: message.id,
           });
           return next;
         });
@@ -341,6 +376,7 @@ export function useMatrixClient(
           content: dmMessage.content,
           ts: dmMessage.timestamp.getTime(),
           sender: dmMessage.sender,
+          eventId: dmMessage.id,
         });
         return next;
       });
@@ -408,6 +444,7 @@ export function useMatrixClient(
                 content: msg.content,
                 ts: msg.timestamp.getTime(),
                 sender: msg.sender,
+                eventId: msg.id,
               };
               if (channelId) bootChannelPreviews.set(channelId, preview);
               else if (dmUserId) bootDmPreviews.set(dmUserId, preview);
@@ -651,10 +688,41 @@ export function useMatrixClient(
 
     try {
       await client.redactEvent(roomId, eventId);
+      
+      // Update active messages if currently viewing this channel/DM
       if (channelRoomId && activeChannelIdRef.current === targetId) {
         setActiveMessages(prev => markMessageRedacted(prev, eventId));
       } else if (dmRoomId && activeDmContactIdRef.current === targetId) {
         setActiveDmMessages(prev => markMessageRedacted(prev, eventId));
+      }
+
+      // Update last message previews if the deleted message is the preview
+      if (channelRoomId) {
+        setLastMessages(prev => {
+          const existing = prev.get(targetId);
+          if (existing?.eventId === eventId) {
+            const next = new Map(prev);
+            next.set(targetId, {
+              ...existing,
+              content: 'Message deleted',
+            });
+            return next;
+          }
+          return prev;
+        });
+      } else if (dmRoomId) {
+        setDmLastMessages(prev => {
+          const existing = prev.get(targetId);
+          if (existing?.eventId === eventId) {
+            const next = new Map(prev);
+            next.set(targetId, {
+              ...existing,
+              content: 'Message deleted',
+            });
+            return next;
+          }
+          return prev;
+        });
       }
     } catch (err) {
       console.warn('[Matrix] Failed to redact message:', err);

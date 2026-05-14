@@ -948,12 +948,16 @@ const [replyState, setReplyState] = useState<{
                     redacted={item.message.redacted}
                     replyToEventId={item.message.replyToEventId}
                     replyToSender={(item.message.replyToSender) || (item.message.replyToEventId ? lookupMessageById(item.message.replyToEventId)?.sender : undefined)}
-                    replyToContent={(item.message.replyToContent) || (item.message.replyToEventId ? lookupMessageById(item.message.replyToEventId)?.content : undefined)}
+                    replyToContent={(item.message.replyToContent) || (item.message.replyToEventId ? (() => {
+                      const replyTarget = lookupMessageById(item.message.replyToEventId);
+                      return replyTarget?.redacted ? 'Message deleted' : replyTarget?.content;
+                    })() : undefined)}
                     isReplyTargetHighlighted={highlightedMessageId === item.message.id}
                     onReplyClick={scrollToMessage}
                     onDismiss={onDismissMessage}
                     onOpenContextMenu={(onMessageContextMenu || onDeleteMessage) ? (x, y, s, m, c, msgId, msgType = 'm.text') => {
-                      const isOwnMessage = s === currentUsername;
+                      const currentMatrixUserId = matrixClient?.getUserId();
+                      const isOwnMessage = m && currentMatrixUserId ? m === currentMatrixUserId : s === currentUsername;
                       const canDelete = Boolean(isOwnMessage && onDeleteMessage && msgId?.startsWith('$') && !item.message.pending && !item.message.redacted && !item.message.type);
                       if (!isOwnMessage || canDelete) {
                         setContextMenu({ x, y, sender: s, senderMatrixUserId: m, content: c, messageId: msgId, msgType, isOwnMessage, canDelete });
