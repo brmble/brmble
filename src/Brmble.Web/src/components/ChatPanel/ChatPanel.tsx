@@ -13,6 +13,7 @@ import type { ContextMenuItem } from '../ContextMenu/ContextMenu';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { Icon } from '../Icon/Icon';
 import Avatar from '../Avatar/Avatar';
+import { SUPPORTED_REACTIONS } from '../../utils/chatReactions';
 import './ChatPanel.css';
 
 interface ChatPanelProps {
@@ -964,15 +965,16 @@ const [replyState, setReplyState] = useState<{
             y={contextMenu.y}
             items={((): ContextMenuItem[] => {
               const items: ContextMenuItem[] = [];
-              if (contextMenu.messageId && onToggleReaction && channelId) {
+              // Only show reactions menu when Matrix room ID is present (Matrix-backed chat)
+              if (contextMenu.messageId && onToggleReaction && channelId && matrixRoomId) {
                 items.push({
                   type: 'item',
                   label: 'React',
-                  children: ['\u{1F44D}', '\u{2764}\u{FE0F}', '\u{1F602}', '\u{1F62E}', '\u{1F622}', '\u{1F621}'].map((emoji) => {
+                  children: SUPPORTED_REACTIONS.map((emoji) => {
                     const isReacted = currentUserMatrixId ? (contextMenu.reactions?.[emoji]?.includes(currentUserMatrixId) ?? false) : false;
                     return {
                       type: 'item',
-                      label: `${emoji} ${isReacted ? '(Remove)' : ''}`,
+                      label: `${emoji}${isReacted ? ' (Remove)' : ''}`,
                       onClick: () => {
                         onToggleReaction(channelId, contextMenu.messageId!, emoji, isReacted);
                         setContextMenu(null);
@@ -1009,16 +1011,19 @@ const [replyState, setReplyState] = useState<{
                 }
               });
               items.push({ type: 'divider' });
-              items.push({
-                type: 'item',
-                label: 'Send DM',
-                onClick: () => {
-                  if (onMessageContextMenu) {
-                    onMessageContextMenu(contextMenu.x, contextMenu.y, contextMenu.sender, contextMenu.senderMatrixUserId);
+              // Suppress "Send DM" option when context menu is for current user's own message
+              if (contextMenu.senderMatrixUserId !== currentUserMatrixId && contextMenu.sender !== currentUsername) {
+                items.push({
+                  type: 'item',
+                  label: 'Send DM',
+                  onClick: () => {
+                    if (onMessageContextMenu) {
+                      onMessageContextMenu(contextMenu.x, contextMenu.y, contextMenu.sender, contextMenu.senderMatrixUserId);
+                    }
+                    setContextMenu(null);
                   }
-                  setContextMenu(null);
-                }
-              });
+                });
+              }
               return items;
             })()}
             onClose={() => setContextMenu(null)}

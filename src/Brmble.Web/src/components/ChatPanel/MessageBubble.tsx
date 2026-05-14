@@ -159,9 +159,36 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
   if (pending) classes.push('message-bubble--pending');
   if (error) classes.push('message-bubble--error');
   if (isReplyTargetHighlighted) classes.push('message-bubble--reply-target');
+  if (redacted) classes.push('message-bubble--redacted');
   if (className) classes.push(className);
 
-  if (redacted) return null;
+  // Show placeholder for redacted messages instead of hiding them
+  if (redacted) {
+    return (
+      <div ref={ref} className={classes.join(' ')} data-message-index={messageIndex} {...rest}>
+        {collapsed ? (
+          <div className="message-gutter">
+            <span className="message-hover-time">{formatTime(timestamp)}</span>
+          </div>
+        ) : (
+          <div className="message-avatar">
+            <Avatar user={{ name: sender, matrixUserId: senderMatrixUserId, avatarUrl: senderAvatarUrl }} size={48} isMumbleOnly={!isOwnMessage && !senderMatrixUserId} />
+          </div>
+        )}
+        <div className="message-content">
+          {!collapsed && (
+            <div className="message-header">
+              <span className="message-sender">{sender}</span>
+              <span className="message-time">{formatTime(timestamp)}</span>
+            </div>
+          )}
+          <div className="message-text" style={{ fontStyle: 'italic', opacity: 0.6 }}>
+            Message deleted
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const firstUrl = (!isSystem && content) ? extractFirstUrl(content) : null;
   const hasReplyPreview = Boolean(replyToEventId && (replyToSender || replyToContent));

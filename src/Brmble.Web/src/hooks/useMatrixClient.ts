@@ -187,27 +187,57 @@ function markMessageRedacted(
  *
  * Returns `[]` when the room cannot be resolved (caller's responsibility to
  * setState on the returned value).
+ *
+ * Optionally populates reactionEventsRef and ownReactionEventIdsRef to enable
+ * removal of reactions loaded from timeline history.
  */
 function loadMessagesFromTimeline(
   client: MatrixClient,
   roomId: string,
   targetId: string,
+  currentUserId?: string,
+  reactionEventsRef?: React.MutableRefObject<Map<string, ReactionEventRecord>>,
+  ownReactionEventIdsRef?: React.MutableRefObject<Map<string, Map<string, string>>>,
 ): ChatMessage[] {
   const room = client.getRoom(roomId);
   if (!room) return [];
   const out: ChatMessage[] = [];
   const pendingReactions: ReactionEventRecord[] = [];
+  const redactedEventIds = new Set<string>();
 
   for (const ev of room.getLiveTimeline().getEvents()) {
+    // Track redaction events
+    if (ev.getType() === 'm.room.redaction') {
+      const redactedId = getRedactedEventId(ev);
+      if (redactedId) redactedEventIds.add(redactedId);
+    }
+
     const m = transformEventToChatMessage(ev, room, targetId, client);
     if (m) {
-      out.push(m);
+      // Mark message as redacted if already redacted or has redaction event
+      if (ev.isRedacted() || redactedEventIds.has(m.id)) {
+        out.push({ ...m, redacted: true, content: '', media: undefined });
+      } else {
+        out.push(m);
+      }
       continue;
     }
 
     const reaction = parseReactionEvent(ev);
     if (reaction) {
       pendingReactions.push(reaction);
+      
+      // Track reaction events in refs so they can be removed later
+      if (reactionEventsRef) {
+        reactionEventsRef.current.set(reaction.reactionEventId, reaction);
+      }
+      
+      // Track own reactions for removal
+      if (ownReactionEventIdsRef && currentUserId && reaction.senderId === currentUserId) {
+        const ownForMessage = ownReactionEventIdsRef.current.get(reaction.targetEventId) ?? new Map<string, string>();
+        ownForMessage.set(reaction.emoji, reaction.reactionEventId);
+        ownReactionEventIdsRef.current.set(reaction.targetEventId, ownForMessage);
+      }
     }
   }
 
@@ -534,7 +564,7 @@ export function useMatrixClient(
             if (roomId) {
               activeRoomVersionRef.current += 1;
               const myVersion = activeRoomVersionRef.current;
-              const messages = loadMessagesFromTimeline(client, roomId, channelId);
+              const messages = loadMessagesFromTimeline(client, roomId, channelId, credentials.userId, reactionEventsRef, ownReactionEventIdsRef);
               if (activeRoomVersionRef.current === myVersion) {
                 setActiveMessages(messages);
               }
@@ -546,7 +576,7 @@ export function useMatrixClient(
             if (dmRoomId) {
               activeDmVersionRef.current += 1;
               const myVersion = activeDmVersionRef.current;
-              const messages = loadMessagesFromTimeline(client, dmRoomId, dmContactId);
+              const messages = loadMessagesFromTimeline(client, dmRoomId, dmContactId, credentials.userId, reactionEventsRef, ownReactionEventIdsRef);
               if (activeDmVersionRef.current === myVersion) {
                 setActiveDmMessages(messages);
               }
@@ -867,7 +897,7 @@ export function useMatrixClient(
       setActiveMessages([]);
       return;
     }
-    const messages = loadMessagesFromTimeline(client, roomId, channelId);
+    const messages = loadMessagesFromTimeline(client, roomId, channelId, credentials.userId, reactionEventsRef, ownReactionEventIdsRef);
 
     if (activeRoomVersionRef.current === myVersion) {
       setActiveMessages(messages);
@@ -894,7 +924,7 @@ export function useMatrixClient(
       setActiveDmMessages([]);
       return;
     }
-    const messages = loadMessagesFromTimeline(client, roomId, matrixUserId);
+    const messages = loadMessagesFromTimeline(client, roomId, matrixUserId, credentials?.userId, reactionEventsRef, ownReactionEventIdsRef);
 
     if (activeDmVersionRef.current === myVersion) {
       setActiveDmMessages(messages);
