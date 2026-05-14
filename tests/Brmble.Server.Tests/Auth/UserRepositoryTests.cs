@@ -2,6 +2,7 @@
 using Brmble.Server.Auth;
 using Brmble.Server.Data;
 using Brmble.Server.Matrix;
+using Dapper;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -142,5 +143,30 @@ public class UserRepositoryTests
         await _repo.SetAvatarSource(user.Id, null);
         var source = await _repo.GetAvatarSource(user.Id);
         Assert.IsNull(source);
+    }
+
+    [TestMethod]
+    public async Task GetCompanionId_ReturnsBee_WhenColumnValueIsNullOrUnknown()
+    {
+        var user = await _repo!.Insert("cert-1", "alice");
+
+        using var conn = _db!.CreateConnection();
+        await conn.ExecuteAsync("UPDATE users SET companion_id = 'UNKNOWN' WHERE id = @Id", new { user.Id });
+
+        var companionId = await _repo.GetCompanionId(user.Id);
+
+        Assert.AreEqual("floppy", companionId);
+    }
+
+    [TestMethod]
+    public async Task SetCompanionId_PersistsLowercaseValue()
+    {
+        var user = await _repo!.Insert("cert-2", "bob");
+
+        await _repo.SetCompanionId(user.Id, "floppy");
+
+        var companionId = await _repo.GetCompanionId(user.Id);
+
+        Assert.AreEqual("floppy", companionId);
     }
 }

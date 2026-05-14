@@ -37,7 +37,7 @@ function createDefaultFullCompanionState(): CompanionOverlaySnapshot['fullCompan
     localUser: {
       session: 0,
       name: 'You',
-      companionId: 'bee',
+      companionId: 'floppy',
     },
     flags: {
       localMuted: false,

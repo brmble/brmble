@@ -112,8 +112,8 @@ public class BrmbleEventBusTests
         _sessionMapping.Setup(s => s.GetSnapshot())
             .Returns(new Dictionary<int, SessionMapping>
             {
-                { 10, new SessionMapping("@user1:matrix.org", "User1", 1L) },
-                { 20, new SessionMapping("@user2:matrix.org", "User2", 2L) }
+                { 10, new SessionMapping("@user1:matrix.org", "User1", 1L, "bee") },
+                { 20, new SessionMapping("@user2:matrix.org", "User2", 2L, "bee") }
             });
 
         var ws1 = CreateMockWebSocket(WebSocketState.Open);

@@ -31,10 +31,11 @@ public class SessionMappingHandler : IMumbleEventHandler
 
         var dbUser = await _userRepository.GetByCertHash(user.CertHash);
         if (dbUser is null) return;
+        var companionId = await _userRepository.GetCompanionId(dbUser.Id);
 
         var isBrmbleClient = _activeSessions.IsBrmbleClient(user.CertHash);
 
-        if (_sessionMapping.TryAddMatrixUser(user.SessionId, dbUser.MatrixUserId, user.Name, dbUser.Id))
+        if (_sessionMapping.TryAddMatrixUser(user.SessionId, dbUser.MatrixUserId, user.Name, dbUser.Id, companionId))
         {
             _logger.LogInformation(
                 "Mapped session {Session} ({Name}) to {MatrixUserId} via cert (brmbleClient={IsBrmble})",
@@ -45,6 +46,7 @@ public class SessionMappingHandler : IMumbleEventHandler
                 sessionId = user.SessionId,
                 matrixUserId = dbUser.MatrixUserId,
                 mumbleName = user.Name,
+                companionId,
                 isBrmbleClient
             });
         }

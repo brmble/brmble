@@ -24,10 +24,10 @@ export type CompanionSelection = 'bee' | 'engineer' | 'floppy' | 'patch' | 'pip'
 
 /**
  * Validates and migrates a companion ID to ensure it's a valid CompanionSelection.
- * Legacy companion IDs (e.g., "clip") are migrated to the default 'bee'.
+ * Legacy companion IDs (e.g., "clip") are migrated to the default 'floppy'.
  * 
  * @param companionId - The companion ID to validate (may be from persisted settings)
- * @returns A valid CompanionSelection, or 'bee' if the input is invalid
+ * @returns A valid CompanionSelection, or 'floppy' if the input is invalid
  */
 export function normalizeCompanionId(companionId: unknown): CompanionSelection {
   const validCompanions: CompanionSelection[] = ['bee', 'engineer', 'floppy', 'patch', 'pip', 'retro'];
@@ -36,8 +36,8 @@ export function normalizeCompanionId(companionId: unknown): CompanionSelection {
     return companionId as CompanionSelection;
   }
   
-  // Legacy or invalid value - fallback to bee
-  return 'bee';
+  // Legacy or invalid value - fallback to floppy
+  return 'floppy';
 }
 
 /**
@@ -59,7 +59,7 @@ export const DEFAULT_OVERLAY: OverlaySettings = {
   overlayEnabled: false,
   mode: 'minimal',
   position: 'bottom-right',
-  myCompanion: 'bee',
+  myCompanion: 'floppy',
   showChannelMessages: true,
   showDirectMessages: true,
   showJoinLeaveEvents: true,
