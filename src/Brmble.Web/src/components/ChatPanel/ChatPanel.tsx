@@ -38,6 +38,8 @@ interface ChatPanelProps {
   topNotice?: string;
   onMessageContextMenu?: (x: number, y: number, sender: string, senderMatrixUserId?: string, content?: string, messageId?: string) => void;
   onCopyToClipboard?: (text: string) => void;
+  currentUserMatrixId?: string;
+  onToggleReaction?: (channelId: string, messageId: string, emoji: string, isCurrentlyReacted: boolean) => void;
 }
 
 const SCROLL_THRESHOLD = 150;
@@ -45,7 +47,7 @@ const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
 const DEFAULT_SPLIT = 50;
 const REPLY_TARGET_HIGHLIGHT_MS = 1600;
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, watchingShares, focusedShare, remoteVideoEls, onFocusShare, onCloseShare, screenShareViewerMode, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, watchingShares, focusedShare, remoteVideoEls, onFocusShare, onCloseShare, screenShareViewerMode, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard, currentUserMatrixId, onToggleReaction }: ChatPanelProps) {
   // Build lookup maps from sender name and matrixUserId → avatar data for MessageBubble.
   // Name-based lookup works when Mumble name matches message sender.
   // MatrixUserId-based lookup handles cases where the user connected with a different
@@ -161,7 +163,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
   const messageElMapRef = useRef<Map<string, HTMLDivElement>>(new Map());
   const hiddenSetRef = useRef<Set<string>>(new Set());
   const replyHighlightTimeoutRef = useRef<number | null>(null);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; sender: string; senderMatrixUserId?: string; content?: string; messageId?: string; msgType?: string } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; sender: string; senderMatrixUserId?: string; content?: string; messageId?: string; msgType?: string; reactions?: Record<string, string[]> } | null>(null);
 const [replyState, setReplyState] = useState<{
   eventId: string;
   sender: string;
@@ -939,11 +941,15 @@ const [replyState, setReplyState] = useState<{
                     isReplyTargetHighlighted={highlightedMessageId === item.message.id}
                     onReplyClick={scrollToMessage}
                     onDismiss={onDismissMessage}
-                    onOpenContextMenu={onMessageContextMenu ? (x, y, s, m, c, msgId, msgType = 'm.text') => {
-                      if (s !== currentUsername) {
-                        setContextMenu({ x, y, sender: s, senderMatrixUserId: m, content: c, messageId: msgId, msgType });
+                    onOpenContextMenu={onMessageContextMenu ? (x, y, s, m, c, msgId, msgType = 'm.text', reactions, redacted) => {
+                      if (!redacted) {
+                        setContextMenu({ x, y, sender: s, senderMatrixUserId: m, content: c, messageId: msgId, msgType, reactions });
                       }
                     } : undefined}
+                    reactions={item.message.reactions}
+                    redacted={item.message.redacted}
+                    currentUserMatrixId={currentUserMatrixId}
+                    onToggleReaction={(messageId, emoji, isReacted) => onToggleReaction?.(channelId || '', messageId, emoji, isReacted)}
                   />
                 </Fragment>
                 );
@@ -956,7 +962,22 @@ const [replyState, setReplyState] = useState<{
             x={contextMenu.x}
             y={contextMenu.y}
             items={[
-              { type: 'item', label: 'Copy', onClick: () => {
+              ...((contextMenu.messageId && onToggleReaction && channelId) ? [{
+                type: 'submenu' as const,
+                label: 'React',
+                items: ['👍', '❤️', '😂', '😮', '😢', '😡'].map(emoji => {
+                  const isReacted = currentUserMatrixId ? (contextMenu.reactions?.[emoji]?.includes(currentUserMatrixId) ?? false) : false;
+                  return {
+                    type: 'item' as const,
+                    label: `${emoji} ${isReacted ? '(Remove)' : ''}`,
+                    onClick: () => {
+                      onToggleReaction(channelId, contextMenu.messageId!, emoji, isReacted);
+                      setContextMenu(null);
+                    }
+                  };
+                })
+              }, { type: 'divider' as const }] : []),
+              { type: 'item' as const, label: 'Copy', onClick: () => {
                 if (contextMenu.content && onCopyToClipboard) {
                   onCopyToClipboard(contextMenu.content);
                 }

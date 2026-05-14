@@ -36,7 +36,11 @@ interface MessageBubbleProps {
   isReplyTargetHighlighted?: boolean;
   onReplyClick?: (eventId: string) => void;
   onDismiss?: (messageId: string) => void;
-  onOpenContextMenu?: (x: number, y: number, sender: string, senderMatrixUserId?: string, content?: string, messageId?: string) => void;
+  onOpenContextMenu?: (x: number, y: number, sender: string, senderMatrixUserId?: string, content?: string, messageId?: string, msgType?: string, reactions?: Record<string, string[]>, redacted?: boolean) => void;
+  reactions?: Record<string, string[]>;
+  redacted?: boolean;
+  currentUserMatrixId?: string;
+  onToggleReaction?: (messageId: string, emoji: string, isReacted: boolean) => void;
 }
 
 /** Highlight search matches within a plain-text string, returning React nodes. */
@@ -140,7 +144,7 @@ function processMessageContent(
   return mentionified;
 }
 
-export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & React.HTMLAttributes<HTMLDivElement>>(function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId, currentUsername, knownUsernames, messageId, pending, error, replyToEventId, replyToSender, replyToContent, isReplyTargetHighlighted, onReplyClick, onDismiss, onOpenContextMenu, className, ...rest }, ref) {
+export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & React.HTMLAttributes<HTMLDivElement>>(function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId, currentUsername, knownUsernames, messageId, pending, error, replyToEventId, replyToSender, replyToContent, isReplyTargetHighlighted, onReplyClick, onDismiss, onOpenContextMenu, className, reactions, redacted, currentUserMatrixId, onToggleReaction, ...rest }, ref) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const formatTime = (date: Date) => {
@@ -157,6 +161,8 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
   if (isReplyTargetHighlighted) classes.push('message-bubble--reply-target');
   if (className) classes.push(className);
 
+  if (redacted) return null;
+
   const firstUrl = (!isSystem && content) ? extractFirstUrl(content) : null;
   const hasReplyPreview = Boolean(replyToEventId && (replyToSender || replyToContent));
   const canJumpToReply = Boolean(hasReplyPreview && replyToEventId && onReplyClick);
@@ -172,7 +178,7 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
     <div ref={ref} className={classes.join(' ')} data-message-index={messageIndex} {...rest} onContextMenu={(e) => {
   if (onOpenContextMenu) {
     e.preventDefault();
-    onOpenContextMenu(e.clientX, e.clientY, sender, senderMatrixUserId, content, messageId);
+    onOpenContextMenu(e.clientX, e.clientY, sender, senderMatrixUserId, content, messageId, undefined, reactions, redacted);
   }
 }}>
       {collapsed ? (
@@ -246,6 +252,25 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
                 </button>
               )}
             </div>
+          </div>
+        )}
+        {reactions && messageId && Object.entries(reactions).length > 0 && (
+          <div className="message-reactions">
+            {Object.entries(reactions).map(([emoji, senders]) => {
+              const isReacted = currentUserMatrixId ? senders.includes(currentUserMatrixId) : false;
+              return (
+                <button
+                  key={emoji}
+                  className={`reaction-badge${isReacted ? ' reacted' : ''}`}
+                  onClick={() => onToggleReaction?.(messageId, emoji, isReacted)}
+                  title={`${senders.length} reaction${senders.length === 1 ? '' : 's'}`}
+                  aria-label={`${emoji} ${senders.length}`}
+                >
+                  <span className="reaction-emoji">{emoji}</span>
+                  <span className="reaction-count">{senders.length}</span>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
