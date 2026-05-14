@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createClient, RoomEvent, ClientEvent, EventType, MsgType, KnownMembership } from 'matrix-js-sdk';
 import type { MatrixClient, MatrixEvent, Room } from 'matrix-js-sdk';
 import type { ChatMessage, MediaAttachment } from '../types';
+import { addReactionSender, removeReactionSender } from '../utils/chatReactions';
 import { useServiceStatus } from './useServiceStatus';
 import bridge from '../bridge';
 
@@ -91,6 +92,95 @@ function transformEventToChatMessage(
   };
 }
 
+type ReactionContent = {
+  'm.relates_to'?: {
+    rel_type?: string;
+    event_id?: string;
+    key?: string;
+  };
+};
+
+interface ReactionEventRecord {
+  reactionEventId: string;
+  targetEventId: string;
+  emoji: string;
+  senderId: string;
+}
+
+function parseReactionEvent(event: MatrixEvent): ReactionEventRecord | null {
+  if (event.getType() !== 'm.reaction') return null;
+  const reactionEventId = event.getId();
+  const senderId = event.getSender();
+  const relatesTo = (event.getContent() as ReactionContent)['m.relates_to'];
+  const targetEventId = relatesTo?.event_id;
+  const emoji = relatesTo?.key;
+
+  if (!reactionEventId || !senderId || !targetEventId || !emoji) return null;
+  if (relatesTo?.rel_type && relatesTo.rel_type !== 'm.annotation') return null;
+
+  return { reactionEventId, targetEventId, emoji, senderId };
+}
+
+function applyReactionToMessages(
+  existing: ChatMessage[],
+  reaction: ReactionEventRecord,
+): ChatMessage[] {
+  let changed = false;
+  const updated = existing.map((message) => {
+    if (message.id !== reaction.targetEventId) return message;
+    const reactions = addReactionSender(message.reactions, reaction.emoji, reaction.senderId);
+    if (reactions === message.reactions) return message;
+    changed = true;
+    return { ...message, reactions };
+  });
+  return changed ? updated : existing;
+}
+
+function removeReactionFromMessages(
+  existing: ChatMessage[],
+  reaction: ReactionEventRecord,
+): ChatMessage[] {
+  let changed = false;
+  const updated = existing.map((message) => {
+    if (message.id !== reaction.targetEventId) return message;
+    const reactions = removeReactionSender(message.reactions, reaction.emoji, reaction.senderId);
+    if (reactions === message.reactions) return message;
+    changed = true;
+    return { ...message, reactions };
+  });
+  return changed ? updated : existing;
+}
+
+type RedactionLikeEvent = {
+  getType(): string;
+  getId(): string | undefined;
+  getRedacts?(): string | undefined;
+  getContent?(): Record<string, unknown>;
+};
+
+function getRedactedEventId(event: RedactionLikeEvent): string | undefined {
+  if (typeof event.getRedacts === 'function') {
+    const id = event.getRedacts();
+    if (id) return id;
+  }
+  const content = event.getContent?.() as { redacts?: string } | undefined;
+  return content?.redacts;
+}
+
+function markMessageRedacted(
+  existing: ChatMessage[],
+  redactedEventId: string | undefined,
+): ChatMessage[] {
+  if (!redactedEventId) return existing;
+  let changed = false;
+  const updated = existing.map((message) => {
+    if (message.id !== redactedEventId) return message;
+    changed = true;
+    return { ...message, redacted: true, content: '', media: undefined };
+  });
+  return changed ? updated : existing;
+}
+
 /**
  * Read all `m.room.message` events from a room's live timeline and transform
  * them into ChatMessages. Pure helper for active-message loading.
@@ -106,11 +196,22 @@ function loadMessagesFromTimeline(
   const room = client.getRoom(roomId);
   if (!room) return [];
   const out: ChatMessage[] = [];
+  const pendingReactions: ReactionEventRecord[] = [];
+
   for (const ev of room.getLiveTimeline().getEvents()) {
     const m = transformEventToChatMessage(ev, room, targetId, client);
-    if (m) out.push(m);
+    if (m) {
+      out.push(m);
+      continue;
+    }
+
+    const reaction = parseReactionEvent(ev);
+    if (reaction) {
+      pendingReactions.push(reaction);
+    }
   }
-  return out;
+
+  return pendingReactions.reduce(applyReactionToMessages, out);
 }
 
 export interface MatrixCredentials {
@@ -170,6 +271,8 @@ export function useMatrixClient(
   const pendingRoomCreations = useRef(new Map<string, Promise<string>>());
   const lastSyncStateRef = useRef<string | null>(null);
   const waitForRoomRef = useRef<((roomId: string, timeoutMs?: number) => Promise<Room>) | null>(null);
+  const reactionEventsRef = useRef<Map<string, ReactionEventRecord>>(new Map());
+  const ownReactionEventIdsRef = useRef<Map<string, Map<string, string>>>(new Map());
 
   // Reverse lookup: matrixRoomId → mumbleChannelId
   const roomIdToChannelId = useMemo(() => {
@@ -195,6 +298,8 @@ export function useMatrixClient(
       dmRoomMapRef.current = new Map();
       roomIdToDMUserIdRef.current = new Map();
       lastSyncStateRef.current = null;
+      reactionEventsRef.current.clear();
+      ownReactionEventIdsRef.current.clear();
       updateStatus('chat', { state: 'idle', error: undefined });
       return;
     }
@@ -225,7 +330,73 @@ export function useMatrixClient(
       _removed?: boolean,
       data?: { liveEvent?: boolean } | null,
     ) => {
-      if (event.getType() !== EventType.RoomMessage) return;
+      const eventType = event.getType();
+
+      if (eventType === 'm.reaction') {
+        const reaction = parseReactionEvent(event);
+        if (!reaction) return;
+        reactionEventsRef.current.set(reaction.reactionEventId, reaction);
+
+        if (credentials && reaction.senderId === credentials.userId) {
+          const existing = ownReactionEventIdsRef.current.get(reaction.targetEventId) ?? new Map<string, string>();
+          existing.set(reaction.emoji, reaction.reactionEventId);
+          ownReactionEventIdsRef.current.set(reaction.targetEventId, existing);
+        }
+
+        const channelId = roomIdToChannelId.get(room?.roomId ?? '');
+        if (channelId && activeChannelIdRef.current === channelId) {
+          setActiveMessages(prev => applyReactionToMessages(prev, reaction));
+          return;
+        }
+
+        const dmUserId = roomIdToDMUserIdRef.current.get(room?.roomId ?? '');
+        if (dmUserId && activeDmContactIdRef.current === dmUserId) {
+          setActiveDmMessages(prev => applyReactionToMessages(prev, reaction));
+        }
+        return;
+      }
+
+      if (eventType === EventType.RoomRedaction) {
+        const redactedEventId = getRedactedEventId(event as unknown as RedactionLikeEvent);
+        const redactedReaction = redactedEventId ? reactionEventsRef.current.get(redactedEventId) : undefined;
+        if (redactedReaction && redactedEventId) {
+          reactionEventsRef.current.delete(redactedEventId);
+
+          const ownForMessage = ownReactionEventIdsRef.current.get(redactedReaction.targetEventId);
+          if (ownForMessage?.get(redactedReaction.emoji) === redactedEventId) {
+            ownForMessage.delete(redactedReaction.emoji);
+            if (ownForMessage.size === 0) {
+              ownReactionEventIdsRef.current.delete(redactedReaction.targetEventId);
+            }
+          }
+
+          const channelId = roomIdToChannelId.get(room?.roomId ?? '');
+          if (channelId && activeChannelIdRef.current === channelId) {
+            setActiveMessages(prev => removeReactionFromMessages(prev, redactedReaction));
+            return;
+          }
+
+          const dmUserId = roomIdToDMUserIdRef.current.get(room?.roomId ?? '');
+          if (dmUserId && activeDmContactIdRef.current === dmUserId) {
+            setActiveDmMessages(prev => removeReactionFromMessages(prev, redactedReaction));
+          }
+          return;
+        }
+
+        const channelId2 = roomIdToChannelId.get(room?.roomId ?? '');
+        if (channelId2 && activeChannelIdRef.current === channelId2) {
+          setActiveMessages(prev => markMessageRedacted(prev, redactedEventId));
+          return;
+        }
+
+        const dmUserId2 = roomIdToDMUserIdRef.current.get(room?.roomId ?? '');
+        if (dmUserId2 && activeDmContactIdRef.current === dmUserId2) {
+          setActiveDmMessages(prev => markMessageRedacted(prev, redactedEventId));
+        }
+        return;
+      }
+
+      if (eventType !== EventType.RoomMessage) return;
       const channelId = roomIdToChannelId.get(room?.roomId ?? '');
       if (channelId) {
         const message = transformEventToChatMessage(event, room, channelId, clientRef.current);
@@ -776,8 +947,84 @@ export function useMatrixClient(
     return urls;
   }, [client, dmRoomMap]);
 
+  const sendReaction = useCallback(async (targetId: string, eventId: string, emoji: string) => {
+    const client = clientRef.current;
+    if (!credentials || !client || !eventId || !emoji) return;
+
+    const roomId = credentials.roomMap[targetId] ?? dmRoomMapRef.current.get(targetId);
+    if (!roomId) return;
+
+    const optimisticReaction: ReactionEventRecord = {
+      reactionEventId: `optimistic-${eventId}-${emoji}`,
+      targetEventId: eventId,
+      emoji,
+      senderId: credentials.userId,
+    };
+
+    setActiveMessages(prev => applyReactionToMessages(prev, optimisticReaction));
+    setActiveDmMessages(prev => applyReactionToMessages(prev, optimisticReaction));
+
+    try {
+      const response = await client.sendMessage(roomId, {
+        'm.relates_to': {
+          rel_type: 'm.annotation',
+          event_id: eventId,
+          key: emoji,
+        },
+      });
+      const reactionEventId = (response as { event_id?: string })?.event_id;
+      if (reactionEventId) {
+        reactionEventsRef.current.set(reactionEventId, {
+          ...optimisticReaction,
+          reactionEventId,
+        });
+        const ownForMessage = ownReactionEventIdsRef.current.get(eventId) ?? new Map<string, string>();
+        ownForMessage.set(emoji, reactionEventId);
+        ownReactionEventIdsRef.current.set(eventId, ownForMessage);
+      }
+    } catch (err) {
+      console.warn('[Matrix] Failed to send reaction:', err);
+      setActiveMessages(prev => removeReactionFromMessages(prev, optimisticReaction));
+      setActiveDmMessages(prev => removeReactionFromMessages(prev, optimisticReaction));
+    }
+  }, [credentials]);
+
+  const removeReaction = useCallback(async (targetId: string, eventId: string, emoji: string) => {
+    const client = clientRef.current;
+    if (!credentials || !client || !eventId || !emoji) return;
+
+    const roomId = credentials.roomMap[targetId] ?? dmRoomMapRef.current.get(targetId);
+    const reactionEventId = ownReactionEventIdsRef.current.get(eventId)?.get(emoji);
+    if (!roomId || !reactionEventId) return;
+
+    const optimisticReaction: ReactionEventRecord = {
+      reactionEventId,
+      targetEventId: eventId,
+      emoji,
+      senderId: credentials.userId,
+    };
+
+    setActiveMessages(prev => removeReactionFromMessages(prev, optimisticReaction));
+    setActiveDmMessages(prev => removeReactionFromMessages(prev, optimisticReaction));
+
+    try {
+      await client.redactEvent(roomId, reactionEventId);
+      reactionEventsRef.current.delete(reactionEventId);
+      const ownForMessage = ownReactionEventIdsRef.current.get(eventId);
+      ownForMessage?.delete(emoji);
+      if (ownForMessage?.size === 0) {
+        ownReactionEventIdsRef.current.delete(eventId);
+      }
+    } catch (err) {
+      console.warn('[Matrix] Failed to remove reaction:', err);
+      setActiveMessages(prev => applyReactionToMessages(prev, optimisticReaction));
+      setActiveDmMessages(prev => applyReactionToMessages(prev, optimisticReaction));
+    }
+  }, [credentials]);
+
   return { lastMessages, activeMessages, setActiveChannel,
            sendMessage, sendImageMessage, uploadContent, fetchHistory,
+           sendReaction, removeReaction,
            dmLastMessages, activeDmMessages, setActiveDmContact, dmRoomMap,
            dmUserDisplayNames, dmUserAvatarUrls, sendDMMessage, fetchDMHistory,
            fetchAvatarUrl, client };
