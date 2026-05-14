@@ -2321,6 +2321,35 @@ const handleConnect = (serverData: SavedServer) => {
     });
   };
 
+  const handleToggleChannelReaction = useCallback(async (
+    chatPanelChannelId: string,
+    messageId: string,
+    emoji: string,
+    isCurrentlyReacted: boolean,
+  ) => {
+    if (!chatPanelChannelId || chatPanelChannelId === 'server-root') return;
+    if (isCurrentlyReacted) {
+      await matrixClient.removeReaction(chatPanelChannelId, messageId, emoji);
+    } else {
+      await matrixClient.sendReaction(chatPanelChannelId, messageId, emoji);
+    }
+  }, [matrixClient]);
+
+  const handleToggleDmReaction = useCallback(async (
+    _chatPanelChannelId: string,
+    messageId: string,
+    emoji: string,
+    isCurrentlyReacted: boolean,
+  ) => {
+    const selectedContactId = dmStore.selectedContact?.id;
+    if (!selectedContactId) return;
+    if (isCurrentlyReacted) {
+      await matrixClient.removeReaction(selectedContactId, messageId, emoji);
+    } else {
+      await matrixClient.sendReaction(selectedContactId, messageId, emoji);
+    }
+  }, [dmStore.selectedContact?.id, matrixClient]);
+
   const handleDisconnect = async () => {
     await runIntentionalDisconnect({
       isSharing,
@@ -3196,6 +3225,8 @@ const handleConnect = (serverData: SavedServer) => {
                     users={users}
                     onMessageContextMenu={handleChatMessageContextMenu}
                     onCopyToClipboard={handleCopyToClipboard}
+                    currentUserMatrixId={matrixCredentials?.userId}
+                    onToggleReaction={handleToggleChannelReaction}
                   />
                   </ErrorBoundary>
                 </div>
@@ -3216,6 +3247,8 @@ const handleConnect = (serverData: SavedServer) => {
                     topNotice={dmStore.selectedContact?.isEphemeral ? 'This is a Mumble direct message. Chat history will be lost when you disconnect.' : undefined}
                     onMessageContextMenu={handleChatMessageContextMenu}
                     onCopyToClipboard={handleCopyToClipboard}
+                    currentUserMatrixId={matrixCredentials?.userId}
+                    onToggleReaction={handleToggleDmReaction}
                   />
                   </ErrorBoundary>
                 </div>
