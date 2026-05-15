@@ -1083,6 +1083,53 @@ describe('active share discovery', () => {
     expect(screen.queryByText('Alice started sharing their screen')).not.toBeInTheDocument();
   });
 
+  it('clears visible optional screen share notification when global disable is enabled', () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id === 'screen-share');
+
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [
+          { session: 7, name: 'TestUser', self: true, channelId: 1 },
+          { session: 2, name: 'Alice', channelId: 1, matrixUserId: '@alice:example.com' },
+        ],
+      });
+    });
+
+    act(() => {
+      bridge.emit('livekit.screenShareStarted', {
+        roomName: 'channel-1',
+        userName: 'Alice',
+        userId: 42,
+        matrixUserId: '@alice:example.com',
+        sessionId: 2,
+      });
+    });
+
+    expect(screen.getByText('Alice started sharing their screen')).toBeInTheDocument();
+
+    act(() => {
+      bridge.emit('settings.updated', {
+        settings: {
+          messages: {
+            notificationsDisabled: true,
+            notificationRemoteScreenShare: true,
+            notificationScreenShareStatus: true,
+            notificationIdleWarning: true,
+            notificationMovedChannel: true,
+          },
+        },
+      });
+    });
+
+    expect(notifQueue.unregister).toHaveBeenCalledWith('screen-share');
+    expect(screen.queryByText('Alice started sharing their screen')).not.toBeInTheDocument();
+  });
+
   it('rechecks active share discovery after reconnect when the current channel is unchanged', async () => {
     render(React.createElement(App));
 
@@ -1343,6 +1390,53 @@ describe('active share discovery', () => {
       });
     });
 
+    expect(screen.queryByText('Moved to Gaming')).not.toBeInTheDocument();
+  });
+
+  it('clears visible moved channel notification when channel move notices are disabled later', async () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id.startsWith('channel-moved-'));
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming' },
+        ],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    act(() => {
+      bridge.emit('voice.channelChanged', {
+        channelId: 2,
+        previousChannelId: 1,
+        actorName: 'Moderator',
+        reason: 'moved',
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Moved to Gaming')).toBeInTheDocument();
+    });
+
+    act(() => {
+      bridge.emit('settings.updated', {
+        settings: {
+          messages: {
+            notificationsDisabled: false,
+            notificationRemoteScreenShare: true,
+            notificationScreenShareStatus: true,
+            notificationIdleWarning: true,
+            notificationMovedChannel: false,
+          },
+        },
+      });
+    });
+
+    expect(notifQueue.unregister).toHaveBeenCalledWith('channel-moved-0');
     expect(screen.queryByText('Moved to Gaming')).not.toBeInTheDocument();
   });
 

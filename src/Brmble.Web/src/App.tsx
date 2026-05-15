@@ -3072,6 +3072,44 @@ const handleConnect = (serverData: SavedServer) => {
   }, [movedChannelNotification, notifQueue]);
 
   useEffect(() => {
+    if (!shouldShowOptionalNotification(optionalNotificationSettings, 'notificationRemoteScreenShare')) {
+      setScreenShareToast(null);
+      notifQueue.unregister('screen-share');
+    }
+
+    if (!shouldShowOptionalNotification(optionalNotificationSettings, 'notificationScreenShareStatus')) {
+      if (screenShareEndedNotificationRef.current) {
+        notifQueue.unregister(screenShareEndedNotificationRef.current.id);
+        screenShareEndedNotificationRef.current = null;
+        setScreenShareEndedNotification(null);
+      }
+
+      setWatchedShareEndedNotifications((prev) => {
+        if (prev.length === 0) {
+          return prev;
+        }
+
+        for (const notification of prev) {
+          notifQueue.unregister(notification.id);
+        }
+        return [];
+      });
+    }
+
+    if (!shouldShowOptionalNotification(optionalNotificationSettings, 'notificationIdleWarning')) {
+      notifQueue.unregister('idle-pre-leave');
+    }
+
+    if (!shouldShowOptionalNotification(optionalNotificationSettings, 'notificationMovedChannel')) {
+      if (movedChannelNotificationRef.current) {
+        notifQueue.unregister(movedChannelNotificationRef.current.id);
+        movedChannelNotificationRef.current = null;
+      }
+      setMovedChannelNotification(null);
+    }
+  }, [optionalNotificationSettings, notifQueue]);
+
+  useEffect(() => {
     if (serverRemovalNotification) {
       notifQueue.register(serverRemovalNotification.id, serverRemovalNotification.status);
     }
