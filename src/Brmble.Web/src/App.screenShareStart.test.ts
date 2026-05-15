@@ -453,6 +453,7 @@ describe('active share discovery', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useRealTimers();
     bridgeHandlers.clear();
     localStorage.clear();
     screenShareState.isSharing = false;
@@ -1816,6 +1817,78 @@ describe('active share discovery', () => {
     });
   });
 
+  it('refreshes a speaking remote companion display after mapping arrives while screen sharing', async () => {
+    localStorage.setItem('brmble-settings', JSON.stringify({
+      overlay: {
+        overlayEnabled: true,
+        mode: 'full',
+        myCompanion: 'floppy',
+      },
+    }));
+    screenShareState.isSharing = true;
+
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'me',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [
+          { session: 1, name: 'me', self: true, channelId: 1, companionId: 'floppy' },
+          { session: 2, name: 'alice', self: false, channelId: 1 },
+        ],
+      });
+    });
+
+    await waitFor(() => {
+      const overlaySyncCalls = vi.mocked(bridge.send).mock.calls
+        .filter(([type]) => type === 'overlay.sync');
+      const lastPayload = overlaySyncCalls.at(-1)?.[1] as {
+        snapshot?: { currentChannelId?: string | null };
+      } | undefined;
+      expect(lastPayload?.snapshot?.currentChannelId).toBe('1');
+    });
+
+    act(() => {
+      bridge.emit('voice.userSpeaking', { session: 2 });
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+    });
+
+    await waitFor(() => {
+      const overlaySyncCalls = vi.mocked(bridge.send).mock.calls
+        .filter(([type]) => type === 'overlay.sync');
+      const lastPayload = overlaySyncCalls.at(-1)?.[1] as {
+        snapshot?: { fullCompanion?: { activeDisplay?: { representedSession?: number; companionId?: string; isProxy?: boolean } } };
+      } | undefined;
+      expect(lastPayload?.snapshot?.fullCompanion?.activeDisplay?.representedSession).toBe(2);
+      expect(lastPayload?.snapshot?.fullCompanion?.activeDisplay?.companionId).toBe('floppy');
+      expect(lastPayload?.snapshot?.fullCompanion?.activeDisplay?.isProxy).toBe(true);
+    });
+
+    act(() => {
+      bridge.emit('voice.userMappingUpdated', {
+        sessionId: 2,
+        matrixUserId: '@alice:example.com',
+        companionId: 'retro',
+        action: 'added',
+      });
+    });
+
+    await waitFor(() => {
+      const overlaySyncCalls = vi.mocked(bridge.send).mock.calls
+        .filter(([type]) => type === 'overlay.sync');
+      const lastPayload = overlaySyncCalls.at(-1)?.[1] as {
+        snapshot?: { fullCompanion?: { activeDisplay?: { companionId?: string; isProxy?: boolean } } };
+      } | undefined;
+      expect(lastPayload?.snapshot?.fullCompanion?.activeDisplay?.companionId).toBe('retro');
+      expect(lastPayload?.snapshot?.fullCompanion?.activeDisplay?.isProxy).toBe(false);
+    });
+  });
+
   it('reconciles local myCompanion after connect when server state differs', async () => {
     localStorage.setItem('brmble-settings', JSON.stringify({
       overlay: {
@@ -1837,7 +1910,7 @@ describe('active share discovery', () => {
     });
 
     await waitFor(() => {
-      expect(bridge.send).toHaveBeenCalledWith('voice.setCompanion', { companionId: 'floppy' });
+      expect(bridge.send).toHaveBeenCalledWith('voice.setCompanion', expect.objectContaining({ companionId: 'floppy' }));
     });
   });
 
@@ -1862,7 +1935,7 @@ describe('active share discovery', () => {
     });
 
     await waitFor(() => {
-      expect(bridge.send).toHaveBeenCalledWith('voice.setCompanion', { companionId: 'floppy' });
+      expect(bridge.send).toHaveBeenCalledWith('voice.setCompanion', expect.objectContaining({ companionId: 'floppy' }));
     });
 
     act(() => {
@@ -1878,9 +1951,7 @@ describe('active share discovery', () => {
       expect(stored.overlay.myCompanion).toBe('floppy');
     });
 
-    expect(bridge.send).toHaveBeenCalledWith('voice.setCompanion', { companionId: 'floppy' });
+    expect(bridge.send).toHaveBeenCalledWith('voice.setCompanion', expect.objectContaining({ companionId: 'floppy' }));
   });
 
 });
-
-
