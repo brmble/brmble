@@ -47,5 +47,14 @@ describe('MessagesSettingsTab optional notifications', () => {
       ...settings,
       notificationsDisabled: false,
     });
+
+    rerender(<MessagesSettingsTab settings={{ ...settings, notificationsDisabled: false }} onChange={onChange} />);
+
+    expect(screen.getByLabelText('Screen share invitations')).toBeChecked();
+    expect(screen.getByLabelText('Screen share status')).toBeChecked();
+    expect(screen.getByLabelText('Idle reminders')).not.toBeChecked();
+    expect(screen.getByLabelText('Channel move notices')).toBeChecked();
+    expect(screen.getByLabelText('Screen share invitations')).not.toBeDisabled();
+    expect(screen.getByLabelText('Idle reminders')).not.toBeDisabled();
   });
 });
