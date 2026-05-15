@@ -1146,12 +1146,17 @@ function App() {
   // notifQueue intentionally omitted from deps: the object identity changes on
   // every render, but `register` is idempotent and we only care about the
   // preLeaveStartedAt edge.
+  const shouldShowIdlePreLeaveNotification = shouldShowOptionalNotification(optionalNotificationSettings, 'notificationIdleWarning');
   useEffect(() => {
     if (preLeaveStartedAt !== null) {
-      notifQueue.register('idle-pre-leave', 'info');
+      if (shouldShowIdlePreLeaveNotification) {
+        notifQueue.register('idle-pre-leave', 'info');
+      } else {
+        notifQueue.unregister('idle-pre-leave');
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [preLeaveStartedAt]);
+  }, [preLeaveStartedAt, shouldShowIdlePreLeaveNotification]);
 
   // Replace the pre-leave toast with the cancellation toast only when fired.
   // notifQueue intentionally omitted from deps: the object identity changes on
@@ -1772,24 +1777,28 @@ function App() {
             setScreenShareEndedNotification(null);
           }
 
-          const channelName = d.name
-            || channelsRef.current.find(c => c.id === d.channelId)?.name
-            || (d.channelId === 0 ? (serverLabel || 'Server') : `Channel ${d.channelId}`);
-          const previousChannelName = d.previousChannelId !== undefined
-            ? channelsRef.current.find(c => c.id === d.previousChannelId)?.name
-            : undefined;
-          const notification = {
-            id: `channel-moved-${nextMovedChannelNotificationIdRef.current++}`,
-            ...getMovedChannelNotification({
-              actorName: d.actorName,
-              previousChannelName,
-              channelName,
-              movedToRoot: d.channelId === 0,
-              wasSharing,
-            }),
-          };
-          movedChannelNotificationRef.current = notification;
-          setMovedChannelNotification(notification);
+          if (shouldShowOptionalNotification(optionalNotificationSettingsRef.current, 'notificationMovedChannel')) {
+            const channelName = d.name
+              || channelsRef.current.find(c => c.id === d.channelId)?.name
+              || (d.channelId === 0 ? (serverLabel || 'Server') : `Channel ${d.channelId}`);
+            const previousChannelName = d.previousChannelId !== undefined
+              ? channelsRef.current.find(c => c.id === d.previousChannelId)?.name
+              : undefined;
+            const notification = {
+              id: `channel-moved-${nextMovedChannelNotificationIdRef.current++}`,
+              ...getMovedChannelNotification({
+                actorName: d.actorName,
+                previousChannelName,
+                channelName,
+                movedToRoot: d.channelId === 0,
+                wasSharing,
+              }),
+            };
+            movedChannelNotificationRef.current = notification;
+            setMovedChannelNotification(notification);
+          } else {
+            setMovedChannelNotification(null);
+          }
           sharingChannelIdRef.current = undefined;
           setSharingChannelId(undefined);
           wasLocalShareRecentlyActiveRef.current = false;
@@ -3835,7 +3844,7 @@ const handleConnect = (serverData: SavedServer) => {
             }}
           />
         )}
-        {preLeaveStartedAt !== null && notifQueue.isVisible('idle-pre-leave') && (
+        {preLeaveStartedAt !== null && shouldShowIdlePreLeaveNotification && notifQueue.isVisible('idle-pre-leave') && (
           <Notification
             status="info"
             position="top-right"

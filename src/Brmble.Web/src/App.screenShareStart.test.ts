@@ -542,6 +542,29 @@ describe('active share discovery', () => {
     expect(screen.getByText('Still there?').parentElement).toHaveAttribute('data-duration', '60000');
   });
 
+  it('does not register idle pre-leave notification when idle reminders are disabled', () => {
+    const { rerender } = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('settings.current', {
+        settings: {
+          messages: {
+            notificationsDisabled: false,
+            notificationRemoteScreenShare: true,
+            notificationScreenShareStatus: true,
+            notificationIdleWarning: false,
+            notificationMovedChannel: true,
+          },
+        },
+      });
+    });
+
+    idleActionsState.preLeaveStartedAt = 1234;
+    rerender(React.createElement(App));
+
+    expect(notifQueue.register).not.toHaveBeenCalledWith('idle-pre-leave', 'info');
+  });
+
   it('does not clear chat storage when credentials refresh after reconnect failure without session reset', () => {
     render(React.createElement(App));
 
@@ -1224,6 +1247,42 @@ describe('active share discovery', () => {
       expect(notifQueue.unregister).toHaveBeenCalledWith('channel-moved-0');
       expect(notifQueue.register).toHaveBeenCalledWith('channel-moved-1', 'info');
     });
+  });
+
+  it('does not register moved channel notification when channel move notices are disabled', () => {
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('settings.current', {
+        settings: {
+          messages: {
+            notificationsDisabled: false,
+            notificationRemoteScreenShare: true,
+            notificationScreenShareStatus: true,
+            notificationIdleWarning: true,
+            notificationMovedChannel: false,
+          },
+        },
+      });
+    });
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming' },
+        ],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    act(() => {
+      bridge.emit('voice.channelChanged', { channelId: 2, name: 'Gaming', actorName: 'Moderator', reason: 'moved' });
+    });
+
+    expect(notifQueue.register).not.toHaveBeenCalledWith(expect.stringMatching(/^channel-moved-/), 'info');
   });
 
   it('keeps showing moved notifications after many replacements', async () => {
