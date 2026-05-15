@@ -39,6 +39,8 @@ export interface Dealer {
   isProtected: boolean;
   isArrested: boolean;
   nextArrestCheckAt: number;
+  hasPendingUpgrade: boolean;
+  pendingUpgradeOptions: DealerUpgrade[];
 }
 
 export interface GameState {

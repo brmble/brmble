@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useGameEngine } from '../useGameEngine';
 import type { Dealer } from '../../types';
+type GameEngineState = ReturnType<typeof useGameEngine>;
 
 const makeDealer = (overrides: Partial<Dealer> = {}): Dealer => ({
   id: 'test-dealer',
@@ -20,6 +21,8 @@ const makeDealer = (overrides: Partial<Dealer> = {}): Dealer => ({
   isProtected: false,
   isArrested: false,
   nextArrestCheckAt: Date.now() + 300000,
+  hasPendingUpgrade: false,
+  pendingUpgradeOptions: [],
   ...overrides,
 });
 
@@ -39,13 +42,40 @@ const setupWithMoney = () => {
   return hook;
 };
 
+const mockDealerUpgradeRolls = (values: number[]) => {
+  const sequence = [...values];
+  return vi.spyOn(Math, 'random').mockImplementation(() => {
+    const next = sequence.shift();
+    if (next === undefined) {
+      throw new Error('Unexpected Math.random call while generating dealer upgrades');
+    }
+    return next;
+  });
+};
+
+const startPendingDealerUpgrade = (
+  result: { current: GameEngineState },
+  rolls: number[],
+  dealerId = 'test-dealer'
+) => {
+  const randomSpy = mockDealerUpgradeRolls(rolls);
+  act(() => {
+    result.current.startDealerUpgrade(dealerId);
+  });
+  randomSpy.mockRestore();
+  return result.current.state.activeDealers[0];
+};
+
 describe('useGameEngine', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    localStorage.clear();
   });
 
   afterEach(() => {
+    localStorage.clear();
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it('newly hired dealers start unprotected, unarrested, and with a scheduled risk check', () => {
@@ -180,54 +210,74 @@ describe('useGameEngine', () => {
   });
 
   describe('equipment upgrades', () => {
-    it('VOLUME upgrade increases volumeBonus', () => {
+    it('starting a dealer upgrade charges once and stores 3 pending options', () => {
       const { result } = setupWithMoney();
-      const before = result.current.state.activeDealers[0]!.volumeBonus;
-      act(() => {
-        result.current.buyEquipment('test-dealer', { type: 'VOLUME', label: 'HC', description: '', value: 0.15 });
-      });
-      expect(result.current.state.activeDealers[0]?.volumeBonus).toBeCloseTo(before + 0.15, 5);
+      const moneyBefore = result.current.state.money;
+
+      const dealer = startPendingDealerUpgrade(result, [0.5, 0, 0.5, 0, 0.5, 0]);
+
+      expect(result.current.state.money).toBeCloseTo(moneyBefore - 500, 1);
+      expect(dealer?.hasPendingUpgrade).toBe(true);
+      expect(dealer?.pendingUpgradeOptions).toHaveLength(3);
     });
 
-    it('MARGIN upgrade increases marginBonus', () => {
+    it('calling startDealerUpgrade again with an existing pending roll does not charge twice and keeps same options', () => {
       const { result } = setupWithMoney();
-      const before = result.current.state.activeDealers[0]!.marginBonus;
-      act(() => {
-        result.current.buyEquipment('test-dealer', { type: 'MARGIN', label: 'PC', description: '', value: 0.15 });
-      });
-      expect(result.current.state.activeDealers[0]?.marginBonus).toBeCloseTo(before + 0.15, 5);
+
+      const firstDealer = startPendingDealerUpgrade(result, [0.5, 0, 0.5, 0, 0.5, 0]);
+      const moneyAfterFirstRoll = result.current.state.money;
+      const firstOptions = firstDealer?.pendingUpgradeOptions ?? [];
+
+      const secondDealer = startPendingDealerUpgrade(result, [0.5, 1 / 3, 0.5, 1 / 3, 0.5, 1 / 3]);
+
+      expect(result.current.state.money).toBeCloseTo(moneyAfterFirstRoll, 1);
+      expect(secondDealer?.pendingUpgradeOptions).toEqual(firstOptions);
     });
 
-    it('BULK upgrade increases volumeBonus and reduces marginBonus', () => {
+    it('buyEquipment applies a chosen pending option and clears pending state', () => {
       const { result } = setupWithMoney();
-      const volBefore = result.current.state.activeDealers[0]!.volumeBonus;
-      const margBefore = result.current.state.activeDealers[0]!.marginBonus;
+      const dealerBefore = result.current.state.activeDealers[0]!;
+      const volumeBefore = dealerBefore.volumeBonus;
+
+      const dealer = startPendingDealerUpgrade(result, [0.5, 0, 0.5, 1 / 3, 0.5, 2 / 3])!;
+      const chosenUpgrade = dealer.pendingUpgradeOptions.find(option => option.type === 'VOLUME') ?? dealer.pendingUpgradeOptions[0];
+
       act(() => {
-        result.current.buyEquipment('test-dealer', { type: 'BULK', label: 'BS', description: '', value: 0.35, marginPenalty: 0.1 });
+        result.current.buyEquipment('test-dealer', chosenUpgrade);
       });
-      const d = result.current.state.activeDealers[0];
-      expect(d?.volumeBonus).toBeCloseTo(volBefore + 0.35, 5);
-      expect(d?.marginBonus).toBeCloseTo(margBefore - 0.1, 5);
+
+      const updatedDealer = result.current.state.activeDealers[0];
+      expect(updatedDealer?.volumeBonus).toBeCloseTo(volumeBefore + chosenUpgrade.value, 5);
+      expect(updatedDealer?.equipmentCount).toBe(dealerBefore.equipmentCount + 1);
+      expect(updatedDealer?.hasPendingUpgrade).toBe(false);
+      expect(updatedDealer?.pendingUpgradeOptions).toEqual([]);
     });
 
-    it('ALL_AROUNDER upgrade increases both volumeBonus and marginBonus', () => {
+    it('fireDealer after a pending roll leaves the slot null', () => {
       const { result } = setupWithMoney();
-      const volBefore = result.current.state.activeDealers[0]!.volumeBonus;
-      const margBefore = result.current.state.activeDealers[0]!.marginBonus;
+
+      startPendingDealerUpgrade(result, [0.5, 0, 0.5, 0, 0.5, 0]);
+
       act(() => {
-        result.current.buyEquipment('test-dealer', { type: 'ALL_AROUNDER', label: 'PE', description: '', value: 0.05 });
+        result.current.fireDealer('test-dealer');
       });
-      const d = result.current.state.activeDealers[0];
-      expect(d?.volumeBonus).toBeCloseTo(volBefore + 0.05, 5);
-      expect(d?.marginBonus).toBeCloseTo(margBefore + 0.05, 5);
+
+      expect(result.current.state.activeDealers[0]).toBeNull();
     });
 
-    it('SIDE_HUSTLE upgrade adds sideVolume', () => {
+    it('startDealerUpgrade deducts the correct cost and buyEquipment does not charge again', () => {
       const { result } = setupWithMoney();
+      const moneyBefore = result.current.state.money;
+
+      const dealer = startPendingDealerUpgrade(result, [0.5, 0, 0.5, 0, 0.5, 0])!;
+      expect(result.current.state.money).toBeCloseTo(moneyBefore - 500, 1);
+
+      const moneyAfterRoll = result.current.state.money;
       act(() => {
-        result.current.buyEquipment('test-dealer', { type: 'SIDE_HUSTLE', label: 'SH', description: '', value: 0.1, sideVolumeValue: 0.1 });
+        result.current.buyEquipment('test-dealer', dealer.pendingUpgradeOptions[0]);
       });
-      expect(result.current.state.activeDealers[0]?.sideVolume).toBeCloseTo(0.2, 5);
+
+      expect(result.current.state.money).toBeCloseTo(moneyAfterRoll, 1);
     });
 
     it('equipment slots are capped at 3', () => {
@@ -239,20 +289,73 @@ describe('useGameEngine', () => {
       });
       act(() => { vi.advanceTimersByTime(50000); });
       act(() => {
-        result.current.buyEquipment('test-dealer', { type: 'VOLUME', label: 'HC', description: '', value: 0.15 });
+        result.current.startDealerUpgrade('test-dealer');
       });
       // equipmentCount must remain 3 (maxed)
       expect(result.current.state.activeDealers[0]?.equipmentCount).toBe(3);
     });
 
-    it('buyEquipment deducts the correct cost', () => {
+    it('VOLUME upgrade increases volumeBonus', () => {
       const { result } = setupWithMoney();
-      const moneyBefore = result.current.state.money;
-      const expectedCost = 500 * Math.pow(2.5, 0); // equipmentCount=0 → $500
+      const dealer = startPendingDealerUpgrade(result, [0.5, 0, 0.5, 0, 0.5, 0])!;
+      const before = result.current.state.activeDealers[0]!.volumeBonus;
+      const upgrade = dealer.pendingUpgradeOptions.find(option => option.type === 'VOLUME')!;
       act(() => {
-        result.current.buyEquipment('test-dealer', { type: 'VOLUME', label: 'HC', description: '', value: 0.15 });
+        result.current.buyEquipment('test-dealer', upgrade);
       });
-      expect(result.current.state.money).toBeCloseTo(moneyBefore - expectedCost, 1);
+      expect(result.current.state.activeDealers[0]?.volumeBonus).toBeCloseTo(before + 0.15, 5);
+    });
+
+    it('MARGIN upgrade increases marginBonus', () => {
+      const { result } = setupWithMoney();
+      const dealer = startPendingDealerUpgrade(result, [0.5, 1 / 3, 0.5, 1 / 3, 0.5, 1 / 3])!;
+      const before = result.current.state.activeDealers[0]!.marginBonus;
+      const upgrade = dealer.pendingUpgradeOptions.find(option => option.type === 'MARGIN')!;
+      act(() => {
+        result.current.buyEquipment('test-dealer', upgrade);
+      });
+      expect(result.current.state.activeDealers[0]?.marginBonus).toBeCloseTo(before + 0.15, 5);
+    });
+
+    it('BULK upgrade increases volumeBonus and reduces marginBonus', () => {
+      const { result } = setupWithMoney();
+      const dealer = startPendingDealerUpgrade(result, [0.2, 0, 0.5, 0, 0.5, 0])!;
+      const volBefore = result.current.state.activeDealers[0]!.volumeBonus;
+      const margBefore = result.current.state.activeDealers[0]!.marginBonus;
+      const upgrade = dealer.pendingUpgradeOptions.find(option => option.type === 'BULK')!;
+      act(() => {
+        result.current.buyEquipment('test-dealer', upgrade);
+      });
+      const d = result.current.state.activeDealers[0];
+      expect(d?.volumeBonus).toBeCloseTo(volBefore + 0.35, 5);
+      expect(d?.marginBonus).toBeCloseTo(margBefore - 0.1, 5);
+    });
+
+    it('ALL_AROUNDER upgrade increases both volumeBonus and marginBonus', () => {
+      const { result } = setupWithMoney();
+      const dealer = startPendingDealerUpgrade(result, [0.5, 2 / 3, 0.5, 2 / 3, 0.5, 2 / 3])!;
+      const volBefore = result.current.state.activeDealers[0]!.volumeBonus;
+      const margBefore = result.current.state.activeDealers[0]!.marginBonus;
+      const upgrade = dealer.pendingUpgradeOptions.find(option => option.type === 'ALL_AROUNDER')!;
+      act(() => {
+        result.current.buyEquipment('test-dealer', upgrade);
+      });
+      const d = result.current.state.activeDealers[0];
+      expect(d?.volumeBonus).toBeCloseTo(volBefore + 0.05, 5);
+      expect(d?.marginBonus).toBeCloseTo(margBefore + 0.05, 5);
+    });
+
+    it('SIDE_HUSTLE upgrade adds sideVolume', () => {
+      const { result } = setupWithMoney();
+      act(() => {
+        result.current.unlockProduction('mushrooms');
+      });
+      const dealer = startPendingDealerUpgrade(result, [0.05, 0.5, 0, 0.5, 0, 0.5, 0])!;
+      const upgrade = dealer.pendingUpgradeOptions.find(option => option.type === 'SIDE_HUSTLE')!;
+      act(() => {
+        result.current.buyEquipment('test-dealer', upgrade);
+      });
+      expect(result.current.state.activeDealers[0]?.sideVolume).toBeCloseTo(0.2, 5);
     });
   });
 
@@ -262,6 +365,7 @@ describe('useGameEngine', () => {
       act(() => {
         result.current.unlockProduction('weed');
         result.current.upgrade('weed');
+        result.current.unlockProduction('mushrooms');
         // Dealer with extreme volume and side hustle
         result.current.hireDealer(makeDealer({ volume: 1000, sideVolume: 0.5 }), 0);
       });
@@ -429,5 +533,63 @@ describe('useGameEngine', () => {
     expect(dealer?.isProtected).toBe(false);
     expect(dealer?.isArrested).toBe(false);
     expect(typeof dealer?.nextArrestCheckAt).toBe('number');
+  });
+
+  it('restores older saves by filling in missing pending dealer upgrade fields', () => {
+    localStorage.setItem('brmble_neon_d_save', JSON.stringify({
+      activeDealers: [{
+        id: 'legacy',
+        name: 'Legacy Dealer',
+        selling: 'weed',
+        volume: 1,
+        margin: 1,
+        volumeBonus: 0,
+        marginBonus: 0,
+        sideVolume: 0,
+        equipmentCount: 0,
+        baseVolumeGps: 1,
+        baseMarginMult: 1,
+        volumeStars: 1,
+        marginStars: 1,
+        isProtected: false,
+        isArrested: false,
+        nextArrestCheckAt: Date.now() + 10_000,
+      }],
+    }));
+
+    const { result } = renderHook(() => useGameEngine());
+    const dealer = result.current.state.activeDealers[0];
+
+    expect(dealer?.hasPendingUpgrade).toBe(false);
+    expect(dealer?.pendingUpgradeOptions).toEqual([]);
+  });
+
+  it('restores older saves by filling in missing pending upgrade fields on available dealers', () => {
+    localStorage.setItem('brmble_neon_d_save', JSON.stringify({
+      availableDealers: [{
+        id: 'available-legacy',
+        name: 'Available Legacy Dealer',
+        selling: 'weed',
+        volume: 1,
+        margin: 1,
+        volumeBonus: 0,
+        marginBonus: 0,
+        sideVolume: 0,
+        equipmentCount: 0,
+        baseVolumeGps: 1,
+        baseMarginMult: 1,
+        volumeStars: 1,
+        marginStars: 1,
+        isProtected: false,
+        isArrested: false,
+        nextArrestCheckAt: Date.now() + 10_000,
+      }],
+    }));
+
+    const { result } = renderHook(() => useGameEngine());
+    const dealer = result.current.state.availableDealers[0];
+
+    expect(dealer?.hasPendingUpgrade).toBe(false);
+    expect(dealer?.pendingUpgradeOptions).toEqual([]);
   });
 });
