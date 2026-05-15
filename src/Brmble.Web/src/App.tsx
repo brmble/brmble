@@ -1163,10 +1163,16 @@ function App() {
   useEffect(() => {
     if (preLeaveCancelledAt !== null) {
       notifQueue.unregister('idle-pre-leave');
-      notifQueue.register('idle-pre-leave-cancelled', 'info');
+      if (shouldShowIdlePreLeaveNotification) {
+        notifQueue.register('idle-pre-leave-cancelled', 'info');
+      } else {
+        notifQueue.unregister('idle-pre-leave-cancelled');
+      }
+    } else {
+      notifQueue.unregister('idle-pre-leave-cancelled');
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [preLeaveCancelledAt]);
+  }, [preLeaveCancelledAt, shouldShowIdlePreLeaveNotification]);
 
   // Fetch avatar for a specific user by matrixUserId and session, updating user state.
   // Uses refs so it can be called from both bridge event handlers (which capture initial
@@ -3098,6 +3104,7 @@ const handleConnect = (serverData: SavedServer) => {
 
     if (!shouldShowOptionalNotification(optionalNotificationSettings, 'notificationIdleWarning')) {
       notifQueue.unregister('idle-pre-leave');
+      notifQueue.unregister('idle-pre-leave-cancelled');
     }
 
     if (!shouldShowOptionalNotification(optionalNotificationSettings, 'notificationMovedChannel')) {
@@ -3896,7 +3903,7 @@ const handleConnect = (serverData: SavedServer) => {
             }}
           />
         )}
-        {preLeaveCancelledAt !== null && notifQueue.isVisible('idle-pre-leave-cancelled') && (
+        {preLeaveCancelledAt !== null && shouldShowIdlePreLeaveNotification && notifQueue.isVisible('idle-pre-leave-cancelled') && (
           <Notification
             status="info"
             position="top-right"

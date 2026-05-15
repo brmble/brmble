@@ -91,6 +91,37 @@ public class AppConfigServiceTests
     }
 
     [TestMethod]
+    public void LoadsLegacyNotificationsEnabledFalse_AsOptionalNotificationsDisabled()
+    {
+        var legacyJson = """
+        {
+          "settings": {
+            "audio": {},
+            "shortcuts": {},
+            "messages": {
+              "ttsEnabled": false,
+              "ttsVolume": 100,
+              "ttsVoice": "",
+              "notificationsEnabled": false
+            },
+            "overlay": {}
+          },
+          "servers": []
+        }
+        """;
+        File.WriteAllText(Path.Combine(_tempDir, "config.json"), legacyJson);
+
+        var svc = new AppConfigService(_tempDir, null);
+        var messages = svc.GetSettings().Messages;
+
+        Assert.IsTrue(messages.NotificationsDisabled);
+        Assert.IsTrue(messages.NotificationRemoteScreenShare);
+        Assert.IsTrue(messages.NotificationScreenShareStatus);
+        Assert.IsTrue(messages.NotificationIdleWarning);
+        Assert.IsTrue(messages.NotificationMovedChannel);
+    }
+
+    [TestMethod]
     public void SavesAndReloads_OverlayCompanionSelection()
     {
         var svc = new AppConfigService(_tempDir, null);

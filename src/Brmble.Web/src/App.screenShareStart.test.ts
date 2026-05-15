@@ -741,6 +741,35 @@ describe('active share discovery', () => {
     expect(idleActionsState.dismissPreLeaveCancelled).toHaveBeenCalled();
   });
 
+  it('does not register idle cancellation notification when idle reminders are disabled', () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id === 'idle-pre-leave-cancelled');
+
+    const { rerender } = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('settings.current', {
+        settings: {
+          messages: {
+            notificationsDisabled: false,
+            notificationRemoteScreenShare: true,
+            notificationScreenShareStatus: true,
+            notificationIdleWarning: false,
+            notificationMovedChannel: true,
+          },
+        },
+      });
+    });
+
+    vi.mocked(notifQueue.register).mockClear();
+    vi.mocked(notifQueue.unregister).mockClear();
+    idleActionsState.preLeaveCancelledAt = 2000;
+    rerender(React.createElement(App));
+
+    expect(notifQueue.register).not.toHaveBeenCalledWith('idle-pre-leave-cancelled', 'info');
+    expect(notifQueue.unregister).toHaveBeenCalledWith('idle-pre-leave-cancelled');
+    expect(screen.queryByText('Welcome back')).not.toBeInTheDocument();
+  });
+
   it('requests active share discovery after connect for the current channel', async () => {
     render(React.createElement(App));
 
