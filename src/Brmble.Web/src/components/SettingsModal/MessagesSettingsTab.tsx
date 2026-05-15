@@ -32,8 +32,9 @@ export const DEFAULT_MESSAGES: MessagesSettings = {
 type IncomingMessagesSettings = Partial<MessagesSettings> & { notificationsEnabled?: boolean };
 
 function normalizeMessagesSettings(settings: IncomingMessagesSettings): MessagesSettings {
-  const normalized = { ...DEFAULT_MESSAGES, ...settings };
-  if (settings.notificationsDisabled !== true && settings.notificationsEnabled === false) {
+  const { notificationsEnabled, ...currentSettings } = settings;
+  const normalized = { ...DEFAULT_MESSAGES, ...currentSettings };
+  if (typeof currentSettings.notificationsDisabled !== 'boolean' && notificationsEnabled === false) {
     normalized.notificationsDisabled = true;
   }
   return normalized;

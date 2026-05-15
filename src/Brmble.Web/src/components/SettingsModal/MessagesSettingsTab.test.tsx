@@ -59,10 +59,48 @@ describe('MessagesSettingsTab optional notifications', () => {
   });
 
   it('maps legacy notificationsEnabled false to Disable optional notifications on', () => {
-    render(<MessagesSettingsTab settings={{ ...DEFAULT_MESSAGES, notificationsEnabled: false } as unknown as MessagesSettings} onChange={vi.fn()} />);
+    const legacySettings = {
+      ttsEnabled: false,
+      ttsVolume: 100,
+      ttsVoice: '',
+      notificationsEnabled: false,
+    } as unknown as MessagesSettings;
+
+    render(<MessagesSettingsTab settings={legacySettings} onChange={vi.fn()} />);
 
     expect(screen.getByLabelText('Disable optional notifications')).toBeChecked();
     expect(screen.getByLabelText('Screen share invitations')).not.toBeChecked();
     expect(screen.getByLabelText('Screen share invitations')).toBeDisabled();
+  });
+
+  it('does not let legacy notificationsEnabled override explicit notificationsDisabled false', () => {
+    render(<MessagesSettingsTab settings={{ ...DEFAULT_MESSAGES, notificationsEnabled: false, notificationsDisabled: false } as unknown as MessagesSettings} onChange={vi.fn()} />);
+
+    expect(screen.getByLabelText('Disable optional notifications')).not.toBeChecked();
+    expect(screen.getByLabelText('Screen share invitations')).toBeChecked();
+    expect(screen.getByLabelText('Screen share invitations')).not.toBeDisabled();
+  });
+
+  it('preserves stored categories when legacy disabled settings are re-enabled', () => {
+    const legacySettings = {
+      ttsEnabled: false,
+      ttsVolume: 100,
+      ttsVoice: '',
+      notificationsEnabled: false,
+      notificationIdleWarning: false,
+    } as unknown as MessagesSettings;
+
+    const { rerender } = render(<MessagesSettingsTab settings={legacySettings} onChange={vi.fn()} />);
+
+    expect(screen.getByLabelText('Disable optional notifications')).toBeChecked();
+    expect(screen.getByLabelText('Idle reminders')).not.toBeChecked();
+
+    rerender(<MessagesSettingsTab settings={{ ...DEFAULT_MESSAGES, notificationIdleWarning: false, notificationsDisabled: false }} onChange={vi.fn()} />);
+
+    expect(screen.getByLabelText('Disable optional notifications')).not.toBeChecked();
+    expect(screen.getByLabelText('Screen share invitations')).toBeChecked();
+    expect(screen.getByLabelText('Screen share status')).toBeChecked();
+    expect(screen.getByLabelText('Idle reminders')).not.toBeChecked();
+    expect(screen.getByLabelText('Channel move notices')).toBeChecked();
   });
 });
