@@ -12,6 +12,7 @@ import {
   getMovedChannelNotification,
   getScreenShareEndedNotification,
   normalizeOptionalNotificationSettings,
+  replaceOptionalScreenShareEndedNotification,
   runIntentionalDisconnect,
   shouldShowOptionalNotification,
   shouldTreatMoveAsSharingRelated,
@@ -284,6 +285,54 @@ describe('optional screen share status notification helpers', () => {
     expect(createOptionalWatchedShareEndedNotification(share, 'unexpected', 1, enabledStatus)).toEqual(
       createWatchedShareEndedNotification(share, 'unexpected', 1),
     );
+  });
+
+  it('unregisters an existing local share-ended notification when replacement is disabled by settings', () => {
+    const current = createQueuedScreenShareEndedNotification('interrupted', 0);
+    const unregister = vi.fn();
+
+    const replacement = replaceOptionalScreenShareEndedNotification(
+      current,
+      'error',
+      1,
+      disabledStatus,
+      { unregister },
+    );
+
+    expect(unregister).toHaveBeenCalledWith(current!.id);
+    expect(replacement).toBeNull();
+  });
+
+  it('unregisters an existing local share-ended notification when manual replacement is silent', () => {
+    const current = createQueuedScreenShareEndedNotification('interrupted', 0);
+    const unregister = vi.fn();
+
+    const replacement = replaceOptionalScreenShareEndedNotification(
+      current,
+      'manual',
+      1,
+      enabledStatus,
+      { unregister },
+    );
+
+    expect(unregister).toHaveBeenCalledWith(current!.id);
+    expect(replacement).toBeNull();
+  });
+
+  it('unregisters an existing local share-ended notification and returns the enabled replacement', () => {
+    const current = createQueuedScreenShareEndedNotification('interrupted', 0);
+    const unregister = vi.fn();
+
+    const replacement = replaceOptionalScreenShareEndedNotification(
+      current,
+      'error',
+      1,
+      enabledStatus,
+      { unregister },
+    );
+
+    expect(unregister).toHaveBeenCalledWith(current!.id);
+    expect(replacement).toEqual(createQueuedScreenShareEndedNotification('error', 1));
   });
 });
 

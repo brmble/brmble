@@ -298,6 +298,20 @@ export function replaceScreenShareEndedNotification(
   return createQueuedScreenShareEndedNotification(reason, sequence);
 }
 
+export function replaceOptionalScreenShareEndedNotification(
+  current: QueuedScreenShareEndedNotification | null,
+  reason: LocalShareStopReason,
+  sequence: number,
+  settings: OptionalNotificationSettings | null | undefined,
+  notifQueue: { unregister: (id: string) => void },
+): QueuedScreenShareEndedNotification | null {
+  if (current) {
+    notifQueue.unregister(current.id);
+  }
+
+  return createOptionalQueuedScreenShareEndedNotification(reason, sequence, settings);
+}
+
 export function shouldTreatMoveAsSharingRelated(options: {
   isSharing: boolean;
   isLocalShareStartPending: boolean;
@@ -2925,14 +2939,12 @@ const handleConnect = (serverData: SavedServer) => {
       wasLocalShareRecentlyActiveRef.current = true;
     }
 
-    if (screenShareEndedNotificationRef.current) {
-      notifQueue.unregister(screenShareEndedNotificationRef.current.id);
-    }
-
-    const notification = createOptionalQueuedScreenShareEndedNotification(
+    const notification = replaceOptionalScreenShareEndedNotification(
+      screenShareEndedNotificationRef.current,
       reason,
       nextScreenShareEndedNotificationIdRef.current++,
       optionalNotificationSettingsRef.current,
+      notifQueue,
     );
     screenShareEndedNotificationRef.current = notification;
     setScreenShareEndedNotification(notification);
