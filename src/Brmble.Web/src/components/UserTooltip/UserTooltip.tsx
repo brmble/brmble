@@ -1,4 +1,4 @@
-import { cloneElement } from 'react';
+import { cloneElement, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTooltipPosition } from '../../hooks/useTooltipPosition';
 import type { Position, Align } from '../../hooks/useTooltipPosition';
@@ -37,7 +37,9 @@ function getStatusText(user: UserTooltipUser): string {
 
 export function UserTooltip({ user, children, position = 'top', align = 'center', delay = 400 }: UserTooltipProps) {
   const { visible, show, hide, tooltipId, triggerRef, tooltipRef, portalStyle } = useTooltipPosition({ position, align, delay });
-  const parsedComment = parseUserComment(user.comment);
+  
+  // Memoize comment parsing to avoid re-parsing on every render
+  const parsedComment = useMemo(() => parseUserComment(user.comment), [user.comment]);
 
   return (
     <>

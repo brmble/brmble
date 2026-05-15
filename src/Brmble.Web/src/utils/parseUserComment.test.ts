@@ -41,4 +41,26 @@ describe('parseUserComment', () => {
       hasEmbeddedMedia: true,
     });
   });
+
+  it('strips entity-escaped image tags to prevent base64 payload leaks', () => {
+    const result = parseUserComment(
+      'Check this out &lt;img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" /&gt;'
+    );
+
+    expect(result).toEqual({
+      text: 'Check this out',
+      hasEmbeddedMedia: true,
+    });
+  });
+
+  it('strips double-escaped image tags', () => {
+    const result = parseUserComment(
+      '&amp;lt;img src="data:image/png;base64,AAAA" /&amp;gt;'
+    );
+
+    expect(result).toEqual({
+      text: '',
+      hasEmbeddedMedia: true,
+    });
+  });
 });

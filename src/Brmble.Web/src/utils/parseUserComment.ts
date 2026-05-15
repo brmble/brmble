@@ -22,12 +22,14 @@ export function parseUserComment(comment?: string): ParsedUserComment {
     return { text: '', hasEmbeddedMedia: false };
   }
 
-  const hasEmbeddedMedia = IMG_TAG_REGEX.test(comment);
-  const withoutImages = comment.replace(IMG_TAG_REGEX, ' ');
+  // Decode entities BEFORE stripping tags to handle escaped tags like &lt;img...&gt;
+  const decoded = decodeHtmlEntities(comment);
+  
+  const hasEmbeddedMedia = IMG_TAG_REGEX.test(decoded);
+  const withoutImages = decoded.replace(IMG_TAG_REGEX, ' ');
   const withLineBreaks = withoutImages.replace(BR_TAG_REGEX, '\n');
   const withoutTags = withLineBreaks.replace(TAG_REGEX, ' ');
-  const decoded = decodeHtmlEntities(withoutTags);
-  const normalized = decoded
+  const normalized = withoutTags
     .replace(/\r\n/g, '\n')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n[ \t]+/g, '\n')
