@@ -315,7 +315,7 @@ vi.mock('./components/Notification/Notification', () => ({
   ),
 }));
 
-import App, { canWatchShareFromChannel, getNextLiveKitStatusUpdate, shouldClearLocalShareStartPending, toggleLocalScreenShare } from './App';
+import App, { canWatchShareFromChannel, getNextLiveKitStatusUpdate, shouldClearLocalShareStartPending, shouldPublishServerJoinOverlayEvent, toggleLocalScreenShare } from './App';
 
 describe('toggleLocalScreenShare', () => {
   it('starts sharing in the current voice channel without changing LiveKit status first', async () => {
@@ -421,6 +421,38 @@ describe('getNextLiveKitStatusUpdate', () => {
       isLocalShareStartPending: false,
       isViewerConnectPending: false,
     })).toEqual({ state: 'idle', error: undefined });
+  });
+});
+
+describe('shouldPublishServerJoinOverlayEvent', () => {
+  it('suppresses server join overlay events during the initial post-connect grace window', () => {
+    expect(shouldPublishServerJoinOverlayEvent({
+      systemType: 'userJoined',
+      actorName: 'Alice',
+      selfName: 'TestUser',
+      connectedAtMs: 1_000,
+      nowMs: 3_500,
+    })).toBe(false);
+  });
+
+  it('allows server join overlay events after the initial post-connect grace window', () => {
+    expect(shouldPublishServerJoinOverlayEvent({
+      systemType: 'userJoined',
+      actorName: 'Alice',
+      selfName: 'TestUser',
+      connectedAtMs: 1_000,
+      nowMs: 4_000,
+    })).toBe(true);
+  });
+
+  it('suppresses self join overlay events', () => {
+    expect(shouldPublishServerJoinOverlayEvent({
+      systemType: 'userJoined',
+      actorName: 'TestUser',
+      selfName: 'TestUser',
+      connectedAtMs: 1_000,
+      nowMs: 10_000,
+    })).toBe(false);
   });
 });
 
