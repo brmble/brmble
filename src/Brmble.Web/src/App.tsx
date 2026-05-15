@@ -93,6 +93,10 @@ export interface OptionalNotificationSettings {
   notificationMovedChannel?: boolean;
 }
 
+type IncomingOptionalNotificationSettings = OptionalNotificationSettings & {
+  notificationsEnabled?: boolean;
+};
+
 export const DEFAULT_OPTIONAL_NOTIFICATION_SETTINGS: Required<OptionalNotificationSettings> = {
   notificationsDisabled: false,
   notificationRemoteScreenShare: true,
@@ -101,15 +105,22 @@ export const DEFAULT_OPTIONAL_NOTIFICATION_SETTINGS: Required<OptionalNotificati
   notificationMovedChannel: true,
 };
 
-export function normalizeOptionalNotificationSettings(settings?: OptionalNotificationSettings | null): Required<OptionalNotificationSettings> {
-  return {
+export function normalizeOptionalNotificationSettings(settings?: IncomingOptionalNotificationSettings | null): Required<OptionalNotificationSettings> {
+  const { notificationsEnabled, ...currentSettings } = settings ?? {};
+  const normalized = {
     ...DEFAULT_OPTIONAL_NOTIFICATION_SETTINGS,
-    ...(settings ?? {}),
+    ...currentSettings,
   };
+
+  if (typeof currentSettings.notificationsDisabled !== 'boolean' && notificationsEnabled === false) {
+    normalized.notificationsDisabled = true;
+  }
+
+  return normalized;
 }
 
 export function shouldShowOptionalNotification(
-  settings: OptionalNotificationSettings | null | undefined,
+  settings: IncomingOptionalNotificationSettings | null | undefined,
   category: OptionalNotificationCategory,
 ): boolean {
   const normalized = normalizeOptionalNotificationSettings(settings);

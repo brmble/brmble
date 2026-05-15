@@ -9,6 +9,7 @@ import {
   WatchedShareEndedNotifications,
   getMovedChannelNotification,
   getScreenShareEndedNotification,
+  normalizeOptionalNotificationSettings,
   runIntentionalDisconnect,
   shouldShowOptionalNotification,
   shouldTreatMoveAsSharingRelated,
@@ -66,6 +67,21 @@ describe('shouldShowOptionalNotification', () => {
     expect(shouldShowOptionalNotification(settings, 'notificationRemoteScreenShare')).toBe(true);
     expect(shouldShowOptionalNotification(settings, 'notificationScreenShareStatus')).toBe(true);
     expect(shouldShowOptionalNotification(settings, 'notificationMovedChannel')).toBe(true);
+  });
+
+  it('maps legacy notificationsEnabled false to the global opt-out', () => {
+    expect(shouldShowOptionalNotification({ notificationsEnabled: false }, 'notificationRemoteScreenShare')).toBe(false);
+  });
+
+  it('does not let legacy notificationsEnabled override explicit notificationsDisabled false', () => {
+    expect(shouldShowOptionalNotification({
+      notificationsEnabled: false,
+      notificationsDisabled: false,
+    }, 'notificationRemoteScreenShare')).toBe(true);
+  });
+
+  it('drops legacy notificationsEnabled from normalized settings', () => {
+    expect(normalizeOptionalNotificationSettings({ notificationsEnabled: false })).not.toHaveProperty('notificationsEnabled');
   });
 });
 
