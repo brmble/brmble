@@ -80,7 +80,7 @@ public static class AuthEndpoints
             // registered users who connected with a different name.
             var resolvedName = result.DisplayName;
             if (!string.IsNullOrEmpty(resolvedName))
-                authService.TrackMumbleName(resolvedName, certHash);
+                authService.TrackMumbleName(resolvedName, certHash, active: true);
 
             if (!string.IsNullOrEmpty(resolvedName) &&
                 sessionMapping.TryGetSessionId(resolvedName, out var sid))

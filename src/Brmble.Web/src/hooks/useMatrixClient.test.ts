@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { render, renderHook, screen, act } from '@testing-library/react';
 import React from 'react';
 import { useMatrixClient } from './useMatrixClient';
 import type { MatrixCredentials } from './useMatrixClient';
-import { ServiceStatusProvider } from './useServiceStatus';
+import { ServiceStatusProvider, useServiceStatus } from './useServiceStatus';
 
 // --- mock bridge ---
 vi.mock('../bridge', () => ({
@@ -34,6 +34,7 @@ const mockClient = {
 vi.mock('matrix-js-sdk', () => ({
   createClient: vi.fn(() => mockClient),
   RoomEvent: { Timeline: 'Room.timeline' },
+  RoomStateEvent: { Members: 'RoomState.members' },
   ClientEvent: { Sync: 'sync', AccountData: 'accountData' },
   EventType: { RoomMessage: 'm.room.message', Direct: 'm.direct' },
   MsgType: { Text: 'm.text' },
@@ -53,6 +54,12 @@ function wrapper({ children }: { children: React.ReactNode }) {
   return React.createElement(ServiceStatusProvider, null, children);
 }
 
+function MatrixClientStatusProbe({ credentials }: { credentials: MatrixCredentials }) {
+  useMatrixClient(credentials);
+  const { statuses } = useServiceStatus();
+  return React.createElement('div', { 'data-testid': 'chat-state' }, statuses.chat.state);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -65,8 +72,9 @@ describe('useMatrixClient', () => {
       ...creds,
       dmRoomMap: { '@alice:example.com': '!dm:example.com' },
     };
+    const callbacks = { onDirectMessage };
 
-    renderHook(() => useMatrixClient(credsWithDm, { onDirectMessage }), { wrapper });
+    renderHook(() => useMatrixClient(credsWithDm, callbacks), { wrapper });
 
     const onSync = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'sync')?.[1] as
       | ((state: string) => void)
@@ -128,6 +136,42 @@ describe('useMatrixClient', () => {
   it('calls startClient when credentials are provided', () => {
     renderHook(() => useMatrixClient(creds), { wrapper });
     expect(mockClient.startClient).toHaveBeenCalledWith({ initialSyncLimit: 5 });
+  });
+
+  it('does not reconnect when callback object identity changes', () => {
+    const { rerender } = renderHook(
+      ({ callbacks }: { callbacks: { onDirectMessage: () => void } }) => useMatrixClient(creds, callbacks),
+      { initialProps: { callbacks: { onDirectMessage: vi.fn() } }, wrapper },
+    );
+
+    expect(mockClient.startClient).toHaveBeenCalledTimes(1);
+    expect(mockClient.stopClient).not.toHaveBeenCalled();
+
+    act(() => rerender({ callbacks: { onDirectMessage: vi.fn() } }));
+
+    expect(mockClient.startClient).toHaveBeenCalledTimes(1);
+    expect(mockClient.stopClient).not.toHaveBeenCalled();
+  });
+
+  it('maps Matrix reconnect sync states to chat status', () => {
+    render(
+      React.createElement(
+        ServiceStatusProvider,
+        null,
+        React.createElement(MatrixClientStatusProbe, { credentials: creds }),
+      ),
+    );
+
+    const onSync = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'sync')?.[1] as
+      | ((state: string) => void)
+      | undefined;
+    expect(onSync).toBeDefined();
+
+    act(() => onSync!('RECONNECTING'));
+    expect(screen.getByTestId('chat-state').textContent).toBe('connecting');
+
+    act(() => onSync!('PREPARED'));
+    expect(screen.getByTestId('chat-state').textContent).toBe('connected');
   });
 
   it('does not call startClient when credentials are null', () => {
@@ -359,6 +403,41 @@ describe('useMatrixClient', () => {
       ts: 1_700_000_000_000,
       sender: 'Alice',
     });
+  });
+
+  it('notifies when a Matrix room member avatar changes', () => {
+    const onUserAvatarChanged = vi.fn();
+    renderHook(() => useMatrixClient(creds, { onUserAvatarChanged }), { wrapper });
+
+    const onMembers = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'RoomState.members')?.[1] as
+      | ((ev: unknown, state: unknown, member: { userId: string; getAvatarUrl: (...args: unknown[]) => string | null }) => void)
+      | undefined;
+    expect(onMembers).toBeDefined();
+
+    act(() => onMembers!(
+      { getType: () => 'm.room.member' },
+      {},
+      { userId: '@alice:example.com', getAvatarUrl: () => 'https://matrix.example.com/avatar/alice.png' },
+    ));
+
+    expect(onUserAvatarChanged).toHaveBeenCalledWith('@alice:example.com', 'https://matrix.example.com/avatar/alice.png');
+  });
+
+  it('notifies when a Matrix room member avatar is removed', () => {
+    const onUserAvatarChanged = vi.fn();
+    renderHook(() => useMatrixClient(creds, { onUserAvatarChanged }), { wrapper });
+
+    const onMembers = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'RoomState.members')?.[1] as
+      | ((ev: unknown, state: unknown, member: { userId: string; getAvatarUrl: (...args: unknown[]) => string | null }) => void)
+      | undefined;
+
+    act(() => onMembers!(
+      { getType: () => 'm.room.member' },
+      {},
+      { userId: '@alice:example.com', getAvatarUrl: () => null },
+    ));
+
+    expect(onUserAvatarChanged).toHaveBeenCalledWith('@alice:example.com', null);
   });
 
   it('setActiveChannel rebuilds activeMessages from SDK timeline', () => {

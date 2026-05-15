@@ -223,6 +223,62 @@ public class MumbleAdapterParseTests
     }
 
     [TestMethod]
+    public async Task ActiveShareFailure_EmitsScreenshareServiceStatus()
+    {
+        var bridge = NativeBridgeTestHarness.Create();
+        var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge, apiUrl: "https://api.example.com");
+        adapter.RegisterHandlers(bridge);
+
+        using var doc = JsonDocument.Parse("""
+        {
+            "roomName": "channel-1",
+            "requestId": 7
+        }
+        """);
+
+        await NativeBridgeTestHarness.InvokeAsync(bridge, "livekit.checkActiveShare", doc.RootElement.Clone());
+        var sent = NativeBridgeTestHarness.DrainMessages(bridge);
+
+        Assert.IsTrue(sent.Any(x => x.Type == "brmble.serviceStatus" && x.DataJson.Contains("\"service\":\"screenshare\"") && x.DataJson.Contains("\"state\":\"disconnected\"")));
+    }
+
+    [TestMethod]
+    public async Task ShareStoppedFailure_DoesNotEmitScreenshareDisconnectedStatus()
+    {
+        var tempDir = Directory.CreateTempSubdirectory();
+        try
+        {
+            var bridge = NativeBridgeTestHarness.Create();
+            using var clientCertificate = TestTlsHttpServer.CreateCertificate("CN=client");
+            await File.WriteAllBytesAsync(Path.Combine(tempDir.FullName, "Test_test.pfx"), clientCertificate.Export(X509ContentType.Pkcs12));
+
+            var certService = new CertificateService(bridge, new TestAppConfigService(tempDir.FullName));
+            var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge, apiUrl: "https://127.0.0.1:1/", certService: certService);
+            adapter.RegisterHandlers(bridge);
+            certService.RegisterHandlers(bridge);
+
+            using var statusDoc = JsonDocument.Parse("{}");
+            await NativeBridgeTestHarness.InvokeAsync(bridge, "cert.requestStatus", statusDoc.RootElement.Clone());
+            _ = NativeBridgeTestHarness.DrainMessages(bridge);
+
+            using var doc = JsonDocument.Parse("""
+            {
+                "roomName": "channel-1"
+            }
+            """);
+
+            await NativeBridgeTestHarness.InvokeAsync(bridge, "livekit.shareStopped", doc.RootElement.Clone());
+            var sent = NativeBridgeTestHarness.DrainMessages(bridge);
+
+            Assert.IsFalse(sent.Any(x => x.Type == "brmble.serviceStatus" && x.DataJson.Contains("\"service\":\"screenshare\"") && x.DataJson.Contains("\"state\":\"disconnected\"")));
+        }
+        finally
+        {
+            tempDir.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task ActiveShareResult_EchoesRequestId()
     {
         var tempDir = Directory.CreateTempSubdirectory();
@@ -523,16 +579,8 @@ public class MumbleAdapterParseTests
     }
 
     [TestMethod]
-    public void ApplySettings_InvalidAudioDevices_AreRepairedToDefault()
+    public void RepairAudioDeviceSettings_InvalidAudioDevices_AreRepairedToDefault()
     {
-        var bridge = NativeBridgeTestHarness.Create();
-        using var audioManager = new AudioManager();
-        var config = new TestAppConfigService(Path.GetTempPath());
-        var adapter = MumbleAdapterTestHarness.CreateWithBridge(
-            bridge,
-            appConfigService: config,
-            audioManager: audioManager);
-
         var settings = AppSettings.Default with
         {
             Audio = AppSettings.Default.Audio with
@@ -543,10 +591,14 @@ public class MumbleAdapterParseTests
             }
         };
 
-        adapter.ApplySettings(settings);
+        var (repaired, didRepair) = MumbleAdapter.RepairAudioDeviceSettings(
+            settings,
+            _ => false,
+            _ => false,
+            _ => { });
 
-        Assert.IsNotNull(config.LastSetSettings);
-        Assert.AreEqual("default", config.LastSetSettings!.Audio.InputDevice);
-        Assert.AreEqual("default", config.LastSetSettings!.Audio.OutputDevice);
+        Assert.IsTrue(didRepair);
+        Assert.AreEqual("default", repaired.Audio.InputDevice);
+        Assert.AreEqual("default", repaired.Audio.OutputDevice);
     }
 }

@@ -1,8 +1,9 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useInterval } from './useInterval';
 import { usePersistedGameState } from './usePersistedGameState';
 import type { GameState, Dealer, DealerUpgrade } from '../types';
-import { INITIAL_GAME_STATE, UNLOCK_COSTS, PRODUCT_TIERS, DEALER_FIRST_NAMES, DEALER_LAST_NAMES, SLOT_UNLOCK_COSTS, VOLUME_RANGES, MARGIN_RANGES } from '../constants';
+import { INITIAL_GAME_STATE, UNLOCK_COSTS, PRODUCT_TIERS, DEALER_FIRST_NAMES, DEALER_LAST_NAMES, SLOT_UNLOCK_COSTS, VOLUME_RANGES, MARGIN_RANGES, ARREST_CHECK_INTERVAL_MS, DEALER_PROTECTION_INCOME_MULTIPLIER, PRODUCT_ARREST_RISK } from '../constants';
+import { getBailCost } from '../economy';
 
 // Roll a random value within a given range
 function rollWithinRange(min: number, max: number): number {
@@ -22,6 +23,76 @@ function rollMarginMultiplier(stars: number): number {
   if (!range) return 1.0;  // Fallback
   return rollWithinRange(range[0], range[1]);
 }
+
+const COMMON_DEALER_UPGRADES: DealerUpgrade[] = [
+  { type: 'VOLUME', label: 'Armed Gang', description: 'Volume +15%', value: 0.15 },
+  { type: 'MARGIN', label: 'Ferrari', description: 'Margin +15%', value: 0.15 },
+  { type: 'ALL_AROUNDER', label: 'Copter', description: 'Volume & Margin +5%', value: 0.05 },
+];
+
+const UNCOMMON_DEALER_UPGRADES: DealerUpgrade[] = [
+  { type: 'BULK', label: 'The Crew', description: 'Volume +35%, Margin -10%', value: 0.35, marginPenalty: 0.1 },
+];
+
+const getDealerEquipmentUpgradeCost = (equipmentCount: number) => 500 * Math.pow(2.5, equipmentCount);
+
+const upgradeMatches = (a: DealerUpgrade, b: DealerUpgrade) =>
+  a.type === b.type &&
+  a.label === b.label &&
+  a.description === b.description &&
+  a.value === b.value &&
+  (a.marginPenalty ?? 0) === (b.marginPenalty ?? 0) &&
+  (a.sideVolumeValue ?? 0) === (b.sideVolumeValue ?? 0);
+
+const generateDealerUpgradeOptions = (dealer: Dealer, unlockedProduction: string[]): DealerUpgrade[] => {
+  const sideHustleProducts = unlockedProduction.filter(id => id !== dealer.selling);
+  const options: DealerUpgrade[] = [];
+
+  for (let i = 0; i < 3; i++) {
+    const roll = Math.random();
+    if (roll < 0.10 && sideHustleProducts.length > 0) {
+      options.push({
+        type: 'SIDE_HUSTLE',
+        label: 'JACKPOT: Side Hustle',
+        description: 'Add 10% side volume bleed',
+        value: 0.1,
+        sideVolumeValue: 0.1,
+      });
+    } else if (roll < 0.30) {
+      const upgrade = UNCOMMON_DEALER_UPGRADES[Math.floor(Math.random() * UNCOMMON_DEALER_UPGRADES.length)];
+      options.push({ ...upgrade });
+    } else {
+      const upgrade = COMMON_DEALER_UPGRADES[Math.floor(Math.random() * COMMON_DEALER_UPGRADES.length)];
+      options.push({ ...upgrade });
+    }
+  }
+
+  return options;
+};
+
+const applyDealerUpgrade = (dealer: Dealer, upgrade: DealerUpgrade): Dealer => {
+  const nextDealer = { ...dealer, equipmentCount: dealer.equipmentCount + 1 };
+
+  if (upgrade.type === 'VOLUME') nextDealer.volumeBonus += upgrade.value;
+  if (upgrade.type === 'MARGIN') nextDealer.marginBonus += upgrade.value;
+  if (upgrade.type === 'ALL_AROUNDER') {
+    nextDealer.volumeBonus += upgrade.value;
+    nextDealer.marginBonus += upgrade.value;
+  }
+  if (upgrade.type === 'BULK') {
+    nextDealer.volumeBonus += upgrade.value;
+    nextDealer.marginBonus -= upgrade.marginPenalty || 0.1;
+  }
+  if (upgrade.type === 'SIDE_HUSTLE') {
+    nextDealer.sideVolume = (nextDealer.sideVolume ?? 0) + (upgrade.sideVolumeValue ?? 0.10);
+  }
+
+  return {
+    ...nextDealer,
+    hasPendingUpgrade: false,
+    pendingUpgradeOptions: [],
+  };
+};
 
 const generateRandomDealer = (unlockedProducts: string[], totalEarned: number): Dealer => {
   const firstNames = DEALER_FIRST_NAMES;
@@ -56,9 +127,29 @@ const generateRandomDealer = (unlockedProducts: string[], totalEarned: number): 
     baseVolumeGps,
     baseMarginMult,
     volumeStars,
-    marginStars
+    marginStars,
+    isProtected: false,
+    isArrested: false,
+    nextArrestCheckAt: scheduleNextArrestCheck(Date.now()),
+    hasPendingUpgrade: false,
+    pendingUpgradeOptions: [],
   };
 };
+
+const scheduleNextArrestCheck = (now: number) =>
+  now + ARREST_CHECK_INTERVAL_MS.min + Math.floor(Math.random() * (ARREST_CHECK_INTERVAL_MS.max - ARREST_CHECK_INTERVAL_MS.min));
+
+const getDealerRisk = (productId: string) =>
+  PRODUCT_ARREST_RISK[productId] ?? { chance: 0.10, label: 'LOW' as const };
+
+const normalizeDealerRiskState = (dealer: Dealer): Dealer => ({
+  ...dealer,
+  isProtected: dealer.isProtected ?? false,
+  isArrested: dealer.isArrested ?? false,
+  nextArrestCheckAt: dealer.nextArrestCheckAt ?? scheduleNextArrestCheck(Date.now()),
+  hasPendingUpgrade: dealer.hasPendingUpgrade ?? false,
+  pendingUpgradeOptions: dealer.pendingUpgradeOptions ?? [],
+});
 
 export const useGameEngine = () => {
   const [state, setState, clearStorage] = usePersistedGameState<GameState>('brmble_neon_d_save', () => {
@@ -72,6 +163,34 @@ export const useGameEngine = () => {
       )
     };
   });
+
+  useEffect(() => {
+    const needsMigration = state.activeDealers.some(dealer =>
+      dealer !== null && (
+        dealer.isProtected === undefined ||
+        dealer.isArrested === undefined ||
+        dealer.nextArrestCheckAt === undefined ||
+        dealer.hasPendingUpgrade === undefined ||
+        dealer.pendingUpgradeOptions === undefined
+      )
+    ) || state.availableDealers.some(dealer =>
+      dealer !== null && (
+        dealer.isProtected === undefined ||
+        dealer.isArrested === undefined ||
+        dealer.nextArrestCheckAt === undefined ||
+        dealer.hasPendingUpgrade === undefined ||
+        dealer.pendingUpgradeOptions === undefined
+      )
+    );
+
+    if (!needsMigration) return;
+
+    setState(prev => ({
+      ...prev,
+      activeDealers: prev.activeDealers.map(dealer => (dealer ? normalizeDealerRiskState(dealer) : null)),
+      availableDealers: prev.availableDealers.map(dealer => normalizeDealerRiskState(dealer)),
+    }));
+  }, [state.activeDealers, state.availableDealers, setState]);
 
   const tick = () => {
     setState(prev => {
@@ -90,6 +209,10 @@ export const useGameEngine = () => {
 
       prev.activeDealers.forEach((dealer) => {
         if (!dealer) return;
+        if (dealer.isArrested) {
+          nextEarnings[dealer.id] = 0;
+          return;
+        }
         let dealerGross = 0;
 
         const effectiveVolume = dealer.volume * (1 + dealer.volumeBonus);
@@ -119,8 +242,35 @@ export const useGameEngine = () => {
           }
         }
 
+        if (dealer.isProtected) {
+          dealerGross *= DEALER_PROTECTION_INCOME_MULTIPLIER;
+        }
+
         nextEarnings[dealer.id] = dealerGross;
         totalEarnedThisTick += dealerGross;
+      });
+
+      const now = Date.now();
+      let nextDealers = prev.activeDealers.map(dealer => dealer ? { ...dealer } : null);
+      nextDealers = nextDealers.map(dealer => {
+        if (!dealer || dealer.isArrested || dealer.isProtected) return dealer;
+        if (dealer.nextArrestCheckAt > now) return dealer;
+
+        const risk = getDealerRisk(dealer.selling);
+        const rolledArrest = Math.random() < risk.chance;
+
+        if (rolledArrest) {
+          return {
+            ...dealer,
+            isArrested: true,
+            isProtected: false,
+          };
+        }
+
+        return {
+          ...dealer,
+          nextArrestCheckAt: scheduleNextArrestCheck(now),
+        };
       });
 
       return {
@@ -128,6 +278,7 @@ export const useGameEngine = () => {
         money: prev.money + totalEarnedThisTick,
         totalEarned: prev.totalEarned + totalEarnedThisTick,
         production: nextProduction,
+        activeDealers: nextDealers,
         lastEarningsPerDealer: nextEarnings
       };
     });
@@ -174,7 +325,7 @@ export const useGameEngine = () => {
     setState(prev => {
       if (slotIndex >= prev.unlockedSlots) return prev;
       const newActiveDealers = [...prev.activeDealers];
-      newActiveDealers[slotIndex] = dealer;
+      newActiveDealers[slotIndex] = normalizeDealerRiskState(dealer);
       return {
         ...prev,
         activeDealers: newActiveDealers,
@@ -212,36 +363,60 @@ export const useGameEngine = () => {
     });
   };
 
-  const buyEquipment = (dealerId: string, upgrade: DealerUpgrade) => {
+  const startDealerUpgrade = (dealerId: string) => {
     setState(prev => {
-      const dealer = prev.activeDealers.find(d => d?.id === dealerId);
-      
+      const slotIndex = prev.activeDealers.findIndex(d => d?.id === dealerId);
+      const dealer = slotIndex === -1 ? null : prev.activeDealers[slotIndex];
       if (!dealer || dealer.equipmentCount >= 3) return prev;
 
-      const upgradeCost = 500 * Math.pow(2.5, dealer.equipmentCount);
+      if (dealer.pendingUpgradeOptions.length === 3) {
+        if (dealer.hasPendingUpgrade) return prev;
+        const nextActiveDealers = [...prev.activeDealers];
+        nextActiveDealers[slotIndex] = {
+          ...dealer,
+          hasPendingUpgrade: true,
+        };
+        return {
+          ...prev,
+          activeDealers: nextActiveDealers,
+        };
+      }
+
+      const upgradeCost = getDealerEquipmentUpgradeCost(dealer.equipmentCount);
       if (prev.money < upgradeCost) return prev;
 
-      const nextDealers = prev.activeDealers.map(d => {
-        if (d?.id !== dealerId) return d;
-        const newDealer = { ...d, equipmentCount: d.equipmentCount + 1 };
-        
-        if (upgrade.type === 'VOLUME') newDealer.volumeBonus += upgrade.value;
-        if (upgrade.type === 'MARGIN') newDealer.marginBonus += upgrade.value;
-        if (upgrade.type === 'ALL_AROUNDER') {
-          newDealer.volumeBonus += upgrade.value;
-          newDealer.marginBonus += upgrade.value;
-        }
-        if (upgrade.type === 'BULK') {
-          newDealer.volumeBonus += upgrade.value;
-          newDealer.marginBonus -= upgrade.marginPenalty || 0.1;
-        }
-        if (upgrade.type === 'SIDE_HUSTLE') {
-          newDealer.sideVolume = (newDealer.sideVolume ?? 0) + (upgrade.sideVolumeValue ?? 0.10);
-        }
-        return newDealer;
-      });
+      const nextActiveDealers = [...prev.activeDealers];
+      nextActiveDealers[slotIndex] = {
+        ...dealer,
+        hasPendingUpgrade: true,
+        pendingUpgradeOptions: generateDealerUpgradeOptions(dealer, prev.unlockedProduction),
+      };
 
-      return { ...prev, money: prev.money - upgradeCost, activeDealers: nextDealers };
+      return {
+        ...prev,
+        money: prev.money - upgradeCost,
+        activeDealers: nextActiveDealers,
+      };
+    });
+  };
+
+  const buyEquipment = (dealerId: string, upgrade: DealerUpgrade) => {
+    setState(prev => {
+      const slotIndex = prev.activeDealers.findIndex(d => d?.id === dealerId);
+      const dealer = slotIndex === -1 ? null : prev.activeDealers[slotIndex];
+      if (!dealer || dealer.equipmentCount >= 3 || dealer.isArrested) return prev;
+      if (!dealer.hasPendingUpgrade || dealer.pendingUpgradeOptions.length !== 3) return prev;
+
+      const selectedUpgrade = dealer.pendingUpgradeOptions.find(option => upgradeMatches(option, upgrade));
+      if (!selectedUpgrade) return prev;
+
+      const nextActiveDealers = [...prev.activeDealers];
+      nextActiveDealers[slotIndex] = applyDealerUpgrade(dealer, selectedUpgrade);
+
+      return {
+        ...prev,
+        activeDealers: nextActiveDealers,
+      };
     });
   };
 
@@ -269,6 +444,57 @@ export const useGameEngine = () => {
     });
   };
 
+  const toggleDealerProtection = (dealerId: string) => {
+    setState(prev => ({
+      ...prev,
+      activeDealers: prev.activeDealers.map(dealer => {
+        if (!dealer || dealer.id !== dealerId || dealer.isArrested) return dealer;
+        const nextProtected = !dealer.isProtected;
+        return {
+          ...dealer,
+          isProtected: nextProtected,
+          nextArrestCheckAt: nextProtected ? dealer.nextArrestCheckAt : scheduleNextArrestCheck(Date.now()),
+        };
+      }),
+    }));
+  };
+
+  const forceArrestDealer = (dealerId: string) => {
+    setState(prev => ({
+      ...prev,
+      activeDealers: prev.activeDealers.map(dealer =>
+        dealer?.id === dealerId
+          ? { ...dealer, isArrested: true, isProtected: false }
+          : dealer
+      ),
+    }));
+  };
+
+  const payDealerBail = (dealerId: string) => {
+    setState(prev => {
+      const dealer = prev.activeDealers.find(d => d?.id === dealerId);
+      if (!dealer || !dealer.isArrested) return prev;
+
+      const bailCost = getBailCost(prev.lastEarningsPerDealer);
+      if (prev.money < bailCost) return prev;
+
+      return {
+        ...prev,
+        money: prev.money - bailCost,
+        activeDealers: prev.activeDealers.map(d =>
+          d?.id === dealerId
+            ? {
+                ...d,
+                isArrested: false,
+                isProtected: false,
+                nextArrestCheckAt: scheduleNextArrestCheck(Date.now()),
+              }
+            : d
+        ),
+      };
+    });
+  };
+
   const resetGame = useCallback(() => {
     clearStorage();
     setState({
@@ -283,5 +509,20 @@ export const useGameEngine = () => {
 
   useInterval(tick, 1000);
   
-  return { state, upgrade, unlockProduction, hireDealer, fireDealer, refreshPool, resetGame, unlockSlot, setDealerSelling, buyEquipment };
+  return {
+    state,
+    upgrade,
+    unlockProduction,
+    hireDealer,
+    fireDealer,
+    refreshPool,
+    resetGame,
+    unlockSlot,
+    setDealerSelling,
+    startDealerUpgrade,
+    buyEquipment,
+    toggleDealerProtection,
+    forceArrestDealer,
+    payDealerBail,
+  };
 };

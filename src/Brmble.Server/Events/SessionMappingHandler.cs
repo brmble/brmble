@@ -33,9 +33,16 @@ public class SessionMappingHandler : IMumbleEventHandler
         if (dbUser is null) return;
         var companionId = await _userRepository.GetCompanionId(dbUser.Id);
 
+        _activeSessions.TrackMumbleName(user.Name, user.CertHash);
         var isBrmbleClient = _activeSessions.IsBrmbleClient(user.CertHash);
 
-        if (_sessionMapping.TryAddMatrixUser(user.SessionId, dbUser.MatrixUserId, user.Name, dbUser.Id, companionId))
+        var mappingAdded = _sessionMapping.TryAddMatrixUser(user.SessionId, dbUser.MatrixUserId, user.Name, dbUser.Id, companionId);
+        var activatedExistingMapping = !mappingAdded && isBrmbleClient && _sessionMapping.TryUpdateBrmbleStatus(user.SessionId, true);
+
+        if (mappingAdded && isBrmbleClient)
+            _sessionMapping.TryUpdateBrmbleStatus(user.SessionId, true);
+
+        if (mappingAdded)
         {
             _logger.LogInformation(
                 "Mapped session {Session} ({Name}) to {MatrixUserId} via cert (brmbleClient={IsBrmble})",
@@ -48,6 +55,15 @@ public class SessionMappingHandler : IMumbleEventHandler
                 mumbleName = user.Name,
                 companionId,
                 isBrmbleClient
+            });
+        }
+
+        if (activatedExistingMapping)
+        {
+            await _eventBus.BroadcastAsync(new
+            {
+                type = "brmbleClientActivated",
+                sessionId = user.SessionId
             });
         }
     }

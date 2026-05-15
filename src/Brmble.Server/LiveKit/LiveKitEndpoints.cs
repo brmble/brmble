@@ -140,8 +140,7 @@ public static class LiveKitEndpoints
             if (!roomName.StartsWith("channel-") || !int.TryParse(roomName.AsSpan("channel-".Length), out _))
                 return Results.BadRequest(new { error = "invalid roomName format" });
 
-            if (!tracker.Start(roomName, user.DisplayName, user.Id, user.MatrixUserId))
-                return Results.Conflict(new { error = "user is already sharing in this room" });
+            tracker.StartOrRefresh(roomName, user.DisplayName, user.Id, user.MatrixUserId);
 
             var hasSession = sessionMapping.TryGetSessionByUserId(user.Id, out var sessionId);
             await eventBus.BroadcastAsync(new
