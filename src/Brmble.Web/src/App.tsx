@@ -633,6 +633,17 @@ function App() {
     createOverlaySnapshot(null, ''),
   );
   const overlaySettingsRef = useRef(overlaySettings);
+  const [optionalNotificationSettings, setOptionalNotificationSettings] = useState<Required<OptionalNotificationSettings>>(() => {
+    try {
+      const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return normalizeOptionalNotificationSettings(parsed.messages);
+      }
+    } catch { /* ignore */ }
+    return DEFAULT_OPTIONAL_NOTIFICATION_SETTINGS;
+  });
+  const optionalNotificationSettingsRef = useRef(optionalNotificationSettings);
 
   // null = status not yet received, false = no cert, true = cert exists
   const [certExists, setCertExists] = useState<boolean | null>(null);
@@ -693,6 +704,10 @@ function App() {
   useEffect(() => {
     overlaySettingsRef.current = overlaySettings;
   }, [overlaySettings]);
+
+  useEffect(() => {
+    optionalNotificationSettingsRef.current = optionalNotificationSettings;
+  }, [optionalNotificationSettings]);
 
   useEffect(() => {
     if (!overlaySettings.overlayEnabled) return;
@@ -1215,6 +1230,7 @@ function App() {
       if (d?.settings) {
         updatePttKeyFromSettings(d.settings);
         setOverlaySettings(normalizeOverlaySettings(d.settings.overlay ?? {}));
+        setOptionalNotificationSettings(normalizeOptionalNotificationSettings(d.settings.messages));
       }
     };
 
@@ -1229,6 +1245,7 @@ function App() {
           const settings = JSON.parse(stored);
           updatePttKeyFromSettings(settings);
           setOverlaySettings(normalizeOverlaySettings(settings.overlay ?? {}));
+          setOptionalNotificationSettings(normalizeOptionalNotificationSettings(settings.messages));
         }
       } catch {}
     };
@@ -1240,6 +1257,7 @@ function App() {
       try {
         const settings = JSON.parse(stored);
         updatePttKeyFromSettings(settings);
+        setOptionalNotificationSettings(normalizeOptionalNotificationSettings(settings.messages));
       } catch {}
     }
 
@@ -3137,7 +3155,12 @@ const handleConnect = (serverData: SavedServer) => {
       const selfUser = usersRef.current.find(u => u.self);
       const voiceChannelId = selfUser?.channelId;
       // Only show notification for other users' shares in our channel
-      if (voiceChannelId != null && d.roomName === `channel-${voiceChannelId}` && d.sessionId !== selfUser?.session) {
+      if (
+        voiceChannelId != null &&
+        d.roomName === `channel-${voiceChannelId}` &&
+        d.sessionId !== selfUser?.session &&
+        shouldShowOptionalNotification(optionalNotificationSettingsRef.current, 'notificationRemoteScreenShare')
+      ) {
         setScreenShareToast({ userName: d.userName, roomName: d.roomName, userId: d.userId, matrixUserId: d.matrixUserId });
         notifQueue.register('screen-share', 'info');
       }

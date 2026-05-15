@@ -1005,6 +1005,49 @@ describe('active share discovery', () => {
     expect(connectAsViewer).toHaveBeenCalledWith('channel-1', 42, '@alice:example.com');
   });
 
+  it('does not register remote screen share notification when screen share invitations are disabled', async () => {
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('settings.current', {
+        settings: {
+          messages: {
+            notificationsDisabled: false,
+            notificationRemoteScreenShare: false,
+            notificationScreenShareStatus: true,
+            notificationIdleWarning: true,
+            notificationMovedChannel: true,
+          },
+        },
+      });
+    });
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [
+          { session: 7, name: 'TestUser', self: true, channelId: 1 },
+          { session: 2, name: 'Alice', channelId: 1, matrixUserId: '@alice:example.com' },
+        ],
+      });
+    });
+
+    act(() => {
+      bridge.emit('livekit.screenShareStarted', {
+        roomName: 'channel-1',
+        userName: 'Alice',
+        userId: 42,
+        matrixUserId: '@alice:example.com',
+        sessionId: 2,
+      });
+    });
+
+    expect(notifQueue.register).not.toHaveBeenCalledWith('screen-share', 'info');
+    expect(screen.queryByText('Alice started sharing their screen')).not.toBeInTheDocument();
+  });
+
   it('rechecks active share discovery after reconnect when the current channel is unchanged', async () => {
     render(React.createElement(App));
 
