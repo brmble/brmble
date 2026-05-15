@@ -37,7 +37,9 @@ describe('MessagesSettingsTab optional notifications', () => {
     expect(screen.getByLabelText('Idle reminders')).not.toBeChecked();
     expect(screen.getByLabelText('Channel move notices')).not.toBeChecked();
     expect(screen.getByLabelText('Screen share invitations')).toBeDisabled();
+    expect(screen.getByLabelText('Screen share status')).toBeDisabled();
     expect(screen.getByLabelText('Idle reminders')).toBeDisabled();
+    expect(screen.getByLabelText('Channel move notices')).toBeDisabled();
 
     fireEvent.click(screen.getByLabelText('Disable optional notifications'));
 
