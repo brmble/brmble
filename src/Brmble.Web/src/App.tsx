@@ -79,6 +79,43 @@ interface WatchedShareEndedNotification {
   detail: string;
 }
 
+export type OptionalNotificationCategory =
+  | 'notificationRemoteScreenShare'
+  | 'notificationScreenShareStatus'
+  | 'notificationIdleWarning'
+  | 'notificationMovedChannel';
+
+export interface OptionalNotificationSettings {
+  notificationsDisabled?: boolean;
+  notificationRemoteScreenShare?: boolean;
+  notificationScreenShareStatus?: boolean;
+  notificationIdleWarning?: boolean;
+  notificationMovedChannel?: boolean;
+}
+
+export const DEFAULT_OPTIONAL_NOTIFICATION_SETTINGS: Required<OptionalNotificationSettings> = {
+  notificationsDisabled: false,
+  notificationRemoteScreenShare: true,
+  notificationScreenShareStatus: true,
+  notificationIdleWarning: true,
+  notificationMovedChannel: true,
+};
+
+export function normalizeOptionalNotificationSettings(settings?: OptionalNotificationSettings | null): Required<OptionalNotificationSettings> {
+  return {
+    ...DEFAULT_OPTIONAL_NOTIFICATION_SETTINGS,
+    ...(settings ?? {}),
+  };
+}
+
+export function shouldShowOptionalNotification(
+  settings: OptionalNotificationSettings | null | undefined,
+  category: OptionalNotificationCategory,
+): boolean {
+  const normalized = normalizeOptionalNotificationSettings(settings);
+  return !normalized.notificationsDisabled && normalized[category];
+}
+
 export interface MovedChannelNotificationInput {
   actorName?: string;
   previousChannelName?: string;

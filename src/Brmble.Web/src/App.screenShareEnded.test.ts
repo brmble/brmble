@@ -10,6 +10,7 @@ import {
   getMovedChannelNotification,
   getScreenShareEndedNotification,
   runIntentionalDisconnect,
+  shouldShowOptionalNotification,
   shouldTreatMoveAsSharingRelated,
 } from './App';
 import { useNotificationQueue } from './hooks/useNotificationQueue';
@@ -20,6 +21,46 @@ type ReplaceScreenShareEndedNotification = (
   sequence: number,
   notifQueue: { unregister: (id: string) => void },
 ) => ReturnType<typeof createQueuedScreenShareEndedNotification>;
+
+describe('shouldShowOptionalNotification', () => {
+  const enabledSettings = {
+    notificationsDisabled: false,
+    notificationRemoteScreenShare: true,
+    notificationScreenShareStatus: true,
+    notificationIdleWarning: true,
+    notificationMovedChannel: true,
+  };
+
+  it('allows enabled categories when the global opt-out is off', () => {
+    expect(shouldShowOptionalNotification(enabledSettings, 'notificationRemoteScreenShare')).toBe(true);
+    expect(shouldShowOptionalNotification(enabledSettings, 'notificationScreenShareStatus')).toBe(true);
+    expect(shouldShowOptionalNotification(enabledSettings, 'notificationIdleWarning')).toBe(true);
+    expect(shouldShowOptionalNotification(enabledSettings, 'notificationMovedChannel')).toBe(true);
+  });
+
+  it('blocks every category when the global opt-out is on without changing category values', () => {
+    expect(shouldShowOptionalNotification({
+      ...enabledSettings,
+      notificationsDisabled: true,
+      notificationIdleWarning: false,
+    }, 'notificationRemoteScreenShare')).toBe(false);
+    expect(shouldShowOptionalNotification({
+      ...enabledSettings,
+      notificationsDisabled: true,
+      notificationIdleWarning: false,
+    }, 'notificationIdleWarning')).toBe(false);
+  });
+
+  it('blocks a single disabled category while allowing the others', () => {
+    const settings = {
+      ...enabledSettings,
+      notificationIdleWarning: false,
+    };
+
+    expect(shouldShowOptionalNotification(settings, 'notificationIdleWarning')).toBe(false);
+    expect(shouldShowOptionalNotification(settings, 'notificationMovedChannel')).toBe(true);
+  });
+});
 
 describe('getScreenShareEndedNotification', () => {
   beforeEach(() => {
