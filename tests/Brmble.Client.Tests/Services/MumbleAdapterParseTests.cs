@@ -579,16 +579,8 @@ public class MumbleAdapterParseTests
     }
 
     [TestMethod]
-    public void ApplySettings_InvalidAudioDevices_AreRepairedToDefault()
+    public void RepairAudioDeviceSettings_InvalidAudioDevices_AreRepairedToDefault()
     {
-        var bridge = NativeBridgeTestHarness.Create();
-        using var audioManager = new AudioManager();
-        var config = new TestAppConfigService(Path.GetTempPath());
-        var adapter = MumbleAdapterTestHarness.CreateWithBridge(
-            bridge,
-            appConfigService: config,
-            audioManager: audioManager);
-
         var settings = AppSettings.Default with
         {
             Audio = AppSettings.Default.Audio with
@@ -599,10 +591,14 @@ public class MumbleAdapterParseTests
             }
         };
 
-        adapter.ApplySettings(settings);
+        var (repaired, didRepair) = MumbleAdapter.RepairAudioDeviceSettings(
+            settings,
+            _ => false,
+            _ => false,
+            _ => { });
 
-        Assert.IsNotNull(config.LastSetSettings);
-        Assert.AreEqual("default", config.LastSetSettings!.Audio.InputDevice);
-        Assert.AreEqual("default", config.LastSetSettings!.Audio.OutputDevice);
+        Assert.IsTrue(didRepair);
+        Assert.AreEqual("default", repaired.Audio.InputDevice);
+        Assert.AreEqual("default", repaired.Audio.OutputDevice);
     }
 }

@@ -794,7 +794,31 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (_audioManager is null)
             return;
 
-        var repairedSettings = settings;
+        var (repairedSettings, repaired) = RepairAudioDeviceSettings(
+            settings,
+            _audioManager.IsInputDeviceAvailable,
+            _audioManager.IsOutputDeviceAvailable,
+            LogToFile);
+        var inputDevice = repairedSettings.Audio.InputDevice;
+        var outputDevice = repairedSettings.Audio.OutputDevice;
+
+        _audioManager.SetInputDevice(inputDevice);
+        _audioManager.SetOutputDevice(outputDevice);
+
+        if (repaired)
+        {
+            _appConfigService?.SetSettings(repairedSettings);
+            _bridge?.Send("settings.updated", repairedSettings);
+            SendSystemMessage("Saved audio device unavailable; switched to Default (System).", "audioDeviceFallback");
+        }
+    }
+
+    internal static (AppSettings Settings, bool Repaired) RepairAudioDeviceSettings(
+        AppSettings settings,
+        Func<string?, bool> isInputDeviceAvailable,
+        Func<string?, bool> isOutputDeviceAvailable,
+        Action<string> log)
+    {
         var inputDevice = string.IsNullOrWhiteSpace(settings.Audio.InputDevice) ? "default" : settings.Audio.InputDevice;
         var outputDevice = string.IsNullOrWhiteSpace(settings.Audio.OutputDevice) ? "default" : settings.Audio.OutputDevice;
         bool repaired = false;
@@ -802,42 +826,36 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (string.Equals(settings.Audio.CaptureApi, "waveIn", StringComparison.OrdinalIgnoreCase)
             && inputDevice != "default")
         {
-            LogToFile($"[Audio] waveIn does not support specific input device '{inputDevice}', falling back to default");
+            log($"[Audio] waveIn does not support specific input device '{inputDevice}', falling back to default");
             inputDevice = "default";
             repaired = true;
         }
 
-        if (!_audioManager.IsInputDeviceAvailable(inputDevice))
+        if (!isInputDeviceAvailable(inputDevice))
         {
-            LogToFile($"[Audio] Saved input device unavailable: {inputDevice}");
+            log($"[Audio] Saved input device unavailable: {inputDevice}");
             inputDevice = "default";
             repaired = true;
         }
 
-        if (!_audioManager.IsOutputDeviceAvailable(outputDevice))
+        if (!isOutputDeviceAvailable(outputDevice))
         {
-            LogToFile($"[Audio] Saved output device unavailable: {outputDevice}");
+            log($"[Audio] Saved output device unavailable: {outputDevice}");
             outputDevice = "default";
             repaired = true;
         }
 
-        _audioManager.SetInputDevice(inputDevice);
-        _audioManager.SetOutputDevice(outputDevice);
+        if (!repaired)
+            return (settings, false);
 
-        if (repaired)
+        return (settings with
         {
-            repairedSettings = repairedSettings with
+            Audio = settings.Audio with
             {
-                Audio = repairedSettings.Audio with
-                {
-                    InputDevice = inputDevice,
-                    OutputDevice = outputDevice,
-                }
-            };
-            _appConfigService?.SetSettings(repairedSettings);
-            _bridge?.Send("settings.updated", repairedSettings);
-            SendSystemMessage("Saved audio device unavailable; switched to Default (System).", "audioDeviceFallback");
-        }
+                InputDevice = inputDevice,
+                OutputDevice = outputDevice,
+            }
+        }, true);
     }
 
     /// <summary>Called from WndProc on WM_HOTKEY.</summary>

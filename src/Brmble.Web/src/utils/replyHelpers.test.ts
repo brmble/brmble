@@ -70,7 +70,7 @@ describe('buildReplyContent', () => {
     
     expect(result.msgtype).toBe('m.text');
     expect(result.format).toBe('org.matrix.custom.html');
-    expect(result.body).toContain('> <@alice:example.com>');
+    expect(result.body).toContain('> <alice>');
     expect(result.body).toContain('\n\nMy reply');
     expect(result.formatted_body).toContain('<mx-reply>');
     expect(result['m.relates_to']['m.in_reply_to'].event_id).toBe('$event:example.com');

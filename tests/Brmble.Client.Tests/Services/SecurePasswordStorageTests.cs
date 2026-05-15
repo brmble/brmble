@@ -23,7 +23,7 @@ public class SecurePasswordStorageTests
         var encrypted = _storage.Encrypt(plainText);
 
         Assert.IsTrue(encrypted.StartsWith("DPAPI:"), "Encrypted value should start with DPAPI: prefix");
-        var base64 = encrypted.Substring(6);
+        var base64 = encrypted.Substring("DPAPI:v1:".Length);
         Assert.IsTrue(IsValidBase64(base64), "Should contain valid base64 after prefix");
     }
 
