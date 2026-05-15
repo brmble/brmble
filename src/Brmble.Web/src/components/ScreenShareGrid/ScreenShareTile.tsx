@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { Icon } from '../Icon/Icon';
 import { Tooltip } from '../Tooltip/Tooltip';
+import type { ScreenShareQuality } from '../../utils/screenShareQuality';
 import './ScreenShareTile.css';
 
 interface ScreenShareTileProps {
@@ -8,11 +9,12 @@ interface ScreenShareTileProps {
   sharerName: string;
   isFocused: boolean;
   isThumbnail: boolean;
+  quality?: ScreenShareQuality;
   onClick: () => void;
   onClose: () => void;
 }
 
-export function ScreenShareTile({ videoEl, sharerName, isFocused, isThumbnail, onClick, onClose }: ScreenShareTileProps) {
+export function ScreenShareTile({ videoEl, sharerName, isFocused, isThumbnail, quality = 'unknown', onClick, onClose }: ScreenShareTileProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(false);
@@ -92,6 +94,16 @@ export function ScreenShareTile({ videoEl, sharerName, isFocused, isThumbnail, o
       <div className="screen-share-tile-overlay screen-share-tile-overlay--name">
         {sharerName}'s screen
       </div>
+      {quality === 'reconnecting' && (
+        <div className="screen-share-tile-quality screen-share-tile-quality--reconnecting">
+          Reconnecting...
+        </div>
+      )}
+      {quality === 'poor' && (
+        <div className="screen-share-tile-quality screen-share-tile-quality--poor">
+          Poor connection
+        </div>
+      )}
       <div className="screen-share-tile-overlay screen-share-tile-overlay--close">
         <Tooltip content="Stop watching">
           <button

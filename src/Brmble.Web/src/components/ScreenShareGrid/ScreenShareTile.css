@@ -31,6 +31,23 @@
   pointer-events: none;
 }
 
+.screen-share-tile-quality {
+  position: absolute;
+  top: var(--space-xs);
+  left: var(--space-xs);
+  z-index: 2;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  background: var(--bg-deep-glass);
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+  pointer-events: none;
+}
+
+.screen-share-tile-quality--poor {
+  color: var(--accent-danger);
+}
+
 /* Overlays */
 .screen-share-tile-overlay {
   position: absolute;

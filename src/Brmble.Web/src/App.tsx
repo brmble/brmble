@@ -2848,7 +2848,7 @@ const handleConnect = (serverData: SavedServer) => {
     setWatchedShareEndedNotifications(prev => [...prev, notification]);
   }, []);
 
-  const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, disconnectViewer, connectAsViewer, isViewerConnectPending, handleScreenShareServiceUnavailable } = useScreenShare(() => {
+  const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, roomQuality, shareQualities, disconnectViewer, connectAsViewer, isViewerConnectPending, handleScreenShareServiceUnavailable } = useScreenShare(() => {
     setSharingChannelId(undefined);
     sharingChannelIdRef.current = undefined;
   }, screenShareSettings, handleLocalScreenShareEnded, handleWatchedShareEnded);
@@ -3398,6 +3398,7 @@ const handleConnect = (serverData: SavedServer) => {
           activeShares={activeShares}
           watchingShares={watchingShares}
           isLiveKitRoomConnected={isSharing || watchingShares.length > 0}
+          screenShareQuality={roomQuality}
           onWatchScreenShare={handleWatchScreenShare}
           onStopWatching={(userId) => disconnectViewer(userId)}
           onEditAvatar={connected ? () => setShowAvatarEditor(true) : undefined}
@@ -3438,6 +3439,7 @@ const handleConnect = (serverData: SavedServer) => {
                     watchingShares={watchingShares}
                     focusedShare={focusedShare}
                     remoteVideoEls={remoteVideoEls}
+                    shareQualities={shareQualities}
                     onFocusShare={setFocusedShare}
                     onCloseShare={(share) => disconnectViewer(share.userId)}
                     screenShareViewerMode={screenShareSettings.viewerMode}

@@ -1,7 +1,7 @@
 # LiveKit & Screen Sharing Feature Roadmap
 
 **Date:** 2026-04-17
-**Status:** Active roadmap. Foundation, recent follow-up fixes, E. Token & Security, and F1 reliability work are implemented; remaining F work is F2/future reliability hardening.
+**Status:** Active roadmap. Foundation, recent follow-up fixes, E. Token & Security, and F1/F2 reliability work are implemented; remaining F work is future reliability hardening.
 
 This is the master feature list for LiveKit and screen sharing work. Completed sub-projects and shipped follow-up fixes are tracked here, while future work should continue through design -> plan -> implementation cycles.
 
@@ -15,7 +15,7 @@ This is the master feature list for LiveKit and screen sharing work. Completed s
 | C | Viewing Experience | Not started | -- |
 | D | Game Overlay | Not started | -- |
 | E | Token & Security | Implemented | `2026-04-30-livekit-token-security-phase-design.md`, `2026-05-11-livekit-token-refresh-revocation-design.md` |
-| F | Connection & Reliability | F1 implemented; F2 pending | -- |
+| F | Connection & Reliability | F1/F2 implemented; future hardening pending | `2026-05-15-livekit-connection-reliability-f2-design.md` |
 | G | UI/UX Polish | Not started | -- |
 | H | Clips & Screenshots | Not started | -- |
 | I | Performance & Quality | Not started | -- |
@@ -104,8 +104,8 @@ See full spec: `2026-04-17-multi-share-foundation-design.md`
 
 - [x] 34. Auto-reconnect on drop -- implemented for Brmble server/session and Matrix reconnect after Brmble services restarts; LiveKit rooms intentionally clear and require manual restart/watch.
 - [ ] 35. ICE fallback / TURN relay hardening -- future work.
-- [ ] 36. Connection quality indicator -- F2.
-- [ ] 37. Graceful degradation -- F2.
+- [x] 36. Connection quality indicator -- implemented for LiveKit screen-share UI through room/share quality state, sidebar tooltip text, and watched-tile quality badges.
+- [x] 37. Graceful degradation -- implemented as informational reconnecting/poor-quality UI that preserves watched tiles during transient LiveKit reconnects.
 - [x] 38. Disconnect notification when share ends unexpectedly -- implemented through Brmble notifications for watched/local share interruption.
 - [x] 39. Reconnect non-voice services independently when Mumble stays connected -- implemented for Brmble server/session, Matrix chat, and screen-share support state.
 - [ ] 40. Share state recovery after crash -- intentionally deferred; users restart sharing/watching manually.

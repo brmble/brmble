@@ -1,12 +1,14 @@
 import { useEffect, useCallback } from 'react';
 import { ScreenShareTile } from './ScreenShareTile';
 import type { ShareInfo } from '../../hooks/useScreenShare';
+import type { ScreenShareQuality } from '../../utils/screenShareQuality';
 import './ScreenShareGrid.css';
 
 interface ScreenShareGridProps {
   watchingShares: ShareInfo[];
   focusedShare: ShareInfo | null;
   videoElements: Map<number, HTMLVideoElement>;
+  shareQualities?: Map<number, ScreenShareQuality>;
   onFocus: (share: ShareInfo | null) => void;
   onClose: (share: ShareInfo) => void;
 }
@@ -18,7 +20,7 @@ function getLayout(count: number, hasFocus: boolean): string {
   return `grid-${count}`;
 }
 
-export function ScreenShareGrid({ watchingShares, focusedShare, videoElements, onFocus, onClose }: ScreenShareGridProps) {
+export function ScreenShareGrid({ watchingShares, focusedShare, videoElements, shareQualities, onFocus, onClose }: ScreenShareGridProps) {
   // Clear focus when only one stream remains (revert to single-stream view)
   useEffect(() => {
     if (watchingShares.length <= 1 && focusedShare) {
@@ -66,6 +68,7 @@ export function ScreenShareGrid({ watchingShares, focusedShare, videoElements, o
                 sharerName={focusedShare.userName}
                 isFocused={true}
                 isThumbnail={false}
+                quality={shareQualities?.get(focusedShare.userId)}
                 onClick={() => handleTileClick(focusedShare)}
                 onClose={() => onClose(focusedShare)}
               />
@@ -85,6 +88,7 @@ export function ScreenShareGrid({ watchingShares, focusedShare, videoElements, o
                 sharerName={share.userName}
                 isFocused={false}
                 isThumbnail={true}
+                quality={shareQualities?.get(share.userId)}
                 onClick={() => handleTileClick(share)}
                 onClose={() => onClose(share)}
               />
@@ -104,6 +108,7 @@ export function ScreenShareGrid({ watchingShares, focusedShare, videoElements, o
                 sharerName={share.userName}
                 isFocused={false}
                 isThumbnail={false}
+                quality={shareQualities?.get(share.userId)}
                 onClick={() => handleTileClick(share)}
                 onClose={() => onClose(share)}
               />

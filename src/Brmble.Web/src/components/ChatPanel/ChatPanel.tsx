@@ -8,6 +8,7 @@ import { formatDateSeparator, formatFullDate } from '../../utils/formatDateSepar
 import type { ChatMessage, MentionableUser } from '../../types';
 import { ScreenShareGrid } from '../ScreenShareGrid';
 import type { ShareInfo } from '../../hooks/useScreenShare';
+import type { ScreenShareQuality } from '../../utils/screenShareQuality';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { Icon } from '../Icon/Icon';
@@ -28,6 +29,7 @@ interface ChatPanelProps {
   watchingShares?: ShareInfo[];
   focusedShare?: ShareInfo | null;
   remoteVideoEls?: Map<number, HTMLVideoElement>;
+  shareQualities?: Map<number, ScreenShareQuality>;
   onFocusShare?: (share: ShareInfo | null) => void;
   onCloseShare?: (share: ShareInfo) => void;
   screenShareViewerMode?: 'in-app' | 'new-window';
@@ -45,7 +47,7 @@ const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
 const DEFAULT_SPLIT = 50;
 const REPLY_TARGET_HIGHLIGHT_MS = 1600;
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, watchingShares, focusedShare, remoteVideoEls, onFocusShare, onCloseShare, screenShareViewerMode, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, watchingShares, focusedShare, remoteVideoEls, shareQualities, onFocusShare, onCloseShare, screenShareViewerMode, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard }: ChatPanelProps) {
   // Build lookup maps from sender name and matrixUserId → avatar data for MessageBubble.
   // Name-based lookup works when Mumble name matches message sender.
   // MatrixUserId-based lookup handles cases where the user connected with a different
@@ -834,6 +836,7 @@ const [replyState, setReplyState] = useState<{
               watchingShares={watchingShares!}
               focusedShare={focusedShare ?? null}
               videoElements={remoteVideoEls!}
+              shareQualities={shareQualities}
               onFocus={onFocusShare ?? (() => {})}
               onClose={onCloseShare!}
             />

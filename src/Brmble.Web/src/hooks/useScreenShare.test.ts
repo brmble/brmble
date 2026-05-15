@@ -47,6 +47,8 @@ const mockRoom = {
   name: 'channel-1',
   state: undefined as string | undefined,
   localParticipant: {
+    identity: '@me:test',
+    connectionQuality: 'unknown',
     setScreenShareEnabled: vi.fn().mockImplementation(async (enabled: boolean) => {
       localSharePublicationEnabled = enabled;
     }),
@@ -90,8 +92,19 @@ vi.mock('livekit-client', () => ({
   },
   RoomEvent: {
     Disconnected: 'disconnected',
+    Connected: 'connected',
+    Reconnecting: 'reconnecting',
+    Reconnected: 'reconnected',
+    ConnectionQualityChanged: 'connectionQualityChanged',
     TrackSubscribed: 'trackSubscribed',
     TrackUnsubscribed: 'trackUnsubscribed',
+  },
+  ConnectionQuality: {
+    Excellent: 'excellent',
+    Good: 'good',
+    Poor: 'poor',
+    Lost: 'lost',
+    Unknown: 'unknown',
   },
   Track: {
     Kind: { Video: 'video' },
@@ -118,6 +131,7 @@ describe('useScreenShare', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRoom.state = undefined;
+    mockRoom.remoteParticipants.clear();
     roomEventHandlers.clear();
     localTrackEventHandlers.clear();
     localSharePublicationEnabled = false;
@@ -1070,6 +1084,98 @@ describe('useScreenShare', () => {
     });
 
     expect(result.current.activeShares).toEqual([]);
+  });
+
+  it('sets room quality to reconnecting without clearing watched shares', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    await act(async () => {
+      const promise = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      tokenHandler?.(liveKitToken('jwt'));
+      await promise;
+    });
+
+    act(() => {
+      emitRoomEvent('reconnecting');
+    });
+
+    expect(result.current.roomQuality).toBe('reconnecting');
+    expect(result.current.watchingShares).toHaveLength(1);
+  });
+
+  it('restores participant quality after reconnecting', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    await act(async () => {
+      const promise = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      tokenHandler?.(liveKitToken('jwt'));
+      await promise;
+    });
+
+    act(() => {
+      emitRoomEvent('connectionQualityChanged', 'excellent', { identity: '@alice:test' });
+    });
+
+    expect(result.current.roomQuality).toBe('good');
+
+    act(() => {
+      emitRoomEvent('reconnecting');
+    });
+    expect(result.current.roomQuality).toBe('reconnecting');
+
+    act(() => {
+      emitRoomEvent('reconnected');
+    });
+    expect(result.current.roomQuality).toBe('good');
+  });
+
+  it('updates watched-share quality from LiveKit participant quality events', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    await act(async () => {
+      const promise = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      tokenHandler?.(liveKitToken('jwt'));
+      await promise;
+    });
+
+    act(() => {
+      emitRoomEvent('connectionQualityChanged', 'poor', { identity: '@alice:test' });
+    });
+
+    expect(result.current.shareQualities.get(10)).toBe('poor');
+    expect(result.current.roomQuality).toBe('poor');
   });
 
   it('ignores stale room-scoped activeShareResult after global discovery becomes current', () => {

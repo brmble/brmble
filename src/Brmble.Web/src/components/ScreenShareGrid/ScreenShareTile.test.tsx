@@ -45,4 +45,15 @@ describe('ScreenShareTile', () => {
     render(<ScreenShareTile videoEl={createVideoEl()} sharerName="Alice" isFocused={false} isThumbnail={true} onClick={vi.fn()} onClose={vi.fn()} />);
     expect(screen.getByTestId('screen-share-tile').classList.contains('screen-share-tile--thumbnail')).toBe(true);
   });
+
+  it('shows reconnecting overlay while keeping the tile mounted', () => {
+    render(<ScreenShareTile videoEl={createVideoEl()} sharerName="Alice" isFocused={false} isThumbnail={false} quality="reconnecting" onClick={vi.fn()} onClose={vi.fn()} />);
+    expect(screen.getByTestId('screen-share-tile')).toBeTruthy();
+    expect(screen.getByText('Reconnecting...')).toBeTruthy();
+  });
+
+  it('shows poor connection badge', () => {
+    render(<ScreenShareTile videoEl={createVideoEl()} sharerName="Alice" isFocused={false} isThumbnail={false} quality="poor" onClick={vi.fn()} onClose={vi.fn()} />);
+    expect(screen.getByText('Poor connection')).toBeTruthy();
+  });
 });

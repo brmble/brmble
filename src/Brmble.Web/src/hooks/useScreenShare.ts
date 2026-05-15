@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState, useEffect, type SetStateAction } from 'react';
 import { Room, RoomEvent, Track, RemoteTrackPublication } from 'livekit-client';
 import bridge from '../bridge';
+import { type ScreenShareQuality, mapLiveKitQuality, worstQuality } from '../utils/screenShareQuality';
 
 export interface ShareInfo {
   roomName: string;
@@ -180,11 +181,16 @@ export function useScreenShare(
   const [isViewerConnectPending, setIsViewerConnectPending] = useState(false);
   const [focusedShare, _setFocusedShare] = useState<ShareInfo | null>(null);
   const [remoteVideoEls, setRemoteVideoEls] = useState<Map<number, HTMLVideoElement>>(new Map());
+  const [roomQuality, setRoomQuality] = useState<ScreenShareQuality>('unknown');
+  const [shareQualities, setShareQualities] = useState<Map<number, ScreenShareQuality>>(new Map());
 
   // Single room connection per channel — used for both publishing and subscribing
   const roomRef = useRef<Room | null>(null);
   const watchingSharesRef = useRef<ShareInfo[]>([]);
   const activeSharesRef = useRef<ShareInfo[]>([]);
+  const shareQualitiesRef = useRef<Map<number, ScreenShareQuality>>(new Map());
+  const localQualityRef = useRef<ScreenShareQuality>('unknown');
+  const isRoomReconnectingRef = useRef(false);
   const isSharingRef = useRef(false);
   const isStartingShareRef = useRef(false);
   const focusedShareRef = useRef<ShareInfo | null>(null);
@@ -261,6 +267,49 @@ export function useScreenShare(
     setWatchingShares(shares);
   }, []);
 
+  const recomputeRoomQuality = useCallback(() => {
+    if (isRoomReconnectingRef.current) {
+      setRoomQuality('reconnecting');
+      return;
+    }
+
+    const qualities: ScreenShareQuality[] = [];
+    if (isSharingRef.current) {
+      qualities.push(localQualityRef.current);
+    }
+
+    for (const share of watchingSharesRef.current) {
+      qualities.push(shareQualitiesRef.current.get(share.userId) ?? 'unknown');
+    }
+
+    setRoomQuality(qualities.length > 0 ? worstQuality(qualities) : 'unknown');
+  }, []);
+
+  const resetQualityState = useCallback(() => {
+    isRoomReconnectingRef.current = false;
+    localQualityRef.current = 'unknown';
+    shareQualitiesRef.current = new Map();
+    setShareQualities(new Map());
+    setRoomQuality('unknown');
+  }, []);
+
+  const updateShareQuality = useCallback((userId: number, quality: ScreenShareQuality) => {
+    shareQualitiesRef.current = new Map(shareQualitiesRef.current).set(userId, quality);
+    setShareQualities(shareQualitiesRef.current);
+    recomputeRoomQuality();
+  }, [recomputeRoomQuality]);
+
+  const removeShareQuality = useCallback((userId: number) => {
+    if (!shareQualitiesRef.current.has(userId)) {
+      return;
+    }
+    const next = new Map(shareQualitiesRef.current);
+    next.delete(userId);
+    shareQualitiesRef.current = next;
+    setShareQualities(next);
+    recomputeRoomQuality();
+  }, [recomputeRoomQuality]);
+
   const clearTokenRefreshTimer = useCallback(() => {
     if (tokenRefreshTimerRef.current) {
       clearTimeout(tokenRefreshTimerRef.current);
@@ -292,34 +341,38 @@ export function useScreenShare(
 
   const addWatchingShare = useCallback((share: ShareInfo) => {
     endedWatchedShareKeysRef.current.delete(watchedShareKey(share.roomName, share.userId));
-    setWatchingShares(prev => {
-      if (prev.some(s => s.userId === share.userId)) return prev;
-      let evictedUserId: number | undefined;
-      let next: ShareInfo[];
-      if (prev.length >= 4) {
-        // Evict oldest non-focused share; fall back to oldest if all focused
-        const focusId = focusedShareRef.current?.userId;
-        const evictIndex = prev.findIndex(s => s.userId !== focusId) ?? 0;
-        evictedUserId = prev[evictIndex].userId;
-        next = [...prev.slice(0, evictIndex), ...prev.slice(evictIndex + 1), share];
-      } else {
-        next = [...prev, share];
-      }
-      watchingSharesRef.current = next;
+    const prev = watchingSharesRef.current;
+    if (prev.some(s => s.userId === share.userId)) return;
 
-      // Clean up evicted share state
-      if (evictedUserId != null) {
-        const evicted = evictedUserId;
-        setFocusedShare(p => p?.userId === evicted ? null : p);
-        setRemoteVideoEls(p => {
-          const m = new Map(p);
-          m.delete(evicted);
-          return m;
-        });
-      }
-      return next;
-    });
-  }, []);
+    let evictedUserId: number | undefined;
+    let next: ShareInfo[];
+    if (prev.length >= 4) {
+      // Evict oldest non-focused share; fall back to oldest if all focused
+      const focusId = focusedShareRef.current?.userId;
+      const nonFocusedIndex = prev.findIndex(s => s.userId !== focusId);
+      const evictIndex = nonFocusedIndex >= 0 ? nonFocusedIndex : 0;
+      evictedUserId = prev[evictIndex].userId;
+      next = [...prev.slice(0, evictIndex), ...prev.slice(evictIndex + 1), share];
+    } else {
+      next = [...prev, share];
+    }
+    watchingSharesRef.current = next;
+    setWatchingShares(next);
+
+    // Clean up evicted share state
+    if (evictedUserId != null) {
+      const evicted = evictedUserId;
+      setFocusedShare(p => p?.userId === evicted ? null : p);
+      removeShareQuality(evicted);
+      setRemoteVideoEls(p => {
+        const m = new Map(p);
+        m.delete(evicted);
+        return m;
+      });
+    }
+
+    recomputeRoomQuality();
+  }, [recomputeRoomQuality, removeShareQuality, setFocusedShare]);
 
   const removeWatchingShare = useCallback((userId: number, options?: { clearPending?: boolean }) => {
     const removedShares = watchingSharesRef.current.filter(s => s.userId === userId);
@@ -337,14 +390,18 @@ export function useScreenShare(
       next.delete(userId);
       return next;
     });
+    removeShareQuality(userId);
     return next;
-  }, [setFocusedShare]);
+  }, [removeShareQuality, setFocusedShare]);
 
   const clearWatchingState = useCallback(() => {
     setRemoteVideoEls(new Map());
     updateWatchingShares([]);
     setFocusedShare(null);
-  }, [setFocusedShare, updateWatchingShares]);
+    shareQualitiesRef.current = new Map();
+    setShareQualities(new Map());
+    recomputeRoomQuality();
+  }, [recomputeRoomQuality, setFocusedShare, updateWatchingShares]);
 
   const endWatchedShare = useCallback((share: ShareInfo, reason: WatchedShareEndReason) => {
     const key = watchedShareKey(share.roomName, share.userId);
@@ -470,13 +527,14 @@ export function useScreenShare(
       roomRef.current = null;
       roomAccessModeRef.current = null;
       roomReconnectUpgradeRef.current = false;
+      resetQualityState();
       clearTokenLease();
       invalidateRoomLifecycle('maybeDisconnectRoom');
       try { await room.disconnect(); } catch { /* ignore */ }
     } else {
       sendScreenShareDebugEvent('maybeDisconnectRoom.skip');
     }
-  }, [clearTokenLease, invalidateRoomLifecycle]);
+  }, [clearTokenLease, invalidateRoomLifecycle, resetQualityState]);
 
   const stopLocalShare = useCallback(async (
     reason: LocalShareStopReason,
@@ -505,6 +563,7 @@ export function useScreenShare(
 
     isSharingRef.current = false;
     setIsSharing(false);
+    recomputeRoomQuality();
 
     if (wasSharing && roomName) {
       bridge.send('livekit.shareStopped', { roomName });
@@ -519,7 +578,7 @@ export function useScreenShare(
 
     await maybeDisconnectRoom();
     sendScreenShareDebugEvent(`stopLocalShare.${reason}.done`);
-  }, [clearLocalShareEndListener, maybeDisconnectRoom]);
+  }, [clearLocalShareEndListener, maybeDisconnectRoom, recomputeRoomQuality]);
 
   const scheduleTokenRefresh = useCallback((lease: ActiveTokenLease) => {
     clearTokenRefreshTimer();
@@ -556,6 +615,7 @@ export function useScreenShare(
           roomRef.current = null;
           roomAccessModeRef.current = null;
           roomReconnectUpgradeRef.current = false;
+          resetQualityState();
           clearTokenLease();
           invalidateRoomLifecycle('tokenRefreshFailed');
           cancelPendingViewerAttempts();
@@ -568,7 +628,7 @@ export function useScreenShare(
         }
       })();
     }, delayMs);
-  }, [cancelPendingViewerAttempts, clearTokenLease, clearTokenRefreshTimer, clearWatchingState, invalidateRoomLifecycle, notifyUnexpectedWatchedShareEnds, requestToken, stopLocalShare]);
+  }, [cancelPendingViewerAttempts, clearTokenLease, clearTokenRefreshTimer, clearWatchingState, invalidateRoomLifecycle, notifyUnexpectedWatchedShareEnds, requestToken, resetQualityState, stopLocalShare]);
 
   const bindLocalShareEndListener = useCallback((room: Room) => {
     clearLocalShareEndListener();
@@ -643,6 +703,49 @@ export function useScreenShare(
       }
     });
 
+    room.on(RoomEvent.Reconnecting, () => {
+      if (roomRef.current !== room) {
+        return;
+      }
+
+      isRoomReconnectingRef.current = true;
+      setRoomQuality('reconnecting');
+    });
+
+    const onReconnected = () => {
+      if (roomRef.current !== room) {
+        return;
+      }
+
+      isRoomReconnectingRef.current = false;
+      recomputeRoomQuality();
+    };
+
+    room.on(RoomEvent.Connected, onReconnected);
+    room.on(RoomEvent.Reconnected, onReconnected);
+
+    room.on(RoomEvent.ConnectionQualityChanged, (connectionQuality, participant) => {
+      if (roomRef.current !== room) {
+        return;
+      }
+
+      const quality = mapLiveKitQuality(connectionQuality);
+      const participantIdentity = participant.identity;
+      if (participantIdentity === room.localParticipant.identity) {
+        localQualityRef.current = quality;
+        recomputeRoomQuality();
+        return;
+      }
+
+      const matchedShare = watchingSharesRef.current.find(s => {
+        const identity = s.matrixUserId ?? String(s.userId);
+        return identity === participantIdentity;
+      });
+      if (matchedShare) {
+        updateShareQuality(matchedShare.userId, quality);
+      }
+    });
+
     room.on(RoomEvent.Disconnected, () => {
       sendScreenShareDebugEvent('room.disconnected.event');
       if (roomRef.current !== room) {
@@ -659,6 +762,7 @@ export function useScreenShare(
 
       roomRef.current = null;
       roomAccessModeRef.current = null;
+      resetQualityState();
       clearTokenLease();
       invalidateRoomLifecycle('roomDisconnected');
       notifyUnexpectedWatchedShareEnds();
@@ -670,7 +774,7 @@ export function useScreenShare(
         void stopLocalShare(teardownIntent ?? 'interrupted', room);
       }
     });
-  }, [clearTokenLease, clearWatchingState, invalidateRoomLifecycle, notifyUnexpectedWatchedShareEnds, removeWatchingShare, stopLocalShare]);
+  }, [clearTokenLease, clearWatchingState, invalidateRoomLifecycle, notifyUnexpectedWatchedShareEnds, recomputeRoomQuality, removeWatchingShare, resetQualityState, stopLocalShare, updateShareQuality]);
 
   // Ensure we have a connected room for the given channel.
   // Returns the existing room if already connected to this channel, otherwise connects.
@@ -728,6 +832,7 @@ export function useScreenShare(
           roomRef.current = null;
           roomAccessModeRef.current = null;
           roomReconnectUpgradeRef.current = false;
+          resetQualityState();
           clearTokenLease();
           roomLifecycleGenerationRef.current += 1;
         }
@@ -756,6 +861,7 @@ export function useScreenShare(
       }
 
       roomReconnectUpgradeRef.current = false;
+      recomputeRoomQuality();
       return room;
     })();
 
@@ -780,7 +886,7 @@ export function useScreenShare(
         pendingRoomRequestRef.current = null;
       }
     }
-  }, [requestToken, clearWatchingState, invalidateRoomLifecycle, clearTokenLease, scheduleTokenRefresh, bindRoomEvents]);
+  }, [requestToken, clearWatchingState, invalidateRoomLifecycle, clearTokenLease, scheduleTokenRefresh, bindRoomEvents, recomputeRoomQuality, resetQualityState]);
 
   const startSharing = useCallback(async (roomName: string): Promise<boolean> => {
     if (isStartingShareRef.current) {
@@ -855,6 +961,7 @@ export function useScreenShare(
 
       isSharingRef.current = true;
       setIsSharing(true);
+      recomputeRoomQuality();
       bindLocalShareEndListener(room);
 
       bridge.send('livekit.shareStarted', { roomName });
@@ -890,7 +997,7 @@ export function useScreenShare(
       isStartingShareRef.current = false;
       sendScreenShareDebugEvent('startSharing.finally');
     }
-  }, [screenShareSettings, ensureRoom, bindLocalShareEndListener, clearLocalShareEndListener, maybeDisconnectRoom, stopLocalShare]);
+  }, [screenShareSettings, ensureRoom, bindLocalShareEndListener, clearLocalShareEndListener, maybeDisconnectRoom, recomputeRoomQuality, stopLocalShare]);
 
   const stopSharing = useCallback(async () => {
     if (isStartingShareRef.current) {
@@ -913,6 +1020,8 @@ export function useScreenShare(
         const identity = existingShare.matrixUserId ?? String(targetUserId);
         const participant = room.remoteParticipants.get(identity);
         if (participant) {
+          const quality = mapLiveKitQuality(participant.connectionQuality);
+          updateShareQuality(targetUserId, quality);
           participant.trackPublications.forEach((pub: RemoteTrackPublication) => {
             if (pub.track && pub.track.kind === Track.Kind.Video && pub.source === Track.Source.ScreenShare) {
               pub.track.detach();
@@ -977,7 +1086,7 @@ export function useScreenShare(
       unregisterPendingViewerAttempt(pendingAttempt);
       endViewerConnectAttempt();
     }
-  }, [activeShares, ensureRoom, addWatchingShare, removeWatchingShare, maybeDisconnectRoom, beginViewerConnectAttempt, endViewerConnectAttempt, registerPendingViewerAttempt, unregisterPendingViewerAttempt]);
+  }, [activeShares, ensureRoom, addWatchingShare, removeWatchingShare, maybeDisconnectRoom, beginViewerConnectAttempt, endViewerConnectAttempt, registerPendingViewerAttempt, unregisterPendingViewerAttempt, updateShareQuality]);
 
   const disconnectViewer = useCallback(async (userId?: number) => {
     const room = roomRef.current;
@@ -1076,6 +1185,7 @@ export function useScreenShare(
           roomRef.current = null;
           roomAccessModeRef.current = null;
           roomReconnectUpgradeRef.current = false;
+          resetQualityState();
           clearTokenLease();
           invalidateRoomLifecycle('shareStoppedDisconnectRoom');
         }
@@ -1155,7 +1265,7 @@ export function useScreenShare(
       bridge.off('livekit.activeShareResult', onActiveShareResult);
       bridge.off('livekit.activeShareError', onActiveShareError);
     };
-  }, [endWatchedShare, removeWatchingShare, updateActiveShares, invalidateRoomLifecycle, cancelPendingViewerAttempts, clearTokenLease]);
+  }, [endWatchedShare, removeWatchingShare, updateActiveShares, invalidateRoomLifecycle, cancelPendingViewerAttempts, clearTokenLease, resetQualityState]);
 
   useEffect(() => {
     return () => {
@@ -1181,6 +1291,7 @@ export function useScreenShare(
     roomRef.current = null;
     roomAccessModeRef.current = null;
     roomReconnectUpgradeRef.current = false;
+    resetQualityState();
     clearTokenLease();
     invalidateRoomLifecycle('serviceUnavailable');
     setDiscoveryTarget(null);
@@ -1190,7 +1301,7 @@ export function useScreenShare(
       await stopLocalShare('interrupted', room);
     }
     try { await room?.disconnect(); } catch { /* ignore */ }
-  }, [cancelPendingViewerAttempts, clearTokenLease, clearWatchingState, invalidateRoomLifecycle, notifyUnexpectedWatchedShareEnds, setDiscoveryTarget, stopLocalShare]);
+  }, [cancelPendingViewerAttempts, clearTokenLease, clearWatchingState, invalidateRoomLifecycle, notifyUnexpectedWatchedShareEnds, resetQualityState, setDiscoveryTarget, stopLocalShare]);
 
   return {
     isSharing,
@@ -1208,6 +1319,8 @@ export function useScreenShare(
     setDiscoveryTarget,
     remoteVideoEl,     // backward compat
     remoteVideoEls,    // new
+    roomQuality,
+    shareQualities,
     addWatchingShare,      // new
     removeWatchingShare,   // new
     disconnectViewer,
