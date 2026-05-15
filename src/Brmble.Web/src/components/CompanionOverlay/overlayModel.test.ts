@@ -28,7 +28,7 @@ describe('overlayModel', () => {
       localUser: {
         session: 0,
         name: 'You',
-        companionId: 'bee',
+        companionId: 'floppy',
       },
       flags: {
         localMuted: false,
@@ -116,7 +116,7 @@ describe('overlayModel', () => {
       kind: 'idle',
       representedSession: 0,
       representedName: 'You',
-      companionId: 'bee',
+      companionId: 'floppy',
       row: 1,
       bubble: null,
       expiresAt: null,
@@ -276,6 +276,48 @@ describe('overlayModel', () => {
       representedSession: 99,
       companionId: 'retro',
       isProxy: true,
+    }));
+  });
+
+  it('refreshes an active remote speaking display when companion data arrives later', () => {
+    let snapshot = updateFullCompanionContext(createOverlaySnapshot('7', 'Raid'), {
+      localUser: {
+        session: 42,
+        name: 'You',
+        companionId: 'floppy',
+      },
+      companionsByUser: {
+        99: {
+          session: 99,
+          name: 'Milo',
+        },
+      },
+    });
+    snapshot = setSpeakerActivity(snapshot, { session: 99, name: 'Milo', channelId: 7 }, true, 1_000);
+    snapshot = resolveFullCompanionDisplay(snapshot, 1_500);
+
+    expect(snapshot.fullCompanion.activeDisplay).toEqual(expect.objectContaining({
+      kind: 'speaking',
+      representedSession: 99,
+      companionId: 'floppy',
+      isProxy: true,
+    }));
+
+    snapshot = updateFullCompanionContext(snapshot, {
+      companionsByUser: {
+        99: {
+          session: 99,
+          name: 'Milo',
+          companionId: 'retro',
+        },
+      },
+    });
+
+    expect(snapshot.fullCompanion.activeDisplay).toEqual(expect.objectContaining({
+      kind: 'speaking',
+      representedSession: 99,
+      companionId: 'retro',
+      isProxy: false,
     }));
   });
 

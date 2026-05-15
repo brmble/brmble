@@ -23,15 +23,15 @@ public class SessionMappingServiceTests
     public void TryAddMatrixUser_ReturnsTrueFirstTime_FalseSecondTime()
     {
         _svc.SetNameForSession("Alice", 1);
-        Assert.IsTrue(_svc.TryAddMatrixUser(1, "@1:server", "Alice", 1L));
-        Assert.IsFalse(_svc.TryAddMatrixUser(1, "@1:server", "Alice", 1L));
+        Assert.IsTrue(_svc.TryAddMatrixUser(1, "@1:server", "Alice", 1L, "bee"));
+        Assert.IsFalse(_svc.TryAddMatrixUser(1, "@1:server", "Alice", 1L, "bee"));
     }
 
     [TestMethod]
     public void TryGetMatrixUserId_ReturnsMappingAfterAdd()
     {
         _svc.SetNameForSession("Alice", 1);
-        _svc.TryAddMatrixUser(1, "@1:server", "Alice", 1L);
+        _svc.TryAddMatrixUser(1, "@1:server", "Alice", 1L, "bee");
         Assert.IsTrue(_svc.TryGetMatrixUserId(1, out var matrixId));
         Assert.AreEqual("@1:server", matrixId);
     }
@@ -47,7 +47,7 @@ public class SessionMappingServiceTests
     public void RemoveSession_CleansUpBothMaps()
     {
         _svc.SetNameForSession("Alice", 1);
-        _svc.TryAddMatrixUser(1, "@1:server", "Alice", 1L);
+        _svc.TryAddMatrixUser(1, "@1:server", "Alice", 1L, "bee");
         _svc.RemoveSession(1);
         Assert.IsFalse(_svc.TryGetMatrixUserId(1, out _));
         Assert.IsFalse(_svc.TryGetSessionId("Alice", out _));
@@ -66,9 +66,9 @@ public class SessionMappingServiceTests
     public void GetSnapshot_ReturnsCurrentMappings()
     {
         _svc.SetNameForSession("Alice", 1);
-        _svc.TryAddMatrixUser(1, "@1:server", "Alice", 1L);
+        _svc.TryAddMatrixUser(1, "@1:server", "Alice", 1L, "bee");
         _svc.SetNameForSession("Bob", 2);
-        _svc.TryAddMatrixUser(2, "@2:server", "Bob", 2L);
+        _svc.TryAddMatrixUser(2, "@2:server", "Bob", 2L, "bee");
         var snapshot = _svc.GetSnapshot();
         Assert.AreEqual(2, snapshot.Count);
         Assert.AreEqual("@1:server", snapshot[1].MatrixUserId);
@@ -81,7 +81,7 @@ public class SessionMappingServiceTests
     public void GetSnapshot_IsIsolatedFromMutations()
     {
         _svc.SetNameForSession("Alice", 1);
-        _svc.TryAddMatrixUser(1, "@1:server", "Alice", 1L);
+        _svc.TryAddMatrixUser(1, "@1:server", "Alice", 1L, "bee");
         var snapshot = _svc.GetSnapshot();
         _svc.RemoveSession(1);
         Assert.AreEqual(1, snapshot.Count);
@@ -91,7 +91,7 @@ public class SessionMappingServiceTests
     public void TryGetSessionByUserId_ReturnsSessionAfterAdd()
     {
         _svc.SetNameForSession("Alice", 1);
-        _svc.TryAddMatrixUser(1, "@1:server", "Alice", 42L);
+        _svc.TryAddMatrixUser(1, "@1:server", "Alice", 42L, "bee");
         Assert.IsTrue(_svc.TryGetSessionByUserId(42L, out var sessionId));
         Assert.AreEqual(1, sessionId);
     }
@@ -99,9 +99,9 @@ public class SessionMappingServiceTests
     [TestMethod]
     public void TryAddMatrixUser_ExistingSession_RefreshesUserIdIndex()
     {
-        Assert.IsTrue(_svc.TryAddMatrixUser(1, "@old:server", "Alice", 10L));
+        Assert.IsTrue(_svc.TryAddMatrixUser(1, "@old:server", "Alice", 10L, "bee"));
 
-        Assert.IsFalse(_svc.TryAddMatrixUser(1, "@new:server", "Alice", 42L));
+        Assert.IsFalse(_svc.TryAddMatrixUser(1, "@new:server", "Alice", 42L, "bee"));
 
         Assert.IsTrue(_svc.TryGetSessionByUserId(42L, out var sessionId));
         Assert.AreEqual(1, sessionId);
@@ -116,11 +116,22 @@ public class SessionMappingServiceTests
     [TestMethod]
     public void TryGetMappingByUserId_ReturnsSessionAndMapping()
     {
-        Assert.IsTrue(_svc.TryAddMatrixUser(1, "@alice:server", "Alice", 42L));
+        Assert.IsTrue(_svc.TryAddMatrixUser(1, "@alice:server", "Alice", 42L, "bee"));
 
         Assert.IsTrue(_svc.TryGetMappingByUserId(42L, out var sessionId, out var mapping));
         Assert.AreEqual(1, sessionId);
         Assert.AreEqual("@alice:server", mapping!.MatrixUserId);
         Assert.AreEqual("Alice", mapping.MumbleName);
+    }
+
+    [TestMethod]
+    public void TryUpdateCompanionId_UpdatesExistingMapping()
+    {
+        _svc.TryAddMatrixUser(42, "@alice:test", "Alice", 100L, "bee");
+
+        var updated = _svc.TryUpdateCompanionId(42, "floppy");
+
+        Assert.IsTrue(updated);
+        Assert.AreEqual("floppy", _svc.GetSnapshot()[42].CompanionId);
     }
 }

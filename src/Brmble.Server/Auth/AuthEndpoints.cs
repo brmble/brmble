@@ -85,7 +85,8 @@ public static class AuthEndpoints
             if (!string.IsNullOrEmpty(resolvedName) &&
                 sessionMapping.TryGetSessionId(resolvedName, out var sid))
             {
-                if (sessionMapping.TryAddMatrixUser(sid, result.MatrixUserId, resolvedName, result.UserId))
+                var companionId = await userRepository.GetCompanionId(result.UserId);
+                if (sessionMapping.TryAddMatrixUser(sid, result.MatrixUserId, resolvedName, result.UserId, companionId))
                 {
                     // This user just authenticated via Brmble, so mark them as a Brmble client
                     // immediately. Authenticate() may have failed to update the mapping if
@@ -97,6 +98,7 @@ public static class AuthEndpoints
                         sessionId = sid,
                         matrixUserId = result.MatrixUserId,
                         mumbleName = resolvedName,
+                        companionId,
                         isBrmbleClient = true
                     });
                 }
@@ -162,7 +164,13 @@ public static class AuthEndpoints
                 sessionMappings = sessionMapping.GetSnapshot()
                     .ToDictionary(
                         kvp => kvp.Key.ToString(),
-                        kvp => new { matrixUserId = kvp.Value.MatrixUserId, mumbleName = kvp.Value.MumbleName, isBrmbleClient = kvp.Value.IsBrmbleClient }),
+                        kvp => new
+                        {
+                            matrixUserId = kvp.Value.MatrixUserId,
+                            mumbleName = kvp.Value.MumbleName,
+                            companionId = kvp.Value.CompanionId,
+                            isBrmbleClient = kvp.Value.IsBrmbleClient
+                        }),
                 registered = result.IsRegistered,
                 registeredName = result.DisplayName,
                 livekit = (object?)null
@@ -204,6 +212,57 @@ public static class AuthEndpoints
                 user.Id, source ?? "(cleared)");
 
             return Results.Ok(new { source });
+        });
+
+        app.MapPost("/auth/companion", async (
+            HttpContext httpContext,
+            ICertificateHashExtractor certHashExtractor,
+            UserRepository userRepository,
+            ISessionMappingService sessionMapping,
+            IChannelMembershipService channelMembership,
+            IBrmbleEventBus eventBus,
+            ILogger<AuthService> logger) =>
+        {
+            var certHash = certHashExtractor.GetCertHash(httpContext);
+            if (string.IsNullOrWhiteSpace(certHash))
+                return Results.Unauthorized();
+
+            var user = await userRepository.GetByCertHash(certHash);
+            if (user is null)
+                return Results.Unauthorized();
+
+            string? companionId = null;
+            try
+            {
+                using var doc = await JsonDocument.ParseAsync(httpContext.Request.Body);
+                companionId = doc.RootElement.TryGetProperty("companionId", out var prop)
+                    ? prop.GetString()
+                    : null;
+            }
+            catch { /* empty or non-JSON body */ }
+
+            if (!UserRepository.TryNormalizeCompanionId(companionId, out var normalized))
+                return Results.BadRequest(new { error = "Invalid companion ID" });
+
+            await userRepository.SetCompanionId(user.Id, normalized);
+
+            if (sessionMapping.TryGetSessionByUserId(user.Id, out var sessionId))
+            {
+                sessionMapping.TryUpdateCompanionId(sessionId, normalized);
+                if (channelMembership.TryGetChannel(sessionId, out var channelId))
+                {
+                    await eventBus.BroadcastToChannelAsync(channelId, new
+                    {
+                        type = "companionChanged",
+                        sessionId,
+                        matrixUserId = user.MatrixUserId,
+                        companionId = normalized
+                    });
+                }
+            }
+
+            logger.LogInformation("Companion updated: UserId={UserId}, CompanionId={CompanionId}", user.Id, normalized);
+            return Results.Ok(new { companionId = normalized });
         });
 
         return app;

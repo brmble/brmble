@@ -12,22 +12,22 @@ describe('InterfaceSettingsTypes', () => {
       expect(normalizeCompanionId('retro')).toBe('retro');
     });
 
-    it('migrates legacy companion ID "clip" to "bee"', () => {
-      expect(normalizeCompanionId('clip')).toBe('bee');
+    it('migrates legacy companion ID "clip" to "floppy"', () => {
+      expect(normalizeCompanionId('clip')).toBe('floppy');
     });
 
-    it('handles invalid string values by returning "bee"', () => {
-      expect(normalizeCompanionId('invalid')).toBe('bee');
-      expect(normalizeCompanionId('unknown')).toBe('bee');
-      expect(normalizeCompanionId('')).toBe('bee');
+    it('handles invalid string values by returning "floppy"', () => {
+      expect(normalizeCompanionId('invalid')).toBe('floppy');
+      expect(normalizeCompanionId('unknown')).toBe('floppy');
+      expect(normalizeCompanionId('')).toBe('floppy');
     });
 
-    it('handles non-string values by returning "bee"', () => {
-      expect(normalizeCompanionId(null)).toBe('bee');
-      expect(normalizeCompanionId(undefined)).toBe('bee');
-      expect(normalizeCompanionId(123)).toBe('bee');
-      expect(normalizeCompanionId({})).toBe('bee');
-      expect(normalizeCompanionId([])).toBe('bee');
+    it('handles non-string values by returning "floppy"', () => {
+      expect(normalizeCompanionId(null)).toBe('floppy');
+      expect(normalizeCompanionId(undefined)).toBe('floppy');
+      expect(normalizeCompanionId(123)).toBe('floppy');
+      expect(normalizeCompanionId({})).toBe('floppy');
+      expect(normalizeCompanionId([])).toBe('floppy');
     });
   });
 
@@ -38,7 +38,7 @@ describe('InterfaceSettingsTypes', () => {
         overlayEnabled: true,
       });
 
-      expect(result.myCompanion).toBe('bee');
+      expect(result.myCompanion).toBe('floppy');
       expect(result.overlayEnabled).toBe(true);
       // Should merge with defaults for missing properties
       expect(result.mode).toBe(DEFAULT_OVERLAY.mode);
@@ -78,7 +78,7 @@ describe('InterfaceSettingsTypes', () => {
         mode: 'full',
       });
 
-      expect(result.myCompanion).toBe('bee');
+      expect(result.myCompanion).toBe('floppy');
       expect(result.mode).toBe('full');
     });
   });

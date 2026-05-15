@@ -480,6 +480,25 @@ public class MumbleAdapterParseTests
         Assert.AreEqual(0, result.Count);
     }
 
+    [TestMethod]
+    public void ParseSessionMappings_WithCompanionId_RoundTrips()
+    {
+        using var json = JsonDocument.Parse("""
+        {
+          "42": {
+            "matrixUserId": "@alice:test",
+            "mumbleName": "Alice",
+            "companionId": "pip",
+            "isBrmbleClient": true
+          }
+        }
+        """);
+
+        var result = MumbleAdapter.ParseSessionMappings(json.RootElement);
+
+        Assert.AreEqual("pip", result[42].CompanionId);
+    }
+
     // Transmission mode parsing tests
     [TestMethod]
     public void ParseTransmissionMode_PushToTalkPlus_ReturnsCorrectEnum()

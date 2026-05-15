@@ -15,9 +15,9 @@ public class SessionMappingService : ISessionMappingService
         _sessionToName[sessionId] = name;
     }
 
-    public bool TryAddMatrixUser(int sessionId, string matrixUserId, string mumbleName, long userId)
+    public bool TryAddMatrixUser(int sessionId, string matrixUserId, string mumbleName, long userId, string companionId)
     {
-        if (_sessionToMapping.TryAdd(sessionId, new SessionMapping(matrixUserId, mumbleName, userId)))
+        if (_sessionToMapping.TryAdd(sessionId, new SessionMapping(matrixUserId, mumbleName, userId, companionId)))
         {
             _userIdToSession[userId] = sessionId;
             return true;
@@ -85,6 +85,17 @@ public class SessionMappingService : ISessionMappingService
             _sessionToMapping[sessionId] = existing with { IsBrmbleClient = isBrmbleClient };
             return true;
         }
+        return false;
+    }
+
+    public bool TryUpdateCompanionId(int sessionId, string companionId)
+    {
+        if (_sessionToMapping.TryGetValue(sessionId, out var existing))
+        {
+            _sessionToMapping[sessionId] = existing with { CompanionId = companionId };
+            return true;
+        }
+
         return false;
     }
 

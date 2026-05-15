@@ -263,7 +263,7 @@ public class MumbleServerCallbackTests
         var mapping = new Mock<ISessionMappingService>();
         mapping.Setup(m => m.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>
         {
-            { 42, new SessionMapping("@100:x", "Alice", 100L) }
+            { 42, new SessionMapping("@100:x", "Alice", 100L, "bee") }
         });
 
         var callback = CreateCallback([], mapping: mapping.Object, bus: bus.Object,
@@ -298,7 +298,7 @@ public class MumbleServerCallbackTests
         tracker.Start("channel-5", "Alice", 100L);
         mapping.Setup(m => m.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>
         {
-            { 42, new SessionMapping("@100:x", "Alice", 100L) }
+            { 42, new SessionMapping("@100:x", "Alice", 100L, "bee") }
         });
 
         var callback = CreateCallback([handler.Object], mapping: mapping.Object, bus: bus.Object,
@@ -328,7 +328,7 @@ public class MumbleServerCallbackTests
         var mapping = new Mock<ISessionMappingService>();
         mapping.Setup(m => m.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>
         {
-            { 42, new SessionMapping("@alice:test", "Alice", 100L) }
+            { 42, new SessionMapping("@alice:test", "Alice", 100L, "bee") }
         });
 
         var participantTracker = new LiveKitParticipantTracker();
@@ -355,7 +355,7 @@ public class MumbleServerCallbackTests
         var mapping = new Mock<ISessionMappingService>();
         mapping.Setup(m => m.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>
         {
-            { 42, new SessionMapping("@alice:test", "Alice", 100L) }
+            { 42, new SessionMapping("@alice:test", "Alice", 100L, "bee") }
         });
 
         var participantTracker = new LiveKitParticipantTracker();
@@ -384,7 +384,7 @@ public class MumbleServerCallbackTests
         var mapping = new Mock<ISessionMappingService>();
         mapping.Setup(m => m.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>
         {
-            { 42, new SessionMapping("@alice:test", "Alice", 100L) }
+            { 42, new SessionMapping("@alice:test", "Alice", 100L, "bee") }
         });
 
         var tracker = new ScreenShareTracker();
@@ -415,7 +415,7 @@ public class MumbleServerCallbackTests
         var mapping = new Mock<ISessionMappingService>();
         mapping.Setup(m => m.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>
         {
-            { 42, new SessionMapping("@alice:test", "Alice", 100L) }
+            { 42, new SessionMapping("@alice:test", "Alice", 100L, "bee") }
         });
         mapping.Setup(m => m.RemoveSession(42)).Callback(() => order.Add("remove-session"));
         var channelMembership = new Mock<IChannelMembershipService>();
@@ -443,7 +443,7 @@ public class MumbleServerCallbackTests
         var mapping = new Mock<ISessionMappingService>();
         mapping.Setup(m => m.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>
         {
-            { 42, new SessionMapping("@alice:test", "Alice", 100L) }
+            { 42, new SessionMapping("@alice:test", "Alice", 100L, "bee") }
         });
 
         var screenShareTracker = new ScreenShareTracker();

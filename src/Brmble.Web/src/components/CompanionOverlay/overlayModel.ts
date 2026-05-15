@@ -37,7 +37,7 @@ function createDefaultFullCompanionState(): CompanionOverlaySnapshot['fullCompan
     localUser: {
       session: 0,
       name: 'You',
-      companionId: 'bee',
+      companionId: 'floppy',
     },
     flags: {
       localMuted: false,
@@ -295,6 +295,27 @@ export function updateFullCompanionContext(
       representedSession: nextLocalUser.session,
       isProxy: false,
     };
+  }
+
+  // Refresh active remote displays when companion context arrives after the display is already active.
+  if (nextActiveDisplay && nextActiveDisplay.representedSession !== nextLocalUser.session) {
+    const representedCompanion = nextFullCompanion.companionsByUser[nextActiveDisplay.representedSession];
+    const nextCompanionId = resolveCompanionId(nextFullCompanion, nextActiveDisplay.representedSession);
+    const nextIsProxy = !representedCompanion?.companionId;
+    const nextRepresentedName = representedCompanion?.name ?? nextActiveDisplay.representedName;
+
+    if (
+      nextCompanionId !== nextActiveDisplay.companionId
+      || nextIsProxy !== nextActiveDisplay.isProxy
+      || nextRepresentedName !== nextActiveDisplay.representedName
+    ) {
+      nextActiveDisplay = {
+        ...nextActiveDisplay,
+        representedName: nextRepresentedName,
+        companionId: nextCompanionId,
+        isProxy: nextIsProxy,
+      };
+    }
   }
   
   // Update companionId if local user's companion changed
