@@ -20,6 +20,8 @@ export interface DealerUpgrade {
   sideVolumeValue?: number;
 }
 
+export type DealerRiskLevel = 'LOW' | 'MEDIUM' | 'HIGH';
+
 export interface Dealer {
   id: string;
   name: string;
@@ -34,6 +36,11 @@ export interface Dealer {
   baseMarginMult: number;
   volumeStars: number;
   marginStars: number;
+  isProtected: boolean;
+  isArrested: boolean;
+  nextArrestCheckAt: number;
+  hasPendingUpgrade: boolean;
+  pendingUpgradeOptions: DealerUpgrade[];
 }
 
 export interface GameState {
