@@ -38,6 +38,19 @@ public static class BrmbleWebSocketHandler
         var eventBus = context.RequestServices.GetRequiredService<IBrmbleEventBus>();
 
         using var ws = await context.WebSockets.AcceptWebSocketAsync();
+        if (sessionMapping.TryGetMappingByUserId(user.Id, out var currentSessionId, out var currentMapping))
+        {
+            sessionMapping.TryUpdateBrmbleStatus(currentSessionId, true);
+            await eventBus.BroadcastAsync(new
+            {
+                type = "userMappingAdded",
+                sessionId = currentSessionId,
+                matrixUserId = currentMapping!.MatrixUserId,
+                mumbleName = currentMapping.MumbleName,
+                isBrmbleClient = true
+            });
+        }
+
         eventBus.AddClient(ws, user.Id);
 
         try

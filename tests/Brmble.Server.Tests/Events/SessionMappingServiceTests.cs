@@ -97,8 +97,30 @@ public class SessionMappingServiceTests
     }
 
     [TestMethod]
+    public void TryAddMatrixUser_ExistingSession_RefreshesUserIdIndex()
+    {
+        Assert.IsTrue(_svc.TryAddMatrixUser(1, "@old:server", "Alice", 10L));
+
+        Assert.IsFalse(_svc.TryAddMatrixUser(1, "@new:server", "Alice", 42L));
+
+        Assert.IsTrue(_svc.TryGetSessionByUserId(42L, out var sessionId));
+        Assert.AreEqual(1, sessionId);
+    }
+
+    [TestMethod]
     public void TryGetSessionByUserId_ReturnsFalseWhenNotMapped()
     {
         Assert.IsFalse(_svc.TryGetSessionByUserId(999L, out _));
+    }
+
+    [TestMethod]
+    public void TryGetMappingByUserId_ReturnsSessionAndMapping()
+    {
+        Assert.IsTrue(_svc.TryAddMatrixUser(1, "@alice:server", "Alice", 42L));
+
+        Assert.IsTrue(_svc.TryGetMappingByUserId(42L, out var sessionId, out var mapping));
+        Assert.AreEqual(1, sessionId);
+        Assert.AreEqual("@alice:server", mapping!.MatrixUserId);
+        Assert.AreEqual("Alice", mapping.MumbleName);
     }
 }

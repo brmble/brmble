@@ -22,6 +22,8 @@ public class SessionMappingService : ISessionMappingService
             _userIdToSession[userId] = sessionId;
             return true;
         }
+
+        _userIdToSession[userId] = sessionId;
         return false;
     }
 
@@ -61,6 +63,19 @@ public class SessionMappingService : ISessionMappingService
     public bool TryGetSessionByUserId(long userId, out int sessionId)
     {
         return _userIdToSession.TryGetValue(userId, out sessionId);
+    }
+
+    public bool TryGetMappingByUserId(long userId, out int sessionId, out SessionMapping? mapping)
+    {
+        if (_userIdToSession.TryGetValue(userId, out sessionId) &&
+            _sessionToMapping.TryGetValue(sessionId, out mapping))
+        {
+            return true;
+        }
+
+        sessionId = 0;
+        mapping = null;
+        return false;
     }
 
     public bool TryUpdateBrmbleStatus(int sessionId, bool isBrmbleClient)

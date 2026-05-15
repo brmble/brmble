@@ -117,4 +117,20 @@ public class SessionMappingHandlerTests
         _mapping.Verify(m => m.TryAddMatrixUser(1, user.MatrixUserId, "Alice", user.Id), Times.Once);
         _bus.Verify(b => b.BroadcastAsync(It.IsAny<object>()), Times.Never);
     }
+
+    [TestMethod]
+    public async Task OnUserConnected_AlreadyMappedActiveBrmbleCert_BroadcastsActivation()
+    {
+        var user = await _repo.Insert("abc123", "Alice");
+        _activeSessions.Setup(s => s.IsBrmbleClient("abc123")).Returns(true);
+        _mapping.Setup(m => m.TryAddMatrixUser(1, user.MatrixUserId, "Alice", user.Id)).Returns(false);
+        _mapping.Setup(m => m.TryUpdateBrmbleStatus(1, true)).Returns(true);
+
+        await _handler.OnUserConnected(new MumbleUser("Alice", "abc123", 1));
+
+        _mapping.Verify(m => m.TryUpdateBrmbleStatus(1, true), Times.Once);
+        _bus.Verify(b => b.BroadcastAsync(It.Is<object>(message =>
+            message.GetType().GetProperty("type")!.GetValue(message)!.Equals("brmbleClientActivated") &&
+            message.GetType().GetProperty("sessionId")!.GetValue(message)!.Equals(1))), Times.Once);
+    }
 }
