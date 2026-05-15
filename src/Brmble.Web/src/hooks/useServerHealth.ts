@@ -19,11 +19,10 @@ export function useServerHealth() {
         version?: string;
       } | undefined;
       if (!d?.state) return;
-      if (d.state === 'disconnected') return;
       updateStatus('server', {
         state: d.state,
         error: d.error,
-        label: d.label,
+        label: d.state === 'connected' ? d.label : undefined,
         version: d.version ?? undefined,
       });
     };

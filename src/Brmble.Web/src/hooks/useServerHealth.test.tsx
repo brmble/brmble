@@ -64,7 +64,7 @@ describe('useServerHealth', () => {
     });
   });
 
-  it('ignores disconnected health status from the default server state', () => {
+  it('updates server status when health becomes disconnected after connecting', () => {
     const { result } = renderHook(() => {
       useServerHealth();
       return useServiceStatus();
@@ -72,13 +72,21 @@ describe('useServerHealth', () => {
 
     act(() => {
       emitHealthStatus({
+        state: 'connected',
+        label: 'brmble.example',
+        version: '1.2.3',
+      });
+      emitHealthStatus({
         state: 'disconnected',
         error: 'Health check failed',
       });
     });
 
     expect(result.current.statuses.server).toEqual({
-      state: 'idle',
+      state: 'disconnected',
+      error: 'Health check failed',
+      label: undefined,
+      version: undefined,
     });
   });
 });

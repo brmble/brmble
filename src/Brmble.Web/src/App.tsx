@@ -478,6 +478,38 @@ export function isMatrixChannelChatActive(
   return credentials?.roomMap[channelId] !== undefined;
 }
 
+export const BRMBLE_SERVICE_WARNING_ID = 'brmble-service-disconnected';
+
+export const BRMBLE_SERVICE_TEMPORARY_CHAT_NOTICE =
+  'Brmble services are currently unavailable. You can keep talking in voice chat, but new chat messages are temporary and will not be saved.';
+
+export const BRMBLE_SERVICE_DISCONNECTED_NOTIFICATION = {
+  id: BRMBLE_SERVICE_WARNING_ID,
+  status: 'warning' as const,
+  title: 'Brmble services disconnected',
+  detail: 'Voice chat is still online. Brmble features are unavailable, and chat messages sent now are temporary and will not be saved.',
+};
+
+export function isBrmbleServiceOutageActive(statuses: ServiceStatusMap): boolean {
+  return statuses.voice.state === 'connected'
+    && (statuses.server.state !== 'connected' || statuses.chat.state !== 'connected');
+}
+
+export function isTemporaryChannelChatActive(
+  channelId: string | undefined,
+  statuses: ServiceStatusMap,
+): boolean {
+  if (!channelId || channelId === 'server-root') return false;
+  return isBrmbleServiceOutageActive(statuses);
+}
+
+export function shouldShowBrmbleServiceWarningNotification(
+  brmbleServiceOutageActive: boolean,
+  dismissedForCurrentOutage: boolean,
+): boolean {
+  return brmbleServiceOutageActive && !dismissedForCurrentOutage;
+}
+
 interface QueuedMovedChannelNotification extends ScreenShareEndedNotification {
   id: string;
 }
@@ -2595,6 +2627,8 @@ const handleConnect = (serverData: SavedServer) => {
   const isMatrixActive = activeChannelId
     ? isMatrixChannelChatActive(activeChannelId, matrixCredentials, statuses, selfUserForChat)
     : false;
+  const brmbleTemporaryChatActive = isTemporaryChannelChatActive(activeChannelId, statuses);
+  const brmbleServiceOutageActive = isBrmbleServiceOutageActive(statuses);
   const matrixMessages = activeChannelId
     ? matrixClient.activeMessages
     : undefined;
@@ -2678,6 +2712,8 @@ const handleConnect = (serverData: SavedServer) => {
   const [watchedShareEndedNotifications, setWatchedShareEndedNotifications] = useState<WatchedShareEndedNotification[]>([]);
   const [movedChannelNotification, setMovedChannelNotification] = useState<QueuedMovedChannelNotification | null>(null);
   const [serverRemovalNotification, setServerRemovalNotification] = useState<ServerRemovalNotification | null>(null);
+  const [brmbleServiceWarningNotification, setBrmbleServiceWarningNotification] = useState<typeof BRMBLE_SERVICE_DISCONNECTED_NOTIFICATION | null>(null);
+  const brmbleServiceWarningDismissedForOutageRef = useRef(false);
   const nextScreenShareEndedNotificationIdRef = useRef(0);
   const nextWatchedShareEndedNotificationIdRef = useRef(0);
   const nextMovedChannelNotificationIdRef = useRef(0);
@@ -2826,6 +2862,23 @@ const handleConnect = (serverData: SavedServer) => {
       notifQueue.register(serverRemovalNotification.id, serverRemovalNotification.status);
     }
   }, [serverRemovalNotification, notifQueue]);
+
+  useEffect(() => {
+    if (shouldShowBrmbleServiceWarningNotification(
+      brmbleServiceOutageActive,
+      brmbleServiceWarningDismissedForOutageRef.current,
+    )) {
+      setBrmbleServiceWarningNotification(BRMBLE_SERVICE_DISCONNECTED_NOTIFICATION);
+      notifQueue.register(BRMBLE_SERVICE_WARNING_ID, 'warning');
+      return;
+    }
+
+    if (!brmbleServiceOutageActive) {
+      brmbleServiceWarningDismissedForOutageRef.current = false;
+      setBrmbleServiceWarningNotification(null);
+      notifQueue.unregister(BRMBLE_SERVICE_WARNING_ID);
+    }
+  }, [brmbleServiceOutageActive, notifQueue]);
 
   const { isOnCooldown: leaveVoiceOnCooldown, trigger: triggerLeaveVoiceCooldown } = useLeaveVoiceCooldown(1000);
   const { isOnCooldown: muteOnCooldown, trigger: triggerMuteCooldown } = useLeaveVoiceCooldown(1000);
@@ -3296,6 +3349,7 @@ const handleConnect = (serverData: SavedServer) => {
                     onCloseShare={(share) => disconnectViewer(share.userId)}
                     screenShareViewerMode={screenShareSettings.viewerMode}
                     users={users}
+                    topNotice={brmbleTemporaryChatActive ? BRMBLE_SERVICE_TEMPORARY_CHAT_NOTICE : undefined}
                     onMessageContextMenu={handleChatMessageContextMenu}
                     onCopyToClipboard={handleCopyToClipboard}
                   />
@@ -3530,6 +3584,23 @@ const handleConnect = (serverData: SavedServer) => {
             }}
             onExited={() => {
               notifQueue.unregister(serverRemovalNotification.id);
+            }}
+          />
+        )}
+        {brmbleServiceWarningNotification && notifQueue.isVisible(brmbleServiceWarningNotification.id) && (
+          <Notification
+            status={brmbleServiceWarningNotification.status}
+            position="top-right"
+            visible={!!brmbleServiceWarningNotification}
+            title={brmbleServiceWarningNotification.title}
+            detail={brmbleServiceWarningNotification.detail}
+            onDismiss={() => {
+              brmbleServiceWarningDismissedForOutageRef.current = true;
+              notifQueue.unregister(brmbleServiceWarningNotification.id);
+              setBrmbleServiceWarningNotification(null);
+            }}
+            onExited={() => {
+              notifQueue.unregister(brmbleServiceWarningNotification.id);
             }}
           />
         )}
