@@ -64,6 +64,33 @@ public class AppConfigServiceTests
     }
 
     [TestMethod]
+    public void SavesAndReloads_OptionalNotificationSettings()
+    {
+        var svc = new AppConfigService(_tempDir, null);
+        var updated = AppSettings.Default with
+        {
+            Messages = AppSettings.Default.Messages with
+            {
+                NotificationsDisabled = true,
+                NotificationRemoteScreenShare = false,
+                NotificationScreenShareStatus = false,
+                NotificationIdleWarning = false,
+                NotificationMovedChannel = false
+            }
+        };
+
+        svc.SetSettings(updated);
+        var svc2 = new AppConfigService(_tempDir, null);
+        var messages = svc2.GetSettings().Messages;
+
+        Assert.IsTrue(messages.NotificationsDisabled);
+        Assert.IsFalse(messages.NotificationRemoteScreenShare);
+        Assert.IsFalse(messages.NotificationScreenShareStatus);
+        Assert.IsFalse(messages.NotificationIdleWarning);
+        Assert.IsFalse(messages.NotificationMovedChannel);
+    }
+
+    [TestMethod]
     public void SavesAndReloads_OverlayCompanionSelection()
     {
         var svc = new AppConfigService(_tempDir, null);
