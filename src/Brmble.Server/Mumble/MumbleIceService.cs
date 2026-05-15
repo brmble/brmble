@@ -73,6 +73,8 @@ public class MumbleIceService : IHostedService
             _registrationService.SetServerProxy(serverProxy);
             serverProxy.addCallback(callbackPrx);
 
+            await _callback.DispatchExistingUsersSnapshot(serverProxy.getUsers());
+
             _logger.LogInformation("Connected to Mumble server at {Host}:{Port}", _settings.Host, _settings.Port);
         }
         catch (Exception ex)

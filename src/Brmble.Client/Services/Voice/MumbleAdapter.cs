@@ -56,6 +56,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private Dictionary<string, string> _userMappings = new();
     private readonly ConcurrentDictionary<uint, SessionMappingEntry> _sessionMappings = new();
     private CancellationTokenSource? _wsCts;
+    private long _wsGeneration;
     private readonly IAppConfigService? _appConfigService;
     private readonly VoiceIdleTracker? _voiceIdleTracker;
     private System.Threading.Timer? _voiceIdlePollTimer;
@@ -71,6 +72,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private const int LOCAL_TRANSMIT_NOTIFY_THROTTLE_MS = 5_000;
     private System.Threading.Timer? _healthTimer;
     private long _healthGeneration;
+    private volatile bool _serverHealthWasConnected;
+    private volatile bool _credentialsAlreadyFetched;
+    private volatile bool _sawServerHealthFailureSinceCredentials;
     private BanList? _cachedBanList;
     private readonly object _banListLock = new();
     private int _pendingBanQuery = 0;
@@ -325,7 +329,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _wsCts?.Cancel();
         _wsCts?.Dispose();
         _wsCts = null;
+        Interlocked.Increment(ref _wsGeneration);
         StopHealthCheck();
+        _serverHealthWasConnected = false;
+        _credentialsAlreadyFetched = false;
+        _sawServerHealthFailureSinceCredentials = false;
         _sessionMappings.Clear();
 
         UserDictionary.Clear();
@@ -786,7 +794,31 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (_audioManager is null)
             return;
 
-        var repairedSettings = settings;
+        var (repairedSettings, repaired) = RepairAudioDeviceSettings(
+            settings,
+            _audioManager.IsInputDeviceAvailable,
+            _audioManager.IsOutputDeviceAvailable,
+            LogToFile);
+        var inputDevice = repairedSettings.Audio.InputDevice;
+        var outputDevice = repairedSettings.Audio.OutputDevice;
+
+        _audioManager.SetInputDevice(inputDevice);
+        _audioManager.SetOutputDevice(outputDevice);
+
+        if (repaired)
+        {
+            _appConfigService?.SetSettings(repairedSettings);
+            _bridge?.Send("settings.updated", repairedSettings);
+            SendSystemMessage("Saved audio device unavailable; switched to Default (System).", "audioDeviceFallback");
+        }
+    }
+
+    internal static (AppSettings Settings, bool Repaired) RepairAudioDeviceSettings(
+        AppSettings settings,
+        Func<string?, bool> isInputDeviceAvailable,
+        Func<string?, bool> isOutputDeviceAvailable,
+        Action<string> log)
+    {
         var inputDevice = string.IsNullOrWhiteSpace(settings.Audio.InputDevice) ? "default" : settings.Audio.InputDevice;
         var outputDevice = string.IsNullOrWhiteSpace(settings.Audio.OutputDevice) ? "default" : settings.Audio.OutputDevice;
         bool repaired = false;
@@ -794,42 +826,36 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (string.Equals(settings.Audio.CaptureApi, "waveIn", StringComparison.OrdinalIgnoreCase)
             && inputDevice != "default")
         {
-            LogToFile($"[Audio] waveIn does not support specific input device '{inputDevice}', falling back to default");
+            log($"[Audio] waveIn does not support specific input device '{inputDevice}', falling back to default");
             inputDevice = "default";
             repaired = true;
         }
 
-        if (!_audioManager.IsInputDeviceAvailable(inputDevice))
+        if (!isInputDeviceAvailable(inputDevice))
         {
-            LogToFile($"[Audio] Saved input device unavailable: {inputDevice}");
+            log($"[Audio] Saved input device unavailable: {inputDevice}");
             inputDevice = "default";
             repaired = true;
         }
 
-        if (!_audioManager.IsOutputDeviceAvailable(outputDevice))
+        if (!isOutputDeviceAvailable(outputDevice))
         {
-            LogToFile($"[Audio] Saved output device unavailable: {outputDevice}");
+            log($"[Audio] Saved output device unavailable: {outputDevice}");
             outputDevice = "default";
             repaired = true;
         }
 
-        _audioManager.SetInputDevice(inputDevice);
-        _audioManager.SetOutputDevice(outputDevice);
+        if (!repaired)
+            return (settings, false);
 
-        if (repaired)
+        return (settings with
         {
-            repairedSettings = repairedSettings with
+            Audio = settings.Audio with
             {
-                Audio = repairedSettings.Audio with
-                {
-                    InputDevice = inputDevice,
-                    OutputDevice = outputDevice,
-                }
-            };
-            _appConfigService?.SetSettings(repairedSettings);
-            _bridge?.Send("settings.updated", repairedSettings);
-            SendSystemMessage("Saved audio device unavailable; switched to Default (System).", "audioDeviceFallback");
-        }
+                InputDevice = inputDevice,
+                OutputDevice = outputDevice,
+            }
+        }, true);
     }
 
     /// <summary>Called from WndProc on WM_HOTKEY.</summary>
@@ -1248,6 +1274,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         string? ActorName,
         string Reason);
 
+    internal sealed record BrmbleServiceStatusPayload(
+        string Service,
+        string State,
+        string? Reason = null,
+        int? Attempt = null,
+        int? DelayMs = null);
+
     internal static ChannelChangedPayload CreateChannelChangedPayload(
         uint? previousChannelId,
         uint currentChannelId,
@@ -1262,6 +1295,26 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             string.IsNullOrWhiteSpace(actorName) ? null : actorName,
             movedByOtherUser ? "moved" : "unknown");
     }
+
+    internal static BrmbleServiceStatusPayload CreateBrmbleServiceStatusPayload(
+        string service,
+        string state,
+        string? reason = null,
+        int? attempt = null,
+        int? delayMs = null)
+        => new(service, state, reason, attempt, delayMs);
+
+    internal static bool ShouldRefreshCredentialsAfterHealthSuccess(
+        bool credentialsAlreadyFetched,
+        bool previousHealthWasConnected,
+        bool sawHealthFailureSinceCredentials)
+        => credentialsAlreadyFetched && !previousHealthWasConnected && sawHealthFailureSinceCredentials;
+
+    internal static bool ShouldEmitSessionStoppedStatus(
+        bool isCancellationRequested,
+        long currentGeneration,
+        long taskGeneration)
+        => isCancellationRequested && currentGeneration == taskGeneration;
 
     internal sealed record ServerRemovalPayload(
         string Reason,
@@ -1302,6 +1355,17 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 $"[{DateTime.Now:HH:mm:ss.fff}] {message}\n");
         }
         catch { /* logging should never throw */ }
+    }
+
+    private void SendBrmbleServiceStatus(
+        string service,
+        string state,
+        string? reason = null,
+        int? attempt = null,
+        int? delayMs = null)
+    {
+        _bridge?.Send("brmble.serviceStatus", CreateBrmbleServiceStatusPayload(service, state, reason, attempt, delayMs));
+        _bridge?.NotifyUiThread();
     }
 
     /// Pure HTTP helper: POSTs to /auth/token and returns the parsed response body.
@@ -1408,6 +1472,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _bridge?.Send("server.credentials", rewritten);
             _bridge?.NotifyUiThread();
             _apiUrl = apiUrl;
+            _credentialsAlreadyFetched = true;
+            _sawServerHealthFailureSinceCredentials = false;
+            SendBrmbleServiceStatus("server", "connected");
 
             // Start WebSocket connection for real-time session mapping updates
             StartWebSocketConnection(apiUrl);
@@ -1562,16 +1629,35 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 if (res.IsSuccessStatusCode)
                 {
                     var version = await TryReadVersionAsync(res);
+                    var shouldRefreshCredentials = ShouldRefreshCredentialsAfterHealthSuccess(
+                        _credentialsAlreadyFetched,
+                        _serverHealthWasConnected,
+                        _sawServerHealthFailureSinceCredentials);
+
+                    _serverHealthWasConnected = true;
+                    _sawServerHealthFailureSinceCredentials = false;
                     _bridge?.Send("server.healthStatus", new { state = "connected", label = apiUrl, version });
+                    SendBrmbleServiceStatus("server", "connected");
+
+                    if (shouldRefreshCredentials)
+                    {
+                        _ = Task.Run(() => FetchAndSendCredentials(apiUrl));
+                    }
                 }
                 else
                 {
+                    _serverHealthWasConnected = false;
+                    _sawServerHealthFailureSinceCredentials = true;
+                    SendBrmbleServiceStatus("server", "reconnecting", reason: $"http-{(int)res.StatusCode}");
                     _bridge?.Send("server.healthStatus", new { state = "disconnected", error = $"Health check returned {(int)res.StatusCode}" });
                 }
             }
             catch (Exception ex)
             {
                 if (Interlocked.Read(ref _healthGeneration) != gen) return;
+                _serverHealthWasConnected = false;
+                _sawServerHealthFailureSinceCredentials = true;
+                SendBrmbleServiceStatus("server", "reconnecting", reason: "connection-lost");
                 _bridge?.Send("server.healthStatus", new { state = "disconnected", error = ex.Message });
             }
             _bridge?.NotifyUiThread();
@@ -1607,10 +1693,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     private void StartWebSocketConnection(string apiUrl)
     {
+        var wsGeneration = Interlocked.Increment(ref _wsGeneration);
         var old = _wsCts;
         old?.Cancel();
         old?.Dispose();
         _wsCts = new CancellationTokenSource();
+        SendBrmbleServiceStatus("session", "connecting");
         var ct = _wsCts.Token;
 
         var builder = new UriBuilder(apiUrl);
@@ -1735,6 +1823,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
                     backoff = TimeSpan.FromSeconds(1); // reset on successful connect
                     Debug.WriteLine("[WS] Connected to Brmble WebSocket (BouncyCastle TLS)");
+                    SendBrmbleServiceStatus("session", "connected");
 
                     // Read WebSocket frames
                     while (!ct.IsCancellationRequested)
@@ -1757,9 +1846,15 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
                 if (ct.IsCancellationRequested) break;
 
+                SendBrmbleServiceStatus("session", "reconnecting", reason: "connection-lost", delayMs: (int)backoff.TotalMilliseconds);
                 Debug.WriteLine($"[WS] Reconnecting in {backoff.TotalSeconds}s...");
                 try { await Task.Delay(backoff, ct); } catch (OperationCanceledException) { break; }
                 backoff = TimeSpan.FromSeconds(Math.Min(backoff.TotalSeconds * 2, maxBackoff.TotalSeconds));
+            }
+
+            if (ShouldEmitSessionStoppedStatus(ct.IsCancellationRequested, Interlocked.Read(ref _wsGeneration), wsGeneration))
+            {
+                SendBrmbleServiceStatus("session", "disconnected", reason: "stopped");
             }
         }, ct);
     }
@@ -2579,6 +2674,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                             };
                         }
                         dict["requestId"] = requestId;
+                        SendBrmbleServiceStatus("screenshare", "connected");
                         _bridge?.Send("livekit.token", dict);
                         _bridge?.NotifyUiThread();
                         return;
@@ -2603,6 +2699,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
             var errorMsg = lastResult?.Error ?? "Token request failed";
             LogToFile($"[LiveKit] Token request failed after all attempts: {errorMsg}");
+            SendBrmbleServiceStatus("screenshare", "disconnected", reason: "token-request-failed");
             _bridge?.Send("livekit.tokenError", new { error = errorMsg, requestId });
             _bridge?.NotifyUiThread();
         });
@@ -2620,11 +2717,16 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 var baseUri = new Uri(_apiUrl, UriKind.Absolute);
                 var uri = new Uri(baseUri, "livekit/share-started");
                 var result = await PostViaBcTls(cert, uri, System.Text.Json.JsonSerializer.Serialize(new { roomName }));
+                if (result.Success)
+                    SendBrmbleServiceStatus("screenshare", "connected");
+                else
+                    SendBrmbleServiceStatus("screenshare", "disconnected", reason: "share-started-failed");
                 if (!result.Success)
                     LogToFile($"[LiveKit] share-started notification failed: {result.Error}");
             }
             catch (Exception ex)
             {
+                SendBrmbleServiceStatus("screenshare", "disconnected", reason: "share-started-exception");
                 LogToFile($"[LiveKit] Failed to notify share-started: {ex.Message}");
             }
         });
@@ -2642,6 +2744,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 var baseUri = new Uri(_apiUrl, UriKind.Absolute);
                 var uri = new Uri(baseUri, "livekit/share-stopped");
                 var result = await PostViaBcTls(cert, uri, System.Text.Json.JsonSerializer.Serialize(new { roomName }));
+                if (result.Success)
+                    SendBrmbleServiceStatus("screenshare", "connected");
                 if (!result.Success)
                     LogToFile($"[LiveKit] share-stopped notification failed: {result.Error}");
             }
@@ -2668,6 +2772,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             using var cert = _certService?.GetExportableCertificate();
             if (cert is null)
             {
+                SendBrmbleServiceStatus("screenshare", "disconnected", reason: "active-share-request-failed");
                 _bridge?.Send("livekit.activeShareError", new { roomName, scope, requestId, reason = "missing-certificate" });
                 _bridge?.NotifyUiThread();
                 return;
@@ -2699,16 +2804,19 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                             shares.Add(new { roomName = sRoomName, userName = sUserName, userId = sUserId, matrixUserId = sMatrixUserId, sessionId = sSessionId });
                         }
                     }
+                    SendBrmbleServiceStatus("screenshare", "connected");
                     _bridge?.Send("livekit.activeShareResult", new { roomName, scope, requestId, shares });
                 }
                 else
                 {
+                    SendBrmbleServiceStatus("screenshare", "disconnected", reason: "active-share-request-failed");
                     _bridge?.Send("livekit.activeShareError", new { roomName, scope, requestId, reason = "request-failed", statusCode = result.StatusCode });
                 }
                 _bridge?.NotifyUiThread();
             }
             catch (Exception ex)
             {
+                SendBrmbleServiceStatus("screenshare", "disconnected", reason: "active-share-exception");
                 _bridge?.Send("livekit.activeShareError", new { roomName, scope, requestId, reason = "exception", message = ex.Message });
                 _bridge?.NotifyUiThread();
             }
@@ -3381,6 +3489,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             message = textMessage.Message,
             senderSession = textMessage.Actor,
             channelIds = textMessage.ChannelIds ?? Array.Empty<uint>(),
+            treeIds = textMessage.TreeIds ?? Array.Empty<uint>(),
             sessions = textMessage.Sessions ?? Array.Empty<uint>(),
             certHash = senderUser?.CertificateHash,
         });

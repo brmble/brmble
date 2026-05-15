@@ -1,11 +1,11 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import bridge from './bridge';
-import type { ConnectionStatus, ChatMessage, ServiceStatus } from './types';
+import type { ConnectionStatus, ChatMessage, NativeBrmbleServiceStatus, ServiceStatus, ServiceStatusMap } from './types';
 import { encodeForMumble } from './utils/imageUpload';
 import { useMatrixClient } from './hooks/useMatrixClient';
 import type { MatrixCredentials } from './hooks/useMatrixClient';
 import { useScreenShare } from './hooks/useScreenShare';
-import type { LocalShareStopReason } from './hooks/useScreenShare';
+import type { LocalShareStopReason, ShareInfo, WatchedShareEndReason } from './hooks/useScreenShare';
 import { useLeaveVoiceCooldown } from './hooks/useLeaveVoiceCooldown';
 import { useNotificationQueue } from './hooks/useNotificationQueue';
 import { useBrmbleIdle } from './hooks/useBrmbleIdle';
@@ -58,6 +58,8 @@ import {
   updateFullCompanionContext,
 } from './components/CompanionOverlay/overlayModel';
 import { migrateLocalStorage } from './utils/migrateLocalStorage';
+import { mapBrmbleServiceStatus } from './utils/brmbleServiceStatus';
+import { areMatrixCredentialsEqual } from './utils/matrixCredentials';
 import './App.css';
 
 export interface ScreenShareEndedNotification {
@@ -68,6 +70,13 @@ export interface ScreenShareEndedNotification {
 
 export interface QueuedScreenShareEndedNotification extends ScreenShareEndedNotification {
   id: string;
+}
+
+interface WatchedShareEndedNotification {
+  id: string;
+  status: NotificationStatus;
+  title: string;
+  detail: string;
 }
 
 export interface MovedChannelNotificationInput {
@@ -159,6 +168,50 @@ export function createQueuedScreenShareEndedNotification(
   };
 }
 
+export function createWatchedShareEndedNotification(
+  share: ShareInfo,
+  reason: WatchedShareEndReason,
+  sequence: number,
+): WatchedShareEndedNotification {
+  return {
+    id: `watched-share-ended-${sequence}`,
+    status: 'info',
+    title: reason === 'unexpected' ? 'Share ended unexpectedly' : 'Share ended',
+    detail: `${share.userName || 'Someone'}'s share ended${reason === 'unexpected' ? ' because the screen-share connection was interrupted.' : '.'}`,
+  };
+}
+
+export function WatchedShareEndedNotifications({
+  notifications,
+  notifQueue,
+  onRemove,
+}: {
+  notifications: WatchedShareEndedNotification[];
+  notifQueue: { isVisible: (id: string) => boolean; unregister: (id: string) => void };
+  onRemove: (id: string) => void;
+}) {
+  return notifications.map(notification => (
+    notifQueue.isVisible(notification.id) ? (
+      <Notification
+        key={notification.id}
+        status={notification.status}
+        position="top-right"
+        visible={true}
+        title={notification.title}
+        detail={notification.detail}
+        onDismiss={() => {
+          notifQueue.unregister(notification.id);
+          onRemove(notification.id);
+        }}
+        onExited={() => {
+          notifQueue.unregister(notification.id);
+          onRemove(notification.id);
+        }}
+      />
+    ) : null
+  ));
+}
+
 export function replaceScreenShareEndedNotification(
   current: QueuedScreenShareEndedNotification | null,
   reason: LocalShareStopReason,
@@ -236,7 +289,7 @@ export function getNextLiveKitStatusUpdate({
   }
 
   if (!screenShareError) {
-    return { state: 'idle', error: undefined };
+    return null;
   }
 
   return null;
@@ -438,6 +491,50 @@ interface User {
   isBrmbleClient?: boolean;
 }
 
+export function isMatrixChannelChatActive(
+  channelId: string | undefined,
+  credentials: MatrixCredentials | null,
+  statuses: ServiceStatusMap,
+  selfUser: User | undefined,
+): boolean {
+  if (!channelId || channelId === 'server-root') return false;
+  if (statuses.server.state !== 'connected' || statuses.chat.state !== 'connected') return false;
+  if (!selfUser?.isBrmbleClient) return false;
+  return credentials?.roomMap[channelId] !== undefined;
+}
+
+export const BRMBLE_SERVICE_WARNING_ID = 'brmble-service-disconnected';
+
+export const BRMBLE_SERVICE_TEMPORARY_CHAT_NOTICE =
+  'Brmble services are currently unavailable. You can keep talking in voice chat, but new chat messages are temporary and will not be saved.';
+
+export const BRMBLE_SERVICE_DISCONNECTED_NOTIFICATION = {
+  id: BRMBLE_SERVICE_WARNING_ID,
+  status: 'warning' as const,
+  title: 'Brmble services disconnected',
+  detail: 'Voice chat is still online. Brmble features are unavailable, and chat messages sent now are temporary and will not be saved.',
+};
+
+export function isBrmbleServiceOutageActive(statuses: ServiceStatusMap): boolean {
+  return statuses.voice.state === 'connected'
+    && (statuses.server.state !== 'connected' || statuses.chat.state !== 'connected');
+}
+
+export function isTemporaryChannelChatActive(
+  channelId: string | undefined,
+  statuses: ServiceStatusMap,
+): boolean {
+  if (!channelId || channelId === 'server-root') return false;
+  return isBrmbleServiceOutageActive(statuses);
+}
+
+export function shouldShowBrmbleServiceWarningNotification(
+  brmbleServiceOutageActive: boolean,
+  dismissedForCurrentOutage: boolean,
+): boolean {
+  return brmbleServiceOutageActive && !dismissedForCurrentOutage;
+}
+
 interface QueuedMovedChannelNotification extends ScreenShareEndedNotification {
   id: string;
 }
@@ -502,7 +599,7 @@ function App() {
   profilesRef.current = profiles;
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
-  const { statuses, updateStatus, resetStatuses } = useServiceStatus();
+  const { statuses, effectiveStatuses, updateStatus, resetStatuses } = useServiceStatus();
   const connected = connectionStatus === 'connected';
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [username, setUsername] = useState('');
@@ -535,6 +632,7 @@ function App() {
   const [selfSession, setSelfSession] = useState<number>(0);
   const [speakingUsers, setSpeakingUsers] = useState<Map<number, boolean>>(new Map());
   const [pendingChannelAction, setPendingChannelAction] = useState<number | 'leave' | null>(null);
+  const hasMatrixCredentialsForSessionRef = useRef(false);
 
   useEffect(() => {
     setOverlaySnapshot((prev) => ({
@@ -645,6 +743,12 @@ function App() {
         );
         return resolveFullCompanionDisplay(next, now);
       });
+    },
+    onUserAvatarChanged: (matrixUserId: string, avatarUrl: string | null) => {
+      fetchedAvatarIdsRef.current.delete(matrixUserId);
+      setUsers(prev => prev.map(u =>
+        u.matrixUserId === matrixUserId ? { ...u, avatarUrl: avatarUrl ?? undefined } : u
+      ));
     },
   }), []);
   const matrixClient = useMatrixClient(matrixCredentials, matrixOverlayCallbacks);
@@ -880,12 +984,20 @@ function App() {
   dmStoreRef.current = dmStore;
   const connectionStatusRef = useRef(connectionStatus);
   connectionStatusRef.current = connectionStatus;
+  const statusesRef = useRef(statuses);
+  statusesRef.current = statuses;
+  const liveKitStateRef = useRef(statuses.livekit.state);
+  liveKitStateRef.current = statuses.livekit.state;
+  const effectiveLiveKitStateRef = useRef(effectiveStatuses.livekit.state);
+  effectiveLiveKitStateRef.current = effectiveStatuses.livekit.state;
   const fetchAvatarUrlRef = useRef(matrixClient.fetchAvatarUrl);
   fetchAvatarUrlRef.current = matrixClient.fetchAvatarUrl;
   const matrixClientRef = useRef(matrixClient.client);
   matrixClientRef.current = matrixClient.client;
   const handleToggleScreenShareRef = useRef<(() => void) | null>(null);
   const disconnectViewerRef = useRef<(() => Promise<void>) | null>(null);
+  const handleScreenShareServiceUnavailableRef = useRef<(() => Promise<void>) | null>(null);
+  const requestActiveShareDiscoveryRef = useRef<((channelId: string | undefined) => void) | null>(null);
   const pendingCompanionRef = useRef<{ requestId: number; next: CompanionId; previous: CompanionId } | null>(null);
   const companionRequestIdRef = useRef(0);
 
@@ -1123,6 +1235,19 @@ function App() {
 
   // Register all bridge handlers once on mount
   useEffect(() => {
+    const onBrmbleServiceStatus = (data: unknown) => {
+      const status = data as NativeBrmbleServiceStatus;
+      const mapped = mapBrmbleServiceStatus(status);
+      if (!mapped) return;
+      updateStatus(mapped.service, mapped.update);
+      if ((status.service === 'session' || status.service === 'screenshare') && mapped.update.state !== 'connected') {
+        void handleScreenShareServiceUnavailableRef.current?.();
+      }
+      if (status.service === 'screenshare' && status.state === 'connected') {
+        requestActiveShareDiscoveryRef.current?.(currentChannelIdRef.current);
+      }
+    };
+
     const onVoiceConnected = ((data: unknown) => {
       setConnectionStatus('connected');
       updateStatus('voice', { state: 'connected', error: undefined });
@@ -1250,6 +1375,7 @@ function App() {
       setSelfCanRejoin(false);
       setSelfSession(0);
       setSpeakingUsers(new Map());
+      hasMatrixCredentialsForSessionRef.current = false;
       setMatrixCredentials(null);
       setCurrentUserAvatarUrl(undefined);
       fetchedAvatarIdsRef.current.clear();
@@ -1269,9 +1395,13 @@ function App() {
       const wrapped = data as { matrix?: MatrixCredentials } | undefined;
       const d = wrapped?.matrix;
       if (d?.homeserverUrl && d.accessToken && d.userId && d.roomMap) {
-        // Clear stale chat data from previous sessions
-        clearChatStorage();
-        setMatrixCredentials(d);
+        if (!hasMatrixCredentialsForSessionRef.current) {
+          clearChatStorage();
+          hasMatrixCredentialsForSessionRef.current = true;
+        }
+        setMatrixCredentials(prev => {
+          return areMatrixCredentialsEqual(prev, d) ? prev : d;
+        });
       }
     };
 
@@ -1297,6 +1427,7 @@ function App() {
         message: string;
         senderSession?: number;
         channelIds?: number[];
+        treeIds?: number[];
         sessions?: number[];
         certHash?: string;
       } | undefined;
@@ -1312,12 +1443,20 @@ function App() {
       const isPrivateMessage = d.sessions && d.sessions.length > 0 &&
         (!d.channelIds || d.channelIds.length === 0);
 
-      // Channel messages: use Mumble path only when Matrix is not active for the channel
+      // Channel messages: use Mumble path while Brmble/Matrix is not fully restored.
       if (!isPrivateMessage) {
-        if (d.channelIds && d.channelIds.length > 0) {
-          const creds = matrixCredentialsRef.current;
-          const channelId = String(d.channelIds[0]);
-          const matrixActive = creds?.roomMap[channelId] !== undefined;
+        const targetChannelIds = d.channelIds && d.channelIds.length > 0
+          ? d.channelIds
+          : d.treeIds;
+        if (targetChannelIds && targetChannelIds.length > 0) {
+          const channelId = String(targetChannelIds[0]);
+          const selfUser = usersRef.current.find(u => u.self);
+          const matrixActive = isMatrixChannelChatActive(
+            channelId,
+            matrixCredentialsRef.current,
+            statusesRef.current,
+            selfUser,
+          );
           if (!matrixActive) {
             const storeKey = `channel-${channelId}`;
         const messageMedia = parseMessageMedia(d.message);
@@ -2005,6 +2144,7 @@ function App() {
       } catch { /* ignore parse errors */ }
     };
 
+    bridge.on('brmble.serviceStatus', onBrmbleServiceStatus);
     bridge.on('voice.connected', onVoiceConnected);
     bridge.on('voice.disconnected', onVoiceDisconnected);
     bridge.on('voice.error', onVoiceError);
@@ -2090,6 +2230,7 @@ function App() {
     return () => {
       bridge.off('app.updateAvailable', onUpdateAvailable);
       bridge.off('app.updateProgress', onUpdateProgress);
+      bridge.off('brmble.serviceStatus', onBrmbleServiceStatus);
       bridge.off('voice.connected', onVoiceConnected);
       bridge.off('voice.disconnected', onVoiceDisconnected);
       bridge.off('voice.error', onVoiceError);
@@ -2265,8 +2406,8 @@ const handleConnect = (serverData: SavedServer) => {
     const channelId = currentChannelId;
     if (!channelId) return;
 
-    const isMatrixChannel = channelId !== 'server-root' &&
-      matrixCredentials?.roomMap[channelId] !== undefined;
+      const selfUser = usersRef.current.find(u => u.self);
+      const isMatrixChannel = isMatrixChannelChatActive(channelId, matrixCredentials, statuses, selfUser);
 
     // Send text content (existing behavior)
     if (content) {
@@ -2403,6 +2544,7 @@ const handleConnect = (serverData: SavedServer) => {
         setSelfCanRejoin(false);
         setSelfSession(0);
         setSpeakingUsers(new Map());
+        hasMatrixCredentialsForSessionRef.current = false;
         setMatrixCredentials(null);
         setSharingChannelId(undefined);
       },
@@ -2562,7 +2704,12 @@ const handleConnect = (serverData: SavedServer) => {
     }
   }, [notifQueue]);
 
-  const isMatrixActive = !!activeChannelId && matrixCredentials?.roomMap[activeChannelId] !== undefined;
+  const selfUserForChat = users.find(u => u.self);
+  const isMatrixActive = activeChannelId
+    ? isMatrixChannelChatActive(activeChannelId, matrixCredentials, statuses, selfUserForChat)
+    : false;
+  const brmbleTemporaryChatActive = isTemporaryChannelChatActive(activeChannelId, statuses);
+  const brmbleServiceOutageActive = isBrmbleServiceOutageActive(statuses);
   const matrixMessages = activeChannelId
     ? matrixClient.activeMessages
     : undefined;
@@ -2643,9 +2790,13 @@ const handleConnect = (serverData: SavedServer) => {
     userName: string; roomName: string; userId?: number; matrixUserId?: string;
   } | null>(null);
   const [screenShareEndedNotification, setScreenShareEndedNotification] = useState<QueuedScreenShareEndedNotification | null>(null);
+  const [watchedShareEndedNotifications, setWatchedShareEndedNotifications] = useState<WatchedShareEndedNotification[]>([]);
   const [movedChannelNotification, setMovedChannelNotification] = useState<QueuedMovedChannelNotification | null>(null);
   const [serverRemovalNotification, setServerRemovalNotification] = useState<ServerRemovalNotification | null>(null);
+  const [brmbleServiceWarningNotification, setBrmbleServiceWarningNotification] = useState<typeof BRMBLE_SERVICE_DISCONNECTED_NOTIFICATION | null>(null);
+  const brmbleServiceWarningDismissedForOutageRef = useRef(false);
   const nextScreenShareEndedNotificationIdRef = useRef(0);
+  const nextWatchedShareEndedNotificationIdRef = useRef(0);
   const nextMovedChannelNotificationIdRef = useRef(0);
   const nextActiveShareDiscoveryRequestIdRef = useRef(0);
   const screenShareEndedNotificationRef = useRef<QueuedScreenShareEndedNotification | null>(null);
@@ -2688,13 +2839,23 @@ const handleConnect = (serverData: SavedServer) => {
     setScreenShareEndedNotification(notification);
   }, [notifQueue]);
 
-  const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, disconnectViewer, connectAsViewer, isViewerConnectPending } = useScreenShare(() => {
+  const handleWatchedShareEnded = useCallback((share: ShareInfo, reason: WatchedShareEndReason) => {
+    const notification = createWatchedShareEndedNotification(
+      share,
+      reason,
+      nextWatchedShareEndedNotificationIdRef.current++,
+    );
+    setWatchedShareEndedNotifications(prev => [...prev, notification]);
+  }, []);
+
+  const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, disconnectViewer, connectAsViewer, isViewerConnectPending, handleScreenShareServiceUnavailable } = useScreenShare(() => {
     setSharingChannelId(undefined);
     sharingChannelIdRef.current = undefined;
-  }, screenShareSettings, handleLocalScreenShareEnded);
+  }, screenShareSettings, handleLocalScreenShareEnded, handleWatchedShareEnded);
   isSharingRef.current = isSharing;
   stopSharingRef.current = stopSharing;
   disconnectViewerRef.current = disconnectViewer;
+  handleScreenShareServiceUnavailableRef.current = handleScreenShareServiceUnavailable;
 
   const handleLiveCompanionChange = useCallback((nextCompanion: CompanionId, previousCompanion: CompanionId) => {
     const selfUser = usersRef.current.find(user => user.self);
@@ -2778,6 +2939,12 @@ const handleConnect = (serverData: SavedServer) => {
   }, [screenShareEndedNotification, notifQueue]);
 
   useEffect(() => {
+    for (const notification of watchedShareEndedNotifications) {
+      notifQueue.register(notification.id, notification.status);
+    }
+  }, [watchedShareEndedNotifications, notifQueue]);
+
+  useEffect(() => {
     if (movedChannelNotification) {
       notifQueue.register(movedChannelNotification.id, movedChannelNotification.status);
     }
@@ -2788,6 +2955,23 @@ const handleConnect = (serverData: SavedServer) => {
       notifQueue.register(serverRemovalNotification.id, serverRemovalNotification.status);
     }
   }, [serverRemovalNotification, notifQueue]);
+
+  useEffect(() => {
+    if (shouldShowBrmbleServiceWarningNotification(
+      brmbleServiceOutageActive,
+      brmbleServiceWarningDismissedForOutageRef.current,
+    )) {
+      setBrmbleServiceWarningNotification(BRMBLE_SERVICE_DISCONNECTED_NOTIFICATION);
+      notifQueue.register(BRMBLE_SERVICE_WARNING_ID, 'warning');
+      return;
+    }
+
+    if (!brmbleServiceOutageActive) {
+      brmbleServiceWarningDismissedForOutageRef.current = false;
+      setBrmbleServiceWarningNotification(null);
+      notifQueue.unregister(BRMBLE_SERVICE_WARNING_ID);
+    }
+  }, [brmbleServiceOutageActive, notifQueue]);
 
   const { isOnCooldown: leaveVoiceOnCooldown, trigger: triggerLeaveVoiceCooldown } = useLeaveVoiceCooldown(1000);
   const { isOnCooldown: muteOnCooldown, trigger: triggerMuteCooldown } = useLeaveVoiceCooldown(1000);
@@ -2872,6 +3056,20 @@ const handleConnect = (serverData: SavedServer) => {
   }, [isSharing, watchingShares.length, screenShareError, isLocalShareStartPending, isViewerConnectPending, updateStatus]);
 
   const selfVoiceChannelId = users.find(u => u.self)?.channelId;
+  const canScreenShare = connected && !selfLeftVoice && (selfVoiceChannelId ?? 0) !== 0;
+
+  useEffect(() => {
+    const connectedState = connected ? 'connected' : 'notConnected';
+    const leftVoiceState = selfLeftVoice ? 'leftVoice' : 'inVoice';
+    const channelState = selfVoiceChannelId == null ? 'noSelfChannel' : `channel-${selfVoiceChannelId}`;
+    const canState = canScreenShare ? 'canShare' : 'cannotShare';
+
+    try {
+      bridge.send(`livekit.debug.uiGate.${connectedState}.${leftVoiceState}.${channelState}.${canState}`, {});
+    } catch {
+      // Diagnostics must never affect UI state.
+    }
+  }, [canScreenShare, connected, selfLeftVoice, selfVoiceChannelId]);
 
   useEffect(() => {
     if (shouldClearLocalShareStartPending({
@@ -2927,6 +3125,8 @@ const handleConnect = (serverData: SavedServer) => {
     bridge.send('livekit.checkActiveShare', { roomName: `channel-${channelId}`, requestId });
   }, [setDiscoveryTarget]);
 
+  requestActiveShareDiscoveryRef.current = requestActiveShareDiscovery;
+
   // Check for active screen shares when switching channels
   useEffect(() => {
     disconnectViewer();
@@ -2955,18 +3155,34 @@ const handleConnect = (serverData: SavedServer) => {
 
   const handleToggleScreenShare = useCallback(async () => {
     const selfUser = usersRef.current.find(u => u.self);
-    const shouldStartSharing = !isSharing && !selfLeftVoice && selfUser?.channelId != null && selfUser.channelId !== 0;
+    const canUseScreenshare = effectiveLiveKitStateRef.current === 'connected';
+    const shouldStartSharing = !isSharing && canUseScreenshare && !selfLeftVoice && selfUser?.channelId != null && selfUser.channelId !== 0;
+    const sharingState = isSharing ? 'sharing' : 'notSharing';
+    const leftVoiceState = selfLeftVoice ? 'leftVoice' : 'inVoice';
+    const channelState = selfUser?.channelId == null ? 'noSelfChannel' : `channel-${selfUser.channelId}`;
+    const actionState = shouldStartSharing ? 'canStart' : 'blocked';
+
+    try {
+      bridge.send(`livekit.debug.toggleScreenShare.${sharingState}.${leftVoiceState}.${channelState}.${actionState}`, {});
+    } catch {
+      // Diagnostics must never affect the screen-share action.
+    }
 
     if (shouldStartSharing) {
       setIsLocalShareStartPending(true);
       isLocalShareStartPendingRef.current = true;
+      updateStatus('livekit', { state: 'connecting', error: undefined });
+    }
+
+    if (!isSharing && !canUseScreenshare) {
+      return;
     }
 
     await toggleLocalScreenShare({
       isSharing,
       selfLeftVoice,
       voiceChannelId: selfUser?.channelId,
-      liveKitState: statuses.livekit.state,
+      liveKitState: liveKitStateRef.current,
       startSharing,
       stopSharing,
       setSharingChannelId,
@@ -2983,7 +3199,7 @@ const handleConnect = (serverData: SavedServer) => {
       setIsLocalShareStartPending(false);
       isLocalShareStartPendingRef.current = false;
     }
-  }, [isSharing, startSharing, stopSharing, selfLeftVoice]);
+  }, [isSharing, startSharing, stopSharing, selfLeftVoice, updateStatus]);
   handleToggleScreenShareRef.current = handleToggleScreenShare;
 
   const handleWatchScreenShare = useCallback((roomName: string, userId?: number, matrixUserId?: string) => {
@@ -3144,7 +3360,7 @@ const handleConnect = (serverData: SavedServer) => {
         screenSharing={isSharing}
         screenShareError={screenShareError}
         onToggleScreenShare={connected ? handleToggleScreenShare : undefined}
-        canScreenShare={connected && !selfLeftVoice && (users.find(u => u.self)?.channelId ?? 0) !== 0}
+        canScreenShare={canScreenShare}
         speaking={speakingUsers.has(selfSession) || false}
         pendingChannelAction={pendingChannelAction}
         hotkeyPressedBtn={hotkeyPressedBtn}
@@ -3180,7 +3396,8 @@ const handleConnect = (serverData: SavedServer) => {
           sharingChannelId={sharingChannelId ? Number(sharingChannelId) : (activeShares.length > 0 ? Number(activeShares[0].roomName.replace('channel-', '')) : undefined)}
           sharingUserSession={isSharing ? selfSession : activeShare?.sessionId}
           activeShares={activeShares}
-           watchingShares={watchingShares}
+          watchingShares={watchingShares}
+          isLiveKitRoomConnected={isSharing || watchingShares.length > 0}
           onWatchScreenShare={handleWatchScreenShare}
           onStopWatching={(userId) => disconnectViewer(userId)}
           onEditAvatar={connected ? () => setShowAvatarEditor(true) : undefined}
@@ -3225,6 +3442,7 @@ const handleConnect = (serverData: SavedServer) => {
                     onCloseShare={(share) => disconnectViewer(share.userId)}
                     screenShareViewerMode={screenShareSettings.viewerMode}
                     users={users}
+                    topNotice={brmbleTemporaryChatActive ? BRMBLE_SERVICE_TEMPORARY_CHAT_NOTICE : undefined}
                     onMessageContextMenu={handleChatMessageContextMenu}
                     onCopyToClipboard={handleCopyToClipboard}
                   />
@@ -3421,6 +3639,11 @@ const handleConnect = (serverData: SavedServer) => {
             }}
           />
         )}
+        <WatchedShareEndedNotifications
+          notifications={watchedShareEndedNotifications}
+          notifQueue={notifQueue}
+          onRemove={(id) => setWatchedShareEndedNotifications(prev => prev.filter(notification => notification.id !== id))}
+        />
         {movedChannelNotification && notifQueue.isVisible(movedChannelNotification.id) && (
           <Notification
             key={movedChannelNotification.id}
@@ -3455,6 +3678,23 @@ const handleConnect = (serverData: SavedServer) => {
             }}
             onExited={() => {
               notifQueue.unregister(serverRemovalNotification.id);
+            }}
+          />
+        )}
+        {brmbleServiceWarningNotification && notifQueue.isVisible(brmbleServiceWarningNotification.id) && (
+          <Notification
+            status={brmbleServiceWarningNotification.status}
+            position="top-right"
+            visible={!!brmbleServiceWarningNotification}
+            title={brmbleServiceWarningNotification.title}
+            detail={brmbleServiceWarningNotification.detail}
+            onDismiss={() => {
+              brmbleServiceWarningDismissedForOutageRef.current = true;
+              notifQueue.unregister(brmbleServiceWarningNotification.id);
+              setBrmbleServiceWarningNotification(null);
+            }}
+            onExited={() => {
+              notifQueue.unregister(brmbleServiceWarningNotification.id);
             }}
           />
         )}

@@ -215,6 +215,10 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     public Task DispatchChannelRenamed(MumbleChannel channel)
         => Task.WhenAll(_handlers.Select(h => h.OnChannelRenamed(channel)));
 
+    public Task DispatchExistingUsersSnapshot(IReadOnlyDictionary<int, MumbleServer.User> users)
+        => Task.WhenAll(users.Values.Select(state =>
+            DispatchUserConnected(ToMumbleUser(state), state.channel)));
+
     private async Task<MumbleUser> TryResolveCertAsync(MumbleUser user)
     {
         if (_serverProxy is null) return user;

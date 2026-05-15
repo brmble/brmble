@@ -46,6 +46,7 @@ interface SidebarProps {
   onStopWatching?: (userId: number) => void;
   activeShares?: ShareInfo[];
   watchingShares?: ShareInfo[];
+  isLiveKitRoomConnected?: boolean;
   onEditAvatar?: () => void;
 }
 
@@ -74,6 +75,7 @@ export function Sidebar({
   onStopWatching,
   activeShares,
   watchingShares,
+  isLiveKitRoomConnected = false,
   onEditAvatar
 }: SidebarProps) {
   const fingerprint = useProfileFingerprint();
@@ -94,9 +96,9 @@ export function Sidebar({
   const nonRootChannels = rootChannel ? channels.filter(ch => ch !== rootChannel) : channels;
   const nonRootUsers = rootChannel ? users.filter(u => u.channelId !== rootChannel.id) : users;
 
-  const { statuses } = useServiceStatus();
+  const { effectiveStatuses } = useServiceStatus();
 
-  const serviceOrder: ServiceName[] = ['voice', 'chat', 'server', 'livekit'];
+  const serviceOrder: ServiceName[] = ['voice', 'server', 'chat', 'livekit'];
 
   const stateLabel = (state: ServiceState): string => {
     switch (state) {
@@ -113,9 +115,13 @@ export function Sidebar({
 
   const dotTooltip = (svc: ServiceName): string => {
     const name = SERVICE_DISPLAY_NAMES[svc];
-    const status = statuses[svc];
+    const status = effectiveStatuses[svc];
     const state = stateLabel(status.state);
     const error = status.error;
+
+    if (svc === 'livekit' && status.state === 'connected' && !error && !isLiveKitRoomConnected) {
+      return `${name}: Available`;
+    }
 
     if (svc === 'voice' && status.state === 'connected' && typeof status.loss === 'number') {
       const quality = status.loss < 2 ? ' (good)' : status.loss < 10 ? ' (fair)' : ' (poor)';
@@ -218,7 +224,7 @@ export function Sidebar({
                 {serviceOrder.map(svc => (
                   <Tooltip key={svc} content={dotTooltip(svc)} position="top">
                     <span
-                      className={`service-dot service-dot--${statuses[svc].state}`}
+                      className={`service-dot service-dot--${effectiveStatuses[svc].state}`}
                       aria-label={dotTooltip(svc)}
                       tabIndex={0}
                     />
@@ -258,7 +264,7 @@ export function Sidebar({
                 {serviceOrder.map(svc => (
                   <Tooltip key={svc} content={dotTooltip(svc)} position="top">
                     <span
-                      className={`service-dot service-dot--${statuses[svc].state}`}
+                      className={`service-dot service-dot--${effectiveStatuses[svc].state}`}
                       aria-label={dotTooltip(svc)}
                       tabIndex={0}
                     />

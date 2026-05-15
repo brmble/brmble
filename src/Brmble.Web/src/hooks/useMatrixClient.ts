@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { createClient, RoomEvent, ClientEvent, EventType, MsgType, KnownMembership } from 'matrix-js-sdk';
-import type { MatrixClient, MatrixEvent, Room } from 'matrix-js-sdk';
+import { createClient, RoomEvent, RoomStateEvent, ClientEvent, EventType, MsgType, KnownMembership } from 'matrix-js-sdk';
+import type { MatrixClient, MatrixEvent, Room, RoomMember, RoomState } from 'matrix-js-sdk';
 import type { ChatMessage, MediaAttachment } from '../types';
 import { useServiceStatus } from './useServiceStatus';
 import bridge from '../bridge';
@@ -130,6 +130,7 @@ export interface MessagePreview {
 interface MatrixClientOverlayCallbacks {
   onChannelMessage?: (channelId: string, message: ChatMessage) => void;
   onDirectMessage?: (matrixUserId: string, message: ChatMessage) => void;
+  onUserAvatarChanged?: (matrixUserId: string, avatarUrl: string | null) => void;
 }
 
 export function useMatrixClient(
@@ -218,6 +219,12 @@ export function useMatrixClient(
       return event.getTs() >= liveSince;
     };
 
+    const onMemberChanged = (_event: MatrixEvent, _state: RoomState, member: RoomMember) => {
+      if (!member.userId || !member.getAvatarUrl) return;
+      const avatarUrl = member.getAvatarUrl(client.baseUrl, 128, 128, 'crop', false, false);
+      callbacksRef.current?.onUserAvatarChanged?.(member.userId, avatarUrl ?? null);
+    };
+
     const onTimeline = (
       event: MatrixEvent,
       room: Room | undefined,
@@ -289,6 +296,7 @@ export function useMatrixClient(
     };
 
     client.on(RoomEvent.Timeline, onTimeline);
+    client.on(RoomStateEvent.Members, onMemberChanged);
     updateStatus('chat', { state: 'connecting', error: undefined });
     client.startClient({ initialSyncLimit: 5 });
     clientRef.current = client;
@@ -527,6 +535,7 @@ export function useMatrixClient(
     return () => {
       waitForRoomRef.current = null;
       client.off(RoomEvent.Timeline, onTimeline);
+      client.off(RoomStateEvent.Members, onMemberChanged);
       client.off(ClientEvent.Sync, onSync);
       client.off(RoomEvent.MyMembership, onMyMembership);
       client.stopClient();
@@ -534,7 +543,7 @@ export function useMatrixClient(
       setClient(null);
       updateStatus('chat', { state: 'idle', error: undefined });
     };
-  }, [callbacks, credentials, roomIdToChannelId, updateStatus]);
+  }, [credentials, roomIdToChannelId, updateStatus]);
 
   const sendMessage = useCallback(async (channelId: string, text: string) => {
     if (!credentials || !clientRef.current) return;

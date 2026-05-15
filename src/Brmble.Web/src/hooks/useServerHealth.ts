@@ -22,7 +22,7 @@ export function useServerHealth() {
       updateStatus('server', {
         state: d.state,
         error: d.error,
-        label: d.label,
+        label: d.state === 'connected' ? d.label : undefined,
         version: d.version ?? undefined,
       });
     };
