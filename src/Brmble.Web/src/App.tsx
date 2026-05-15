@@ -1148,12 +1148,10 @@ function App() {
   // preLeaveStartedAt edge.
   const shouldShowIdlePreLeaveNotification = shouldShowOptionalNotification(optionalNotificationSettings, 'notificationIdleWarning');
   useEffect(() => {
-    if (preLeaveStartedAt !== null) {
-      if (shouldShowIdlePreLeaveNotification) {
-        notifQueue.register('idle-pre-leave', 'info');
-      } else {
-        notifQueue.unregister('idle-pre-leave');
-      }
+    if (preLeaveStartedAt !== null && shouldShowIdlePreLeaveNotification) {
+      notifQueue.register('idle-pre-leave', 'info');
+    } else {
+      notifQueue.unregister('idle-pre-leave');
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preLeaveStartedAt, shouldShowIdlePreLeaveNotification]);

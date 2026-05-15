@@ -565,6 +565,21 @@ describe('active share discovery', () => {
     expect(notifQueue.register).not.toHaveBeenCalledWith('idle-pre-leave', 'info');
   });
 
+  it('unregisters idle pre-leave notification when idle pre-leave clears', async () => {
+    idleActionsState.preLeaveStartedAt = 1234;
+    const { rerender } = render(React.createElement(App));
+
+    await waitFor(() => {
+      expect(notifQueue.register).toHaveBeenCalledWith('idle-pre-leave', 'info');
+    });
+
+    vi.mocked(notifQueue.unregister).mockClear();
+    idleActionsState.preLeaveStartedAt = null;
+    rerender(React.createElement(App));
+
+    expect(notifQueue.unregister).toHaveBeenCalledWith('idle-pre-leave');
+  });
+
   it('does not clear chat storage when credentials refresh after reconnect failure without session reset', () => {
     render(React.createElement(App));
 
