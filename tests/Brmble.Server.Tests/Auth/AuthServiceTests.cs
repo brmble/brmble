@@ -182,6 +182,15 @@ public class AuthServiceTests
     }
 
     [TestMethod]
+    public void TrackMumbleName_WithCertHashAndActive_RestoresBrmbleSession()
+    {
+        _svc!.TrackMumbleName("TrackedUser", "tracktest", active: true);
+
+        Assert.IsTrue(_svc.IsBrmbleClient("tracktest"));
+        Assert.IsTrue(_svc.IsBrmbleClientByName("TrackedUser"));
+    }
+
+    [TestMethod]
     public void TrackMumbleName_WithCertHash_DoesNotActivateBrmbleSession()
     {
         _svc!.TrackMumbleName("TrackedUser", "tracktest");

@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import bridge from './bridge';
-import type { ConnectionStatus, ChatMessage, NativeBrmbleServiceStatus, ServiceStatus } from './types';
+import type { ConnectionStatus, ChatMessage, NativeBrmbleServiceStatus, ServiceStatus, ServiceStatusMap } from './types';
 import { encodeForMumble } from './utils/imageUpload';
 import { useMatrixClient } from './hooks/useMatrixClient';
 import type { MatrixCredentials } from './hooks/useMatrixClient';
@@ -466,6 +466,18 @@ interface User {
   isBrmbleClient?: boolean;
 }
 
+export function isMatrixChannelChatActive(
+  channelId: string | undefined,
+  credentials: MatrixCredentials | null,
+  statuses: ServiceStatusMap,
+  selfUser: User | undefined,
+): boolean {
+  if (!channelId || channelId === 'server-root') return false;
+  if (statuses.server.state !== 'connected' || statuses.chat.state !== 'connected') return false;
+  if (!selfUser?.isBrmbleClient) return false;
+  return credentials?.roomMap[channelId] !== undefined;
+}
+
 interface QueuedMovedChannelNotification extends ScreenShareEndedNotification {
   id: string;
 }
@@ -914,6 +926,8 @@ function App() {
   dmStoreRef.current = dmStore;
   const connectionStatusRef = useRef(connectionStatus);
   connectionStatusRef.current = connectionStatus;
+  const statusesRef = useRef(statuses);
+  statusesRef.current = statuses;
   const liveKitStateRef = useRef(statuses.livekit.state);
   liveKitStateRef.current = statuses.livekit.state;
   const effectiveLiveKitStateRef = useRef(effectiveStatuses.livekit.state);
@@ -1343,6 +1357,7 @@ function App() {
         message: string;
         senderSession?: number;
         channelIds?: number[];
+        treeIds?: number[];
         sessions?: number[];
         certHash?: string;
       } | undefined;
@@ -1358,12 +1373,20 @@ function App() {
       const isPrivateMessage = d.sessions && d.sessions.length > 0 &&
         (!d.channelIds || d.channelIds.length === 0);
 
-      // Channel messages: use Mumble path only when Matrix is not active for the channel
+      // Channel messages: use Mumble path while Brmble/Matrix is not fully restored.
       if (!isPrivateMessage) {
-        if (d.channelIds && d.channelIds.length > 0) {
-          const creds = matrixCredentialsRef.current;
-          const channelId = String(d.channelIds[0]);
-          const matrixActive = creds?.roomMap[channelId] !== undefined;
+        const targetChannelIds = d.channelIds && d.channelIds.length > 0
+          ? d.channelIds
+          : d.treeIds;
+        if (targetChannelIds && targetChannelIds.length > 0) {
+          const channelId = String(targetChannelIds[0]);
+          const selfUser = usersRef.current.find(u => u.self);
+          const matrixActive = isMatrixChannelChatActive(
+            channelId,
+            matrixCredentialsRef.current,
+            statusesRef.current,
+            selfUser,
+          );
           if (!matrixActive) {
             const storeKey = `channel-${channelId}`;
         const messageMedia = parseMessageMedia(d.message);
@@ -2270,8 +2293,8 @@ const handleConnect = (serverData: SavedServer) => {
     const channelId = currentChannelId;
     if (!channelId) return;
 
-    const isMatrixChannel = channelId !== 'server-root' &&
-      matrixCredentials?.roomMap[channelId] !== undefined;
+      const selfUser = usersRef.current.find(u => u.self);
+      const isMatrixChannel = isMatrixChannelChatActive(channelId, matrixCredentials, statuses, selfUser);
 
     // Send text content (existing behavior)
     if (content) {
@@ -2568,7 +2591,10 @@ const handleConnect = (serverData: SavedServer) => {
     }
   }, [notifQueue]);
 
-  const isMatrixActive = !!activeChannelId && matrixCredentials?.roomMap[activeChannelId] !== undefined;
+  const selfUserForChat = users.find(u => u.self);
+  const isMatrixActive = activeChannelId
+    ? isMatrixChannelChatActive(activeChannelId, matrixCredentials, statuses, selfUserForChat)
+    : false;
   const matrixMessages = activeChannelId
     ? matrixClient.activeMessages
     : undefined;

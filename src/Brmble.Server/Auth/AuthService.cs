@@ -85,7 +85,11 @@ public class AuthService : IActiveBrmbleSessions
             }
 
             if (active)
+            {
+                if (certHash is not null)
+                    _activeSessions.Add(certHash);
                 _activeNames.Add(mumbleName);
+            }
         }
     }
     public void UntrackMumbleName(string mumbleName)

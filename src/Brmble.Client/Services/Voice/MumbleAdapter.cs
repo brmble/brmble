@@ -3332,6 +3332,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             message = textMessage.Message,
             senderSession = textMessage.Actor,
             channelIds = textMessage.ChannelIds ?? Array.Empty<uint>(),
+            treeIds = textMessage.TreeIds ?? Array.Empty<uint>(),
             sessions = textMessage.Sessions ?? Array.Empty<uint>(),
             certHash = senderUser?.CertificateHash,
         });
