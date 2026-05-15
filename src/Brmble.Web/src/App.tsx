@@ -216,6 +216,18 @@ export function createQueuedScreenShareEndedNotification(
   };
 }
 
+export function createOptionalQueuedScreenShareEndedNotification(
+  reason: LocalShareStopReason,
+  sequence: number,
+  settings: OptionalNotificationSettings | null | undefined,
+): QueuedScreenShareEndedNotification | null {
+  if (!shouldShowOptionalNotification(settings, 'notificationScreenShareStatus')) {
+    return null;
+  }
+
+  return createQueuedScreenShareEndedNotification(reason, sequence);
+}
+
 export function createWatchedShareEndedNotification(
   share: ShareInfo,
   reason: WatchedShareEndReason,
@@ -227,6 +239,19 @@ export function createWatchedShareEndedNotification(
     title: reason === 'unexpected' ? 'Share ended unexpectedly' : 'Share ended',
     detail: `${share.userName || 'Someone'}'s share ended${reason === 'unexpected' ? ' because the screen-share connection was interrupted.' : '.'}`,
   };
+}
+
+export function createOptionalWatchedShareEndedNotification(
+  share: ShareInfo,
+  reason: WatchedShareEndReason,
+  sequence: number,
+  settings: OptionalNotificationSettings | null | undefined,
+): WatchedShareEndedNotification | null {
+  if (!shouldShowOptionalNotification(settings, 'notificationScreenShareStatus')) {
+    return null;
+  }
+
+  return createWatchedShareEndedNotification(share, reason, sequence);
 }
 
 export function WatchedShareEndedNotifications({
@@ -2900,22 +2925,30 @@ const handleConnect = (serverData: SavedServer) => {
       wasLocalShareRecentlyActiveRef.current = true;
     }
 
-    const notification = replaceScreenShareEndedNotification(
-      screenShareEndedNotificationRef.current,
+    if (screenShareEndedNotificationRef.current) {
+      notifQueue.unregister(screenShareEndedNotificationRef.current.id);
+    }
+
+    const notification = createOptionalQueuedScreenShareEndedNotification(
       reason,
       nextScreenShareEndedNotificationIdRef.current++,
-      notifQueue,
+      optionalNotificationSettingsRef.current,
     );
     screenShareEndedNotificationRef.current = notification;
     setScreenShareEndedNotification(notification);
   }, [notifQueue]);
 
   const handleWatchedShareEnded = useCallback((share: ShareInfo, reason: WatchedShareEndReason) => {
-    const notification = createWatchedShareEndedNotification(
+    const notification = createOptionalWatchedShareEndedNotification(
       share,
       reason,
       nextWatchedShareEndedNotificationIdRef.current++,
+      optionalNotificationSettingsRef.current,
     );
+    if (!notification) {
+      return;
+    }
+
     setWatchedShareEndedNotifications(prev => [...prev, notification]);
   }, []);
 
