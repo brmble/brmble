@@ -1376,6 +1376,27 @@ describe('active share discovery', () => {
     });
   });
 
+  it('manual share stop unregisters a previously queued share-ended notification', async () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id.startsWith('screen-share-ended-'));
+    render(React.createElement(App));
+
+    act(() => {
+      getLocalShareEndedHandler()?.('interrupted');
+    });
+
+    await waitFor(() => {
+      expect(notifQueue.register).toHaveBeenCalledWith('screen-share-ended-0', 'info');
+    });
+
+    act(() => {
+      getLocalShareEndedHandler()?.('manual');
+    });
+
+    await waitFor(() => {
+      expect(notifQueue.unregister).toHaveBeenCalledWith('screen-share-ended-0');
+    });
+  });
+
   it('manual share stop does not make a later admin move look sharing-related', async () => {
     vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id.startsWith('channel-moved-'));
     screenShareState.isSharing = true;

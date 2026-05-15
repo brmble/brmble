@@ -2933,8 +2933,6 @@ const handleConnect = (serverData: SavedServer) => {
     if (reason === 'manual') {
       wasLocalShareRecentlyActiveRef.current = false;
       ignoreNextMovedSharingRef.current = true;
-      screenShareEndedNotificationRef.current = null;
-      setScreenShareEndedNotification(null);
     } else {
       wasLocalShareRecentlyActiveRef.current = true;
     }
