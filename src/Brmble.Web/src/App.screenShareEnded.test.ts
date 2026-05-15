@@ -23,6 +23,13 @@ type ReplaceScreenShareEndedNotification = (
 ) => ReturnType<typeof createQueuedScreenShareEndedNotification>;
 
 describe('shouldShowOptionalNotification', () => {
+  const categories = [
+    'notificationRemoteScreenShare',
+    'notificationScreenShareStatus',
+    'notificationIdleWarning',
+    'notificationMovedChannel',
+  ] as const;
+
   const enabledSettings = {
     notificationsDisabled: false,
     notificationRemoteScreenShare: true,
@@ -32,23 +39,21 @@ describe('shouldShowOptionalNotification', () => {
   };
 
   it('allows enabled categories when the global opt-out is off', () => {
-    expect(shouldShowOptionalNotification(enabledSettings, 'notificationRemoteScreenShare')).toBe(true);
-    expect(shouldShowOptionalNotification(enabledSettings, 'notificationScreenShareStatus')).toBe(true);
-    expect(shouldShowOptionalNotification(enabledSettings, 'notificationIdleWarning')).toBe(true);
-    expect(shouldShowOptionalNotification(enabledSettings, 'notificationMovedChannel')).toBe(true);
+    for (const category of categories) {
+      expect(shouldShowOptionalNotification(enabledSettings, category)).toBe(true);
+    }
   });
 
   it('blocks every category when the global opt-out is on without changing category values', () => {
-    expect(shouldShowOptionalNotification({
+    const settings = {
       ...enabledSettings,
       notificationsDisabled: true,
       notificationIdleWarning: false,
-    }, 'notificationRemoteScreenShare')).toBe(false);
-    expect(shouldShowOptionalNotification({
-      ...enabledSettings,
-      notificationsDisabled: true,
-      notificationIdleWarning: false,
-    }, 'notificationIdleWarning')).toBe(false);
+    };
+
+    for (const category of categories) {
+      expect(shouldShowOptionalNotification(settings, category)).toBe(false);
+    }
   });
 
   it('blocks a single disabled category while allowing the others', () => {
@@ -58,6 +63,8 @@ describe('shouldShowOptionalNotification', () => {
     };
 
     expect(shouldShowOptionalNotification(settings, 'notificationIdleWarning')).toBe(false);
+    expect(shouldShowOptionalNotification(settings, 'notificationRemoteScreenShare')).toBe(true);
+    expect(shouldShowOptionalNotification(settings, 'notificationScreenShareStatus')).toBe(true);
     expect(shouldShowOptionalNotification(settings, 'notificationMovedChannel')).toBe(true);
   });
 });
