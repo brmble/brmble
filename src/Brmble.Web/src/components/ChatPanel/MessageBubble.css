@@ -144,6 +144,15 @@ p.message-text {
   opacity: 0.6;
 }
 
+.message-bubble--redacted .message-content {
+  opacity: 0.72;
+}
+
+.message-text--deleted {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
 .message-error-overlay {
   display: flex;
   align-items: center;

@@ -12,6 +12,7 @@ import { ContextMenu } from '../ContextMenu/ContextMenu';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { Icon } from '../Icon/Icon';
 import Avatar from '../Avatar/Avatar';
+import { confirm } from '../../hooks/usePrompt';
 import './ChatPanel.css';
 
 interface ChatPanelProps {
@@ -38,6 +39,7 @@ interface ChatPanelProps {
   topNotice?: string;
   onMessageContextMenu?: (x: number, y: number, sender: string, senderMatrixUserId?: string, content?: string, messageId?: string) => void;
   onCopyToClipboard?: (text: string) => void;
+  onDeleteMessage?: (channelId: string, messageId: string) => Promise<void> | void;
 }
 
 const SCROLL_THRESHOLD = 150;
@@ -45,7 +47,7 @@ const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
 const DEFAULT_SPLIT = 50;
 const REPLY_TARGET_HIGHLIGHT_MS = 1600;
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, watchingShares, focusedShare, remoteVideoEls, onFocusShare, onCloseShare, screenShareViewerMode, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, watchingShares, focusedShare, remoteVideoEls, onFocusShare, onCloseShare, screenShareViewerMode, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard, onDeleteMessage }: ChatPanelProps) {
   // Build lookup maps from sender name and matrixUserId → avatar data for MessageBubble.
   // Name-based lookup works when Mumble name matches message sender.
   // MatrixUserId-based lookup handles cases where the user connected with a different
@@ -161,7 +163,17 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
   const messageElMapRef = useRef<Map<string, HTMLDivElement>>(new Map());
   const hiddenSetRef = useRef<Set<string>>(new Set());
   const replyHighlightTimeoutRef = useRef<number | null>(null);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; sender: string; senderMatrixUserId?: string; content?: string; messageId?: string; msgType?: string } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    sender: string;
+    senderMatrixUserId?: string;
+    content?: string;
+    messageId?: string;
+    msgType?: string;
+    isOwnMessage: boolean;
+    canDelete: boolean;
+  } | null>(null);
 const [replyState, setReplyState] = useState<{
   eventId: string;
   sender: string;
@@ -933,16 +945,21 @@ const [replyState, setReplyState] = useState<{
                     messageId={item.message.id}
                     pending={item.message.pending}
                     error={item.message.error}
+                    redacted={item.message.redacted}
                     replyToEventId={item.message.replyToEventId}
                     replyToSender={(item.message.replyToSender) || (item.message.replyToEventId ? lookupMessageById(item.message.replyToEventId)?.sender : undefined)}
-                    replyToContent={(item.message.replyToContent) || (item.message.replyToEventId ? lookupMessageById(item.message.replyToEventId)?.content : undefined)}
+                    replyToContent={(item.message.replyToContent) || (item.message.replyToEventId ? (() => {
+                      const replyTarget = lookupMessageById(item.message.replyToEventId);
+                      return replyTarget?.redacted ? 'Message deleted' : replyTarget?.content;
+                    })() : undefined)}
                     isReplyTargetHighlighted={highlightedMessageId === item.message.id}
                     onReplyClick={scrollToMessage}
                     onDismiss={onDismissMessage}
-                    onOpenContextMenu={onMessageContextMenu ? (x, y, s, m, c, msgId, msgType = 'm.text') => {
-                      if (s !== currentUsername) {
-                        setContextMenu({ x, y, sender: s, senderMatrixUserId: m, content: c, messageId: msgId, msgType });
-                      }
+                    onOpenContextMenu={(onMessageContextMenu || onDeleteMessage) ? (x, y, s, m, c, msgId, msgType = 'm.text') => {
+                      const currentMatrixUserId = matrixClient?.getUserId();
+                      const isOwnMessage = m && currentMatrixUserId ? m === currentMatrixUserId : s === currentUsername;
+                      const canDelete = Boolean(isOwnMessage && onDeleteMessage && msgId?.startsWith('$') && !item.message.pending && !item.message.redacted && !item.message.type);
+                      setContextMenu({ x, y, sender: s, senderMatrixUserId: m, content: c, messageId: msgId, msgType, isOwnMessage, canDelete });
                     } : undefined}
                   />
                 </Fragment>
@@ -974,13 +991,32 @@ const [replyState, setReplyState] = useState<{
                 }
                 setContextMenu(null);
               }},
-              { type: 'divider' },
-              { type: 'item', label: 'Send DM', onClick: () => {
-                if (onMessageContextMenu) {
-                  onMessageContextMenu(contextMenu.x, contextMenu.y, contextMenu.sender, contextMenu.senderMatrixUserId);
-                }
-                setContextMenu(null);
-              }}
+              ...(contextMenu.canDelete ? [
+                { type: 'divider' as const },
+                { type: 'item' as const, label: 'Delete', onClick: async () => {
+                  const messageId = contextMenu.messageId;
+                  const activeChannelId = channelId;
+                  setContextMenu(null);
+                  if (!activeChannelId || !messageId || !onDeleteMessage) return;
+                  const confirmed = await confirm({
+                    title: 'Delete this message?',
+                    message: 'This will remove the message for everyone in this chat.',
+                    confirmLabel: 'Delete',
+                    cancelLabel: 'Cancel',
+                  });
+                  if (!confirmed) return;
+                  await onDeleteMessage(activeChannelId, messageId);
+                }},
+              ] : []),
+              ...(!contextMenu.isOwnMessage ? [
+                { type: 'divider' as const },
+                { type: 'item' as const, label: 'Send DM', onClick: () => {
+                  if (onMessageContextMenu) {
+                    onMessageContextMenu(contextMenu.x, contextMenu.y, contextMenu.sender, contextMenu.senderMatrixUserId);
+                  }
+                  setContextMenu(null);
+                }},
+              ] : []),
             ]}
             onClose={() => setContextMenu(null)}
           />

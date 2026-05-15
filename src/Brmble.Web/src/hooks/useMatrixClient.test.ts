@@ -28,6 +28,7 @@ const mockClient = {
   createRoom: vi.fn().mockResolvedValue({ room_id: '!new:example.com' }),
   scrollback: vi.fn().mockResolvedValue(undefined),
   sendMessage: vi.fn().mockResolvedValue({}),
+  redactEvent: vi.fn().mockResolvedValue({ event_id: '$redaction' }),
   mxcUrlToHttp: vi.fn((url: string) => url.replace('mxc://', 'https://matrix.example.com/_matrix/media/v3/download/')),
 };
 
@@ -35,7 +36,7 @@ vi.mock('matrix-js-sdk', () => ({
   createClient: vi.fn(() => mockClient),
   RoomEvent: { Timeline: 'Room.timeline' },
   ClientEvent: { Sync: 'sync', AccountData: 'accountData' },
-  EventType: { RoomMessage: 'm.room.message', Direct: 'm.direct' },
+  EventType: { RoomMessage: 'm.room.message', Direct: 'm.direct', RoomRedaction: 'm.room.redaction' },
   MsgType: { Text: 'm.text' },
   Preset: { TrustedPrivateChat: 'trusted_private_chat' },
   KnownMembership: { Join: 'join', Invite: 'invite', Leave: 'leave' },
@@ -677,5 +678,104 @@ describe('useMatrixClient', () => {
       ts: 2000,
       sender: 'Bob',
     });
+  });
+
+  it('deleteMessage redacts a channel message in the mapped Matrix room', async () => {
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+
+    await act(() => result.current.deleteMessage('42', '$event-to-delete'));
+
+    expect(mockClient.redactEvent).toHaveBeenCalledWith('!room:example.com', '$event-to-delete');
+  });
+
+  it('deleteMessage redacts a DM message through the DM room map', async () => {
+    const credsWithDm: MatrixCredentials = {
+      ...creds,
+      dmRoomMap: { '@bob:example.com': '!dm-bob:example.com' },
+    };
+    const { result } = renderHook(() => useMatrixClient(credsWithDm), { wrapper });
+    const onSync = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'sync')?.[1] as
+      | ((state: string) => void)
+      | undefined;
+    act(() => onSync?.('PREPARED'));
+
+    await act(() => result.current.deleteMessage('@bob:example.com', '$dm-delete'));
+
+    expect(mockClient.redactEvent).toHaveBeenCalledWith('!dm-bob:example.com', '$dm-delete');
+  });
+
+  it('loads redacted room message events as deleted placeholders', () => {
+    const redactedEvent = {
+      getType: () => 'm.room.message',
+      getId: () => '$redacted',
+      getSender: () => '@alice:example.com',
+      getContent: () => ({}),
+      getTs: () => 1000,
+      isRedacted: () => true,
+    };
+    const mockRoom = {
+      roomId: '!room:example.com',
+      getMember: () => ({ rawDisplayName: 'Alice', name: 'Alice' }),
+      getLiveTimeline: () => ({ getEvents: () => [redactedEvent] }),
+    };
+    mockClient.getRoom.mockReturnValue(mockRoom);
+
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+    act(() => result.current.setActiveChannel('42'));
+
+    expect(result.current.activeMessages).toEqual([
+      expect.objectContaining({
+        id: '$redacted',
+        sender: 'Alice',
+        content: '',
+        redacted: true,
+        media: undefined,
+        replyToEventId: undefined,
+      }),
+    ]);
+  });
+
+  it('marks an active channel message deleted when a redaction event arrives', () => {
+    mockClient.getRoom.mockReturnValue(null);
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+    act(() => result.current.setActiveChannel('42'));
+
+    const onTimeline = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'Room.timeline')?.[1] as
+      | ((ev: unknown, r: unknown) => void)
+      | undefined;
+
+    const messageEvent = {
+      getType: () => 'm.room.message',
+      getId: () => '$to-redact',
+      getSender: () => '@alice:example.com',
+      getContent: () => ({ body: 'secret text' }),
+      getTs: () => 1000,
+      isRedacted: () => false,
+    };
+    const redactionEvent = {
+      getType: () => 'm.room.redaction',
+      getId: () => '$redaction',
+      getSender: () => '@alice:example.com',
+      getContent: () => ({}),
+      getTs: () => 1001,
+      getRedacts: () => '$to-redact',
+    };
+    const mockRoom = {
+      roomId: '!room:example.com',
+      getMember: () => ({ rawDisplayName: 'Alice', name: 'Alice' }),
+    };
+
+    act(() => {
+      onTimeline?.(messageEvent, mockRoom);
+      onTimeline?.(redactionEvent, mockRoom);
+    });
+
+    expect(result.current.activeMessages[0]).toEqual(expect.objectContaining({
+      id: '$to-redact',
+      content: '',
+      redacted: true,
+      media: undefined,
+      replyToEventId: undefined,
+    }));
   });
 });

@@ -2340,6 +2340,17 @@ const handleConnect = (serverData: SavedServer) => {
     setUnreadCount(0);
   };
 
+  const handleDeleteChannelMessage = useCallback(async (chatPanelChannelId: string, messageId: string) => {
+    if (!chatPanelChannelId || chatPanelChannelId === 'server-root') return;
+    await matrixClient.deleteMessage(chatPanelChannelId, messageId);
+  }, [matrixClient]);
+
+  const handleDeleteDmMessage = useCallback(async (_chatPanelChannelId: string, messageId: string) => {
+    const selectedContactId = dmStore.selectedContact?.id;
+    if (!selectedContactId) return;
+    await matrixClient.deleteMessage(selectedContactId, messageId);
+  }, [dmStore.selectedContact?.id, matrixClient]);
+
   const handleDismissMessage = (messageId: string) => {
     setOptimisticImages(prev => {
       const msg = prev.find(m => m.id === messageId);
@@ -3227,6 +3238,7 @@ const handleConnect = (serverData: SavedServer) => {
                     users={users}
                     onMessageContextMenu={handleChatMessageContextMenu}
                     onCopyToClipboard={handleCopyToClipboard}
+                    onDeleteMessage={handleDeleteChannelMessage}
                   />
                   </ErrorBoundary>
                 </div>
@@ -3247,6 +3259,7 @@ const handleConnect = (serverData: SavedServer) => {
                     topNotice={dmStore.selectedContact?.isEphemeral ? 'This is a Mumble direct message. Chat history will be lost when you disconnect.' : undefined}
                     onMessageContextMenu={handleChatMessageContextMenu}
                     onCopyToClipboard={handleCopyToClipboard}
+                    onDeleteMessage={handleDeleteDmMessage}
                   />
                   </ErrorBoundary>
                 </div>

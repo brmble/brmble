@@ -24,6 +24,42 @@ function insertMessage(existing: ChatMessage[], msg: ChatMessage): ChatMessage[]
   return updated;
 }
 
+type RedactionLikeEvent = MatrixEvent & {
+  event?: { redacts?: string };
+  getRedacts?: () => string | undefined;
+};
+
+function isMatrixEventRedacted(event: MatrixEvent): boolean {
+  return typeof event.isRedacted === 'function' && event.isRedacted();
+}
+
+function getRedactedEventId(event: MatrixEvent): string | undefined {
+  const redactionEvent = event as RedactionLikeEvent;
+  return redactionEvent.getRedacts?.()
+    ?? redactionEvent.event?.redacts
+    ?? (event.getContent() as { redacts?: string }).redacts;
+}
+
+function markMessageRedacted(existing: ChatMessage[], eventId: string | undefined): ChatMessage[] {
+  if (!eventId) return existing;
+  let changed = false;
+  const updated = existing.map((message) => {
+    if (message.id !== eventId) return message;
+    changed = true;
+    return {
+      ...message,
+      content: '',
+      html: undefined,
+      media: undefined,
+      replyToEventId: undefined,
+      replyToSender: undefined,
+      replyToContent: undefined,
+      redacted: true,
+    };
+  });
+  return changed ? updated : existing;
+}
+
 /**
  * Transform a Matrix `m.room.message` event into a ChatMessage.
  * Pure: only depends on its arguments. No SDK calls beyond what's
@@ -42,6 +78,18 @@ function transformEventToChatMessage(
   const senderId = event.getSender() ?? 'Unknown';
   const senderMember = room?.getMember(senderId);
   const displayName = senderMember?.rawDisplayName || senderMember?.name || senderId;
+
+  if (isMatrixEventRedacted(event)) {
+    return {
+      id: event.getId() ?? crypto.randomUUID(),
+      channelId,
+      sender: displayName,
+      senderMatrixUserId: senderId,
+      content: '',
+      timestamp: new Date(event.getTs()),
+      redacted: true,
+    };
+  }
 
   const content = event.getContent() as {
     body?: string;
@@ -125,6 +173,7 @@ export interface MessagePreview {
   content: string;
   ts: number;
   sender: string;
+  eventId?: string;
 }
 
 interface MatrixClientOverlayCallbacks {
@@ -225,8 +274,61 @@ export function useMatrixClient(
       _removed?: boolean,
       data?: { liveEvent?: boolean } | null,
     ) => {
-      if (event.getType() !== EventType.RoomMessage) return;
+      const eventType = event.getType();
       const channelId = roomIdToChannelId.get(room?.roomId ?? '');
+
+      if (eventType === EventType.RoomRedaction) {
+        const redactedEventId = getRedactedEventId(event);
+        
+        // Update active messages if currently viewing this channel/DM
+        if (channelId && activeChannelIdRef.current === channelId) {
+          setActiveMessages(prev => markMessageRedacted(prev, redactedEventId));
+        }
+
+        const dmUserId = roomIdToDMUserIdRef.current.get(room?.roomId ?? '');
+        if (dmUserId && activeDmContactIdRef.current === dmUserId) {
+          setActiveDmMessages(prev => markMessageRedacted(prev, redactedEventId));
+        }
+
+        // Update last message previews if the redacted message is the preview
+        if (channelId) {
+          setLastMessages(prev => {
+            const existing = prev.get(channelId);
+            if (existing && existing.eventId === redactedEventId) {
+              const next = new Map(prev);
+              next.set(channelId, {
+                content: 'Message deleted',
+                ts: existing.ts,
+                sender: existing.sender,
+                eventId: existing.eventId,
+              });
+              return next;
+            }
+            return prev;
+          });
+        }
+
+        if (dmUserId) {
+          setDmLastMessages(prev => {
+            const existing = prev.get(dmUserId);
+            if (existing && existing.eventId === redactedEventId) {
+              const next = new Map(prev);
+              next.set(dmUserId, {
+                content: 'Message deleted',
+                ts: existing.ts,
+                sender: existing.sender,
+                eventId: existing.eventId,
+              });
+              return next;
+            }
+            return prev;
+          });
+        }
+        
+        return;
+      }
+
+      if (eventType !== EventType.RoomMessage) return;
       if (channelId) {
         const message = transformEventToChatMessage(event, room, channelId, clientRef.current);
         if (!message) return;
@@ -242,6 +344,7 @@ export function useMatrixClient(
             content: message.content,
             ts: message.timestamp.getTime(),
             sender: message.sender,
+            eventId: message.id,
           });
           return next;
         });
@@ -277,6 +380,7 @@ export function useMatrixClient(
           content: dmMessage.content,
           ts: dmMessage.timestamp.getTime(),
           sender: dmMessage.sender,
+          eventId: dmMessage.id,
         });
         return next;
       });
@@ -344,6 +448,7 @@ export function useMatrixClient(
                 content: msg.content,
                 ts: msg.timestamp.getTime(),
                 sender: msg.sender,
+                eventId: msg.id,
               };
               if (channelId) bootChannelPreviews.set(channelId, preview);
               else if (dmUserId) bootDmPreviews.set(dmUserId, preview);
@@ -576,6 +681,62 @@ export function useMatrixClient(
     await clientRef.current.scrollback(room, 50);
   }, [credentials]);
 
+  const deleteMessage = useCallback(async (targetId: string, eventId: string) => {
+    const client = clientRef.current;
+    if (!credentials || !client || !eventId) return;
+
+    const channelRoomId = credentials.roomMap[targetId];
+    const dmRoomId = dmRoomMapRef.current.get(targetId);
+    const roomId = channelRoomId ?? dmRoomId;
+    if (!roomId) return;
+
+    try {
+      await client.redactEvent(roomId, eventId);
+      
+      // Update active messages if currently viewing this channel/DM
+      if (channelRoomId && activeChannelIdRef.current === targetId) {
+        setActiveMessages(prev => markMessageRedacted(prev, eventId));
+      } else if (dmRoomId && activeDmContactIdRef.current === targetId) {
+        setActiveDmMessages(prev => markMessageRedacted(prev, eventId));
+      }
+
+      // Update last message previews if the deleted message is the preview
+      if (channelRoomId) {
+        setLastMessages(prev => {
+          const existing = prev.get(targetId);
+          if (existing && existing.eventId === eventId) {
+            const next = new Map(prev);
+            next.set(targetId, {
+              content: 'Message deleted',
+              ts: existing.ts,
+              sender: existing.sender,
+              eventId: existing.eventId,
+            });
+            return next;
+          }
+          return prev;
+        });
+      } else if (dmRoomId) {
+        setDmLastMessages(prev => {
+          const existing = prev.get(targetId);
+          if (existing && existing.eventId === eventId) {
+            const next = new Map(prev);
+            next.set(targetId, {
+              content: 'Message deleted',
+              ts: existing.ts,
+              sender: existing.sender,
+              eventId: existing.eventId,
+            });
+            return next;
+          }
+          return prev;
+        });
+      }
+    } catch (err) {
+      console.warn('[Matrix] Failed to redact message:', err);
+    }
+  }, [credentials]);
+
   const sendDMMessage = useCallback(async (targetMatrixUserId: string, text: string) => {
     const client = clientRef.current;
     if (!client || !credentials) return;
@@ -777,7 +938,7 @@ export function useMatrixClient(
   }, [client, dmRoomMap]);
 
   return { lastMessages, activeMessages, setActiveChannel,
-           sendMessage, sendImageMessage, uploadContent, fetchHistory,
+           sendMessage, sendImageMessage, uploadContent, fetchHistory, deleteMessage,
            dmLastMessages, activeDmMessages, setActiveDmContact, dmRoomMap,
            dmUserDisplayNames, dmUserAvatarUrls, sendDMMessage, fetchDMHistory,
            fetchAvatarUrl, client };

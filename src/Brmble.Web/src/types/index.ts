@@ -59,6 +59,7 @@ export interface ChatMessage {
   media?: MediaAttachment[];
   pending?: boolean;
   error?: boolean;
+  redacted?: boolean;
   replyToEventId?: string;
   replyToSender?: string;
   replyToContent?: string;
