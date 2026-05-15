@@ -108,7 +108,7 @@ See full spec: `2026-04-17-multi-share-foundation-design.md`
 - [x] 37. Graceful degradation -- implemented as informational reconnecting/poor-quality UI that preserves watched tiles during transient LiveKit reconnects.
 - [x] 38. Disconnect notification when share ends unexpectedly -- implemented through Brmble notifications for watched/local share interruption.
 - [x] 39. Reconnect non-voice services independently when Mumble stays connected -- implemented for Brmble server/session, Matrix chat, and screen-share support state.
-- [ ] 40. Share state recovery after crash -- intentionally deferred; users restart sharing/watching manually.
+- [x] 40. Share state recovery after crash -- completed by intentionally clearing stale LiveKit state; users restart sharing/watching manually after crash or terminal service loss.
 
 ## G. UI/UX Polish
 
