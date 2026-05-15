@@ -68,7 +68,8 @@ public class SessionMappingService : ISessionMappingService
     public bool TryGetMappingByUserId(long userId, out int sessionId, out SessionMapping? mapping)
     {
         if (_userIdToSession.TryGetValue(userId, out sessionId) &&
-            _sessionToMapping.TryGetValue(sessionId, out mapping))
+            _sessionToMapping.TryGetValue(sessionId, out mapping) &&
+            mapping.UserId == userId)
         {
             return true;
         }

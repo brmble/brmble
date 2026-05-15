@@ -337,7 +337,7 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
           onMouseUp={handleMouseUp('screen')}
           onMouseLeave={handleMouseLeave}
           onKeyDown={handleKeyDown('screen')}
-          onKeyUp={handleKeyUp('screen')}
+          onKeyUp={handleKeyUp('screen', onToggleScreenShare)}
           onClick={onToggleScreenShare}
           disabled={!screenSharing && !canScreenShare}
         >

@@ -69,7 +69,7 @@ public class SessionMappingHandlerTests
     {
         var user = await _repo.Insert("abc123", "Alice");
         _activeSessions.Setup(s => s.IsBrmbleClient("abc123")).Returns(true);
-        _mapping.Setup(m => m.TryAddMatrixUser(1, user.MatrixUserId, "Alice", user.Id, "bee")).Returns(true);
+        _mapping.Setup(m => m.TryAddMatrixUser(1, user.MatrixUserId, "Alice", user.Id, It.IsAny<string>())).Returns(true);
 
         await _handler.OnUserConnected(new MumbleUser("Alice", "abc123", 1));
 

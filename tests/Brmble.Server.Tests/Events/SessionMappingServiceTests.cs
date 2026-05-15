@@ -108,6 +108,15 @@ public class SessionMappingServiceTests
     }
 
     [TestMethod]
+    public void TryGetMappingByUserId_DoesNotReturnMappingForDifferentUser()
+    {
+        Assert.IsTrue(_svc.TryAddMatrixUser(1, "@old:server", "Alice", 10L, "bee"));
+        Assert.IsFalse(_svc.TryAddMatrixUser(1, "@new:server", "Alice", 42L, "bee"));
+
+        Assert.IsFalse(_svc.TryGetMappingByUserId(42L, out _, out _));
+    }
+
+    [TestMethod]
     public void TryGetSessionByUserId_ReturnsFalseWhenNotMapped()
     {
         Assert.IsFalse(_svc.TryGetSessionByUserId(999L, out _));
