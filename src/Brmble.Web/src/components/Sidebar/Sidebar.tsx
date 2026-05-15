@@ -640,7 +640,7 @@ export function Sidebar({
             <div className="prompt-input-container">
               <input
                 type="text"
-                className="brmble-input channel-description-input"
+                className="brmble-input"
                 placeholder="Channel name"
                 value={newChannelName}
                 onChange={(e) => setNewChannelName(e.target.value)}
@@ -649,7 +649,7 @@ export function Sidebar({
             </div>
             <div className="prompt-input-container">
               <textarea
-                className="brmble-input"
+                className="brmble-input channel-description-input"
                 placeholder="Description (optional, max 127 chars)"
                 value={newChannelDescription}
                 onChange={(e) => setNewChannelDescription(e.target.value.slice(0, 127))}

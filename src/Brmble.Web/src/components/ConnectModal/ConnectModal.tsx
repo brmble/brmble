@@ -27,8 +27,8 @@ export function ConnectModal({ isOpen, onClose, onConnect, registeredUsername }:
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="connect-modal glass-panel animate-slide-up" onClick={(e) => e.stopPropagation()}>
-        <button className="modal-close" onClick={onClose}>
-            <Icon name="x" size={20} />
+        <button className="modal-close" onClick={onClose} aria-label="Close connect modal">
+          <Icon name="x" size={20} />
         </button>
 
         <div className="modal-header">
@@ -64,16 +64,18 @@ export function ConnectModal({ isOpen, onClose, onConnect, registeredUsername }:
           <div className="form-group">
             <label htmlFor="username">Username</label>
             <Tooltip content={registeredUsername ? 'Username is locked after registration' : ''}>
-              <input
-              id="username"
-              className="brmble-input"
-              type="text"
-              value={registeredUsername || username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="Your display name"
-              disabled={!!registeredUsername}
-              required
-              />
+              <span className="locked-input-tooltip-trigger" tabIndex={registeredUsername ? 0 : -1}>
+                <input
+                  id="username"
+                  className="brmble-input"
+                  type="text"
+                  value={registeredUsername || username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="Your display name"
+                  disabled={!!registeredUsername}
+                  required
+                />
+              </span>
             </Tooltip>
           </div>
 

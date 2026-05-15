@@ -98,6 +98,10 @@
   width: 100%;
 }
 
+.locked-input-tooltip-trigger {
+  display: block;
+}
+
 .input-row {
   display: flex;
   gap: var(--space-sm);

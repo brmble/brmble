@@ -33,18 +33,18 @@ const titleAttributeAllowList = [
 ];
 
 const inlineStyleAllowList = [
-  /style=\{\{\s*width\s*\}\}/,
-  /style=\{\{\s*width:/,
-  /style=\{\{\s*flex:/,
-  /style=\{\{\s*bottom:/,
-  /style=\{\{\s*\r?$/,
-  /style=\{\{\s*paddingLeft:/,
-  /style=\{\{\s*animationDelay:/,
-  /style=\{\{\s*animationDuration:/,
-  /style=\{\{\s*display: 'none'/,
-  /style=\{\{\s*'--dx':/,
-  /style=\{\{\s*width: size/,
-  /style=\{\{\s*fontSize\s*\}\}/,
+  /^style=\{\{\s*width\s*\}\}$/,
+  /^style=\{\{\s*fontSize\s*\}\}$/,
+  /^style=\{\{\s*width:\s*size,\s*height:\s*size,\s*minWidth:\s*size,\s*minHeight:\s*size\s*\}\}$/,
+  /^style=\{\{\s*width:\s*`\$\{[^`]+\}%`\s*\}\}$/,
+  /^style=\{\{\s*flex:\s*`0 0 \$\{[^`]+\}%`\s*\}\}$/,
+  /^style=\{\{\s*paddingLeft:\s*`calc\([^`]+\$\{[^`]+\}px\)`\s*\}\}$/,
+  /^style=\{\{\s*animationDelay:\s*`\$\{[^`]+\}ms`\s*\}\}$/,
+  /^style=\{\{\s*animationDuration:\s*`\$\{[^`]+\}ms`\s*\}\}$/,
+  /^style=\{\{\s*display:\s*'none'\s*\}\}$/,
+  /^style=\{\{\s*'--dx':\s*'[^']+',\s*'--dy':\s*'[^']+'\s*\}\s*as CSSProperties\}$/,
+  /^style=\{\{\s*bottom:\s*`\$\{[^`]+\}px`,\s*right:\s*`\$\{[^`]+\}px`,\s*\}\}$/,
+  /^style=\{\{\s*'--grad-center':\s*`url\(#\$\{[^`]+\}-grad-center\)`,\s*'--grad-inner':\s*`url\(#\$\{[^`]+\}-grad-inner\)`,\s*'--grad-middle':\s*`url\(#\$\{[^`]+\}-grad-middle\)`,\s*'--grad-outer':\s*`url\(#\$\{[^`]+\}-grad-outer\)`,\s*\}\s*as CSSProperties\}$/,
 ];
 
 const filesToScan = collectFiles(sourceRoot).filter((file) => {
@@ -92,10 +92,44 @@ function findViolations(pattern: RegExp, allowList: string[] = []): string[] {
 }
 
 function findInlineStyleViolations(): string[] {
-  return findViolations(/style=\{\{/g).filter((violation) => {
-    const sourceLine = violation.slice(violation.indexOf(': ') + 2);
-    return !inlineStyleAllowList.some((pattern) => pattern.test(sourceLine));
-  });
+  const violations: string[] = [];
+
+  for (const file of filesToScan) {
+    const rel = toPosix(relative(sourceRoot, file));
+    const lines = readFileSync(file, 'utf8').split(/\r?\n/);
+
+    for (let index = 0; index < lines.length; index++) {
+      const line = lines[index];
+      if (!line.includes('style={{')) continue;
+
+      const expressionLines = [line.slice(line.indexOf('style={{')).trim()];
+      let cursor = index;
+      while (!isStyleExpressionClosed(expressionLines.join(' ')) && cursor < lines.length - 1) {
+        cursor += 1;
+        expressionLines.push(lines[cursor].trim());
+      }
+
+      const expression = normalizeStyleExpression(expressionLines.join(' '));
+      if (!inlineStyleAllowList.some((pattern) => pattern.test(expression))) {
+        violations.push(`${rel}:${index + 1}: ${expression}`);
+      }
+    }
+  }
+
+  return violations;
+}
+
+function isStyleExpressionClosed(expression: string): boolean {
+  return /\}\}\s*|\}\s+as CSSProperties\}\s*/.test(expression);
+}
+
+function normalizeStyleExpression(expression: string): string {
+  const normalized = expression.replace(/\s+/g, ' ');
+  const cssPropertiesEnd = normalized.match(/^(.*?\}\s+as CSSProperties\})/);
+  if (cssPropertiesEnd) return cssPropertiesEnd[1];
+
+  const objectEnd = normalized.match(/^(.*?\}\})/);
+  return objectEnd ? objectEnd[1] : normalized;
 }
 
 describe('UI guide compliance', () => {

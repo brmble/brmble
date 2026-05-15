@@ -52,7 +52,6 @@
 
 .contract-stars {
   color: var(--accent-primary);
-  letter-spacing: 1px;
   font-size: var(--text-sm);
 }
 
