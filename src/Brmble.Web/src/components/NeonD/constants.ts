@@ -422,3 +422,34 @@ export const SLOT_UNLOCK_COSTS = [0, 1000, 100000]; // Slot 0 is free, 1 is $1k,
 
 export const DEALER_FIRST_NAMES = ['Thomas', 'Dutch', 'Belgian', 'Chemist', 'Slick', 'Vito', 'Snake', 'Mick', 'Jack', 'Dave', 'Miller', 'Bob', 'Ghost'];
 export const DEALER_LAST_NAMES = ['Palmer', 'Dave', 'Bob', 'Carlos', 'Snake', 'Miller', 'The Fixer', 'The Ghost', 'Slick'];
+
+export const DEALER_PROTECTION_INCOME_MULTIPLIER = 0.85;
+
+export const ARREST_CHECK_INTERVAL_MS = {
+  min: 300_000,
+  max: 600_000,
+} as const;
+
+export const BAIL_BASE_FLOOR = 500;
+export const BAIL_INCOME_MULTIPLIER = 45;
+
+export const PRODUCT_ARREST_RISK: Record<string, { chance: number; label: 'LOW' | 'MEDIUM' | 'HIGH' }> = {
+  weed: { chance: 0.10, label: 'LOW' },
+  mushrooms: { chance: 0.12, label: 'LOW' },
+  blueLotus: { chance: 0.15, label: 'MEDIUM' },
+  frostBite: { chance: 0.17, label: 'MEDIUM' },
+  electricLace: { chance: 0.20, label: 'MEDIUM' },
+  meth: { chance: 0.25, label: 'HIGH' },
+  pharmGrade: { chance: 0.28, label: 'HIGH' },
+  khole: { chance: 0.30, label: 'HIGH' },
+  lunarRegolith: { chance: 0.33, label: 'HIGH' },
+  martianSpores: { chance: 0.36, label: 'HIGH' },
+  nebulaMist: { chance: 0.40, label: 'HIGH' },
+  voidCrystals: { chance: 0.45, label: 'HIGH' },
+  chronoSalt: { chance: 0.50, label: 'HIGH' },
+  stardustResin: { chance: 0.55, label: 'HIGH' },
+  darkMatterInk: { chance: 0.60, label: 'HIGH' },
+  singularityShards: { chance: 0.65, label: 'HIGH' },
+  neutronFlakes: { chance: 0.70, label: 'HIGH' },
+  galacticCore: { chance: 0.75, label: 'HIGH' },
+};

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useGameEngine } from './hooks/useGameEngine';
 import type { Dealer, DealerUpgrade } from './types';
-import { UNLOCK_COSTS, PRODUCT_TIERS, SLOT_UNLOCK_COSTS } from './constants';
+import { UNLOCK_COSTS, PRODUCT_TIERS, SLOT_UNLOCK_COSTS, PRODUCT_ARREST_RISK } from './constants';
 import { confirm } from '../../hooks/usePrompt';
 import { Tooltip } from '../Tooltip/Tooltip';
 import styles from './NeonD.module.css';
@@ -50,7 +50,20 @@ function getUpgradeName(id: string): string {
 }
 
 export function NeonDGame({ onClose }: { onClose?: () => void }) {
-  const { state, upgrade, unlockProduction, hireDealer, fireDealer, refreshPool, resetGame, unlockSlot, setDealerSelling, buyEquipment } = useGameEngine();
+  const {
+    state,
+    upgrade,
+    unlockProduction,
+    hireDealer,
+    fireDealer,
+    refreshPool,
+    resetGame,
+    unlockSlot,
+    setDealerSelling,
+    buyEquipment,
+    toggleDealerProtection,
+    payDealerBail,
+  } = useGameEngine();
   const [upgradingDealer, setUpgradingDealer] = useState<{ dealerId: string; options: DealerUpgrade[] } | null>(null);
 
   const generateUpgradeOptions = (dealer: Dealer): DealerUpgrade[] => {
@@ -267,6 +280,34 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
               );
             }
             
+            if (slot.isArrested) {
+              return (
+                <div key={slot.id} className={`glass-panel ${styles.distributionCard}`} style={{ padding: 0, overflow: 'hidden', marginBottom: 'var(--space-md)' }}>
+                  <div className={styles.dealerHeader}>
+                    {slot.name} ({state.production[slot.selling]?.name})
+                  </div>
+                  <div style={{ padding: 'var(--space-md)' }}>
+                    <div className={styles.statRow}>
+                      <span className={styles.label}>Status:</span>
+                      <span style={{ color: 'var(--accent-secondary)' }}>Arrested</span>
+                    </div>
+                    <div className={styles.statRow}>
+                      <span className={styles.label}>Earnings:</span>
+                      <span>$0.00/s</span>
+                    </div>
+                    <div style={{ display: 'grid', gap: 'var(--space-xs)', marginTop: 'var(--space-md)' }}>
+                      <button className={styles.buyButton} onClick={() => payDealerBail(slot.id)}>
+                        Pay Bail
+                      </button>
+                      <button className={styles.dangerButton} onClick={() => fireDealer(slot.id)}>
+                        Fire Dealer
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
             const dealer = slot;
                 const upgradeCost = 500 * Math.pow(2.5, dealer.equipmentCount);
                 const isMaxed = dealer.equipmentCount >= 3;
@@ -305,6 +346,18 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
                         <StarRating rating={slot.marginStars} label="Margin" tooltipText={`sells 1g of ${state.production[slot.selling]?.name || 'Weed'} for $${(slot.margin * (1 + slot.marginBonus) * (PRODUCT_TIERS[slot.selling] || 1)).toFixed(2)}`} />
                         <span style={{ color: 'var(--accent-primary)', fontSize: '0.85rem' }}>({(1 + slot.marginBonus).toFixed(1)}x)</span>
                       </div>
+                      <div className={styles.statRow}>
+                        <span className={styles.label}>Risk:</span>
+                        <span style={{ color: 'var(--accent-secondary)' }}>
+                          {PRODUCT_ARREST_RISK[slot.selling]?.label ?? 'LOW'} Risk
+                        </span>
+                      </div>
+                      {slot.isProtected && (
+                        <div className={styles.statRow}>
+                          <span className={styles.label}>Status:</span>
+                          <span style={{ color: 'var(--accent-success)' }}>Protected</span>
+                        </div>
+                      )}
 
                       {slot.sideVolume > 0 && (
                         <div className={styles.statRow}>
@@ -329,6 +382,13 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
                       </div>
 
                       <div style={{ marginTop: 'var(--space-sm)', display: 'grid', gap: 'var(--space-xs)' }}>
+                        <button
+                          className={styles.buyButton}
+                          onClick={() => toggleDealerProtection(slot.id)}
+                          disabled={slot.isArrested}
+                        >
+                          {slot.isProtected ? 'Pay off cops: On (-15%)' : 'Pay off cops: Off'}
+                        </button>
                         <button
                           className={styles.buyButton}
                           disabled={isMaxed || state.money < upgradeCost}

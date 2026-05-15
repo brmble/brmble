@@ -1,8 +1,8 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useInterval } from './useInterval';
 import { usePersistedGameState } from './usePersistedGameState';
 import type { GameState, Dealer, DealerUpgrade } from '../types';
-import { INITIAL_GAME_STATE, UNLOCK_COSTS, PRODUCT_TIERS, DEALER_FIRST_NAMES, DEALER_LAST_NAMES, SLOT_UNLOCK_COSTS, VOLUME_RANGES, MARGIN_RANGES } from '../constants';
+import { INITIAL_GAME_STATE, UNLOCK_COSTS, PRODUCT_TIERS, DEALER_FIRST_NAMES, DEALER_LAST_NAMES, SLOT_UNLOCK_COSTS, VOLUME_RANGES, MARGIN_RANGES, ARREST_CHECK_INTERVAL_MS, DEALER_PROTECTION_INCOME_MULTIPLIER, PRODUCT_ARREST_RISK, BAIL_BASE_FLOOR, BAIL_INCOME_MULTIPLIER } from '../constants';
 
 // Roll a random value within a given range
 function rollWithinRange(min: number, max: number): number {
@@ -56,9 +56,31 @@ const generateRandomDealer = (unlockedProducts: string[], totalEarned: number): 
     baseVolumeGps,
     baseMarginMult,
     volumeStars,
-    marginStars
+    marginStars,
+    isProtected: false,
+    isArrested: false,
+    nextArrestCheckAt: Date.now() + ARREST_CHECK_INTERVAL_MS.min,
   };
 };
+
+const scheduleNextArrestCheck = (now: number) =>
+  now + ARREST_CHECK_INTERVAL_MS.min + Math.floor(Math.random() * (ARREST_CHECK_INTERVAL_MS.max - ARREST_CHECK_INTERVAL_MS.min));
+
+const getDealerRisk = (productId: string) =>
+  PRODUCT_ARREST_RISK[productId] ?? { chance: 0.10, label: 'LOW' as const };
+
+const getCurrentTotalIncomePerSecond = (earnings: Record<string, number>) =>
+  Object.values(earnings).reduce((sum, value) => sum + value, 0);
+
+const getBailCost = (earnings: Record<string, number>) =>
+  Math.max(BAIL_BASE_FLOOR, getCurrentTotalIncomePerSecond(earnings) * BAIL_INCOME_MULTIPLIER);
+
+const normalizeDealerRiskState = (dealer: Dealer): Dealer => ({
+  ...dealer,
+  isProtected: dealer.isProtected ?? false,
+  isArrested: dealer.isArrested ?? false,
+  nextArrestCheckAt: dealer.nextArrestCheckAt ?? (Date.now() + ARREST_CHECK_INTERVAL_MS.min),
+});
 
 export const useGameEngine = () => {
   const [state, setState, clearStorage] = usePersistedGameState<GameState>('brmble_neon_d_save', () => {
@@ -72,6 +94,23 @@ export const useGameEngine = () => {
       )
     };
   });
+
+  useEffect(() => {
+    const needsMigration = state.activeDealers.some(dealer =>
+      dealer !== null && (
+        dealer.isProtected === undefined ||
+        dealer.isArrested === undefined ||
+        dealer.nextArrestCheckAt === undefined
+      )
+    );
+
+    if (!needsMigration) return;
+
+    setState(prev => ({
+      ...prev,
+      activeDealers: prev.activeDealers.map(dealer => (dealer ? normalizeDealerRiskState(dealer) : null)),
+    }));
+  }, [state.activeDealers, setState]);
 
   const tick = () => {
     setState(prev => {
@@ -90,6 +129,10 @@ export const useGameEngine = () => {
 
       prev.activeDealers.forEach((dealer) => {
         if (!dealer) return;
+        if (dealer.isArrested) {
+          nextEarnings[dealer.id] = 0;
+          return;
+        }
         let dealerGross = 0;
 
         const effectiveVolume = dealer.volume * (1 + dealer.volumeBonus);
@@ -119,8 +162,35 @@ export const useGameEngine = () => {
           }
         }
 
+        if (dealer.isProtected) {
+          dealerGross *= DEALER_PROTECTION_INCOME_MULTIPLIER;
+        }
+
         nextEarnings[dealer.id] = dealerGross;
         totalEarnedThisTick += dealerGross;
+      });
+
+      const now = Date.now();
+      let nextDealers = prev.activeDealers.map(dealer => dealer ? { ...dealer } : null);
+      nextDealers = nextDealers.map(dealer => {
+        if (!dealer || dealer.isArrested || dealer.isProtected) return dealer;
+        if (dealer.nextArrestCheckAt > now) return dealer;
+
+        const risk = getDealerRisk(dealer.selling);
+        const rolledArrest = Math.random() < risk.chance;
+
+        if (rolledArrest) {
+          return {
+            ...dealer,
+            isArrested: true,
+            isProtected: false,
+          };
+        }
+
+        return {
+          ...dealer,
+          nextArrestCheckAt: scheduleNextArrestCheck(now),
+        };
       });
 
       return {
@@ -128,6 +198,7 @@ export const useGameEngine = () => {
         money: prev.money + totalEarnedThisTick,
         totalEarned: prev.totalEarned + totalEarnedThisTick,
         production: nextProduction,
+        activeDealers: nextDealers,
         lastEarningsPerDealer: nextEarnings
       };
     });
@@ -174,7 +245,7 @@ export const useGameEngine = () => {
     setState(prev => {
       if (slotIndex >= prev.unlockedSlots) return prev;
       const newActiveDealers = [...prev.activeDealers];
-      newActiveDealers[slotIndex] = dealer;
+      newActiveDealers[slotIndex] = normalizeDealerRiskState(dealer);
       return {
         ...prev,
         activeDealers: newActiveDealers,
@@ -269,6 +340,54 @@ export const useGameEngine = () => {
     });
   };
 
+  const toggleDealerProtection = (dealerId: string) => {
+    setState(prev => ({
+      ...prev,
+      activeDealers: prev.activeDealers.map(dealer => {
+        if (!dealer || dealer.id !== dealerId || dealer.isArrested) return dealer;
+        const nextProtected = !dealer.isProtected;
+        return {
+          ...dealer,
+          isProtected: nextProtected,
+          nextArrestCheckAt: nextProtected ? dealer.nextArrestCheckAt : scheduleNextArrestCheck(Date.now()),
+        };
+      }),
+    }));
+  };
+
+  const forceArrestDealer = (dealerId: string) => {
+    setState(prev => ({
+      ...prev,
+      activeDealers: prev.activeDealers.map(dealer =>
+        dealer?.id === dealerId
+          ? { ...dealer, isArrested: true, isProtected: false }
+          : dealer
+      ),
+    }));
+  };
+
+  const payDealerBail = (dealerId: string) => {
+    setState(prev => {
+      const bailCost = getBailCost(prev.lastEarningsPerDealer);
+      if (prev.money < bailCost) return prev;
+
+      return {
+        ...prev,
+        money: prev.money - bailCost,
+        activeDealers: prev.activeDealers.map(dealer =>
+          dealer?.id === dealerId
+            ? {
+                ...dealer,
+                isArrested: false,
+                isProtected: false,
+                nextArrestCheckAt: scheduleNextArrestCheck(Date.now()),
+              }
+            : dealer
+        ),
+      };
+    });
+  };
+
   const resetGame = useCallback(() => {
     clearStorage();
     setState({
@@ -283,5 +402,19 @@ export const useGameEngine = () => {
 
   useInterval(tick, 1000);
   
-  return { state, upgrade, unlockProduction, hireDealer, fireDealer, refreshPool, resetGame, unlockSlot, setDealerSelling, buyEquipment };
+  return {
+    state,
+    upgrade,
+    unlockProduction,
+    hireDealer,
+    fireDealer,
+    refreshPool,
+    resetGame,
+    unlockSlot,
+    setDealerSelling,
+    buyEquipment,
+    toggleDealerProtection,
+    forceArrestDealer,
+    payDealerBail,
+  };
 };

@@ -17,6 +17,9 @@ const makeDealer = (overrides: Partial<Dealer> = {}): Dealer => ({
   baseMarginMult: 1,
   volumeStars: 3,
   marginStars: 3,
+  isProtected: false,
+  isArrested: false,
+  nextArrestCheckAt: Date.now() + 300000,
   ...overrides,
 });
 
@@ -43,6 +46,20 @@ describe('useGameEngine', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('newly hired dealers start unprotected, unarrested, and with a scheduled risk check', () => {
+    const { result } = renderHook(() => useGameEngine());
+
+    act(() => {
+      result.current.hireDealer(makeDealer({ id: 'dealer-state' }), 0);
+    });
+
+    const dealer = result.current.state.activeDealers[0];
+    expect(dealer?.isProtected).toBe(false);
+    expect(dealer?.isArrested).toBe(false);
+    expect(typeof dealer?.nextArrestCheckAt).toBe('number');
+    expect((dealer?.nextArrestCheckAt ?? 0)).toBeGreaterThan(Date.now());
   });
 
   it('should update production without dealer', async () => {
@@ -281,5 +298,136 @@ describe('useGameEngine', () => {
       // Mushrooms is sold as side hustle; stock should not go below zero
       expect(result.current.state.production.mushrooms.stock).toBeGreaterThanOrEqual(0);
     });
+  });
+
+  it('protected dealers earn 15 percent less than unprotected dealers', () => {
+    const { result } = renderHook(() => useGameEngine());
+
+    act(() => {
+      result.current.upgrade('weed');
+      result.current.hireDealer(makeDealer({ id: 'protected-check', margin: 10, volume: 1, sideVolume: 0 }), 0);
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    const baseline = result.current.state.lastEarningsPerDealer['protected-check'];
+
+    act(() => {
+      result.current.toggleDealerProtection('protected-check');
+      vi.advanceTimersByTime(1_000);
+    });
+
+    const protectedIncome = result.current.state.lastEarningsPerDealer['protected-check'];
+    expect(protectedIncome).toBeCloseTo(baseline * 0.85, 5);
+  });
+
+  it('arrested dealers generate zero earnings per tick', () => {
+    const { result } = renderHook(() => useGameEngine());
+
+    act(() => {
+      result.current.upgrade('weed');
+      result.current.hireDealer(makeDealer({ id: 'arrested-check', isArrested: true, nextArrestCheckAt: Date.now() + 999999 }), 0);
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+
+    expect(result.current.state.lastEarningsPerDealer['arrested-check']).toBe(0);
+  });
+
+  it('unprotected dealers use current product risk when the arrest timer expires', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+
+    const { result } = renderHook(() => useGameEngine());
+    act(() => {
+      result.current.hireDealer(makeDealer({
+        id: 'risk-check',
+        selling: 'meth',
+        isProtected: false,
+        isArrested: false,
+        nextArrestCheckAt: Date.now() - 1,
+      }), 0);
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+
+    expect(result.current.state.activeDealers[0]?.isArrested).toBe(true);
+  });
+
+  it('protected dealers never get arrested when the timer expires', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+
+    const { result } = renderHook(() => useGameEngine());
+    act(() => {
+      result.current.hireDealer(makeDealer({
+        id: 'safe-check',
+        selling: 'meth',
+        isProtected: true,
+        isArrested: false,
+        nextArrestCheckAt: Date.now() - 1,
+      }), 0);
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+
+    expect(result.current.state.activeDealers[0]?.isArrested).toBe(false);
+  });
+
+  it('payBail uses current total income per second with a minimum floor', () => {
+    const { result } = setupWithMoney();
+    act(() => {
+      result.current.upgrade('weed');
+      result.current.hireDealer(makeDealer({ id: 'earner', margin: 1, volume: 1, sideVolume: 0 }), 0);
+      vi.advanceTimersByTime(1_000);
+    });
+
+    const dealerIncome = result.current.state.lastEarningsPerDealer['earner'];
+    const expectedCost = Math.max(500, dealerIncome * 45);
+
+    act(() => {
+      result.current.forceArrestDealer('earner');
+    });
+
+    const moneyBefore = result.current.state.money;
+    act(() => {
+      result.current.payDealerBail('earner');
+    });
+
+    expect(result.current.state.money).toBeCloseTo(moneyBefore - expectedCost, 5);
+    expect(result.current.state.activeDealers[0]?.isArrested).toBe(false);
+    expect(result.current.state.activeDealers[0]?.isProtected).toBe(false);
+  });
+
+  it('restores older saves by filling in missing dealer risk fields', () => {
+    localStorage.setItem('brmble_neon_d_save', JSON.stringify({
+      activeDealers: [{
+        id: 'legacy',
+        name: 'Legacy Dealer',
+        selling: 'weed',
+        volume: 1,
+        margin: 1,
+        volumeBonus: 0,
+        marginBonus: 0,
+        sideVolume: 0,
+        equipmentCount: 0,
+        baseVolumeGps: 1,
+        baseMarginMult: 1,
+        volumeStars: 1,
+        marginStars: 1,
+      }],
+    }));
+
+    const { result } = renderHook(() => useGameEngine());
+    const dealer = result.current.state.activeDealers[0];
+
+    expect(dealer?.isProtected).toBe(false);
+    expect(dealer?.isArrested).toBe(false);
+    expect(typeof dealer?.nextArrestCheckAt).toBe('number');
   });
 });
