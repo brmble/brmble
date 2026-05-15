@@ -105,6 +105,7 @@ Before building or modifying any UI component, read `docs/UI_GUIDE.md`. It cover
 - Interaction states (hover, active, focus)
 - Spacing and border radius scales
 - The centralized Icon system (`<Icon>` component)
+- Notification rules, including when repeatable top-right notifications should respect optional notification settings
 
 ### Icon System
 

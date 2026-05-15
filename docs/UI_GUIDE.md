@@ -752,6 +752,7 @@ The `status` prop drives icon, color, ARIA role, and auto-dismiss behavior:
 5. **What actions does it need?** Max 1 primary action. Action must be reachable elsewhere in UI since notifications can be missed.
 6. **What title + detail?** Title = what happened (short, one line). Detail = context or next step (optional).
 7. **What lifecycle model?** Choose one: stable singleton, replacement, or historical/multi-entry. This determines the ID and cleanup strategy.
+8. **Should users be able to disable it?** Repeatable informational top-right notifications should usually respect Messages -> `Disable optional notifications` and a category toggle. Critical warnings, errors, recovery, updates, and one-time confirmations usually stay ungated.
 
 ### Props
 
@@ -796,6 +797,14 @@ The status icon aligns vertically with the title line.
 - **Dismissal is `×` only.** Never add a text button ("Dismiss", "Later", "Close") that duplicates the `×` close button. The `×` is the universal dismiss affordance — text buttons are reserved for meaningful actions. This keeps the UI clean and avoids redundancy.
 - Top-right notifications render inside a `.notification-stack` container in `App.tsx`.
 - Bottom-center notifications (`Toast`) position themselves independently.
+
+### Optional Notification Settings
+
+Before adding a repeatable top-right notification, decide whether it belongs behind the Messages notification settings. Optional notifications are user-controllable pop-up notices that can repeat during normal use and are not required for account recovery, safety, or error handling.
+
+Use optional notification settings for repeatable informational events such as screen share invitations, screen share status updates, idle reminders, or channel move notices. Do not gate critical warnings, errors, update prompts, certificate recovery, kicked/banned notices, service outage warnings, or one-time confirmations unless there is a specific product decision to make them optional.
+
+Optional notifications must check the effective setting before registering with `useNotificationQueue`; disabled notifications should not leave stale entries visible or queued.
 
 ### Queue & Priority (`useNotificationQueue`)
 
