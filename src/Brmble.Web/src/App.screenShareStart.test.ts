@@ -1009,20 +1009,6 @@ describe('active share discovery', () => {
     render(React.createElement(App));
 
     act(() => {
-      bridge.emit('settings.current', {
-        settings: {
-          messages: {
-            notificationsDisabled: false,
-            notificationRemoteScreenShare: false,
-            notificationScreenShareStatus: true,
-            notificationIdleWarning: true,
-            notificationMovedChannel: true,
-          },
-        },
-      });
-    });
-
-    act(() => {
       bridge.emit('voice.connected', {
         username: 'TestUser',
         channelId: 1,
@@ -1035,6 +1021,17 @@ describe('active share discovery', () => {
     });
 
     act(() => {
+      bridge.emit('settings.current', {
+        settings: {
+          messages: {
+            notificationsDisabled: false,
+            notificationRemoteScreenShare: false,
+            notificationScreenShareStatus: true,
+            notificationIdleWarning: true,
+            notificationMovedChannel: true,
+          },
+        },
+      });
       bridge.emit('livekit.screenShareStarted', {
         roomName: 'channel-1',
         userName: 'Alice',

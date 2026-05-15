@@ -644,6 +644,11 @@ function App() {
     return DEFAULT_OPTIONAL_NOTIFICATION_SETTINGS;
   });
   const optionalNotificationSettingsRef = useRef(optionalNotificationSettings);
+  const applyOptionalNotificationSettings = useCallback((settings?: OptionalNotificationSettings | null) => {
+    const normalized = normalizeOptionalNotificationSettings(settings);
+    optionalNotificationSettingsRef.current = normalized;
+    setOptionalNotificationSettings(normalized);
+  }, []);
 
   // null = status not yet received, false = no cert, true = cert exists
   const [certExists, setCertExists] = useState<boolean | null>(null);
@@ -1230,7 +1235,7 @@ function App() {
       if (d?.settings) {
         updatePttKeyFromSettings(d.settings);
         setOverlaySettings(normalizeOverlaySettings(d.settings.overlay ?? {}));
-        setOptionalNotificationSettings(normalizeOptionalNotificationSettings(d.settings.messages));
+        applyOptionalNotificationSettings(d.settings.messages);
       }
     };
 
@@ -1245,7 +1250,7 @@ function App() {
           const settings = JSON.parse(stored);
           updatePttKeyFromSettings(settings);
           setOverlaySettings(normalizeOverlaySettings(settings.overlay ?? {}));
-          setOptionalNotificationSettings(normalizeOptionalNotificationSettings(settings.messages));
+          applyOptionalNotificationSettings(settings.messages);
         }
       } catch {}
     };
@@ -1257,7 +1262,7 @@ function App() {
       try {
         const settings = JSON.parse(stored);
         updatePttKeyFromSettings(settings);
-        setOptionalNotificationSettings(normalizeOptionalNotificationSettings(settings.messages));
+        applyOptionalNotificationSettings(settings.messages);
       } catch {}
     }
 
