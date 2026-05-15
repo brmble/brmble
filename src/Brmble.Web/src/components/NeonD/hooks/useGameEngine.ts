@@ -130,7 +130,7 @@ const generateRandomDealer = (unlockedProducts: string[], totalEarned: number): 
     marginStars,
     isProtected: false,
     isArrested: false,
-    nextArrestCheckAt: Date.now() + ARREST_CHECK_INTERVAL_MS.min,
+    nextArrestCheckAt: scheduleNextArrestCheck(Date.now()),
     hasPendingUpgrade: false,
     pendingUpgradeOptions: [],
   };
@@ -146,7 +146,7 @@ const normalizeDealerRiskState = (dealer: Dealer): Dealer => ({
   ...dealer,
   isProtected: dealer.isProtected ?? false,
   isArrested: dealer.isArrested ?? false,
-  nextArrestCheckAt: dealer.nextArrestCheckAt ?? (Date.now() + ARREST_CHECK_INTERVAL_MS.min),
+  nextArrestCheckAt: dealer.nextArrestCheckAt ?? scheduleNextArrestCheck(Date.now()),
   hasPendingUpgrade: dealer.hasPendingUpgrade ?? false,
   pendingUpgradeOptions: dealer.pendingUpgradeOptions ?? [],
 });
@@ -404,7 +404,7 @@ export const useGameEngine = () => {
     setState(prev => {
       const slotIndex = prev.activeDealers.findIndex(d => d?.id === dealerId);
       const dealer = slotIndex === -1 ? null : prev.activeDealers[slotIndex];
-      if (!dealer || dealer.equipmentCount >= 3) return prev;
+      if (!dealer || dealer.equipmentCount >= 3 || dealer.isArrested) return prev;
       if (!dealer.hasPendingUpgrade || dealer.pendingUpgradeOptions.length !== 3) return prev;
 
       const selectedUpgrade = dealer.pendingUpgradeOptions.find(option => upgradeMatches(option, upgrade));
@@ -472,21 +472,24 @@ export const useGameEngine = () => {
 
   const payDealerBail = (dealerId: string) => {
     setState(prev => {
+      const dealer = prev.activeDealers.find(d => d?.id === dealerId);
+      if (!dealer || !dealer.isArrested) return prev;
+
       const bailCost = getBailCost(prev.lastEarningsPerDealer);
       if (prev.money < bailCost) return prev;
 
       return {
         ...prev,
         money: prev.money - bailCost,
-        activeDealers: prev.activeDealers.map(dealer =>
-          dealer?.id === dealerId
+        activeDealers: prev.activeDealers.map(d =>
+          d?.id === dealerId
             ? {
-                ...dealer,
+                ...d,
                 isArrested: false,
                 isProtected: false,
                 nextArrestCheckAt: scheduleNextArrestCheck(Date.now()),
               }
-            : dealer
+            : d
         ),
       };
     });

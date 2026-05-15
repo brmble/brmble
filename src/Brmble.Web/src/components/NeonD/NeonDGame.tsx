@@ -328,7 +328,11 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
                       <span>$0.00/s</span>
                     </div>
                     <div style={{ display: 'grid', gap: 'var(--space-xs)', marginTop: 'var(--space-md)' }}>
-                      <button className={styles.buyButton} onClick={() => payDealerBail(slot.id)}>
+                      <button 
+                        className={styles.buyButton} 
+                        onClick={() => payDealerBail(slot.id)}
+                        disabled={state.money < bailCost}
+                      >
                         Pay Bail ({formatMoney(bailCost)})
                       </button>
                       <button className={styles.dangerButton} onClick={() => fireDealer(slot.id)}>
@@ -471,7 +475,7 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
         </section>
       </div>
 
-      {upgradingDealer?.hasPendingUpgrade && upgradingDealer.pendingUpgradeOptions.length === 3 && (
+      {upgradingDealer?.hasPendingUpgrade && upgradingDealer.pendingUpgradeOptions.length === 3 && !upgradingDealer.isArrested && (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
           background: 'rgba(0,0,0,0.85)', display: 'flex', 
