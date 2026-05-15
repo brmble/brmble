@@ -323,8 +323,31 @@ export async function toggleLocalScreenShare({
 }
 
 const SETTINGS_STORAGE_KEY = 'brmble-settings';
+const INITIAL_SERVER_JOIN_OVERLAY_SUPPRESS_MS = 3_000;
 
 const DEFAULT_TTS_VOICE = 'Zira';
+
+export function shouldPublishServerJoinOverlayEvent(input: {
+  systemType: string | undefined;
+  actorName: string;
+  selfName?: string;
+  connectedAtMs: number | null;
+  nowMs: number;
+}): boolean {
+  if (input.systemType !== 'userJoined') {
+    return true;
+  }
+
+  if (input.actorName === input.selfName) {
+    return false;
+  }
+
+  if (input.connectedAtMs === null) {
+    return true;
+  }
+
+  return input.nowMs - input.connectedAtMs >= INITIAL_SERVER_JOIN_OVERLAY_SUPPRESS_MS;
+}
 
 function getDefaultVoice(voices: SpeechSynthesisVoice[]) {
   return voices.find(v => v.name.includes(DEFAULT_TTS_VOICE)) || voices[0] || null;
@@ -843,6 +866,7 @@ function App() {
   const currentChannelIdRef = useRef(currentChannelId);
   currentChannelIdRef.current = currentChannelId;
   const previousConnectionStatusRef = useRef(connectionStatus);
+  const overlayConnectedAtRef = useRef<number | null>(null);
   const previousCurrentChannelIdRef = useRef(currentChannelId);
   const unreadCountRef = useRef(unreadCount);
   unreadCountRef.current = unreadCount;
@@ -1102,6 +1126,7 @@ function App() {
     const onVoiceConnected = ((data: unknown) => {
       setConnectionStatus('connected');
       updateStatus('voice', { state: 'connected', error: undefined });
+      overlayConnectedAtRef.current = Date.now();
       notifQueue.unregister('server-removal');
       setServerRemovalNotification(null);
       const d = data as { username?: string; channelId?: number; channels?: Channel[]; users?: User[] } | undefined;
@@ -1336,9 +1361,15 @@ function App() {
               ? d.message.slice(0, -suffix.length).trim()
               : '';
             const selfUser = usersRef.current.find(u => u.self);
-            if (actor && actor !== selfUser?.name) {
+            const now = Date.now();
+            if (actor && shouldPublishServerJoinOverlayEvent({
+              systemType,
+              actorName: actor,
+              selfName: selfUser?.name,
+              connectedAtMs: overlayConnectedAtRef.current,
+              nowMs: now,
+            })) {
               setOverlaySnapshot((prev) => {
-                const now = Date.now();
                 const next = appendOverlayEvent(
                   prev,
                   createServerMembershipOverlayEvent({
