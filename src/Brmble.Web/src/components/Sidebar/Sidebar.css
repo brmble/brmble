@@ -325,6 +325,11 @@
   z-index: 100;
 }
 
+.channel-description-input {
+  resize: vertical;
+  min-height: 60px;
+}
+
 .channels-section-count {
   font-size: var(--text-2xs);
   color: var(--border-glow);

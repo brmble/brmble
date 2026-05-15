@@ -195,7 +195,7 @@
 }
 
 .user-status-icon--idle {
-  color: color-mix(in srgb, var(--text-muted, #888) 65%, transparent);
+  color: color-mix(in srgb, var(--text-muted) 65%, transparent);
   flex-shrink: 0;
 }
 

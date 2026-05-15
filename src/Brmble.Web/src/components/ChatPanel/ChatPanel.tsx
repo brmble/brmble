@@ -267,7 +267,7 @@ const [replyState, setReplyState] = useState<{
           left: 0;
           width: 100vw;
           height: 100vh;
-          background: #000;
+          background: var(--bg-deep);
           z-index: 99999;
           display: flex;
           flex-direction: column;
@@ -276,41 +276,41 @@ const [replyState, setReplyState] = useState<{
           display: flex;
           align-items: center;
           justify-content: space-between;
-          padding: 12px 20px;
-          background: #1a1a1a;
+          padding: var(--space-sm) var(--space-xl);
+          background: var(--bg-primary);
           -webkit-app-region: drag;
         }
         #screenshare-new-window-overlay .title {
-          color: #fff;
-          font-size: 15px;
+          color: var(--text-primary);
+          font-size: var(--text-sm);
           font-weight: 500;
         }
         #screenshare-new-window-overlay .buttons {
           display: flex;
-          gap: 8px;
+          gap: var(--space-xs);
           -webkit-app-region: no-drag;
         }
         #screenshare-new-window-overlay .btn {
-          background: #333;
+          background: var(--bg-hover);
           border: none;
-          color: #fff;
-          padding: 6px 14px;
-          border-radius: 4px;
+          color: var(--text-primary);
+          padding: var(--space-xs) var(--space-sm);
+          border-radius: var(--radius-xs);
           cursor: pointer;
-          font-size: 12px;
+          font-size: var(--text-xs);
         }
         #screenshare-new-window-overlay .btn-close {
-          background: #d32f2f;
+          background: var(--accent-danger);
         }
         #screenshare-new-window-overlay .btn-close:hover {
-          background: #b71c1c;
+          background: var(--accent-danger-strong);
         }
         #screenshare-new-window-overlay .video-container {
           flex: 1;
           display: flex;
           align-items: center;
           justify-content: center;
-          background: #000;
+          background: var(--bg-deep);
         }
         #screenshare-new-window-overlay video {
           max-width: 100%;

@@ -640,7 +640,7 @@ export function Sidebar({
             <div className="prompt-input-container">
               <input
                 type="text"
-                className="brmble-input"
+                className="brmble-input channel-description-input"
                 placeholder="Channel name"
                 value={newChannelName}
                 onChange={(e) => setNewChannelName(e.target.value)}
@@ -654,7 +654,6 @@ export function Sidebar({
                 value={newChannelDescription}
                 onChange={(e) => setNewChannelDescription(e.target.value.slice(0, 127))}
                 rows={3}
-                style={{ resize: 'vertical', minHeight: '60px' }}
               />
             </div>
             <div className="prompt-footer">

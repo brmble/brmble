@@ -43,6 +43,10 @@
   color: var(--text-primary);
 }
 
+.modal-close svg {
+  pointer-events: none;
+}
+
 .modal-header {
   text-align: center;
   margin-bottom: var(--space-xl);

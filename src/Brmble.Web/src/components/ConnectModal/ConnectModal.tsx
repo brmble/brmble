@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Icon } from '../Icon/Icon';
+import { Tooltip } from '../Tooltip/Tooltip';
 import './ConnectModal.css';
 
 interface ConnectModalProps {
@@ -27,7 +28,7 @@ export function ConnectModal({ isOpen, onClose, onConnect, registeredUsername }:
     <div className="modal-overlay" onClick={onClose}>
       <div className="connect-modal glass-panel animate-slide-up" onClick={(e) => e.stopPropagation()}>
         <button className="modal-close" onClick={onClose}>
-          <Icon name="x" size={20} style={{ pointerEvents: 'none' }} />
+            <Icon name="x" size={20} />
         </button>
 
         <div className="modal-header">
@@ -62,7 +63,8 @@ export function ConnectModal({ isOpen, onClose, onConnect, registeredUsername }:
 
           <div className="form-group">
             <label htmlFor="username">Username</label>
-            <input
+            <Tooltip content={registeredUsername ? 'Username is locked after registration' : ''}>
+              <input
               id="username"
               className="brmble-input"
               type="text"
@@ -70,9 +72,9 @@ export function ConnectModal({ isOpen, onClose, onConnect, registeredUsername }:
               onChange={(e) => setUsername(e.target.value)}
               placeholder="Your display name"
               disabled={!!registeredUsername}
-              title={registeredUsername ? 'Username is locked after registration' : undefined}
               required
-            />
+              />
+            </Tooltip>
           </div>
 
           <div className="form-group">
