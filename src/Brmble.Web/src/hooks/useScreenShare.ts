@@ -189,6 +189,7 @@ export function useScreenShare(
   const watchingSharesRef = useRef<ShareInfo[]>([]);
   const activeSharesRef = useRef<ShareInfo[]>([]);
   const shareQualitiesRef = useRef<Map<number, ScreenShareQuality>>(new Map());
+  const shareQualitiesBeforeReconnectRef = useRef<Map<number, ScreenShareQuality> | null>(null);
   const localQualityRef = useRef<ScreenShareQuality>('unknown');
   const isRoomReconnectingRef = useRef(false);
   const isSharingRef = useRef(false);
@@ -287,6 +288,7 @@ export function useScreenShare(
 
   const resetQualityState = useCallback(() => {
     isRoomReconnectingRef.current = false;
+    shareQualitiesBeforeReconnectRef.current = null;
     localQualityRef.current = 'unknown';
     shareQualitiesRef.current = new Map();
     setShareQualities(new Map());
@@ -709,6 +711,13 @@ export function useScreenShare(
       }
 
       isRoomReconnectingRef.current = true;
+      shareQualitiesBeforeReconnectRef.current = new Map(shareQualitiesRef.current);
+      const nextShareQualities = new Map(shareQualitiesRef.current);
+      for (const share of watchingSharesRef.current) {
+        nextShareQualities.set(share.userId, 'reconnecting');
+      }
+      shareQualitiesRef.current = nextShareQualities;
+      setShareQualities(nextShareQualities);
       setRoomQuality('reconnecting');
     });
 
@@ -718,6 +727,11 @@ export function useScreenShare(
       }
 
       isRoomReconnectingRef.current = false;
+      if (shareQualitiesBeforeReconnectRef.current) {
+        shareQualitiesRef.current = shareQualitiesBeforeReconnectRef.current;
+        shareQualitiesBeforeReconnectRef.current = null;
+        setShareQualities(shareQualitiesRef.current);
+      }
       recomputeRoomQuality();
     };
 
@@ -1020,8 +1034,6 @@ export function useScreenShare(
         const identity = existingShare.matrixUserId ?? String(targetUserId);
         const participant = room.remoteParticipants.get(identity);
         if (participant) {
-          const quality = mapLiveKitQuality(participant.connectionQuality);
-          updateShareQuality(targetUserId, quality);
           participant.trackPublications.forEach((pub: RemoteTrackPublication) => {
             if (pub.track && pub.track.kind === Track.Kind.Video && pub.source === Track.Source.ScreenShare) {
               pub.track.detach();
@@ -1066,6 +1078,7 @@ export function useScreenShare(
       // Subscribe to the target's screen share track
       const participant = room.remoteParticipants.get(participantIdentity);
       if (participant) {
+        updateShareQuality(targetUserId, mapLiveKitQuality(participant.connectionQuality));
         participant.trackPublications.forEach((pub: RemoteTrackPublication) => {
           if (pub.track && pub.track.kind === Track.Kind.Video && pub.source === Track.Source.ScreenShare) {
             const el = pub.track.attach() as HTMLVideoElement;
