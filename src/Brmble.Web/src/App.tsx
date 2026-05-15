@@ -3439,6 +3439,7 @@ const handleConnect = (serverData: SavedServer) => {
                     watchingShares={watchingShares}
                     focusedShare={focusedShare}
                     remoteVideoEls={remoteVideoEls}
+                    roomQuality={roomQuality}
                     shareQualities={shareQualities}
                     onFocusShare={setFocusedShare}
                     onCloseShare={(share) => disconnectViewer(share.userId)}

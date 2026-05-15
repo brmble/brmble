@@ -48,6 +48,10 @@
   color: var(--accent-danger);
 }
 
+.screen-share-tile-quality--reconnecting {
+  color: var(--accent-secondary);
+}
+
 /* Overlays */
 .screen-share-tile-overlay {
   position: absolute;
