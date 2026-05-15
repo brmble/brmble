@@ -2,6 +2,7 @@ import { cloneElement } from 'react';
 import { createPortal } from 'react-dom';
 import { useTooltipPosition } from '../../hooks/useTooltipPosition';
 import type { Position, Align } from '../../hooks/useTooltipPosition';
+import { parseUserComment } from '../../utils/parseUserComment';
 import Avatar from '../Avatar/Avatar';
 import '../Tooltip/Tooltip.css';
 import './UserTooltip.css';
@@ -36,6 +37,7 @@ function getStatusText(user: UserTooltipUser): string {
 
 export function UserTooltip({ user, children, position = 'top', align = 'center', delay = 400 }: UserTooltipProps) {
   const { visible, show, hide, tooltipId, triggerRef, tooltipRef, portalStyle } = useTooltipPosition({ position, align, delay });
+  const parsedComment = parseUserComment(user.comment);
 
   return (
     <>
@@ -71,8 +73,8 @@ export function UserTooltip({ user, children, position = 'top', align = 'center'
               <div className="user-tooltip-info">
                 <span className="user-tooltip-name">{user.name}</span>
                 <span className="user-tooltip-status">{getStatusText(user)}</span>
-                {user.comment && (
-                  <span className="user-tooltip-comment">{user.comment}</span>
+                {parsedComment.text && (
+                  <span className="user-tooltip-comment">{parsedComment.text}</span>
                 )}
               </div>
             </div>
