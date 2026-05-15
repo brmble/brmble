@@ -89,7 +89,18 @@ export function usePersistedGameState<T extends object>(
 
   useEffect(() => {
     window.addEventListener('beforeunload', saveToStorage);
-    return () => window.removeEventListener('beforeunload', saveToStorage);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        saveToStorage();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      saveToStorage();
+      window.removeEventListener('beforeunload', saveToStorage);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [saveToStorage]);
 
   return [state, setState, clearStorage];
