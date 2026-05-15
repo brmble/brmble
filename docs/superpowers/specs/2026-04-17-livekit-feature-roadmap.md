@@ -180,12 +180,10 @@ These items were discussed and explicitly parked:
 
 ## Next-Phase Issue Shortlist
 
-Remaining F priority work is F2/future reliability hardening:
+Remaining F priority work is future reliability hardening:
 
 - ICE/TURN relay hardening
-- connection quality indicator
-- graceful degradation
-- crash recovery and LiveKit room recovery decisions
+- production TURN/relay deployment decisions
 
 Implemented by the current E-pass:
 
@@ -196,9 +194,7 @@ Implemented by the current E-pass:
 
 Known phase-F roadmap gaps with no dedicated issue yet:
 
-- LiveKit room recovery after interruption or crash
 - ICE/TURN relay hardening
-- connection quality indicator and graceful degradation
 
 ## Suggested Build Order
 
@@ -207,7 +203,7 @@ The recommended next sequence is:
 1. **A. Multi-Share Foundation** -- implemented
 2. **A2. Multi-Share Layouts** -- implemented
 3. **E. Token & Security** -- implemented
-4. **F. Connection & Reliability** -- F1 implemented; remaining priority is F2/future reliability hardening for ICE/TURN, connection quality, graceful degradation, and recovery decisions
+4. **F. Connection & Reliability** -- F1/F2 implemented; remaining priority is future ICE/TURN relay hardening
 5. **C. Viewing Experience** -- pop-out, PiP, fullscreen (needed before overlay)
 6. **B. Broadcaster Controls** -- window picker, audio, quality presets
 7. **D. Game Overlay** -- depends on C (PiP/pop-out patterns) and voice system

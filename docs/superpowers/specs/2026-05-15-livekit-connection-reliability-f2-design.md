@@ -1,14 +1,14 @@
 # LiveKit Connection Reliability F2 Design
 
 **Date:** 2026-05-15
-**Status:** Approved design
+**Status:** Implemented
 **Roadmap phase:** F. Connection & Reliability, second slice
 
 ## Context
 
 F1 implemented non-voice service reconnect handling for Brmble server, Matrix chat, and screen-share support. It intentionally clears stale LiveKit room state after service loss and requires users to restart sharing or watching manually. That keeps recovery safe, but it does not yet tell users whether an active LiveKit room is healthy before it fails.
 
-The roadmap leaves two F2 items open: connection quality indicator and graceful degradation. For this slice, graceful degradation is informational: Brmble should explain degraded screen-share conditions and keep the UI stable during transient LiveKit reconnects, but it should not automatically lower publisher quality, change capture settings, add TURN/ICE infrastructure, or recover crashed rooms.
+F2 covered the connection quality indicator and graceful degradation roadmap items. For this slice, graceful degradation is informational: Brmble explains degraded screen-share conditions and keeps the UI stable during transient LiveKit reconnects, but it does not automatically lower publisher quality, change capture settings, add TURN/ICE infrastructure, or recover crashed rooms.
 
 ## Goals
 
