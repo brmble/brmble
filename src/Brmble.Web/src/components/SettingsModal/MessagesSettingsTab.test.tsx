@@ -57,4 +57,12 @@ describe('MessagesSettingsTab optional notifications', () => {
     expect(screen.getByLabelText('Screen share invitations')).not.toBeDisabled();
     expect(screen.getByLabelText('Idle reminders')).not.toBeDisabled();
   });
+
+  it('maps legacy notificationsEnabled false to Disable optional notifications on', () => {
+    render(<MessagesSettingsTab settings={{ ...DEFAULT_MESSAGES, notificationsEnabled: false } as unknown as MessagesSettings} onChange={vi.fn()} />);
+
+    expect(screen.getByLabelText('Disable optional notifications')).toBeChecked();
+    expect(screen.getByLabelText('Screen share invitations')).not.toBeChecked();
+    expect(screen.getByLabelText('Screen share invitations')).toBeDisabled();
+  });
 });

@@ -29,13 +29,23 @@ export const DEFAULT_MESSAGES: MessagesSettings = {
   notificationMovedChannel: true,
 };
 
+type IncomingMessagesSettings = Partial<MessagesSettings> & { notificationsEnabled?: boolean };
+
+function normalizeMessagesSettings(settings: IncomingMessagesSettings): MessagesSettings {
+  const normalized = { ...DEFAULT_MESSAGES, ...settings };
+  if (settings.notificationsDisabled !== true && settings.notificationsEnabled === false) {
+    normalized.notificationsDisabled = true;
+  }
+  return normalized;
+}
+
 export function MessagesSettingsTab({ settings, onChange }: MessagesSettingsTabProps) {
-  const [localSettings, setLocalSettings] = useState<MessagesSettings>({ ...DEFAULT_MESSAGES, ...settings });
+  const [localSettings, setLocalSettings] = useState<MessagesSettings>(() => normalizeMessagesSettings(settings));
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const voiceSignatureRef = useRef('');
 
   useEffect(() => {
-    setLocalSettings({ ...DEFAULT_MESSAGES, ...settings });
+    setLocalSettings(normalizeMessagesSettings(settings));
   }, [settings]);
 
   useEffect(() => {
