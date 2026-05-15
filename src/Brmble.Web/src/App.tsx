@@ -3775,7 +3775,7 @@ const handleConnect = (serverData: SavedServer) => {
           notifQueue={notifQueue}
           onRemove={(id) => setWatchedShareEndedNotifications(prev => prev.filter(notification => notification.id !== id))}
         />
-        {movedChannelNotification && notifQueue.isVisible(movedChannelNotification.id) && (
+        {movedChannelNotification && shouldShowOptionalNotification(optionalNotificationSettings, 'notificationMovedChannel') && notifQueue.isVisible(movedChannelNotification.id) && (
           <Notification
             key={movedChannelNotification.id}
             status={movedChannelNotification.status}

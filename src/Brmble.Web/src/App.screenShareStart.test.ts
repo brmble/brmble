@@ -1285,6 +1285,52 @@ describe('active share discovery', () => {
     expect(notifQueue.register).not.toHaveBeenCalledWith(expect.stringMatching(/^channel-moved-/), 'info');
   });
 
+  it('hides a visible moved channel notification when channel move notices are disabled later', async () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id.startsWith('channel-moved-'));
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming' },
+        ],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    act(() => {
+      bridge.emit('voice.channelChanged', {
+        channelId: 2,
+        previousChannelId: 1,
+        actorName: 'Moderator',
+        reason: 'moved',
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Moved to Gaming')).toBeInTheDocument();
+    });
+
+    act(() => {
+      bridge.emit('settings.current', {
+        settings: {
+          messages: {
+            notificationsDisabled: false,
+            notificationRemoteScreenShare: true,
+            notificationScreenShareStatus: true,
+            notificationIdleWarning: true,
+            notificationMovedChannel: false,
+          },
+        },
+      });
+    });
+
+    expect(screen.queryByText('Moved to Gaming')).not.toBeInTheDocument();
+  });
+
   it('keeps showing moved notifications after many replacements', async () => {
     vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id.startsWith('channel-moved-'));
     render(React.createElement(App));
