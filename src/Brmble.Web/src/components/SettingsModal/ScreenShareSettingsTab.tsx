@@ -48,7 +48,7 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
         <div className="settings-item settings-toggle">
           <div className="settings-label-group">
             <span className="settings-label">Capture Audio</span>
-            <SettingsHelp content="Capture microphone audio along with screen share" label="More information about capture audio" />
+            <SettingsHelp content="Capture microphone audio along with screen share when browser support is available." label="More information about capture audio" />
           </div>
           <label className="brmble-toggle">
             <input
