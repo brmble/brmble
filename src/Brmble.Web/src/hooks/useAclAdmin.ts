@@ -97,5 +97,26 @@ export function useAclAdmin(channelId: number | null) {
     });
   };
 
-  return { snapshot, loading, saving, error, refresh, save };
+  const savePassword = (password: string) => {
+    if (channelId == null) return;
+    setSaving(true);
+    setError(null);
+    bridge.send('acl.setChannelPassword', { channelId, password });
+  };
+
+  const addGroupMember = (group: string, session: number) => {
+    if (channelId == null) return;
+    setSaving(true);
+    setError(null);
+    bridge.send('acl.addGroupMember', { channelId, group, session });
+  };
+
+  const removeGroupMember = (group: string, session: number) => {
+    if (channelId == null) return;
+    setSaving(true);
+    setError(null);
+    bridge.send('acl.removeGroupMember', { channelId, group, session });
+  };
+
+  return { snapshot, loading, saving, error, refresh, save, savePassword, addGroupMember, removeGroupMember };
 }

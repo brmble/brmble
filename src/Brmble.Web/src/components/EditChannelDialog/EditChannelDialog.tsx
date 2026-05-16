@@ -22,22 +22,20 @@ export function EditChannelDialog({
 }: EditChannelDialogProps) {
   const [name, setName] = useState(initialName);
   const [description, setDescription] = useState(initialDescription);
-  const [password, setPassword] = useState(initialPassword);
 
   useEffect(() => {
     setName(initialName);
     setDescription(initialDescription);
-    setPassword(initialPassword);
   }, [initialName, initialDescription, initialPassword, isOpen]);
 
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(name, description, password);
+    onSave(name, description, initialPassword);
   };
 
-  const hasChanges = name !== initialName || description !== initialDescription || password !== initialPassword;
+  const hasChanges = name !== initialName || description !== initialDescription;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -80,17 +78,9 @@ export function EditChannelDialog({
           </div>
 
           <div className="form-group">
-            <label htmlFor="channel-password">Password Token</label>
-            <input
-              id="channel-password"
-              className="brmble-input"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Empty means no password token rule"
-            />
+            <label>Password Access</label>
             <p className="edit-channel-hint">
-              Saving a password creates or updates Brmble&apos;s managed native Mumble token selector rule. Other token rules are left unchanged.
+              Channel password access is managed from the Permissions ACL editor so it stays visible alongside other group access rules.
             </p>
           </div>
 

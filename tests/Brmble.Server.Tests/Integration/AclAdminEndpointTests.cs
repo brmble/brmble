@@ -36,6 +36,41 @@ public class AclAdminEndpointTests
     }
 
     [TestMethod]
+    public async Task GetRegisteredUsers_Unauthenticated_ReturnsUnauthorized()
+    {
+        using var factory = new BrmbleServerFactory(certHash: null);
+        var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/admin/registered-users");
+
+        Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task GetRegisteredUsers_Authenticated_ReturnsRegisteredUsers()
+    {
+        using var factory = new BrmbleServerFactory("cert_registered_lookup");
+        await SeedUser(factory, "cert_registered_lookup", "Admin");
+        factory.MumbleRegistrationMock
+            .Setup(service => service.GetRegisteredUsersAsync(""))
+            .ReturnsAsync(new Dictionary<int, string>
+            {
+                [12] = "Alice",
+                [34] = "Bob",
+            });
+
+        var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/admin/registered-users");
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        var result = await response.Content.ReadFromJsonAsync<Dictionary<string, string>>();
+        Assert.IsNotNull(result);
+        Assert.AreEqual("Alice", result["12"]);
+        Assert.AreEqual("Bob", result["34"]);
+    }
+
+    [TestMethod]
     public async Task PutChannelAcl_ReturnsRefreshedCanonicalSnapshot()
     {
         using var factory = new BrmbleServerFactory("cert_acl_admin");

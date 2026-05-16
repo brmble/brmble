@@ -84,6 +84,201 @@
   gap: var(--space-sm);
 }
 
+.acl-simple-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-md);
+}
+
+.acl-simple-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+}
+
+.acl-choice-list,
+.acl-simple-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.acl-toggle-pill {
+  display: flex;
+  gap: var(--space-2xs);
+  padding: var(--space-2xs);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-overlay) 80%, transparent);
+}
+
+.acl-toggle-pill-button {
+  flex: 1 1 0;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.7rem 1rem;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.acl-toggle-pill-button--active {
+  background: color-mix(in srgb, var(--accent-primary) 18%, var(--bg-surface));
+  color: var(--text-primary);
+}
+
+.acl-split-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-lg);
+}
+
+.acl-pane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  min-width: 0;
+}
+
+.acl-pane-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+}
+
+.acl-list-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+}
+
+.acl-card-list,
+.acl-user-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.acl-access-card,
+.acl-user-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+
+.acl-access-card {
+  align-items: flex-start;
+  text-align: left;
+  cursor: pointer;
+}
+
+.acl-access-card--selected {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary) 35%, transparent);
+}
+
+.acl-subheading {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.acl-user-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.acl-access-badge {
+  align-self: flex-start;
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  background: var(--bg-overlay);
+}
+
+.acl-entry-title {
+  color: var(--text-primary);
+  font-size: var(--text-base);
+}
+
+.acl-entry-copy {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.acl-field-help {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.acl-toggle--compact {
+  align-items: center;
+}
+
+.acl-member-summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bg-surface) 82%, transparent);
+}
+
+.acl-member-count {
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.acl-group-add {
+  display: flex;
+  align-items: end;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.acl-group-add-field {
+  min-width: min(320px, 100%);
+}
+
+.acl-inline-action {
+  align-self: flex-start;
+}
+
+.acl-advanced {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-sm);
+}
+
+.acl-advanced summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.acl-advanced-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+
 .acl-empty-state {
   padding: var(--space-md);
   border: 1px dashed var(--border-subtle);
@@ -181,5 +376,13 @@
 
   .acl-rule-actions {
     justify-content: flex-start;
+  }
+
+  .acl-split-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .acl-simple-grid {
+    grid-template-columns: 1fr;
   }
 }

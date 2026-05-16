@@ -1660,6 +1660,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     {
         if (string.IsNullOrWhiteSpace(_apiUrl))
         {
+            LogToFile("[ACL] Registered users lookup skipped: API URL is missing");
+            _bridge?.Send("voice.registeredUsersError", new { message = "Brmble API URL is unavailable, so registered users could not be loaded." });
+            _bridge?.Send("voice.registeredUsers", Array.Empty<object>());
+            _bridge?.NotifyUiThread();
+            return;
+        }
+
+        using var cert = _certService?.GetExportableCertificate();
+        if (cert is null)
+        {
+            LogToFile("[ACL] Registered users lookup failed: no client certificate");
+            _bridge?.Send("voice.registeredUsersError", new { message = "No client certificate is available for the registered users lookup." });
             _bridge?.Send("voice.registeredUsers", Array.Empty<object>());
             _bridge?.NotifyUiThread();
             return;
@@ -1667,22 +1679,33 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         try
         {
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            var response = await _healthHttpClient.GetAsync($"{_apiUrl.TrimEnd('/')}/admin/registered-users", cts.Token);
-            if (!response.IsSuccessStatusCode)
+            var baseUri = new Uri(_apiUrl, UriKind.Absolute);
+            var uri = new Uri(baseUri, "admin/registered-users");
+            var result = await GetViaBcTls(cert, uri);
+            if (!result.Success || string.IsNullOrWhiteSpace(result.Body))
             {
+                LogToFile($"[ACL] Registered users lookup failed: success={result.Success}, status={result.StatusCode}, error={result.Error ?? "(none)"}, body={(result.Body ?? "(empty)")}");
+                _bridge?.Send("voice.registeredUsersError", new
+                {
+                    message = result.StatusCode > 0
+                        ? $"Registered users lookup failed with status {result.StatusCode}."
+                        : $"Registered users lookup failed: {result.Error ?? "unknown error"}",
+                });
                 _bridge?.Send("voice.registeredUsers", Array.Empty<object>());
                 _bridge?.NotifyUiThread();
                 return;
             }
 
-            var json = await response.Content.ReadAsStringAsync();
-            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            LogToFile($"[ACL] Registered users lookup succeeded: {result.Body}");
+            _bridge?.Send("voice.registeredUsersError", null);
+            using var doc = System.Text.Json.JsonDocument.Parse(result.Body);
             _bridge?.Send("voice.registeredUsers", doc.RootElement);
             _bridge?.NotifyUiThread();
         }
-        catch
+        catch (Exception ex)
         {
+            LogToFile($"[ACL] Registered users lookup threw: {ex}");
+            _bridge?.Send("voice.registeredUsersError", new { message = $"Registered users lookup threw an error: {ex.Message}" });
             _bridge?.Send("voice.registeredUsers", Array.Empty<object>());
             _bridge?.NotifyUiThread();
         }
@@ -3146,6 +3169,76 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             var requestJson = BuildSetChannelPasswordRequestBody(current.Body, password);
             var result = await PutViaBcTls(cert, channelUri, requestJson);
             var eventType = result.Success || result.StatusCode == 409 ? "acl.writeResult" : "acl.error";
+            _bridge?.Send(eventType, new { channelId, body = result.Body, statusCode = result.StatusCode, error = result.Error });
+            _bridge?.NotifyUiThread();
+        });
+
+        bridge.RegisterHandler("acl.addGroupMember", async data =>
+        {
+            var channelId = data.TryGetProperty("channelId", out var cid) && cid.ValueKind == System.Text.Json.JsonValueKind.Number
+                ? cid.GetInt32()
+                : 0;
+            var session = data.TryGetProperty("session", out var sid) && sid.ValueKind == System.Text.Json.JsonValueKind.Number
+                ? sid.GetInt32()
+                : 0;
+            var group = data.TryGetProperty("group", out var grp) && grp.ValueKind == System.Text.Json.JsonValueKind.String
+                ? grp.GetString() ?? ""
+                : "";
+
+            if (channelId <= 0 || session <= 0 || string.IsNullOrWhiteSpace(group) || _apiUrl is null)
+            {
+                _bridge?.Send("acl.error", new { channelId, error = "Not connected or invalid group member request" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            using var cert = _certService?.GetExportableCertificate();
+            if (cert is null)
+            {
+                _bridge?.Send("acl.error", new { channelId, error = "No client certificate" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            var uri = new Uri(new Uri(_apiUrl, UriKind.Absolute), $"acl/channels/{channelId}/groups/add");
+            var requestJson = System.Text.Json.JsonSerializer.Serialize(new { session, group });
+            var result = await PostViaBcTls(cert, uri, requestJson);
+            var eventType = result.Success ? "acl.writeResult" : "acl.error";
+            _bridge?.Send(eventType, new { channelId, body = result.Body, statusCode = result.StatusCode, error = result.Error });
+            _bridge?.NotifyUiThread();
+        });
+
+        bridge.RegisterHandler("acl.removeGroupMember", async data =>
+        {
+            var channelId = data.TryGetProperty("channelId", out var cid) && cid.ValueKind == System.Text.Json.JsonValueKind.Number
+                ? cid.GetInt32()
+                : 0;
+            var session = data.TryGetProperty("session", out var sid) && sid.ValueKind == System.Text.Json.JsonValueKind.Number
+                ? sid.GetInt32()
+                : 0;
+            var group = data.TryGetProperty("group", out var grp) && grp.ValueKind == System.Text.Json.JsonValueKind.String
+                ? grp.GetString() ?? ""
+                : "";
+
+            if (channelId <= 0 || session <= 0 || string.IsNullOrWhiteSpace(group) || _apiUrl is null)
+            {
+                _bridge?.Send("acl.error", new { channelId, error = "Not connected or invalid group member request" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            using var cert = _certService?.GetExportableCertificate();
+            if (cert is null)
+            {
+                _bridge?.Send("acl.error", new { channelId, error = "No client certificate" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            var uri = new Uri(new Uri(_apiUrl, UriKind.Absolute), $"acl/channels/{channelId}/groups/remove");
+            var requestJson = System.Text.Json.JsonSerializer.Serialize(new { session, group });
+            var result = await PostViaBcTls(cert, uri, requestJson);
+            var eventType = result.Success ? "acl.writeResult" : "acl.error";
             _bridge?.Send(eventType, new { channelId, body = result.Body, statusCode = result.StatusCode, error = result.Error });
             _bridge?.NotifyUiThread();
         });

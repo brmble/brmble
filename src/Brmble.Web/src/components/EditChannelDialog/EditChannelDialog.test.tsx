@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { EditChannelDialog } from './EditChannelDialog';
 
@@ -7,12 +7,12 @@ vi.mock('../Icon/Icon', () => ({
 }));
 
 describe('EditChannelDialog', () => {
-  it('submits password token as third onSave argument', () => {
+  it('explains that channel password management lives in the ACL editor', () => {
     const onSave = vi.fn();
     render(
       <EditChannelDialog
         isOpen
-        initialName="Secret"
+        initialName="Main channel"
         initialDescription=""
         initialPassword=""
         onClose={vi.fn()}
@@ -20,9 +20,6 @@ describe('EditChannelDialog', () => {
       />
     );
 
-    fireEvent.change(screen.getByLabelText('Password Token'), { target: { value: 'new-secret' } });
-    fireEvent.click(screen.getByText('Save'));
-
-    expect(onSave).toHaveBeenCalledWith('Secret', '', 'new-secret');
+    expect(screen.getByText(/Permissions.*ACL editor/i)).toBeInTheDocument();
   });
 });

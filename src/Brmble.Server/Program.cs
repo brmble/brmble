@@ -72,6 +72,7 @@ app.UseRateLimiter();
 app.MapGet("/health", (IServerVersionProvider version) =>
     Results.Ok(new { status = "healthy", version = version.Version }));
 app.MapAuthEndpoints();
+app.MapAdminEndpoints();
 app.MapDmEndpoints();
 app.MapAclAdminEndpoints();
 app.Map("/ws", BrmbleWebSocketHandler.HandleAsync);

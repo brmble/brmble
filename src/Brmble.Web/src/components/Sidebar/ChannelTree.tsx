@@ -773,6 +773,7 @@ onClick: () => {
           isOpen={true}
           channelId={aclEditorChannel.id}
           channelName={aclEditorChannel.name}
+          availableUsers={users}
           onClose={() => setAclEditorChannel(null)}
         />
       )}

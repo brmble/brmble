@@ -19,6 +19,7 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
     private readonly string? _certHash;
     public Mock<IAclAuthorizationService> AclAuthorizationMock { get; } = new();
     public Mock<IAclSyncCoordinator> AclCoordinatorMock { get; } = new();
+    public Mock<IMumbleRegistrationService> MumbleRegistrationMock { get; } = new();
 
     public BrmbleServerFactory(string? certHash = "testcerthash123")
     {
@@ -79,6 +80,10 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
             var aclSync = services.FirstOrDefault(d => d.ServiceType == typeof(IAclSyncCoordinator));
             if (aclSync != null) services.Remove(aclSync);
             services.AddSingleton(AclCoordinatorMock.Object);
+
+            var registration = services.FirstOrDefault(d => d.ServiceType == typeof(IMumbleRegistrationService));
+            if (registration != null) services.Remove(registration);
+            services.AddSingleton(MumbleRegistrationMock.Object);
         });
     }
 
