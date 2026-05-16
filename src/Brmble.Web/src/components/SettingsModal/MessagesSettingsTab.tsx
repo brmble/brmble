@@ -174,7 +174,6 @@ export function MessagesSettingsTab({ settings, onChange }: MessagesSettingsTabP
             <span className="brmble-toggle-slider"></span>
           </label>
         </div>
-        <p>Hide optional pop-up notifications. Critical warnings and one-time account or update notices may still appear.</p>
         <div className="settings-item settings-toggle">
           <label htmlFor="notification-remote-screen-share">Screen share invitations</label>
           <label className="brmble-toggle">

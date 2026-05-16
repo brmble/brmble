@@ -11,7 +11,7 @@ describe('MessagesSettingsTab optional notifications', () => {
     expect(screen.getByLabelText('Screen share status')).toBeChecked();
     expect(screen.getByLabelText('Idle reminders')).toBeChecked();
     expect(screen.getByLabelText('Channel move notices')).toBeChecked();
-    expect(screen.getByText('Hide optional pop-up notifications. Critical warnings and one-time account or update notices may still appear.')).toBeInTheDocument();
+    expect(screen.queryByText('Hide optional pop-up notifications. Critical warnings and one-time account or update notices may still appear.')).not.toBeInTheDocument();
   });
 
   it('shows category toggles as off and disabled while preserving stored choices when global disable is on', () => {
