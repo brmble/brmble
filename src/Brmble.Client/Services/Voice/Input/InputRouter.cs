@@ -116,9 +116,19 @@ public sealed class InputRouter : IDisposable
 
         int vk = KeyNameToVirtualKey(key);
         if (vk == 0) return;
+
+        // Prime _pttKeyWasDown from current physical state. If the key is
+        // already held at the moment the binding is installed (e.g. user
+        // held PTT through a Disconnect → Connect cycle), we want to wait
+        // for the next release before reacting — not treat the leftover
+        // hold as a fresh press. Without this priming the next poll tick
+        // would see "down + !was-down" and start transmitting without the
+        // user pressing anything new.
+        bool currentlyDown = (_backend.GetAsyncKeyState(vk) & 0x8000) != 0;
         lock (_pttStateLock)
         {
             _pttVk = vk;
+            _pttKeyWasDown = currentlyDown;
             _pttBound = true;
         }
         StartPttPolling();
