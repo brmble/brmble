@@ -424,12 +424,22 @@ public sealed class InputRouter : IDisposable
 
     private void SetMouseBinding(MouseButton button, BindingKind kind, string action, string key)
     {
+        // Prime IsHeld from the current physical state. If the button is
+        // already held when the binding is installed (e.g. user held mouse PTT
+        // through a Disconnect → Connect cycle, or some mouse drivers
+        // re-assert button-down on hook installation), we want to wait for a
+        // release-then-press cycle before reacting — not treat the leftover
+        // hold as a fresh press.
+        int vk = KeyNameToVirtualKey(key);
+        bool currentlyDown = vk != 0 && (_backend.GetAsyncKeyState(vk) & 0x8000) != 0;
+
         // Install hook under the same lock that guards the dictionary so two
         // concurrent SetXxxBinding calls cannot both observe an empty hook
         // handle and double-install (leaking the first handle).
         lock (_mouseLock)
         {
-            _mouseBindings[button] = new MouseBinding(kind, action, key);
+            var binding = new MouseBinding(kind, action, key) { IsHeld = currentlyDown };
+            _mouseBindings[button] = binding;
             if (_mouseHookHandle == IntPtr.Zero)
             {
                 _mouseHookProc = MouseHookCallback;
