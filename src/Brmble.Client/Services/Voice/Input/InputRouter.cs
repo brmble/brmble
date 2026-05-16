@@ -37,6 +37,10 @@ public sealed class InputRouter : IDisposable
     private System.Threading.Timer? _shortcutKbTimer;
     private const int ShortcutPollIntervalMs = 30;
 
+    // Suspend gate (#537): while true, all dispatch paths bypass event firing.
+    // Timers and the hook stay registered to avoid Win32 tear-down/re-up cost.
+    private volatile bool _suspended;
+
     private enum BindingKind { Ptt, Shortcut }
 
     private sealed record MouseBinding(BindingKind Kind, string Action, string Key)
@@ -106,8 +110,18 @@ public sealed class InputRouter : IDisposable
         StartPttPolling();
     }
 
+    public void Suspend() { _suspended = true; }
+
+    public void Resume()
+    {
+        _suspended = false;
+        // Anything held that we ignored during suspend cannot leak through.
+        ReleaseAllHeld();
+    }
+
     public void HandleJsPttKey(bool pressed)
     {
+        if (_suspended) return;
         if (!_pttBound) return;
         bool wasActive = _pollPttPressed || _jsPttPressed;
         _jsPttPressed = pressed;
@@ -183,6 +197,7 @@ public sealed class InputRouter : IDisposable
 
     internal void TickPollOnce()
     {
+        if (_suspended) return;
         if (_pttVk == 0) return;
         short state = _backend.GetAsyncKeyState(_pttVk);
         bool isDown = (state & 0x8000) != 0;
@@ -267,6 +282,7 @@ public sealed class InputRouter : IDisposable
 
     internal void TickShortcutPollOnce()
     {
+        if (_suspended) return;
         List<KeyValuePair<int, string>> snapshot;
         lock (_shortcutLock)
         {
@@ -358,6 +374,7 @@ public sealed class InputRouter : IDisposable
         IntPtr handleSnapshot = _mouseHookHandle;
 
         if (nCode != HC_ACTION) return _backend.CallNextHook(handleSnapshot, nCode, wParam, lParam);
+        if (_suspended) return _backend.CallNextHook(handleSnapshot, nCode, wParam, lParam);
 
         int msg = wParam.ToInt32();
         var (btn, isDown, isUp) = ClassifyMouseMessage(msg, lParam);
