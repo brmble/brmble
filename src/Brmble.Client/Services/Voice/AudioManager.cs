@@ -1997,6 +1997,12 @@ private int _screenShareHotkeyId = -1;
     }
 
     /// <summary>Start or stop mic for PTT.</summary>
+    /// <summary>
+    /// Public entry point for InputRouter to drive PTT state. Internal
+    /// callers continue to use SetPttActive directly.
+    /// </summary>
+    public void SetPttActiveExternal(bool active) => SetPttActive(active);
+
     private void SetPttActive(bool active)
     {
         bool startMic = false;

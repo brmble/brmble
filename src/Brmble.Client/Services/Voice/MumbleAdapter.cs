@@ -18,6 +18,7 @@ using Brmble.Client.Bridge;
 using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.Certificate;
 using Brmble.Client.Services.Idle;
+using Brmble.Client.Services.Voice.Input;
 
 namespace Brmble.Client.Services.Voice;
 
@@ -32,6 +33,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private CancellationTokenSource? _cts;
     private Thread? _processThread;
     private AudioManager? _audioManager;
+    private InputRouter? _inputRouter;
     private string? _lastWelcomeText;
     private readonly CertificateService? _certService;
     private uint? _previousChannelId;
@@ -171,6 +173,21 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             // Audio thread → must wake the UI thread so WebView2 actually flushes the queue.
             _bridge?.NotifyUiThread();
         };
+
+        // InputRouter runs in parallel with AudioManager's existing input
+        // plumbing during this PR; AudioManager's hooks/polling are removed in
+        // a follow-up task. PTT state is mirrored to AudioManager.SetPttActive;
+        // shortcut events are NOT yet wired to the bridge here — AudioManager's
+        // ShortcutPressed/Released still fire those, and we avoid double-firing
+        // by deferring the InputRouter→bridge wiring until AudioManager's
+        // shortcut polling is removed.
+        _inputRouter = new InputRouter(new Win32InputBackend(_hwnd));
+        _inputRouter.PttStateChanged += _audioManager.SetPttActiveExternal;
+        _inputRouter.JsForceReleaseRequested += () =>
+        {
+            _bridge?.Send("voice.pttKey", new { pressed = false, forced = true });
+            _bridge?.NotifyUiThread();
+        };
     }
 
     public void Initialize(NativeBridge bridge) { }
@@ -252,6 +269,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             };
         }
 
+        // Recreate InputRouter alongside AudioManager (Disconnect disposes both).
+        if (_inputRouter == null)
+        {
+            _inputRouter = new InputRouter(new Win32InputBackend(_hwnd));
+            _inputRouter.PttStateChanged += _audioManager.SetPttActiveExternal;
+            _inputRouter.JsForceReleaseRequested += () =>
+            {
+                _bridge?.Send("voice.pttKey", new { pressed = false, forced = true });
+                _bridge?.NotifyUiThread();
+            };
+        }
+
         try
         {
             SendSystemMessage($"Connecting to {host}:{port}...", "connecting");
@@ -303,8 +332,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         StopVoiceIdlePolling();
         _voiceIdleTracker?.Clear();
 
+        // Force release any held PTT/shortcut state before tearing down audio,
+        // so the matching release events fire while the AudioManager is still
+        // alive to consume them.
+        _inputRouter?.ReleaseAllHeld();
+
         _audioManager?.Dispose();
         _audioManager = null;
+
+        // InputRouter holds a delegate pointing into _audioManager; dispose
+        // it too so the next Connect() re-creates the pair with fresh wiring.
+        _inputRouter?.Dispose();
+        _inputRouter = null;
 
         // Reset cached NS state so that the next ApplySettings on a fresh
         // AudioManager always re-applies the level.
@@ -752,6 +791,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         _audioManager?.SetDtx(ShouldEnableDtx(parsed));
         _audioManager?.SetTransmissionMode(parsed, key, _hwnd);
+
+        bool isPtt = parsed == TransmissionMode.PushToTalk || parsed == TransmissionMode.PushToTalkPlus;
+        _inputRouter?.SetPttBinding(isPtt ? key : null);
     }
 
     private NoiseSuppressionLevel? _lastNoiseSuppressionLevel;
@@ -772,6 +814,16 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.SetShortcut("toggleDmScreen", settings.Shortcuts.ToggleDMScreenKey);
         _audioManager?.SetShortcut("toggleScreenShare", settings.Shortcuts.ToggleScreenShareKey);
         _audioManager?.SetShortcut("toggleGame", settings.Shortcuts.ToggleGameKey);
+
+        // Mirror shortcut bindings to InputRouter so it tracks the same set.
+        // Bridge wiring of InputRouter shortcut events lands when AudioManager's
+        // polling is removed (Task 13).
+        _inputRouter?.SetShortcutBinding("toggleMute", settings.Shortcuts.ToggleMuteKey);
+        _inputRouter?.SetShortcutBinding("toggleMuteDeafen", settings.Shortcuts.ToggleMuteDeafenKey);
+        _inputRouter?.SetShortcutBinding("toggleLeaveVoice", settings.Shortcuts.ToggleLeaveVoiceKey);
+        _inputRouter?.SetShortcutBinding("toggleDmScreen", settings.Shortcuts.ToggleDMScreenKey);
+        _inputRouter?.SetShortcutBinding("toggleScreenShare", settings.Shortcuts.ToggleScreenShareKey);
+        _inputRouter?.SetShortcutBinding("toggleGame", settings.Shortcuts.ToggleGameKey);
         _audioManager?.SetInputVolume(settings.Audio.InputVolume);
         _audioManager?.SetOutputVolume(settings.Audio.OutputVolume);
         ApplyAudioDeviceSettings(settings);
@@ -2278,7 +2330,24 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         bridge.RegisterHandler("voice.pttKey", data =>
         {
             var pressed = data.TryGetProperty("pressed", out var p) && p.GetBoolean();
+            // AudioManager's HandlePttKeyFromJs stays during this PR so its
+            // own state path continues to work; InputRouter mirrors via the
+            // shared SetPttActive call. Both updates coalesce in
+            // SetPttActive, so duplicate calls are harmless.
             _audioManager?.HandlePttKeyFromJs(pressed);
+            _inputRouter?.HandleJsPttKey(pressed);
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("input.suspend", _ =>
+        {
+            _inputRouter?.Suspend();
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("input.resume", _ =>
+        {
+            _inputRouter?.Resume();
             return Task.CompletedTask;
         });
 
@@ -3112,6 +3181,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             registeredName = LocalUser?.IsRegistered == true ? LocalUser.Name : (string?)null
         });
 
+        // Voice lifecycle transition: force-release any held input so PTT
+        // cannot remain latched across a reconnect (#538).
+        _inputRouter?.ReleaseAllHeld();
+
         Debug.WriteLine($"[Mumble] Sent {channels.Count} channels and {users.Count} users");
     }
 
@@ -3242,6 +3315,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 actorSession,
                 actorName,
                 movedByOtherUser));
+
+            // Voice lifecycle: force-release held input on every channel
+            // transition (#538). Safe to call when nothing is held.
+            _inputRouter?.ReleaseAllHeld();
 
             // If this channel change was initiated by LeaveVoice toggle, just clear the flag
             if (_leaveVoiceInProgress)
