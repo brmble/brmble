@@ -199,10 +199,11 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
         window.removeEventListener('mousedown', handleMouseDown, true);
         window.removeEventListener('keyup', finishRecording, true);
         window.removeEventListener('mouseup', finishRecording, true);
-        if (!capturedInputRef.current && hotkeysSuspendedRef.current) {
+        if (hotkeysSuspendedRef.current) {
           bridge.send('voice.resumeHotkeys');
           hotkeysSuspendedRef.current = false;
         }
+        capturedInputRef.current = null;
       };
     }
   }, [recording, isPromptOpen, handleKeyDown, handleMouseDown]);

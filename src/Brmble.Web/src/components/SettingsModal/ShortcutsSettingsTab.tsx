@@ -145,11 +145,11 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
         window.removeEventListener('mousedown', onMouse, true);
         window.removeEventListener('keyup', finishRecording, true);
         window.removeEventListener('mouseup', finishRecording, true);
-        // Re-register Win32 hotkeys
-        if (!capturedInputRef.current && hotkeysSuspendedRef.current) {
+        if (hotkeysSuspendedRef.current) {
           bridge.send('voice.resumeHotkeys');
           hotkeysSuspendedRef.current = false;
         }
+        capturedInputRef.current = null;
       };
     }
   }, [recordingKey, isPromptOpen, handleInput]);

@@ -1132,9 +1132,8 @@ function App() {
   });
 
   // Register the auto-leave-voice notification in the notification queue when fired.
-  // notifQueue intentionally omitted from deps: the object identity changes on
-  // every render, but `register` is idempotent and we only care about the
-  // autoLeftAt edge.
+  // notifQueue intentionally omitted from deps: the queue API is memoized and
+  // register is idempotent, so this effect should only track the autoLeftAt edge.
   useEffect(() => {
     if (autoLeftAt !== null) {
       notifQueue.register('idle-auto-leave', 'info');

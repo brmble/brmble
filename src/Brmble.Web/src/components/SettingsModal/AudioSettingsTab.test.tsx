@@ -243,6 +243,29 @@ describe('AudioSettingsTab', () => {
     expect(bridgeMock.send).toHaveBeenCalledWith('voice.resumeHotkeys');
   });
 
+  it('resumes hotkeys if unmounted while the recorded key is still held', () => {
+    const { unmount } = render(
+      <AudioSettingsTab
+        settings={baseSettings}
+        noiseSuppression={DEFAULT_NOISE_SUPPRESSION}
+        onChange={vi.fn()}
+        onNoiseSuppressionChange={vi.fn()}
+        allBindings={{ pushToTalkKey: null }}
+        onClearBinding={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Not bound' }));
+    fireEvent.keyDown(window, { code: 'KeyM' });
+
+    expect(bridgeMock.send).toHaveBeenCalledWith('voice.suspendHotkeys');
+    bridgeMock.send.mockClear();
+
+    unmount();
+
+    expect(bridgeMock.send).toHaveBeenCalledWith('voice.resumeHotkeys');
+  });
+
   it('shows the rebound push to talk key immediately after confirming a conflict', async () => {
     confirmMock.mockResolvedValue(true);
     const onChange = vi.fn();

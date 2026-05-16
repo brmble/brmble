@@ -126,6 +126,27 @@ describe('ShortcutsSettingsTab', () => {
     expect(bridgeMock.send).toHaveBeenCalledWith('voice.resumeHotkeys');
   });
 
+  it('resumes hotkeys if unmounted while the recorded key is still held', () => {
+    const { unmount } = render(
+      <ShortcutsSettingsTab
+        settings={baseSettings}
+        onChange={vi.fn()}
+        allBindings={{}}
+        onClearBinding={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Not bound' })[0]);
+    fireEvent.keyDown(window, { code: 'KeyM' });
+
+    expect(bridgeMock.send).toHaveBeenCalledWith('voice.suspendHotkeys');
+    bridgeMock.send.mockClear();
+
+    unmount();
+
+    expect(bridgeMock.send).toHaveBeenCalledWith('voice.resumeHotkeys');
+  });
+
   it('shows the rebound shortcut key immediately after confirming a conflict', async () => {
     confirmMock.mockResolvedValue(true);
     const onChange = vi.fn();
