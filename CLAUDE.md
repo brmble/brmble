@@ -98,11 +98,19 @@ git push -u origin feature/my-feature
 
 Before creating, modifying, styling, or reviewing any UI, read `docs/UI_GUIDE.md`.
 
-Do not add new UI elements, components, settings, icons, notifications, modals, dialogs, prompts, forms, inputs, selects, context menus, sidebar sections, user/channel rows, screen share UI, layout patterns, or CSS before checking the guide for the existing pattern.
+Do not add new UI elements, components, settings, icons, notifications, modals, dialogs, prompts, confirmations, forms, inputs, selects, context menus, sidebar sections, user/channel rows, screen share UI, layout patterns, or CSS before checking the guide for the existing pattern.
 
 Never hardcode colors, font sizes, font families, spacing, border radius, shadows, or transition values in UI code. Use existing CSS custom property tokens and theme variables. See `docs/UI_GUIDE.md` and `src/Brmble.Web/src/themes/_template.css`.
 
 Do not create toast systems or toast components. Brmble uses top-right `<Notification>` with `useNotificationQueue`; repeatable informational notifications may need optional notification settings.
+
+`docs/UI_GUIDE.md` is the source of truth for:
+- Design tokens and theme compatibility
+- Component patterns
+- Modals, dialogs, prompts, and confirmations
+- Settings tab layout and `SettingsHelp`
+- Icon usage
+- Notification behavior and optionality
 
 If the guide does not cover the UI pattern you need, update `docs/UI_GUIDE.md` in the same branch before or alongside the UI change.
 
