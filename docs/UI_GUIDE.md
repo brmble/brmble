@@ -174,6 +174,7 @@ Rules:
 1. Each logical group is a `div.settings-section`
 2. Section title is always `h3.heading-section.settings-section-title`
 3. Each control row is `div.settings-item` with optional modifier (`.settings-toggle`, `.settings-slider`)
+4. Do not add plain inline help paragraphs under settings controls. Settings rows stay compact; if a setting needs explanation, use the Tooltip pattern or an existing `?` help affordance. Inline text is reserved for empty states, loading states, validation errors, and feature placeholders.
 
 ### Sidebar Section Pattern
 
