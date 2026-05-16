@@ -24,7 +24,18 @@ Format: Flat rulebook. Numbered rules, tables, do/don't examples. No fluff.
 
 ### The Absolute Rule
 
-**Never hardcode colors, font sizes, border-radius, or font families. Always use CSS custom property tokens.**
+**Never hardcode colors, font sizes, font families, spacing, border radius, shadows, or transition values. Always use CSS custom property tokens.**
+
+### AI Agent UI Gate
+
+Treat a task as UI work if it creates, changes, styles, or reviews anything user-visible. This includes prompts, confirmations, notifications, settings rows, help text, tooltips, empty/loading/error states, icons, screen share surfaces, sidebar rows, and copy inside UI components.
+
+Before changing UI code:
+1. Find the matching pattern in this guide.
+2. Use the existing component/pattern rather than inventing a new one.
+3. If no matching pattern exists, update this guide in the same branch before or alongside the UI change.
+
+Do not create new UI systems, one-off component patterns, ad-hoc CSS, native browser dialogs, toast components, or hardcoded visual values.
 
 ---
 
@@ -174,7 +185,7 @@ Rules:
 1. Each logical group is a `div.settings-section`
 2. Section title is always `h3.heading-section.settings-section-title`
 3. Each control row is `div.settings-item` with optional modifier (`.settings-toggle`, `.settings-slider`)
-4. Do not add plain inline help paragraphs under settings controls. Settings rows stay compact; if a setting needs explanation, use the Tooltip pattern or an existing `?` help affordance. Inline text is reserved for empty states, loading states, validation errors, and feature placeholders.
+4. Do not add plain inline help paragraphs under settings controls. Settings rows stay compact; if a setting needs explanation, use `SettingsHelp`. Inline text is reserved for empty states, loading states, validation errors, and feature placeholders.
 5. Settings `?` help uses `SettingsHelp` from `src/Brmble.Web/src/components/SettingsModal/SettingsHelp.tsx`. Do not create CSS-only `data-tooltip` spans or one-off `?` button markup in settings tabs.
 
 Settings help example:
@@ -243,6 +254,8 @@ Channel-tree user rows use `paddingLeft: calc(4px + level * 20px)` for tree inde
 Reference: `src/Brmble.Web/src/hooks/usePrompt.tsx`, `src/Brmble.Web/src/components/Prompt/Prompt.css`
 
 Use the `confirm()` function for any action that requires a user decision before proceeding (e.g., destructive actions, conflict resolution). Do **not** use `window.confirm()` — it returns `false` immediately in WebView2.
+
+Prompts and confirmations are UI work. Before adding confirmation copy, buttons, or branching behavior, follow this pattern instead of creating a custom modal or native browser dialog.
 
 #### Setup (once, in App.tsx only)
 
@@ -361,6 +374,7 @@ Rules:
 6. Accessible: `role="tooltip"`, `aria-describedby`, Escape key dismissal
 7. For small trigger elements (e.g. `btn-icon`) near window edges, use `align="start"` or `align="end"` to prevent the tooltip from overflowing off-screen
 8. **Disabled elements** don't fire mouse/focus events -- wrap them in a `<span>` or `<div>` and attach the Tooltip to the wrapper instead
+9. In settings tabs, do not create raw `?` tooltip markup. Use `SettingsHelp`.
 
 ### Select Pattern
 
@@ -765,7 +779,7 @@ The `status` prop drives icon, color, ARIA role, and auto-dismiss behavior:
 5. **What actions does it need?** Max 1 primary action. Action must be reachable elsewhere in UI since notifications can be missed.
 6. **What title + detail?** Title = what happened (short, one line). Detail = context or next step (optional).
 7. **What lifecycle model?** Choose one: stable singleton, replacement, or historical/multi-entry. This determines the ID and cleanup strategy.
-8. **Should users be able to disable it?** Repeatable informational top-right notifications should usually respect Messages -> `Disable optional notifications` and a category toggle. Critical warnings, errors, recovery, updates, and one-time confirmations usually stay ungated.
+8. **Should users be able to disable it?** Repeatable informational top-right notifications should usually respect Notifications -> `Disable optional notifications` and a category toggle. Critical warnings, errors, recovery, updates, and one-time confirmations usually stay ungated.
 
 ### Props
 
@@ -812,7 +826,7 @@ The status icon aligns vertically with the title line.
 
 ### Optional Notification Settings
 
-Before adding a repeatable top-right notification, decide whether it belongs behind the Messages notification settings. Optional notifications are user-controllable pop-up notices that can repeat during normal use and are not required for account recovery, safety, or error handling.
+Before adding a repeatable top-right notification, decide whether it belongs behind the Notifications settings tab. Optional notifications are user-controllable pop-up notices that can repeat during normal use and are not required for account recovery, safety, or error handling.
 
 Use optional notification settings for repeatable informational events such as screen share invitations, screen share status updates, idle reminders, or channel move notices. Do not gate critical warnings, errors, update prompts, certificate recovery, kicked/banned notices, service outage warnings, or one-time confirmations unless there is a specific product decision to make them optional.
 

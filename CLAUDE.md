@@ -96,9 +96,9 @@ git push -u origin feature/my-feature
 
 ## UI Development
 
-Before creating, modifying, styling, or reviewing any UI, read `docs/UI_GUIDE.md`.
+Before creating, modifying, styling, or reviewing any UI, read `docs/UI_GUIDE.md`, especially the AI Agent UI Gate.
 
-Do not add new UI elements, components, settings, icons, notifications, modals, dialogs, prompts, confirmations, forms, inputs, selects, context menus, sidebar sections, user/channel rows, screen share UI, layout patterns, or CSS before checking the guide for the existing pattern.
+Do not add new UI elements, components, settings, icons, notifications, modals, dialogs, prompts, confirmations, forms, inputs, selects, context menus, sidebar sections, user/channel rows, screen share UI, help text, empty/loading/error states, layout patterns, or CSS before checking the guide for the existing pattern.
 
 Never hardcode colors, font sizes, font families, spacing, border radius, shadows, or transition values in UI code. Use existing CSS custom property tokens and theme variables. See `docs/UI_GUIDE.md` and `src/Brmble.Web/src/themes/_template.css`.
 
