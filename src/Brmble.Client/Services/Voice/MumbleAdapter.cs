@@ -131,17 +131,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _appConfigService = appConfigService;
         _voiceIdleTracker = voiceIdleTracker;
         _audioManager = new AudioManager(_hwnd);
-        _audioManager.ToggleMuteRequested += ToggleMute;
-        _audioManager.ToggleDeafenRequested += ToggleDeaf;
-        _audioManager.ToggleLeaveVoiceRequested += LeaveVoice;
-        _audioManager.ToggleDmScreenRequested += () => {
-            _bridge?.Send("voice.toggleDmScreen", null);
-            _bridge?.NotifyUiThread();
-        };
-        _audioManager.ToggleScreenShareRequested += () => {
-            _bridge?.Send("voice.toggleScreenShare", null);
-            _bridge?.NotifyUiThread();
-        };
+        // Toggle* actions now fire via MumbleAdapter.FireShortcutAction
+        // (driven by InputRouter.ShortcutReleased); AudioManager no longer
+        // owns input dispatch, so those events were removed.
         _audioManager.OnLossReport += loss => {
             _bridge?.Send("voice.loss", new { loss });
         };
@@ -263,17 +255,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (_audioManager == null)
         {
             _audioManager = new AudioManager(_hwnd);
-            _audioManager.ToggleMuteRequested += ToggleMute;
-            _audioManager.ToggleDeafenRequested += ToggleDeaf;
-            _audioManager.ToggleLeaveVoiceRequested += LeaveVoice;
-            _audioManager.ToggleDmScreenRequested += () => {
-                _bridge?.Send("voice.toggleDmScreen", null);
-                _bridge?.NotifyUiThread();
-            };
-            _audioManager.ToggleScreenShareRequested += () => {
-                _bridge?.Send("voice.toggleScreenShare", null);
-                _bridge?.NotifyUiThread();
-            };
             _audioManager.OnLossReport += loss => {
                 _bridge?.Send("voice.loss", new { loss });
             };

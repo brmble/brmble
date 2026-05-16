@@ -218,13 +218,6 @@ internal sealed class AudioManager : IDisposable
     /// <summary>Fired when a user stops speaking (no packets for SpeakingTimeoutMs).</summary>
     public event Action<uint>? UserStoppedSpeaking;
 
-    public event Action? ToggleMuteRequested;
-    public event Action? ToggleDeafenRequested;
-    public event Action? ToggleContinuousRequested;
-    public event Action? ToggleLeaveVoiceRequested;
-    public event Action? ToggleDmScreenRequested;
-    public event Action? ToggleScreenShareRequested;
-
     /// <summary>
     /// Fired at most every 50 ms while VAD mode is active and at least one subscriber is registered
     /// via <see cref="SetVadMeterSubscribed"/>. Args: (rms, isOpen).
