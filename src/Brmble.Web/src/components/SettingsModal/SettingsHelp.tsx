@@ -8,7 +8,9 @@ interface SettingsHelpProps {
 export function SettingsHelp({ content, label }: SettingsHelpProps) {
   return (
     <Tooltip content={content} position="right" align="start">
-      <button type="button" className="settings-info-btn" aria-label={label}>?</button>
+      <button type="button" className="settings-info-btn" aria-label={label}>
+        <span className="settings-info-mark" aria-hidden="true">?</span>
+      </button>
     </Tooltip>
   );
 }

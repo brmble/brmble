@@ -29,7 +29,18 @@ describe('SettingsHelp', () => {
   });
 
   it('uses a 24px hit target for the help button', () => {
-    expect(settingsModalCss).toMatch(/\.settings-info-btn\s*{[^}]*width:\s*24px;/s);
-    expect(settingsModalCss).toMatch(/\.settings-info-btn\s*{[^}]*height:\s*24px;/s);
+    expect(settingsModalCss).toMatch(/--settings-help-hit-size:\s*var\(--space-lg\);/);
+    expect(settingsModalCss).toMatch(/\.settings-info-btn\s*{[^}]*width:\s*var\(--settings-help-hit-size\);/s);
+    expect(settingsModalCss).toMatch(/\.settings-info-btn\s*{[^}]*height:\s*var\(--settings-help-hit-size\);/s);
+  });
+
+  it('keeps the visible mark compact inside the larger hit target', () => {
+    render(<SettingsHelp content="Higher quality uses more bandwidth" label="More information about quality" />);
+
+    expect(screen.getByText('?')).toHaveClass('settings-info-mark');
+    expect(settingsModalCss).toMatch(/--settings-help-mark-size:\s*calc\(var\(--space-md\) \+ var\(--space-2xs\)\);/);
+    expect(settingsModalCss).toMatch(/\.settings-info-mark\s*{[^}]*width:\s*var\(--settings-help-mark-size\);/s);
+    expect(settingsModalCss).toMatch(/\.settings-info-mark\s*{[^}]*height:\s*var\(--settings-help-mark-size\);/s);
+    expect(settingsModalCss).toMatch(/\.settings-info-mark\s*{[^}]*font-size:\s*var\(--text-xs\);/s);
   });
 });
