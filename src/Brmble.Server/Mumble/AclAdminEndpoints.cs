@@ -24,7 +24,7 @@ public static class AclAdminEndpoints
             }
 
             var cached = await snapshots.GetAsync(channelId);
-            var canonical = await coordinator.RefreshAsync(channelId, broadcastWhenChanged: cached is not null);
+            var canonical = await coordinator.RefreshFromReadAsync(channelId, cached?.SnapshotHash);
             return Results.Ok(new { snapshot = canonical, cached });
         });
 

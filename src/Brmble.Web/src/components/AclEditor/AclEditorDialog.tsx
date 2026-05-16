@@ -64,7 +64,9 @@ export function AclEditorDialog({ channelId, channelName, isOpen, onClose }: Acl
     });
   };
 
-  const localRules = draft?.acls.filter(rule => !rule.inherited) ?? [];
+  const localRules = draft?.acls
+    .map((rule, index) => ({ rule, index }))
+    .filter(({ rule }) => !rule.inherited) ?? [];
   const inheritedRules = draft?.acls.filter(rule => rule.inherited) ?? [];
 
   return (
@@ -99,7 +101,7 @@ export function AclEditorDialog({ channelId, channelName, isOpen, onClose }: Acl
             </div>
 
             <div className="acl-rule-list">
-              {localRules.map((rule, index) => (
+              {localRules.map(({ rule, index }) => (
                 <div className="acl-rule-row" key={`${rule.group ?? rule.userId}-${index}`}>
                   <input
                     className="brmble-input"

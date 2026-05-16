@@ -14,8 +14,10 @@ vi.mock('../bridge', () => ({
 describe('useAclAdmin', () => {
   it('requests channel ACL and stores bridge snapshot', () => {
     let channelHandler: ((data: unknown) => void) | undefined;
+    let errorHandler: ((data: unknown) => void) | undefined;
     vi.mocked(bridge.on).mockImplementation((type, handler) => {
       if (type === 'acl.channel') channelHandler = handler;
+      if (type === 'acl.error') errorHandler = handler;
     });
     const { result } = renderHook(() => useAclAdmin(4));
 
@@ -40,5 +42,28 @@ describe('useAclAdmin', () => {
 
     expect(result.current.snapshot?.channelId).toBe(4);
     expect(result.current.error).toBeNull();
+
+    act(() => result.current.save({ inheritAcls: true, groups: [], acls: [] }));
+    act(() => errorHandler?.({
+      channelId: 4,
+      statusCode: 409,
+      body: JSON.stringify({
+        success: false,
+        snapshot: {
+          channelId: 4,
+          inheritAcls: false,
+          groups: [],
+          acls: [],
+          fetchedAt: '2026-05-15T12:05:00Z',
+          stale: false,
+          warning: null,
+          snapshotHash: 'canonical-hash',
+        },
+        error: 'ACL changed since it was opened.',
+      }),
+    }));
+
+    expect(result.current.snapshot?.snapshotHash).toBe('canonical-hash');
+    expect(result.current.error).toContain('ACL changed since it was opened.');
   });
 });

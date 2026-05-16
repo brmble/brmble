@@ -10,6 +10,12 @@ interface BridgeResponse {
   snapshot?: AclChannelSnapshot;
 }
 
+interface AclWritePayload {
+  snapshot?: AclChannelSnapshot;
+  warning?: string | null;
+  error?: string | null;
+}
+
 export function useAclAdmin(channelId: number | null) {
   const [snapshot, setSnapshot] = useState<AclChannelSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
@@ -34,6 +40,15 @@ export function useAclAdmin(channelId: number | null) {
     const handleError = (data: unknown) => {
       const payload = data as BridgeResponse;
       if (payload.channelId !== channelId) return;
+      if (payload.statusCode === 409 && payload.body) {
+        const parsed = JSON.parse(payload.body) as AclWritePayload;
+        if (parsed.snapshot) setSnapshot(parsed.snapshot);
+        setError(parsed.error ?? parsed.warning ?? payload.error ?? 'ACL changed since it was opened.');
+        setLoading(false);
+        setSaving(false);
+        return;
+      }
+
       setError(payload.error ?? `ACL request failed with status ${payload.statusCode ?? 'unknown'}`);
       setLoading(false);
       setSaving(false);
@@ -41,9 +56,10 @@ export function useAclAdmin(channelId: number | null) {
     const handleWriteResult = (data: unknown) => {
       const payload = data as BridgeResponse;
       if (payload.channelId !== channelId || !payload.body) return;
-      const parsed = JSON.parse(payload.body) as { snapshot?: AclChannelSnapshot; warning?: string };
+      const parsed = JSON.parse(payload.body) as AclWritePayload;
       if (parsed.snapshot) setSnapshot(parsed.snapshot);
-      setError(parsed.warning ?? null);
+      setError(parsed.error ?? parsed.warning ?? null);
+      setLoading(false);
       setSaving(false);
     };
 

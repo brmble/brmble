@@ -64,6 +64,23 @@ interface ChannelTreeProps {
   onMoveUser?: (session: number, channelId: number) => void;
 }
 
+function getManagedPasswordFromAclBody(body: string): string {
+  try {
+    const parsed = JSON.parse(body) as {
+      snapshot?: {
+        acls?: Array<{ group?: string | null }>;
+      };
+      acls?: Array<{ group?: string | null }>;
+    };
+    const acls = parsed.snapshot?.acls ?? parsed.acls ?? [];
+    const markerPrefix = '__brmble_password_marker__:#';
+    const marker = acls.find(acl => typeof acl.group === 'string' && acl.group.startsWith(markerPrefix))?.group;
+    return marker ? marker.slice(markerPrefix.length) : '';
+  } catch {
+    return '';
+  }
+}
+
 export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, speakingUsers, voiceIdle, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, onStopWatching, activeShares, watchingShares, onEditAvatar, onMoveUser }: ChannelTreeProps) {
   const [sortByNamePerChannel, setSortByNamePerChannel] = useState<Record<number, boolean>>({});
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string; isSelf: boolean; channelId?: number } | null>(null);
@@ -71,7 +88,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
   const [infoDialogUser, setInfoDialogUser] = useState<{ userId: string; userName: string; isSelf: boolean } | null>(null);
   const [draggedUser, setDraggedUser] = useState<number | null>(null);
   const [dropTargetChannel, setDropTargetChannel] = useState<number | null>(null);
-  const [editChannelDialog, setEditChannelDialog] = useState<{ id: number; name: string; description?: string } | null>(null);
+  const [editChannelDialog, setEditChannelDialog] = useState<{ id: number; name: string; description?: string; initialPassword: string } | null>(null);
   const [aclEditorChannel, setAclEditorChannel] = useState<{ id: number; name: string } | null>(null);
   const [renameConfirmDialog, setRenameConfirmDialog] = useState<{
     channelId: number;
@@ -126,6 +143,28 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     };
     bridge.on('voice.error', handleError);
     return () => bridge.off('voice.error', handleError);
+  }, []);
+
+  useEffect(() => {
+    const handleAclChannel = (data: unknown) => {
+      const payload = data as { channelId?: number; body?: string } | undefined;
+      if (!payload?.body || payload.channelId == null) return;
+      const body = payload.body;
+
+      setEditChannelDialog(current => {
+        if (!current || current.id !== payload.channelId) {
+          return current;
+        }
+
+        return {
+          ...current,
+          initialPassword: getManagedPasswordFromAclBody(body),
+        };
+      });
+    };
+
+    bridge.on('acl.channel', handleAclChannel);
+    return () => bridge.off('acl.channel', handleAclChannel);
   }, []);
 
   const initialExpanded = useMemo(() => {
@@ -445,7 +484,9 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
             id: channelContextMenu.channelId,
             name: channelContextMenu.channelName,
             description: channel?.description || '',
+            initialPassword: '',
           });
+          bridge.send('acl.getChannel', { channelId: channelContextMenu.channelId });
           setChannelContextMenu(null);
         },
       });
@@ -668,6 +709,7 @@ onClick: () => {
           isOpen={true}
           initialName={editChannelDialog.name}
           initialDescription={editChannelDialog.description}
+          initialPassword={editChannelDialog.initialPassword}
           onClose={() => setEditChannelDialog(null)}
           onSave={(name, description, password) => {
             const channel = channels.find(c => c.id === editChannelDialog!.id);
@@ -688,10 +730,12 @@ onClick: () => {
               });
             }
 
-            bridge.send('acl.setChannelPassword', {
-              channelId: editChannelDialog!.id,
-              password,
-            });
+            if (password !== editChannelDialog!.initialPassword) {
+              bridge.send('acl.setChannelPassword', {
+                channelId: editChannelDialog!.id,
+                password,
+              });
+            }
           }}
           onError={(msg) => console.error('Edit channel error:', msg)}
         />

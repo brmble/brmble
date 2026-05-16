@@ -1326,6 +1326,35 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     private const string BrmblePasswordMarkerPrefix = "__brmble_password_marker__:";
 
+    internal static string? TryGetManagedChannelPassword(string snapshotBody)
+    {
+        using var rootDoc = System.Text.Json.JsonDocument.Parse(snapshotBody);
+        var snapshot = rootDoc.RootElement.TryGetProperty("snapshot", out var snap) ? snap : rootDoc.RootElement;
+        if (!snapshot.TryGetProperty("acls", out var aclsProp) || aclsProp.ValueKind != System.Text.Json.JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        foreach (var acl in aclsProp.EnumerateArray())
+        {
+            if (!acl.TryGetProperty("group", out var groupProp) || groupProp.ValueKind != System.Text.Json.JsonValueKind.String)
+            {
+                continue;
+            }
+
+            var group = groupProp.GetString();
+            if (string.IsNullOrWhiteSpace(group) || !group.StartsWith(BrmblePasswordMarkerPrefix, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var selector = group[BrmblePasswordMarkerPrefix.Length..];
+            return selector.StartsWith('#') ? selector[1..] : selector;
+        }
+
+        return null;
+    }
+
     internal static string BuildSetChannelPasswordRequestBody(string snapshotBody, string password)
     {
         using var rootDoc = System.Text.Json.JsonDocument.Parse(snapshotBody);
@@ -3037,7 +3066,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 : "{\"inheritAcls\":true,\"groups\":[],\"acls\":[]}";
             var uri = new Uri(new Uri(_apiUrl, UriKind.Absolute), $"acl/channels/{channelId}");
             var result = await PutViaBcTls(cert, uri, requestJson);
-            _bridge?.Send(result.Success ? "acl.writeResult" : "acl.error", new { channelId, body = result.Body, statusCode = result.StatusCode, error = result.Error });
+            var eventType = result.Success || result.StatusCode == 409 ? "acl.writeResult" : "acl.error";
+            _bridge?.Send(eventType, new { channelId, body = result.Body, statusCode = result.StatusCode, error = result.Error });
             _bridge?.NotifyUiThread();
         });
 
@@ -3077,7 +3107,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
             var requestJson = BuildSetChannelPasswordRequestBody(current.Body, password);
             var result = await PutViaBcTls(cert, channelUri, requestJson);
-            _bridge?.Send(result.Success ? "acl.writeResult" : "acl.error", new { channelId, body = result.Body, statusCode = result.StatusCode, error = result.Error });
+            var eventType = result.Success || result.StatusCode == 409 ? "acl.writeResult" : "acl.error";
+            _bridge?.Send(eventType, new { channelId, body = result.Body, statusCode = result.StatusCode, error = result.Error });
             _bridge?.NotifyUiThread();
         });
 

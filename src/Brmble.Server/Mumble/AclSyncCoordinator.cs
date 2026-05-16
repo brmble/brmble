@@ -2,7 +2,7 @@ namespace Brmble.Server.Mumble;
 
 public interface IAclSyncCoordinator
 {
-    Task<AclChannelSnapshotDto> RefreshAsync(int channelId, bool broadcastWhenChanged);
+    Task<AclChannelSnapshotDto> RefreshFromReadAsync(int channelId, string? cachedSnapshotHash);
     Task<AclWriteResult> WriteAndRefreshAsync(int channelId, AclUpdateRequest request);
     Task<AclWriteResult> AddUserToGroupAndRefreshAsync(int channelId, int sessionId, string group);
     Task<AclWriteResult> RemoveUserFromGroupAndRefreshAsync(int channelId, int sessionId, string group);
@@ -27,12 +27,11 @@ public sealed class AclSyncCoordinator : IAclSyncCoordinator
         _logger = logger;
     }
 
-    public async Task<AclChannelSnapshotDto> RefreshAsync(int channelId, bool broadcastWhenChanged)
+    public async Task<AclChannelSnapshotDto> RefreshFromReadAsync(int channelId, string? cachedSnapshotHash)
     {
-        var snapshot = await _aclService.GetChannelAclAsync(channelId);
-        snapshot = snapshot with { SnapshotHash = AclSnapshotHasher.Compute(snapshot) };
-        await _snapshots.UpsertAsync(snapshot);
-        if (broadcastWhenChanged)
+        var snapshot = await RefreshCoreAsync(channelId);
+        if (!string.IsNullOrWhiteSpace(cachedSnapshotHash)
+            && !string.Equals(snapshot.SnapshotHash, cachedSnapshotHash, StringComparison.OrdinalIgnoreCase))
         {
             await _events.DispatchAclChangedAsync(channelId, snapshot);
         }
@@ -52,7 +51,7 @@ public sealed class AclSyncCoordinator : IAclSyncCoordinator
         await _aclService.SetChannelAclAsync(channelId, request);
         try
         {
-            var snapshot = await RefreshAsync(channelId, broadcastWhenChanged: true);
+            var snapshot = await RefreshAfterWriteAsync(channelId);
             return new AclWriteResult(true, snapshot, null, null);
         }
         catch (Exception ex)
@@ -70,7 +69,7 @@ public sealed class AclSyncCoordinator : IAclSyncCoordinator
         try
         {
             await _aclService.AddUserToGroupAsync(channelId, sessionId, group);
-            var snapshot = await RefreshAsync(channelId, broadcastWhenChanged: true);
+            var snapshot = await RefreshAfterWriteAsync(channelId);
             return new AclWriteResult(true, snapshot, null, null);
         }
         catch (Exception ex)
@@ -85,7 +84,7 @@ public sealed class AclSyncCoordinator : IAclSyncCoordinator
         try
         {
             await _aclService.RemoveUserFromGroupAsync(channelId, sessionId, group);
-            var snapshot = await RefreshAsync(channelId, broadcastWhenChanged: true);
+            var snapshot = await RefreshAfterWriteAsync(channelId);
             return new AclWriteResult(true, snapshot, null, null);
         }
         catch (Exception ex)
@@ -93,5 +92,20 @@ public sealed class AclSyncCoordinator : IAclSyncCoordinator
             await _snapshots.MarkStaleAsync(channelId, "ACL group remove may have succeeded, but refresh failed.");
             return new AclWriteResult(false, null, "ACL group remove may have succeeded, but refresh failed.", ex.Message);
         }
+    }
+
+    private async Task<AclChannelSnapshotDto> RefreshAfterWriteAsync(int channelId)
+    {
+        var snapshot = await RefreshCoreAsync(channelId);
+        await _events.DispatchAclChangedAsync(channelId, snapshot);
+        return snapshot;
+    }
+
+    private async Task<AclChannelSnapshotDto> RefreshCoreAsync(int channelId)
+    {
+        var snapshot = await _aclService.GetChannelAclAsync(channelId);
+        snapshot = snapshot with { SnapshotHash = AclSnapshotHasher.Compute(snapshot) };
+        await _snapshots.UpsertAsync(snapshot);
+        return snapshot;
     }
 }
