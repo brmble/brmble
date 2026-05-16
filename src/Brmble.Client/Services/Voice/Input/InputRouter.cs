@@ -29,6 +29,14 @@ public sealed class InputRouter : IDisposable
     private System.Threading.Timer? _pttPollingTimer;
     private const int PttPollIntervalMs = 50;
 
+    // Keyboard shortcut polling state (multiple actions, edge-detected per VK).
+    private readonly object _shortcutLock = new();
+    private readonly Dictionary<int, string> _shortcutKbVkToAction = new();
+    private readonly Dictionary<string, int> _shortcutKbActionToVk = new();
+    private readonly Dictionary<int, bool> _shortcutKbWasDown = new();
+    private System.Threading.Timer? _shortcutKbTimer;
+    private const int ShortcutPollIntervalMs = 30;
+
     private enum BindingKind { Ptt, Shortcut }
 
     private sealed record MouseBinding(BindingKind Kind, string Action, string Key)
@@ -134,6 +142,21 @@ public sealed class InputRouter : IDisposable
             else ShortcutReleased?.Invoke(action);
         }
 
+        // Keyboard shortcut bindings.
+        var releasedShortcuts = new List<string>();
+        lock (_shortcutLock)
+        {
+            foreach (var (vk, action) in _shortcutKbVkToAction)
+            {
+                if (_shortcutKbWasDown.TryGetValue(vk, out var d) && d)
+                {
+                    _shortcutKbWasDown[vk] = false;
+                    releasedShortcuts.Add(action);
+                }
+            }
+        }
+        foreach (var action in releasedShortcuts) ShortcutReleased?.Invoke(action);
+
         // Keyboard PTT (poll + JS).
         bool kbWasActive = _pollPttPressed || _jsPttPressed;
         _pollPttPressed = false;
@@ -186,11 +209,93 @@ public sealed class InputRouter : IDisposable
 
     public void SetShortcutBinding(string action, string? key)
     {
+        // Remove all prior bindings for this action (mouse + keyboard) so a
+        // re-bind from MouseLeft → F1 doesn't leave the old binding active.
         ClearMouseBindingByAction(action);
+        ClearKeyboardShortcutByAction(action);
+
+        if (key == null) return;
+
         var btn = MouseButtonExtensions.FromKeyName(key);
         if (btn.HasValue)
         {
-            SetMouseBinding(btn.Value, BindingKind.Shortcut, action, key!);
+            SetMouseBinding(btn.Value, BindingKind.Shortcut, action, key);
+            return;
+        }
+
+        int vk = KeyNameToVirtualKey(key);
+        if (vk == 0) return;
+        lock (_shortcutLock)
+        {
+            _shortcutKbVkToAction[vk] = action;
+            _shortcutKbActionToVk[action] = vk;
+            _shortcutKbWasDown[vk] = false;
+        }
+        EnsureShortcutPolling();
+    }
+
+    private void ClearKeyboardShortcutByAction(string action)
+    {
+        bool releasedHeld = false;
+        lock (_shortcutLock)
+        {
+            if (!_shortcutKbActionToVk.TryGetValue(action, out int vk)) return;
+            if (_shortcutKbWasDown.TryGetValue(vk, out var down) && down) releasedHeld = true;
+            _shortcutKbActionToVk.Remove(action);
+            _shortcutKbVkToAction.Remove(vk);
+            _shortcutKbWasDown.Remove(vk);
+        }
+        if (releasedHeld) ShortcutReleased?.Invoke(action);
+        MaybeStopShortcutPolling();
+    }
+
+    private void EnsureShortcutPolling()
+    {
+        if (_shortcutKbTimer != null) return;
+        _shortcutKbTimer = new System.Threading.Timer(_ => TickShortcutPollOnce(), null, 0, ShortcutPollIntervalMs);
+    }
+
+    private void MaybeStopShortcutPolling()
+    {
+        lock (_shortcutLock)
+        {
+            if (_shortcutKbVkToAction.Count > 0) return;
+        }
+        _shortcutKbTimer?.Dispose();
+        _shortcutKbTimer = null;
+    }
+
+    internal void TickShortcutPollOnce()
+    {
+        List<KeyValuePair<int, string>> snapshot;
+        lock (_shortcutLock)
+        {
+            if (_shortcutKbVkToAction.Count == 0) return;
+            snapshot = new List<KeyValuePair<int, string>>(_shortcutKbVkToAction);
+        }
+
+        foreach (var kvp in snapshot)
+        {
+            int vk = kvp.Key;
+            string action = kvp.Value;
+            bool isDown = (_backend.GetAsyncKeyState(vk) & 0x8000) != 0;
+
+            bool wasDown;
+            lock (_shortcutLock)
+            {
+                wasDown = _shortcutKbWasDown.TryGetValue(vk, out var d) && d;
+            }
+
+            if (isDown && !wasDown)
+            {
+                lock (_shortcutLock) _shortcutKbWasDown[vk] = true;
+                ShortcutPressed?.Invoke(action);
+            }
+            else if (!isDown && wasDown)
+            {
+                lock (_shortcutLock) _shortcutKbWasDown[vk] = false;
+                ShortcutReleased?.Invoke(action);
+            }
         }
     }
 
@@ -337,6 +442,8 @@ public sealed class InputRouter : IDisposable
             _mouseHookProc = null;
         }
         StopPttPolling();
+        _shortcutKbTimer?.Dispose();
+        _shortcutKbTimer = null;
         if (handle != IntPtr.Zero) _backend.UnhookMouse(handle);
     }
 
