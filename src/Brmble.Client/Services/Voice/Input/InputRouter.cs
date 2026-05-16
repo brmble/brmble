@@ -24,6 +24,8 @@ public sealed class InputRouter : IDisposable
     private int _pttVk;                   // 0 = no keyboard PTT binding
     private bool _pttKeyWasDown;          // edge-detect helper
     private bool _pollPttPressed;         // current poll-derived view
+    private bool _jsPttPressed;           // current JS-derived view
+    private bool _pttBound;               // true when any PTT binding (mouse or keyboard) is active
     private System.Threading.Timer? _pttPollingTimer;
     private const int PttPollIntervalMs = 50;
 
@@ -58,14 +60,16 @@ public sealed class InputRouter : IDisposable
 
     public void SetPttBinding(string? key)
     {
-        // Reset all prior PTT state (mouse + keyboard + poll) so a no-op
+        // Reset all prior PTT state (mouse + keyboard + poll + js) so a no-op
         // reapply still clears stale held state — defensive against #538.
         ClearMouseBindingByAction("pushToTalk");
         StopPttPolling();
         _pttVk = 0;
         _pttKeyWasDown = false;
-        bool wasActive = _pollPttPressed;
+        bool wasActive = _pollPttPressed || _jsPttPressed;
         _pollPttPressed = false;
+        _jsPttPressed = false;
+        _pttBound = false;
         if (wasActive) PttStateChanged?.Invoke(false);
 
         if (key == null) return;
@@ -74,13 +78,24 @@ public sealed class InputRouter : IDisposable
         if (btn.HasValue)
         {
             SetMouseBinding(btn.Value, BindingKind.Ptt, "pushToTalk", key);
+            _pttBound = true;
             return;
         }
 
         int vk = KeyNameToVirtualKey(key);
         if (vk == 0) return;
         _pttVk = vk;
+        _pttBound = true;
         StartPttPolling();
+    }
+
+    public void HandleJsPttKey(bool pressed)
+    {
+        if (!_pttBound) return;
+        bool wasActive = _pollPttPressed || _jsPttPressed;
+        _jsPttPressed = pressed;
+        bool isActive = _pollPttPressed || _jsPttPressed;
+        if (wasActive != isActive) PttStateChanged?.Invoke(isActive);
     }
 
     private void StartPttPolling()
@@ -115,9 +130,10 @@ public sealed class InputRouter : IDisposable
 
     private void UpdatePollPtt(bool pressed)
     {
-        bool wasActive = _pollPttPressed;
+        bool wasActive = _pollPttPressed || _jsPttPressed;
         _pollPttPressed = pressed;
-        if (wasActive != _pollPttPressed) PttStateChanged?.Invoke(_pollPttPressed);
+        bool isActive = _pollPttPressed || _jsPttPressed;
+        if (wasActive != isActive) PttStateChanged?.Invoke(isActive);
     }
 
     public void SetShortcutBinding(string action, string? key)
