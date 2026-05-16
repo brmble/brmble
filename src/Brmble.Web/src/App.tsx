@@ -1221,14 +1221,39 @@ function App() {
       }
     };
 
+    // Force-release on focus loss: if the user is holding PTT when the window
+    // loses focus, the matching keyup may never reach us. Reset local state
+    // and tell native immediately, so the next physical press starts a clean
+    // cycle (defense-in-depth for #538).
+    const handleBlur = () => {
+      if (pttPressed) {
+        pttPressed = false;
+        bridge.send('voice.pttKey', { pressed: false });
+      }
+    };
+
+    // Native side can force-release us too (e.g. ReleaseAllHeld fires on
+    // channel join). Without this, local pttPressed stays true and the next
+    // keydown is suppressed by the "if (!pttPressed)" guard.
+    const handleNativePttForceRelease = (data: unknown) => {
+      const d = data as { pressed?: boolean; forced?: boolean } | undefined;
+      if (d?.forced && d.pressed === false) {
+        pttPressed = false;
+      }
+    };
+
     window.addEventListener('keydown', handleKeyDown, true);
     window.addEventListener('keyup', handleKeyUp, true);
+    window.addEventListener('blur', handleBlur);
+    bridge.on('voice.pttKey', handleNativePttForceRelease);
 
     return () => {
       bridge.off('settings.current', handleSettingsCurrent);
       bridge.off('settings.updated', handleSettingsCurrent);
+      bridge.off('voice.pttKey', handleNativePttForceRelease);
       window.removeEventListener('keydown', handleKeyDown, true);
       window.removeEventListener('keyup', handleKeyUp, true);
+      window.removeEventListener('blur', handleBlur);
       window.removeEventListener('storage', handleStorage);
     };
   }, []);
