@@ -3,8 +3,9 @@ import bridge from '../../bridge';
 import './Version.css';
 
 export function Version() {
+  const webview = (window as Window & { chrome?: { webview?: unknown } }).chrome?.webview;
   const [version, setVersion] = useState<string | null>(() =>
-    window.chrome?.webview ? null : 'dev'
+    webview ? null : 'dev'
   );
 
   useEffect(() => {
