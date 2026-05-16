@@ -238,10 +238,10 @@ describe('useIdleActions', () => {
     expect(bridge.send).toHaveBeenCalledTimes(2);
   });
 
-  it('dismissToast clears autoLeftAt', () => {
+  it('dismissNotification clears autoLeftAt', () => {
     const { result } = render({ brmbleIdleSec: 0, systemIdleSec: 0, isLocked: true, inVoiceChannel: true });
     expect(result.current.autoLeftAt).not.toBeNull();
-    act(() => result.current.dismissToast());
+      act(() => result.current.dismissNotification());
     expect(result.current.autoLeftAt).toBeNull();
   });
 });

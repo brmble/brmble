@@ -741,7 +741,9 @@ Brmblegotchi icons are prefixed `gotchi-` and shared across all pet themes (`ori
 
 ### Base Component
 
-All notifications use the shared `<Notification>` base component (`src/Brmble.Web/src/components/Notification/`). Never create standalone notification components with their own positioning/animation/styling — always wrap with `<Notification>`.
+All notifications use the shared `<Notification>` base component (`src/Brmble.Web/src/components/Notification/`). Never create standalone notification/toast components with their own positioning/animation/styling — always wrap with `<Notification>`.
+
+Brmble does **not** have a separate toast system. Do not add `Toast` components, bottom-right toasts, or bottom-center toasts. Use top-right notifications and `useNotificationQueue`.
 
 ### Status Types
 
@@ -757,7 +759,7 @@ The `status` prop drives icon, color, ARIA role, and auto-dismiss behavior:
 ### Decision Checklist (answer all before building a notification)
 
 1. **What status applies?** `info` = supplemental, `success` = action confirmed, `warning` = needs attention, `error` = something failed
-2. **What position?** `top-right` for system/background events, `bottom-center` for direct action feedback
+2. **What position?** `top-right`. Brmble no longer supports toast positions.
 3. **Should it auto-dismiss?** Default from status, but can override with `duration` prop
 4. **Does it need a dismiss button?** Persistent notifications: yes. Blocking with no fallback: no dismiss.
 5. **What actions does it need?** Max 1 primary action. Action must be reachable elsewhere in UI since notifications can be missed.
@@ -770,7 +772,7 @@ The `status` prop drives icon, color, ARIA role, and auto-dismiss behavior:
 ```tsx
 interface NotificationProps {
   status: 'info' | 'success' | 'warning' | 'error';
-  position: 'top-right' | 'bottom-center';
+  position: 'top-right';
   title: React.ReactNode;         // Bold headline — what happened. Keep to one line.
   detail?: React.ReactNode;       // Secondary text — context, next step, or explanation.
   actions?: React.ReactNode;      // Action buttons rendered below the message.
@@ -807,7 +809,6 @@ The status icon aligns vertically with the title line.
 - **Action buttons:** Max 1 primary per notification. Every labeled button must perform a distinct action (e.g. "Update", "Import", "Settings"). Close button is separate from action buttons.
 - **Dismissal is `×` only.** Never add a text button ("Dismiss", "Later", "Close") that duplicates the `×` close button. The `×` is the universal dismiss affordance — text buttons are reserved for meaningful actions. This keeps the UI clean and avoids redundancy.
 - Top-right notifications render inside a `.notification-stack` container in `App.tsx`.
-- Bottom-center notifications (`Toast`) position themselves independently.
 
 ### Optional Notification Settings
 
@@ -838,7 +839,6 @@ Top-right notifications are managed by the `useNotificationQueue` hook (`src/Brm
 - `register(id, status)` — call when notification data exists (e.g. broken profile detected, update available, server imported).
 - `unregister(id)` — call from `onExited` (after exit animation), not from `onDismiss`. This ensures the exit animation completes before the slot is freed.
 - `isVisible(id)` — pass as the `visible` prop to `<Notification>`.
-- Bottom-center notifications (`Toast`) bypass the queue — they position independently.
 
 ### Queue Lifecycle Checklist
 
@@ -920,6 +920,5 @@ See `src/Brmble.Web/src/themes/_template.css` for guidance values per token.
 
 | Component | Status | Position | Auto-dismiss | Title | Detail |
 |---|---|---|---|---|---|
-| `Toast` | `info` | `bottom-center` | 8s | message string | (none) |
 | `UpdateNotification` | `info` | `top-right` | No | `Update available` | `Press Update to install v{version}.` |
 | `BrokenCertNotification` | `warning` | `top-right` | No | `Certificate missing` | Profile name, switched-to info, recovery instructions |
