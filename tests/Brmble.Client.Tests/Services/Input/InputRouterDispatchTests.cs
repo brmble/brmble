@@ -38,39 +38,30 @@ public class InputRouterDispatchTests
     }
 
     [TestMethod]
-    public void SetMouseBinding_WhenButtonAlreadyDown_SuppressesInitialPress()
+    public void StaleHoldThenRelease_AfterReinstall_DoesNotFireSpuriousPress()
     {
         // Repro: user held mouse PTT through a Disconnect → Connect cycle.
-        // When the new MouseBinding is installed, some mouse drivers re-assert
-        // a DOWN event into the freshly-installed hook. Without priming
-        // IsHeld from the current physical state, that DOWN would fire a
-        // spurious PttStateChanged(true) and start transmitting without the
-        // user pressing anything new.
+        // The new hook is installed AFTER the press, so WM_XBUTTONDOWN is
+        // never observed by the new binding. The user eventually releases
+        // (WM_XBUTTONUP arrives) — that must NOT fire any event, and the
+        // next fresh press cycle must work normally.
         var backend = new FakeInputBackend();
         using var router = new InputRouter(backend);
         var states = new List<bool>();
         router.PttStateChanged += s => states.Add(s);
 
-        const int VK_XBUTTON2 = 0x06;
-        backend.KeyDownStates[VK_XBUTTON2] = true;
         router.SetPttBinding("XButton2");
 
-        // Simulated re-assertion of DOWN by driver after hook install — must not
-        // fire a press, because IsHeld was primed to true by SetMouseBinding.
-        InvokeMouseHook(backend, WM_XBUTTONDOWN, xButton: 2);
-        CollectionAssert.DoesNotContain(states, true, "must not fire press for button held before binding");
-
-        // User releases physically — hook fires UP. A release event for the
-        // leftover hold IS fired (IsHeld transitions true → false) and is
-        // harmless: AudioManager.SetPttActive(false) coalesces because mic
-        // was already stopped on disconnect.
+        // User releases the leftover hold (hook never saw the DOWN).
         InvokeMouseHook(backend, WM_XBUTTONUP, xButton: 2);
-        CollectionAssert.DoesNotContain(states, true, "must not fire press during release of leftover hold");
+        Assert.AreEqual(0, states.Count, "release of unseen hold must not fire");
 
-        // A fresh press AFTER release fires PttStateChanged(true) normally.
+        // Fresh press cycle works.
         InvokeMouseHook(backend, WM_XBUTTONDOWN, xButton: 2);
-        Assert.IsTrue(states.Contains(true), "fresh press must fire PttStateChanged(true)");
-        Assert.AreEqual(true, states[^1]);
+        CollectionAssert.AreEqual(new[] { true }, states);
+
+        InvokeMouseHook(backend, WM_XBUTTONUP, xButton: 2);
+        CollectionAssert.AreEqual(new[] { true, false }, states);
     }
 
     [TestMethod]
