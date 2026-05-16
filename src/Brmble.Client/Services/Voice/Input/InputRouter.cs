@@ -51,6 +51,9 @@ public sealed class InputRouter : IDisposable
 
     public void SetPttBinding(string? key)
     {
+        // Remove any prior PTT mouse binding before installing the new one,
+        // even when the new binding is keyboard (handled in later tasks) or null.
+        ClearMouseBindingByAction("pushToTalk");
         var btn = MouseButtonExtensions.FromKeyName(key);
         if (btn.HasValue)
         {
@@ -60,11 +63,50 @@ public sealed class InputRouter : IDisposable
 
     public void SetShortcutBinding(string action, string? key)
     {
+        ClearMouseBindingByAction(action);
         var btn = MouseButtonExtensions.FromKeyName(key);
         if (btn.HasValue)
         {
             SetMouseBinding(btn.Value, BindingKind.Shortcut, action, key!);
         }
+    }
+
+    private void ClearMouseBindingByAction(string action)
+    {
+        BindingKind? releasedKind = null;
+        string? releasedAction = null;
+        bool unhookNow = false;
+        IntPtr handleToUnhook = IntPtr.Zero;
+
+        lock (_mouseLock)
+        {
+            MouseButton? toRemove = null;
+            foreach (var (btn, binding) in _mouseBindings)
+            {
+                if (binding.Action == action) { toRemove = btn; break; }
+            }
+            if (toRemove == null) return;
+            var removed = _mouseBindings[toRemove.Value];
+            _mouseBindings.Remove(toRemove.Value);
+            if (removed.IsHeld)
+            {
+                releasedKind = removed.Kind;
+                releasedAction = removed.Action;
+            }
+            if (_mouseBindings.Count == 0 && _mouseHookHandle != IntPtr.Zero)
+            {
+                handleToUnhook = _mouseHookHandle;
+                _mouseHookHandle = IntPtr.Zero;
+                _mouseHookProc = null;
+                unhookNow = true;
+            }
+        }
+
+        if (releasedKind is BindingKind.Ptt) PttStateChanged?.Invoke(false);
+        else if (releasedKind is BindingKind.Shortcut && releasedAction != null)
+            ShortcutReleased?.Invoke(releasedAction);
+
+        if (unhookNow) _backend.UnhookMouse(handleToUnhook);
     }
 
     private void SetMouseBinding(MouseButton button, BindingKind kind, string action, string key)

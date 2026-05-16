@@ -38,6 +38,55 @@ public class InputRouterDispatchTests
     }
 
     [TestMethod]
+    public void ClearBinding_WhileHeld_FiresReleaseEvent()
+    {
+        var backend = new FakeInputBackend();
+        using var router = new InputRouter(backend);
+
+        var releases = new List<string>();
+        router.ShortcutReleased += a => releases.Add(a);
+
+        router.SetShortcutBinding("toggleMute", "MouseLeft");
+        InvokeMouseHook(backend, WM_LBUTTONDOWN);
+        Assert.AreEqual(0, releases.Count);
+
+        router.SetShortcutBinding("toggleMute", null);
+
+        CollectionAssert.AreEqual(new[] { "toggleMute" }, releases);
+    }
+
+    [TestMethod]
+    public void ClearLastBinding_UnregistersMouseHook()
+    {
+        var backend = new FakeInputBackend();
+        using var router = new InputRouter(backend);
+        router.SetShortcutBinding("toggleMute", "MouseLeft");
+        Assert.IsTrue(backend.MouseHookRegistered);
+
+        router.SetShortcutBinding("toggleMute", null);
+
+        Assert.IsFalse(backend.MouseHookRegistered);
+    }
+
+    [TestMethod]
+    public void ClearPtt_WhileHeld_FiresPttReleased()
+    {
+        var backend = new FakeInputBackend();
+        using var router = new InputRouter(backend);
+
+        var states = new List<bool>();
+        router.PttStateChanged += s => states.Add(s);
+
+        router.SetPttBinding("XButton2");
+        InvokeMouseHook(backend, 0x020B /* WM_XBUTTONDOWN */, xButton: 2);
+        Assert.AreEqual(true, states[^1]);
+
+        router.SetPttBinding(null);
+
+        Assert.AreEqual(false, states[^1]);
+    }
+
+    [TestMethod]
     public void PttOnX2AndMuteOnLeft_CoexistWithoutInterference()
     {
         var backend = new FakeInputBackend();
