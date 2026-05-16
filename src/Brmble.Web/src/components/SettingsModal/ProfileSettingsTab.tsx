@@ -379,7 +379,7 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
                       <span>
                         <button
                           className="btn btn-ghost profiles-delete-btn"
-                          aria-label="Delete profile"
+                          aria-label={`Delete ${profile.name} profile`}
                           onClick={() => handleDelete(profile)}
                           disabled={connected && isActive}
                         >

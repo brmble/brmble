@@ -49,8 +49,11 @@ describe('ProfileSettingsTab', () => {
       />
     );
 
-    const deleteButtons = screen.getAllByRole('button', { name: 'Delete profile' });
+    const deleteButtons = screen.getAllByRole('button', { name: /delete .* profile/i });
     expect(deleteButtons).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: 'Delete profile' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete Bramble profile' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete Thorn profile' })).toBeInTheDocument();
 
     for (const button of deleteButtons) {
       expect(button).not.toHaveTextContent('✕');

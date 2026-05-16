@@ -198,7 +198,7 @@ export function ProfilesSettingsTab({ connected }: ProfilesSettingsTabProps) {
                   <Tooltip content="Delete profile">
                     <button
                       className="btn btn-ghost profiles-delete-btn"
-                      aria-label="Delete profile"
+                      aria-label={`Delete ${profile.name} profile`}
                       onClick={() => handleDelete(profile)}
                     >
                       <Icon name="x" size={16} />
