@@ -67,7 +67,7 @@ const {
     autoLeftAt: null as number | null,
     preLeaveStartedAt: null as number | null,
     preLeaveCancelledAt: null as number | null,
-    dismissToast: vi.fn(),
+    dismissNotification: vi.fn(),
     dismissPreLeaveCancelled: vi.fn(),
   };
   let idleActionsArgs: { onBeforeAutoLeave?: () => void | Promise<void> } | null = null;
@@ -542,6 +542,44 @@ describe('active share discovery', () => {
     expect(screen.getByText('Still there?').parentElement).toHaveAttribute('data-duration', '60000');
   });
 
+  it('does not register idle pre-leave notification when idle reminders are disabled', () => {
+    const { rerender } = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('settings.current', {
+        settings: {
+          messages: {
+            notificationsDisabled: false,
+            notificationRemoteScreenShare: true,
+            notificationScreenShareStatus: true,
+            notificationIdleWarning: false,
+            notificationMovedChannel: true,
+          },
+        },
+      });
+    });
+
+    idleActionsState.preLeaveStartedAt = 1234;
+    rerender(React.createElement(App));
+
+    expect(notifQueue.register).not.toHaveBeenCalledWith('idle-pre-leave', 'info');
+  });
+
+  it('unregisters idle pre-leave notification when idle pre-leave clears', async () => {
+    idleActionsState.preLeaveStartedAt = 1234;
+    const { rerender } = render(React.createElement(App));
+
+    await waitFor(() => {
+      expect(notifQueue.register).toHaveBeenCalledWith('idle-pre-leave', 'info');
+    });
+
+    vi.mocked(notifQueue.unregister).mockClear();
+    idleActionsState.preLeaveStartedAt = null;
+    rerender(React.createElement(App));
+
+    expect(notifQueue.unregister).toHaveBeenCalledWith('idle-pre-leave');
+  });
+
   it('does not clear chat storage when credentials refresh after reconnect failure without session reset', () => {
     render(React.createElement(App));
 
@@ -703,6 +741,35 @@ describe('active share discovery', () => {
     expect(idleActionsState.dismissPreLeaveCancelled).toHaveBeenCalled();
   });
 
+  it('does not register idle cancellation notification when idle reminders are disabled', () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id === 'idle-pre-leave-cancelled');
+
+    const { rerender } = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('settings.current', {
+        settings: {
+          messages: {
+            notificationsDisabled: false,
+            notificationRemoteScreenShare: true,
+            notificationScreenShareStatus: true,
+            notificationIdleWarning: false,
+            notificationMovedChannel: true,
+          },
+        },
+      });
+    });
+
+    vi.mocked(notifQueue.register).mockClear();
+    vi.mocked(notifQueue.unregister).mockClear();
+    idleActionsState.preLeaveCancelledAt = 2000;
+    rerender(React.createElement(App));
+
+    expect(notifQueue.register).not.toHaveBeenCalledWith('idle-pre-leave-cancelled', 'info');
+    expect(notifQueue.unregister).toHaveBeenCalledWith('idle-pre-leave-cancelled');
+    expect(screen.queryByText('Welcome back')).not.toBeInTheDocument();
+  });
+
   it('requests active share discovery after connect for the current channel', async () => {
     render(React.createElement(App));
 
@@ -856,7 +923,7 @@ describe('active share discovery', () => {
     expect(serviceStatus.updateStatus).not.toHaveBeenCalledWith('livekit', { state: 'idle', error: undefined });
   });
 
-  it('toast watch does not connect as viewer from root selected channel', async () => {
+  it('notification watch does not connect as viewer from root selected channel', async () => {
     vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id === 'screen-share');
     screenShareState.activeShares = [{
       roomName: 'channel-1',
@@ -903,7 +970,7 @@ describe('active share discovery', () => {
     expect(serviceStatus.updateStatus).not.toHaveBeenCalledWith('livekit', { state: 'connecting', error: undefined });
   });
 
-  it('toast watch does not connect as viewer from the wrong selected channel', async () => {
+  it('notification watch does not connect as viewer from the wrong selected channel', async () => {
     vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id === 'screen-share');
     screenShareState.activeShares = [{
       roomName: 'channel-1',
@@ -953,7 +1020,7 @@ describe('active share discovery', () => {
     expect(serviceStatus.updateStatus).not.toHaveBeenCalledWith('livekit', { state: 'connecting', error: undefined });
   });
 
-  it('toast watch connects as viewer through the gate from the same selected channel', async () => {
+  it('notification watch connects as viewer through the gate from the same selected channel', async () => {
     vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id === 'screen-share');
     screenShareState.activeShares = [
       {
@@ -1003,6 +1070,93 @@ describe('active share discovery', () => {
 
     expect(serviceStatus.updateStatus).toHaveBeenCalledWith('livekit', { state: 'connecting', error: undefined });
     expect(connectAsViewer).toHaveBeenCalledWith('channel-1', 42, '@alice:example.com');
+  });
+
+  it('does not register remote screen share notification when screen share invitations are disabled', async () => {
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [
+          { session: 7, name: 'TestUser', self: true, channelId: 1 },
+          { session: 2, name: 'Alice', channelId: 1, matrixUserId: '@alice:example.com' },
+        ],
+      });
+    });
+
+    act(() => {
+      bridge.emit('settings.current', {
+        settings: {
+          messages: {
+            notificationsDisabled: false,
+            notificationRemoteScreenShare: false,
+            notificationScreenShareStatus: true,
+            notificationIdleWarning: true,
+            notificationMovedChannel: true,
+          },
+        },
+      });
+      bridge.emit('livekit.screenShareStarted', {
+        roomName: 'channel-1',
+        userName: 'Alice',
+        userId: 42,
+        matrixUserId: '@alice:example.com',
+        sessionId: 2,
+      });
+    });
+
+    expect(notifQueue.register).not.toHaveBeenCalledWith('screen-share', 'info');
+    expect(screen.queryByText('Alice started sharing their screen')).not.toBeInTheDocument();
+  });
+
+  it('clears visible optional screen share notification when global disable is enabled', () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id === 'screen-share');
+
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [
+          { session: 7, name: 'TestUser', self: true, channelId: 1 },
+          { session: 2, name: 'Alice', channelId: 1, matrixUserId: '@alice:example.com' },
+        ],
+      });
+    });
+
+    act(() => {
+      bridge.emit('livekit.screenShareStarted', {
+        roomName: 'channel-1',
+        userName: 'Alice',
+        userId: 42,
+        matrixUserId: '@alice:example.com',
+        sessionId: 2,
+      });
+    });
+
+    expect(screen.getByText('Alice started sharing their screen')).toBeInTheDocument();
+
+    act(() => {
+      bridge.emit('settings.updated', {
+        settings: {
+          messages: {
+            notificationsDisabled: true,
+            notificationRemoteScreenShare: true,
+            notificationScreenShareStatus: true,
+            notificationIdleWarning: true,
+            notificationMovedChannel: true,
+          },
+        },
+      });
+    });
+
+    expect(notifQueue.unregister).toHaveBeenCalledWith('screen-share');
+    expect(screen.queryByText('Alice started sharing their screen')).not.toBeInTheDocument();
   });
 
   it('rechecks active share discovery after reconnect when the current channel is unchanged', async () => {
@@ -1186,6 +1340,135 @@ describe('active share discovery', () => {
     });
   });
 
+  it('does not register moved channel notification when channel move notices are disabled', () => {
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('settings.current', {
+        settings: {
+          messages: {
+            notificationsDisabled: false,
+            notificationRemoteScreenShare: true,
+            notificationScreenShareStatus: true,
+            notificationIdleWarning: true,
+            notificationMovedChannel: false,
+          },
+        },
+      });
+    });
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming' },
+        ],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    act(() => {
+      bridge.emit('voice.channelChanged', { channelId: 2, name: 'Gaming', actorName: 'Moderator', reason: 'moved' });
+    });
+
+    expect(notifQueue.register).not.toHaveBeenCalledWith(expect.stringMatching(/^channel-moved-/), 'info');
+  });
+
+  it('hides a visible moved channel notification when channel move notices are disabled later', async () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id.startsWith('channel-moved-'));
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming' },
+        ],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    act(() => {
+      bridge.emit('voice.channelChanged', {
+        channelId: 2,
+        previousChannelId: 1,
+        actorName: 'Moderator',
+        reason: 'moved',
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Moved to Gaming')).toBeInTheDocument();
+    });
+
+    act(() => {
+      bridge.emit('settings.current', {
+        settings: {
+          messages: {
+            notificationsDisabled: false,
+            notificationRemoteScreenShare: true,
+            notificationScreenShareStatus: true,
+            notificationIdleWarning: true,
+            notificationMovedChannel: false,
+          },
+        },
+      });
+    });
+
+    expect(screen.queryByText('Moved to Gaming')).not.toBeInTheDocument();
+  });
+
+  it('clears visible moved channel notification when channel move notices are disabled later', async () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id.startsWith('channel-moved-'));
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming' },
+        ],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    act(() => {
+      bridge.emit('voice.channelChanged', {
+        channelId: 2,
+        previousChannelId: 1,
+        actorName: 'Moderator',
+        reason: 'moved',
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Moved to Gaming')).toBeInTheDocument();
+    });
+
+    act(() => {
+      bridge.emit('settings.updated', {
+        settings: {
+          messages: {
+            notificationsDisabled: false,
+            notificationRemoteScreenShare: true,
+            notificationScreenShareStatus: true,
+            notificationIdleWarning: true,
+            notificationMovedChannel: false,
+          },
+        },
+      });
+    });
+
+    expect(notifQueue.unregister).toHaveBeenCalledWith('channel-moved-0');
+    expect(screen.queryByText('Moved to Gaming')).not.toBeInTheDocument();
+  });
+
   it('keeps showing moved notifications after many replacements', async () => {
     vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id.startsWith('channel-moved-'));
     render(React.createElement(App));
@@ -1333,6 +1616,27 @@ describe('active share discovery', () => {
       expect(document.body.textContent).toContain('Moved to Gaming');
       expect(document.body.textContent).toContain('Screen sharing was stopped.');
       expect(document.body.textContent).not.toContain('technical issue');
+    });
+  });
+
+  it('manual share stop unregisters a previously queued share-ended notification', async () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id.startsWith('screen-share-ended-'));
+    render(React.createElement(App));
+
+    act(() => {
+      getLocalShareEndedHandler()?.('interrupted');
+    });
+
+    await waitFor(() => {
+      expect(notifQueue.register).toHaveBeenCalledWith('screen-share-ended-0', 'info');
+    });
+
+    act(() => {
+      getLocalShareEndedHandler()?.('manual');
+    });
+
+    await waitFor(() => {
+      expect(notifQueue.unregister).toHaveBeenCalledWith('screen-share-ended-0');
     });
   });
 

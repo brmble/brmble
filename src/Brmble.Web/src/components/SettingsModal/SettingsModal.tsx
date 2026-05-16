@@ -424,7 +424,7 @@ export function SettingsModal(props: SettingsModalProps) {
             className={`settings-tab ${activeTab === 'messages' ? 'active' : ''}`}
             onClick={() => setActiveTab('messages')}
           >
-            Messages
+            Notifications
           </button>
           <button 
             className={`settings-tab ${activeTab === 'appearance' ? 'active' : ''}`}

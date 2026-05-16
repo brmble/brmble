@@ -11,23 +11,42 @@ export interface MessagesSettings {
   ttsEnabled: boolean;
   ttsVolume: number;
   ttsVoice: string;
-  notificationsEnabled: boolean;
+  notificationsDisabled: boolean;
+  notificationRemoteScreenShare: boolean;
+  notificationScreenShareStatus: boolean;
+  notificationIdleWarning: boolean;
+  notificationMovedChannel: boolean;
 }
 
 export const DEFAULT_MESSAGES: MessagesSettings = {
   ttsEnabled: false,
   ttsVolume: 100,
   ttsVoice: '',
-  notificationsEnabled: true,
+  notificationsDisabled: false,
+  notificationRemoteScreenShare: true,
+  notificationScreenShareStatus: true,
+  notificationIdleWarning: true,
+  notificationMovedChannel: true,
 };
 
+type IncomingMessagesSettings = Partial<MessagesSettings> & { notificationsEnabled?: boolean };
+
+function normalizeMessagesSettings(settings: IncomingMessagesSettings): MessagesSettings {
+  const { notificationsEnabled, ...currentSettings } = settings;
+  const normalized = { ...DEFAULT_MESSAGES, ...currentSettings };
+  if (typeof currentSettings.notificationsDisabled !== 'boolean' && notificationsEnabled === false) {
+    normalized.notificationsDisabled = true;
+  }
+  return normalized;
+}
+
 export function MessagesSettingsTab({ settings, onChange }: MessagesSettingsTabProps) {
-  const [localSettings, setLocalSettings] = useState<MessagesSettings>({ ...DEFAULT_MESSAGES, ...settings });
+  const [localSettings, setLocalSettings] = useState<MessagesSettings>(() => normalizeMessagesSettings(settings));
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const voiceSignatureRef = useRef('');
 
   useEffect(() => {
-    setLocalSettings({ ...DEFAULT_MESSAGES, ...settings });
+    setLocalSettings(normalizeMessagesSettings(settings));
   }, [settings]);
 
   useEffect(() => {
@@ -144,12 +163,65 @@ export function MessagesSettingsTab({ settings, onChange }: MessagesSettingsTabP
       <div className="settings-section">
         <h3 className="heading-section settings-section-title">Notifications</h3>
         <div className="settings-item settings-toggle">
-          <label>Message Notifications</label>
+          <label htmlFor="notifications-disabled">Disable optional notifications</label>
           <label className="brmble-toggle">
             <input
+              id="notifications-disabled"
               type="checkbox"
-              checked={localSettings.notificationsEnabled}
-              onChange={(e) => handleChange('notificationsEnabled', e.target.checked)}
+              checked={localSettings.notificationsDisabled}
+              onChange={(e) => handleChange('notificationsDisabled', e.target.checked)}
+            />
+            <span className="brmble-toggle-slider"></span>
+          </label>
+        </div>
+        <div className="settings-item settings-toggle">
+          <label htmlFor="notification-remote-screen-share">Screen share invitations</label>
+          <label className="brmble-toggle">
+            <input
+              id="notification-remote-screen-share"
+              type="checkbox"
+              checked={!localSettings.notificationsDisabled && localSettings.notificationRemoteScreenShare}
+              disabled={localSettings.notificationsDisabled}
+              onChange={(e) => handleChange('notificationRemoteScreenShare', e.target.checked)}
+            />
+            <span className="brmble-toggle-slider"></span>
+          </label>
+        </div>
+        <div className="settings-item settings-toggle">
+          <label htmlFor="notification-screen-share-status">Screen share status</label>
+          <label className="brmble-toggle">
+            <input
+              id="notification-screen-share-status"
+              type="checkbox"
+              checked={!localSettings.notificationsDisabled && localSettings.notificationScreenShareStatus}
+              disabled={localSettings.notificationsDisabled}
+              onChange={(e) => handleChange('notificationScreenShareStatus', e.target.checked)}
+            />
+            <span className="brmble-toggle-slider"></span>
+          </label>
+        </div>
+        <div className="settings-item settings-toggle">
+          <label htmlFor="notification-idle-warning">Idle reminders</label>
+          <label className="brmble-toggle">
+            <input
+              id="notification-idle-warning"
+              type="checkbox"
+              checked={!localSettings.notificationsDisabled && localSettings.notificationIdleWarning}
+              disabled={localSettings.notificationsDisabled}
+              onChange={(e) => handleChange('notificationIdleWarning', e.target.checked)}
+            />
+            <span className="brmble-toggle-slider"></span>
+          </label>
+        </div>
+        <div className="settings-item settings-toggle">
+          <label htmlFor="notification-moved-channel">Channel move notices</label>
+          <label className="brmble-toggle">
+            <input
+              id="notification-moved-channel"
+              type="checkbox"
+              checked={!localSettings.notificationsDisabled && localSettings.notificationMovedChannel}
+              disabled={localSettings.notificationsDisabled}
+              onChange={(e) => handleChange('notificationMovedChannel', e.target.checked)}
             />
             <span className="brmble-toggle-slider"></span>
           </label>
