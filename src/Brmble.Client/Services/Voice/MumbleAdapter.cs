@@ -34,6 +34,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private Thread? _processThread;
     private AudioManager? _audioManager;
     private InputRouter? _inputRouter;
+    // Tracked so we can unsubscribe when AudioManager is disposed.
+    private Action<bool>? _pttStateChangedHandler;
     private string? _lastWelcomeText;
     private readonly CertificateService? _certService;
     private uint? _previousChannelId;
@@ -144,12 +146,19 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _bridge?.NotifyUiThread();
         };
 
-        // InputRouter is now the sole owner of low-level input dispatch.
-        // PTT state drives AudioManager via SetPttActiveExternal; shortcut
-        // press/release events bubble to the bridge here (no AudioManager
-        // shortcut path remains).
+        // InputRouter is created ONCE in the constructor and lives for the
+        // app's lifetime. Its WH_MOUSE_LL hook is installed on the calling
+        // (UI) thread and Win32 requires that thread to have a message pump
+        // for events to be delivered. Re-creating it on Connect would put
+        // the hook on whichever thread happens to call Connect (often a
+        // worker thread via ReconnectLoop / bridge dispatch) and the hook
+        // would silently receive no events.
+        //
+        // PttStateChanged is the only subscription that depends on the
+        // AudioManager (which IS recreated on Disconnect/Connect); it is
+        // re-wired in WireAudioManagerToInputRouter() each time AudioManager
+        // is created. The bridge-pointing subscriptions wire once here.
         _inputRouter = new InputRouter(new Win32InputBackend(_hwnd));
-        _inputRouter.PttStateChanged += _audioManager.SetPttActiveExternal;
         _inputRouter.ShortcutPressed += action => {
             _bridge?.Send("voice.shortcutPressed", new { action });
             _bridge?.NotifyUiThread();
@@ -169,6 +178,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _bridge?.Send("voice.pttKey", new { pressed = false, forced = true });
             _bridge?.NotifyUiThread();
         };
+        WireAudioManagerToInputRouter();
+    }
+
+    private void WireAudioManagerToInputRouter()
+    {
+        if (_inputRouter == null || _audioManager == null) return;
+        if (_pttStateChangedHandler != null)
+        {
+            _inputRouter.PttStateChanged -= _pttStateChangedHandler;
+        }
+        _pttStateChangedHandler = _audioManager.SetPttActiveExternal;
+        _inputRouter.PttStateChanged += _pttStateChangedHandler;
     }
 
     /// <summary>
@@ -260,38 +281,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             };
         }
 
-        // Recreate InputRouter alongside AudioManager (Disconnect disposes both).
-        if (_inputRouter == null)
+        // InputRouter is app-lifetime; only the AudioManager-dependent
+        // subscription needs re-wiring when AudioManager was recreated.
+        // Reapply settings so the fresh AudioManager gets the user's
+        // transmission mode (otherwise it stays on its default Continuous
+        // mode and ServerSync's mic-start path leaves the mic running).
+        if (_inputRouter != null)
         {
-            _inputRouter = new InputRouter(new Win32InputBackend(_hwnd));
-            _inputRouter.PttStateChanged += _audioManager.SetPttActiveExternal;
-            _inputRouter.ShortcutPressed += action => {
-                _bridge?.Send("voice.shortcutPressed", new { action });
-                _bridge?.NotifyUiThread();
-                if (action == "toggleGame")
-                {
-                    _bridge?.Send("game.toggle", null);
-                    _bridge?.NotifyUiThread();
-                }
-            };
-            _inputRouter.ShortcutReleased += action => {
-                _bridge?.Send("voice.shortcutReleased", new { action });
-                _bridge?.NotifyUiThread();
-                FireShortcutAction(action);
-            };
-            _inputRouter.JsForceReleaseRequested += () =>
-            {
-                _bridge?.Send("voice.pttKey", new { pressed = false, forced = true });
-                _bridge?.NotifyUiThread();
-            };
-
-            // Reapply settings so the fresh AudioManager/InputRouter pair
-            // gets the user's transmission mode, PTT key and shortcut
-            // bindings. ApplySettings is otherwise only invoked at app
-            // startup and when settings change — without this, a fresh
-            // AudioManager keeps its default Continuous mode and the
-            // ServerSync flow would StartMic without the user pressing
-            // PTT (root cause of the disconnect → reconnect stuck-mic bug).
+            WireAudioManagerToInputRouter();
             var settings = _appConfigService?.GetSettings();
             if (settings != null) ApplySettings(settings);
         }
@@ -352,12 +349,17 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         // alive to consume them.
         _inputRouter?.ReleaseAllHeld();
 
-        // Dispose InputRouter FIRST so its mouse hook and polling timers stop
-        // before AudioManager goes away. Otherwise an in-flight hook/timer
-        // callback can fire PttStateChanged → SetPttActiveExternal on a
-        // disposed AudioManager.
-        _inputRouter?.Dispose();
-        _inputRouter = null;
+        // Unwire InputRouter → AudioManager event subscriptions before disposing
+        // AudioManager. We do NOT dispose InputRouter itself — its WH_MOUSE_LL
+        // hook MUST stay alive on the UI thread that installed it. Re-creating
+        // it on Connect (which can run on a worker thread via ReconnectLoop or
+        // bridge dispatch) would install a dead hook on a thread without a
+        // message pump.
+        if (_inputRouter != null && _pttStateChangedHandler != null)
+        {
+            _inputRouter.PttStateChanged -= _pttStateChangedHandler;
+            _pttStateChangedHandler = null;
+        }
 
         _audioManager?.Dispose();
         _audioManager = null;

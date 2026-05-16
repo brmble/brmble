@@ -425,18 +425,10 @@ public sealed class InputRouter : IDisposable
 
     private void SetMouseBinding(MouseButton button, BindingKind kind, string action, string key)
     {
-        // IsHeld defaults to false because WH_MOUSE_LL hooks only observe
-        // future button transitions — Windows does NOT re-fire DOWN for a
-        // button that is already held when the hook is installed. We
-        // previously primed IsHeld from GetAsyncKeyState, but mouse-button
-        // GetAsyncKeyState can return spurious "down" values that would
-        // leave IsHeld stuck true and break the binding entirely until the
-        // user rebinds in settings. Trust the hook event stream instead.
-        //
-        // The held-across-disconnect scenario is still safe: when the user
-        // physically releases the leftover hold, the hook fires WM_*BUTTONUP,
-        // we see `isUp && !IsHeld` and emit nothing. The next press fires
-        // normally.
+        // IsHeld defaults to false — WH_MOUSE_LL hooks observe only future
+        // button transitions, so a button already held when the binding is
+        // installed will not synthesize a DOWN event. Releasing the leftover
+        // hold fires UP, which becomes a no-op because IsHeld is false.
         lock (_mouseLock)
         {
             _mouseBindings[button] = new MouseBinding(kind, action, key);
@@ -452,6 +444,12 @@ public sealed class InputRouter : IDisposable
     {
         IntPtr handleSnapshot = _mouseHookHandle;
 
+        // If we're disposed (e.g. UnhookWindowsHookEx failed and Windows is
+        // still calling us), do nothing except chain. Firing events into a
+        // disposed subscriber chain can throw, which would break
+        // CallNextHookEx and silently swallow events for the rest of the
+        // hook chain.
+        if (_disposed) return _backend.CallNextHook(handleSnapshot, nCode, wParam, lParam);
         if (nCode != HC_ACTION) return _backend.CallNextHook(handleSnapshot, nCode, wParam, lParam);
         if (_suspended) return _backend.CallNextHook(handleSnapshot, nCode, wParam, lParam);
 
@@ -487,14 +485,24 @@ public sealed class InputRouter : IDisposable
             }
         }
 
-        if (firedKind is BindingKind.Ptt)
+        // Wrap event dispatch in try/catch — a throwing subscriber would
+        // skip CallNextHookEx and break the entire hook chain (other
+        // hooks in this process or globally would stop receiving events).
+        try
         {
-            PttStateChanged?.Invoke(firedDown);
+            if (firedKind is BindingKind.Ptt)
+            {
+                PttStateChanged?.Invoke(firedDown);
+            }
+            else if (firedKind is BindingKind.Shortcut && firedAction != null)
+            {
+                if (firedDown) ShortcutPressed?.Invoke(firedAction);
+                else ShortcutReleased?.Invoke(firedAction);
+            }
         }
-        else if (firedKind is BindingKind.Shortcut && firedAction != null)
+        catch (Exception ex)
         {
-            if (firedDown) ShortcutPressed?.Invoke(firedAction);
-            else ShortcutReleased?.Invoke(firedAction);
+            AudioLog.Write($"[Input] MouseHook dispatch threw: {ex.GetType().Name}: {ex.Message}");
         }
 
         return _backend.CallNextHook(handleSnapshot, nCode, wParam, lParam);
