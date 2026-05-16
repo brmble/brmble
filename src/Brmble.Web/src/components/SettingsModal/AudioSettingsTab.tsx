@@ -135,7 +135,8 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
       setIsPromptOpen(false);
       
       if (!confirmed) {
-        capturedInputRef.current = key;
+        capturedInputRef.current = null;
+        setRecording(false);
         return;
       }
       
@@ -145,7 +146,12 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
     
     // Apply new binding
     handleChange('pushToTalkKey', key);
-    capturedInputRef.current = key;
+    if (conflictEntry) {
+      capturedInputRef.current = null;
+      setRecording(false);
+    } else {
+      capturedInputRef.current = key;
+    }
   }, [recording, allBindings, handleChange, onClearBinding]);
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {

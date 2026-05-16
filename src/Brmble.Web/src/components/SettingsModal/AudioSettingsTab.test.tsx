@@ -10,8 +10,16 @@ const { bridgeMock } = vi.hoisted(() => ({
   },
 }));
 
+const { confirmMock } = vi.hoisted(() => ({
+  confirmMock: vi.fn(),
+}));
+
 vi.mock('../../bridge', () => ({
   default: bridgeMock,
+}));
+
+vi.mock('../../hooks/usePrompt', () => ({
+  confirm: confirmMock,
 }));
 
 const baseSettings: AudioSettings = {
@@ -31,6 +39,7 @@ const baseSettings: AudioSettings = {
 describe('AudioSettingsTab', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    confirmMock.mockResolvedValue(false);
   });
 
   it('requests audio devices on mount and renders returned device labels', () => {
@@ -232,6 +241,52 @@ describe('AudioSettingsTab', () => {
     fireEvent.keyUp(window, { code: 'KeyM' });
 
     expect(bridgeMock.send).toHaveBeenCalledWith('voice.resumeHotkeys');
+  });
+
+  it('shows the rebound push to talk key immediately after confirming a conflict', async () => {
+    confirmMock.mockResolvedValue(true);
+    const onChange = vi.fn();
+
+    render(
+      <AudioSettingsTab
+        settings={baseSettings}
+        noiseSuppression={DEFAULT_NOISE_SUPPRESSION}
+        onChange={onChange}
+        onNoiseSuppressionChange={vi.fn()}
+        allBindings={{ pushToTalkKey: null, toggleMuteKey: 'KeyM' }}
+        onClearBinding={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Not bound' }));
+    fireEvent.keyDown(window, { code: 'KeyM' });
+
+    expect(await screen.findByRole('button', { name: 'KeyM' })).toHaveClass('btn-primary');
+    expect(screen.queryByRole('button', { name: 'Press any key...' })).not.toBeInTheDocument();
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ pushToTalkKey: 'KeyM' }));
+  });
+
+  it('returns to the previous push to talk key immediately after canceling a conflict', async () => {
+    confirmMock.mockResolvedValue(false);
+    const onChange = vi.fn();
+
+    render(
+      <AudioSettingsTab
+        settings={{ ...baseSettings, pushToTalkKey: 'KeyV' }}
+        noiseSuppression={DEFAULT_NOISE_SUPPRESSION}
+        onChange={onChange}
+        onNoiseSuppressionChange={vi.fn()}
+        allBindings={{ pushToTalkKey: 'KeyV', toggleMuteKey: 'KeyM' }}
+        onClearBinding={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'KeyV' }));
+    fireEvent.keyDown(window, { code: 'KeyM' });
+
+    expect(await screen.findByRole('button', { name: 'KeyV' })).toHaveClass('btn-primary');
+    expect(screen.queryByRole('button', { name: 'Press any key...' })).not.toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalledWith(expect.objectContaining({ pushToTalkKey: 'KeyM' }));
   });
 
   it('uses shared settings help buttons instead of CSS-only tooltip spans', () => {

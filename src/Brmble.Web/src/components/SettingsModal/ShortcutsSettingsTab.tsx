@@ -69,7 +69,8 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
       setIsPromptOpen(false);
       
       if (!confirmed) {
-        capturedInputRef.current = key;
+        capturedInputRef.current = null;
+        setRecordingKey(null);
         return;
       }
       
@@ -86,7 +87,8 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
         onChange(newSettings);
         return newSettings;
       });
-      capturedInputRef.current = key;
+      capturedInputRef.current = null;
+      setRecordingKey(null);
       return;
     }
     
