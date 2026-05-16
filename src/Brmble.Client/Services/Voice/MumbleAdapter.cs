@@ -342,13 +342,15 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         // alive to consume them.
         _inputRouter?.ReleaseAllHeld();
 
-        _audioManager?.Dispose();
-        _audioManager = null;
-
-        // InputRouter holds a delegate pointing into _audioManager; dispose
-        // it too so the next Connect() re-creates the pair with fresh wiring.
+        // Dispose InputRouter FIRST so its mouse hook and polling timers stop
+        // before AudioManager goes away. Otherwise an in-flight hook/timer
+        // callback can fire PttStateChanged → SetPttActiveExternal on a
+        // disposed AudioManager.
         _inputRouter?.Dispose();
         _inputRouter = null;
+
+        _audioManager?.Dispose();
+        _audioManager = null;
 
         // Reset cached NS state so that the next ApplySettings on a fresh
         // AudioManager always re-applies the level.
@@ -2320,18 +2322,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         {
             var pressed = data.TryGetProperty("pressed", out var p) && p.GetBoolean();
             _inputRouter?.HandleJsPttKey(pressed);
-            return Task.CompletedTask;
-        });
-
-        bridge.RegisterHandler("input.suspend", _ =>
-        {
-            _inputRouter?.Suspend();
-            return Task.CompletedTask;
-        });
-
-        bridge.RegisterHandler("input.resume", _ =>
-        {
-            _inputRouter?.Resume();
             return Task.CompletedTask;
         });
 

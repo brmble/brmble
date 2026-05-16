@@ -61,6 +61,23 @@ public class InputRouterSuspendTests
     }
 
     [TestMethod]
+    public void Suspend_WithPttHeld_ReleasesImmediately()
+    {
+        var backend = new FakeInputBackend();
+        using var router = new InputRouter(backend);
+        var ptt = new List<bool>();
+        router.PttStateChanged += s => ptt.Add(s);
+
+        router.SetPttBinding("Space");
+        router.HandleJsPttKey(true);
+        Assert.AreEqual(true, ptt[^1]);
+
+        router.Suspend();
+
+        Assert.AreEqual(false, ptt[^1]);
+    }
+
+    [TestMethod]
     public void HandleJsPttKey_WhileSuspended_IsNoOp()
     {
         var backend = new FakeInputBackend();

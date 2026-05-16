@@ -36,7 +36,10 @@ public sealed class Win32InputBackend : IInputBackend
     public bool UnhookMouse(IntPtr handle)
     {
         bool ok = Win32RawInput.UnhookWindowsHookEx(handle);
-        _adapterProc = null;
+        // Only release the pinned delegate on success. If unhook failed,
+        // Windows may still call the function pointer; releasing the delegate
+        // here would let the GC collect it and crash on the next invocation.
+        if (ok) _adapterProc = null;
         return ok;
     }
 

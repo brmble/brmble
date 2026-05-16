@@ -29,6 +29,12 @@ public sealed class InputRouter : IDisposable
     private System.Threading.Timer? _pttPollingTimer;
     private const int PttPollIntervalMs = 50;
 
+    // Guards all transitions of _pollPttPressed/_jsPttPressed/_pttKeyWasDown
+    // and the derived combined-PTT state. Without this lock, concurrent
+    // release events on the JS path and poll timer could both observe the
+    // other source as still pressed and suppress the only PttStateChanged(false).
+    private readonly object _pttStateLock = new();
+
     // Keyboard shortcut polling state (multiple actions, edge-detected per VK).
     private readonly object _shortcutLock = new();
     private readonly Dictionary<int, string> _shortcutKbVkToAction = new();
@@ -85,12 +91,17 @@ public sealed class InputRouter : IDisposable
         // reapply still clears stale held state — defensive against #538.
         ClearMouseBindingByAction("pushToTalk");
         StopPttPolling();
-        _pttVk = 0;
-        _pttKeyWasDown = false;
-        bool wasActive = _pollPttPressed || _jsPttPressed;
-        _pollPttPressed = false;
-        _jsPttPressed = false;
-        _pttBound = false;
+
+        bool wasActive;
+        lock (_pttStateLock)
+        {
+            _pttVk = 0;
+            _pttKeyWasDown = false;
+            wasActive = _pollPttPressed || _jsPttPressed;
+            _pollPttPressed = false;
+            _jsPttPressed = false;
+            _pttBound = false;
+        }
         if (wasActive) PttStateChanged?.Invoke(false);
 
         if (key == null) return;
@@ -99,18 +110,28 @@ public sealed class InputRouter : IDisposable
         if (btn.HasValue)
         {
             SetMouseBinding(btn.Value, BindingKind.Ptt, "pushToTalk", key);
-            _pttBound = true;
+            lock (_pttStateLock) _pttBound = true;
             return;
         }
 
         int vk = KeyNameToVirtualKey(key);
         if (vk == 0) return;
-        _pttVk = vk;
-        _pttBound = true;
+        lock (_pttStateLock)
+        {
+            _pttVk = vk;
+            _pttBound = true;
+        }
         StartPttPolling();
     }
 
-    public void Suspend() { _suspended = true; }
+    public void Suspend()
+    {
+        // Release held state BEFORE flipping the gate. Otherwise a PTT held
+        // when recording starts would keep transmitting (release events are
+        // bypassed while suspended) until Resume eventually fires ReleaseAllHeld.
+        ReleaseAllHeld();
+        _suspended = true;
+    }
 
     public void Resume()
     {
@@ -122,11 +143,18 @@ public sealed class InputRouter : IDisposable
     public void HandleJsPttKey(bool pressed)
     {
         if (_suspended) return;
-        if (!_pttBound) return;
-        bool wasActive = _pollPttPressed || _jsPttPressed;
-        _jsPttPressed = pressed;
-        bool isActive = _pollPttPressed || _jsPttPressed;
-        if (wasActive != isActive) PttStateChanged?.Invoke(isActive);
+        bool fire;
+        bool newState;
+        lock (_pttStateLock)
+        {
+            if (!_pttBound) return;
+            bool wasActive = _pollPttPressed || _jsPttPressed;
+            _jsPttPressed = pressed;
+            bool isActive = _pollPttPressed || _jsPttPressed;
+            fire = wasActive != isActive;
+            newState = isActive;
+        }
+        if (fire) PttStateChanged?.Invoke(newState);
     }
 
     /// <summary>
@@ -172,10 +200,14 @@ public sealed class InputRouter : IDisposable
         foreach (var action in releasedShortcuts) ShortcutReleased?.Invoke(action);
 
         // Keyboard PTT (poll + JS).
-        bool kbWasActive = _pollPttPressed || _jsPttPressed;
-        _pollPttPressed = false;
-        _jsPttPressed = false;
-        _pttKeyWasDown = false;
+        bool kbWasActive;
+        lock (_pttStateLock)
+        {
+            kbWasActive = _pollPttPressed || _jsPttPressed;
+            _pollPttPressed = false;
+            _jsPttPressed = false;
+            _pttKeyWasDown = false;
+        }
         if (kbWasActive)
         {
             PttStateChanged?.Invoke(false);
@@ -198,28 +230,40 @@ public sealed class InputRouter : IDisposable
     internal void TickPollOnce()
     {
         if (_suspended) return;
-        if (_pttVk == 0) return;
-        short state = _backend.GetAsyncKeyState(_pttVk);
-        bool isDown = (state & 0x8000) != 0;
 
-        if (isDown && !_pttKeyWasDown)
+        int vk;
+        lock (_pttStateLock)
         {
-            _pttKeyWasDown = true;
-            UpdatePollPtt(true);
+            vk = _pttVk;
         }
-        else if (!isDown && _pttKeyWasDown)
-        {
-            _pttKeyWasDown = false;
-            UpdatePollPtt(false);
-        }
-    }
+        if (vk == 0) return;
 
-    private void UpdatePollPtt(bool pressed)
-    {
-        bool wasActive = _pollPttPressed || _jsPttPressed;
-        _pollPttPressed = pressed;
-        bool isActive = _pollPttPressed || _jsPttPressed;
-        if (wasActive != isActive) PttStateChanged?.Invoke(isActive);
+        bool isDown = (_backend.GetAsyncKeyState(vk) & 0x8000) != 0;
+
+        bool fire = false;
+        bool newState = false;
+        lock (_pttStateLock)
+        {
+            if (isDown && !_pttKeyWasDown)
+            {
+                _pttKeyWasDown = true;
+                bool wasActive = _pollPttPressed || _jsPttPressed;
+                _pollPttPressed = true;
+                bool isActive = _pollPttPressed || _jsPttPressed;
+                fire = wasActive != isActive;
+                newState = isActive;
+            }
+            else if (!isDown && _pttKeyWasDown)
+            {
+                _pttKeyWasDown = false;
+                bool wasActive = _pollPttPressed || _jsPttPressed;
+                _pollPttPressed = false;
+                bool isActive = _pollPttPressed || _jsPttPressed;
+                fire = wasActive != isActive;
+                newState = isActive;
+            }
+        }
+        if (fire) PttStateChanged?.Invoke(newState);
     }
 
     public void SetShortcutBinding(string action, string? key)
@@ -296,21 +340,36 @@ public sealed class InputRouter : IDisposable
             string action = kvp.Value;
             bool isDown = (_backend.GetAsyncKeyState(vk) & 0x8000) != 0;
 
-            bool wasDown;
+            // Re-check membership + transition state under one lock. A
+            // concurrent ClearKeyboardShortcutByAction may have removed this
+            // entry between snapshot capture and now; without the recheck
+            // we'd emit a phantom Pressed/Released for the cleared action.
+            string? fireAction = null;
+            bool firePressed = false;
             lock (_shortcutLock)
             {
-                wasDown = _shortcutKbWasDown.TryGetValue(vk, out var d) && d;
+                if (!_shortcutKbVkToAction.TryGetValue(vk, out var currentAction) || currentAction != action)
+                    continue;
+
+                bool wasDown = _shortcutKbWasDown.TryGetValue(vk, out var d) && d;
+                if (isDown && !wasDown)
+                {
+                    _shortcutKbWasDown[vk] = true;
+                    fireAction = action;
+                    firePressed = true;
+                }
+                else if (!isDown && wasDown)
+                {
+                    _shortcutKbWasDown[vk] = false;
+                    fireAction = action;
+                    firePressed = false;
+                }
             }
 
-            if (isDown && !wasDown)
+            if (fireAction != null)
             {
-                lock (_shortcutLock) _shortcutKbWasDown[vk] = true;
-                ShortcutPressed?.Invoke(action);
-            }
-            else if (!isDown && wasDown)
-            {
-                lock (_shortcutLock) _shortcutKbWasDown[vk] = false;
-                ShortcutReleased?.Invoke(action);
+                if (firePressed) ShortcutPressed?.Invoke(fireAction);
+                else ShortcutReleased?.Invoke(fireAction);
             }
         }
     }
