@@ -14,6 +14,7 @@
   border-radius: var(--radius-lg);
   transition: all var(--transition-normal);
   animation: profileItemFadeIn var(--animation-normal) ease backwards;
+  animation-delay: calc(var(--stagger-index, 0) * var(--stagger-step));
 }
 
 @keyframes profileItemFadeIn {
@@ -51,7 +52,7 @@
   font-weight: 700;
   color: var(--text-primary);
   flex-shrink: 0;
-  box-shadow: 0 4px 12px var(--accent-primary-glow);
+  box-shadow: 0 0 var(--glow-md) var(--accent-primary-glow);
 }
 
 .profiles-info {
@@ -59,7 +60,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.125rem;
+  gap: var(--space-2xs);
 }
 
 .profiles-name {

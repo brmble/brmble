@@ -386,7 +386,7 @@ internal sealed class AppConfigService : IAppConfigService
                 _servers = (data?.Servers ?? new List<ServerEntry>())
                     .Select(s => s with { Password = TryDecryptPassword(s.Password, _passwordStorage) })
                     .ToList();
-                _settings = data?.Settings ?? AppSettings.Default;
+                _settings = ApplySettingsMigrations(data?.Settings ?? AppSettings.Default, json);
                 _windowState = data?.Window;
                 _closePreference = data?.ClosePreference;
                 _lastConnectedServerId = data?.LastConnectedServerId;
@@ -584,6 +584,41 @@ internal sealed class AppConfigService : IAppConfigService
                 && audio.TryGetProperty("processingStack", out _)) return true;
         }
         return false;
+    }
+
+    private static AppSettings ApplySettingsMigrations(AppSettings settings, string rawJson)
+    {
+        JsonDocument doc;
+        try { doc = JsonDocument.Parse(rawJson); }
+        catch (JsonException) { return settings; }
+        catch (ArgumentException) { return settings; }
+
+        using (doc)
+        {
+            if (!doc.RootElement.TryGetProperty("settings", out var settingsEl)
+                || settingsEl.ValueKind != JsonValueKind.Object
+                || !settingsEl.TryGetProperty("messages", out var messagesEl)
+                || messagesEl.ValueKind != JsonValueKind.Object)
+            {
+                return settings;
+            }
+
+            if (messagesEl.TryGetProperty("notificationsDisabled", out _))
+            {
+                return settings;
+            }
+
+            if (messagesEl.TryGetProperty("notificationsEnabled", out var legacyEnabled)
+                && legacyEnabled.ValueKind is JsonValueKind.False)
+            {
+                return settings with
+                {
+                    Messages = settings.Messages with { NotificationsDisabled = true }
+                };
+            }
+        }
+
+        return settings;
     }
 
     private record LegacyServerlistData

@@ -1699,6 +1699,11 @@ private int _screenShareHotkeyId = -1;
         AudioLog.Write($"[Audio] SetShortcut: action={action}, key={key}, _hwnd={_hwnd}");
         if (_hwnd == IntPtr.Zero) return;
 
+        if (key == null && _shortcutActionForMouse == action)
+        {
+            ClearMouseShortcutRegistration();
+        }
+
         if (IsMouseButtonKey(key))
         {
             RegisterMouseHookForShortcut(action, key);
@@ -1759,9 +1764,9 @@ private int _screenShareHotkeyId = -1;
 
         StopShortcutKeyboardPolling();
         StopShortcutReleasePolling();
+        ClearMouseShortcutRegistration();
 
         _heldShortcuts.Clear();
-        _heldMouseAction = null;
         lock (_shortcutKeyboardLock)
         {
             _shortcutKeyboardVkToAction.Clear();
@@ -1858,6 +1863,15 @@ private int _screenShareHotkeyId = -1;
         }
     }
 
+    private void ClearMouseShortcutRegistration()
+    {
+        UnregisterMouseHook();
+        _shortcutActionForMouse = null;
+        _shortcutKeyForMouse = null;
+        _shortcutMouseVk = 0;
+        _heldMouseAction = null;
+    }
+
     private string? _shortcutActionForMouse;
     private string? _shortcutKeyForMouse;
 
@@ -1952,10 +1966,7 @@ private int _screenShareHotkeyId = -1;
 
     private void RegisterMouseHookForShortcut(string action, string? key)
     {
-        UnregisterMouseHook();
-        _shortcutActionForMouse = null;
-        _shortcutKeyForMouse = null;
-        _shortcutMouseVk = 0;
+        ClearMouseShortcutRegistration();
 
         if (key == null || _hwnd == IntPtr.Zero)
             return;

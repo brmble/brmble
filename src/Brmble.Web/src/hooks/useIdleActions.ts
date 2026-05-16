@@ -19,9 +19,9 @@ interface UseIdleActionsResult {
   preLeaveStartedAt: number | null;
   /** Unix ms timestamp for the most recent cancelled pre-leave notification, or null. */
   preLeaveCancelledAt: number | null;
-  /** Clear the toast indicator (does not unfire the leave). */
-  dismissToast: () => void;
-  /** Clear the cancelled pre-leave toast indicator. */
+  /** Clear the notification indicator (does not unfire the leave). */
+  dismissNotification: () => void;
+  /** Clear the cancelled pre-leave notification indicator. */
   dismissPreLeaveCancelled: () => void;
 }
 
@@ -102,7 +102,7 @@ export function useIdleActions({
     autoLeftAt,
     preLeaveStartedAt,
     preLeaveCancelledAt,
-    dismissToast: () => setAutoLeftAt(null),
+    dismissNotification: () => setAutoLeftAt(null),
     dismissPreLeaveCancelled: () => setPreLeaveCancelledAt(null),
   };
 }

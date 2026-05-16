@@ -116,32 +116,28 @@ export function AdminSettingsTab() {
             <div className="admin-ban-list">
               {bans.map((ban, index) => (
                 <div key={`${ban.hash}-${ban.address}-${ban.start}`} className="admin-ban-row">
-                  <button
-                    type="button"
-                    className="admin-ban-summary"
-                    onClick={() => setExpandedBan(expandedBan === index ? null : index)}
-                  >
-                    <div className="admin-ban-info">
-                      <span className="admin-ban-name">{ban.name || ban.address}</span>
-                      <span className="admin-ban-reason">{ban.reason || 'No reason'}</span>
-                    </div>
-                    <div className="admin-ban-meta">
+                  <div className="admin-ban-summary">
+                    <button
+                      type="button"
+                      className="admin-ban-expand"
+                      aria-expanded={expandedBan === index}
+                      aria-controls={`admin-ban-details-${index}`}
+                      onClick={() => setExpandedBan(expandedBan === index ? null : index)}
+                    >
+                      <div className="admin-ban-info">
+                        <span className="admin-ban-name">{ban.name || ban.address}</span>
+                        <span className="admin-ban-reason">{ban.reason || 'No reason'}</span>
+                      </div>
                       <span className="admin-ban-expiry">
                         {formatExpiry(ban.start, ban.duration)}
                       </span>
-                      <button
-                        className="btn btn-danger btn-sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleUnban(index);
-                        }}
-                      >
-                        Unban
-                      </button>
-                    </div>
-                  </button>
+                    </button>
+                    <button className="btn btn-danger btn-sm" onClick={() => handleUnban(index)}>
+                      Unban
+                    </button>
+                  </div>
                   {expandedBan === index && (
-                    <div className="admin-ban-details">
+                    <div className="admin-ban-details" id={`admin-ban-details-${index}`}>
                       <div className="admin-ban-detail"><span>IP:</span> {ban.address}/{ban.bits}</div>
                       <div className="admin-ban-detail"><span>Hash:</span> {ban.hash}</div>
                       <div className="admin-ban-detail"><span>Applied:</span> {new Date(ban.start * 1000).toLocaleString()}</div>
