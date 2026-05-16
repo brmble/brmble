@@ -1244,6 +1244,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         return await SendViaBcTls(cert, uri, httpRequest);
     }
 
+    private static async Task<TlsResult> PutViaBcTls(X509Certificate2 cert, Uri uri, string jsonBody)
+    {
+        var hostHeader = uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}";
+        var contentLength = System.Text.Encoding.UTF8.GetByteCount(jsonBody);
+        var httpRequest = $"PUT {uri.PathAndQuery} HTTP/1.1\r\nHost: {hostHeader}\r\nContent-Type: application/json\r\nContent-Length: {contentLength}\r\nConnection: close\r\n\r\n{jsonBody}";
+        return await SendViaBcTls(cert, uri, httpRequest);
+    }
+
     internal static string CreateLiveKitTokenRequestBody(string roomName, string accessMode)
     {
         var normalizedAccessMode = accessMode.Trim().ToLowerInvariant() switch
@@ -2119,6 +2127,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                         _bridge?.NotifyUiThread();
                     }
                     break;
+
+                case "acl.changed":
+                    _bridge?.Send("acl.changed", System.Text.Json.JsonSerializer.Deserialize<object>(json));
+                    _bridge?.NotifyUiThread();
+                    break;
             }
         }
         catch (Exception ex)
@@ -2880,6 +2893,61 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 _bridge?.Send("dm.roomError", new { targetMatrixUserId, error = ex.Message });
                 _bridge?.NotifyUiThread();
             }
+        });
+
+        bridge.RegisterHandler("acl.getChannel", async data =>
+        {
+            var channelId = data.TryGetProperty("channelId", out var cid) && cid.ValueKind == System.Text.Json.JsonValueKind.Number
+                ? cid.GetInt32()
+                : 0;
+            if (channelId <= 0 || _apiUrl is null)
+            {
+                _bridge?.Send("acl.error", new { channelId, error = "Not connected or invalid channel" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            using var cert = _certService?.GetExportableCertificate();
+            if (cert is null)
+            {
+                _bridge?.Send("acl.error", new { channelId, error = "No client certificate" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            var uri = new Uri(new Uri(_apiUrl, UriKind.Absolute), $"acl/channels/{channelId}");
+            var result = await GetViaBcTls(cert, uri);
+            _bridge?.Send(result.Success ? "acl.channel" : "acl.error", new { channelId, body = result.Body, statusCode = result.StatusCode, error = result.Error });
+            _bridge?.NotifyUiThread();
+        });
+
+        bridge.RegisterHandler("acl.setChannel", async data =>
+        {
+            var channelId = data.TryGetProperty("channelId", out var cid) && cid.ValueKind == System.Text.Json.JsonValueKind.Number
+                ? cid.GetInt32()
+                : 0;
+            if (channelId <= 0 || _apiUrl is null)
+            {
+                _bridge?.Send("acl.error", new { channelId, error = "Not connected or invalid channel" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            using var cert = _certService?.GetExportableCertificate();
+            if (cert is null)
+            {
+                _bridge?.Send("acl.error", new { channelId, error = "No client certificate" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            var requestJson = data.TryGetProperty("request", out var request)
+                ? request.GetRawText()
+                : "{\"inheritAcls\":true,\"groups\":[],\"acls\":[]}";
+            var uri = new Uri(new Uri(_apiUrl, UriKind.Absolute), $"acl/channels/{channelId}");
+            var result = await PutViaBcTls(cert, uri, requestJson);
+            _bridge?.Send(result.Success ? "acl.writeResult" : "acl.error", new { channelId, body = result.Body, statusCode = result.StatusCode, error = result.Error });
+            _bridge?.NotifyUiThread();
         });
 
         bridge.RegisterHandler("voice.vadSensitivity", data =>

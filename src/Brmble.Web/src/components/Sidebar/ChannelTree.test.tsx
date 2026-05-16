@@ -53,6 +53,10 @@ vi.mock('../RenameConfirmDialog/RenameConfirmDialog', () => ({
   RenameConfirmDialog: () => null,
 }));
 
+vi.mock('../AclEditor/AclEditorDialog', () => ({
+  AclEditorDialog: () => null,
+}));
+
 vi.mock('../Avatar/Avatar', () => ({
   default: ({ user }: { user: { name: string } }) => <div data-testid={`avatar-${user.name}`} />,
 }));
@@ -252,6 +256,32 @@ describe('ChannelTree screen share behavior', () => {
     const indicator = screen.getByText('Sharing').closest('.sharing-indicator');
     expect(indicator).not.toBeNull();
     expect(indicator?.firstElementChild).toHaveTextContent('Sharing');
+  });
+});
+
+describe('ChannelTree ACL integration', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('shows Edit Permissions for editable channel context menu', () => {
+    usePermissionsMock.mockReturnValue({
+      hasPermission: vi.fn((channelId: number, permission: number) => channelId === 5 && permission === 0x01),
+      Permission: { Write: 0x01, MakeChannel: 0x40, Move: 0x20, Kick: 0x10000, Ban: 0x20000, MuteDeafen: 0x10 },
+      requestPermissions: vi.fn(),
+    });
+
+    render(
+      <ChannelTree
+        channels={[{ id: 5, name: 'Secret', parent: 0 }]}
+        users={[]}
+        currentChannelId={5}
+        onJoinChannel={vi.fn()}
+      />
+    );
+    fireEvent.contextMenu(screen.getByText('Secret'));
+
+    expect(screen.getByText('Edit Permissions')).toBeInTheDocument();
   });
 });
 

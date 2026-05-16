@@ -14,6 +14,7 @@ import type { ShareInfo } from '../../hooks/useScreenShare';
 import { EditChannelDialog } from '../EditChannelDialog/EditChannelDialog';
 import { RenameConfirmDialog } from '../RenameConfirmDialog/RenameConfirmDialog';
 import { Icon } from '../Icon/Icon';
+import { AclEditorDialog } from '../AclEditor/AclEditorDialog';
 import './ChannelTree.css';
 
 interface User {
@@ -71,6 +72,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
   const [draggedUser, setDraggedUser] = useState<number | null>(null);
   const [dropTargetChannel, setDropTargetChannel] = useState<number | null>(null);
   const [editChannelDialog, setEditChannelDialog] = useState<{ id: number; name: string; description?: string } | null>(null);
+  const [aclEditorChannel, setAclEditorChannel] = useState<{ id: number; name: string } | null>(null);
   const [renameConfirmDialog, setRenameConfirmDialog] = useState<{
     channelId: number;
     oldName: string;
@@ -452,6 +454,16 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     if (hasRemovePermission) {
       adminItems.push({
         type: 'item' as const,
+        label: 'Edit Permissions',
+        onClick: () => {
+          const channel = channels.find(c => c.id === channelContextMenu.channelId);
+          setAclEditorChannel({ id: channelContextMenu.channelId, name: channel?.name ?? 'Channel' });
+          setChannelContextMenu(null);
+        },
+      });
+
+      adminItems.push({
+        type: 'item' as const,
         label: 'Remove',
         onClick: () => {
           setRemoveChannelDialog({ id: channelContextMenu.channelId, name: channelContextMenu.channelName });
@@ -695,6 +707,15 @@ onClick: () => {
             setEditChannelDialog(null);
             setRenameConfirmDialog(null);
           }}
+        />
+      )}
+
+      {aclEditorChannel && (
+        <AclEditorDialog
+          isOpen={true}
+          channelId={aclEditorChannel.id}
+          channelName={aclEditorChannel.name}
+          onClose={() => setAclEditorChannel(null)}
         />
       )}
 

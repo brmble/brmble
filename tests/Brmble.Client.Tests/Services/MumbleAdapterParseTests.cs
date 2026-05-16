@@ -82,6 +82,10 @@ internal static class MumbleAdapterTestHarness
     public static void SetField(object instance, string name, object? value)
         => instance.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(instance, value);
 
+    public static void InvokeHandleWebSocketMessage(MumbleAdapter adapter, string json)
+        => adapter.GetType().GetMethod("HandleWebSocketMessage", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(adapter, [json]);
+
     private static void SetBaseField(object instance, string name, object? value)
         => instance.GetType().BaseType!.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(instance, value);
 }
@@ -182,6 +186,33 @@ internal sealed class TestTlsHttpServer : IAsyncDisposable
 [TestClass]
 public class MumbleAdapterParseTests
 {
+    [TestMethod]
+    public void HandleWebSocketAclChanged_ForwardsToBridge()
+    {
+        var bridge = NativeBridgeTestHarness.Create();
+        var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge, apiUrl: "https://api.example.com");
+        var json = """
+            {
+              "type": "acl.changed",
+              "channelId": 4,
+              "snapshot": {
+                "channelId": 4,
+                "inheritAcls": true,
+                "groups": [],
+                "acls": [],
+                "fetchedAt": "2026-05-15T12:00:00Z",
+                "stale": false,
+                "warning": null
+              }
+            }
+            """;
+
+        MumbleAdapterTestHarness.InvokeHandleWebSocketMessage(adapter, json);
+
+        var sent = NativeBridgeTestHarness.DrainMessages(bridge);
+        Assert.IsTrue(sent.Any(m => m.Type == "acl.changed"));
+    }
+
     [TestMethod]
     public async Task ActiveShareFailure_IsNotCollapsedIntoEmptyShares()
     {
