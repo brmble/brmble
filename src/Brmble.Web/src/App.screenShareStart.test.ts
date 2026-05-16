@@ -1638,6 +1638,9 @@ describe('active share discovery', () => {
   it('prompts for a channel password after a password-protected join denial and retries once', async () => {
     const { prompt } = await import('./hooks/usePrompt');
     vi.mocked(prompt).mockResolvedValueOnce('secret-token');
+    const getJoinChannelCalls = () => vi.mocked(bridge.send).mock.calls.filter(
+      ([type]) => type === 'voice.joinChannel',
+    );
 
     const view = render(React.createElement(App));
 
@@ -1679,11 +1682,18 @@ describe('active share discovery', () => {
     await waitFor(() => {
       expect(bridge.send).toHaveBeenCalledWith('voice.joinChannel', { channelId: 2, password: 'secret-token' });
     });
+    expect(getJoinChannelCalls()).toEqual([
+      ['voice.joinChannel', { channelId: 2 }],
+      ['voice.joinChannel', { channelId: 2, password: 'secret-token' }],
+    ]);
   });
 
   it('does not retry when the user cancels the channel password prompt', async () => {
     const { prompt } = await import('./hooks/usePrompt');
     vi.mocked(prompt).mockResolvedValueOnce(null);
+    const getJoinChannelCalls = () => vi.mocked(bridge.send).mock.calls.filter(
+      ([type]) => type === 'voice.joinChannel',
+    );
 
     const view = render(React.createElement(App));
 
@@ -1712,11 +1722,15 @@ describe('active share discovery', () => {
     });
 
     await waitFor(() => {
-      expect(prompt).toHaveBeenCalled();
+      expect(prompt).toHaveBeenCalledTimes(1);
     });
-    await waitFor(() => {
-      expect(bridge.send).not.toHaveBeenCalledWith('voice.joinChannel', { channelId: 2, password: expect.any(String) });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
     });
+    expect(getJoinChannelCalls()).toEqual([
+      ['voice.joinChannel', { channelId: 2 }],
+    ]);
   });
 
   it('does not prompt for unrelated permission denials', async () => {
@@ -1749,19 +1763,22 @@ describe('active share discovery', () => {
         type: 'permissionDenied',
         message: 'Permission denied: missing enter permission',
       });
+      await Promise.resolve();
+      await Promise.resolve();
     });
 
-    await waitFor(() => {
-      expect(prompt).not.toHaveBeenCalled();
-      expect(getJoinChannelCalls()).toEqual([
-        ['voice.joinChannel', { channelId: 2 }],
-      ]);
-    });
+    expect(prompt).not.toHaveBeenCalled();
+    expect(getJoinChannelCalls()).toEqual([
+      ['voice.joinChannel', { channelId: 2 }],
+    ]);
   });
 
   it('does not reopen the password prompt after a second failed retry', async () => {
     const { prompt } = await import('./hooks/usePrompt');
     vi.mocked(prompt).mockResolvedValueOnce('wrong-secret');
+    const getJoinChannelCalls = () => vi.mocked(bridge.send).mock.calls.filter(
+      ([type]) => type === 'voice.joinChannel',
+    );
 
     const view = render(React.createElement(App));
 
@@ -1787,25 +1804,30 @@ describe('active share discovery', () => {
         type: 'permissionDenied',
         message: CHANNEL_PASSWORD_DENIAL_MESSAGE,
       });
+      await Promise.resolve();
+      await Promise.resolve();
     });
 
-    await waitFor(() => {
-      expect(prompt).toHaveBeenCalledTimes(1);
-    });
-    await waitFor(() => {
-      expect(bridge.send).toHaveBeenCalledWith('voice.joinChannel', { channelId: 2, password: 'wrong-secret' });
-    });
+    expect(prompt).toHaveBeenCalledTimes(1);
+    expect(getJoinChannelCalls()).toEqual([
+      ['voice.joinChannel', { channelId: 2 }],
+      ['voice.joinChannel', { channelId: 2, password: 'wrong-secret' }],
+    ]);
 
     await act(async () => {
       bridge.emit('voice.error', {
         type: 'permissionDenied',
         message: CHANNEL_PASSWORD_DENIAL_MESSAGE,
       });
+      await Promise.resolve();
+      await Promise.resolve();
     });
 
-    await waitFor(() => {
-      expect(prompt).toHaveBeenCalledTimes(1);
-    });
+    expect(prompt).toHaveBeenCalledTimes(1);
+    expect(getJoinChannelCalls()).toEqual([
+      ['voice.joinChannel', { channelId: 2 }],
+      ['voice.joinChannel', { channelId: 2, password: 'wrong-secret' }],
+    ]);
   });
 
   it('screen share active leave voice cancel keeps sharing and does not leave voice', async () => {

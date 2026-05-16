@@ -36,6 +36,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private readonly CertificateService? _certService;
     private uint? _previousChannelId;
     private uint? _pendingLocalJoinChannelId;
+    private string? _pendingJoinPassword;
     private bool _leftVoice;
     private bool _leaveVoiceInProgress;
     private bool _canRejoin;
@@ -341,6 +342,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _lastWelcomeText = null;
         _previousChannelId = null;
         _pendingLocalJoinChannelId = null;
+        _pendingJoinPassword = null;
         if (_intentionalDisconnect || _reconnectHost == null)
         {
             _apiUrl = null;
@@ -867,13 +869,32 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         => _audioManager?.HandleRawInput(wParam, lParam);
 
     public void JoinChannel(uint channelId)
+        => JoinChannel(channelId, password: null);
+
+    internal void JoinChannel(uint channelId, string? password)
     {
         if (Connection is not { State: ConnectionStates.Connected })
             return;
 
         _pendingLocalJoinChannelId = channelId;
+        _pendingJoinPassword = string.IsNullOrWhiteSpace(password) ? null : password;
+        ApplyPendingJoinPasswordToken();
         Connection.SendControl(PacketType.UserState, new UserState { ChannelId = channelId });
         SendPermissionQuery(new PermissionQuery { ChannelId = channelId });
+    }
+
+    private void ApplyPendingJoinPasswordToken()
+    {
+        if (string.IsNullOrWhiteSpace(_pendingJoinPassword))
+            return;
+
+        var auth = new Authenticate
+        {
+            Username = LocalUser?.Name ?? _reconnectUsername ?? string.Empty,
+            Opus = true,
+        };
+        auth.Tokens.Add(_pendingJoinPassword);
+        SendAuthenticate(auth);
     }
 
     public void RequestPermissions(uint channelId)
@@ -2500,7 +2521,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         bridge.RegisterHandler("voice.joinChannel", data =>
         {
             if (data.TryGetProperty("channelId", out var id))
-                JoinChannel(id.GetUInt32());
+            {
+                var password = data.TryGetProperty("password", out var pw) ? pw.GetString() : null;
+                JoinChannel(id.GetUInt32(), password);
+            }
             return Task.CompletedTask;
         });
 
@@ -3687,11 +3711,15 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             {
                 _leaveVoiceInProgress = false;
                 if (_pendingLocalJoinChannelId == currentChannelId)
+                {
                     _pendingLocalJoinChannelId = null;
+                    _pendingJoinPassword = null;
+                }
             }
             else if (_pendingLocalJoinChannelId == currentChannelId)
             {
                 _pendingLocalJoinChannelId = null;
+                _pendingJoinPassword = null;
                 if (_leftVoice && LocalUser != null)
                 {
                     ClearLeaveVoiceState();
@@ -3946,6 +3974,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     public override void PermissionDenied(PermissionDenied permissionDenied)
     {
         base.PermissionDenied(permissionDenied);
+
+        _pendingJoinPassword = null;
 
         var reason = !string.IsNullOrEmpty(permissionDenied.Reason)
             ? permissionDenied.Reason

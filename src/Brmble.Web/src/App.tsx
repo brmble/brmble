@@ -36,7 +36,7 @@ import { parseMessageMedia } from './utils/parseMessageMedia';
 import { linkifyForMumble } from './utils/linkifyForMumble';
 import { useDMStore } from './hooks/useDMStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
-import { usePrompt, confirm } from './hooks/usePrompt';
+import { usePrompt, confirm, prompt } from './hooks/usePrompt';
 import { NeonDGame } from './components/NeonD/NeonDGame';
 import { ProfileProvider } from './contexts/ProfileContext';
 import { UpdateNotification } from './components/UpdateNotification/UpdateNotification';
@@ -257,6 +257,22 @@ interface ToggleLocalScreenShareOptions {
   markLocalShareTeardownIntent?: (reason: LocalShareStopReason) => void;
   setSharingChannelId: (channelId: string | undefined) => void;
   onSharingChannelIdChanged?: (channelId: string | undefined) => void;
+}
+
+interface PendingJoinAttempt {
+  channelId: number;
+  channelName: string;
+  passwordRetrySent: boolean;
+}
+
+function isPasswordProtectedJoinError(data: unknown): boolean {
+  const d = data as { type?: string; message?: string } | undefined;
+  if (d?.type !== 'permissionDenied') {
+    return false;
+  }
+
+  const message = (d.message ?? '').toLowerCase();
+  return message.includes('password') || message.includes('token') || message.includes('temporary access');
 }
 
 interface NextLiveKitStatusOptions {
@@ -1122,6 +1138,12 @@ function App() {
     setPendingChannelAction(null);
   }, []);
 
+  const pendingJoinAttemptRef = useRef<PendingJoinAttempt | null>(null);
+
+  const clearPendingJoinAttempt = useCallback(() => {
+    pendingJoinAttemptRef.current = null;
+  }, []);
+
   const startPendingAction = useCallback((action: number | 'leave') => {
     if (pendingChannelAction === action) {
       return;
@@ -1134,6 +1156,15 @@ function App() {
       setPendingChannelAction(null);
     }, 5000);
   }, [pendingChannelAction]);
+
+  const sendJoinChannel = useCallback((channelId: number, password?: string) => {
+    if (password && password.length > 0) {
+      bridge.send('voice.joinChannel', { channelId, password });
+      return;
+    }
+
+    bridge.send('voice.joinChannel', { channelId });
+  }, []);
 
   // Handle Push-to-Talk key detection via JavaScript when app is focused
   // Keys naturally pass through to other apps when window loses focus
@@ -1249,6 +1280,7 @@ function App() {
     };
 
     const onVoiceConnected = ((data: unknown) => {
+      clearPendingJoinAttempt();
       setConnectionStatus('connected');
       updateStatus('voice', { state: 'connected', error: undefined });
       overlayConnectedAtRef.current = Date.now();
@@ -1333,6 +1365,7 @@ function App() {
 
     const onVoiceDisconnected = (data: unknown) => {
       clearPendingAction();
+      clearPendingJoinAttempt();
       purgeEphemeralMessages('server-root');
       const d = data as { reconnectAvailable?: boolean; reason?: 'kicked' | 'banned' | string; actorName?: string; message?: string } | null;
 
@@ -1416,6 +1449,37 @@ function App() {
 
     const onVoiceError = ((data: unknown) => {
       clearPendingAction();
+      const pendingJoinAttempt = pendingJoinAttemptRef.current;
+      if (pendingJoinAttempt && isPasswordProtectedJoinError(data)) {
+        if (!pendingJoinAttempt.passwordRetrySent) {
+          pendingJoinAttemptRef.current = {
+            ...pendingJoinAttempt,
+            passwordRetrySent: true,
+          };
+
+          void (async () => {
+            const password = await prompt({
+              title: 'Channel Password',
+              message: `Enter the password for ${pendingJoinAttempt.channelName}.`,
+              placeholder: 'Password',
+              confirmLabel: 'Join',
+              cancelLabel: 'Cancel',
+            });
+
+            if (!password) {
+              clearPendingJoinAttempt();
+              return;
+            }
+
+            startPendingAction(pendingJoinAttempt.channelId);
+            sendJoinChannel(pendingJoinAttempt.channelId, password);
+          })();
+          return;
+        }
+
+        clearPendingJoinAttempt();
+      }
+
       const d = data as { message?: string } | undefined;
       const errorMsg = d?.message || 'Unknown error';
       console.error('Voice error:', errorMsg);
@@ -1634,6 +1698,7 @@ function App() {
 
   const onVoiceChannelChanged = ((data: unknown) => {
       clearPendingAction();
+      clearPendingJoinAttempt();
       const d = data as { channelId: number; name?: string; previousChannelId?: number; actorName?: string; reason?: 'moved' | 'unknown' } | undefined;
       if (d?.channelId !== undefined && d?.channelId !== null) {
         const computedWasSharing = shouldTreatMoveAsSharingRelated({
@@ -2358,6 +2423,10 @@ const handleConnect = (serverData: SavedServer) => {
     if (selfVoiceChannelId === channelId) {
       return;
     }
+    const channel = channels.find(c => c.id === channelId);
+    if (!channel) {
+      return;
+    }
     if (isSharing && sharingChannelId && String(channelId) !== sharingChannelId) {
       const shouldMove = await confirm({
         title: 'Screen share active',
@@ -2372,7 +2441,12 @@ const handleConnect = (serverData: SavedServer) => {
       setSharingChannelId(undefined);
     }
     startPendingAction(channelId);
-    bridge.send('voice.joinChannel', { channelId });
+    pendingJoinAttemptRef.current = {
+      channelId,
+      channelName: channel.name,
+      passwordRetrySent: false,
+    };
+    sendJoinChannel(channelId);
   };
 
   const handleSelectChannel = (channelId: number) => {
