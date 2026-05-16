@@ -53,6 +53,15 @@ public sealed class InputRouter : IDisposable
     public event Action<string>? ShortcutPressed;
     public event Action<string>? ShortcutReleased;
 
+    /// <summary>
+    /// Fired when MumbleAdapter must tell the JS side to reset its local
+    /// pttPressed state — because native has forced a release (via
+    /// ReleaseAllHeld) that the JS side would otherwise not know about.
+    /// Without this, the next physical keydown is suppressed by JS's
+    /// "if (!pttPressed)" guard.
+    /// </summary>
+    public event Action? JsForceReleaseRequested;
+
     public InputRouter(IInputBackend backend)
     {
         _backend = backend ?? throw new ArgumentNullException(nameof(backend));
@@ -96,6 +105,45 @@ public sealed class InputRouter : IDisposable
         _jsPttPressed = pressed;
         bool isActive = _pollPttPressed || _jsPttPressed;
         if (wasActive != isActive) PttStateChanged?.Invoke(isActive);
+    }
+
+    /// <summary>
+    /// Forces every currently-held binding to "released" state and fires
+    /// matching release events. Called by MumbleAdapter on voice lifecycle
+    /// events (connected / disconnected / channelJoined / channelLeft) to
+    /// guarantee PTT cannot remain latched across a transition (#538).
+    /// </summary>
+    public void ReleaseAllHeld()
+    {
+        // Mouse bindings.
+        var releasedMouse = new List<(BindingKind kind, string action)>();
+        lock (_mouseLock)
+        {
+            foreach (var binding in _mouseBindings.Values)
+            {
+                if (binding.IsHeld)
+                {
+                    binding.IsHeld = false;
+                    releasedMouse.Add((binding.Kind, binding.Action));
+                }
+            }
+        }
+        foreach (var (kind, action) in releasedMouse)
+        {
+            if (kind == BindingKind.Ptt) PttStateChanged?.Invoke(false);
+            else ShortcutReleased?.Invoke(action);
+        }
+
+        // Keyboard PTT (poll + JS).
+        bool kbWasActive = _pollPttPressed || _jsPttPressed;
+        _pollPttPressed = false;
+        _jsPttPressed = false;
+        _pttKeyWasDown = false;
+        if (kbWasActive)
+        {
+            PttStateChanged?.Invoke(false);
+            JsForceReleaseRequested?.Invoke();
+        }
     }
 
     private void StartPttPolling()
