@@ -96,8 +96,6 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     newName: string;
     description: string;
   } | null>(null);
-  const [removeChannelDialog, setRemoveChannelDialog] = useState<{ id: number; name: string } | null>(null);
-  const [removeConfirmText, setRemoveConfirmText] = useState('');
   const { hasPermission, Permission, requestPermissions } = usePermissions();
   const sharingChannelIds = useMemo(() => {
     const ids = new Set<number>();
@@ -506,8 +504,19 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
       adminItems.push({
         type: 'item' as const,
         label: 'Remove',
-        onClick: () => {
-          setRemoveChannelDialog({ id: channelContextMenu.channelId, name: channelContextMenu.channelName });
+        onClick: async () => {
+          const result = await prompt({
+            title: 'Remove Channel',
+            message: `Type "Remove" to confirm deleting "${channelContextMenu.channelName}".`,
+            placeholder: 'Remove',
+            confirmLabel: 'Remove',
+            cancelLabel: 'Cancel',
+          });
+
+          if (result === 'Remove') {
+            bridge.send('voice.removeChannel', { channelId: channelContextMenu.channelId });
+          }
+
           setChannelContextMenu(null);
         },
       });
@@ -766,48 +775,6 @@ onClick: () => {
           channelName={aclEditorChannel.name}
           onClose={() => setAclEditorChannel(null)}
         />
-      )}
-
-      {removeChannelDialog && (
-        <div className="modal-overlay" onClick={() => setRemoveChannelDialog(null)}>
-          <div
-            className="prompt glass-panel animate-slide-up"
-            role="dialog"
-            aria-modal="true"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="modal-header">
-              <h2 className="heading-title modal-title">Remove Channel</h2>
-              <p className="modal-subtitle">
-                Are you sure you want to remove "{removeChannelDialog.name}"?
-              </p>
-            </div>
-            <div className="prompt-input-container">
-              <input
-                type="text"
-                className="brmble-input"
-                placeholder='Type "Remove" to confirm'
-                onChange={(e) => setRemoveConfirmText(e.target.value)}
-              />
-            </div>
-            <div className="prompt-footer">
-              <button className="btn btn-secondary" onClick={() => setRemoveChannelDialog(null)}>
-                Cancel
-              </button>
-              <button
-                className="btn btn-primary"
-                disabled={removeConfirmText !== 'Remove'}
-                onClick={() => {
-                  bridge.send('voice.removeChannel', { channelId: removeChannelDialog.id });
-                  setRemoveChannelDialog(null);
-                  setRemoveConfirmText('');
-                }}
-              >
-                Remove
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );

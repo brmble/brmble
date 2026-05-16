@@ -3,7 +3,7 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import { ChannelTree } from './ChannelTree';
 import type { ShareInfo } from '../../hooks/useScreenShare';
 
-const { bridgeMock, usePermissionsMock, editChannelDialogPropsRef } = vi.hoisted(() => ({
+const { bridgeMock, usePermissionsMock, editChannelDialogPropsRef, promptMock } = vi.hoisted(() => ({
   bridgeMock: {
     on: vi.fn(),
     off: vi.fn(),
@@ -22,6 +22,7 @@ const { bridgeMock, usePermissionsMock, editChannelDialogPropsRef } = vi.hoisted
     requestPermissions: vi.fn(),
   })),
   editChannelDialogPropsRef: { current: null as null | Record<string, unknown> },
+  promptMock: vi.fn(),
 }));
 
 vi.mock('../ContextMenu/ContextMenu', () => ({
@@ -82,7 +83,7 @@ vi.mock('../../bridge', () => ({
 }));
 
 vi.mock('../../hooks/usePrompt', () => ({
-  prompt: vi.fn(),
+  prompt: promptMock,
 }));
 
 vi.mock('../../hooks/usePermissions', () => ({
@@ -273,6 +274,7 @@ describe('ChannelTree ACL integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     editChannelDialogPropsRef.current = null;
+    promptMock.mockReset();
   });
 
   it('shows Edit Permissions for editable channel context menu', () => {
@@ -347,6 +349,41 @@ describe('ChannelTree ACL integration', () => {
     fireEvent.click(screen.getByText('Save Edit Channel'));
 
     expect(bridgeMock.send).not.toHaveBeenCalledWith('acl.setChannelPassword', expect.anything());
+  });
+
+  it('uses the shared prompt flow before removing a channel', async () => {
+    usePermissionsMock.mockReturnValue({
+      hasPermission: vi.fn((channelId: number, permission: number) => channelId === 5 && permission === 0x01),
+      Permission: { Write: 0x01, MakeChannel: 0x40, Move: 0x20, Kick: 0x10000, Ban: 0x20000, MuteDeafen: 0x10 },
+      requestPermissions: vi.fn(),
+    });
+    promptMock.mockResolvedValue('Remove');
+
+    render(
+      <ChannelTree
+        channels={[{ id: 5, name: 'Secret', parent: 0 }]}
+        users={[]}
+        currentChannelId={5}
+        onJoinChannel={vi.fn()}
+      />
+    );
+
+    fireEvent.contextMenu(screen.getByText('Secret'));
+    fireEvent.click(screen.getByText('Remove'));
+
+    expect(promptMock).toHaveBeenCalledWith({
+      title: 'Remove Channel',
+      message: 'Type "Remove" to confirm deleting "Secret".',
+      placeholder: 'Remove',
+      confirmLabel: 'Remove',
+      cancelLabel: 'Cancel',
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(bridgeMock.send).toHaveBeenCalledWith('voice.removeChannel', { channelId: 5 });
   });
 });
 

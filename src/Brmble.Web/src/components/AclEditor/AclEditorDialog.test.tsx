@@ -28,6 +28,18 @@ vi.mock('../../hooks/useAclAdmin', () => ({
 }));
 
 describe('AclEditorDialog', () => {
+  it('uses the shared modal title and subtitle styling hooks', () => {
+    hookSnapshot = {
+      ...hookSnapshot,
+      acls: [],
+    };
+
+    render(<AclEditorDialog isOpen channelId={4} channelName="Secret" onClose={vi.fn()} />);
+
+    expect(screen.getByRole('heading', { name: 'Permissions for Secret' })).toHaveClass('heading-title', 'modal-title');
+    expect(screen.getByText("Rules save to Mumble and refresh from the server's canonical ACL state.")).toHaveClass('modal-subtitle');
+  });
+
   it('adds a token rule draft', async () => {
     hookSnapshot = {
       ...hookSnapshot,

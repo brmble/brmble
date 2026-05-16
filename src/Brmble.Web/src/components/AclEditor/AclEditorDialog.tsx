@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { AclRule, AclUpdateRequest } from '../../types/acl';
 import { Permission } from '../../types/acl';
 import { useAclAdmin } from '../../hooks/useAclAdmin';
+import { Icon } from '../Icon/Icon';
 import './AclEditorDialog.css';
 
 type AclDraft = Omit<AclUpdateRequest, 'expectedSnapshotHash'>;
@@ -68,6 +69,16 @@ export function AclEditorDialog({ channelId, channelName, isOpen, onClose }: Acl
     });
   };
 
+  const removeRule = (index: number) => {
+    setDraft(current => {
+      if (!current) return current;
+      return {
+        ...current,
+        acls: current.acls.filter((_, i) => i !== index),
+      };
+    });
+  };
+
   const localRules = draft?.acls
     .map((rule, index) => ({ rule, index }))
     .filter(({ rule }) => !rule.inherited) ?? [];
@@ -76,12 +87,13 @@ export function AclEditorDialog({ channelId, channelName, isOpen, onClose }: Acl
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="acl-editor glass-panel animate-slide-up" role="dialog" aria-modal="true" onClick={e => e.stopPropagation()}>
-        <div className="acl-editor-header">
-          <div>
-            <h2 className="heading-title">Permissions for {channelName}</h2>
-            <p>Rules are saved to Mumble, then refreshed from canonical server state.</p>
-          </div>
-          <button className="modal-close" onClick={onClose}>x</button>
+        <button className="modal-close acl-editor-close" type="button" onClick={onClose} aria-label="Close ACL editor">
+          <Icon name="x" size={20} />
+        </button>
+
+        <div className="modal-header acl-editor-header">
+          <h2 className="heading-title modal-title">Permissions for {channelName}</h2>
+          <p className="modal-subtitle">Rules save to Mumble and refresh from the server&apos;s canonical ACL state.</p>
         </div>
 
         {loading && <div className="acl-banner">Loading ACL state...</div>}
@@ -90,66 +102,103 @@ export function AclEditorDialog({ channelId, channelName, isOpen, onClose }: Acl
 
         {draft && (
           <>
-            <label className="acl-toggle">
-              <input
-                type="checkbox"
-                checked={draft.inheritAcls}
-                onChange={e => setDraft({ ...draft, inheritAcls: e.target.checked })}
-              />
-              Inherit ACLs from parent channel
-            </label>
+            <section className="acl-section">
+              <div className="acl-section-header">
+                <h3 className="heading-section settings-section-title">Defaults</h3>
+              </div>
 
-            <div className="acl-toolbar">
-              <button className="btn btn-secondary" type="button" onClick={addTokenRule}>Add Token Rule</button>
-              <button className="btn btn-secondary" type="button" onClick={refresh} disabled={loading || saving}>Refresh</button>
-            </div>
+              <label className="acl-toggle">
+                <input
+                  type="checkbox"
+                  checked={draft.inheritAcls}
+                  onChange={e => setDraft({ ...draft, inheritAcls: e.target.checked })}
+                />
+                <span>Inherit ACLs from the parent channel</span>
+              </label>
+            </section>
 
-            <div className="acl-rule-list">
-              {localRules.map(({ rule, index }) => (
-                <div className="acl-rule-row" key={`${rule.group ?? rule.userId}-${index}`}>
-                  <input
-                    className="brmble-input"
-                    value={rule.userId == null ? rule.group ?? '' : String(rule.userId)}
-                    onChange={e => {
-                      if (rule.userId != null) {
-                        const nextUserId = Number.parseInt(e.target.value, 10);
-                        updateRule(index, { userId: Number.isNaN(nextUserId) ? null : nextUserId, group: null });
-                        return;
-                      }
-
-                      updateRule(index, { group: e.target.value, userId: null });
-                    }}
-                    aria-label="Selector"
-                  />
-                  <label><input type="checkbox" checked={rule.applyHere} onChange={e => updateRule(index, { applyHere: e.target.checked })} /> Here</label>
-                  <label><input type="checkbox" checked={rule.applySubs} onChange={e => updateRule(index, { applySubs: e.target.checked })} /> Subs</label>
-                  <div className="acl-permissions">
-                    {permissionRows.map(([label, bit]) => (
-                      <label key={label}>
-                        <input
-                          type="checkbox"
-                          checked={(rule.allow & bit) !== 0}
-                          onChange={e => updateRule(index, { allow: e.target.checked ? rule.allow | bit : rule.allow & ~bit })}
-                        />
-                        Allow {label}
-                      </label>
-                    ))}
-                  </div>
+            <section className="acl-section">
+              <div className="acl-section-header acl-section-header--split">
+                <div>
+                  <h3 className="heading-section settings-section-title">Local Rules</h3>
+                  <p className="acl-section-copy">Use token or user selectors, then choose where each rule applies.</p>
                 </div>
-              ))}
-            </div>
+                <div className="acl-toolbar">
+                  <button className="btn btn-secondary" type="button" onClick={addTokenRule}>Add Token Rule</button>
+                  <button className="btn btn-secondary" type="button" onClick={refresh} disabled={loading || saving}>Refresh</button>
+                </div>
+              </div>
+
+              {localRules.length === 0 ? (
+                <div className="acl-empty-state">
+                  No local rules yet. Add a token rule to grant channel access without editing inherited permissions.
+                </div>
+              ) : (
+                <div className="acl-rule-list">
+                  {localRules.map(({ rule, index }) => (
+                    <div className="acl-rule-row" key={`${rule.group ?? rule.userId}-${index}`}>
+                      <div className="acl-rule-main">
+                        <label className="acl-field">
+                          <span className="acl-field-label">Selector</span>
+                          <input
+                            className="brmble-input"
+                            value={rule.userId == null ? rule.group ?? '' : String(rule.userId)}
+                            onChange={e => {
+                              if (rule.userId != null) {
+                                const nextUserId = Number.parseInt(e.target.value, 10);
+                                updateRule(index, { userId: Number.isNaN(nextUserId) ? null : nextUserId, group: null });
+                                return;
+                              }
+
+                              updateRule(index, { group: e.target.value, userId: null });
+                            }}
+                            aria-label="Selector"
+                          />
+                        </label>
+
+                        <div className="acl-scope">
+                          <span className="acl-field-label">Applies To</span>
+                          <label><input type="checkbox" checked={rule.applyHere} onChange={e => updateRule(index, { applyHere: e.target.checked })} /> Here</label>
+                          <label><input type="checkbox" checked={rule.applySubs} onChange={e => updateRule(index, { applySubs: e.target.checked })} /> Subchannels</label>
+                        </div>
+                      </div>
+
+                      <div className="acl-rule-actions">
+                        <button className="btn btn-ghost btn-sm" type="button" onClick={() => removeRule(index)}>Remove</button>
+                      </div>
+
+                      <div className="acl-permissions">
+                        {permissionRows.map(([label, bit]) => (
+                          <label key={label}>
+                            <input
+                              type="checkbox"
+                              checked={(rule.allow & bit) !== 0}
+                              onChange={e => updateRule(index, { allow: e.target.checked ? rule.allow | bit : rule.allow & ~bit })}
+                            />
+                            Allow {label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
 
             {inheritedRules.length > 0 && (
-              <details className="acl-inherited">
-                <summary>{inheritedRules.length} inherited rules</summary>
-                {inheritedRules.map((rule, index) => (
-                  <div className="acl-rule-row inherited" key={`inherited-${index}`}>
-                    <span>{rule.group ?? `User ${rule.userId}`}</span>
-                    <span>allow {rule.allow}</span>
-                    <span>deny {rule.deny}</span>
-                  </div>
-                ))}
-              </details>
+              <section className="acl-section">
+                <details className="acl-inherited">
+                  <summary>{inheritedRules.length} inherited rules</summary>
+                  <p className="acl-section-copy acl-section-copy--compact">Inherited rules are read-only here and come from the parent channel.</p>
+                  {inheritedRules.map((rule, index) => (
+                    <div className="acl-rule-row inherited" key={`inherited-${index}`}>
+                      <span>{rule.group ?? `User ${rule.userId}`}</span>
+                      <span>Allow {rule.allow}</span>
+                      <span>Deny {rule.deny}</span>
+                    </div>
+                  ))}
+                </details>
+              </section>
             )}
           </>
         )}
