@@ -1106,6 +1106,7 @@ internal sealed class AudioManager : IDisposable
     /// <summary>Set mute state. Stops/starts mic capture accordingly.</summary>
     public void SetMuted(bool muted)
     {
+        AudioLog.Write($"[Audio] SetMuted: muted={muted}, mode={_transmissionMode}, pttActive={_pttActive}");
         _muted = muted;
         if (muted)
         {
@@ -1154,6 +1155,8 @@ internal sealed class AudioManager : IDisposable
     /// </summary>
     public void SetTransmissionMode(TransmissionMode mode, string? key, IntPtr hwnd)
     {
+        AudioLog.Write($"[Audio] SetTransmissionMode CALL: mode={mode}, key={key ?? "<null>"}, prevMode={_transmissionMode}, prevKey={_lastTransmissionKey ?? "<null>"}, configured={_transmissionConfigured}");
+
         // Idempotency guard: identical reapply is a no-op.
         if (_transmissionConfigured
             && mode == _transmissionMode
@@ -1162,6 +1165,7 @@ internal sealed class AudioManager : IDisposable
             return;
         }
 
+        AudioLog.Write($"[Audio] SetTransmissionMode APPLY: mode={mode}, key={key ?? "<null>"}");
         _pttActive = false;
         _transmissionMode = mode;
 

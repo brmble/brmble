@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using Brmble.Client.Services.Voice;
 
 namespace Brmble.Client.Services.Voice.Input;
 
@@ -87,6 +88,7 @@ public sealed class InputRouter : IDisposable
 
     public void SetPttBinding(string? key)
     {
+        AudioLog.Write($"[Input] SetPttBinding: key={key ?? "<null>"}");
         // Reset all prior PTT state (mouse + keyboard + poll + js) so a no-op
         // reapply still clears stale held state — defensive against #538.
         ClearMouseBindingByAction("pushToTalk");
@@ -432,6 +434,7 @@ public sealed class InputRouter : IDisposable
         // hold as a fresh press.
         int vk = KeyNameToVirtualKey(key);
         bool currentlyDown = vk != 0 && (_backend.GetAsyncKeyState(vk) & 0x8000) != 0;
+        AudioLog.Write($"[Input] SetMouseBinding: button={button}, kind={kind}, action={action}, key={key}, primedIsHeld={currentlyDown}");
 
         // Install hook under the same lock that guards the dictionary so two
         // concurrent SetXxxBinding calls cannot both observe an empty hook
@@ -489,10 +492,12 @@ public sealed class InputRouter : IDisposable
 
         if (firedKind is BindingKind.Ptt)
         {
+            AudioLog.Write($"[Input] MouseHook PTT event: {(firedDown ? "DOWN" : "UP")} → PttStateChanged({firedDown}) for {firedAction}");
             PttStateChanged?.Invoke(firedDown);
         }
         else if (firedKind is BindingKind.Shortcut && firedAction != null)
         {
+            AudioLog.Write($"[Input] MouseHook Shortcut event: {(firedDown ? "DOWN" : "UP")} → action={firedAction}");
             if (firedDown) ShortcutPressed?.Invoke(firedAction);
             else ShortcutReleased?.Invoke(firedAction);
         }

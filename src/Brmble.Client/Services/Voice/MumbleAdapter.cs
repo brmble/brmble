@@ -213,6 +213,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     public void Connect(string host, int port, string username, string password = "", string? apiUrl = null)
     {
+        AudioLog.Write($"[Mumble] Connect entry: host={host}, audioManagerNull={_audioManager == null}, inputRouterNull={_inputRouter == null}");
         // Clear reconnect flag on every fresh Connect() call.  ReconnectLoop
         // sets it to true *after* calling Connect(); clearing here prevents
         // stale state if a previous connection dropped before ServerSync.
@@ -327,6 +328,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     public void Disconnect()
     {
+        AudioLog.Write($"[Mumble] Disconnect entry: intentional={_intentionalDisconnect}, reconnect={_isReconnect}");
         _isReconnect = false;
         _cts?.Cancel();
         var processThread = _processThread;
