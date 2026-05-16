@@ -268,6 +268,7 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
                 <SettingsHelp content="How long to keep transmitting after you release Push to Talk. Higher values add a short silence tail to help avoid clipping words during brief pauses or at the end of speech." label="More information about hold time" />
               </div>
               <input
+                aria-label="Hold Time"
                 type="range"
                 min="100"
                 max="2000"
@@ -348,6 +349,7 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
                 <SettingsHelp content="How much data is used per second of voice. Higher = better quality but uses more bandwidth. Lower = smaller data usage, good for slow connections. 72 kbps is recommended for most users." label="More information about bitrate" />
               </div>
               <input
+                aria-label="Bitrate"
                 type="range"
                 min="0"
                 max={BITRATES.length - 1}
@@ -365,6 +367,7 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
                 <SettingsHelp content="How many milliseconds of audio are bundled into each network packet. Lower = your voice arrives faster (less delay). Higher = fewer packets sent, better for unstable connections. 20 ms is recommended for most users." label="More information about audio per packet" />
               </div>
               <input
+                aria-label="Audio per packet"
                 type="range"
                 min="0"
                 max={FRAME_SIZES.length - 1}

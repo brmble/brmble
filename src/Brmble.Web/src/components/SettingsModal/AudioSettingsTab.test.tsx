@@ -115,4 +115,21 @@ describe('AudioSettingsTab', () => {
     expect(document.querySelector('.tooltip-icon')).not.toBeInTheDocument();
     expect(document.querySelector('[data-tooltip]')).not.toBeInTheDocument();
   });
+
+  it('keeps audio settings sliders accessible by name', () => {
+    render(
+      <AudioSettingsTab
+        settings={baseSettings}
+        noiseSuppression={DEFAULT_NOISE_SUPPRESSION}
+        onChange={vi.fn()}
+        onNoiseSuppressionChange={vi.fn()}
+        allBindings={{ pushToTalkKey: null }}
+        onClearBinding={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('slider', { name: 'Hold Time' })).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Bitrate' })).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Audio per packet' })).toBeInTheDocument();
+  });
 });
