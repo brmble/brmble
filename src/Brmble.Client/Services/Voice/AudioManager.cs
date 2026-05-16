@@ -561,10 +561,6 @@ internal sealed class AudioManager : IDisposable
     /// <summary>Start mic capture and encoding. No-op if already started or muted.</summary>
     public void StartMic()
     {
-        var stack = new System.Diagnostics.StackTrace(1, false);
-        var frames = stack.GetFrames();
-        var callers = string.Join(" <- ", frames?.Take(4).Select(f => f.GetMethod()?.Name ?? "?") ?? Array.Empty<string>());
-        AudioLog.Write($"[Audio] StartMic CALLED: micStarted={_micStarted}, muted={_muted}, mode={_transmissionMode}, callers={callers}");
         lock (_lock)
         {
             StartMicLocked();
@@ -1111,7 +1107,6 @@ internal sealed class AudioManager : IDisposable
     /// <summary>Set mute state. Stops/starts mic capture accordingly.</summary>
     public void SetMuted(bool muted)
     {
-        AudioLog.Write($"[Audio] SetMuted: muted={muted}, mode={_transmissionMode}, pttActive={_pttActive}");
         _muted = muted;
         if (muted)
         {
@@ -1160,8 +1155,6 @@ internal sealed class AudioManager : IDisposable
     /// </summary>
     public void SetTransmissionMode(TransmissionMode mode, string? key, IntPtr hwnd)
     {
-        AudioLog.Write($"[Audio] SetTransmissionMode CALL: mode={mode}, key={key ?? "<null>"}, prevMode={_transmissionMode}, prevKey={_lastTransmissionKey ?? "<null>"}, configured={_transmissionConfigured}");
-
         // Idempotency guard: identical reapply is a no-op.
         if (_transmissionConfigured
             && mode == _transmissionMode
@@ -1170,7 +1163,6 @@ internal sealed class AudioManager : IDisposable
             return;
         }
 
-        AudioLog.Write($"[Audio] SetTransmissionMode APPLY: mode={mode}, key={key ?? "<null>"}");
         _pttActive = false;
         _transmissionMode = mode;
 

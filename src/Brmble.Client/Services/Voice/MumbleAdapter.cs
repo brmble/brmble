@@ -213,7 +213,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     public void Connect(string host, int port, string username, string password = "", string? apiUrl = null)
     {
-        AudioLog.Write($"[Mumble] Connect entry: host={host}, audioManagerNull={_audioManager == null}, inputRouterNull={_inputRouter == null}");
         // Clear reconnect flag on every fresh Connect() call.  ReconnectLoop
         // sets it to true *after* calling Connect(); clearing here prevents
         // stale state if a previous connection dropped before ServerSync.
@@ -285,6 +284,16 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 _bridge?.Send("voice.pttKey", new { pressed = false, forced = true });
                 _bridge?.NotifyUiThread();
             };
+
+            // Reapply settings so the fresh AudioManager/InputRouter pair
+            // gets the user's transmission mode, PTT key and shortcut
+            // bindings. ApplySettings is otherwise only invoked at app
+            // startup and when settings change — without this, a fresh
+            // AudioManager keeps its default Continuous mode and the
+            // ServerSync flow would StartMic without the user pressing
+            // PTT (root cause of the disconnect → reconnect stuck-mic bug).
+            var settings = _appConfigService?.GetSettings();
+            if (settings != null) ApplySettings(settings);
         }
 
         try
@@ -328,7 +337,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     public void Disconnect()
     {
-        AudioLog.Write($"[Mumble] Disconnect entry: intentional={_intentionalDisconnect}, reconnect={_isReconnect}");
         _isReconnect = false;
         _cts?.Cancel();
         var processThread = _processThread;
@@ -3027,7 +3035,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _bridge?.Send("voice.userSilent", new { session = userId });
         if (LocalUser != null)
             _audioManager?.SetLocalUserId(LocalUser.Id);
-        _audioManager?.StartMic();
+        // Don't unconditionally StartMic here — the transmission mode owns
+        // mic lifecycle. For PushToTalk it must stay stopped until the key
+        // is pressed; for Continuous/VAD/PushToTalkPlus, SetTransmissionMode
+        // (driven by ApplySettings on Connect) already starts it.
 
         StartVoiceIdlePolling();
 
