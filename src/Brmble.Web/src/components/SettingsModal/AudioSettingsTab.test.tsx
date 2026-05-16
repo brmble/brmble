@@ -79,6 +79,40 @@ describe('AudioSettingsTab', () => {
       captureApi: 'waveIn',
       inputDevice: 'default',
     }));
-    expect(screen.getByText('WaveIn uses the system default microphone only. Switch to WASAPI to choose a specific input device.')).toBeInTheDocument();
+    expect(screen.queryByText('WaveIn uses the system default microphone only. Switch to WASAPI to choose a specific input device.')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'More information about input device' })).toHaveClass('settings-info-btn');
+  });
+
+  it('uses shared settings help buttons instead of CSS-only tooltip spans', () => {
+    const { rerender } = render(
+      <AudioSettingsTab
+        settings={baseSettings}
+        noiseSuppression={DEFAULT_NOISE_SUPPRESSION}
+        onChange={vi.fn()}
+        onNoiseSuppressionChange={vi.fn()}
+        allBindings={{ pushToTalkKey: null }}
+        onClearBinding={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('button', { name: 'More information about hold time' })).toHaveClass('settings-info-btn');
+    expect(screen.getByRole('button', { name: 'More information about noise suppression' })).toHaveClass('settings-info-btn');
+    expect(screen.getByRole('button', { name: 'More information about bitrate' })).toHaveClass('settings-info-btn');
+    expect(screen.getByRole('button', { name: 'More information about audio per packet' })).toHaveClass('settings-info-btn');
+
+    rerender(
+      <AudioSettingsTab
+        settings={{ ...baseSettings, transmissionMode: 'voiceActivity' }}
+        noiseSuppression={DEFAULT_NOISE_SUPPRESSION}
+        onChange={vi.fn()}
+        onNoiseSuppressionChange={vi.fn()}
+        allBindings={{ pushToTalkKey: null }}
+        onClearBinding={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('button', { name: 'More information about sensitivity' })).toHaveClass('settings-info-btn');
+    expect(document.querySelector('.tooltip-icon')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-tooltip]')).not.toBeInTheDocument();
   });
 });
