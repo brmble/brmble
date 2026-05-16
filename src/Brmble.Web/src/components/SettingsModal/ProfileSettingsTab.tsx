@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, type CSSProperties } from 'react';
 import Avatar from '../Avatar/Avatar';
 import AvatarUpload from '../AvatarUpload/AvatarUpload';
 import bridge from '../../bridge';
@@ -358,7 +358,7 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
                 <div
                   key={profile.id}
                   className={`profiles-item${isActive ? ' profiles-item-active' : ''}`}
-                  style={{ animationDelay: `${index * 50}ms` }}
+                  style={{ '--stagger-index': index } as CSSProperties}
                 >
                   <div className="profiles-icon">
                     {getInitial(profile.name)}
@@ -379,10 +379,11 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
                       <span>
                         <button
                           className="btn btn-ghost profiles-delete-btn"
+                          aria-label="Delete profile"
                           onClick={() => handleDelete(profile)}
                           disabled={connected && isActive}
                         >
-                          ✕
+                          <Icon name="x" size={16} />
                         </button>
                       </span>
                     </Tooltip>

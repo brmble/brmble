@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type CSSProperties } from 'react';
 import { useProfiles } from '../../hooks/useProfiles';
 import { confirm } from '../../hooks/usePrompt';
 import { Tooltip } from '../Tooltip/Tooltip';
@@ -157,7 +157,7 @@ export function ProfilesSettingsTab({ connected }: ProfilesSettingsTabProps) {
               <div
                 key={profile.id}
                 className={`profiles-item${isActive ? ' profiles-item-active' : ''}`}
-                style={{ animationDelay: `${index * 50}ms` }}
+                style={{ '--stagger-index': index } as CSSProperties}
               >
                 <div className="profiles-icon">
                   {getInitial(profile.name)}
@@ -198,9 +198,10 @@ export function ProfilesSettingsTab({ connected }: ProfilesSettingsTabProps) {
                   <Tooltip content="Delete profile">
                     <button
                       className="btn btn-ghost profiles-delete-btn"
+                      aria-label="Delete profile"
                       onClick={() => handleDelete(profile)}
                     >
-                      ✕
+                      <Icon name="x" size={16} />
                     </button>
                   </Tooltip>
                 </div>
