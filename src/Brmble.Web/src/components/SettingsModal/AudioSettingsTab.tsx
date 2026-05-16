@@ -4,6 +4,7 @@ import { type AllBindings, BINDING_LABELS } from './SettingsModal';
 import { confirm } from '../../hooks/usePrompt';
 import { Select } from '../Select';
 import { VadLevelMeter } from '../VadLevelMeter/VadLevelMeter';
+import { SettingsHelp } from './SettingsHelp';
 import './AudioSettingsTab.css';
 import './ShortcutsSettingsTab.css';
 
@@ -264,10 +265,10 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
               </button>
             </div>
             <div className="settings-item settings-slider">
-              <label>
-                Hold Time: {localSettings.voiceHoldMs}ms{localSettings.voiceHoldMs === 200 ? ' (default)' : ''}
-                <span className="tooltip-icon" data-tooltip="How long to keep transmitting after you release Push to Talk. Higher values add a short silence tail to help avoid clipping words during brief pauses or at the end of speech.">?</span>
-              </label>
+              <div className="settings-label-group">
+                <label>Hold Time: {localSettings.voiceHoldMs}ms{localSettings.voiceHoldMs === 200 ? ' (default)' : ''}</label>
+                <SettingsHelp content="How long to keep transmitting after you release Push to Talk. Higher values add a short silence tail to help avoid clipping words during brief pauses or at the end of speech." label="More information about hold time" />
+              </div>
               <input
                 type="range"
                 min="100"
@@ -283,10 +284,10 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
         {localSettings.transmissionMode === 'voiceActivity' && (
           <>
             <div className="settings-item">
-              <label>
-                Sensitivity
-                <span className="tooltip-icon" data-tooltip="How strictly background noise is rejected. Higher rejects more noise but needs clearer speech to trigger; lower picks up softer voices.">?</span>
-              </label>
+              <div className="settings-label-group">
+                <span className="settings-label">Sensitivity</span>
+                <SettingsHelp content="How strictly background noise is rejected. Higher rejects more noise but needs clearer speech to trigger; lower picks up softer voices." label="More information about sensitivity" />
+              </div>
               <Select
                 value={localSettings.vadSensitivity}
                 onChange={(v) => handleChange('vadSensitivity', v as VadSensitivity)}
@@ -305,10 +306,10 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
         )}
 
         <div className="settings-item">
-          <label>
-            Noise Suppression
-            <span className="tooltip-icon" data-tooltip="How aggressively to suppress background noise. Higher levels remove more noise but can muffle speech. AGC and high-pass filter run regardless of this setting.">?</span>
-          </label>
+          <div className="settings-label-group">
+            <span className="settings-label">Noise Suppression</span>
+            <SettingsHelp content="How aggressively to suppress background noise. Higher levels remove more noise but can muffle speech. AGC and high-pass filter run regardless of this setting." label="More information about noise suppression" />
+          </div>
           <Select
             value={noiseSuppression.level}
             onChange={(v) => onNoiseSuppressionChange({ level: v as NoiseSuppressionLevel })}
@@ -344,10 +345,10 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
           <div className="settings-section">
             <h3 className="heading-section settings-section-title">Encoding</h3>
             <div className="settings-item settings-slider">
-              <label>
-                Bitrate: {normBitrate / 1000} kbps{normBitrate === 72000 ? ' (default)' : ''}
-                <span className="tooltip-icon" data-tooltip="How much data is used per second of voice. Higher = better quality but uses more bandwidth. Lower = smaller data usage, good for slow connections. 72 kbps is recommended for most users.">?</span>
-              </label>
+              <div className="settings-label-group">
+                <label>Bitrate: {normBitrate / 1000} kbps{normBitrate === 72000 ? ' (default)' : ''}</label>
+                <SettingsHelp content="How much data is used per second of voice. Higher = better quality but uses more bandwidth. Lower = smaller data usage, good for slow connections. 72 kbps is recommended for most users." label="More information about bitrate" />
+              </div>
               <input
                 type="range"
                 min="0"
@@ -361,10 +362,10 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
               />
             </div>
             <div className="settings-item settings-slider">
-              <label>
-                Audio per packet: {normFrameSize} ms{normFrameSize === 20 ? ' (default)' : ''}
-                <span className="tooltip-icon" data-tooltip="How many milliseconds of audio are bundled into each network packet. Lower = your voice arrives faster (less delay). Higher = fewer packets sent, better for unstable connections. 20 ms is recommended for most users.">?</span>
-              </label>
+              <div className="settings-label-group">
+                <label>Audio per packet: {normFrameSize} ms{normFrameSize === 20 ? ' (default)' : ''}</label>
+                <SettingsHelp content="How many milliseconds of audio are bundled into each network packet. Lower = your voice arrives faster (less delay). Higher = fewer packets sent, better for unstable connections. 20 ms is recommended for most users." label="More information about audio per packet" />
+              </div>
               <input
                 type="range"
                 min="0"

@@ -81,4 +81,23 @@ describe('AudioSettingsTab', () => {
     }));
     expect(screen.getByText('WaveIn uses the system default microphone only. Switch to WASAPI to choose a specific input device.')).toBeInTheDocument();
   });
+
+  it('uses shared settings help buttons instead of CSS-only tooltip spans', () => {
+    render(
+      <AudioSettingsTab
+        settings={baseSettings}
+        noiseSuppression={DEFAULT_NOISE_SUPPRESSION}
+        onChange={vi.fn()}
+        onNoiseSuppressionChange={vi.fn()}
+        allBindings={{ pushToTalkKey: null }}
+        onClearBinding={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('button', { name: 'More information about hold time' })).toHaveClass('settings-info-btn');
+    expect(screen.getByRole('button', { name: 'More information about bitrate' })).toHaveClass('settings-info-btn');
+    expect(screen.getByRole('button', { name: 'More information about audio per packet' })).toHaveClass('settings-info-btn');
+    expect(document.querySelector('.tooltip-icon')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-tooltip]')).not.toBeInTheDocument();
+  });
 });

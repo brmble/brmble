@@ -175,6 +175,16 @@ Rules:
 2. Section title is always `h3.heading-section.settings-section-title`
 3. Each control row is `div.settings-item` with optional modifier (`.settings-toggle`, `.settings-slider`)
 4. Do not add plain inline help paragraphs under settings controls. Settings rows stay compact; if a setting needs explanation, use the Tooltip pattern or an existing `?` help affordance. Inline text is reserved for empty states, loading states, validation errors, and feature placeholders.
+5. Settings `?` help uses `SettingsHelp` from `src/Brmble.Web/src/components/SettingsModal/SettingsHelp.tsx`. Do not create CSS-only `data-tooltip` spans or one-off `?` button markup in settings tabs.
+
+Settings help example:
+
+```tsx
+<div className="settings-label-group">
+  <span className="settings-label">Resolution</span>
+  <SettingsHelp content="Higher resolution uses more bandwidth" label="More information about resolution" />
+</div>
+```
 
 ### Sidebar Section Pattern
 

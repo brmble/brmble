@@ -93,6 +93,33 @@
   color: var(--text-secondary);
 }
 
+.settings-label-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.settings-label {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.settings-info-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-full);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--border-subtle);
+  padding: 0;
+}
+
 .settings-value {
   font-size: var(--text-sm);
   color: var(--text-primary);
