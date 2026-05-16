@@ -398,6 +398,42 @@ public class MumbleAdapterParseTests
     }
 
     [TestMethod]
+    public void SetChannelPassword_BuildRequest_PreservesUnrelatedTokensAndHash()
+    {
+        var body = """
+        {
+          "snapshot": {
+            "channelId": 4,
+            "inheritAcls": true,
+            "groups": [],
+            "acls": [
+              { "applyHere": true, "applySubs": false, "inherited": false, "userId": null, "group": "#old-secret", "allow": 6, "deny": 0 },
+              { "applyHere": true, "applySubs": false, "inherited": false, "userId": null, "group": "#vip", "allow": 4, "deny": 0 },
+              { "applyHere": true, "applySubs": false, "inherited": false, "userId": null, "group": "#event", "allow": 4, "deny": 0 },
+              { "applyHere": true, "applySubs": false, "inherited": false, "userId": null, "group": "__brmble_password_marker__:#old-secret", "allow": 0, "deny": 0 }
+            ],
+            "fetchedAt": "2026-05-15T12:00:00Z",
+            "stale": false,
+            "warning": null,
+            "snapshotHash": "known-hash"
+          }
+        }
+        """;
+
+        var requestJson = MumbleAdapter.BuildSetChannelPasswordRequestBody(body, "new-secret");
+        using var doc = JsonDocument.Parse(requestJson);
+        var root = doc.RootElement;
+        var acls = root.GetProperty("acls").EnumerateArray().ToList();
+
+        Assert.AreEqual("known-hash", root.GetProperty("expectedSnapshotHash").GetString());
+        Assert.IsFalse(acls.Any(a => a.GetProperty("group").GetString() == "#old-secret"));
+        Assert.IsTrue(acls.Any(a => a.GetProperty("group").GetString() == "#vip"));
+        Assert.IsTrue(acls.Any(a => a.GetProperty("group").GetString() == "#event"));
+        Assert.IsTrue(acls.Any(a => a.GetProperty("group").GetString() == "#new-secret"));
+        Assert.IsTrue(acls.Any(a => a.GetProperty("group").GetString() == "__brmble_password_marker__:#new-secret"));
+    }
+
+    [TestMethod]
     public void ParseBrmbleApiUrl_ValidComment_ReturnsUrl()
     {
         var text = """Welcome!<!--brmble:{"apiUrl":"https://noscope.it:1912"}-->""";

@@ -1324,6 +1324,97 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         long taskGeneration)
         => isCancellationRequested && currentGeneration == taskGeneration;
 
+    private const string BrmblePasswordMarkerPrefix = "__brmble_password_marker__:";
+
+    internal static string BuildSetChannelPasswordRequestBody(string snapshotBody, string password)
+    {
+        using var rootDoc = System.Text.Json.JsonDocument.Parse(snapshotBody);
+        var snapshot = rootDoc.RootElement.TryGetProperty("snapshot", out var snap) ? snap : rootDoc.RootElement;
+        var inheritAcls = snapshot.TryGetProperty("inheritAcls", out var inheritProp) && inheritProp.GetBoolean();
+        var expectedSnapshotHash = snapshot.TryGetProperty("snapshotHash", out var hashProp) ? hashProp.GetString() ?? "" : "";
+
+        var groups = snapshot.TryGetProperty("groups", out var groupsProp) && groupsProp.ValueKind == System.Text.Json.JsonValueKind.Array
+            ? groupsProp.EnumerateArray().Select(g => System.Text.Json.JsonSerializer.Deserialize<object>(g.GetRawText())!).ToList()
+            : [];
+
+        var localRules = new List<System.Text.Json.JsonElement>();
+        string? managedToken = null;
+
+        if (snapshot.TryGetProperty("acls", out var aclsProp) && aclsProp.ValueKind == System.Text.Json.JsonValueKind.Array)
+        {
+            foreach (var acl in aclsProp.EnumerateArray())
+            {
+                var inherited = acl.TryGetProperty("inherited", out var inheritedProp) && inheritedProp.GetBoolean();
+                if (inherited)
+                {
+                    continue;
+                }
+
+                var group = acl.TryGetProperty("group", out var groupProp) && groupProp.ValueKind != System.Text.Json.JsonValueKind.Null
+                    ? groupProp.GetString()
+                    : null;
+                if (!string.IsNullOrWhiteSpace(group) && group.StartsWith(BrmblePasswordMarkerPrefix, StringComparison.Ordinal))
+                {
+                    managedToken = group[BrmblePasswordMarkerPrefix.Length..];
+                    continue;
+                }
+
+                localRules.Add(acl);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(managedToken))
+        {
+            localRules = localRules
+                .Where(acl =>
+                {
+                    var group = acl.TryGetProperty("group", out var groupProp) && groupProp.ValueKind != System.Text.Json.JsonValueKind.Null
+                        ? groupProp.GetString()
+                        : null;
+                    return !string.Equals(group, managedToken, StringComparison.Ordinal);
+                })
+                .ToList();
+        }
+
+        var normalizedPassword = password.Trim();
+        if (!string.IsNullOrWhiteSpace(normalizedPassword))
+        {
+            var selector = $"#{normalizedPassword}";
+            var tokenRule = new
+            {
+                applyHere = true,
+                applySubs = false,
+                inherited = false,
+                userId = (int?)null,
+                group = selector,
+                allow = 0x04 | 0x02,
+                deny = 0,
+            };
+            var markerRule = new
+            {
+                applyHere = true,
+                applySubs = false,
+                inherited = false,
+                userId = (int?)null,
+                group = $"{BrmblePasswordMarkerPrefix}{selector}",
+                allow = 0,
+                deny = 0,
+            };
+            localRules.Add(System.Text.Json.JsonSerializer.SerializeToElement(tokenRule));
+            localRules.Add(System.Text.Json.JsonSerializer.SerializeToElement(markerRule));
+        }
+
+        var request = new
+        {
+            inheritAcls,
+            groups,
+            acls = localRules.Select(acl => System.Text.Json.JsonSerializer.Deserialize<object>(acl.GetRawText())!).ToList(),
+            expectedSnapshotHash = expectedSnapshotHash,
+        };
+
+        return System.Text.Json.JsonSerializer.Serialize(request);
+    }
+
     internal sealed record ServerRemovalPayload(
         string Reason,
         string ActorName,
@@ -2946,6 +3037,46 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 : "{\"inheritAcls\":true,\"groups\":[],\"acls\":[]}";
             var uri = new Uri(new Uri(_apiUrl, UriKind.Absolute), $"acl/channels/{channelId}");
             var result = await PutViaBcTls(cert, uri, requestJson);
+            _bridge?.Send(result.Success ? "acl.writeResult" : "acl.error", new { channelId, body = result.Body, statusCode = result.StatusCode, error = result.Error });
+            _bridge?.NotifyUiThread();
+        });
+
+        bridge.RegisterHandler("acl.setChannelPassword", async data =>
+        {
+            var channelId = data.TryGetProperty("channelId", out var cid) && cid.ValueKind == System.Text.Json.JsonValueKind.Number
+                ? cid.GetInt32()
+                : 0;
+            var password = data.TryGetProperty("password", out var pwd) && pwd.ValueKind == System.Text.Json.JsonValueKind.String
+                ? pwd.GetString() ?? ""
+                : "";
+
+            if (channelId <= 0 || _apiUrl is null)
+            {
+                _bridge?.Send("acl.error", new { channelId, error = "Not connected or invalid channel" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            using var cert = _certService?.GetExportableCertificate();
+            if (cert is null)
+            {
+                _bridge?.Send("acl.error", new { channelId, error = "No client certificate" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            var baseUri = new Uri(_apiUrl, UriKind.Absolute);
+            var channelUri = new Uri(baseUri, $"acl/channels/{channelId}");
+            var current = await GetViaBcTls(cert, channelUri);
+            if (!current.Success || string.IsNullOrWhiteSpace(current.Body))
+            {
+                _bridge?.Send("acl.error", new { channelId, error = current.Error ?? "Failed to load ACL snapshot", statusCode = current.StatusCode });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            var requestJson = BuildSetChannelPasswordRequestBody(current.Body, password);
+            var result = await PutViaBcTls(cert, channelUri, requestJson);
             _bridge?.Send(result.Success ? "acl.writeResult" : "acl.error", new { channelId, body = result.Body, statusCode = result.StatusCode, error = result.Error });
             _bridge?.NotifyUiThread();
         });

@@ -669,7 +669,7 @@ onClick: () => {
           initialName={editChannelDialog.name}
           initialDescription={editChannelDialog.description}
           onClose={() => setEditChannelDialog(null)}
-          onSave={(name, description) => {
+          onSave={(name, description, password) => {
             const channel = channels.find(c => c.id === editChannelDialog!.id);
             const oldName = channel?.name || '';
 
@@ -687,6 +687,11 @@ onClick: () => {
                 description,
               });
             }
+
+            bridge.send('acl.setChannelPassword', {
+              channelId: editChannelDialog!.id,
+              password,
+            });
           }}
           onError={(msg) => console.error('Edit channel error:', msg)}
         />
