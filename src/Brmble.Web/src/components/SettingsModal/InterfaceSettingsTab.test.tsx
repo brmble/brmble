@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { InterfaceSettingsTab } from './InterfaceSettingsTab';
-import { DEFAULT_OVERLAY } from './InterfaceSettingsTypes';
+import { DEFAULT_BRMBLEGOTCHI, DEFAULT_OVERLAY } from './InterfaceSettingsTypes';
 
 describe('InterfaceSettingsTab', () => {
   it('does not render plain inline overlay help text', () => {
@@ -9,7 +9,7 @@ describe('InterfaceSettingsTab', () => {
       <InterfaceSettingsTab
         appearanceSettings={{ theme: 'classic' }}
         overlaySettings={DEFAULT_OVERLAY}
-        brmblegotchiSettings={{ enabled: true }}
+        brmblegotchiSettings={DEFAULT_BRMBLEGOTCHI}
         onAppearanceChange={vi.fn()}
         onOverlayChange={vi.fn()}
         onBrmblegotchiChange={vi.fn()}
