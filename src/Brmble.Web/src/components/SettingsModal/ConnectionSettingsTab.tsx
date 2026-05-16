@@ -102,12 +102,6 @@ export function ConnectionSettingsTab({ settings, onChange, servers }: Connectio
             </div>
           </Tooltip>
         </div>
-
-        {servers.length === 0 && (
-          <p className="settings-hint">
-            You can also choose a specific server once you've added one.
-          </p>
-        )}
       </div>
 
     </div>
