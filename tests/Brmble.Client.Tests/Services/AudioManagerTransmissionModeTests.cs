@@ -18,6 +18,16 @@ public class AudioManagerTransmissionModeTests
             .GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(audio)!;
 
+    private static object? GetPrivateField(AudioManager audio, string fieldName)
+        => typeof(AudioManager)
+            .GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(audio);
+
+    private static void SetPrivateField(AudioManager audio, string fieldName, object? value)
+        => typeof(AudioManager)
+            .GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(audio, value);
+
     [TestMethod]
     public void FirstCall_AppliesConfiguration()
     {
@@ -153,6 +163,41 @@ public class AudioManagerTransmissionModeTests
         audio.SetOutputDevice("speaker-device-456");
 
         Assert.AreEqual("speaker-device-456", GetPrivateStringField(audio, "_outputDeviceId"));
+    }
+
+    [TestMethod]
+    public void SuspendHotkeys_ClearsMouseShortcutRegistrationState()
+    {
+        using var audio = new AudioManager();
+        SetPrivateField(audio, "_shortcutActionForMouse", "toggleMute");
+        SetPrivateField(audio, "_shortcutKeyForMouse", "MouseRight");
+        SetPrivateField(audio, "_shortcutMouseVk", AudioManager.KeyNameToVirtualKey("MouseRight"));
+        SetPrivateField(audio, "_heldMouseAction", "toggleMute");
+
+        audio.SuspendHotkeys();
+
+        Assert.IsNull(GetPrivateField(audio, "_shortcutActionForMouse"));
+        Assert.IsNull(GetPrivateField(audio, "_shortcutKeyForMouse"));
+        Assert.AreEqual(0, GetPrivateField(audio, "_shortcutMouseVk"));
+        Assert.IsNull(GetPrivateField(audio, "_heldMouseAction"));
+    }
+
+    [TestMethod]
+    public void ClearingShortcut_ClearsExistingMouseShortcutRegistrationState()
+    {
+        using var audio = new AudioManager();
+        SetPrivateField(audio, "_hwnd", new IntPtr(1));
+        SetPrivateField(audio, "_shortcutActionForMouse", "toggleMute");
+        SetPrivateField(audio, "_shortcutKeyForMouse", "MouseRight");
+        SetPrivateField(audio, "_shortcutMouseVk", AudioManager.KeyNameToVirtualKey("MouseRight"));
+        SetPrivateField(audio, "_heldMouseAction", "toggleMute");
+
+        audio.SetShortcut("toggleMute", null);
+
+        Assert.IsNull(GetPrivateField(audio, "_shortcutActionForMouse"));
+        Assert.IsNull(GetPrivateField(audio, "_shortcutKeyForMouse"));
+        Assert.AreEqual(0, GetPrivateField(audio, "_shortcutMouseVk"));
+        Assert.IsNull(GetPrivateField(audio, "_heldMouseAction"));
     }
 
     // -- IsTransmissionConfigStillValid (pure helper) ---------------------

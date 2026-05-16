@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import bridge from '../../bridge';
 import { type AllBindings, BINDING_LABELS } from './SettingsModal';
 import { confirm } from '../../hooks/usePrompt';
@@ -72,6 +72,8 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
   const [localSettings, setLocalSettings] = useState<AudioSettings>(settings);
   const [recording, setRecording] = useState(false);
   const [isPromptOpen, setIsPromptOpen] = useState(false);
+  const capturedInputRef = useRef<string | null>(null);
+  const hotkeysSuspendedRef = useRef(false);
   const [inputDevices, setInputDevices] = useState<AudioDeviceOption[]>([DEFAULT_DEVICE_OPTION]);
   const [outputDevices, setOutputDevices] = useState<AudioDeviceOption[]>([DEFAULT_DEVICE_OPTION]);
 
@@ -95,11 +97,13 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
     };
   }, []);
 
-  const handleChange = (key: keyof AudioSettings, value: string | number | TransmissionMode) => {
-    const newSettings = { ...localSettings, [key]: value };
-    setLocalSettings(newSettings);
-    onChange(newSettings);
-  };
+  const handleChange = useCallback((key: keyof AudioSettings, value: string | number | TransmissionMode) => {
+    setLocalSettings((prev) => {
+      const newSettings = { ...prev, [key]: value };
+      onChange(newSettings);
+      return newSettings;
+    });
+  }, [onChange]);
 
   const handleCaptureApiChange = (value: 'waveIn' | 'wasapi') => {
     const nextSettings: AudioSettings = {
@@ -131,7 +135,7 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
       setIsPromptOpen(false);
       
       if (!confirmed) {
-        setRecording(false);
+        capturedInputRef.current = key;
         return;
       }
       
@@ -141,16 +145,20 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
     
     // Apply new binding
     handleChange('pushToTalkKey', key);
-    setRecording(false);
+    capturedInputRef.current = key;
   }, [recording, allBindings, handleChange, onClearBinding]);
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     e.preventDefault();
+    e.stopImmediatePropagation();
+    if (capturedInputRef.current) return;
     handleInput(e.code);
   }, [handleInput]);
 
   const handleMouseDown = useCallback((e: MouseEvent) => {
     e.preventDefault();
+    e.stopImmediatePropagation();
+    if (capturedInputRef.current) return;
     const button = e.button;
     const mouseButtonMap: Record<number, string> = {
       0: 'MouseLeft',
@@ -167,13 +175,28 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
 
   useEffect(() => {
     if (recording && !isPromptOpen) {
-      bridge.send('voice.suspendHotkeys');
-      window.addEventListener('keydown', handleKeyDown);
-      window.addEventListener('mousedown', handleMouseDown);
+      if (!hotkeysSuspendedRef.current) {
+        bridge.send('voice.suspendHotkeys');
+        hotkeysSuspendedRef.current = true;
+      }
+      const finishRecording = () => {
+        if (!capturedInputRef.current) return;
+        capturedInputRef.current = null;
+        setRecording(false);
+      };
+      window.addEventListener('keydown', handleKeyDown, true);
+      window.addEventListener('mousedown', handleMouseDown, true);
+      window.addEventListener('keyup', finishRecording, true);
+      window.addEventListener('mouseup', finishRecording, true);
       return () => {
-        window.removeEventListener('keydown', handleKeyDown);
-        window.removeEventListener('mousedown', handleMouseDown);
-        bridge.send('voice.resumeHotkeys');
+        window.removeEventListener('keydown', handleKeyDown, true);
+        window.removeEventListener('mousedown', handleMouseDown, true);
+        window.removeEventListener('keyup', finishRecording, true);
+        window.removeEventListener('mouseup', finishRecording, true);
+        if (!capturedInputRef.current && hotkeysSuspendedRef.current) {
+          bridge.send('voice.resumeHotkeys');
+          hotkeysSuspendedRef.current = false;
+        }
       };
     }
   }, [recording, isPromptOpen, handleKeyDown, handleMouseDown]);
@@ -255,12 +278,26 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
           <>
             <div className="settings-item">
               <label>Push to Talk Key</label>
-              <button
-                className={`btn btn-secondary key-binding-btn ${recording ? 'recording' : ''}`}
-                onClick={() => setRecording(!recording)}
-              >
-                {recording ? 'Press any key...' : (localSettings.pushToTalkKey || 'Not bound')}
-              </button>
+              <div className="key-binding-actions">
+                {localSettings.pushToTalkKey && (
+                  <button
+                    className="btn btn-secondary key-binding-clear-btn"
+                    aria-label="Clear Push to Talk Key binding"
+                    onClick={() => {
+                      setLocalSettings((prev) => ({ ...prev, pushToTalkKey: null }));
+                      onClearBinding('pushToTalkKey');
+                    }}
+                  >
+                    Clear
+                  </button>
+                )}
+                <button
+                  className={`btn ${localSettings.pushToTalkKey && !recording ? 'btn-primary' : 'btn-secondary'} key-binding-btn ${recording ? 'recording' : ''}`}
+                  onClick={() => setRecording(!recording)}
+                >
+                  {recording ? 'Press any key...' : (localSettings.pushToTalkKey || 'Not bound')}
+                </button>
+              </div>
             </div>
             <div className="settings-item settings-slider">
               <div className="settings-label-group">

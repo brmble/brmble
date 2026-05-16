@@ -284,6 +284,7 @@ export function SettingsModal(props: SettingsModalProps) {
         { action: 'toggleLeaveVoice', key: shortcuts.toggleLeaveVoiceKey },
         { action: 'toggleDmScreen', key: shortcuts.toggleDMScreenKey },
         { action: 'toggleScreenShare', key: shortcuts.toggleScreenShareKey },
+        { action: 'toggleGame', key: shortcuts.toggleGameKey },
       ];
 
       for (const { action, key } of actions) {
@@ -317,6 +318,7 @@ export function SettingsModal(props: SettingsModalProps) {
           toggleLeaveVoiceKey: 'toggleLeaveVoice',
           toggleDMScreenKey: 'toggleDmScreen',
           toggleScreenShareKey: 'toggleScreenShare',
+          toggleGameKey: 'toggleGame',
         };
         const action = BINDING_TO_ACTION[bindingId] ?? bindingId.replace('Key', '');
         bridge.send('voice.setShortcut', { action, key: null });
