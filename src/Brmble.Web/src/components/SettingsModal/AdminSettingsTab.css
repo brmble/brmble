@@ -1,7 +1,3 @@
-.admin-settings-tab {
-  padding: var(--space-lg);
-}
-
 .settings-subtabs {
   display: flex;
   gap: var(--space-xs);
@@ -68,8 +64,22 @@
   justify-content: space-between;
   align-items: center;
   padding: var(--space-sm) var(--space-md);
-  cursor: pointer;
+  gap: var(--space-md);
   transition: background var(--transition-fast);
+}
+
+.admin-ban-expand {
+  flex: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-md);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
 }
 
 .admin-ban-summary:hover {
