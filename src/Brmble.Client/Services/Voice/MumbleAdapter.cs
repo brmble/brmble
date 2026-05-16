@@ -805,14 +805,22 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (parsed == TransmissionMode.Continuous && mode != "continuous")
             Debug.WriteLine($"[Audio] Unknown transmission mode '{mode}', defaulting to Continuous");
 
-        if (parsed == TransmissionMode.PushToTalk || parsed == TransmissionMode.PushToTalkPlus)
-            _currentPttKey = key;
+        bool isPtt = parsed == TransmissionMode.PushToTalk || parsed == TransmissionMode.PushToTalkPlus;
+
+        // Only adopt a non-null key. Callers (e.g. ApplySettings on reconnect,
+        // or a bridge message that omits the key field) may pass null when
+        // they don't intend to clear the binding — they're just re-asserting
+        // the mode. Treating null as "clear" silently unbinds PTT on every
+        // settings reapply that has a stale AppConfig.PushToTalkKey value.
+        if (isPtt && key != null) _currentPttKey = key;
 
         _audioManager?.SetDtx(ShouldEnableDtx(parsed));
         _audioManager?.SetTransmissionMode(parsed, key, _hwnd);
 
-        bool isPtt = parsed == TransmissionMode.PushToTalk || parsed == TransmissionMode.PushToTalkPlus;
-        _inputRouter?.SetPttBinding(isPtt ? key : null);
+        // For PTT modes, always route the live _currentPttKey (preserving
+        // any previously-bound key when the caller omitted it). For
+        // non-PTT modes, null clears the binding.
+        _inputRouter?.SetPttBinding(isPtt ? _currentPttKey : null);
     }
 
     private NoiseSuppressionLevel? _lastNoiseSuppressionLevel;
