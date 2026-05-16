@@ -101,7 +101,7 @@
 
 .message-input-wrapper.drag-over {
   border-color: var(--accent-primary);
-  background: var(--accent-primary-subtle, rgba(99, 102, 241, 0.05));
+  background: var(--accent-primary-ghost);
 }
 
 .image-validation-error {

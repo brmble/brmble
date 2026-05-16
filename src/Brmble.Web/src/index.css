@@ -259,7 +259,7 @@ a:hover {
 
 .btn-primary {
   background: var(--accent-primary);
-  color: #ffffff;
+  color: var(--bg-deep);
   border: 1px solid transparent;
   box-shadow: 0 0 var(--glow-md) var(--accent-primary-glow);
 }

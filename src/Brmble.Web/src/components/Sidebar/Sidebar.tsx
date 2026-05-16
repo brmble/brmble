@@ -649,12 +649,11 @@ export function Sidebar({
             </div>
             <div className="prompt-input-container">
               <textarea
-                className="brmble-input"
+                className="brmble-input channel-description-input"
                 placeholder="Description (optional, max 127 chars)"
                 value={newChannelDescription}
                 onChange={(e) => setNewChannelDescription(e.target.value.slice(0, 127))}
                 rows={3}
-                style={{ resize: 'vertical', minHeight: '60px' }}
               />
             </div>
             <div className="prompt-footer">

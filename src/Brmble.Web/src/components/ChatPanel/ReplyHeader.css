@@ -1,19 +1,19 @@
 .reply-header {
   display: flex;
   align-items: center;
-  gap: var(--space-sm, 12px);
-  padding: var(--space-sm, 12px);
+  gap: var(--space-sm);
+  padding: var(--space-sm);
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-left: 2px solid var(--accent-primary);
-  border-radius: var(--radius-md, 8px);
-  margin-bottom: var(--space-sm, 12px);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-sm);
   box-shadow: var(--shadow-drop-subtle);
 }
 
 .reply-header-label {
   font-family: var(--font-body);
-  font-size: var(--text-2xs, 10px);
+  font-size: var(--text-2xs);
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -23,7 +23,7 @@
 .reply-header-content {
   display: flex;
   align-items: center;
-  gap: var(--space-xs, 8px);
+  gap: var(--space-xs);
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -32,14 +32,14 @@
 .reply-header-sender {
   font-family: var(--font-body);
   font-weight: 600;
-  font-size: var(--text-xs, 12px);
+  font-size: var(--text-xs);
   color: var(--text-primary);
   white-space: nowrap;
 }
 
 .reply-header-preview {
   font-family: var(--font-body);
-  font-size: var(--text-xs, 12px);
+  font-size: var(--text-xs);
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
@@ -48,12 +48,12 @@
 }
 
 .reply-header-cancel {
-  padding: var(--space-2xs, 4px);
+  padding: var(--space-2xs);
   background: none;
   border: none;
   cursor: pointer;
   color: var(--text-muted);
-  border-radius: var(--radius-xs, 4px);
+  border-radius: var(--radius-xs);
   display: flex;
   align-items: center;
   justify-content: center;

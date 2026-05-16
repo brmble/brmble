@@ -385,7 +385,7 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
       <div className="settings-section">
         <div className="settings-section-header">
           <span className="settings-dev-label">DEV</span>
-          <span className="settings-section-title">Audio Capture API</span>
+          <h3 className="heading-section settings-section-title">Audio Capture API</h3>
         </div>
         <div className="toggle-group">
           <button
