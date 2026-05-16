@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Buffers;
 using Brmble.Audio;
@@ -560,6 +561,10 @@ internal sealed class AudioManager : IDisposable
     /// <summary>Start mic capture and encoding. No-op if already started or muted.</summary>
     public void StartMic()
     {
+        var stack = new System.Diagnostics.StackTrace(1, false);
+        var frames = stack.GetFrames();
+        var callers = string.Join(" <- ", frames?.Take(4).Select(f => f.GetMethod()?.Name ?? "?") ?? Array.Empty<string>());
+        AudioLog.Write($"[Audio] StartMic CALLED: micStarted={_micStarted}, muted={_muted}, mode={_transmissionMode}, callers={callers}");
         lock (_lock)
         {
             StartMicLocked();
