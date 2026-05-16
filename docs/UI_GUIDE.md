@@ -24,7 +24,18 @@ Format: Flat rulebook. Numbered rules, tables, do/don't examples. No fluff.
 
 ### The Absolute Rule
 
-**Never hardcode colors, font sizes, border-radius, or font families. Always use CSS custom property tokens.**
+**Never hardcode colors, font sizes, font families, spacing, border radius, shadows, or transition values. Always use CSS custom property tokens.**
+
+### AI Agent UI Gate
+
+Treat a task as UI work if it creates, changes, styles, or reviews anything user-visible. This includes prompts, confirmations, notifications, settings rows, help text, tooltips, empty/loading/error states, icons, screen share surfaces, sidebar rows, and copy inside UI components.
+
+Before changing UI code:
+1. Find the matching pattern in this guide.
+2. Use the existing component/pattern rather than inventing a new one.
+3. If no matching pattern exists, update this guide in the same branch before or alongside the UI change.
+
+Do not create new UI systems, one-off component patterns, ad-hoc CSS, native browser dialogs, toast components, or hardcoded visual values.
 
 ---
 
@@ -174,6 +185,19 @@ Rules:
 1. Each logical group is a `div.settings-section`
 2. Section title is always `h3.heading-section.settings-section-title`
 3. Each control row is `div.settings-item` with optional modifier (`.settings-toggle`, `.settings-slider`)
+4. Do not hide normal-user settings inside sub-tabs or nested settings menus. Normal settings must be visible in the tab.
+5. Admin settings are the only exception: admin-only tools may use sub-tabs because they are advanced, specialized workflows.
+6. Do not add plain inline help paragraphs under settings controls. Settings rows stay compact; if a setting needs explanation, use `SettingsHelp`. Inline text is reserved for empty states, loading states, validation errors, and feature placeholders.
+7. Settings `?` help uses `SettingsHelp` from `src/Brmble.Web/src/components/SettingsModal/SettingsHelp.tsx`. Do not create CSS-only `data-tooltip` spans or one-off `?` button markup in settings tabs.
+
+Settings help example:
+
+```tsx
+<div className="settings-label-group">
+  <span className="settings-label">Resolution</span>
+  <SettingsHelp content="Higher resolution uses more bandwidth" label="More information about resolution" />
+</div>
+```
 
 ### Sidebar Section Pattern
 
@@ -233,6 +257,8 @@ Reference: `src/Brmble.Web/src/hooks/usePrompt.tsx`, `src/Brmble.Web/src/compone
 
 Use the `confirm()` function for any action that requires a user decision before proceeding (e.g., destructive actions, conflict resolution). Do **not** use `window.confirm()` — it returns `false` immediately in WebView2.
 
+Prompts and confirmations are UI work. Before adding confirmation copy, buttons, or branching behavior, follow this pattern instead of creating a custom modal or native browser dialog.
+
 #### Setup (once, in App.tsx only)
 
 ```tsx
@@ -268,6 +294,24 @@ if (result) {
 }
 ```
 
+Use `prompt()` when the shared confirmation flow also needs a short text input, such as a reason or typed confirmation:
+
+```tsx
+import { prompt } from '../../hooks/usePrompt';
+
+const result = await prompt({
+  title: 'Remove Channel',
+  message: 'Type "Remove" to confirm deleting "Secret".',
+  placeholder: 'Remove',
+  confirmLabel: 'Remove',
+  cancelLabel: 'Cancel',
+});
+
+if (result === 'Remove') {
+  // proceed with destructive action
+}
+```
+
 #### DOM structure
 
 ```
@@ -286,6 +330,7 @@ Rules:
 2. Cancel is always `btn-secondary` on the left; Confirm is always `btn-primary` on the right
 3. `<Prompt />` must be the **last child** of the root `<div className="app">` so it renders above all other content
 4. Never call `usePrompt()` in more than one component — only the owner of `<Prompt />` should call it; all others use `confirm()` directly
+5. For typed confirmations or reason capture, use the shared `prompt()` / `<PromptWithInput />` flow instead of building a one-off modal
 
 ### Form Inputs
 
@@ -350,6 +395,7 @@ Rules:
 6. Accessible: `role="tooltip"`, `aria-describedby`, Escape key dismissal
 7. For small trigger elements (e.g. `btn-icon`) near window edges, use `align="start"` or `align="end"` to prevent the tooltip from overflowing off-screen
 8. **Disabled elements** don't fire mouse/focus events -- wrap them in a `<span>` or `<div>` and attach the Tooltip to the wrapper instead
+9. In settings tabs, do not create raw `?` tooltip markup. Use `SettingsHelp`.
 
 ### Select Pattern
 
@@ -653,7 +699,7 @@ The component sets `aria-hidden="true"` automatically. Color inherits from `curr
 | **Media** | `monitor`, `monitor-off`, `minimize-2`, `maximize-2` | Screen share & fullscreen |
 | **Chat** | `message-square`, `message-circle` | Message bubble variants |
 | **Server** | `server`, `globe`, `folder`, `shield`, `star`, `ban`, `triangle-right` | Infrastructure & moderation |
-| **UI — Actions** | `x`, `search`, `plus`, `check`, `send`, `upload`, `arrow-right`, `eye`, `eye-off`, `chevron-up`, `chevron-down`, `info`, `info-filled` | Generic interactive icons |
+| **UI — Actions** | `x`, `search`, `plus`, `check`, `send`, `upload`, `refresh-cw`, `arrow-right`, `eye`, `eye-off`, `chevron-up`, `chevron-down`, `info`, `info-filled` | Generic interactive icons |
 | **UI — Objects** | `user`, `settings`, `save`, `palette`, `moon` | Profiles, preferences, idle indicator |
 | **Window** | `window-minimize`, `window-maximize`, `window-close` | Title bar controls (custom viewBox) |
 | **Brmblegotchi — Actions** | `gotchi-food`, `gotchi-play`, `gotchi-clean` | Pet interaction buttons |
@@ -730,7 +776,9 @@ Brmblegotchi icons are prefixed `gotchi-` and shared across all pet themes (`ori
 
 ### Base Component
 
-All notifications use the shared `<Notification>` base component (`src/Brmble.Web/src/components/Notification/`). Never create standalone notification components with their own positioning/animation/styling — always wrap with `<Notification>`.
+All notifications use the shared `<Notification>` base component (`src/Brmble.Web/src/components/Notification/`). Never create standalone notification/toast components with their own positioning/animation/styling — always wrap with `<Notification>`.
+
+Brmble does **not** have a separate toast system. Do not add `Toast` components, bottom-right toasts, or bottom-center toasts. Use top-right notifications and `useNotificationQueue`.
 
 ### Status Types
 
@@ -746,19 +794,20 @@ The `status` prop drives icon, color, ARIA role, and auto-dismiss behavior:
 ### Decision Checklist (answer all before building a notification)
 
 1. **What status applies?** `info` = supplemental, `success` = action confirmed, `warning` = needs attention, `error` = something failed
-2. **What position?** `top-right` for system/background events, `bottom-center` for direct action feedback
+2. **What position?** `top-right`. Brmble no longer supports toast positions.
 3. **Should it auto-dismiss?** Default from status, but can override with `duration` prop
 4. **Does it need a dismiss button?** Persistent notifications: yes. Blocking with no fallback: no dismiss.
 5. **What actions does it need?** Max 1 primary action. Action must be reachable elsewhere in UI since notifications can be missed.
 6. **What title + detail?** Title = what happened (short, one line). Detail = context or next step (optional).
 7. **What lifecycle model?** Choose one: stable singleton, replacement, or historical/multi-entry. This determines the ID and cleanup strategy.
+8. **Should users be able to disable it?** Repeatable informational top-right notifications should usually respect Notifications -> `Disable optional notifications` and a category toggle. Critical warnings, errors, recovery, updates, and one-time confirmations usually stay ungated.
 
 ### Props
 
 ```tsx
 interface NotificationProps {
   status: 'info' | 'success' | 'warning' | 'error';
-  position: 'top-right' | 'bottom-center';
+  position: 'top-right';
   title: React.ReactNode;         // Bold headline — what happened. Keep to one line.
   detail?: React.ReactNode;       // Secondary text — context, next step, or explanation.
   actions?: React.ReactNode;      // Action buttons rendered below the message.
@@ -795,7 +844,14 @@ The status icon aligns vertically with the title line.
 - **Action buttons:** Max 1 primary per notification. Every labeled button must perform a distinct action (e.g. "Update", "Import", "Settings"). Close button is separate from action buttons.
 - **Dismissal is `×` only.** Never add a text button ("Dismiss", "Later", "Close") that duplicates the `×` close button. The `×` is the universal dismiss affordance — text buttons are reserved for meaningful actions. This keeps the UI clean and avoids redundancy.
 - Top-right notifications render inside a `.notification-stack` container in `App.tsx`.
-- Bottom-center notifications (`Toast`) position themselves independently.
+
+### Optional Notification Settings
+
+Before adding a repeatable top-right notification, decide whether it belongs behind the Notifications settings tab. Optional notifications are user-controllable pop-up notices that can repeat during normal use and are not required for account recovery, safety, or error handling.
+
+Use optional notification settings for repeatable informational events such as screen share invitations, screen share status updates, idle reminders, or channel move notices. Do not gate critical warnings, errors, update prompts, certificate recovery, kicked/banned notices, service outage warnings, or one-time confirmations unless there is a specific product decision to make them optional.
+
+Optional notifications must check the effective setting before registering with `useNotificationQueue`; disabled notifications should not leave stale entries visible or queued.
 
 ### Queue & Priority (`useNotificationQueue`)
 
@@ -818,7 +874,6 @@ Top-right notifications are managed by the `useNotificationQueue` hook (`src/Brm
 - `register(id, status)` — call when notification data exists (e.g. broken profile detected, update available, server imported).
 - `unregister(id)` — call from `onExited` (after exit animation), not from `onDismiss`. This ensures the exit animation completes before the slot is freed.
 - `isVisible(id)` — pass as the `visible` prop to `<Notification>`.
-- Bottom-center notifications (`Toast`) bypass the queue — they position independently.
 
 ### Queue Lifecycle Checklist
 
@@ -900,6 +955,5 @@ See `src/Brmble.Web/src/themes/_template.css` for guidance values per token.
 
 | Component | Status | Position | Auto-dismiss | Title | Detail |
 |---|---|---|---|---|---|
-| `Toast` | `info` | `bottom-center` | 8s | message string | (none) |
 | `UpdateNotification` | `info` | `top-right` | No | `Update available` | `Press Update to install v{version}.` |
 | `BrokenCertNotification` | `warning` | `top-right` | No | `Certificate missing` | Profile name, switched-to info, recovery instructions |

@@ -1325,6 +1325,31 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         => isCancellationRequested && currentGeneration == taskGeneration;
 
     private const string BrmblePasswordMarkerPrefix = "__brmble_password_marker__:";
+    private const string BrmblePasswordOpenBlockMarker = "__brmble_password_open_block__";
+
+    private static bool IsManagedAllUsersDenyRule(System.Text.Json.JsonElement acl)
+    {
+        var group = acl.TryGetProperty("group", out var groupProp) && groupProp.ValueKind != System.Text.Json.JsonValueKind.Null
+            ? groupProp.GetString()
+            : null;
+        var userId = acl.TryGetProperty("userId", out var userIdProp) && userIdProp.ValueKind != System.Text.Json.JsonValueKind.Null
+            ? userIdProp.GetInt32()
+            : (int?)null;
+        var applyHere = acl.TryGetProperty("applyHere", out var applyHereProp) && applyHereProp.GetBoolean();
+        var applySubs = acl.TryGetProperty("applySubs", out var applySubsProp) && applySubsProp.GetBoolean();
+        var allow = acl.TryGetProperty("allow", out var allowProp) ? allowProp.GetInt32() : 0;
+        var deny = acl.TryGetProperty("deny", out var denyProp) ? denyProp.GetInt32() : 0;
+
+        return userId is null
+            && string.Equals(group, "all", StringComparison.Ordinal)
+            && applyHere
+            && !applySubs
+            && allow == 0
+            && deny == (0x04 | 0x02);
+    }
+
+    private static bool IsBrmblePasswordOpenBlockMarker(string? group)
+        => string.Equals(group, BrmblePasswordOpenBlockMarker, StringComparison.Ordinal);
 
     private static bool IsBrmblePasswordMarker(string? group)
         => !string.IsNullOrWhiteSpace(group) && group.StartsWith(BrmblePasswordMarkerPrefix, StringComparison.Ordinal);
@@ -1393,6 +1418,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         var localRules = new List<System.Text.Json.JsonElement>();
         var markerIndex = -1;
         string? managedToken = null;
+        var openBlockMarkerIndex = -1;
+        var openBlockRuleIndex = -1;
 
         if (snapshot.TryGetProperty("acls", out var aclsProp) && aclsProp.ValueKind == System.Text.Json.JsonValueKind.Array)
         {
@@ -1411,6 +1438,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 {
                     managedToken = group![BrmblePasswordMarkerPrefix.Length..];
                     markerIndex = localRules.Count;
+                }
+                else if (IsBrmblePasswordOpenBlockMarker(group))
+                {
+                    openBlockMarkerIndex = localRules.Count;
+                }
+                else if (IsManagedAllUsersDenyRule(acl))
+                {
+                    openBlockRuleIndex = localRules.Count;
                 }
 
                 localRules.Add(acl);
@@ -1443,9 +1478,52 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             localRules = filteredRules;
         }
 
+        if (openBlockMarkerIndex >= 0)
+        {
+            var filteredRules = new List<System.Text.Json.JsonElement>(localRules.Count);
+            for (var i = 0; i < localRules.Count; i++)
+            {
+                if (i == openBlockMarkerIndex || i == openBlockRuleIndex)
+                {
+                    continue;
+                }
+
+                filteredRules.Add(localRules[i]);
+            }
+
+            localRules = filteredRules;
+        }
+
         var normalizedPassword = password.Trim();
         if (!string.IsNullOrWhiteSpace(normalizedPassword))
         {
+            var hasEntryRestriction = localRules.Any(acl => IsManagedAllUsersDenyRule(acl));
+            if (!hasEntryRestriction)
+            {
+                var allUsersDenyRule = new
+                {
+                    applyHere = true,
+                    applySubs = false,
+                    inherited = false,
+                    userId = (int?)null,
+                    group = "all",
+                    allow = 0,
+                    deny = 0x04 | 0x02,
+                };
+                var openBlockMarkerRule = new
+                {
+                    applyHere = true,
+                    applySubs = false,
+                    inherited = false,
+                    userId = (int?)null,
+                    group = BrmblePasswordOpenBlockMarker,
+                    allow = 0,
+                    deny = 0,
+                };
+                localRules.Add(System.Text.Json.JsonSerializer.SerializeToElement(allUsersDenyRule));
+                localRules.Add(System.Text.Json.JsonSerializer.SerializeToElement(openBlockMarkerRule));
+            }
+
             var selector = $"#{normalizedPassword}";
             var tokenRule = new
             {

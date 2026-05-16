@@ -479,22 +479,34 @@ export function AclEditorDialog({ channelId, channelName, isOpen, onClose, avail
                     <h3 className="heading-section settings-section-title">Who can join</h3>
                     <p className="acl-section-copy">Choose whether the channel is open or only approved users can join.</p>
                   </div>
-                  <div className="acl-toggle-pill" role="group" aria-label="Who can join">
+                  <div className="acl-access-choice-list" role="group" aria-label="Who can join">
                     <button
                       type="button"
-                      className={`acl-toggle-pill-button${!whitelistEnabled ? ' acl-toggle-pill-button--active' : ''}`}
+                      className={`acl-access-choice${!whitelistEnabled ? ' acl-access-choice--active' : ''}`}
+                      aria-label="Everyone can join"
+                      aria-pressed={!whitelistEnabled}
                       disabled={interactionsDisabled}
                       onClick={() => toggleWhitelistMode(false)}
                     >
-                      Everyone can join
+                      <span className="acl-access-choice-indicator" aria-hidden="true" />
+                      <span className="acl-access-choice-body">
+                        <span className="acl-access-choice-title">Everyone can join</span>
+                        <span className="acl-access-choice-copy">Open access for anyone in the server.</span>
+                      </span>
                     </button>
                     <button
                       type="button"
-                      className={`acl-toggle-pill-button${whitelistEnabled ? ' acl-toggle-pill-button--active' : ''}`}
+                      className={`acl-access-choice${whitelistEnabled ? ' acl-access-choice--active' : ''}`}
+                      aria-label="Only approved users can join"
+                      aria-pressed={whitelistEnabled}
                       disabled={interactionsDisabled}
                       onClick={() => toggleWhitelistMode(true)}
                     >
-                      Only approved users can join
+                      <span className="acl-access-choice-indicator" aria-hidden="true" />
+                      <span className="acl-access-choice-body">
+                        <span className="acl-access-choice-title">Approved users only</span>
+                        <span className="acl-access-choice-copy">Limit entry to the approved list below.</span>
+                      </span>
                     </button>
                   </div>
 
