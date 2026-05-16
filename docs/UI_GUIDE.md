@@ -174,8 +174,8 @@ Rules:
 1. Each logical group is a `div.settings-section`
 2. Section title is always `h3.heading-section.settings-section-title`
 3. Each control row is `div.settings-item` with optional modifier (`.settings-toggle`, `.settings-slider`)
-6. Do not hide normal-user settings inside sub-tabs or nested settings menus. Normal settings must be visible in the tab.
-7. Admin settings are the only exception: admin-only tools may use sub-tabs because they are advanced, specialized workflows.
+4. Do not hide normal-user settings inside sub-tabs or nested settings menus. Normal settings must be visible in the tab.
+5. Admin settings are the only exception: admin-only tools may use sub-tabs because they are advanced, specialized workflows.
 
 ### Sidebar Section Pattern
 

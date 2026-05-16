@@ -120,6 +120,8 @@ export function AdminSettingsTab() {
                     <button
                       type="button"
                       className="admin-ban-expand"
+                      aria-expanded={expandedBan === index}
+                      aria-controls={`admin-ban-details-${index}`}
                       onClick={() => setExpandedBan(expandedBan === index ? null : index)}
                     >
                       <div className="admin-ban-info">
@@ -135,7 +137,7 @@ export function AdminSettingsTab() {
                     </button>
                   </div>
                   {expandedBan === index && (
-                    <div className="admin-ban-details">
+                    <div className="admin-ban-details" id={`admin-ban-details-${index}`}>
                       <div className="admin-ban-detail"><span>IP:</span> {ban.address}/{ban.bits}</div>
                       <div className="admin-ban-detail"><span>Hash:</span> {ban.hash}</div>
                       <div className="admin-ban-detail"><span>Applied:</span> {new Date(ban.start * 1000).toLocaleString()}</div>

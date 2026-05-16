@@ -56,8 +56,15 @@ describe('AdminSettingsTab', () => {
   it('keeps expand and unban behavior separate', async () => {
     renderWithBan();
 
-    fireEvent.click(await screen.findByRole('button', { name: /TroubleUser/ }));
+    const summary = await screen.findByRole('button', { name: /TroubleUser/ });
+    expect(summary).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.click(summary);
+    expect(summary).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('IP:')).toBeInTheDocument();
+
+    const details = screen.getByText('IP:').closest('.admin-ban-details');
+    expect(details).toHaveAttribute('id', summary.getAttribute('aria-controls'));
 
     fireEvent.click(screen.getByRole('button', { name: 'Unban' }));
 
