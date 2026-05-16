@@ -21,7 +21,7 @@ public sealed class Win32InputBackend : IInputBackend
 
     public Win32InputBackend(IntPtr hwnd) { _hwnd = hwnd; }
 
-    [DllImport("user32.dll")]
+    [DllImport("user32.dll", EntryPoint = "GetAsyncKeyState")]
     private static extern short GetAsyncKeyStateNative(int vk);
 
     public short GetAsyncKeyState(int vk) => GetAsyncKeyStateNative(vk);
