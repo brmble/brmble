@@ -9,12 +9,20 @@ public sealed class InputRouter : IDisposable
     private readonly IInputBackend _backend;
 
     // Mouse dispatch table — one hook, multiplexed across bindings.
+    // _mouseLock guards both the dictionary topology AND each binding's
+    // IsHeld field, because the hook callback and binding mutators can
+    // run on different threads (mouse hook is on the message-pump thread
+    // that called SetWindowsHookEx; binding setters run on the bridge
+    // thread that delivers settings updates).
     private readonly object _mouseLock = new();
     private readonly Dictionary<MouseButton, MouseBinding> _mouseBindings = new();
     private IntPtr _mouseHookHandle = IntPtr.Zero;
     private LowLevelMouseProc? _mouseHookProc;
+    private bool _disposed;
 
-    private sealed record MouseBinding(string Action, string Key)
+    private enum BindingKind { Ptt, Shortcut }
+
+    private sealed record MouseBinding(BindingKind Kind, string Action, string Key)
     {
         public bool IsHeld { get; set; }
     }
@@ -46,7 +54,7 @@ public sealed class InputRouter : IDisposable
         var btn = MouseButtonExtensions.FromKeyName(key);
         if (btn.HasValue)
         {
-            SetMouseBinding(btn.Value, "pushToTalk", key!);
+            SetMouseBinding(btn.Value, BindingKind.Ptt, "pushToTalk", key!);
         }
     }
 
@@ -55,55 +63,75 @@ public sealed class InputRouter : IDisposable
         var btn = MouseButtonExtensions.FromKeyName(key);
         if (btn.HasValue)
         {
-            SetMouseBinding(btn.Value, action, key!);
+            SetMouseBinding(btn.Value, BindingKind.Shortcut, action, key!);
         }
     }
 
-    private void SetMouseBinding(MouseButton button, string action, string key)
+    private void SetMouseBinding(MouseButton button, BindingKind kind, string action, string key)
     {
-        bool needHook = false;
+        // Install hook under the same lock that guards the dictionary so two
+        // concurrent SetXxxBinding calls cannot both observe an empty hook
+        // handle and double-install (leaking the first handle).
         lock (_mouseLock)
         {
-            _mouseBindings[button] = new MouseBinding(action, key);
-            needHook = _mouseHookHandle == IntPtr.Zero;
-        }
-        if (needHook)
-        {
-            _mouseHookProc = MouseHookCallback;
-            _mouseHookHandle = _backend.SetMouseHook(_mouseHookProc);
+            _mouseBindings[button] = new MouseBinding(kind, action, key);
+            if (_mouseHookHandle == IntPtr.Zero)
+            {
+                _mouseHookProc = MouseHookCallback;
+                _mouseHookHandle = _backend.SetMouseHook(_mouseHookProc);
+            }
         }
     }
 
     private IntPtr MouseHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
-        if (nCode != HC_ACTION) return _backend.CallNextHook(_mouseHookHandle, nCode, wParam, lParam);
+        IntPtr handleSnapshot = _mouseHookHandle;
+
+        if (nCode != HC_ACTION) return _backend.CallNextHook(handleSnapshot, nCode, wParam, lParam);
 
         int msg = wParam.ToInt32();
         var (btn, isDown, isUp) = ClassifyMouseMessage(msg, lParam);
         if (btn == null || (!isDown && !isUp))
-            return _backend.CallNextHook(_mouseHookHandle, nCode, wParam, lParam);
+            return _backend.CallNextHook(handleSnapshot, nCode, wParam, lParam);
 
-        MouseBinding? binding;
+        // Resolve, transition IsHeld, and capture what events to fire — all
+        // under the lock. Fire events outside the lock so handlers can't
+        // re-enter and deadlock us.
+        BindingKind? firedKind = null;
+        string? firedAction = null;
+        bool firedDown = false;
+
         lock (_mouseLock)
         {
-            _mouseBindings.TryGetValue(btn.Value, out binding);
-        }
-        if (binding == null) return _backend.CallNextHook(_mouseHookHandle, nCode, wParam, lParam);
+            if (!_mouseBindings.TryGetValue(btn.Value, out var binding)) return _backend.CallNextHook(handleSnapshot, nCode, wParam, lParam);
 
-        if (isDown && !binding.IsHeld)
-        {
-            binding.IsHeld = true;
-            if (binding.Action == "pushToTalk") PttStateChanged?.Invoke(true);
-            else ShortcutPressed?.Invoke(binding.Action);
-        }
-        else if (isUp && binding.IsHeld)
-        {
-            binding.IsHeld = false;
-            if (binding.Action == "pushToTalk") PttStateChanged?.Invoke(false);
-            else ShortcutReleased?.Invoke(binding.Action);
+            if (isDown && !binding.IsHeld)
+            {
+                binding.IsHeld = true;
+                firedKind = binding.Kind;
+                firedAction = binding.Action;
+                firedDown = true;
+            }
+            else if (isUp && binding.IsHeld)
+            {
+                binding.IsHeld = false;
+                firedKind = binding.Kind;
+                firedAction = binding.Action;
+                firedDown = false;
+            }
         }
 
-        return _backend.CallNextHook(_mouseHookHandle, nCode, wParam, lParam);
+        if (firedKind is BindingKind.Ptt)
+        {
+            PttStateChanged?.Invoke(firedDown);
+        }
+        else if (firedKind is BindingKind.Shortcut && firedAction != null)
+        {
+            if (firedDown) ShortcutPressed?.Invoke(firedAction);
+            else ShortcutReleased?.Invoke(firedAction);
+        }
+
+        return _backend.CallNextHook(handleSnapshot, nCode, wParam, lParam);
     }
 
     private static (MouseButton? button, bool isDown, bool isUp) ClassifyMouseMessage(int msg, IntPtr lParam)
@@ -120,32 +148,29 @@ public sealed class InputRouter : IDisposable
             case WM_XBUTTONUP:
                 var hookStruct = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
                 int xb = (hookStruct.mouseData >> 16) & 0xFFFF;
-                MouseButton? xbtn = xb == XBUTTON1 ? MouseButton.X1
-                    : xb == XBUTTON2 ? MouseButton.X2
-                    : (MouseButton?)null;
+                MouseButton? xbtn = xb switch
+                {
+                    XBUTTON1 => MouseButton.X1,
+                    XBUTTON2 => MouseButton.X2,
+                    _ => null,
+                };
                 return (xbtn, msg == WM_XBUTTONDOWN, msg == WM_XBUTTONUP);
             default:
                 return (null, false, false);
         }
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct MSLLHOOKSTRUCT
-    {
-        public int ptX;
-        public int ptY;
-        public int mouseData;
-        public int flags;
-        public int time;
-        public IntPtr dwExtraInfo;
-    }
-
     public void Dispose()
     {
-        if (_mouseHookHandle != IntPtr.Zero)
+        IntPtr handle;
+        lock (_mouseLock)
         {
-            _backend.UnhookMouse(_mouseHookHandle);
+            if (_disposed) return;
+            _disposed = true;
+            handle = _mouseHookHandle;
             _mouseHookHandle = IntPtr.Zero;
+            _mouseHookProc = null;
         }
+        if (handle != IntPtr.Zero) _backend.UnhookMouse(handle);
     }
 }

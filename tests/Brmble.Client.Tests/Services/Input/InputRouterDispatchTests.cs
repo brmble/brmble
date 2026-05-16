@@ -15,9 +15,15 @@ public class InputRouterDispatchTests
     private const int WM_XBUTTONDOWN = 0x020B;
     private const int WM_XBUTTONUP = 0x020C;
 
-    private static IntPtr InvokeMouseHook(
+    internal static IntPtr InvokeMouseHook(
         FakeInputBackend backend, int msg, int xButton = 0)
     {
+        if (xButton == 0)
+        {
+            // Non-X-button messages don't read lParam.
+            return backend.MouseHookProc!.Invoke(HC_ACTION, new IntPtr(msg), IntPtr.Zero);
+        }
+
         var hookStruct = new MSLLHOOKSTRUCT { mouseData = xButton << 16 };
         var lParam = Marshal.AllocHGlobal(Marshal.SizeOf<MSLLHOOKSTRUCT>());
         try
@@ -29,17 +35,6 @@ public class InputRouterDispatchTests
         {
             Marshal.FreeHGlobal(lParam);
         }
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct MSLLHOOKSTRUCT
-    {
-        public int ptX;
-        public int ptY;
-        public int mouseData;
-        public int flags;
-        public int time;
-        public IntPtr dwExtraInfo;
     }
 
     [TestMethod]
