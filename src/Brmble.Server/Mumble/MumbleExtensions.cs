@@ -14,6 +14,14 @@ public static class MumbleExtensions
         services.AddSingleton<IMumbleEventHandler, SessionMappingHandler>();
         services.AddSingleton<MumbleRegistrationService>();
         services.AddSingleton<IMumbleRegistrationService>(sp => sp.GetRequiredService<MumbleRegistrationService>());
+        services.AddSingleton<MumbleAclIceClient>();
+        services.AddSingleton<IMumbleAclIceClient>(sp => sp.GetRequiredService<MumbleAclIceClient>());
+        services.AddSingleton<IMumbleAclService, MumbleAclService>();
+        services.AddSingleton<IAclSnapshotRepository, AclSnapshotRepository>();
+        services.AddSingleton<IAclAuthorizationService, AclAuthorizationService>();
+        services.AddSingleton<IAclEventDispatcher, AclEventDispatcher>();
+        services.AddSingleton<IAclSyncCoordinator, AclSyncCoordinator>();
+        services.AddSingleton<AclValidationService>();
         services.AddSingleton<MumbleServerCallback>();
         services.AddHostedService<MumbleIceService>();
         return services;

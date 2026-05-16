@@ -42,6 +42,14 @@ public class Database
                 PRIMARY KEY (user_id_low, user_id_high),
                 CHECK (user_id_low < user_id_high)
             );
+            CREATE TABLE IF NOT EXISTS acl_snapshots (
+                channel_id      INTEGER PRIMARY KEY,
+                payload_json    TEXT NOT NULL,
+                payload_hash    TEXT NOT NULL,
+                fetched_at      TEXT NOT NULL,
+                is_stale        INTEGER NOT NULL DEFAULT 0,
+                stale_reason    TEXT
+            );
             """);
 
         // Migrate existing deployments: add matrix_access_token if the column is missing

@@ -73,6 +73,7 @@ app.MapGet("/health", (IServerVersionProvider version) =>
     Results.Ok(new { status = "healthy", version = version.Version }));
 app.MapAuthEndpoints();
 app.MapDmEndpoints();
+app.MapAclAdminEndpoints();
 app.Map("/ws", BrmbleWebSocketHandler.HandleAsync);
 app.MapServerInfoEndpoints();
 app.MapLiveKitEndpoints();

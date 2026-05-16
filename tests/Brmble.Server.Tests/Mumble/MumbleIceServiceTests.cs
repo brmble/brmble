@@ -42,10 +42,12 @@ public class MumbleIceServiceTests
         var matrixService = new MatrixService(channelRepo, appService, sessions, NullLogger<MatrixService>.Instance);
 
         var registrationService = new MumbleRegistrationService(NullLogger<MumbleRegistrationService>.Instance);
+        var aclIceClient = new MumbleAclIceClient();
 
         return new MumbleIceService(
             callback,
             registrationService,
+            aclIceClient,
             matrixService,
             iceSettings,
             NullLogger<MumbleIceService>.Instance);

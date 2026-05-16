@@ -1,6 +1,7 @@
 using Brmble.Server.Auth;
 using Brmble.Server.Data;
 using Brmble.Server.Matrix;
+using Brmble.Server.Mumble;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -16,6 +17,8 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
     private readonly SqliteConnection _keepAlive;
     private readonly string _cs;
     private readonly string? _certHash;
+    public Mock<IAclAuthorizationService> AclAuthorizationMock { get; } = new();
+    public Mock<IAclSyncCoordinator> AclCoordinatorMock { get; } = new();
 
     public BrmbleServerFactory(string? certHash = "testcerthash123")
     {
@@ -68,6 +71,14 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
             var mockExt = new Mock<ICertificateHashExtractor>();
             mockExt.Setup(e => e.GetCertHash(It.IsAny<HttpContext>())).Returns(_certHash);
             services.AddSingleton<ICertificateHashExtractor>(mockExt.Object);
+
+            var aclAuth = services.FirstOrDefault(d => d.ServiceType == typeof(IAclAuthorizationService));
+            if (aclAuth != null) services.Remove(aclAuth);
+            services.AddSingleton(AclAuthorizationMock.Object);
+
+            var aclSync = services.FirstOrDefault(d => d.ServiceType == typeof(IAclSyncCoordinator));
+            if (aclSync != null) services.Remove(aclSync);
+            services.AddSingleton(AclCoordinatorMock.Object);
         });
     }
 

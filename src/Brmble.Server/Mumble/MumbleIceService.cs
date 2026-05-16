@@ -7,6 +7,7 @@ public class MumbleIceService : IHostedService
 {
     private readonly MumbleServerCallback _callback;
     private readonly MumbleRegistrationService _registrationService;
+    private readonly MumbleAclIceClient _aclIceClient;
     private readonly MatrixService _matrixService;
     private readonly IceSettings _settings;
     private readonly ILogger<MumbleIceService> _logger;
@@ -15,12 +16,14 @@ public class MumbleIceService : IHostedService
     public MumbleIceService(
         MumbleServerCallback callback,
         MumbleRegistrationService registrationService,
+        MumbleAclIceClient aclIceClient,
         MatrixService matrixService,
         IOptions<IceSettings> settings,
         ILogger<MumbleIceService> logger)
     {
         _callback = callback;
         _registrationService = registrationService;
+        _aclIceClient = aclIceClient;
         _matrixService = matrixService;
         _settings = settings.Value;
         _logger = logger;
@@ -71,6 +74,7 @@ public class MumbleIceService : IHostedService
             adapter.activate();
             _callback.SetServerProxy(serverProxy);
             _registrationService.SetServerProxy(serverProxy);
+            _aclIceClient.SetServerProxy(serverProxy);
             serverProxy.addCallback(callbackPrx);
 
             await _callback.DispatchExistingUsersSnapshot(serverProxy.getUsers());

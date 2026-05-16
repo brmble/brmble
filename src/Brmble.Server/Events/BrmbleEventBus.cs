@@ -94,4 +94,40 @@ public class BrmbleEventBus : IBrmbleEventBus
 
         await Task.WhenAll(tasks);
     }
+
+    public Task<IReadOnlySet<long>> GetConnectedUserIdsAsync()
+    {
+        IReadOnlySet<long> ids = _clients.Values.ToHashSet();
+        return Task.FromResult(ids);
+    }
+
+    public async Task BroadcastToUsersAsync(IReadOnlySet<long> userIds, object message)
+    {
+        var json = JsonSerializer.Serialize(message, JsonOptions);
+        var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(json));
+
+        var tasks = _clients.Where(kvp => userIds.Contains(kvp.Value)).Select(async kvp =>
+        {
+            var ws = kvp.Key;
+            try
+            {
+                if (ws.State == WebSocketState.Open)
+                {
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                    await ws.SendAsync(bytes, WebSocketMessageType.Text, true, cts.Token);
+                }
+                else
+                {
+                    RemoveClient(ws);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to send to WebSocket client, removing");
+                RemoveClient(ws);
+            }
+        });
+
+        await Task.WhenAll(tasks);
+    }
 }
