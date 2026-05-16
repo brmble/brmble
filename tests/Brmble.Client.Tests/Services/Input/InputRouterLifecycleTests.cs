@@ -10,6 +10,48 @@ public class InputRouterLifecycleTests
     private const int VK_SPACE = 0x20;
 
     [TestMethod]
+    public void ReleaseAllHeld_FiresShortcutReleasedWithForcedFlag()
+    {
+        // Lifecycle releases must be flagged forced=true so subscribers
+        // (MumbleAdapter) skip the user-facing toggle action — otherwise
+        // disconnecting while holding a shortcut would mute/leave-voice/etc.
+        // as an unintended side effect (PR #542 review feedback).
+        const int VK_F1 = 0x70;
+        var backend = new FakeInputBackend();
+        using var router = new InputRouter(backend);
+        var observed = new List<(string action, bool forced)>();
+        router.ShortcutReleased += (a, f) => observed.Add((a, f));
+
+        router.SetShortcutBinding("toggleMute", "F1");
+        backend.KeyDownStates[VK_F1] = true;
+        router.TickShortcutPollOnce();
+
+        router.ReleaseAllHeld();
+
+        Assert.AreEqual(1, observed.Count);
+        Assert.AreEqual(("toggleMute", true), observed[0]);
+    }
+
+    [TestMethod]
+    public void PhysicalRelease_FiresShortcutReleasedWithForcedFalse()
+    {
+        const int VK_F1 = 0x70;
+        var backend = new FakeInputBackend();
+        using var router = new InputRouter(backend);
+        var observed = new List<(string action, bool forced)>();
+        router.ShortcutReleased += (a, f) => observed.Add((a, f));
+
+        router.SetShortcutBinding("toggleMute", "F1");
+        backend.KeyDownStates[VK_F1] = true;
+        router.TickShortcutPollOnce();
+        backend.KeyDownStates[VK_F1] = false;
+        router.TickShortcutPollOnce();
+
+        Assert.AreEqual(1, observed.Count);
+        Assert.AreEqual(("toggleMute", false), observed[0]);
+    }
+
+    [TestMethod]
     public void ReleaseAllHeld_AfterKeyboardPttDown_FiresRelease()
     {
         var backend = new FakeInputBackend();

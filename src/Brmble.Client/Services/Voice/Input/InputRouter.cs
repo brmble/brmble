@@ -70,7 +70,17 @@ public sealed class InputRouter : IDisposable
 
     public event Action<bool>? PttStateChanged;
     public event Action<string>? ShortcutPressed;
-    public event Action<string>? ShortcutReleased;
+    /// <summary>
+    /// Fired when a held shortcut transitions to released. The bool arg is
+    /// <c>true</c> when the release is forced by InputRouter itself (lifecycle
+    /// <see cref="ReleaseAllHeld"/>, <see cref="Suspend"/>, or rebinding the
+    /// underlying button to a different action) rather than the user physically
+    /// releasing the input. Subscribers that fire user-facing toggle actions
+    /// (mute, deafen, screen-share, …) MUST skip dispatch when <c>forced</c>
+    /// is true — otherwise disconnecting or rebinding triggers the toggle as
+    /// an unintended side effect.
+    /// </summary>
+    public event Action<string, bool>? ShortcutReleased;
 
     /// <summary>
     /// Fired when MumbleAdapter must tell the JS side to reset its local
@@ -146,13 +156,36 @@ public sealed class InputRouter : IDisposable
 
     public void Resume()
     {
-        _suspended = false;
-        // Anything held that we ignored during suspend cannot leak through.
+        // Anything held that we ignored during suspend must not leak through
+        // as a fresh event. Sample physical state for keyboard PTT and
+        // keyboard shortcuts and prime the edge-detect flags to "down" so
+        // the next physical release transition is consumed silently (becomes
+        // a no-op in poll because the OR-dedupe sees `was==is`). The user
+        // must release-and-press a fresh cycle before any event fires.
+        // (Mouse hooks observe only future transitions, so no priming needed
+        // for the mouse path.)
         ReleaseAllHeld();
+
+        lock (_pttStateLock)
+        {
+            if (_pttVk != 0)
+                _pttKeyWasDown = (_backend.GetAsyncKeyState(_pttVk) & 0x8000) != 0;
+        }
+
+        lock (_shortcutLock)
+        {
+            foreach (var vk in _shortcutKbVkToAction.Keys)
+            {
+                _shortcutKbWasDown[vk] = (_backend.GetAsyncKeyState(vk) & 0x8000) != 0;
+            }
+        }
+
+        _suspended = false;
     }
 
     public void HandleJsPttKey(bool pressed)
     {
+        if (_disposed) return;
         if (_suspended) return;
         bool fire;
         bool newState;
@@ -192,7 +225,7 @@ public sealed class InputRouter : IDisposable
         foreach (var (kind, action) in releasedMouse)
         {
             if (kind == BindingKind.Ptt) PttStateChanged?.Invoke(false);
-            else ShortcutReleased?.Invoke(action);
+            else ShortcutReleased?.Invoke(action, true); // forced
         }
 
         // Keyboard shortcut bindings.
@@ -208,7 +241,7 @@ public sealed class InputRouter : IDisposable
                 }
             }
         }
-        foreach (var action in releasedShortcuts) ShortcutReleased?.Invoke(action);
+        foreach (var action in releasedShortcuts) ShortcutReleased?.Invoke(action, true); // forced
 
         // Keyboard PTT (poll + JS).
         bool kbWasActive;
@@ -240,6 +273,7 @@ public sealed class InputRouter : IDisposable
 
     internal void TickPollOnce()
     {
+        if (_disposed) return;
         if (_suspended) return;
 
         int vk;
@@ -315,7 +349,7 @@ public sealed class InputRouter : IDisposable
             _shortcutKbVkToAction.Remove(vk);
             _shortcutKbWasDown.Remove(vk);
         }
-        if (releasedHeld) ShortcutReleased?.Invoke(action);
+        if (releasedHeld) ShortcutReleased?.Invoke(action, true); // forced (binding cleared while held)
         MaybeStopShortcutPolling();
     }
 
@@ -337,6 +371,7 @@ public sealed class InputRouter : IDisposable
 
     internal void TickShortcutPollOnce()
     {
+        if (_disposed) return;
         if (_suspended) return;
         List<KeyValuePair<int, string>> snapshot;
         lock (_shortcutLock)
@@ -380,7 +415,7 @@ public sealed class InputRouter : IDisposable
             if (fireAction != null)
             {
                 if (firePressed) ShortcutPressed?.Invoke(fireAction);
-                else ShortcutReleased?.Invoke(fireAction);
+                else ShortcutReleased?.Invoke(fireAction, false); // physical release
             }
         }
     }
@@ -418,7 +453,7 @@ public sealed class InputRouter : IDisposable
 
         if (releasedKind is BindingKind.Ptt) PttStateChanged?.Invoke(false);
         else if (releasedKind is BindingKind.Shortcut && releasedAction != null)
-            ShortcutReleased?.Invoke(releasedAction);
+            ShortcutReleased?.Invoke(releasedAction, true); // forced (binding cleared while held)
 
         if (unhookNow) _backend.UnhookMouse(handleToUnhook);
     }
@@ -429,8 +464,22 @@ public sealed class InputRouter : IDisposable
         // button transitions, so a button already held when the binding is
         // installed will not synthesize a DOWN event. Releasing the leftover
         // hold fires UP, which becomes a no-op because IsHeld is false.
+        BindingKind? evictedHeldKind = null;
+        string? evictedHeldAction = null;
         lock (_mouseLock)
         {
+            // If a prior binding occupies this slot AND was held, capture its
+            // identity so we can fire the appropriate release outside the
+            // lock — the caller of SetMouseBinding might be rebinding the
+            // button to a different action (e.g. PTT on X2 → toggleMute on X2)
+            // and the old action's subscribers must be told the held state
+            // ended, otherwise PTT/shortcut stays logically "stuck".
+            if (_mouseBindings.TryGetValue(button, out var prior) && prior.IsHeld
+                && (prior.Action != action || prior.Kind != kind))
+            {
+                evictedHeldKind = prior.Kind;
+                evictedHeldAction = prior.Action;
+            }
             _mouseBindings[button] = new MouseBinding(kind, action, key);
             if (_mouseHookHandle == IntPtr.Zero)
             {
@@ -438,6 +487,9 @@ public sealed class InputRouter : IDisposable
                 _mouseHookHandle = _backend.SetMouseHook(_mouseHookProc);
             }
         }
+        if (evictedHeldKind is BindingKind.Ptt) PttStateChanged?.Invoke(false);
+        else if (evictedHeldKind is BindingKind.Shortcut && evictedHeldAction != null)
+            ShortcutReleased?.Invoke(evictedHeldAction, true); // forced
     }
 
     private IntPtr MouseHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
@@ -497,7 +549,7 @@ public sealed class InputRouter : IDisposable
             else if (firedKind is BindingKind.Shortcut && firedAction != null)
             {
                 if (firedDown) ShortcutPressed?.Invoke(firedAction);
-                else ShortcutReleased?.Invoke(firedAction);
+                else ShortcutReleased?.Invoke(firedAction, false); // physical release
             }
         }
         catch (Exception ex)

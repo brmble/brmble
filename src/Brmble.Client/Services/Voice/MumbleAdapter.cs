@@ -168,10 +168,15 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 _bridge?.NotifyUiThread();
             }
         };
-        _inputRouter.ShortcutReleased += action => {
-            _bridge?.Send("voice.shortcutReleased", new { action });
+        _inputRouter.ShortcutReleased += (action, forced) => {
+            _bridge?.Send("voice.shortcutReleased", new { action, forced });
             _bridge?.NotifyUiThread();
-            FireShortcutAction(action);
+            // Skip the user-facing toggle when the release is forced — i.e.
+            // we're tearing down (Disconnect/channel transition/Suspend) or
+            // the binding got evicted under a held button. Otherwise
+            // disconnecting while a shortcut is held would toggle mute, leave
+            // voice, etc. as an unintended side effect.
+            if (!forced) FireShortcutAction(action);
         };
         _inputRouter.JsForceReleaseRequested += () =>
         {

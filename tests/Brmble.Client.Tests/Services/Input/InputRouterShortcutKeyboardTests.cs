@@ -19,7 +19,7 @@ public class InputRouterShortcutKeyboardTests
         var pressed = new List<string>();
         var released = new List<string>();
         router.ShortcutPressed += a => pressed.Add(a);
-        router.ShortcutReleased += a => released.Add(a);
+        router.ShortcutReleased += (a, _) => released.Add(a);
 
         router.SetShortcutBinding("toggleMute", "F1");
         router.SetShortcutBinding("toggleLeaveVoice", "F2");
@@ -66,7 +66,7 @@ public class InputRouterShortcutKeyboardTests
         using var router = new InputRouter(backend);
 
         var released = new List<string>();
-        router.ShortcutReleased += a => released.Add(a);
+        router.ShortcutReleased += (a, _) => released.Add(a);
 
         router.SetShortcutBinding("toggleMute", "F1");
         backend.KeyDownStates[VK_F1] = true;
@@ -84,7 +84,7 @@ public class InputRouterShortcutKeyboardTests
         using var router = new InputRouter(backend);
 
         var released = new List<string>();
-        router.ShortcutReleased += a => released.Add(a);
+        router.ShortcutReleased += (a, _) => released.Add(a);
 
         router.SetShortcutBinding("toggleMute", "F1");
         backend.KeyDownStates[VK_F1] = true;
