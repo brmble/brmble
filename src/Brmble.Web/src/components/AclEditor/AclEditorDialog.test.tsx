@@ -40,6 +40,29 @@ describe('AclEditorDialog', () => {
     expect(await screen.findByDisplayValue('#token')).toBeInTheDocument();
   });
 
+  it('preserves user-targeted rules when editing their value', () => {
+    hookSnapshot = {
+      ...hookSnapshot,
+      acls: [
+        { applyHere: true, applySubs: false, inherited: false, userId: 42, group: null, allow: 4, deny: 0 },
+      ],
+    };
+    save.mockClear();
+
+    render(<AclEditorDialog isOpen channelId={4} channelName="Secret" onClose={vi.fn()} />);
+
+    fireEvent.change(screen.getByDisplayValue('42'), { target: { value: '84' } });
+    fireEvent.click(screen.getByText('Save ACLs'));
+
+    expect(save).toHaveBeenCalledWith({
+      inheritAcls: true,
+      groups: [],
+      acls: [
+        { applyHere: true, applySubs: false, inherited: false, userId: 84, group: null, allow: 4, deny: 0 },
+      ],
+    });
+  });
+
   it('edits the correct local rule when inherited rules come first', () => {
     hookSnapshot = {
       ...hookSnapshot,
@@ -63,5 +86,20 @@ describe('AclEditorDialog', () => {
         { applyHere: true, applySubs: false, inherited: false, userId: null, group: '#updated-local', allow: 4, deny: 0 },
       ],
     });
+  });
+
+  it('does not show Brmble password marker rules in the generic ACL editor', () => {
+    hookSnapshot = {
+      ...hookSnapshot,
+      acls: [
+        { applyHere: true, applySubs: false, inherited: false, userId: null, group: '__brmble_password_marker__:#secret', allow: 0, deny: 0 },
+        { applyHere: true, applySubs: false, inherited: false, userId: null, group: '#secret', allow: 6, deny: 0 },
+      ],
+    };
+
+    render(<AclEditorDialog isOpen channelId={4} channelName="Secret" onClose={vi.fn()} />);
+
+    expect(screen.queryByDisplayValue('__brmble_password_marker__:#secret')).not.toBeInTheDocument();
+    expect(screen.getByDisplayValue('#secret')).toBeInTheDocument();
   });
 });

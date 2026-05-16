@@ -1326,6 +1326,30 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     private const string BrmblePasswordMarkerPrefix = "__brmble_password_marker__:";
 
+    private static bool IsBrmblePasswordMarker(string? group)
+        => !string.IsNullOrWhiteSpace(group) && group.StartsWith(BrmblePasswordMarkerPrefix, StringComparison.Ordinal);
+
+    private static bool IsManagedPasswordTokenRule(System.Text.Json.JsonElement acl, string selector)
+    {
+        var group = acl.TryGetProperty("group", out var groupProp) && groupProp.ValueKind != System.Text.Json.JsonValueKind.Null
+            ? groupProp.GetString()
+            : null;
+        var userId = acl.TryGetProperty("userId", out var userIdProp) && userIdProp.ValueKind != System.Text.Json.JsonValueKind.Null
+            ? userIdProp.GetInt32()
+            : (int?)null;
+        var applyHere = acl.TryGetProperty("applyHere", out var applyHereProp) && applyHereProp.GetBoolean();
+        var applySubs = acl.TryGetProperty("applySubs", out var applySubsProp) && applySubsProp.GetBoolean();
+        var allow = acl.TryGetProperty("allow", out var allowProp) ? allowProp.GetInt32() : 0;
+        var deny = acl.TryGetProperty("deny", out var denyProp) ? denyProp.GetInt32() : 0;
+
+        return userId is null
+            && string.Equals(group, selector, StringComparison.Ordinal)
+            && applyHere
+            && !applySubs
+            && allow == (0x04 | 0x02)
+            && deny == 0;
+    }
+
     internal static string? TryGetManagedChannelPassword(string snapshotBody)
     {
         using var rootDoc = System.Text.Json.JsonDocument.Parse(snapshotBody);
@@ -1343,12 +1367,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             }
 
             var group = groupProp.GetString();
-            if (string.IsNullOrWhiteSpace(group) || !group.StartsWith(BrmblePasswordMarkerPrefix, StringComparison.Ordinal))
+            if (!IsBrmblePasswordMarker(group))
             {
                 continue;
             }
 
-            var selector = group[BrmblePasswordMarkerPrefix.Length..];
+            var selector = group![BrmblePasswordMarkerPrefix.Length..];
             return selector.StartsWith('#') ? selector[1..] : selector;
         }
 
@@ -1367,6 +1391,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             : [];
 
         var localRules = new List<System.Text.Json.JsonElement>();
+        var markerIndex = -1;
         string? managedToken = null;
 
         if (snapshot.TryGetProperty("acls", out var aclsProp) && aclsProp.ValueKind == System.Text.Json.JsonValueKind.Array)
@@ -1382,27 +1407,40 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 var group = acl.TryGetProperty("group", out var groupProp) && groupProp.ValueKind != System.Text.Json.JsonValueKind.Null
                     ? groupProp.GetString()
                     : null;
-                if (!string.IsNullOrWhiteSpace(group) && group.StartsWith(BrmblePasswordMarkerPrefix, StringComparison.Ordinal))
+                if (IsBrmblePasswordMarker(group))
                 {
-                    managedToken = group[BrmblePasswordMarkerPrefix.Length..];
-                    continue;
+                    managedToken = group![BrmblePasswordMarkerPrefix.Length..];
+                    markerIndex = localRules.Count;
                 }
 
                 localRules.Add(acl);
             }
         }
 
-        if (!string.IsNullOrWhiteSpace(managedToken))
+        if (!string.IsNullOrWhiteSpace(managedToken) && markerIndex >= 0)
         {
-            localRules = localRules
-                .Where(acl =>
+            var managedTokenRuleIndex = -1;
+            for (var i = markerIndex - 1; i >= 0; i--)
+            {
+                if (IsManagedPasswordTokenRule(localRules[i], managedToken))
                 {
-                    var group = acl.TryGetProperty("group", out var groupProp) && groupProp.ValueKind != System.Text.Json.JsonValueKind.Null
-                        ? groupProp.GetString()
-                        : null;
-                    return !string.Equals(group, managedToken, StringComparison.Ordinal);
-                })
-                .ToList();
+                    managedTokenRuleIndex = i;
+                    break;
+                }
+            }
+
+            var filteredRules = new List<System.Text.Json.JsonElement>(localRules.Count);
+            for (var i = 0; i < localRules.Count; i++)
+            {
+                if (i == markerIndex || i == managedTokenRuleIndex)
+                {
+                    continue;
+                }
+
+                filteredRules.Add(localRules[i]);
+            }
+
+            localRules = filteredRules;
         }
 
         var normalizedPassword = password.Trim();

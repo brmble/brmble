@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { AclRule, AclUpdateRequest } from '../../types/acl';
 import { Permission } from '../../types/acl';
 import { useAclAdmin } from '../../hooks/useAclAdmin';
@@ -24,6 +24,10 @@ const permissionRows = [
 export function AclEditorDialog({ channelId, channelName, isOpen, onClose }: AclEditorDialogProps) {
   const { snapshot, loading, saving, error, refresh, save } = useAclAdmin(isOpen ? channelId : null);
   const [draft, setDraft] = useState<AclDraft | null>(null);
+  const visibleSnapshotRules = useMemo(
+    () => snapshot?.acls.filter(rule => !rule.group?.startsWith('__brmble_password_marker__:')) ?? [],
+    [snapshot],
+  );
 
   useEffect(() => {
     if (isOpen) refresh();
@@ -34,9 +38,9 @@ export function AclEditorDialog({ channelId, channelName, isOpen, onClose }: Acl
     setDraft({
       inheritAcls: snapshot.inheritAcls,
       groups: snapshot.groups,
-      acls: snapshot.acls,
+      acls: visibleSnapshotRules,
     });
-  }, [snapshot]);
+  }, [snapshot, visibleSnapshotRules]);
 
   if (!isOpen) return null;
 
@@ -106,7 +110,15 @@ export function AclEditorDialog({ channelId, channelName, isOpen, onClose }: Acl
                   <input
                     className="brmble-input"
                     value={rule.userId == null ? rule.group ?? '' : String(rule.userId)}
-                    onChange={e => updateRule(index, { group: e.target.value, userId: null })}
+                    onChange={e => {
+                      if (rule.userId != null) {
+                        const nextUserId = Number.parseInt(e.target.value, 10);
+                        updateRule(index, { userId: Number.isNaN(nextUserId) ? null : nextUserId, group: null });
+                        return;
+                      }
+
+                      updateRule(index, { group: e.target.value, userId: null });
+                    }}
                     aria-label="Selector"
                   />
                   <label><input type="checkbox" checked={rule.applyHere} onChange={e => updateRule(index, { applyHere: e.target.checked })} /> Here</label>
