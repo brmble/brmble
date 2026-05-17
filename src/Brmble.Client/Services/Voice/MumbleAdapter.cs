@@ -18,6 +18,7 @@ using Brmble.Client.Bridge;
 using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.Certificate;
 using Brmble.Client.Services.Idle;
+using Brmble.Client.Services.Voice.Input;
 
 namespace Brmble.Client.Services.Voice;
 
@@ -32,6 +33,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private CancellationTokenSource? _cts;
     private Thread? _processThread;
     private AudioManager? _audioManager;
+    private InputRouter? _inputRouter;
+    // Tracked so we can unsubscribe when AudioManager is disposed.
+    private Action<bool>? _pttStateChangedHandler;
     private string? _lastWelcomeText;
     private readonly CertificateService? _certService;
     private uint? _previousChannelId;
@@ -129,18 +133,25 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _appConfigService = appConfigService;
         _voiceIdleTracker = voiceIdleTracker;
         _audioManager = new AudioManager(_hwnd);
-        _audioManager.ToggleMuteRequested += ToggleMute;
-        _audioManager.ToggleDeafenRequested += ToggleDeaf;
-        _audioManager.ToggleLeaveVoiceRequested += LeaveVoice;
-        _audioManager.ToggleDmScreenRequested += () => {
-            _bridge?.Send("voice.toggleDmScreen", null);
-            _bridge?.NotifyUiThread();
-        };
-        _audioManager.ToggleScreenShareRequested += () => {
-            _bridge?.Send("voice.toggleScreenShare", null);
-            _bridge?.NotifyUiThread();
-        };
-        _audioManager.ShortcutPressed += action => {
+        // Toggle* actions now fire via MumbleAdapter.FireShortcutAction
+        // (driven by InputRouter.ShortcutReleased); AudioManager no longer
+        // owns input dispatch, so those events were removed.
+        WireAudioManagerBridgeEvents();
+
+        // InputRouter is created ONCE in the constructor and lives for the
+        // app's lifetime. Its WH_MOUSE_LL hook is installed on the calling
+        // (UI) thread and Win32 requires that thread to have a message pump
+        // for events to be delivered. Re-creating it on Connect would put
+        // the hook on whichever thread happens to call Connect (often a
+        // worker thread via ReconnectLoop / bridge dispatch) and the hook
+        // would silently receive no events.
+        //
+        // PttStateChanged is the only subscription that depends on the
+        // AudioManager (which IS recreated on Disconnect/Connect); it is
+        // re-wired in WireAudioManagerToInputRouter() each time AudioManager
+        // is created. The bridge-pointing subscriptions wire once here.
+        _inputRouter = new InputRouter(new Win32InputBackend(_hwnd));
+        _inputRouter.ShortcutPressed += action => {
             _bridge?.Send("voice.shortcutPressed", new { action });
             _bridge?.NotifyUiThread();
             if (action == "toggleGame")
@@ -149,28 +160,94 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 _bridge?.NotifyUiThread();
             }
         };
-        _audioManager.ShortcutReleased += action => {
-            _bridge?.Send("voice.shortcutReleased", new { action });
+        _inputRouter.ShortcutReleased += (action, forced) => {
+            _bridge?.Send("voice.shortcutReleased", new { action, forced });
+            _bridge?.NotifyUiThread();
+            // Skip the user-facing toggle when the release is forced — i.e.
+            // tearing down (Disconnect/channel transition/Suspend) or the
+            // binding got evicted under a held button. Otherwise
+            // disconnecting while toggleMute is held would toggle mute as
+            // an unintended side effect.
+            if (!forced) FireShortcutAction(action);
+        };
+        _inputRouter.JsForceReleaseRequested += () =>
+        {
+            _bridge?.Send("voice.pttKey", new { pressed = false, forced = true });
             _bridge?.NotifyUiThread();
         };
-        _audioManager.ToggleContinuousRequested += () => {
-            if (_audioManager == null) return;
-            var current = _audioManager.TransmissionMode;
-            var newMode = current == TransmissionMode.Continuous ? _previousMode : TransmissionMode.Continuous;
-            if (current != TransmissionMode.Continuous)
-                _previousMode = current;
-            var pttKey = newMode == TransmissionMode.PushToTalk ? _currentPttKey : null;
-            _audioManager.SetTransmissionMode(newMode, pttKey, _hwnd);
-        };
-        _audioManager.OnLossReport += loss => {
+        WireAudioManagerToInputRouter();
+    }
+
+    private void WireAudioManagerToInputRouter()
+    {
+        if (_inputRouter == null || _audioManager == null) return;
+        if (_pttStateChangedHandler != null)
+        {
+            _inputRouter.PttStateChanged -= _pttStateChangedHandler;
+        }
+        _pttStateChangedHandler = _audioManager.SetPttActiveExternal;
+        _inputRouter.PttStateChanged += _pttStateChangedHandler;
+    }
+
+    /// <summary>
+    /// Wires the AudioManager events that emit bridge messages. Called both
+    /// from the constructor and from Connect's recreate block — without this
+    /// indirection, the recreate block had to remember every subscription
+    /// (and previously missed <see cref="AudioManager.VadMeterUpdated"/>,
+    /// silently breaking the VAD meter in the settings UI across reconnects).
+    /// </summary>
+    private void WireAudioManagerBridgeEvents()
+    {
+        if (_audioManager == null) return;
+        _audioManager.OnLossReport += loss =>
+        {
             _bridge?.Send("voice.loss", new { loss });
         };
         _audioManager.VadMeterUpdated += (rms, isOpen) =>
         {
             _bridge?.Send("voice.vadMeter", new { rms, isOpen });
-            // Audio thread → must wake the UI thread so WebView2 actually flushes the queue.
+            // Audio thread → must wake the UI thread so WebView2 actually
+            // flushes the queue.
             _bridge?.NotifyUiThread();
         };
+    }
+
+    /// <summary>
+    /// Dispatches a shortcut action when its key is released. Previously lived
+    /// in AudioManager; moved here as part of Task 13 (InputRouter ownership).
+    /// </summary>
+    private void FireShortcutAction(string action)
+    {
+        switch (action)
+        {
+            case "toggleMute":
+                ToggleMute();
+                break;
+            case "toggleMuteDeafen":
+                ToggleMute();
+                ToggleDeaf();
+                break;
+            case "continuousTransmission":
+                if (_audioManager == null) return;
+                var current = _audioManager.TransmissionMode;
+                var newMode = current == TransmissionMode.Continuous ? _previousMode : TransmissionMode.Continuous;
+                if (current != TransmissionMode.Continuous) _previousMode = current;
+                var pttKey = (newMode == TransmissionMode.PushToTalk || newMode == TransmissionMode.PushToTalkPlus) ? _currentPttKey : null;
+                _audioManager.SetTransmissionMode(newMode, pttKey, IntPtr.Zero);
+                _inputRouter?.SetPttBinding(pttKey);
+                break;
+            case "toggleLeaveVoice":
+                LeaveVoice();
+                break;
+            case "toggleDmScreen":
+                _bridge?.Send("voice.toggleDmScreen", null);
+                _bridge?.NotifyUiThread();
+                break;
+            case "toggleScreenShare":
+                _bridge?.Send("voice.toggleScreenShare", null);
+                _bridge?.NotifyUiThread();
+                break;
+        }
     }
 
     public void Initialize(NativeBridge bridge) { }
@@ -219,37 +296,19 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (_audioManager == null)
         {
             _audioManager = new AudioManager(_hwnd);
-            _audioManager.ToggleMuteRequested += ToggleMute;
-            _audioManager.ToggleDeafenRequested += ToggleDeaf;
-            _audioManager.ToggleLeaveVoiceRequested += LeaveVoice;
-            _audioManager.ToggleDmScreenRequested += () => {
-                _bridge?.Send("voice.toggleDmScreen", null);
-                _bridge?.NotifyUiThread();
-            };
-            _audioManager.ToggleScreenShareRequested += () => {
-                _bridge?.Send("voice.toggleScreenShare", null);
-                _bridge?.NotifyUiThread();
-            };
-            _audioManager.ShortcutPressed += action => {
-                _bridge?.Send("voice.shortcutPressed", new { action });
-                _bridge?.NotifyUiThread();
-            };
-            _audioManager.ShortcutReleased += action => {
-                _bridge?.Send("voice.shortcutReleased", new { action });
-                _bridge?.NotifyUiThread();
-            };
-            _audioManager.ToggleContinuousRequested += () => {
-                if (_audioManager == null) return;
-                var current = _audioManager.TransmissionMode;
-                var newMode = current == TransmissionMode.Continuous ? _previousMode : TransmissionMode.Continuous;
-                if (current != TransmissionMode.Continuous)
-                    _previousMode = current;
-                var pttKey = (newMode == TransmissionMode.PushToTalk || newMode == TransmissionMode.PushToTalkPlus) ? _currentPttKey : null;
-                _audioManager.SetTransmissionMode(newMode, pttKey, _hwnd);
-            };
-            _audioManager.OnLossReport += loss => {
-                _bridge?.Send("voice.loss", new { loss });
-            };
+            WireAudioManagerBridgeEvents();
+        }
+
+        // InputRouter is app-lifetime; only the AudioManager-dependent
+        // subscription needs re-wiring when AudioManager was recreated.
+        // Reapply settings so the fresh AudioManager gets the user's
+        // transmission mode (otherwise it stays on its default Continuous
+        // mode and ServerSync's mic-start path leaves the mic running).
+        if (_inputRouter != null)
+        {
+            WireAudioManagerToInputRouter();
+            var settings = _appConfigService?.GetSettings();
+            if (settings != null) ApplySettings(settings);
         }
 
         try
@@ -302,6 +361,23 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         StopVoiceIdlePolling();
         _voiceIdleTracker?.Clear();
+
+        // Force release any held PTT/shortcut state before tearing down audio,
+        // so the matching release events fire while the AudioManager is still
+        // alive to consume them.
+        _inputRouter?.ReleaseAllHeld();
+
+        // Unwire InputRouter → AudioManager event subscriptions before disposing
+        // AudioManager. We do NOT dispose InputRouter itself — its WH_MOUSE_LL
+        // hook MUST stay alive on the UI thread that installed it. Re-creating
+        // it on Connect (which can run on a worker thread via ReconnectLoop or
+        // bridge dispatch) would install a dead hook on a thread without a
+        // message pump.
+        if (_inputRouter != null && _pttStateChangedHandler != null)
+        {
+            _inputRouter.PttStateChanged -= _pttStateChangedHandler;
+            _pttStateChangedHandler = null;
+        }
 
         _audioManager?.Dispose();
         _audioManager = null;
@@ -747,11 +823,22 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (parsed == TransmissionMode.Continuous && mode != "continuous")
             Debug.WriteLine($"[Audio] Unknown transmission mode '{mode}', defaulting to Continuous");
 
-        if (parsed == TransmissionMode.PushToTalk || parsed == TransmissionMode.PushToTalkPlus)
-            _currentPttKey = key;
+        bool isPtt = parsed == TransmissionMode.PushToTalk || parsed == TransmissionMode.PushToTalkPlus;
+
+        // Only adopt a non-null key. Callers (e.g. ApplySettings on reconnect,
+        // or a bridge message that omits the key field) may pass null when
+        // they don't intend to clear the binding — they're just re-asserting
+        // the mode. Treating null as "clear" silently unbinds PTT on every
+        // settings reapply that has a stale AppConfig.PushToTalkKey value.
+        if (isPtt && key != null) _currentPttKey = key;
 
         _audioManager?.SetDtx(ShouldEnableDtx(parsed));
         _audioManager?.SetTransmissionMode(parsed, key, _hwnd);
+
+        // For PTT modes, always route the live _currentPttKey (preserving
+        // any previously-bound key when the caller omitted it). For
+        // non-PTT modes, null clears the binding.
+        _inputRouter?.SetPttBinding(isPtt ? _currentPttKey : null);
     }
 
     private NoiseSuppressionLevel? _lastNoiseSuppressionLevel;
@@ -766,12 +853,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _ => VadSensitivity.Balanced,
         };
         _audioManager?.SetVadSensitivity(vadSensitivity);
-        _audioManager?.SetShortcut("toggleMute", settings.Shortcuts.ToggleMuteKey);
-        _audioManager?.SetShortcut("toggleMuteDeafen", settings.Shortcuts.ToggleMuteDeafenKey);
-        _audioManager?.SetShortcut("toggleLeaveVoice", settings.Shortcuts.ToggleLeaveVoiceKey);
-        _audioManager?.SetShortcut("toggleDmScreen", settings.Shortcuts.ToggleDMScreenKey);
-        _audioManager?.SetShortcut("toggleScreenShare", settings.Shortcuts.ToggleScreenShareKey);
-        _audioManager?.SetShortcut("toggleGame", settings.Shortcuts.ToggleGameKey);
+
+        // InputRouter is the sole owner of shortcut bindings.
+        _inputRouter?.SetShortcutBinding("toggleMute", settings.Shortcuts.ToggleMuteKey);
+        _inputRouter?.SetShortcutBinding("toggleMuteDeafen", settings.Shortcuts.ToggleMuteDeafenKey);
+        _inputRouter?.SetShortcutBinding("toggleLeaveVoice", settings.Shortcuts.ToggleLeaveVoiceKey);
+        _inputRouter?.SetShortcutBinding("toggleDmScreen", settings.Shortcuts.ToggleDMScreenKey);
+        _inputRouter?.SetShortcutBinding("toggleScreenShare", settings.Shortcuts.ToggleScreenShareKey);
+        _inputRouter?.SetShortcutBinding("toggleGame", settings.Shortcuts.ToggleGameKey);
         _audioManager?.SetInputVolume(settings.Audio.InputVolume);
         _audioManager?.SetOutputVolume(settings.Audio.OutputVolume);
         ApplyAudioDeviceSettings(settings);
@@ -857,14 +946,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             }
         }, true);
     }
-
-    /// <summary>Called from WndProc on WM_HOTKEY.</summary>
-    public void HandleHotKey(int id, bool keyDown)
-        => _audioManager?.HandleHotKey(id, keyDown);
-
-    /// <summary>Called from WndProc on WM_INPUT.</summary>
-    public void HandleRawInput(IntPtr wParam, IntPtr lParam)
-        => _audioManager?.HandleRawInput(wParam, lParam);
 
     public void JoinChannel(uint channelId)
     {
@@ -2248,19 +2329,19 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         {
             var action = data.TryGetProperty("action", out var a) ? a.GetString() ?? "" : "";
             var key = data.TryGetProperty("key", out var k) ? k.GetString() : null;
-            _audioManager?.SetShortcut(action, key);
+            _inputRouter?.SetShortcutBinding(action, key);
             return Task.CompletedTask;
         });
 
         bridge.RegisterHandler("voice.suspendHotkeys", _ =>
         {
-            _audioManager?.SuspendHotkeys();
+            _inputRouter?.Suspend();
             return Task.CompletedTask;
         });
 
         bridge.RegisterHandler("voice.resumeHotkeys", _ =>
         {
-            _audioManager?.ResumeHotkeys();
+            _inputRouter?.Resume();
             return Task.CompletedTask;
         });
 
@@ -2278,7 +2359,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         bridge.RegisterHandler("voice.pttKey", data =>
         {
             var pressed = data.TryGetProperty("pressed", out var p) && p.GetBoolean();
-            _audioManager?.HandlePttKeyFromJs(pressed);
+            _inputRouter?.HandleJsPttKey(pressed);
             return Task.CompletedTask;
         });
 
@@ -2982,7 +3063,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _bridge?.Send("voice.userSilent", new { session = userId });
         if (LocalUser != null)
             _audioManager?.SetLocalUserId(LocalUser.Id);
-        _audioManager?.StartMic();
+        // Don't unconditionally StartMic here — the transmission mode owns
+        // mic lifecycle. For PushToTalk it must stay stopped until the key
+        // is pressed; for Continuous/VAD/PushToTalkPlus, SetTransmissionMode
+        // (driven by ApplySettings on Connect) already starts it.
 
         StartVoiceIdlePolling();
 
@@ -3111,6 +3195,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             registered = LocalUser?.IsRegistered ?? false,
             registeredName = LocalUser?.IsRegistered == true ? LocalUser.Name : (string?)null
         });
+
+        // Voice lifecycle transition: force-release any held input so PTT
+        // cannot remain latched across a reconnect (#538).
+        _inputRouter?.ReleaseAllHeld();
 
         Debug.WriteLine($"[Mumble] Sent {channels.Count} channels and {users.Count} users");
     }
@@ -3242,6 +3330,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 actorSession,
                 actorName,
                 movedByOtherUser));
+
+            // Voice lifecycle: force-release held input on every channel
+            // transition (#538). Safe to call when nothing is held.
+            _inputRouter?.ReleaseAllHeld();
 
             // If this channel change was initiated by LeaveVoice toggle, just clear the flag
             if (_leaveVoiceInProgress)

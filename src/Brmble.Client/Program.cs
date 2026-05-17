@@ -669,14 +669,6 @@ static class Program
                 Win32Window.PostQuitMessage(0);
                 return IntPtr.Zero;
 
-            case Win32Window.WM_HOTKEY:
-                _mumbleClient?.HandleHotKey((int)wParam.ToInt64(), true);
-                return IntPtr.Zero;
-
-            case Win32Window.WM_INPUT:
-                _mumbleClient?.HandleRawInput(wParam, lParam);
-                return Win32Window.DefWindowProc(hwnd, msg, wParam, lParam);
-
             case SystemIdleTracker.WM_WTSSESSION_CHANGE:
                 _idleService?.SystemTracker?.OnSessionChange((int)wParam.ToInt64());
                 return IntPtr.Zero;
