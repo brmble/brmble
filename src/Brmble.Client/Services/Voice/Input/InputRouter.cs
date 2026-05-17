@@ -476,6 +476,17 @@ public sealed class InputRouter : IDisposable
             {
                 _mouseHookProc = MouseHookCallback;
                 _mouseHookHandle = _backend.SetMouseHook(_mouseHookProc);
+                if (_mouseHookHandle == IntPtr.Zero)
+                {
+                    // Hook install failed (permissions, transient Win32 error,
+                    // hook chain limit). Without a hook, mouse PTT/shortcuts
+                    // silently stop working. Log so failure is observable in
+                    // audio.log; clear the proc so the next binding call
+                    // retries the install rather than thinking the hook is
+                    // already up.
+                    AudioLog.Write($"[Input] SetMouseHook FAILED for action={action} key={key}; mouse input will not dispatch.");
+                    _mouseHookProc = null;
+                }
             }
         }
         if (evictedHeldKind is BindingKind.Ptt) PttStateChanged?.Invoke(false);
