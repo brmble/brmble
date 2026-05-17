@@ -201,9 +201,6 @@ export function InterfaceSettingsTab({
             <span className="brmble-toggle-slider"></span>
           </label>
         </div>
-        <p className="settings-hint">
-          Keep a small Brmblegotchi companion overlay on top of games and desktop apps for current-channel activity, DMs, moderation, and speakers.
-        </p>
       </div>
 
     </div>

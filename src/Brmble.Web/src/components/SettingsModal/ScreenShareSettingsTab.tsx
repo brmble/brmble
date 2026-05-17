@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Select } from '../Select';
-import { Tooltip } from '../Tooltip/Tooltip';
 import type { ScreenShareSettings } from './SettingsModal';
+import { SettingsHelp } from './SettingsHelp';
 import './ScreenShareSettingsTab.css';
 
 interface ScreenShareSettingsTabProps {
@@ -48,9 +48,7 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
         <div className="settings-item settings-toggle">
           <div className="settings-label-group">
             <span className="settings-label">Capture Audio</span>
-            <Tooltip content="Capture microphone audio along with screen share" position="right" align="start">
-              <button type="button" className="settings-info-btn" aria-label="More information about capture audio">?</button>
-            </Tooltip>
+            <SettingsHelp content="Capture microphone audio along with screen share when browser support is available." label="More information about capture audio" />
           </div>
           <label className="brmble-toggle">
             <input
@@ -65,9 +63,7 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
         <div className="settings-item">
           <div className="settings-label-group">
             <span className="settings-label">Resolution</span>
-            <Tooltip content="Higher resolution uses more bandwidth" position="right" align="start">
-              <button type="button" className="settings-info-btn" aria-label="More information about resolution">?</button>
-            </Tooltip>
+            <SettingsHelp content="Higher resolution uses more bandwidth" label="More information about resolution" />
           </div>
           <Select
             value={localSettings.resolution}
@@ -79,9 +75,7 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
         <div className="settings-item">
           <div className="settings-label-group">
             <span className="settings-label">Frame Rate</span>
-            <Tooltip content="Higher frame rate uses more bandwidth" position="right" align="start">
-              <button type="button" className="settings-info-btn" aria-label="More information about frame rate">?</button>
-            </Tooltip>
+            <SettingsHelp content="Higher frame rate uses more bandwidth" label="More information about frame rate" />
           </div>
           <Select
             value={String(localSettings.fps)}
@@ -93,9 +87,7 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
         <div className="settings-item settings-toggle">
           <div className="settings-label-group">
             <span className="settings-label">System Audio</span>
-            <Tooltip content="Capture system audio (Windows/macOS only)" position="right" align="start">
-              <button type="button" className="settings-info-btn" aria-label="More information about system audio">?</button>
-            </Tooltip>
+            <SettingsHelp content="Capture system audio when supported. System audio is available on Windows and macOS, and requires browser support." label="More information about system audio" />
           </div>
           <label className="brmble-toggle">
             <input
@@ -110,9 +102,7 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
         <div className="settings-item">
           <div className="settings-label-group">
             <span className="settings-label">Viewer Location</span>
-            <Tooltip content="Where to show screen share when viewing others" position="right" align="start">
-              <button type="button" className="settings-info-btn" aria-label="More information about viewer location">?</button>
-            </Tooltip>
+            <SettingsHelp content="Where to show screen share when viewing others" label="More information about viewer location" />
           </div>
           <Select
             value={localSettings.viewerMode}
@@ -122,9 +112,6 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
         </div>
       </div>
 
-      <p className="settings-note">
-        System audio is available on Windows and macOS. Audio capture requires browser support.
-      </p>
     </div>
   );
 }

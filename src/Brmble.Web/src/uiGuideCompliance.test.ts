@@ -43,6 +43,7 @@ const inlineStyleAllowList = [
   /^style=\{\{\s*animationDuration:\s*`\$\{[^`]+\}ms`\s*\}\}$/,
   /^style=\{\{\s*display:\s*'none'\s*\}\}$/,
   /^style=\{\{\s*'--dx':\s*'[^']+',\s*'--dy':\s*'[^']+'\s*\}\s*as CSSProperties\}$/,
+  /^style=\{\{\s*'--stagger-index':\s*[^,}]+\}\s*as CSSProperties\}$/,
   /^style=\{\{\s*bottom:\s*`\$\{[^`]+\}px`,\s*right:\s*`\$\{[^`]+\}px`,\s*\}\}$/,
   /^style=\{\{\s*'--grad-center':\s*`url\(#\$\{[^`]+\}-grad-center\)`,\s*'--grad-inner':\s*`url\(#\$\{[^`]+\}-grad-inner\)`,\s*'--grad-middle':\s*`url\(#\$\{[^`]+\}-grad-middle\)`,\s*'--grad-outer':\s*`url\(#\$\{[^`]+\}-grad-outer\)`,\s*\}\s*as CSSProperties\}$/,
 ];

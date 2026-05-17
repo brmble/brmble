@@ -6,7 +6,7 @@ export type NotificationStatus = 'info' | 'success' | 'warning' | 'error';
 
 interface NotificationProps {
   status: NotificationStatus;
-  position: 'top-right' | 'bottom-center';
+  position: 'top-right';
   title: React.ReactNode;
   detail?: React.ReactNode;
   actions?: React.ReactNode;

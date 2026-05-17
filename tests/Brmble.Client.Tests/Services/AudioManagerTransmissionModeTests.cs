@@ -17,6 +17,16 @@ public class AudioManagerTransmissionModeTests
             .GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(audio)!;
 
+    private static object? GetPrivateField(AudioManager audio, string fieldName)
+        => typeof(AudioManager)
+            .GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(audio);
+
+    private static void SetPrivateField(AudioManager audio, string fieldName, object? value)
+        => typeof(AudioManager)
+            .GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(audio, value);
+
     [TestMethod]
     public void FirstCall_AppliesConfiguration()
     {
