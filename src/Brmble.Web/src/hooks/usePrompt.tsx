@@ -199,17 +199,6 @@ function PromptWithInputComponent() {
               type="button"
               className="password-toggle-btn"
               onClick={() => setShowPassword(!showPassword)}
-              style={{
-                position: 'absolute',
-                right: '10px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                background: 'none',
-                border: 'none',
-                color: 'var(--text-muted, #999)',
-                cursor: 'pointer',
-                padding: '4px'
-              }}
               aria-label={showPassword ? 'Hide password' : 'Show password'}
               title={showPassword ? 'Hide password' : 'Show password'}
             >

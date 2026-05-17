@@ -28,14 +28,15 @@ public sealed class AclEventDispatcher : IAclEventDispatcher
             return;
         }
 
-        var allowed = new HashSet<long>();
-        foreach (var userId in connectedUserIds)
+        // Parallelize authorization checks for better performance with many connected users
+        var authTasks = connectedUserIds.Select(async userId =>
         {
-            if (await _authorization.CanManageChannelAclAsync(userId, channelId))
-            {
-                allowed.Add(userId);
-            }
-        }
+            var canManage = await _authorization.CanManageChannelAclAsync(userId, channelId);
+            return (userId, canManage);
+        });
+
+        var authResults = await Task.WhenAll(authTasks);
+        var allowed = authResults.Where(r => r.canManage).Select(r => r.userId).ToHashSet();
 
         if (allowed.Count == 0)
         {

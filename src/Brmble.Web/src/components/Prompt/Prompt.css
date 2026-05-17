@@ -17,11 +17,35 @@
 
 .prompt-input-container {
   margin: var(--space-lg) 0;
+  position: relative;
 }
 
 .prompt-input-container .brmble-input {
   width: 100%;
   box-sizing: border-box;
+}
+
+.password-toggle-btn {
+  position: absolute;
+  right: var(--space-sm);
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: var(--space-xs);
+  font-size: var(--text-sm);
+}
+
+.password-toggle-btn:hover {
+  color: var(--text-primary);
+}
+
+.password-toggle-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
 
 .prompt-footer {

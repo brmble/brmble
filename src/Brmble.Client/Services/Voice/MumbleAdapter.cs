@@ -37,6 +37,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private uint? _previousChannelId;
     private uint? _pendingLocalJoinChannelId;
     private string? _pendingJoinPassword;
+    private bool _hasActiveJoinToken;
     private bool _leftVoice;
     private bool _leaveVoiceInProgress;
     private bool _canRejoin;
@@ -343,6 +344,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _previousChannelId = null;
         _pendingLocalJoinChannelId = null;
         _pendingJoinPassword = null;
+        _hasActiveJoinToken = false;
         if (_intentionalDisconnect || _reconnectHost == null)
         {
             _apiUrl = null;
@@ -895,6 +897,26 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         };
         auth.Tokens.Add(_pendingJoinPassword);
         SendAuthenticate(auth);
+        _hasActiveJoinToken = true;
+    }
+
+    private void ClearTemporaryJoinToken()
+    {
+        if (!_hasActiveJoinToken)
+            return;
+
+        if (Connection is not { State: ConnectionStates.Connected })
+            return;
+
+        // Send empty token list to clear the temporary token from session
+        var auth = new Authenticate
+        {
+            Username = LocalUser?.Name ?? _reconnectUsername ?? string.Empty,
+            Opus = true,
+        };
+        // Empty Tokens collection removes all tokens from the session
+        SendAuthenticate(auth);
+        _hasActiveJoinToken = false;
     }
 
     public void RequestPermissions(uint channelId)
@@ -1433,7 +1455,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         var expectedSnapshotHash = snapshot.TryGetProperty("snapshotHash", out var hashProp) ? hashProp.GetString() ?? "" : "";
 
         var groups = snapshot.TryGetProperty("groups", out var groupsProp) && groupsProp.ValueKind == System.Text.Json.JsonValueKind.Array
-            ? groupsProp.EnumerateArray().Select(g => System.Text.Json.JsonSerializer.Deserialize<object>(g.GetRawText())!).ToList()
+            ? groupsProp.EnumerateArray()
+                .Where(g => !(g.TryGetProperty("inherited", out var inheritedProp) && inheritedProp.GetBoolean()))
+                .Select(g => System.Text.Json.JsonSerializer.Deserialize<object>(g.GetRawText())!)
+                .ToList()
             : [];
 
         var localRules = new List<System.Text.Json.JsonElement>();
@@ -3720,12 +3745,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 {
                     _pendingLocalJoinChannelId = null;
                     _pendingJoinPassword = null;
+                    ClearTemporaryJoinToken();
                 }
             }
             else if (_pendingLocalJoinChannelId == currentChannelId)
             {
                 _pendingLocalJoinChannelId = null;
                 _pendingJoinPassword = null;
+                ClearTemporaryJoinToken();
                 if (_leftVoice && LocalUser != null)
                 {
                     ClearLeaveVoiceState();
@@ -3983,6 +4010,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         base.PermissionDenied(permissionDenied);
 
         _pendingJoinPassword = null;
+        ClearTemporaryJoinToken();
 
         var reason = !string.IsNullOrEmpty(permissionDenied.Reason)
             ? permissionDenied.Reason

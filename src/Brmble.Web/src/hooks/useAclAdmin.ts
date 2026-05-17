@@ -101,7 +101,9 @@ export function useAclAdmin(channelId: number | null) {
     if (channelId == null) return;
     setSaving(true);
     setError(null);
-    bridge.send('acl.setChannelPassword', { channelId, password });
+    // Strip leading # from password since native will prepend # when building ACL selector
+    const normalizedPassword = password.startsWith('#') ? password.slice(1) : password;
+    bridge.send('acl.setChannelPassword', { channelId, password: normalizedPassword });
   };
 
   const addGroupMember = (group: string, session: number) => {

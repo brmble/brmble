@@ -272,7 +272,7 @@ function isPasswordProtectedJoinError(data: unknown): boolean {
   }
 
   const message = (d.message ?? '').toLowerCase();
-  return message.includes('password') || message.includes('token') || message.includes('temporary access') || message === 'permission denied: permission';
+  return message.includes('password') || message.includes('token') || message.includes('temporary access');
 }
 
 interface NextLiveKitStatusOptions {

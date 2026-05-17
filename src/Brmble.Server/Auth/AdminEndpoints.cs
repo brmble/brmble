@@ -12,7 +12,8 @@ public static class AdminEndpoints
             HttpContext httpContext,
             ICertificateHashExtractor certHashExtractor,
             UserRepository userRepo,
-            IMumbleRegistrationService registrationService) =>
+            IMumbleRegistrationService registrationService,
+            Brmble.Server.Mumble.IAclAuthorizationService aclAuthService) =>
         {
             var certHash = certHashExtractor.GetCertHash(httpContext);
             if (string.IsNullOrWhiteSpace(certHash))
@@ -24,6 +25,13 @@ public static class AdminEndpoints
             if (user is null)
             {
                 return Results.Unauthorized();
+            }
+
+            // Restrict to users who can manage root channel ACLs (server admins)
+            var canManageRoot = await aclAuthService.CanManageChannelAclAsync(user.Id, channelId: 0);
+            if (!canManageRoot)
+            {
+                return Results.Forbid();
             }
 
             try

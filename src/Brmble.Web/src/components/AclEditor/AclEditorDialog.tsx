@@ -212,7 +212,23 @@ export function AclEditorDialog({ channelId, channelName, isOpen, onClose, avail
   const removeManagedAllUsersDenyRule = (options?: { persist?: boolean }) => {
     applyDraft(current => ({
       ...current,
-      acls: current.acls.filter(rule => !(!rule.inherited && rule.userId == null && rule.group === ALL_USERS_SELECTOR && (rule.deny & CHANNEL_ENTRY_PERMISSIONS) === CHANNEL_ENTRY_PERMISSIONS)),
+      acls: current.acls.filter(rule => {
+        // Only remove rules that match the exact managed whitelist pattern:
+        // - Not inherited
+        // - No userId (group rule)
+        // - group === 'all'
+        // - allow === 0 (no allow bits)
+        // - deny === Enter|Traverse (ONLY these bits)
+        // - applyHere === true, applySubs === false
+        const isExactManagedRule = !rule.inherited 
+          && rule.userId == null 
+          && rule.group === ALL_USERS_SELECTOR
+          && rule.allow === 0
+          && rule.deny === CHANNEL_ENTRY_PERMISSIONS
+          && rule.applyHere === true
+          && rule.applySubs === false;
+        return !isExactManagedRule;
+      }),
     }), options);
   };
 
@@ -220,7 +236,23 @@ export function AclEditorDialog({ channelId, channelName, isOpen, onClose, avail
     if (enabled) {
       applyDraft(current => {
         const base = current;
-        const ruleIndex = base.acls.findIndex(rule => !rule.inherited && rule.userId == null && rule.group === ALL_USERS_SELECTOR);
+        // Check if we already have an exact managed whitelist rule
+        const existingManagedIndex = base.acls.findIndex(rule => 
+          !rule.inherited 
+          && rule.userId == null 
+          && rule.group === ALL_USERS_SELECTOR
+          && rule.allow === 0
+          && rule.deny === CHANNEL_ENTRY_PERMISSIONS
+          && rule.applyHere === true
+          && rule.applySubs === false
+        );
+        
+        // If exact managed rule exists, nothing to do
+        if (existingManagedIndex >= 0) {
+          return base;
+        }
+
+        // Add new managed whitelist rule rather than replacing existing 'all' rules
         const whitelistRule: AclRule = {
           applyHere: true,
           applySubs: false,
@@ -230,10 +262,8 @@ export function AclEditorDialog({ channelId, channelName, isOpen, onClose, avail
           allow: 0,
           deny: CHANNEL_ENTRY_PERMISSIONS,
         };
-        const acls = ruleIndex >= 0
-          ? base.acls.map((rule, index) => index === ruleIndex ? whitelistRule : rule)
-          : [...base.acls, whitelistRule];
-        return { ...base, acls };
+        
+        return { ...base, acls: [...base.acls, whitelistRule] };
       }, { persist: true });
       return;
     }
