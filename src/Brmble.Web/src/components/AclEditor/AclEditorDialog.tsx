@@ -15,6 +15,7 @@ interface AclEditorDialogProps {
   isOpen: boolean;
   onClose: () => void;
   availableUsers?: Pick<User, 'session' | 'name' | 'channelId'>[];
+  isNativePasswordProtected?: boolean;
 }
 
 type SharedAccessKind = 'password' | 'token' | 'group';
@@ -103,7 +104,7 @@ function buildDirectUserEntries(acls: AclRule[]): DirectUserEntry[] {
   ));
 }
 
-export function AclEditorDialog({ channelId, channelName, isOpen, onClose, availableUsers = [] }: AclEditorDialogProps) {
+export function AclEditorDialog({ channelId, channelName, isOpen, onClose, availableUsers = [], isNativePasswordProtected = false }: AclEditorDialogProps) {
   const { snapshot, loading, saving, error, refresh, save, savePassword } = useAclAdmin(isOpen ? channelId : null);
   const [draft, setDraft] = useState<AclDraft | null>(null);
   const [pendingApprovedSession, setPendingApprovedSession] = useState('');
@@ -587,6 +588,15 @@ export function AclEditorDialog({ channelId, channelName, isOpen, onClose, avail
                     <h3 className="heading-section settings-section-title">Password</h3>
                     <p className="acl-section-copy">Protect the channel with a password if you want an extra layer of access control.</p>
                   </div>
+                  {isNativePasswordProtected && !passwordEntry && (
+                    <div className="acl-warning">
+                      <Icon name="alert-triangle" />
+                      <div>
+                        <strong>Native Mumble Password Detected</strong>
+                        <p>This channel has a password set via the native Mumble client. Brmble can only manage passwords set through this interface. To use Brmble's password management, please remove the existing password using a Mumble client first, or enable password protection below to set a Brmble-managed password.</p>
+                      </div>
+                    </div>
+                  )}
                   <label className="acl-toggle">
                     <input
                       type="checkbox"

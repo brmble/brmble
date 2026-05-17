@@ -204,7 +204,9 @@ namespace MumbleSharp
                     {
                         Temporary = channelState.Temporary,
                         Description = channelState.Description,
-                        Position = channelState.Position
+                        Position = channelState.Position,
+                        IsEnterRestricted = channelState.IsEnterRestricted,
+                        CanEnter = channelState.CanEnter
                     };
                 },
                 (i, c) => c);
@@ -220,6 +222,10 @@ namespace MumbleSharp
                 channel.Description = channelState.Description;
             if (channelState.ShouldSerializePosition())
                 channel.Position = channelState.Position;
+            if (channelState.ShouldSerializeIsEnterRestricted())
+                channel.IsEnterRestricted = channelState.IsEnterRestricted;
+            if (channelState.ShouldSerializeCanEnter())
+                channel.CanEnter = channelState.CanEnter;
 
             if (channel.Id == 0)
                 RootChannel = channel;

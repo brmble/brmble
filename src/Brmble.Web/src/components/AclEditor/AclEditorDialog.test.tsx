@@ -163,6 +163,21 @@ describe('AclEditorDialog', () => {
     expect(screen.getByText('User id 12')).toBeInTheDocument();
   });
 
+  it('shows a native-password warning when the channel is protected outside Brmble', () => {
+    render(
+      <AclEditorDialog
+        isOpen
+        channelId={4}
+        channelName="Secret"
+        isNativePasswordProtected
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Native Mumble Password Detected')).toBeInTheDocument();
+    expect(screen.getByText(/remove the existing password using a Mumble client first/i)).toBeInTheDocument();
+  });
+
   it('preserves the password marker rule while exposing the simple password field', () => {
     hookSnapshot = {
       ...hookSnapshot,

@@ -490,6 +490,7 @@ interface Channel {
   id: number;
   name: string;
   parent?: number;
+  isEnterRestricted?: boolean;
 }
 
 interface User {
@@ -1678,7 +1679,7 @@ function App() {
     });
 
     const onVoiceChannelJoined = ((data: unknown) => {
-      const d = data as { id: number; name: string; parent?: number } | undefined;
+      const d = data as { id: number; name: string; parent?: number; isEnterRestricted?: boolean } | undefined;
       if (d?.id !== undefined) {
         setChannels(prev => {
           const existing = prev.find(c => c.id === d.id);
