@@ -71,7 +71,7 @@ public class InputRouterDispatchTests
         using var router = new InputRouter(backend);
 
         var releases = new List<string>();
-        router.ShortcutReleased += a => releases.Add(a);
+        router.ShortcutReleased += (a, _) => releases.Add(a);
 
         router.SetShortcutBinding("toggleMute", "MouseLeft");
         InvokeMouseHook(backend, WM_LBUTTONDOWN);
