@@ -449,8 +449,22 @@ public sealed class InputRouter : IDisposable
         // button transitions, so a button already held when the binding is
         // installed will not synthesize a DOWN event. Releasing the leftover
         // hold fires UP, which becomes a no-op because IsHeld is false.
+        BindingKind? evictedHeldKind = null;
+        string? evictedHeldAction = null;
         lock (_mouseLock)
         {
+            // If a prior binding occupies this slot AND was held, capture its
+            // identity so we can fire the appropriate release outside the
+            // lock — the caller might be rebinding the button to a different
+            // action (e.g. PTT on X2 → toggleMute on X2) and the old action's
+            // subscribers must be told the held state ended, otherwise
+            // PTT/shortcut stays logically "stuck".
+            if (_mouseBindings.TryGetValue(button, out var prior) && prior.IsHeld
+                && (prior.Action != action || prior.Kind != kind))
+            {
+                evictedHeldKind = prior.Kind;
+                evictedHeldAction = prior.Action;
+            }
             _mouseBindings[button] = new MouseBinding(kind, action, key);
             if (_mouseHookHandle == IntPtr.Zero)
             {
@@ -458,6 +472,9 @@ public sealed class InputRouter : IDisposable
                 _mouseHookHandle = _backend.SetMouseHook(_mouseHookProc);
             }
         }
+        if (evictedHeldKind is BindingKind.Ptt) PttStateChanged?.Invoke(false);
+        else if (evictedHeldKind is BindingKind.Shortcut && evictedHeldAction != null)
+            ShortcutReleased?.Invoke(evictedHeldAction, true); // forced
     }
 
     private IntPtr MouseHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
