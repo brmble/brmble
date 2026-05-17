@@ -272,7 +272,7 @@ function isPasswordProtectedJoinError(data: unknown): boolean {
   }
 
   const message = (d.message ?? '').toLowerCase();
-  return message.includes('password') || message.includes('token') || message.includes('temporary access');
+  return message.includes('password') || message.includes('token') || message.includes('temporary access') || message === 'permission denied: permission';
 }
 
 interface NextLiveKitStatusOptions {
@@ -3843,6 +3843,8 @@ const handleConnect = (serverData: SavedServer) => {
 
       <ZoomIndicator />
       <Version />
+      <Prompt />
+      <PromptWithInput />
       </ProfileProvider>
     </div>
   );
