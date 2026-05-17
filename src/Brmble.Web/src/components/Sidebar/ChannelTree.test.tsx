@@ -3,7 +3,7 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import { ChannelTree } from './ChannelTree';
 import type { ShareInfo } from '../../hooks/useScreenShare';
 
-const { bridgeMock, usePermissionsMock, editChannelDialogPropsRef, promptMock } = vi.hoisted(() => ({
+const { bridgeMock, usePermissionsMock, editChannelDialogPropsRef, aclEditorDialogPropsRef, promptMock } = vi.hoisted(() => ({
   bridgeMock: {
     on: vi.fn(),
     off: vi.fn(),
@@ -22,6 +22,7 @@ const { bridgeMock, usePermissionsMock, editChannelDialogPropsRef, promptMock } 
     requestPermissions: vi.fn(),
   })),
   editChannelDialogPropsRef: { current: null as null | Record<string, unknown> },
+  aclEditorDialogPropsRef: { current: null as null | Record<string, unknown> },
   promptMock: vi.fn(),
 }));
 
@@ -65,7 +66,10 @@ vi.mock('../RenameConfirmDialog/RenameConfirmDialog', () => ({
 }));
 
 vi.mock('../AclEditor/AclEditorDialog', () => ({
-  AclEditorDialog: () => null,
+  AclEditorDialog: (props: Record<string, unknown>) => {
+    aclEditorDialogPropsRef.current = props;
+    return null;
+  },
 }));
 
 vi.mock('../Avatar/Avatar', () => ({
@@ -274,6 +278,7 @@ describe('ChannelTree ACL integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     editChannelDialogPropsRef.current = null;
+    aclEditorDialogPropsRef.current = null;
     promptMock.mockReset();
   });
 
@@ -295,6 +300,36 @@ describe('ChannelTree ACL integration', () => {
     fireEvent.contextMenu(screen.getByText('Secret'));
 
     expect(screen.getByText('Edit Permissions')).toBeInTheDocument();
+  });
+
+  it('opens Edit Permissions without showing a debug alert', () => {
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+    usePermissionsMock.mockReturnValue({
+      hasPermission: vi.fn((channelId: number, permission: number) => channelId === 5 && permission === 0x01),
+      Permission: { Write: 0x01, MakeChannel: 0x40, Move: 0x20, Kick: 0x10000, Ban: 0x20000, MuteDeafen: 0x10 },
+      requestPermissions: vi.fn(),
+    });
+
+    render(
+      <ChannelTree
+        channels={[{ id: 5, name: 'Secret', parent: 0, isEnterRestricted: true }]}
+        users={[]}
+        currentChannelId={5}
+        onJoinChannel={vi.fn()}
+      />
+    );
+
+    fireEvent.contextMenu(screen.getByText('Secret'));
+    fireEvent.click(screen.getByText('Edit Permissions'));
+
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(aclEditorDialogPropsRef.current).toMatchObject({
+      channelId: 5,
+      channelName: 'Secret',
+      isNativePasswordProtected: true,
+    });
+
+    alertSpy.mockRestore();
   });
 
   it('loads the managed password for edit and does not rewrite it when unchanged', () => {

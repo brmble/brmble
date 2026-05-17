@@ -3545,7 +3545,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private void SendVoiceConnected(uint? overrideChannelId = null)
     {
         var channelId = overrideChannelId ?? (uint)(LocalUser?.Channel?.Id ?? 0);
-        var channels = Channels.Select(c => new { id = c.Id, name = c.Name, parent = c.Parent }).ToList();
+        var channels = Channels.Select(c => new
+        {
+            id = c.Id,
+            name = c.Name,
+            parent = c.Parent,
+            isEnterRestricted = c.IsEnterRestricted
+        }).ToList();
         var users = Users.Select(u =>
         {
             var hasMap = _sessionMappings.TryGetValue(u.Id, out var sm);
@@ -3935,7 +3941,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             {
                 id = channel.Id,
                 name = channel.Name,
-                parent = channel.Parent
+                parent = channel.Parent,
+                isEnterRestricted = channel.IsEnterRestricted
             });
         }
     }

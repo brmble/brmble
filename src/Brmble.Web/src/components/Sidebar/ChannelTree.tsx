@@ -36,6 +36,7 @@ interface Channel {
   name: string;
   parent?: number;
   description?: string;
+  isEnterRestricted?: boolean;
 }
 
 interface ChannelWithUsers extends Channel {
@@ -774,6 +775,7 @@ onClick: () => {
           channelId={aclEditorChannel.id}
           channelName={aclEditorChannel.name}
           availableUsers={users}
+          isNativePasswordProtected={channels.find(c => c.id === aclEditorChannel.id)?.isEnterRestricted ?? false}
           onClose={() => setAclEditorChannel(null)}
         />
       )}
