@@ -1464,6 +1464,7 @@ function App() {
               placeholder: 'Password',
               confirmLabel: 'Join',
               cancelLabel: 'Cancel',
+              isPassword: true,
             });
 
             if (!password) {

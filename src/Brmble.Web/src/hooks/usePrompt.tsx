@@ -11,6 +11,7 @@ export interface PromptOptions {
 export interface PromptWithInputOptions extends PromptOptions {
   placeholder?: string;
   defaultValue?: string;
+  isPassword?: boolean;
 }
 
 interface UsePromptReturn {
@@ -133,10 +134,12 @@ function PromptComponent() {
 function PromptWithInputComponent() {
   const isOpen = globalResolveInput !== null;
   const [inputValue, setInputValue] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       setInputValue(globalInputOptions.defaultValue || '');
+      setShowPassword(false);
     }
   }, [isOpen]);
 
@@ -176,15 +179,43 @@ function PromptWithInputComponent() {
           <h2 id="prompt-title" className="heading-title modal-title">{globalInputOptions.title}</h2>
           <p className="modal-subtitle">{globalInputOptions.message}</p>
         </div>
-        <div className="prompt-input-container">
+        <div className="prompt-input-container" style={{ position: 'relative' }}>
           <input
-            type="text"
+            type={globalInputOptions.isPassword && !showPassword ? 'password' : 'text'}
             className="brmble-input"
             placeholder={globalInputOptions.placeholder}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleSubmit();
+              }
+            }}
             autoFocus
           />
+          {globalInputOptions.isPassword && (
+            <button
+              type="button"
+              className="password-toggle-btn"
+              onClick={() => setShowPassword(!showPassword)}
+              style={{
+                position: 'absolute',
+                right: '10px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                background: 'none',
+                border: 'none',
+                color: 'var(--text-muted, #999)',
+                cursor: 'pointer',
+                padding: '4px'
+              }}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+              title={showPassword ? 'Hide password' : 'Show password'}
+            >
+              {showPassword ? 'Hide' : 'Show'}
+            </button>
+          )}
         </div>
         <div className="prompt-footer">
           <button
