@@ -389,8 +389,6 @@ public sealed class InputRouter : IDisposable
     {
         BindingKind? releasedKind = null;
         string? releasedAction = null;
-        bool unhookNow = false;
-        IntPtr handleToUnhook = IntPtr.Zero;
 
         lock (_mouseLock)
         {
@@ -407,20 +405,18 @@ public sealed class InputRouter : IDisposable
                 releasedKind = removed.Kind;
                 releasedAction = removed.Action;
             }
-            if (_mouseBindings.Count == 0 && _mouseHookHandle != IntPtr.Zero)
-            {
-                handleToUnhook = _mouseHookHandle;
-                _mouseHookHandle = IntPtr.Zero;
-                _mouseHookProc = null;
-                unhookNow = true;
-            }
+            // Intentionally do NOT unhook when bindings reach zero. Unhook +
+            // rehook on every binding swap races with in-flight callbacks
+            // queued by the OS — the lambda passed to SetWindowsHookEx can be
+            // collected before Windows drains its queue, producing
+            // "callback on a garbage collected delegate" crashes from the
+            // message loop. The hook stays installed app-lifetime; when the
+            // dispatch table is empty, MouseHookCallback simply chains.
         }
 
         if (releasedKind is BindingKind.Ptt) PttStateChanged?.Invoke(false);
         else if (releasedKind is BindingKind.Shortcut && releasedAction != null)
             ShortcutReleased?.Invoke(releasedAction);
-
-        if (unhookNow) _backend.UnhookMouse(handleToUnhook);
     }
 
     private void SetMouseBinding(MouseButton button, BindingKind kind, string action, string key)
@@ -537,18 +533,24 @@ public sealed class InputRouter : IDisposable
     public void Dispose()
     {
         IntPtr handle;
+        LowLevelMouseProc? procToKeepAlive;
         lock (_mouseLock)
         {
             if (_disposed) return;
             _disposed = true;
             handle = _mouseHookHandle;
+            procToKeepAlive = _mouseHookProc;
             _mouseHookHandle = IntPtr.Zero;
             _mouseHookProc = null;
         }
         StopPttPolling();
         _shortcutKbTimer?.Dispose();
         _shortcutKbTimer = null;
-        if (handle != IntPtr.Zero) _backend.UnhookMouse(handle);
+        if (handle != IntPtr.Zero)
+        {
+            _backend.UnhookMouse(handle);
+            GC.KeepAlive(procToKeepAlive);
+        }
     }
 
     /// <summary>

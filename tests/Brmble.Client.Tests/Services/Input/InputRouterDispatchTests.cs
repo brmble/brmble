@@ -83,8 +83,12 @@ public class InputRouterDispatchTests
     }
 
     [TestMethod]
-    public void ClearLastBinding_UnregistersMouseHook()
+    public void ClearLastBinding_LeavesHookInstalled_NoCrash()
     {
+        // Hook is intentionally app-lifetime to avoid the unhook/rehook race
+        // that GC-collects the delegate while Windows still has in-flight
+        // callbacks queued. The dispatch table becomes empty and the hook
+        // becomes a no-op chain.
         var backend = new FakeInputBackend();
         using var router = new InputRouter(backend);
         router.SetShortcutBinding("toggleMute", "MouseLeft");
@@ -92,7 +96,7 @@ public class InputRouterDispatchTests
 
         router.SetShortcutBinding("toggleMute", null);
 
-        Assert.IsFalse(backend.MouseHookRegistered);
+        Assert.IsTrue(backend.MouseHookRegistered);
     }
 
     [TestMethod]

@@ -154,30 +154,14 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
     }
   }, [recording, allBindings, handleChange, onClearBinding]);
 
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    if (capturedInputRef.current) return;
-    handleInput(e.code);
-  }, [handleInput]);
-
-  const handleMouseDown = useCallback((e: MouseEvent) => {
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    if (capturedInputRef.current) return;
-    const button = e.button;
-    const mouseButtonMap: Record<number, string> = {
-      0: 'MouseLeft',
-      1: 'MouseMiddle', 
-      2: 'MouseRight',
-      3: 'XButton1',
-      4: 'XButton2',
-    };
-    const key = mouseButtonMap[button];
-    if (key) {
-      handleInput(key);
-    }
-  }, [handleInput]);
+  // Route listeners through a ref so the recording useEffect does NOT
+  // depend on handleInput / handleKeyDown / handleMouseDown identity.
+  // Parent re-renders (settings.updated echo loop) recreate handleAudioChange,
+  // which cascades into handleInput; depending on those would tear down and
+  // re-attach the capture listeners on every echo, wiping capturedInputRef
+  // mid-binding and stranding only MouseLeft as the persisted value.
+  const handleInputRef = useRef(handleInput);
+  useEffect(() => { handleInputRef.current = handleInput; }, [handleInput]);
 
   useEffect(() => {
     if (recording && !isPromptOpen) {
@@ -185,18 +169,38 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
         bridge.send('voice.suspendHotkeys');
         hotkeysSuspendedRef.current = true;
       }
+      const onKey = (e: KeyboardEvent) => {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (capturedInputRef.current) return;
+        handleInputRef.current(e.code);
+      };
+      const onMouse = (e: MouseEvent) => {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (capturedInputRef.current) return;
+        const mouseButtonMap: Record<number, string> = {
+          0: 'MouseLeft',
+          1: 'MouseMiddle',
+          2: 'MouseRight',
+          3: 'XButton1',
+          4: 'XButton2',
+        };
+        const key = mouseButtonMap[e.button];
+        if (key) handleInputRef.current(key);
+      };
       const finishRecording = () => {
         if (!capturedInputRef.current) return;
         capturedInputRef.current = null;
         setRecording(false);
       };
-      window.addEventListener('keydown', handleKeyDown, true);
-      window.addEventListener('mousedown', handleMouseDown, true);
+      window.addEventListener('keydown', onKey, true);
+      window.addEventListener('mousedown', onMouse, true);
       window.addEventListener('keyup', finishRecording, true);
       window.addEventListener('mouseup', finishRecording, true);
       return () => {
-        window.removeEventListener('keydown', handleKeyDown, true);
-        window.removeEventListener('mousedown', handleMouseDown, true);
+        window.removeEventListener('keydown', onKey, true);
+        window.removeEventListener('mousedown', onMouse, true);
         window.removeEventListener('keyup', finishRecording, true);
         window.removeEventListener('mouseup', finishRecording, true);
         if (hotkeysSuspendedRef.current) {
@@ -206,7 +210,7 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
         capturedInputRef.current = null;
       };
     }
-  }, [recording, isPromptOpen, handleKeyDown, handleMouseDown]);
+  }, [recording, isPromptOpen]);
 
   return (
     <div className="audio-settings-tab">
