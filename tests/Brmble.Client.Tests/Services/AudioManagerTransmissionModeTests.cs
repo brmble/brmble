@@ -5,9 +5,9 @@ using System.Reflection;
 namespace Brmble.Client.Tests.Services;
 
 /// <summary>
-/// Covers the idempotency guard for SetTransmissionMode. AudioManager no
-/// longer owns input plumbing (InputRouter does), so hook/polling validity
-/// tests have moved to InputRouter's own suite.
+/// Covers the idempotency guard for SetTransmissionMode. AudioManager no longer
+/// owns input plumbing (InputRouter does), so the hwnd parameter is ignored and
+/// hook/polling validity tests have moved to InputRouter's own suite.
 /// </summary>
 [TestClass]
 public class AudioManagerTransmissionModeTests
@@ -32,7 +32,7 @@ public class AudioManagerTransmissionModeTests
     {
         using var audio = new AudioManager();
 
-        audio.SetTransmissionMode(TransmissionMode.VoiceActivity, key: null);
+        audio.SetTransmissionMode(TransmissionMode.VoiceActivity, key: null, hwnd: IntPtr.Zero);
 
         Assert.AreEqual(TransmissionMode.VoiceActivity, audio.TransmissionMode);
         Assert.AreEqual(1, audio.TransmissionApplyCount);
@@ -43,9 +43,9 @@ public class AudioManagerTransmissionModeTests
     {
         using var audio = new AudioManager();
 
-        audio.SetTransmissionMode(TransmissionMode.VoiceActivity, key: null);
-        audio.SetTransmissionMode(TransmissionMode.VoiceActivity, key: null);
-        audio.SetTransmissionMode(TransmissionMode.VoiceActivity, key: null);
+        audio.SetTransmissionMode(TransmissionMode.VoiceActivity, key: null, hwnd: IntPtr.Zero);
+        audio.SetTransmissionMode(TransmissionMode.VoiceActivity, key: null, hwnd: IntPtr.Zero);
+        audio.SetTransmissionMode(TransmissionMode.VoiceActivity, key: null, hwnd: IntPtr.Zero);
 
         Assert.AreEqual(1, audio.TransmissionApplyCount, "guard must skip identical repeats");
     }
@@ -55,8 +55,8 @@ public class AudioManagerTransmissionModeTests
     {
         using var audio = new AudioManager();
 
-        audio.SetTransmissionMode(TransmissionMode.VoiceActivity, key: null);
-        audio.SetTransmissionMode(TransmissionMode.Continuous, key: null);
+        audio.SetTransmissionMode(TransmissionMode.VoiceActivity, key: null, hwnd: IntPtr.Zero);
+        audio.SetTransmissionMode(TransmissionMode.Continuous, key: null, hwnd: IntPtr.Zero);
 
         Assert.AreEqual(TransmissionMode.Continuous, audio.TransmissionMode);
         Assert.AreEqual(2, audio.TransmissionApplyCount);
@@ -67,8 +67,8 @@ public class AudioManagerTransmissionModeTests
     {
         using var audio = new AudioManager();
 
-        audio.SetTransmissionMode(TransmissionMode.PushToTalk, key: "F1");
-        audio.SetTransmissionMode(TransmissionMode.PushToTalk, key: "F2");
+        audio.SetTransmissionMode(TransmissionMode.PushToTalk, key: "F1", hwnd: IntPtr.Zero);
+        audio.SetTransmissionMode(TransmissionMode.PushToTalk, key: "F2", hwnd: IntPtr.Zero);
 
         Assert.AreEqual(2, audio.TransmissionApplyCount);
     }
@@ -78,8 +78,8 @@ public class AudioManagerTransmissionModeTests
     {
         using var audio = new AudioManager();
 
-        audio.SetTransmissionMode(TransmissionMode.PushToTalk, key: null);
-        audio.SetTransmissionMode(TransmissionMode.PushToTalk, key: "F1");
+        audio.SetTransmissionMode(TransmissionMode.PushToTalk, key: null, hwnd: IntPtr.Zero);
+        audio.SetTransmissionMode(TransmissionMode.PushToTalk, key: "F1", hwnd: IntPtr.Zero);
 
         Assert.AreEqual(2, audio.TransmissionApplyCount);
     }
@@ -91,7 +91,7 @@ public class AudioManagerTransmissionModeTests
         // the very first call even though `mode == _transmissionMode`.
         using var audio = new AudioManager();
 
-        audio.SetTransmissionMode(TransmissionMode.Continuous, key: null);
+        audio.SetTransmissionMode(TransmissionMode.Continuous, key: null, hwnd: IntPtr.Zero);
 
         Assert.AreEqual(1, audio.TransmissionApplyCount);
     }
@@ -103,7 +103,7 @@ public class AudioManagerTransmissionModeTests
 
         for (int i = 0; i < 50; i++)
         {
-            audio.SetTransmissionMode(TransmissionMode.Continuous, key: null);
+            audio.SetTransmissionMode(TransmissionMode.Continuous, key: null, hwnd: IntPtr.Zero);
         }
 
         Assert.AreEqual(1, audio.TransmissionApplyCount);

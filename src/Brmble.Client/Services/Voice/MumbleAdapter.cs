@@ -132,11 +132,19 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _certService = certService;
         _appConfigService = appConfigService;
         _voiceIdleTracker = voiceIdleTracker;
-        _audioManager = new AudioManager();
-        WireAudioManagerBridgeEvents();
+        _audioManager = new AudioManager(_hwnd);
         // Toggle* actions now fire via MumbleAdapter.FireShortcutAction
         // (driven by InputRouter.ShortcutReleased); AudioManager no longer
         // owns input dispatch, so those events were removed.
+        _audioManager.OnLossReport += loss => {
+            _bridge?.Send("voice.loss", new { loss });
+        };
+        _audioManager.VadMeterUpdated += (rms, isOpen) =>
+        {
+            _bridge?.Send("voice.vadMeter", new { rms, isOpen });
+            // Audio thread → must wake the UI thread so WebView2 actually flushes the queue.
+            _bridge?.NotifyUiThread();
+        };
 
         // InputRouter is created ONCE in the constructor and lives for the
         // app's lifetime. Its WH_MOUSE_LL hook is installed on the calling
@@ -190,29 +198,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     }
 
     /// <summary>
-    /// Wires the AudioManager events that emit bridge messages. Called both
-    /// from the constructor and from Connect's recreate block — without this
-    /// indirection, the recreate block had to remember every subscription
-    /// (and previously missed <see cref="AudioManager.VadMeterUpdated"/>,
-    /// silently breaking the VAD meter in the settings UI across reconnects).
-    /// </summary>
-    private void WireAudioManagerBridgeEvents()
-    {
-        if (_audioManager == null) return;
-        _audioManager.OnLossReport += loss =>
-        {
-            _bridge?.Send("voice.loss", new { loss });
-        };
-        _audioManager.VadMeterUpdated += (rms, isOpen) =>
-        {
-            _bridge?.Send("voice.vadMeter", new { rms, isOpen });
-            // Audio thread → must wake the UI thread so WebView2 actually
-            // flushes the queue.
-            _bridge?.NotifyUiThread();
-        };
-    }
-
-    /// <summary>
     /// Dispatches a shortcut action when its key is released. Previously lived
     /// in AudioManager; moved here as part of Task 13 (InputRouter ownership).
     /// </summary>
@@ -233,7 +218,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 var newMode = current == TransmissionMode.Continuous ? _previousMode : TransmissionMode.Continuous;
                 if (current != TransmissionMode.Continuous) _previousMode = current;
                 var pttKey = (newMode == TransmissionMode.PushToTalk || newMode == TransmissionMode.PushToTalkPlus) ? _currentPttKey : null;
-                _audioManager.SetTransmissionMode(newMode, pttKey);
+                _audioManager.SetTransmissionMode(newMode, pttKey, IntPtr.Zero);
                 _inputRouter?.SetPttBinding(pttKey);
                 break;
             case "toggleLeaveVoice":
@@ -295,8 +280,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         // Recreate audio manager if disposed by a previous Disconnect()
         if (_audioManager == null)
         {
-            _audioManager = new AudioManager();
-            WireAudioManagerBridgeEvents();
+            _audioManager = new AudioManager(_hwnd);
+            _audioManager.OnLossReport += loss => {
+                _bridge?.Send("voice.loss", new { loss });
+            };
         }
 
         // InputRouter is app-lifetime; only the AudioManager-dependent
@@ -833,7 +820,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (isPtt && key != null) _currentPttKey = key;
 
         _audioManager?.SetDtx(ShouldEnableDtx(parsed));
-        _audioManager?.SetTransmissionMode(parsed, key);
+        _audioManager?.SetTransmissionMode(parsed, key, _hwnd);
 
         // For PTT modes, always route the live _currentPttKey (preserving
         // any previously-bound key when the caller omitted it). For

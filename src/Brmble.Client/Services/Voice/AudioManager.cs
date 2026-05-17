@@ -510,8 +510,11 @@ internal sealed class AudioManager : IDisposable
         }
     }
 
-    public AudioManager()
+    public AudioManager(IntPtr hwnd = default)
     {
+        // hwnd parameter retained for caller compatibility; AudioManager no longer
+        // owns any Win32 input plumbing — InputRouter has taken over.
+        _ = hwnd;
         _speakingTimer = new Timer(CheckSpeakingState, null, 100, 100);
     }
 
@@ -1145,11 +1148,12 @@ internal sealed class AudioManager : IDisposable
 
     /// <summary>
     /// Sets the transmission mode and adjusts mic state accordingly.
-    /// All input plumbing (PTT key detection, mouse hooks, shortcut polling)
-    /// is owned by <see cref="Input.InputRouter"/>; this method no longer
-    /// touches Win32.
+    /// All input plumbing (PTT key detection, mouse hooks, shortcut polling) is owned
+    /// by <see cref="Input.InputRouter"/>; this method no longer touches Win32.
+    /// The <paramref name="hwnd"/> parameter is retained for caller compatibility
+    /// and is ignored — pass <see cref="IntPtr.Zero"/>.
     /// </summary>
-    public void SetTransmissionMode(TransmissionMode mode, string? key)
+    public void SetTransmissionMode(TransmissionMode mode, string? key, IntPtr hwnd)
     {
         // Idempotency guard: identical reapply is a no-op.
         if (_transmissionConfigured
