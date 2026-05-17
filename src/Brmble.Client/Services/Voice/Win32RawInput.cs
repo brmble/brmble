@@ -39,17 +39,6 @@ internal static class Win32RawInput
     public const int XBUTTON2 = 2;
 
     [StructLayout(LayoutKind.Sequential)]
-    public struct MSLLHOOKSTRUCT
-    {
-        public int ptX;
-        public int ptY;
-        public int mouseData;
-        public int flags;
-        public int time;
-        public IntPtr dwExtraInfo;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
     public struct RAWINPUTHEADER
     {
         public uint dwType;
