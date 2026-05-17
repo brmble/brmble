@@ -102,8 +102,13 @@ public sealed class InputRouter : IDisposable
         // Reset all prior PTT state (mouse + keyboard + poll + js) so a no-op
         // reapply still clears stale held state — defensive against #538.
         ClearMouseBindingByAction("pushToTalk");
-        StopPttPolling();
 
+        // Clear the polled VK under the lock BEFORE stopping the timer.
+        // System.Threading.Timer.Dispose() doesn't wait for already-queued
+        // callbacks; a racing TickPollOnce() would otherwise read the old
+        // _pttVk, observe a stale "key up" edge, and emit a spurious
+        // PttStateChanged(false) after rebind/clear. Clearing _pttVk first
+        // makes any late tick bail at the vk==0 early-return guard.
         bool wasActive;
         lock (_pttStateLock)
         {
@@ -114,6 +119,7 @@ public sealed class InputRouter : IDisposable
             _jsPttPressed = false;
             _pttBound = false;
         }
+        StopPttPolling();
         if (wasActive) PttStateChanged?.Invoke(false);
 
         if (key == null) return;
