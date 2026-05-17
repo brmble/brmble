@@ -41,6 +41,13 @@ public sealed class InputRouter : IDisposable
     private readonly Dictionary<int, string> _shortcutKbVkToAction = new();
     private readonly Dictionary<string, int> _shortcutKbActionToVk = new();
     private readonly Dictionary<int, bool> _shortcutKbWasDown = new();
+    // VKs whose NEXT release tick must be consumed without firing the
+    // shortcut action. Populated by Resume() for keys physically held when
+    // the suspend gate is lifted (e.g. user pressed a key during key-binding
+    // capture and hasn't released it yet — the capture UI cancels recording
+    // on keydown and resumes before keyup, so we'd otherwise fire the
+    // bound action immediately after recording ends).
+    private readonly HashSet<int> _shortcutKbSuppressNextRelease = new();
     private System.Threading.Timer? _shortcutKbTimer;
     private const int ShortcutPollIntervalMs = 30;
 
@@ -180,9 +187,19 @@ public sealed class InputRouter : IDisposable
 
         lock (_shortcutLock)
         {
+            _shortcutKbSuppressNextRelease.Clear();
             foreach (var vk in _shortcutKbVkToAction.Keys)
             {
-                _shortcutKbWasDown[vk] = (_backend.GetAsyncKeyState(vk) & 0x8000) != 0;
+                bool down = (_backend.GetAsyncKeyState(vk) & 0x8000) != 0;
+                _shortcutKbWasDown[vk] = down;
+                // For keys physically held at resume time, ALSO suppress the
+                // matching release event. Priming was-down alone only blocks
+                // the press edge; the release edge would still fire
+                // ShortcutReleased(action, forced:false), and MumbleAdapter
+                // would dispatch the user-facing toggle action — exactly
+                // what Suspend was supposed to prevent. The release is
+                // consumed by TickShortcutPollOnce when the key goes up.
+                if (down) _shortcutKbSuppressNextRelease.Add(vk);
             }
         }
 
@@ -249,14 +266,20 @@ public sealed class InputRouter : IDisposable
         }
         foreach (var action in releasedShortcuts) ShortcutReleased?.Invoke(action, true); // forced
 
-        // Keyboard PTT (poll + JS).
+        // Keyboard PTT (poll + JS). Prime _pttKeyWasDown to the current
+        // physical state of the bound key — if the user is still physically
+        // holding PTT through a lifecycle transition, the next poll tick
+        // sees `isDown && _pttKeyWasDown` and stays a no-op (no fresh press
+        // event). The user must release-and-press to re-activate, matching
+        // the #538 "force release, require a fresh press" intent.
         bool kbWasActive;
         lock (_pttStateLock)
         {
             kbWasActive = _pollPttPressed || _jsPttPressed;
             _pollPttPressed = false;
             _jsPttPressed = false;
-            _pttKeyWasDown = false;
+            _pttKeyWasDown = _pttVk != 0
+                && (_backend.GetAsyncKeyState(_pttVk) & 0x8000) != 0;
         }
         if (kbWasActive)
         {
@@ -413,8 +436,20 @@ public sealed class InputRouter : IDisposable
                 else if (!isDown && wasDown)
                 {
                     _shortcutKbWasDown[vk] = false;
-                    fireAction = action;
-                    firePressed = false;
+                    // Resume() may have flagged this VK to consume its next
+                    // release silently (key held across key-binding capture).
+                    // Clear the flag and skip dispatch — the user's
+                    // press-during-capture must not fire the bound action
+                    // after recording ends.
+                    if (_shortcutKbSuppressNextRelease.Remove(vk))
+                    {
+                        fireAction = null;
+                    }
+                    else
+                    {
+                        fireAction = action;
+                        firePressed = false;
+                    }
                 }
             }
 
@@ -451,9 +486,12 @@ public sealed class InputRouter : IDisposable
             if (_mouseBindings.Count == 0 && _mouseHookHandle != IntPtr.Zero)
             {
                 handleToUnhook = _mouseHookHandle;
-                _mouseHookHandle = IntPtr.Zero;
-                _mouseHookProc = null;
                 unhookNow = true;
+                // Do NOT null _mouseHookHandle/_mouseHookProc yet — we must
+                // not advertise "no hook installed" if UnhookWindowsHookEx
+                // fails (a subsequent SetMouseBinding would then install a
+                // second hook and cause duplicate dispatch). Clear them
+                // below only on success.
             }
         }
 
@@ -461,7 +499,29 @@ public sealed class InputRouter : IDisposable
         else if (releasedKind is BindingKind.Shortcut && releasedAction != null)
             ShortcutReleased?.Invoke(releasedAction, true); // forced (binding cleared while held)
 
-        if (unhookNow) _backend.UnhookMouse(handleToUnhook);
+        if (unhookNow)
+        {
+            bool ok = _backend.UnhookMouse(handleToUnhook);
+            if (ok)
+            {
+                lock (_mouseLock)
+                {
+                    // Only clear the cached handle if it still matches the
+                    // one we just unhooked — a concurrent SetMouseBinding
+                    // could have re-populated the dict and re-installed a
+                    // hook while we were unhooking the old one.
+                    if (_mouseHookHandle == handleToUnhook)
+                    {
+                        _mouseHookHandle = IntPtr.Zero;
+                        _mouseHookProc = null;
+                    }
+                }
+            }
+            else
+            {
+                AudioLog.Write($"[Input] ClearMouseBindingByAction: UnhookMouse FAILED for handle=0x{handleToUnhook.ToInt64():X}; leaving handle cached to avoid double-install.");
+            }
+        }
     }
 
     private void SetMouseBinding(MouseButton button, BindingKind kind, string action, string key)
