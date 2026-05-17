@@ -136,15 +136,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         // Toggle* actions now fire via MumbleAdapter.FireShortcutAction
         // (driven by InputRouter.ShortcutReleased); AudioManager no longer
         // owns input dispatch, so those events were removed.
-        _audioManager.OnLossReport += loss => {
-            _bridge?.Send("voice.loss", new { loss });
-        };
-        _audioManager.VadMeterUpdated += (rms, isOpen) =>
-        {
-            _bridge?.Send("voice.vadMeter", new { rms, isOpen });
-            // Audio thread → must wake the UI thread so WebView2 actually flushes the queue.
-            _bridge?.NotifyUiThread();
-        };
+        WireAudioManagerBridgeEvents();
 
         // InputRouter is created ONCE in the constructor and lives for the
         // app's lifetime. Its WH_MOUSE_LL hook is installed on the calling
@@ -190,6 +182,29 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         }
         _pttStateChangedHandler = _audioManager.SetPttActiveExternal;
         _inputRouter.PttStateChanged += _pttStateChangedHandler;
+    }
+
+    /// <summary>
+    /// Wires the AudioManager events that emit bridge messages. Called both
+    /// from the constructor and from Connect's recreate block — without this
+    /// indirection, the recreate block had to remember every subscription
+    /// (and previously missed <see cref="AudioManager.VadMeterUpdated"/>,
+    /// silently breaking the VAD meter in the settings UI across reconnects).
+    /// </summary>
+    private void WireAudioManagerBridgeEvents()
+    {
+        if (_audioManager == null) return;
+        _audioManager.OnLossReport += loss =>
+        {
+            _bridge?.Send("voice.loss", new { loss });
+        };
+        _audioManager.VadMeterUpdated += (rms, isOpen) =>
+        {
+            _bridge?.Send("voice.vadMeter", new { rms, isOpen });
+            // Audio thread → must wake the UI thread so WebView2 actually
+            // flushes the queue.
+            _bridge?.NotifyUiThread();
+        };
     }
 
     /// <summary>
@@ -276,9 +291,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (_audioManager == null)
         {
             _audioManager = new AudioManager(_hwnd);
-            _audioManager.OnLossReport += loss => {
-                _bridge?.Send("voice.loss", new { loss });
-            };
+            WireAudioManagerBridgeEvents();
         }
 
         // InputRouter is app-lifetime; only the AudioManager-dependent
