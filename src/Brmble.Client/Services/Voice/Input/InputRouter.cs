@@ -19,7 +19,9 @@ public sealed class InputRouter : IDisposable
     private readonly Dictionary<MouseButton, MouseBinding> _mouseBindings = new();
     private IntPtr _mouseHookHandle = IntPtr.Zero;
     private LowLevelMouseProc? _mouseHookProc;
-    private bool _disposed;
+    // volatile so a late timer callback on another thread observes Dispose()
+    // promptly without needing the lock just to read the flag.
+    private volatile bool _disposed;
 
     // Keyboard PTT polling state.
     private int _pttVk;                   // 0 = no keyboard PTT binding
@@ -153,6 +155,7 @@ public sealed class InputRouter : IDisposable
 
     public void HandleJsPttKey(bool pressed)
     {
+        if (_disposed) return;
         if (_suspended) return;
         bool fire;
         bool newState;
@@ -240,6 +243,10 @@ public sealed class InputRouter : IDisposable
 
     internal void TickPollOnce()
     {
+        // System.Threading.Timer.Dispose() doesn't wait for queued callbacks,
+        // so a tick can still arrive after Dispose() — guard against firing
+        // events into an already torn-down subscriber chain.
+        if (_disposed) return;
         if (_suspended) return;
 
         int vk;
@@ -337,6 +344,7 @@ public sealed class InputRouter : IDisposable
 
     internal void TickShortcutPollOnce()
     {
+        if (_disposed) return;
         if (_suspended) return;
         List<KeyValuePair<int, string>> snapshot;
         lock (_shortcutLock)
