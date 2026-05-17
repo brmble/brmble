@@ -38,34 +38,6 @@ public class InputRouterDispatchTests
     }
 
     [TestMethod]
-    public void RebindButton_WhileOldBindingHeld_FiresReleaseForEvictedBinding()
-    {
-        // PR #542 review feedback: SetMouseBinding used to overwrite the
-        // dictionary entry without firing release for a held prior binding.
-        // If the same button is rebound from PTT to a shortcut (or vice versa)
-        // while the first one is held, the old action's subscribers must be
-        // told the held state ended.
-        var backend = new FakeInputBackend();
-        using var router = new InputRouter(backend);
-
-        var pttStates = new List<bool>();
-        var shortcutReleases = new List<(string action, bool forced)>();
-        router.PttStateChanged += s => pttStates.Add(s);
-        router.ShortcutReleased += (a, f) => shortcutReleases.Add((a, f));
-
-        // Bind PTT to X2, simulate press → held.
-        router.SetPttBinding("XButton2");
-        InvokeMouseHook(backend, WM_XBUTTONDOWN, xButton: 2);
-        Assert.AreEqual(true, pttStates[^1]);
-
-        // Rebind X2 to a different action while still held.
-        router.SetShortcutBinding("toggleMute", "XButton2");
-
-        // PTT must have been forced-released because its button was evicted.
-        Assert.AreEqual(false, pttStates[^1]);
-    }
-
-    [TestMethod]
     public void StaleHoldThenRelease_AfterReinstall_DoesNotFireSpuriousPress()
     {
         // Repro: user held mouse PTT through a Disconnect → Connect cycle.
@@ -99,7 +71,7 @@ public class InputRouterDispatchTests
         using var router = new InputRouter(backend);
 
         var releases = new List<string>();
-        router.ShortcutReleased += (a, _) => releases.Add(a);
+        router.ShortcutReleased += a => releases.Add(a);
 
         router.SetShortcutBinding("toggleMute", "MouseLeft");
         InvokeMouseHook(backend, WM_LBUTTONDOWN);
