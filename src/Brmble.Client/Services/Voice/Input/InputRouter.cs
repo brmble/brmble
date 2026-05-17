@@ -101,8 +101,13 @@ public sealed class InputRouter : IDisposable
         // Reset all prior PTT state (mouse + keyboard + poll + js) so a no-op
         // reapply still clears stale held state — defensive against #538.
         ClearMouseBindingByAction("pushToTalk");
-        StopPttPolling();
 
+        // Clear the polled VK under the lock BEFORE stopping the timer.
+        // System.Threading.Timer.Dispose() doesn't wait for already-queued
+        // callbacks; a racing TickPollOnce() would otherwise read the old
+        // _pttVk, observe a stale "key up" edge, and emit a spurious
+        // PttStateChanged(false) after rebind/clear. Clearing _pttVk first
+        // makes any late tick observe vk=0 and bail at the early-return guard.
         bool wasActive;
         lock (_pttStateLock)
         {
@@ -113,6 +118,7 @@ public sealed class InputRouter : IDisposable
             _jsPttPressed = false;
             _pttBound = false;
         }
+        StopPttPolling();
         if (wasActive) PttStateChanged?.Invoke(false);
 
         if (key == null) return;
@@ -485,6 +491,16 @@ public sealed class InputRouter : IDisposable
             {
                 _mouseHookProc = MouseHookCallback;
                 _mouseHookHandle = _backend.SetMouseHook(_mouseHookProc);
+                if (_mouseHookHandle == IntPtr.Zero)
+                {
+                    // Hook install failed (permissions, transient Win32 error,
+                    // hook chain limit). Without a hook, mouse PTT/shortcuts
+                    // silently stop working. Log so failure is observable in
+                    // audio.log — the Win32 LastError is captured by
+                    // Win32InputBackend's PInvoke marshalling.
+                    AudioLog.Write($"[Input] SetMouseHook FAILED for action={action} key={key}; mouse input will not dispatch.");
+                    _mouseHookProc = null;
+                }
             }
         }
         if (evictedHeldKind is BindingKind.Ptt) PttStateChanged?.Invoke(false);
@@ -511,29 +527,33 @@ public sealed class InputRouter : IDisposable
             return _backend.CallNextHook(handleSnapshot, nCode, wParam, lParam);
 
         // Resolve, transition IsHeld, and capture what events to fire — all
-        // under the lock. Fire events outside the lock so handlers can't
-        // re-enter and deadlock us.
+        // under the lock. Fire events AND CallNextHook outside the lock so
+        // we never hold _mouseLock across an external call (CallNextHookEx
+        // chains to other processes' hooks). When no binding matches the
+        // button, we leave firedKind null and fall through to the post-lock
+        // chain call below — no early return inside the lock.
         BindingKind? firedKind = null;
         string? firedAction = null;
         bool firedDown = false;
 
         lock (_mouseLock)
         {
-            if (!_mouseBindings.TryGetValue(btn.Value, out var binding)) return _backend.CallNextHook(handleSnapshot, nCode, wParam, lParam);
-
-            if (isDown && !binding.IsHeld)
+            if (_mouseBindings.TryGetValue(btn.Value, out var binding))
             {
-                binding.IsHeld = true;
-                firedKind = binding.Kind;
-                firedAction = binding.Action;
-                firedDown = true;
-            }
-            else if (isUp && binding.IsHeld)
-            {
-                binding.IsHeld = false;
-                firedKind = binding.Kind;
-                firedAction = binding.Action;
-                firedDown = false;
+                if (isDown && !binding.IsHeld)
+                {
+                    binding.IsHeld = true;
+                    firedKind = binding.Kind;
+                    firedAction = binding.Action;
+                    firedDown = true;
+                }
+                else if (isUp && binding.IsHeld)
+                {
+                    binding.IsHeld = false;
+                    firedKind = binding.Kind;
+                    firedAction = binding.Action;
+                    firedDown = false;
+                }
             }
         }
 

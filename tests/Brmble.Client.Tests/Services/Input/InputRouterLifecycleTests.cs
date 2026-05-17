@@ -10,6 +10,35 @@ public class InputRouterLifecycleTests
     private const int VK_SPACE = 0x20;
 
     [TestMethod]
+    public void TickPollOnce_AfterRebind_DoesNotFireSpuriousReleaseForOldKey()
+    {
+        // PR #542 review: timer callbacks queued before StopPttPolling can
+        // still run; if _pttVk is still set to the old key when they do,
+        // they observe a stale edge transition and fire PttStateChanged.
+        // The fix clears _pttVk under the lock before stopping the timer.
+        const int VK_F1 = 0x70;
+        var backend = new FakeInputBackend();
+        using var router = new InputRouter(backend);
+        var states = new List<bool>();
+        router.PttStateChanged += s => states.Add(s);
+
+        router.SetPttBinding("F1");
+        backend.KeyDownStates[VK_F1] = true;
+        router.TickPollOnce();
+        Assert.AreEqual(1, states.Count); // initial press
+
+        // Now rebind to null while key is still physically down. Simulates a
+        // queued tick running after the rebind: TickPollOnce reads _pttVk
+        // under the lock, sees 0, bails out — no spurious event.
+        router.SetPttBinding(null);
+        // After SetPttBinding(null), expect a forced release event AND no
+        // further events from any late-running poll tick.
+        int countAfterRebind = states.Count;
+        router.TickPollOnce();
+        Assert.AreEqual(countAfterRebind, states.Count, "late TickPollOnce must observe cleared _pttVk and bail");
+    }
+
+    [TestMethod]
     public void ReleaseAllHeld_FiresShortcutReleasedWithForcedFlag()
     {
         // Lifecycle releases must be flagged forced=true so subscribers
