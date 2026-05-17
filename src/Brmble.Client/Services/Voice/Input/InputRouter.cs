@@ -455,29 +455,34 @@ public sealed class InputRouter : IDisposable
             return _backend.CallNextHook(handleSnapshot, nCode, wParam, lParam);
 
         // Resolve, transition IsHeld, and capture what events to fire — all
-        // under the lock. Fire events outside the lock so handlers can't
-        // re-enter and deadlock us.
+        // under the lock. Fire events AND CallNextHook outside the lock so
+        // we never hold _mouseLock across an external call (CallNextHookEx
+        // chains to other processes' hooks, which can be slow or block).
+        // When no binding matches the button, firedKind stays null and the
+        // post-lock fall-through still calls CallNextHook — no early return
+        // inside the lock.
         BindingKind? firedKind = null;
         string? firedAction = null;
         bool firedDown = false;
 
         lock (_mouseLock)
         {
-            if (!_mouseBindings.TryGetValue(btn.Value, out var binding)) return _backend.CallNextHook(handleSnapshot, nCode, wParam, lParam);
-
-            if (isDown && !binding.IsHeld)
+            if (_mouseBindings.TryGetValue(btn.Value, out var binding))
             {
-                binding.IsHeld = true;
-                firedKind = binding.Kind;
-                firedAction = binding.Action;
-                firedDown = true;
-            }
-            else if (isUp && binding.IsHeld)
-            {
-                binding.IsHeld = false;
-                firedKind = binding.Kind;
-                firedAction = binding.Action;
-                firedDown = false;
+                if (isDown && !binding.IsHeld)
+                {
+                    binding.IsHeld = true;
+                    firedKind = binding.Kind;
+                    firedAction = binding.Action;
+                    firedDown = true;
+                }
+                else if (isUp && binding.IsHeld)
+                {
+                    binding.IsHeld = false;
+                    firedKind = binding.Kind;
+                    firedAction = binding.Action;
+                    firedDown = false;
+                }
             }
         }
 
