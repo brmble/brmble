@@ -207,29 +207,36 @@ public sealed class InputRouter : IDisposable
             else ShortcutReleased?.Invoke(action, true); // forced
         }
 
-        // Keyboard shortcut bindings.
+        // Keyboard shortcut bindings. Prime _shortcutKbWasDown from the
+        // CURRENT physical key state instead of forcing false. If the user
+        // is still physically holding the bound key, the next poll tick
+        // observes "down && wasDown" (no edge) and stays a no-op until
+        // they release-and-press a fresh cycle. Forcing false here would
+        // make the next tick see "down && !wasDown" and fire a spurious
+        // ShortcutPressed.
         var releasedShortcuts = new List<string>();
         lock (_shortcutLock)
         {
             foreach (var (vk, action) in _shortcutKbVkToAction)
             {
                 if (_shortcutKbWasDown.TryGetValue(vk, out var d) && d)
-                {
-                    _shortcutKbWasDown[vk] = false;
                     releasedShortcuts.Add(action);
-                }
+                _shortcutKbWasDown[vk] = (_backend.GetAsyncKeyState(vk) & 0x8000) != 0;
             }
         }
         foreach (var action in releasedShortcuts) ShortcutReleased?.Invoke(action, true); // forced
 
-        // Keyboard PTT (poll + JS).
+        // Keyboard PTT (poll + JS). Same priming logic as above —
+        // sample physical state for the PTT VK so a still-held key
+        // doesn't synthesise a fresh press on the next tick.
         bool kbWasActive;
         lock (_pttStateLock)
         {
             kbWasActive = _pollPttPressed || _jsPttPressed;
             _pollPttPressed = false;
             _jsPttPressed = false;
-            _pttKeyWasDown = false;
+            _pttKeyWasDown = _pttVk != 0
+                && (_backend.GetAsyncKeyState(_pttVk) & 0x8000) != 0;
         }
         if (kbWasActive)
         {
