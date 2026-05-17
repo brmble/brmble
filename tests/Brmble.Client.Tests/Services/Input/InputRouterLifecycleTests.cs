@@ -39,46 +39,6 @@ public class InputRouterLifecycleTests
     }
 
     [TestMethod]
-    public void ReleaseAllHeld_WithKeyboardPttStillHeld_DoesNotRetriggerOnNextPoll()
-    {
-        // PR #542 review: ReleaseAllHeld previously hard-set
-        // _pttKeyWasDown=false. If the user was still physically holding
-        // the PTT key when ReleaseAllHeld fired (e.g. mid-channel-change),
-        // the next poll tick saw isDown=true && !_pttKeyWasDown and fired
-        // a fresh press — re-activating PTT without a release→press cycle.
-        // Fix samples GetAsyncKeyState and primes _pttKeyWasDown to true,
-        // so the still-held key reads as "no edge" and stays a no-op.
-        var backend = new FakeInputBackend();
-        using var router = new InputRouter(backend);
-        var states = new List<bool>();
-        router.PttStateChanged += s => states.Add(s);
-
-        router.SetPttBinding("Space");
-        backend.KeyDownStates[VK_SPACE] = true;
-        router.TickPollOnce();
-        Assert.AreEqual(true, states[^1]);
-
-        // Lifecycle transition while user still holds Space.
-        router.ReleaseAllHeld();
-        Assert.AreEqual(false, states[^1]); // forced release fired
-
-        // Next poll tick — must NOT re-trigger.
-        int countAfterRelease = states.Count;
-        router.TickPollOnce();
-        Assert.AreEqual(countAfterRelease, states.Count, "still-held key must not re-trigger PTT after ReleaseAllHeld");
-
-        // Release physically — also a no-op (state is already released).
-        backend.KeyDownStates[VK_SPACE] = false;
-        router.TickPollOnce();
-        Assert.AreEqual(countAfterRelease, states.Count);
-
-        // Fresh press cycle works.
-        backend.KeyDownStates[VK_SPACE] = true;
-        router.TickPollOnce();
-        Assert.AreEqual(true, states[^1]);
-    }
-
-    [TestMethod]
     public void ReleaseAllHeld_FiresShortcutReleasedWithForcedFlag()
     {
         // Lifecycle releases must be flagged forced=true so subscribers

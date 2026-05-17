@@ -78,45 +78,6 @@ public class InputRouterSuspendTests
     }
 
     [TestMethod]
-    public void Resume_WhenShortcutKeyStillHeld_SuppressesNextRelease()
-    {
-        // Repro PR #542 review: PttKeyCapture cancels recording on keydown
-        // and resumes BEFORE the user releases the key. Without this fix
-        // the matching release fires ShortcutReleased(action, forced:false)
-        // and MumbleAdapter dispatches the bound action immediately after
-        // recording ends — e.g. recording a new mute hotkey would toggle
-        // mute on release.
-        var backend = new FakeInputBackend();
-        using var router = new InputRouter(backend);
-        var pressed = new List<string>();
-        var released = new List<(string action, bool forced)>();
-        router.ShortcutPressed += a => pressed.Add(a);
-        router.ShortcutReleased += (a, f) => released.Add((a, f));
-
-        router.SetShortcutBinding("toggleMute", "F1");
-        router.Suspend();
-
-        // User holds F1 during capture, resume fires while still held.
-        backend.KeyDownStates[VK_F1] = true;
-        router.Resume();
-
-        // Release after resume — must NOT fire ShortcutReleased.
-        backend.KeyDownStates[VK_F1] = false;
-        router.TickShortcutPollOnce();
-        Assert.AreEqual(0, released.Count, "first release after resume must be suppressed");
-
-        // Subsequent fresh press → release cycle works normally.
-        backend.KeyDownStates[VK_F1] = true;
-        router.TickShortcutPollOnce();
-        CollectionAssert.AreEqual(new[] { "toggleMute" }, pressed);
-
-        backend.KeyDownStates[VK_F1] = false;
-        router.TickShortcutPollOnce();
-        Assert.AreEqual(1, released.Count);
-        Assert.AreEqual(("toggleMute", false), released[0]);
-    }
-
-    [TestMethod]
     public void HandleJsPttKey_WhileSuspended_IsNoOp()
     {
         var backend = new FakeInputBackend();

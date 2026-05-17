@@ -174,25 +174,21 @@ ReleaseAllHeld does **not** fire on every `ApplySettings` call. Idempotent UI-st
 ### Suspend / Resume (fixes #537)
 
 `Suspend()`:
-- Call `ReleaseAllHeld()` first so anything held when capture starts is force-released through subscribers.
 - Set `_suspended = true` (volatile bool).
-- Mouse hook stays registered (Win32 cost to tear down + risk of missing events on a worker thread); `MouseHookCallback` checks `_suspended` and bypasses dispatch.
-- Polling callbacks (PTT + shortcut) check `_suspended` and bypass dispatch (but keep timer alive — no state loss).
+- Unregister all `RegisterHotKey` registrations (Windows would otherwise grab keys, denying them to the recording UI).
+- Mouse hook stays registered (Win32 cost to tear down + risk of missing events); `MouseHookCallback` checks `_suspended` and bypasses dispatch.
+- Polling callbacks check `_suspended` and bypass dispatch (but keep timer alive — no state loss).
 - `HandleJsPttKey` early-returns.
 
-Note: the original draft of this spec described unregistering `RegisterHotKey` registrations during Suspend. The implementation dropped `RegisterHotKey` entirely — all keyboard shortcuts go through `GetAsyncKeyState` polling, which observes input without blocking other applications — so there are no hotkeys to unregister.
-
 `Resume()`:
-- Call `ReleaseAllHeld()` first to discard any state that built up while suspended.
-- Prime `_pttKeyWasDown` and `_shortcutKbWasDown[vk]` from the current physical `GetAsyncKeyState` reading. A key still physically held when capture ends becomes `was-down = true`, so the next poll tick stays a no-op (no fresh press).
-- For shortcut VKs that were down at resume, also flag them in `_shortcutKbSuppressNextRelease`. The next release tick consumes the entry without firing `ShortcutReleased`, so a key pressed during capture (recorded as the new binding) cannot trigger its action when the user releases it after capture ends.
+- Re-register hotkeys that were active before suspend.
 - Set `_suspended = false`.
+- Call `ReleaseAllHeld()` implicitly, so anything held when suspend started cannot leak into post-resume state.
 
 Call sites:
+- `App.tsx` adds an `input` bridge service (or extends `voice`) with `input.suspend` / `input.resume` messages.
 - `PttKeyCapture.tsx` (onboarding wizard) calls suspend on mount, resume on unmount.
 - `ShortcutsSettingsTab.tsx` (settings modal) calls suspend on enter recording mode, resume on commit/cancel.
-- `AudioSettingsTab.tsx` calls suspend/resume during PTT key capture.
-- All three components send the existing `voice.suspendHotkeys` / `voice.resumeHotkeys` bridge messages. `MumbleAdapter` routes these to `InputRouter.Suspend()` / `Resume()`. (Earlier drafts of this spec proposed adding new `input.suspend` / `input.resume` channels; the implementation reuses the existing message names so the web side did not need to change.)
 
 ### Race safety
 
