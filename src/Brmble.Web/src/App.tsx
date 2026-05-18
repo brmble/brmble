@@ -595,6 +595,9 @@ export const BRMBLE_SERVICE_WARNING_ID = 'brmble-service-disconnected';
 export const BRMBLE_SERVICE_TEMPORARY_CHAT_NOTICE =
   'Brmble services are currently unavailable. You can keep talking in voice chat, but new chat messages are temporary and will not be saved.';
 
+export const BRMBLE_SERVICE_CONNECTING_CHAT_NOTICE =
+  'Brmble services are still connecting. Voice chat is available; channel chat may be limited until services are ready.';
+
 export const BRMBLE_SERVICE_DISCONNECTED_NOTIFICATION = {
   id: BRMBLE_SERVICE_WARNING_ID,
   status: 'warning' as const,
@@ -607,19 +610,52 @@ export function isBrmbleServiceOutageActive(statuses: ServiceStatusMap): boolean
     && (statuses.server.state !== 'connected' || statuses.chat.state !== 'connected');
 }
 
+export type BrmbleServiceBootstrapPhase = 'idle' | 'bootstrap' | 'ready' | 'degraded';
+
+export const BRMBLE_SERVICE_BOOTSTRAP_GRACE_MS = 15000;
+
+export function getBrmbleServiceBootstrapPhase(
+  statuses: ServiceStatusMap,
+  bootstrapTimedOut: boolean,
+  brmbleServicesConnectedOnce: boolean,
+): BrmbleServiceBootstrapPhase {
+  if (statuses.voice.state !== 'connected') return 'idle';
+  if (statuses.server.state === 'connected' && statuses.chat.state === 'connected') return 'ready';
+  if (brmbleServicesConnectedOnce || bootstrapTimedOut) return 'degraded';
+  if (statuses.server.state === 'disconnected' || statuses.server.state === 'unavailable') return 'degraded';
+  if (statuses.chat.state === 'disconnected' || statuses.chat.state === 'unavailable') return 'degraded';
+  return 'bootstrap';
+}
+
 export function isTemporaryChannelChatActive(
   channelId: string | undefined,
   statuses: ServiceStatusMap,
+  brmbleServiceBootstrapPhase: BrmbleServiceBootstrapPhase,
 ): boolean {
   if (!channelId || channelId === 'server-root') return false;
-  return isBrmbleServiceOutageActive(statuses);
+  return brmbleServiceBootstrapPhase === 'degraded' && isBrmbleServiceOutageActive(statuses);
+}
+
+export function getBrmbleServiceChatNotice(
+  channelId: string | undefined,
+  statuses: ServiceStatusMap,
+  brmbleServiceBootstrapPhase: BrmbleServiceBootstrapPhase,
+): string | undefined {
+  if (!channelId || channelId === 'server-root') return undefined;
+  if (!isBrmbleServiceOutageActive(statuses)) return undefined;
+  if (brmbleServiceBootstrapPhase === 'bootstrap') return BRMBLE_SERVICE_CONNECTING_CHAT_NOTICE;
+  if (brmbleServiceBootstrapPhase === 'degraded') return BRMBLE_SERVICE_TEMPORARY_CHAT_NOTICE;
+  return undefined;
 }
 
 export function shouldShowBrmbleServiceWarningNotification(
   brmbleServiceOutageActive: boolean,
   dismissedForCurrentOutage: boolean,
+  brmbleServiceBootstrapPhase: BrmbleServiceBootstrapPhase,
 ): boolean {
-  return brmbleServiceOutageActive && !dismissedForCurrentOutage;
+  return brmbleServiceOutageActive
+    && brmbleServiceBootstrapPhase === 'degraded'
+    && !dismissedForCurrentOutage;
 }
 
 interface QueuedMovedChannelNotification extends ScreenShareEndedNotification {
@@ -792,6 +828,8 @@ function App() {
   const [settingsTab, setSettingsTab] = useState<'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection'>('profile');
   const [showGame, setShowGame] = useState(false);
   const [showAvatarEditor, setShowAvatarEditor] = useState(false);
+  const brmbleServicesConnectedOnceRef = useRef(false);
+  const [brmbleServiceBootstrapTimedOut, setBrmbleServiceBootstrapTimedOut] = useState(false);
 
   // Close avatar editor modal when disconnected — profile is not editable while disconnected
   useEffect(() => {
@@ -1394,6 +1432,7 @@ function App() {
     const onVoiceConnected = ((data: unknown) => {
       setConnectionStatus('connected');
       updateStatus('voice', { state: 'connected', error: undefined });
+      setBrmbleServiceBootstrapTimedOut(false);
       overlayConnectedAtRef.current = Date.now();
       notifQueue.unregister('server-removal');
       setServerRemovalNotification(null);
@@ -1531,6 +1570,7 @@ function App() {
       setDmDividerTs(null);
       updateStatus('livekit', { state: 'idle', error: undefined });
       updateStatus('server', { state: 'idle', error: undefined });
+      setBrmbleServiceBootstrapTimedOut(false);
     };
 
     const onServerCredentials = (data: unknown) => {
@@ -2452,6 +2492,8 @@ const handleConnect = (serverData: SavedServer) => {
     setServerAddress(`${serverData.host}:${serverData.port}`);
     setConnectionStatus('connecting');
     userSawConnectedRef.current = false;
+    brmbleServicesConnectedOnceRef.current = false;
+    setBrmbleServiceBootstrapTimedOut(false);
     bridge.send('voice.connect', serverData);
     updateStatus('voice', { state: 'connecting', error: undefined, label: `${serverData.host}:${serverData.port}` });
     
@@ -2855,8 +2897,13 @@ const handleConnect = (serverData: SavedServer) => {
   const isMatrixActive = activeChannelId
     ? isMatrixChannelChatActive(activeChannelId, matrixCredentials, statuses, selfUserForChat)
     : false;
-  const brmbleTemporaryChatActive = isTemporaryChannelChatActive(activeChannelId, statuses);
   const brmbleServiceOutageActive = isBrmbleServiceOutageActive(statuses);
+  const brmbleServiceBootstrapPhase = getBrmbleServiceBootstrapPhase(
+    statuses,
+    brmbleServiceBootstrapTimedOut,
+    brmbleServicesConnectedOnceRef.current,
+  );
+  const brmbleServiceChatNotice = getBrmbleServiceChatNotice(activeChannelId, statuses, brmbleServiceBootstrapPhase);
   const matrixMessages = activeChannelId
     ? matrixClient.activeMessages
     : undefined;
@@ -3147,9 +3194,31 @@ const handleConnect = (serverData: SavedServer) => {
   }, [serverRemovalNotification, notifQueue]);
 
   useEffect(() => {
+    if (statuses.server.state === 'connected' && statuses.chat.state === 'connected') {
+      brmbleServicesConnectedOnceRef.current = true;
+    }
+  }, [statuses.server.state, statuses.chat.state]);
+
+  useEffect(() => {
+    if (brmbleServiceBootstrapPhase !== 'bootstrap') {
+      if (brmbleServiceBootstrapPhase === 'idle' || brmbleServiceBootstrapPhase === 'ready') {
+        setBrmbleServiceBootstrapTimedOut(false);
+      }
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setBrmbleServiceBootstrapTimedOut(true);
+    }, BRMBLE_SERVICE_BOOTSTRAP_GRACE_MS);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [brmbleServiceBootstrapPhase]);
+
+  useEffect(() => {
     if (shouldShowBrmbleServiceWarningNotification(
       brmbleServiceOutageActive,
       brmbleServiceWarningDismissedForOutageRef.current,
+      brmbleServiceBootstrapPhase,
     )) {
       setBrmbleServiceWarningNotification(BRMBLE_SERVICE_DISCONNECTED_NOTIFICATION);
       notifQueue.register(BRMBLE_SERVICE_WARNING_ID, 'warning');
@@ -3158,10 +3227,14 @@ const handleConnect = (serverData: SavedServer) => {
 
     if (!brmbleServiceOutageActive) {
       brmbleServiceWarningDismissedForOutageRef.current = false;
+      if (statuses.voice.state !== 'connected') {
+        brmbleServicesConnectedOnceRef.current = false;
+        setBrmbleServiceBootstrapTimedOut(false);
+      }
       setBrmbleServiceWarningNotification(null);
       notifQueue.unregister(BRMBLE_SERVICE_WARNING_ID);
     }
-  }, [brmbleServiceOutageActive, notifQueue]);
+  }, [brmbleServiceOutageActive, brmbleServiceBootstrapPhase, notifQueue, statuses.voice.state]);
 
   const { isOnCooldown: leaveVoiceOnCooldown, trigger: triggerLeaveVoiceCooldown } = useLeaveVoiceCooldown(1000);
   const { isOnCooldown: muteOnCooldown, trigger: triggerMuteCooldown } = useLeaveVoiceCooldown(1000);
@@ -3640,7 +3713,7 @@ const handleConnect = (serverData: SavedServer) => {
                     onCloseShare={(share) => disconnectViewer(share.userId)}
                     screenShareViewerMode={screenShareSettings.viewerMode}
                     users={users}
-                    topNotice={brmbleTemporaryChatActive ? BRMBLE_SERVICE_TEMPORARY_CHAT_NOTICE : undefined}
+                    topNotice={brmbleServiceChatNotice}
                     onMessageContextMenu={handleChatMessageContextMenu}
                     onCopyToClipboard={handleCopyToClipboard}
                   />

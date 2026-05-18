@@ -130,6 +130,33 @@ public class MumbleAdapterCredentialsTests
     }
 
     [TestMethod]
+    public void ShouldRefreshCredentialsAfterHealthSuccess_InitialRecoveryAfterFailure_ReturnsTrue()
+    {
+        var result = MumbleAdapter.ShouldRefreshCredentialsAfterHealthSuccess(
+            credentialsAlreadyFetched: false,
+            previousHealthWasConnected: false,
+            sawHealthFailureSinceCredentials: true);
+
+        Assert.IsTrue(result);
+    }
+
+    [TestMethod]
+    public void ShouldStartHealthCheckBeforeCredentialFetch_WithApiUrl_ReturnsTrue()
+    {
+        var result = MumbleAdapter.ShouldStartHealthCheckBeforeCredentialFetch("https://api.example.com");
+
+        Assert.IsTrue(result);
+    }
+
+    [TestMethod]
+    public void ShouldStartHealthCheckBeforeCredentialFetch_WithoutApiUrl_ReturnsFalse()
+    {
+        var result = MumbleAdapter.ShouldStartHealthCheckBeforeCredentialFetch(null);
+
+        Assert.IsFalse(result);
+    }
+
+    [TestMethod]
     public void ShouldRefreshCredentialsAfterHealthSuccess_StillConnected_ReturnsFalse()
     {
         var result = MumbleAdapter.ShouldRefreshCredentialsAfterHealthSuccess(
