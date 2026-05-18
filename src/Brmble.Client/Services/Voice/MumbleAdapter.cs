@@ -1389,7 +1389,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         bool credentialsAlreadyFetched,
         bool previousHealthWasConnected,
         bool sawHealthFailureSinceCredentials)
-        => !previousHealthWasConnected && sawHealthFailureSinceCredentials;
+        => !credentialsAlreadyFetched && sawHealthFailureSinceCredentials
+            || !previousHealthWasConnected && sawHealthFailureSinceCredentials;
+
+    internal static bool ShouldMarkCredentialFailureAsServiceOutage(int httpStatus)
+        => httpStatus != 409;
 
     internal static bool ShouldStartHealthCheckBeforeCredentialFetch(string? apiUrl)
         => !string.IsNullOrWhiteSpace(apiUrl);
@@ -1489,8 +1493,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             var (credentials, httpStatus, errorBody) = await FetchCredentialsViaBcTls(cert, tokenUri, _reconnectUsername);
             if (credentials is null)
             {
-                _sawServerHealthFailureSinceCredentials = true;
-                SendBrmbleServiceStatus("server", "reconnecting", reason: httpStatus > 0 ? $"http-{httpStatus}" : "credentials-unavailable");
+                if (ShouldMarkCredentialFailureAsServiceOutage(httpStatus))
+                {
+                    _sawServerHealthFailureSinceCredentials = true;
+                    SendBrmbleServiceStatus("server", "reconnecting", reason: httpStatus > 0 ? $"http-{httpStatus}" : "credentials-unavailable");
+                }
                 if (httpStatus == 409)
                 {
                     // Name conflict — parse error body and send to frontend

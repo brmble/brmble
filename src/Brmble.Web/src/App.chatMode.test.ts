@@ -86,12 +86,12 @@ describe('getBrmbleServiceBootstrapPhase', () => {
     }, false, false)).toBe('bootstrap');
   });
 
-  it('becomes degraded when initial Brmble service connection fails', () => {
+  it('stays in bootstrap when initial Brmble service connection fails before the grace period expires', () => {
     expect(getBrmbleServiceBootstrapPhase({
       ...connectedStatuses,
       server: { state: 'disconnected', error: 'unavailable' },
       chat: { state: 'connecting' },
-    }, false, false)).toBe('degraded');
+    }, false, false)).toBe('bootstrap');
   });
 
   it('becomes degraded when the initial bootstrap grace period expires', () => {
@@ -111,6 +111,14 @@ describe('getBrmbleServiceBootstrapPhase', () => {
       ...connectedStatuses,
       chat: { state: 'connecting' },
     }, false, true)).toBe('degraded');
+  });
+
+  it('becomes degraded when an initial service failure remains after the grace period expires', () => {
+    expect(getBrmbleServiceBootstrapPhase({
+      ...connectedStatuses,
+      server: { state: 'disconnected', error: 'unavailable' },
+      chat: { state: 'connecting' },
+    }, true, false)).toBe('degraded');
   });
 });
 
@@ -190,6 +198,10 @@ describe('shouldShowBrmbleServiceWarningNotification', () => {
   });
 
   it('does not show the notification during initial Brmble service bootstrap', () => {
+    expect(shouldShowBrmbleServiceWarningNotification(true, false, 'bootstrap')).toBe(false);
+  });
+
+  it('clears the notification outside degraded outages', () => {
     expect(shouldShowBrmbleServiceWarningNotification(true, false, 'bootstrap')).toBe(false);
   });
 });

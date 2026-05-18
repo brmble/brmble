@@ -622,8 +622,6 @@ export function getBrmbleServiceBootstrapPhase(
   if (statuses.voice.state !== 'connected') return 'idle';
   if (statuses.server.state === 'connected' && statuses.chat.state === 'connected') return 'ready';
   if (brmbleServicesConnectedOnce || bootstrapTimedOut) return 'degraded';
-  if (statuses.server.state === 'disconnected' || statuses.server.state === 'unavailable') return 'degraded';
-  if (statuses.chat.state === 'disconnected' || statuses.chat.state === 'unavailable') return 'degraded';
   return 'bootstrap';
 }
 
@@ -3225,7 +3223,7 @@ const handleConnect = (serverData: SavedServer) => {
       return;
     }
 
-    if (!brmbleServiceOutageActive) {
+    if (!brmbleServiceOutageActive || brmbleServiceBootstrapPhase !== 'degraded') {
       brmbleServiceWarningDismissedForOutageRef.current = false;
       if (statuses.voice.state !== 'connected') {
         brmbleServicesConnectedOnceRef.current = false;

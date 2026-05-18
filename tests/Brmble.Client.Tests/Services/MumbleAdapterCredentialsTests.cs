@@ -168,6 +168,30 @@ public class MumbleAdapterCredentialsTests
     }
 
     [TestMethod]
+    public void ShouldRefreshCredentialsAfterHealthSuccess_InitialCredentialFailureWhileHealthStaysConnected_ReturnsTrue()
+    {
+        var result = MumbleAdapter.ShouldRefreshCredentialsAfterHealthSuccess(
+            credentialsAlreadyFetched: false,
+            previousHealthWasConnected: true,
+            sawHealthFailureSinceCredentials: true);
+
+        Assert.IsTrue(result);
+    }
+
+    [TestMethod]
+    public void ShouldMarkCredentialFailureAsServiceOutage_ForUnavailableService_ReturnsTrue()
+    {
+        Assert.IsTrue(MumbleAdapter.ShouldMarkCredentialFailureAsServiceOutage(503));
+        Assert.IsTrue(MumbleAdapter.ShouldMarkCredentialFailureAsServiceOutage(0));
+    }
+
+    [TestMethod]
+    public void ShouldMarkCredentialFailureAsServiceOutage_ForNameConflict_ReturnsFalse()
+    {
+        Assert.IsFalse(MumbleAdapter.ShouldMarkCredentialFailureAsServiceOutage(409));
+    }
+
+    [TestMethod]
     public void ShouldEmitSessionStoppedStatus_StaleCanceledGeneration_ReturnsFalse()
     {
         var result = MumbleAdapter.ShouldEmitSessionStoppedStatus(
