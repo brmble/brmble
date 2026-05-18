@@ -83,8 +83,9 @@ describe('AclEditorDialog', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Only approved users can join' }));
 
-    expect(screen.getAllByRole('option', { name: 'Charlie' })).toHaveLength(3);
-    expect(screen.getAllByRole('option', { name: 'Dana' })).toHaveLength(3);
+    expect(screen.getAllByRole('combobox')).toHaveLength(3);
+    expect(screen.queryAllByRole('option', { name: 'Charlie' })).toHaveLength(0);
+    expect(screen.queryAllByRole('option', { name: 'Dana' })).toHaveLength(0);
   });
 
   it('only offers registered-user ids for ACL additions, not live session ids', () => {
@@ -110,6 +111,15 @@ describe('AclEditorDialog', () => {
 
     expect(screen.getByRole('heading', { name: 'Permissions for Secret' })).toHaveClass('heading-title', 'modal-title');
     expect(screen.getByText('Choose who can join, who can moderate, and who is blocked. Then save your channel access rules.')).toHaveClass('modal-subtitle');
+  });
+
+  it('uses the shared toggle switch pattern for boolean controls', () => {
+    render(<AclEditorDialog isOpen channelId={4} channelName="Secret" onClose={vi.fn()} />);
+
+    const inheritToggle = screen.getByLabelText('Inherit ACLs from the parent channel');
+
+    expect(inheritToggle.closest('label')).toHaveClass('brmble-toggle');
+    expect(inheritToggle.nextElementSibling).toHaveClass('brmble-toggle-slider');
   });
 
   it('shows the simplified cards for join access, password, and moderators', () => {
@@ -139,6 +149,7 @@ describe('AclEditorDialog', () => {
 
     expect(screen.getByText('0 approved users')).toBeInTheDocument();
     expect(screen.getByText('Add approved user')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Approved users' })).toHaveClass('heading-label');
   });
 
   it('shows existing moderators in the simplified moderator list', () => {

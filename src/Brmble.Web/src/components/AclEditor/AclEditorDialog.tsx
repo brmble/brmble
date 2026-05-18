@@ -5,6 +5,7 @@ import { Permission } from '../../types/acl';
 import { useAclAdmin } from '../../hooks/useAclAdmin';
 import bridge from '../../bridge';
 import { Icon } from '../Icon/Icon';
+import { Select } from '../Select';
 import './AclEditorDialog.css';
 
 type AclDraft = Omit<AclUpdateRequest, 'expectedSnapshotHash'>;
@@ -19,6 +20,24 @@ interface AclEditorDialogProps {
 }
 
 type SharedAccessKind = 'password' | 'token' | 'group';
+
+function ToggleControl({ checked, disabled, label, onChange }: { checked: boolean; disabled?: boolean; label: string; onChange: (checked: boolean) => void }) {
+  return (
+    <div className="acl-toggle">
+      <label className="brmble-toggle">
+        <input
+          type="checkbox"
+          checked={checked}
+          disabled={disabled}
+          aria-label={label}
+          onChange={e => onChange(e.target.checked)}
+        />
+        <span className="brmble-toggle-slider" />
+      </label>
+      <span>{label}</span>
+    </div>
+  );
+}
 
 interface SharedAccessEntry {
   kind: SharedAccessKind;
@@ -483,15 +502,12 @@ export function AclEditorDialog({ channelId, channelName, isOpen, onClose, avail
                 <h3 className="heading-section settings-section-title">Defaults</h3>
               </div>
 
-              <label className="acl-toggle">
-                <input
-                  type="checkbox"
-                  checked={draft.inheritAcls}
-                  disabled={interactionsDisabled}
-                  onChange={e => setDraft({ ...draft, inheritAcls: e.target.checked })}
-                />
-                <span>Inherit ACLs from the parent channel</span>
-              </label>
+              <ToggleControl
+                checked={draft.inheritAcls}
+                disabled={interactionsDisabled}
+                label="Inherit ACLs from the parent channel"
+                onChange={checked => setDraft({ ...draft, inheritAcls: checked })}
+              />
             </section>
 
             <section className="acl-section">
@@ -544,7 +560,7 @@ export function AclEditorDialog({ channelId, channelName, isOpen, onClose, avail
                   {whitelistEnabled && (
                     <div className="acl-simple-list">
                       <div className="acl-list-header">
-                        <h4 className="acl-subheading">Approved users</h4>
+                        <h4 className="heading-label acl-subheading">Approved users</h4>
                         <span className="acl-field-help">Add or remove the users who are allowed to join.</span>
                       </div>
                       <div className="acl-member-summary">
@@ -584,13 +600,12 @@ export function AclEditorDialog({ channelId, channelName, isOpen, onClose, avail
                         <div className="acl-group-add">
                           <label className="acl-field acl-group-add-field">
                             <span className="acl-field-label">Add approved user</span>
-                            <select className="brmble-input" value={pendingApprovedSession} onChange={e => setPendingApprovedSession(e.target.value)} disabled={interactionsDisabled}>
-                              {approvedUserAddCandidates.map(user => (
-                                <option key={user.id} value={String(user.id)}>
-                                  {user.name}
-                                </option>
-                              ))}
-                            </select>
+                            <Select
+                              value={pendingApprovedSession}
+                              onChange={setPendingApprovedSession}
+                              disabled={interactionsDisabled}
+                              options={approvedUserAddCandidates.map(user => ({ value: String(user.id), label: user.name }))}
+                            />
                           </label>
                           <button
                             className="btn btn-secondary"
@@ -627,21 +642,18 @@ export function AclEditorDialog({ channelId, channelName, isOpen, onClose, avail
                       </div>
                     </div>
                   )}
-                  <label className="acl-toggle">
-                    <input
-                      type="checkbox"
-                      checked={!!passwordEntry}
-                      disabled={interactionsDisabled}
-                      onChange={e => {
-                        if (e.target.checked) {
-                          addPasswordRule();
-                        } else if (passwordEntry) {
-                          removePasswordRule();
-                        }
-                      }}
-                    />
-                    <span>Password protected</span>
-                  </label>
+                  <ToggleControl
+                    checked={!!passwordEntry}
+                    disabled={interactionsDisabled}
+                    label="Password protected"
+                    onChange={checked => {
+                      if (checked) {
+                        addPasswordRule();
+                      } else if (passwordEntry) {
+                        removePasswordRule();
+                      }
+                    }}
+                  />
 
                   {passwordEntry && (
                     <div className="acl-simple-list">
@@ -656,15 +668,12 @@ export function AclEditorDialog({ channelId, channelName, isOpen, onClose, avail
                           onChange={e => setPasswordInput(e.target.value)}
                         />
                       </label>
-                      <label className="acl-toggle acl-toggle--compact">
-                        <input
-                          type="checkbox"
-                          checked={showPassword}
-                          disabled={interactionsDisabled}
-                          onChange={e => setShowPassword(e.target.checked)}
-                        />
-                        <span>Show password</span>
-                      </label>
+                      <ToggleControl
+                        checked={showPassword}
+                        disabled={interactionsDisabled}
+                        label="Show password"
+                        onChange={setShowPassword}
+                      />
                       <button
                         className="btn btn-secondary acl-inline-action"
                         type="button"
@@ -683,7 +692,7 @@ export function AclEditorDialog({ channelId, channelName, isOpen, onClose, avail
                     <p className="acl-section-copy">Moderators can kick, ban, move, and mute users in this channel.</p>
                   </div>
                   <div className="acl-list-header">
-                    <h4 className="acl-subheading">Moderator list</h4>
+                    <h4 className="heading-label acl-subheading">Moderator list</h4>
                     <span className="acl-field-help">Add or remove the users who should manage this channel.</span>
                   </div>
                   <div className="acl-member-summary">
@@ -723,13 +732,12 @@ export function AclEditorDialog({ channelId, channelName, isOpen, onClose, avail
                     <div className="acl-group-add">
                       <label className="acl-field acl-group-add-field">
                         <span className="acl-field-label">Add moderator</span>
-                        <select className="brmble-input" value={pendingModeratorSession} onChange={e => setPendingModeratorSession(e.target.value)} disabled={interactionsDisabled}>
-                          {moderatorAddCandidates.map(user => (
-                            <option key={user.id} value={String(user.id)}>
-                              {user.name}
-                            </option>
-                          ))}
-                        </select>
+                        <Select
+                          value={pendingModeratorSession}
+                          onChange={setPendingModeratorSession}
+                          disabled={interactionsDisabled}
+                          options={moderatorAddCandidates.map(user => ({ value: String(user.id), label: user.name }))}
+                        />
                       </label>
                       <button
                         className="btn btn-secondary"
@@ -780,13 +788,12 @@ export function AclEditorDialog({ channelId, channelName, isOpen, onClose, avail
                 <div className="acl-group-add">
                   <label className="acl-field acl-group-add-field">
                     <span className="acl-field-label">Block user</span>
-                    <select className="brmble-input" value={pendingBlockedSession} onChange={e => setPendingBlockedSession(e.target.value)} disabled={interactionsDisabled}>
-                      {blockedUserAddCandidates.map(user => (
-                        <option key={user.id} value={String(user.id)}>
-                          {user.name}
-                        </option>
-                      ))}
-                    </select>
+                    <Select
+                      value={pendingBlockedSession}
+                      onChange={setPendingBlockedSession}
+                      disabled={interactionsDisabled}
+                      options={blockedUserAddCandidates.map(user => ({ value: String(user.id), label: user.name }))}
+                    />
                   </label>
                   <button
                     className="btn btn-secondary"

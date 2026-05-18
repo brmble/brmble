@@ -265,17 +265,18 @@ Prompts and confirmations are UI work. Before adding confirmation copy, buttons,
 // App.tsx
 import { usePrompt } from './hooks/usePrompt';
 
-const { Prompt } = usePrompt();
+const { Prompt, PromptWithInput } = usePrompt();
 
 return (
   <div className="app">
     {/* ... all other content ... */}
-    <Prompt />   {/* must be last child */}
+    <Prompt />
+    <PromptWithInput />
   </div>
 );
 ```
 
-`usePrompt()` must only be called **once** in the tree (in `App.tsx`). It registers a module-level force-update so that `confirm()` calls from any component trigger the correct re-render.
+`usePrompt()` must only be called **once** in the tree (in `App.tsx`). It registers a module-level force-update so that `confirm()` and `prompt()` calls from any component trigger the correct re-render. Render `<Prompt />` and `<PromptWithInput />` exactly once, as the last children of the root `<div className="app">`, so both prompt variants render above all other content.
 
 #### Usage (any component)
 
@@ -312,7 +313,28 @@ if (result === 'Remove') {
 }
 ```
 
+Password input prompt example:
+
+```tsx
+const password = await prompt({
+  title: 'Channel Password',
+  message: 'Enter the password for Secret.',
+  placeholder: 'Password',
+  confirmLabel: 'Join',
+  cancelLabel: 'Cancel',
+  isPassword: true,
+});
+
+if (password) {
+  // proceed with password-protected action
+}
+```
+
+Use `prompt()` for one short text input only. For multi-field flows such as creating or editing a server profile, use the modal/form pattern instead of trying to extend `prompt()`.
+
 #### DOM structure
+
+Confirmation prompt:
 
 ```
 div.modal-overlay          (click → cancel)
@@ -325,12 +347,29 @@ div.modal-overlay          (click → cancel)
       button.btn.btn-primary     Confirm (bottom-right)
 ```
 
+Input prompt:
+
+```
+div.modal-overlay          (click → cancel)
+  div.prompt.glass-panel.animate-slide-up   (stops propagation)
+    div.modal-header
+      h2.heading-title.modal-title
+      p.modal-subtitle
+    div.prompt-input-container
+      input.brmble-input
+      button.password-toggle-btn   Show/Hide (password prompts only)
+    div.prompt-footer
+      button.btn.btn-secondary   Cancel
+      button.btn.btn-primary     Action
+```
+
 Rules:
 1. No close button — ESC and overlay click both cancel
 2. Cancel is always `btn-secondary` on the left; Confirm is always `btn-primary` on the right
-3. `<Prompt />` must be the **last child** of the root `<div className="app">` so it renders above all other content
-4. Never call `usePrompt()` in more than one component — only the owner of `<Prompt />` should call it; all others use `confirm()` directly
+3. `<Prompt />` and `<PromptWithInput />` must be the **last children** of the root `<div className="app">` so they render above all other content
+4. Never call `usePrompt()` in more than one component — only the owner of the prompt host components should call it; all others use `confirm()` or `prompt()` directly
 5. For typed confirmations or reason capture, use the shared `prompt()` / `<PromptWithInput />` flow instead of building a one-off modal
+6. Do not use native `title` attributes on prompt controls; use accessible labels and the shared Tooltip pattern when hover help is needed
 
 ### Form Inputs
 

@@ -3822,9 +3822,6 @@ const handleConnect = (serverData: SavedServer) => {
         onQuit={handleCloseQuit}
       />
 
-      <Prompt />
-      <PromptWithInput />
-
       <div className="notification-stack">
         {updateInfo && notifQueue.isVisible('update') && (
           <UpdateNotification

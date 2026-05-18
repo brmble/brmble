@@ -1,6 +1,10 @@
 .prompt {
+  --prompt-width: 23.75rem;
+  --prompt-button-width: 8.75rem;
+  --prompt-counter-width: 2.5rem;
+
   width: 100%;
-  max-width: 380px;
+  max-width: var(--prompt-width);
   padding: var(--space-xl) var(--space-lg) var(--space-lg);
 }
 
@@ -43,8 +47,8 @@
 }
 
 .password-toggle-btn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: 0 0 0 2px var(--bg-deep), 0 0 0 4px var(--accent-primary);
   border-radius: var(--radius-sm);
 }
 
@@ -57,12 +61,12 @@
 
 .prompt-footer .btn {
   flex: 1;
-  max-width: 140px;
+  max-width: var(--prompt-button-width);
 }
 
 .char-counter {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
   align-self: center;
-  min-width: 40px;
+  min-width: var(--prompt-counter-width);
 }

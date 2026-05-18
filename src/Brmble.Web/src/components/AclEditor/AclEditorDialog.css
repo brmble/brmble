@@ -1,6 +1,12 @@
 .acl-editor {
-  width: min(1000px, calc(100vw - (var(--space-lg) * 2)));
-  max-height: min(820px, calc(100vh - (var(--space-lg) * 2)));
+  --acl-editor-width: 62.5rem;
+  --acl-editor-max-height: 51.25rem;
+  --acl-warning-icon-size: var(--text-xl);
+  --acl-select-min-width: 20rem;
+  --acl-rule-field-min-width: 11.25rem;
+
+  width: min(var(--acl-editor-width), calc(100vw - (var(--space-lg) * 2)));
+  max-height: min(var(--acl-editor-max-height), calc(100vh - (var(--space-lg) * 2)));
   overflow: auto;
   padding: var(--space-lg);
   position: relative;
@@ -54,9 +60,9 @@
 
 .acl-warning > svg {
   flex-shrink: 0;
-  width: 1.25rem;
-  height: 1.25rem;
-  margin-top: 0.1rem;
+  width: var(--acl-warning-icon-size);
+  height: var(--acl-warning-icon-size);
+  margin-top: var(--space-2xs);
   color: var(--accent-warning);
 }
 
@@ -159,7 +165,7 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+  transition: background-color var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .acl-access-choice:hover:not(:disabled) {
@@ -168,7 +174,7 @@
 
 .acl-access-choice:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary) 55%, transparent);
+  box-shadow: 0 0 0 2px var(--bg-deep), 0 0 0 4px var(--accent-primary);
 }
 
 .acl-access-choice-indicator {
@@ -176,15 +182,15 @@
   flex: 0 0 auto;
   width: 1rem;
   height: 1rem;
-  margin-top: 0.15rem;
+  margin-top: var(--space-2xs);
   border: 2px solid color-mix(in srgb, var(--text-muted) 75%, transparent);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
 }
 
 .acl-access-choice-body {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: var(--space-2xs);
   min-width: 0;
 }
 
@@ -215,8 +221,8 @@
 .acl-access-choice--active .acl-access-choice-indicator::after {
   content: '';
   position: absolute;
-  inset: 0.18rem;
-  border-radius: 999px;
+  inset: var(--space-2xs);
+  border-radius: var(--radius-full);
   background: var(--accent-primary);
 }
 
@@ -291,17 +297,6 @@
   gap: var(--space-sm);
 }
 
-.acl-access-badge {
-  align-self: flex-start;
-  border-radius: 999px;
-  padding: 0.2rem 0.6rem;
-  font-size: var(--text-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-secondary);
-  background: var(--bg-overlay);
-}
-
 .acl-entry-title {
   color: var(--text-primary);
   font-size: var(--text-base);
@@ -317,11 +312,6 @@
   color: var(--text-muted);
   font-size: var(--text-xs);
 }
-
-.acl-toggle--compact {
-  align-items: center;
-}
-
 
 .acl-member-summary {
   display: flex;
@@ -347,7 +337,7 @@
 }
 
 .acl-group-add-field {
-  min-width: min(320px, 100%);
+  min-width: min(var(--acl-select-min-width), 100%);
 }
 
 .acl-inline-action {
@@ -394,7 +384,7 @@
 
 .acl-rule-main {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) auto;
+  grid-template-columns: minmax(var(--acl-rule-field-min-width), 1fr) auto;
   gap: var(--space-md);
   align-items: end;
 }

@@ -179,7 +179,7 @@ function PromptWithInputComponent() {
           <h2 id="prompt-title" className="heading-title modal-title">{globalInputOptions.title}</h2>
           <p className="modal-subtitle">{globalInputOptions.message}</p>
         </div>
-        <div className="prompt-input-container" style={{ position: 'relative' }}>
+        <div className="prompt-input-container">
           <input
             type={globalInputOptions.isPassword && !showPassword ? 'password' : 'text'}
             className="brmble-input"
@@ -200,7 +200,6 @@ function PromptWithInputComponent() {
               className="password-toggle-btn"
               onClick={() => setShowPassword(!showPassword)}
               aria-label={showPassword ? 'Hide password' : 'Show password'}
-              title={showPassword ? 'Hide password' : 'Show password'}
             >
               {showPassword ? 'Hide' : 'Show'}
             </button>
