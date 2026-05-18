@@ -2,6 +2,7 @@
   --prompt-width: 23.75rem;
   --prompt-button-width: 8.75rem;
   --prompt-counter-width: 2.5rem;
+  --prompt-password-toggle-size: 1.75rem;
 
   width: 100%;
   max-width: var(--prompt-width);
@@ -29,27 +30,47 @@
   box-sizing: border-box;
 }
 
+.prompt-input-container .brmble-input[type='password'],
+.prompt-input-container .brmble-input[type='text']:has(+ .password-toggle-btn) {
+  padding-right: var(--space-xl);
+}
+
+.prompt-input-container .brmble-input::-ms-reveal,
+.prompt-input-container .brmble-input::-ms-clear {
+  display: none;
+}
+
 .password-toggle-btn {
   position: absolute;
-  right: var(--space-sm);
+  right: var(--space-xs);
   top: 50%;
   transform: translateY(-50%);
-  background: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--prompt-password-toggle-size);
+  height: var(--prompt-password-toggle-size);
+  padding: 0;
   border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  padding: var(--space-xs);
-  font-size: var(--text-sm);
+  transition: color var(--transition-fast), background var(--transition-fast);
 }
 
 .password-toggle-btn:hover {
   color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.password-toggle-btn:active {
+  color: var(--text-primary);
+  background: var(--bg-active);
 }
 
 .password-toggle-btn:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--bg-deep), 0 0 0 4px var(--accent-primary);
-  border-radius: var(--radius-sm);
 }
 
 .prompt-footer {

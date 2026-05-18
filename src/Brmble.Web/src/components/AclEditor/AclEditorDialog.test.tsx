@@ -203,9 +203,100 @@ describe('AclEditorDialog', () => {
     render(<AclEditorDialog isOpen channelId={4} channelName="Secret" onClose={vi.fn()} />);
 
     fireEvent.change(screen.getByLabelText('Channel password selector'), { target: { value: '#new-secret' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Apply Password' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save password' }));
 
     expect(savePassword).toHaveBeenCalledWith('#new-secret');
+  });
+
+  it('shows cancel and highlighted save only when an existing password changes', () => {
+    hookSnapshot = {
+      ...hookSnapshot,
+      groups: [],
+      acls: [
+        { applyHere: true, applySubs: false, inherited: false, userId: null, group: '__brmble_password_marker__:#secret', allow: 0, deny: 0 },
+        { applyHere: true, applySubs: false, inherited: false, userId: null, group: '#secret', allow: 6, deny: 0 },
+      ],
+    };
+
+    render(<AclEditorDialog isOpen channelId={4} channelName="Secret" onClose={vi.fn()} />);
+
+    const passwordInput = screen.getByLabelText('Channel password selector');
+
+    expect(screen.queryByRole('button', { name: 'Cancel password change' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save password' })).not.toBeInTheDocument();
+
+    fireEvent.change(passwordInput, { target: { value: '#new-secret' } });
+
+    expect(screen.getByRole('button', { name: 'Cancel password change' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save password' })).toHaveClass('btn-primary');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save password' }));
+
+    expect(savePassword).toHaveBeenCalledWith('#new-secret');
+  });
+
+  it('reverts unsaved password changes when cancel is pressed', () => {
+    hookSnapshot = {
+      ...hookSnapshot,
+      groups: [],
+      acls: [
+        { applyHere: true, applySubs: false, inherited: false, userId: null, group: '__brmble_password_marker__:#secret', allow: 0, deny: 0 },
+        { applyHere: true, applySubs: false, inherited: false, userId: null, group: '#secret', allow: 6, deny: 0 },
+      ],
+    };
+
+    render(<AclEditorDialog isOpen channelId={4} channelName="Secret" onClose={vi.fn()} />);
+
+    const passwordInput = screen.getByLabelText('Channel password selector');
+
+    fireEvent.change(passwordInput, { target: { value: '#draft-secret' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel password change' }));
+
+    expect(passwordInput).toHaveValue('#secret');
+    expect(screen.queryByRole('button', { name: 'Cancel password change' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save password' })).not.toBeInTheDocument();
+  });
+
+  it('requires saving a non-empty password when password protection has no saved value', () => {
+    render(<AclEditorDialog isOpen channelId={4} channelName="Secret" onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByLabelText('Password protected'));
+
+    expect(screen.getByLabelText('Channel password selector')).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Cancel password change' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save password' })).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText('Channel password selector'), { target: { value: '#new-secret' } });
+
+    expect(screen.getByRole('button', { name: 'Save password' })).not.toBeDisabled();
+  });
+
+  it('uses an icon-only reveal button for the channel password', () => {
+    hookSnapshot = {
+      ...hookSnapshot,
+      groups: [],
+      acls: [
+        { applyHere: true, applySubs: false, inherited: false, userId: null, group: '__brmble_password_marker__:#secret', allow: 0, deny: 0 },
+        { applyHere: true, applySubs: false, inherited: false, userId: null, group: '#secret', allow: 6, deny: 0 },
+      ],
+    };
+
+    render(<AclEditorDialog isOpen channelId={4} channelName="Secret" onClose={vi.fn()} />);
+
+    const passwordInput = screen.getByLabelText('Channel password selector');
+
+    expect(screen.queryByRole('button', { name: 'Show password' })).not.toBeInTheDocument();
+
+    fireEvent.focus(passwordInput);
+
+    const toggle = screen.getByRole('button', { name: 'Show password' });
+    expect(toggle).toHaveTextContent('');
+    expect(toggle.querySelector('svg')).toBeInTheDocument();
+
+    fireEvent.mouseDown(toggle);
+
+    expect(passwordInput).toHaveAttribute('type', 'text');
+    expect(screen.getByRole('button', { name: 'Hide password' })).toBeInTheDocument();
   });
 
   it('persists approved-user additions immediately', () => {

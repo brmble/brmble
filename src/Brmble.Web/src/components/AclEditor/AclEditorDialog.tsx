@@ -129,8 +129,11 @@ export function AclEditorDialog({ channelId, channelName, isOpen, onClose, avail
   const [pendingApprovedSession, setPendingApprovedSession] = useState('');
   const [pendingBlockedSession, setPendingBlockedSession] = useState('');
   const [pendingModeratorSession, setPendingModeratorSession] = useState('');
+  const [passwordPending, setPasswordPending] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [passwordFocused, setPasswordFocused] = useState(false);
+  const [passwordToggleFocused, setPasswordToggleFocused] = useState(false);
   const [registeredUsers, setRegisteredUsers] = useState<RegisteredUserOption[]>([]);
   const [registeredUsersError, setRegisteredUsersError] = useState<string | null>(null);
 
@@ -206,6 +209,7 @@ export function AclEditorDialog({ channelId, channelName, isOpen, onClose, avail
       groups: snapshot.groups,
       acls: snapshot.acls,
     });
+    setPasswordPending(false);
   }, [snapshot]);
 
   const applyDraft = (updater: (current: AclDraft) => AclDraft | null, options?: { persist?: boolean }) => {
@@ -335,36 +339,9 @@ export function AclEditorDialog({ channelId, channelName, isOpen, onClose, avail
   };
 
   const addPasswordRule = () => {
-    applyDraft(current => {
-      const base = current;
-      const hasPassword = buildSharedAccessEntries(base.acls).some(entry => entry.kind === 'password');
-      if (hasPassword) return base;
-      const selector = '#channel-password';
-      return {
-        ...base,
-        acls: [
-          ...base.acls,
-          {
-            applyHere: true,
-            applySubs: false,
-            inherited: false,
-            userId: null,
-            group: `${PASSWORD_MARKER_PREFIX}${selector}`,
-            allow: 0,
-            deny: 0,
-          },
-          {
-            applyHere: true,
-            applySubs: false,
-            inherited: false,
-            userId: null,
-            group: selector,
-            allow: CHANNEL_ENTRY_PERMISSIONS,
-            deny: 0,
-          },
-        ],
-      };
-    });
+    if (passwordEntry) return;
+    setPasswordInput('');
+    setPasswordPending(true);
   };
 
   const removePasswordRule = () => savePassword('');
@@ -426,6 +403,10 @@ export function AclEditorDialog({ channelId, channelName, isOpen, onClose, avail
   const passwordEntry = otherAccessEntries.find(entry => entry.kind === 'password') ?? null;
   const passwordEntryValue = passwordEntry?.selector ?? '';
   const passwordDirty = passwordInput !== passwordEntryValue;
+  const passwordEnabled = !!passwordEntry || passwordPending;
+  const passwordRequiresValue = passwordEnabled && passwordEntryValue.trim().length === 0;
+  const passwordCanSave = passwordDirty && passwordInput.trim().length > 0;
+  const showPasswordActions = passwordEnabled && (passwordRequiresValue || passwordDirty);
   const knownUsers = useMemo(
     () => [...registeredUsers].sort((a, b) => a.name.localeCompare(b.name)),
     [registeredUsers],
@@ -470,6 +451,8 @@ export function AclEditorDialog({ channelId, channelName, isOpen, onClose, avail
 
   useEffect(() => {
     setPasswordInput(passwordEntryValue);
+    setShowPassword(false);
+    setPasswordToggleFocused(false);
   }, [passwordEntryValue]);
 
   const inheritedRules = draft?.acls.filter(rule => rule.inherited) ?? [];
@@ -643,45 +626,83 @@ export function AclEditorDialog({ channelId, channelName, isOpen, onClose, avail
                     </div>
                   )}
                   <ToggleControl
-                    checked={!!passwordEntry}
+                    checked={passwordEnabled}
                     disabled={interactionsDisabled}
                     label="Password protected"
                     onChange={checked => {
                       if (checked) {
                         addPasswordRule();
+                      } else if (passwordPending) {
+                        setPasswordPending(false);
+                        setPasswordInput(passwordEntryValue);
                       } else if (passwordEntry) {
                         removePasswordRule();
                       }
                     }}
                   />
 
-                  {passwordEntry && (
+                  {passwordEnabled && (
                     <div className="acl-simple-list">
                       <label className="acl-field">
                         <span className="acl-field-label">Password</span>
-                        <input
-                          className="brmble-input"
-                          aria-label="Channel password selector"
-                          type={showPassword ? 'text' : 'password'}
-                          value={passwordInput}
-                          disabled={interactionsDisabled}
-                          onChange={e => setPasswordInput(e.target.value)}
-                        />
+                        <span className={`acl-password-wrapper${passwordFocused || passwordToggleFocused ? ' focused' : ''}`}>
+                          <input
+                            className="brmble-input acl-password-input"
+                            aria-label="Channel password selector"
+                            type={showPassword ? 'text' : 'password'}
+                            value={passwordInput}
+                            disabled={interactionsDisabled}
+                            onChange={e => setPasswordInput(e.target.value)}
+                            onFocus={() => setPasswordFocused(true)}
+                            onBlur={() => {
+                              setPasswordFocused(false);
+                              if (!passwordToggleFocused) setShowPassword(false);
+                            }}
+                          />
+                          {!interactionsDisabled && (passwordFocused || passwordToggleFocused) && (
+                            <button
+                              type="button"
+                              className="acl-password-toggle"
+                              onMouseDown={e => { e.preventDefault(); setShowPassword(value => !value); }}
+                              onFocus={() => setPasswordToggleFocused(true)}
+                              onBlur={() => { setPasswordToggleFocused(false); setShowPassword(false); }}
+                              aria-label={showPassword ? 'Hide password' : 'Show password'}
+                              aria-pressed={showPassword}
+                            >
+                              {showPassword ? (
+                                <Icon name="eye-off" size={18} />
+                              ) : (
+                                <Icon name="eye" size={18} />
+                              )}
+                            </button>
+                          )}
+                        </span>
                       </label>
-                      <ToggleControl
-                        checked={showPassword}
-                        disabled={interactionsDisabled}
-                        label="Show password"
-                        onChange={setShowPassword}
-                      />
-                      <button
-                        className="btn btn-secondary acl-inline-action"
-                        type="button"
-                        disabled={interactionsDisabled || !passwordDirty}
-                        onClick={() => savePassword(passwordInput)}
-                      >
-                        Apply Password
-                      </button>
+                      {showPasswordActions && (
+                        <div className="acl-password-actions">
+                          <button
+                            className="btn btn-secondary acl-password-action"
+                            type="button"
+                            disabled={interactionsDisabled}
+                            onClick={() => {
+                              setPasswordInput(passwordEntryValue);
+                              if (passwordPending) setPasswordPending(false);
+                            }}
+                            aria-label="Cancel password change"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            className="btn btn-primary acl-password-action"
+                            type="button"
+                            disabled={interactionsDisabled || !passwordCanSave}
+                            onClick={() => savePassword(passwordInput)}
+                            aria-label="Save password"
+                          >
+                            Save
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </section>

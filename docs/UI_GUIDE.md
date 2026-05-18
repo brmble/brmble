@@ -357,7 +357,7 @@ div.modal-overlay          (click → cancel)
       p.modal-subtitle
     div.prompt-input-container
       input.brmble-input
-      button.password-toggle-btn   Show/Hide (password prompts only)
+      button.password-toggle-btn   Icon eye/eye-off (password prompts only)
     div.prompt-footer
       button.btn.btn-secondary   Cancel
       button.btn.btn-primary     Action
@@ -370,6 +370,7 @@ Rules:
 4. Never call `usePrompt()` in more than one component — only the owner of the prompt host components should call it; all others use `confirm()` or `prompt()` directly
 5. For typed confirmations or reason capture, use the shared `prompt()` / `<PromptWithInput />` flow instead of building a one-off modal
 6. Do not use native `title` attributes on prompt controls; use accessible labels and the shared Tooltip pattern when hover help is needed
+7. Password input prompts must use the same icon-only reveal pattern as `ServerList`: `Icon name="eye"` for hidden, `Icon name="eye-off"` for visible, shown only while the input or reveal button has focus
 
 ### Form Inputs
 

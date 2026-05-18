@@ -344,6 +344,66 @@
   align-self: flex-start;
 }
 
+.acl-password-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.acl-password-action {
+  min-width: 0;
+}
+
+.acl-password-wrapper {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+
+.acl-password-input {
+  width: 100%;
+  padding-right: var(--space-xl) !important;
+}
+
+.acl-password-input::-ms-reveal,
+.acl-password-input::-ms-clear {
+  display: none;
+}
+
+.acl-password-toggle {
+  position: absolute;
+  right: var(--space-xs);
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.acl-password-toggle:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.acl-password-toggle:active {
+  color: var(--text-primary);
+  background: var(--bg-active);
+}
+
+.acl-password-toggle:focus-visible {
+  outline: none;
+}
+
 .acl-advanced {
   border-top: 1px solid var(--border-subtle);
   padding-top: var(--space-sm);
