@@ -130,6 +130,33 @@ public class MumbleAdapterCredentialsTests
     }
 
     [TestMethod]
+    public void ShouldRefreshCredentialsAfterHealthSuccess_InitialRecoveryAfterFailure_ReturnsTrue()
+    {
+        var result = MumbleAdapter.ShouldRefreshCredentialsAfterHealthSuccess(
+            credentialsAlreadyFetched: false,
+            previousHealthWasConnected: false,
+            sawHealthFailureSinceCredentials: true);
+
+        Assert.IsTrue(result);
+    }
+
+    [TestMethod]
+    public void ShouldStartHealthCheckBeforeCredentialFetch_WithApiUrl_ReturnsTrue()
+    {
+        var result = MumbleAdapter.ShouldStartHealthCheckBeforeCredentialFetch("https://api.example.com");
+
+        Assert.IsTrue(result);
+    }
+
+    [TestMethod]
+    public void ShouldStartHealthCheckBeforeCredentialFetch_WithoutApiUrl_ReturnsFalse()
+    {
+        var result = MumbleAdapter.ShouldStartHealthCheckBeforeCredentialFetch(null);
+
+        Assert.IsFalse(result);
+    }
+
+    [TestMethod]
     public void ShouldRefreshCredentialsAfterHealthSuccess_StillConnected_ReturnsFalse()
     {
         var result = MumbleAdapter.ShouldRefreshCredentialsAfterHealthSuccess(
@@ -138,6 +165,30 @@ public class MumbleAdapterCredentialsTests
             sawHealthFailureSinceCredentials: true);
 
         Assert.IsFalse(result);
+    }
+
+    [TestMethod]
+    public void ShouldRefreshCredentialsAfterHealthSuccess_InitialCredentialFailureWhileHealthStaysConnected_ReturnsTrue()
+    {
+        var result = MumbleAdapter.ShouldRefreshCredentialsAfterHealthSuccess(
+            credentialsAlreadyFetched: false,
+            previousHealthWasConnected: true,
+            sawHealthFailureSinceCredentials: true);
+
+        Assert.IsTrue(result);
+    }
+
+    [TestMethod]
+    public void ShouldMarkCredentialFailureAsServiceOutage_ForUnavailableService_ReturnsTrue()
+    {
+        Assert.IsTrue(MumbleAdapter.ShouldMarkCredentialFailureAsServiceOutage(503));
+        Assert.IsTrue(MumbleAdapter.ShouldMarkCredentialFailureAsServiceOutage(0));
+    }
+
+    [TestMethod]
+    public void ShouldMarkCredentialFailureAsServiceOutage_ForNameConflict_ReturnsFalse()
+    {
+        Assert.IsFalse(MumbleAdapter.ShouldMarkCredentialFailureAsServiceOutage(409));
     }
 
     [TestMethod]
