@@ -79,6 +79,54 @@ interface WatchedShareEndedNotification {
   detail: string;
 }
 
+export type OptionalNotificationCategory =
+  | 'notificationRemoteScreenShare'
+  | 'notificationScreenShareStatus'
+  | 'notificationIdleWarning'
+  | 'notificationMovedChannel';
+
+export interface OptionalNotificationSettings {
+  notificationsDisabled?: boolean;
+  notificationRemoteScreenShare?: boolean;
+  notificationScreenShareStatus?: boolean;
+  notificationIdleWarning?: boolean;
+  notificationMovedChannel?: boolean;
+}
+
+type IncomingOptionalNotificationSettings = OptionalNotificationSettings & {
+  notificationsEnabled?: boolean;
+};
+
+export const DEFAULT_OPTIONAL_NOTIFICATION_SETTINGS: Required<OptionalNotificationSettings> = {
+  notificationsDisabled: false,
+  notificationRemoteScreenShare: true,
+  notificationScreenShareStatus: true,
+  notificationIdleWarning: true,
+  notificationMovedChannel: true,
+};
+
+export function normalizeOptionalNotificationSettings(settings?: IncomingOptionalNotificationSettings | null): Required<OptionalNotificationSettings> {
+  const { notificationsEnabled, ...currentSettings } = settings ?? {};
+  const normalized = {
+    ...DEFAULT_OPTIONAL_NOTIFICATION_SETTINGS,
+    ...currentSettings,
+  };
+
+  if (typeof currentSettings.notificationsDisabled !== 'boolean' && notificationsEnabled === false) {
+    normalized.notificationsDisabled = true;
+  }
+
+  return normalized;
+}
+
+export function shouldShowOptionalNotification(
+  settings: IncomingOptionalNotificationSettings | null | undefined,
+  category: OptionalNotificationCategory,
+): boolean {
+  const normalized = normalizeOptionalNotificationSettings(settings);
+  return !normalized.notificationsDisabled && normalized[category];
+}
+
 export interface MovedChannelNotificationInput {
   actorName?: string;
   previousChannelName?: string;
@@ -168,6 +216,18 @@ export function createQueuedScreenShareEndedNotification(
   };
 }
 
+export function createOptionalQueuedScreenShareEndedNotification(
+  reason: LocalShareStopReason,
+  sequence: number,
+  settings: OptionalNotificationSettings | null | undefined,
+): QueuedScreenShareEndedNotification | null {
+  if (!shouldShowOptionalNotification(settings, 'notificationScreenShareStatus')) {
+    return null;
+  }
+
+  return createQueuedScreenShareEndedNotification(reason, sequence);
+}
+
 export function createWatchedShareEndedNotification(
   share: ShareInfo,
   reason: WatchedShareEndReason,
@@ -179,6 +239,19 @@ export function createWatchedShareEndedNotification(
     title: reason === 'unexpected' ? 'Share ended unexpectedly' : 'Share ended',
     detail: `${share.userName || 'Someone'}'s share ended${reason === 'unexpected' ? ' because the screen-share connection was interrupted.' : '.'}`,
   };
+}
+
+export function createOptionalWatchedShareEndedNotification(
+  share: ShareInfo,
+  reason: WatchedShareEndReason,
+  sequence: number,
+  settings: OptionalNotificationSettings | null | undefined,
+): WatchedShareEndedNotification | null {
+  if (!shouldShowOptionalNotification(settings, 'notificationScreenShareStatus')) {
+    return null;
+  }
+
+  return createWatchedShareEndedNotification(share, reason, sequence);
 }
 
 export function WatchedShareEndedNotifications({
@@ -223,6 +296,20 @@ export function replaceScreenShareEndedNotification(
   }
 
   return createQueuedScreenShareEndedNotification(reason, sequence);
+}
+
+export function replaceOptionalScreenShareEndedNotification(
+  current: QueuedScreenShareEndedNotification | null,
+  reason: LocalShareStopReason,
+  sequence: number,
+  settings: OptionalNotificationSettings | null | undefined,
+  notifQueue: { unregister: (id: string) => void },
+): QueuedScreenShareEndedNotification | null {
+  if (current) {
+    notifQueue.unregister(current.id);
+  }
+
+  return createOptionalQueuedScreenShareEndedNotification(reason, sequence, settings);
 }
 
 export function shouldTreatMoveAsSharingRelated(options: {
@@ -602,6 +689,22 @@ function App() {
     createOverlaySnapshot(null, ''),
   );
   const overlaySettingsRef = useRef(overlaySettings);
+  const [optionalNotificationSettings, setOptionalNotificationSettings] = useState<Required<OptionalNotificationSettings>>(() => {
+    try {
+      const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return normalizeOptionalNotificationSettings(parsed.messages);
+      }
+    } catch { /* ignore */ }
+    return DEFAULT_OPTIONAL_NOTIFICATION_SETTINGS;
+  });
+  const optionalNotificationSettingsRef = useRef(optionalNotificationSettings);
+  const applyOptionalNotificationSettings = useCallback((settings?: OptionalNotificationSettings | null) => {
+    const normalized = normalizeOptionalNotificationSettings(settings);
+    optionalNotificationSettingsRef.current = normalized;
+    setOptionalNotificationSettings(normalized);
+  }, []);
 
   // null = status not yet received, false = no cert, true = cert exists
   const [certExists, setCertExists] = useState<boolean | null>(null);
@@ -662,6 +765,10 @@ function App() {
   useEffect(() => {
     overlaySettingsRef.current = overlaySettings;
   }, [overlaySettings]);
+
+  useEffect(() => {
+    optionalNotificationSettingsRef.current = optionalNotificationSettings;
+  }, [optionalNotificationSettings]);
 
   useEffect(() => {
     if (!overlaySettings.overlayEnabled) return;
@@ -1024,14 +1131,14 @@ function App() {
       await stopSharingRef.current?.();
     }
     setSharingChannelId(undefined);
-    setScreenShareToast(null);
+    setScreenShareNotification(null);
   }, []);
 
   const {
     autoLeftAt,
     preLeaveStartedAt,
     preLeaveCancelledAt,
-    dismissToast: dismissAutoLeftToast,
+    dismissNotification: dismissAutoLeftNotification,
     dismissPreLeaveCancelled,
   } = useIdleActions({
     brmbleIdleSec,
@@ -1041,10 +1148,9 @@ function App() {
     onBeforeAutoLeave: stopSharesForVoiceExit,
   });
 
-  // Register the auto-leave-voice toast in the notification queue when fired.
-  // notifQueue intentionally omitted from deps: the object identity changes on
-  // every render, but `register` is idempotent and we only care about the
-  // autoLeftAt edge.
+  // Register the auto-leave-voice notification in the notification queue when fired.
+  // notifQueue intentionally omitted from deps: the queue API is memoized and
+  // register is idempotent, so this effect should only track the autoLeftAt edge.
   useEffect(() => {
     if (autoLeftAt !== null) {
       notifQueue.register('idle-auto-leave', 'info');
@@ -1052,28 +1158,37 @@ function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoLeftAt]);
 
-  // Register the pre-leave toast only when the timestamp changes.
+  // Register the pre-leave notification only when the timestamp changes.
   // notifQueue intentionally omitted from deps: the object identity changes on
   // every render, but `register` is idempotent and we only care about the
   // preLeaveStartedAt edge.
+  const shouldShowIdlePreLeaveNotification = shouldShowOptionalNotification(optionalNotificationSettings, 'notificationIdleWarning');
   useEffect(() => {
-    if (preLeaveStartedAt !== null) {
+    if (preLeaveStartedAt !== null && shouldShowIdlePreLeaveNotification) {
       notifQueue.register('idle-pre-leave', 'info');
+    } else {
+      notifQueue.unregister('idle-pre-leave');
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [preLeaveStartedAt]);
+  }, [preLeaveStartedAt, shouldShowIdlePreLeaveNotification]);
 
-  // Replace the pre-leave toast with the cancellation toast only when fired.
+  // Replace the pre-leave notification with the cancellation notification only when fired.
   // notifQueue intentionally omitted from deps: the object identity changes on
   // every render, but these operations are idempotent and we only care about
   // the preLeaveCancelledAt edge.
   useEffect(() => {
     if (preLeaveCancelledAt !== null) {
       notifQueue.unregister('idle-pre-leave');
-      notifQueue.register('idle-pre-leave-cancelled', 'info');
+      if (shouldShowIdlePreLeaveNotification) {
+        notifQueue.register('idle-pre-leave-cancelled', 'info');
+      } else {
+        notifQueue.unregister('idle-pre-leave-cancelled');
+      }
+    } else {
+      notifQueue.unregister('idle-pre-leave-cancelled');
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [preLeaveCancelledAt]);
+  }, [preLeaveCancelledAt, shouldShowIdlePreLeaveNotification]);
 
   // Fetch avatar for a specific user by matrixUserId and session, updating user state.
   // Uses refs so it can be called from both bridge event handlers (which capture initial
@@ -1199,6 +1314,7 @@ function App() {
       if (d?.settings) {
         updatePttKeyFromSettings(d.settings);
         setOverlaySettings(normalizeOverlaySettings(d.settings.overlay ?? {}));
+        applyOptionalNotificationSettings(d.settings.messages);
       }
     };
 
@@ -1213,6 +1329,7 @@ function App() {
           const settings = JSON.parse(stored);
           updatePttKeyFromSettings(settings);
           setOverlaySettings(normalizeOverlaySettings(settings.overlay ?? {}));
+          applyOptionalNotificationSettings(settings.messages);
         }
       } catch {}
     };
@@ -1224,6 +1341,7 @@ function App() {
       try {
         const settings = JSON.parse(stored);
         updatePttKeyFromSettings(settings);
+        applyOptionalNotificationSettings(settings.messages);
       } catch {}
     }
 
@@ -1253,14 +1371,39 @@ function App() {
       }
     };
 
+    // Force-release on focus loss: if the user is holding PTT when the window
+    // loses focus, the matching keyup may never reach us. Reset local state
+    // and tell native immediately, so the next physical press starts a clean
+    // cycle (defense-in-depth for #538).
+    const handleBlur = () => {
+      if (pttPressed) {
+        pttPressed = false;
+        bridge.send('voice.pttKey', { pressed: false });
+      }
+    };
+
+    // Native side can force-release us too (e.g. ReleaseAllHeld fires on
+    // channel join). Without this, local pttPressed stays true and the next
+    // keydown is suppressed by the "if (!pttPressed)" guard.
+    const handleNativePttForceRelease = (data: unknown) => {
+      const d = data as { pressed?: boolean; forced?: boolean } | undefined;
+      if (d?.forced && d.pressed === false) {
+        pttPressed = false;
+      }
+    };
+
     window.addEventListener('keydown', handleKeyDown, true);
     window.addEventListener('keyup', handleKeyUp, true);
+    window.addEventListener('blur', handleBlur);
+    bridge.on('voice.pttKey', handleNativePttForceRelease);
 
     return () => {
       bridge.off('settings.current', handleSettingsCurrent);
       bridge.off('settings.updated', handleSettingsCurrent);
+      bridge.off('voice.pttKey', handleNativePttForceRelease);
       window.removeEventListener('keydown', handleKeyDown, true);
       window.removeEventListener('keyup', handleKeyUp, true);
+      window.removeEventListener('blur', handleBlur);
       window.removeEventListener('storage', handleStorage);
     };
   }, []);
@@ -1415,7 +1558,7 @@ function App() {
       fetchedAvatarIdsRef.current.clear();
       disconnectViewerRef.current?.();
       setSharingChannelId(undefined);
-      setScreenShareToast(null);
+      setScreenShareNotification(null);
       // Reset divider timestamps so stale snapshots from the previous session
       // don't persist across disconnect/reconnect cycles.
       setChannelDividerTs(null);
@@ -1729,24 +1872,28 @@ function App() {
             setScreenShareEndedNotification(null);
           }
 
-          const channelName = d.name
-            || channelsRef.current.find(c => c.id === d.channelId)?.name
-            || (d.channelId === 0 ? (serverLabel || 'Server') : `Channel ${d.channelId}`);
-          const previousChannelName = d.previousChannelId !== undefined
-            ? channelsRef.current.find(c => c.id === d.previousChannelId)?.name
-            : undefined;
-          const notification = {
-            id: `channel-moved-${nextMovedChannelNotificationIdRef.current++}`,
-            ...getMovedChannelNotification({
-              actorName: d.actorName,
-              previousChannelName,
-              channelName,
-              movedToRoot: d.channelId === 0,
-              wasSharing,
-            }),
-          };
-          movedChannelNotificationRef.current = notification;
-          setMovedChannelNotification(notification);
+          if (shouldShowOptionalNotification(optionalNotificationSettingsRef.current, 'notificationMovedChannel')) {
+            const channelName = d.name
+              || channelsRef.current.find(c => c.id === d.channelId)?.name
+              || (d.channelId === 0 ? (serverLabel || 'Server') : `Channel ${d.channelId}`);
+            const previousChannelName = d.previousChannelId !== undefined
+              ? channelsRef.current.find(c => c.id === d.previousChannelId)?.name
+              : undefined;
+            const notification = {
+              id: `channel-moved-${nextMovedChannelNotificationIdRef.current++}`,
+              ...getMovedChannelNotification({
+                actorName: d.actorName,
+                previousChannelName,
+                channelName,
+                movedToRoot: d.channelId === 0,
+                wasSharing,
+              }),
+            };
+            movedChannelNotificationRef.current = notification;
+            setMovedChannelNotification(notification);
+          } else {
+            setMovedChannelNotification(null);
+          }
           sharingChannelIdRef.current = undefined;
           setSharingChannelId(undefined);
           wasLocalShareRecentlyActiveRef.current = false;
@@ -2771,11 +2918,11 @@ const handleConnect = (serverData: SavedServer) => {
   const handleCopyToClipboard = useCallback(async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
-      setCopyToast({ message: 'Copied to clipboard' });
+      setCopyNotification({ message: 'Copied to clipboard' });
       notifQueue.register('copy', 'success');
     } catch (error) {
       console.error('Failed to copy to clipboard:', error);
-      setCopyToast({ message: 'Failed to copy to clipboard' });
+      setCopyNotification({ message: 'Failed to copy to clipboard' });
       notifQueue.register('copy', 'error');
     }
   }, [notifQueue]);
@@ -2862,7 +3009,7 @@ const handleConnect = (serverData: SavedServer) => {
   const ignoreNextMovedSharingRef = useRef(false);
   const [isLocalShareStartPending, setIsLocalShareStartPending] = useState(false);
   const isLocalShareStartPendingRef = useRef(false);
-  const [screenShareToast, setScreenShareToast] = useState<{
+  const [screenShareNotification, setScreenShareNotification] = useState<{
     userName: string; roomName: string; userId?: number; matrixUserId?: string;
   } | null>(null);
   const [screenShareEndedNotification, setScreenShareEndedNotification] = useState<QueuedScreenShareEndedNotification | null>(null);
@@ -2877,7 +3024,7 @@ const handleConnect = (serverData: SavedServer) => {
   const nextActiveShareDiscoveryRequestIdRef = useRef(0);
   const screenShareEndedNotificationRef = useRef<QueuedScreenShareEndedNotification | null>(null);
   const movedChannelNotificationRef = useRef<QueuedMovedChannelNotification | null>(null);
-  const [copyToast, setCopyToast] = useState<{ message: string } | null>(null);
+  const [copyNotification, setCopyNotification] = useState<{ message: string } | null>(null);
   const [updateInfo, setUpdateInfo] = useState<{ version: string } | null>(null);
   const [updateProgress, setUpdateProgress] = useState<number | null>(null);
   const [brokenCertInfo, setBrokenCertInfo] = useState<{
@@ -2886,9 +3033,9 @@ const handleConnect = (serverData: SavedServer) => {
   } | null>(null);
 
   // Server import notifications (from onboarding wizard) — one per server
-  interface ServerImportToast { id: string; label: string; visible: boolean; }
-  const [serverImportToasts, setServerImportToasts] = useState<ServerImportToast[]>([]);
-  const nextServerImportToastIdRef = useRef(0);
+  interface ServerImportNotification { id: string; label: string; visible: boolean; }
+  const [serverImportNotifications, setServerImportNotifications] = useState<ServerImportNotification[]>([]);
+  const nextServerImportNotificationIdRef = useRef(0);
 
   const handleLocalScreenShareEnded = useCallback((reason: LocalShareStopReason) => {
     setSharingChannelId(undefined);
@@ -2899,16 +3046,15 @@ const handleConnect = (serverData: SavedServer) => {
     if (reason === 'manual') {
       wasLocalShareRecentlyActiveRef.current = false;
       ignoreNextMovedSharingRef.current = true;
-      screenShareEndedNotificationRef.current = null;
-      setScreenShareEndedNotification(null);
     } else {
       wasLocalShareRecentlyActiveRef.current = true;
     }
 
-    const notification = replaceScreenShareEndedNotification(
+    const notification = replaceOptionalScreenShareEndedNotification(
       screenShareEndedNotificationRef.current,
       reason,
       nextScreenShareEndedNotificationIdRef.current++,
+      optionalNotificationSettingsRef.current,
       notifQueue,
     );
     screenShareEndedNotificationRef.current = notification;
@@ -2916,15 +3062,20 @@ const handleConnect = (serverData: SavedServer) => {
   }, [notifQueue]);
 
   const handleWatchedShareEnded = useCallback((share: ShareInfo, reason: WatchedShareEndReason) => {
-    const notification = createWatchedShareEndedNotification(
+    const notification = createOptionalWatchedShareEndedNotification(
       share,
       reason,
       nextWatchedShareEndedNotificationIdRef.current++,
+      optionalNotificationSettingsRef.current,
     );
+    if (!notification) {
+      return;
+    }
+
     setWatchedShareEndedNotifications(prev => [...prev, notification]);
   }, []);
 
-  const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, disconnectViewer, connectAsViewer, isViewerConnectPending, handleScreenShareServiceUnavailable } = useScreenShare(() => {
+  const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, roomQuality, shareQualities, disconnectViewer, connectAsViewer, isViewerConnectPending, handleScreenShareServiceUnavailable } = useScreenShare(() => {
     setSharingChannelId(undefined);
     sharingChannelIdRef.current = undefined;
   }, screenShareSettings, handleLocalScreenShareEnded, handleWatchedShareEnded);
@@ -2975,9 +3126,9 @@ const handleConnect = (serverData: SavedServer) => {
   }, [activeShares, isSharing, overlaySettings.myCompanion, selfMuted, selfSession, username, users]);
 
   const handleServersImported = useCallback((labels: string[]) => {
-    const toasts = labels.map((label) => ({ id: `srv-${nextServerImportToastIdRef.current++}`, label, visible: true }));
-    setServerImportToasts(toasts);
-    toasts.forEach(t => notifQueue.register(t.id, 'info'));
+    const notifications = labels.map((label) => ({ id: `srv-${nextServerImportNotificationIdRef.current++}`, label, visible: true }));
+    setServerImportNotifications(notifications);
+    notifications.forEach(notification => notifQueue.register(notification.id, 'info'));
   }, [notifQueue]);
 
   // Register/unregister update notification with queue
@@ -3025,6 +3176,45 @@ const handleConnect = (serverData: SavedServer) => {
       notifQueue.register(movedChannelNotification.id, movedChannelNotification.status);
     }
   }, [movedChannelNotification, notifQueue]);
+
+  useEffect(() => {
+    if (!shouldShowOptionalNotification(optionalNotificationSettings, 'notificationRemoteScreenShare')) {
+      setScreenShareNotification(null);
+      notifQueue.unregister('screen-share');
+    }
+
+    if (!shouldShowOptionalNotification(optionalNotificationSettings, 'notificationScreenShareStatus')) {
+      if (screenShareEndedNotificationRef.current) {
+        notifQueue.unregister(screenShareEndedNotificationRef.current.id);
+        screenShareEndedNotificationRef.current = null;
+        setScreenShareEndedNotification(null);
+      }
+
+      setWatchedShareEndedNotifications((prev) => {
+        if (prev.length === 0) {
+          return prev;
+        }
+
+        for (const notification of prev) {
+          notifQueue.unregister(notification.id);
+        }
+        return [];
+      });
+    }
+
+    if (!shouldShowOptionalNotification(optionalNotificationSettings, 'notificationIdleWarning')) {
+      notifQueue.unregister('idle-pre-leave');
+      notifQueue.unregister('idle-pre-leave-cancelled');
+    }
+
+    if (!shouldShowOptionalNotification(optionalNotificationSettings, 'notificationMovedChannel')) {
+      if (movedChannelNotificationRef.current) {
+        notifQueue.unregister(movedChannelNotificationRef.current.id);
+        movedChannelNotificationRef.current = null;
+      }
+      setMovedChannelNotification(null);
+    }
+  }, [optionalNotificationSettings, notifQueue]);
 
   useEffect(() => {
     if (serverRemovalNotification) {
@@ -3158,21 +3348,26 @@ const handleConnect = (serverData: SavedServer) => {
     }
   }, [isLocalShareStartPending, selfLeftVoice, selfVoiceChannelId]);
 
-  // Show toast notification when someone starts sharing in the user's voice channel
+  // Show notification when someone starts sharing in the user's voice channel
   useEffect(() => {
     const onRemoteShareStarted = (data: unknown) => {
       const d = data as { roomName: string; userName: string; userId?: number; matrixUserId?: string; sessionId?: number };
       const selfUser = usersRef.current.find(u => u.self);
       const voiceChannelId = selfUser?.channelId;
       // Only show notification for other users' shares in our channel
-      if (voiceChannelId != null && d.roomName === `channel-${voiceChannelId}` && d.sessionId !== selfUser?.session) {
-        setScreenShareToast({ userName: d.userName, roomName: d.roomName, userId: d.userId, matrixUserId: d.matrixUserId });
+      if (
+        voiceChannelId != null &&
+        d.roomName === `channel-${voiceChannelId}` &&
+        d.sessionId !== selfUser?.session &&
+        shouldShowOptionalNotification(optionalNotificationSettingsRef.current, 'notificationRemoteScreenShare')
+      ) {
+        setScreenShareNotification({ userName: d.userName, roomName: d.roomName, userId: d.userId, matrixUserId: d.matrixUserId });
         notifQueue.register('screen-share', 'info');
       }
     };
 
     const onRemoteShareStopped = () => {
-      setScreenShareToast(null);
+      setScreenShareNotification(null);
     };
 
     bridge.on('livekit.screenShareStarted', onRemoteShareStarted);
@@ -3206,7 +3401,7 @@ const handleConnect = (serverData: SavedServer) => {
   // Check for active screen shares when switching channels
   useEffect(() => {
     disconnectViewer();
-    setScreenShareToast(null);
+    setScreenShareNotification(null);
     requestActiveShareDiscovery(currentChannelId);
   }, [currentChannelId, disconnectViewer, requestActiveShareDiscovery]);
 
@@ -3474,6 +3669,7 @@ const handleConnect = (serverData: SavedServer) => {
           activeShares={activeShares}
           watchingShares={watchingShares}
           isLiveKitRoomConnected={isSharing || watchingShares.length > 0}
+          screenShareQuality={roomQuality}
           onWatchScreenShare={handleWatchScreenShare}
           onStopWatching={(userId) => disconnectViewer(userId)}
           onEditAvatar={connected ? () => setShowAvatarEditor(true) : undefined}
@@ -3514,6 +3710,8 @@ const handleConnect = (serverData: SavedServer) => {
                     watchingShares={watchingShares}
                     focusedShare={focusedShare}
                     remoteVideoEls={remoteVideoEls}
+                    roomQuality={roomQuality}
+                    shareQualities={shareQualities}
                     onFocusShare={setFocusedShare}
                     onCloseShare={(share) => disconnectViewer(share.userId)}
                     screenShareViewerMode={screenShareSettings.viewerMode}
@@ -3647,39 +3845,39 @@ const handleConnect = (serverData: SavedServer) => {
             />
           ) : null
         ))}
-        {serverImportToasts.map(toast => (
-          notifQueue.isVisible(toast.id) ? (
+        {serverImportNotifications.map(notification => (
+          notifQueue.isVisible(notification.id) ? (
             <Notification
-              key={toast.id}
+              key={notification.id}
               status="info"
               position="top-right"
-              visible={toast.visible}
+              visible={notification.visible}
               duration={5000}
               title="Server imported"
-              detail={toast.label}
+              detail={notification.label}
               onDismiss={() => {
-                setServerImportToasts(prev => prev.map(t => t.id === toast.id ? { ...t, visible: false } : t));
+                setServerImportNotifications(prev => prev.map(t => t.id === notification.id ? { ...t, visible: false } : t));
               }}
               onExited={() => {
-                setServerImportToasts(prev => prev.filter(t => t.id !== toast.id));
-                notifQueue.unregister(toast.id);
+                setServerImportNotifications(prev => prev.filter(t => t.id !== notification.id));
+                notifQueue.unregister(notification.id);
               }}
             />
           ) : null
         ))}
-        {screenShareToast && notifQueue.isVisible('screen-share') && (
+        {screenShareNotification && notifQueue.isVisible('screen-share') && (
           <Notification
             status="info"
             position="top-right"
-            visible={!!screenShareToast}
+            visible={!!screenShareNotification}
             duration={8000}
-            title={`${screenShareToast.userName} started sharing their screen`}
+            title={`${screenShareNotification.userName} started sharing their screen`}
             actions={
               <button
                 className="btn btn-sm btn-primary"
                 onClick={() => {
-                  handleWatchScreenShare(screenShareToast.roomName, screenShareToast.userId, screenShareToast.matrixUserId);
-                  setScreenShareToast(null);
+                  handleWatchScreenShare(screenShareNotification.roomName, screenShareNotification.userId, screenShareNotification.matrixUserId);
+                  setScreenShareNotification(null);
                   notifQueue.unregister('screen-share');
                 }}
               >
@@ -3687,7 +3885,7 @@ const handleConnect = (serverData: SavedServer) => {
               </button>
             }
             onDismiss={() => {
-              setScreenShareToast(null);
+              setScreenShareNotification(null);
             }}
             onExited={() => {
               notifQueue.unregister('screen-share');
@@ -3720,7 +3918,7 @@ const handleConnect = (serverData: SavedServer) => {
           notifQueue={notifQueue}
           onRemove={(id) => setWatchedShareEndedNotifications(prev => prev.filter(notification => notification.id !== id))}
         />
-        {movedChannelNotification && notifQueue.isVisible(movedChannelNotification.id) && (
+        {movedChannelNotification && shouldShowOptionalNotification(optionalNotificationSettings, 'notificationMovedChannel') && notifQueue.isVisible(movedChannelNotification.id) && (
           <Notification
             key={movedChannelNotification.id}
             status={movedChannelNotification.status}
@@ -3774,22 +3972,22 @@ const handleConnect = (serverData: SavedServer) => {
             }}
           />
         )}
-        {copyToast && notifQueue.isVisible('copy') && (
+        {copyNotification && notifQueue.isVisible('copy') && (
           <Notification
-            status={copyToast.message.includes('Failed') ? 'error' : 'success'}
+            status={copyNotification.message.includes('Failed') ? 'error' : 'success'}
             position="top-right"
-            visible={!!copyToast}
+            visible={!!copyNotification}
             duration={2000}
-            title={copyToast.message}
+            title={copyNotification.message}
             onDismiss={() => {
-              setCopyToast(null);
+              setCopyNotification(null);
             }}
             onExited={() => {
               notifQueue.unregister('copy');
             }}
           />
         )}
-        {preLeaveStartedAt !== null && notifQueue.isVisible('idle-pre-leave') && (
+        {preLeaveStartedAt !== null && shouldShowIdlePreLeaveNotification && notifQueue.isVisible('idle-pre-leave') && (
           <Notification
             status="info"
             position="top-right"
@@ -3805,7 +4003,7 @@ const handleConnect = (serverData: SavedServer) => {
             }}
           />
         )}
-        {preLeaveCancelledAt !== null && notifQueue.isVisible('idle-pre-leave-cancelled') && (
+        {preLeaveCancelledAt !== null && shouldShowIdlePreLeaveNotification && notifQueue.isVisible('idle-pre-leave-cancelled') && (
           <Notification
             status="info"
             position="top-right"
@@ -3832,7 +4030,7 @@ const handleConnect = (serverData: SavedServer) => {
             detail="You were moved out of voice after inactivity. Screen sharing and watched streams were stopped."
             onDismiss={() => {
               notifQueue.unregister('idle-auto-leave');
-              dismissAutoLeftToast();
+              dismissAutoLeftNotification();
             }}
             onExited={() => {
               notifQueue.unregister('idle-auto-leave');

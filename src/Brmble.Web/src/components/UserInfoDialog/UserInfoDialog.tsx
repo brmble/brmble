@@ -233,7 +233,7 @@ export function UserInfoDialog({
 
         <div className="user-info-actions">
           {editingComment && (
-            <button className="btn btn-secondary" style={{ transition: 'none' }} onClick={() => { setEditingComment(false); setCommentDraft(comment || ''); }}>
+            <button className="btn btn-secondary user-info-no-transition" onClick={() => { setEditingComment(false); setCommentDraft(comment || ''); }}>
               Cancel
             </button>
           )}

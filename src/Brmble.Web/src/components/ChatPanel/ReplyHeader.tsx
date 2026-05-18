@@ -19,11 +19,11 @@ interface ReplyHeaderProps {
 
 function getPreviewLabel(msgType: string): string {
   switch (msgType) {
-    case 'm.image': return '📷 Image';
-    case 'm.video': return '🎥 Video';
-    case 'm.file': return '📎 File';
-    case 'm.audio': return '🎵 Audio';
-    default: return '💬 Message';
+    case 'm.image': return 'Image';
+    case 'm.video': return 'Video';
+    case 'm.file': return 'File';
+    case 'm.audio': return 'Audio';
+    default: return 'Message';
   }
 }
 

@@ -4,12 +4,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as AppModule from './App';
 import {
+  createOptionalQueuedScreenShareEndedNotification,
+  createOptionalWatchedShareEndedNotification,
   createQueuedScreenShareEndedNotification,
   createWatchedShareEndedNotification,
   WatchedShareEndedNotifications,
   getMovedChannelNotification,
   getScreenShareEndedNotification,
+  normalizeOptionalNotificationSettings,
+  replaceOptionalScreenShareEndedNotification,
   runIntentionalDisconnect,
+  shouldShowOptionalNotification,
   shouldTreatMoveAsSharingRelated,
 } from './App';
 import { useNotificationQueue } from './hooks/useNotificationQueue';
@@ -20,6 +25,68 @@ type ReplaceScreenShareEndedNotification = (
   sequence: number,
   notifQueue: { unregister: (id: string) => void },
 ) => ReturnType<typeof createQueuedScreenShareEndedNotification>;
+
+describe('shouldShowOptionalNotification', () => {
+  const categories = [
+    'notificationRemoteScreenShare',
+    'notificationScreenShareStatus',
+    'notificationIdleWarning',
+    'notificationMovedChannel',
+  ] as const;
+
+  const enabledSettings = {
+    notificationsDisabled: false,
+    notificationRemoteScreenShare: true,
+    notificationScreenShareStatus: true,
+    notificationIdleWarning: true,
+    notificationMovedChannel: true,
+  };
+
+  it('allows enabled categories when the global opt-out is off', () => {
+    for (const category of categories) {
+      expect(shouldShowOptionalNotification(enabledSettings, category)).toBe(true);
+    }
+  });
+
+  it('blocks every category when the global opt-out is on without changing category values', () => {
+    const settings = {
+      ...enabledSettings,
+      notificationsDisabled: true,
+      notificationIdleWarning: false,
+    };
+
+    for (const category of categories) {
+      expect(shouldShowOptionalNotification(settings, category)).toBe(false);
+    }
+  });
+
+  it('blocks a single disabled category while allowing the others', () => {
+    const settings = {
+      ...enabledSettings,
+      notificationIdleWarning: false,
+    };
+
+    expect(shouldShowOptionalNotification(settings, 'notificationIdleWarning')).toBe(false);
+    expect(shouldShowOptionalNotification(settings, 'notificationRemoteScreenShare')).toBe(true);
+    expect(shouldShowOptionalNotification(settings, 'notificationScreenShareStatus')).toBe(true);
+    expect(shouldShowOptionalNotification(settings, 'notificationMovedChannel')).toBe(true);
+  });
+
+  it('maps legacy notificationsEnabled false to the global opt-out', () => {
+    expect(shouldShowOptionalNotification({ notificationsEnabled: false }, 'notificationRemoteScreenShare')).toBe(false);
+  });
+
+  it('does not let legacy notificationsEnabled override explicit notificationsDisabled false', () => {
+    expect(shouldShowOptionalNotification({
+      notificationsEnabled: false,
+      notificationsDisabled: false,
+    }, 'notificationRemoteScreenShare')).toBe(true);
+  });
+
+  it('drops legacy notificationsEnabled from normalized settings', () => {
+    expect(normalizeOptionalNotificationSettings({ notificationsEnabled: false })).not.toHaveProperty('notificationsEnabled');
+  });
+});
 
 describe('getScreenShareEndedNotification', () => {
   beforeEach(() => {
@@ -173,6 +240,99 @@ describe('createWatchedShareEndedNotification', () => {
 
     expect(screen.getByText("alice's share ended.")).toBeInTheDocument();
     expect(screen.getByText("bob's share ended because the screen-share connection was interrupted.")).toBeInTheDocument();
+  });
+});
+
+describe('optional screen share status notification helpers', () => {
+  const disabledStatus = {
+    notificationsDisabled: false,
+    notificationRemoteScreenShare: true,
+    notificationScreenShareStatus: false,
+    notificationIdleWarning: true,
+    notificationMovedChannel: true,
+  };
+
+  const enabledStatus = {
+    ...disabledStatus,
+    notificationScreenShareStatus: true,
+  };
+
+  it('does not create local share-ended notifications when screen share status is disabled', () => {
+    expect(createOptionalQueuedScreenShareEndedNotification('error', 1, disabledStatus)).toBeNull();
+  });
+
+  it('creates local share-ended notifications when screen share status is enabled', () => {
+    expect(createOptionalQueuedScreenShareEndedNotification('error', 1, enabledStatus)).toEqual(createQueuedScreenShareEndedNotification('error', 1));
+  });
+
+  it('does not create watched share-ended notifications when screen share status is disabled', () => {
+    expect(createOptionalWatchedShareEndedNotification({
+      roomName: 'channel-1',
+      userName: 'alice',
+      userId: 10,
+      matrixUserId: '@alice:test',
+    }, 'unexpected', 1, disabledStatus)).toBeNull();
+  });
+
+  it('creates watched share-ended notifications when screen share status is enabled', () => {
+    const share = {
+      roomName: 'channel-1',
+      userName: 'alice',
+      userId: 10,
+      matrixUserId: '@alice:test',
+    };
+
+    expect(createOptionalWatchedShareEndedNotification(share, 'unexpected', 1, enabledStatus)).toEqual(
+      createWatchedShareEndedNotification(share, 'unexpected', 1),
+    );
+  });
+
+  it('unregisters an existing local share-ended notification when replacement is disabled by settings', () => {
+    const current = createQueuedScreenShareEndedNotification('interrupted', 0);
+    const unregister = vi.fn();
+
+    const replacement = replaceOptionalScreenShareEndedNotification(
+      current,
+      'error',
+      1,
+      disabledStatus,
+      { unregister },
+    );
+
+    expect(unregister).toHaveBeenCalledWith(current!.id);
+    expect(replacement).toBeNull();
+  });
+
+  it('unregisters an existing local share-ended notification when manual replacement is silent', () => {
+    const current = createQueuedScreenShareEndedNotification('interrupted', 0);
+    const unregister = vi.fn();
+
+    const replacement = replaceOptionalScreenShareEndedNotification(
+      current,
+      'manual',
+      1,
+      enabledStatus,
+      { unregister },
+    );
+
+    expect(unregister).toHaveBeenCalledWith(current!.id);
+    expect(replacement).toBeNull();
+  });
+
+  it('unregisters an existing local share-ended notification and returns the enabled replacement', () => {
+    const current = createQueuedScreenShareEndedNotification('interrupted', 0);
+    const unregister = vi.fn();
+
+    const replacement = replaceOptionalScreenShareEndedNotification(
+      current,
+      'error',
+      1,
+      enabledStatus,
+      { unregister },
+    );
+
+    expect(unregister).toHaveBeenCalledWith(current!.id);
+    expect(replacement).toEqual(createQueuedScreenShareEndedNotification('error', 1));
   });
 });
 

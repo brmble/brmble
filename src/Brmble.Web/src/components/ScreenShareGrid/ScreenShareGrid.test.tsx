@@ -124,6 +124,23 @@ describe('ScreenShareGrid', () => {
     expect(onFocus).toHaveBeenCalledWith(shares[1]);
   });
 
+  it('passes room reconnecting state to tiles', () => {
+    const shares = [makeShare(1, 'Alice')];
+    render(
+      <ScreenShareGrid
+        watchingShares={shares}
+        focusedShare={null}
+        videoElements={makeVideoMap([1])}
+        roomQuality="reconnecting"
+        shareQualities={new Map([[1, 'good']])}
+        onFocus={vi.fn()}
+        onClose={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('Reconnecting...')).toBeTruthy();
+  });
+
   it('renders nothing when watchingShares is empty', () => {
     const { container } = render(
       <ScreenShareGrid

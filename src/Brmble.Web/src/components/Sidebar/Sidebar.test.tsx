@@ -208,6 +208,26 @@ describe('Sidebar root user screen share behavior', () => {
     expect(screen.getByLabelText('Screenshare: Connected')).toBeInTheDocument();
   });
 
+  it('shows active Screenshare quality in service status tooltip text', () => {
+    renderSidebar({
+      isLiveKitRoomConnected: true,
+      screenShareQuality: 'poor',
+    });
+
+    expect(screen.getByLabelText('Screenshare: Connected - poor')).toBeInTheDocument();
+  });
+
+  it('shows reconnecting Screenshare state for transient LiveKit reconnects', () => {
+    renderSidebar({
+      isLiveKitRoomConnected: true,
+      screenShareQuality: 'reconnecting',
+    });
+
+    const dot = screen.getByLabelText('Screenshare: Reconnecting');
+    expect(dot).toBeInTheDocument();
+    expect(dot.classList.contains('service-dot--connecting')).toBe(true);
+  });
+
   it('shows local sharing without watch controls or watch actions', () => {
     const onWatchScreenShare = vi.fn();
 

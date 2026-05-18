@@ -1,12 +1,15 @@
 import { useEffect, useCallback } from 'react';
 import { ScreenShareTile } from './ScreenShareTile';
 import type { ShareInfo } from '../../hooks/useScreenShare';
+import type { ScreenShareQuality } from '../../utils/screenShareQuality';
 import './ScreenShareGrid.css';
 
 interface ScreenShareGridProps {
   watchingShares: ShareInfo[];
   focusedShare: ShareInfo | null;
   videoElements: Map<number, HTMLVideoElement>;
+  roomQuality?: ScreenShareQuality;
+  shareQualities?: Map<number, ScreenShareQuality>;
   onFocus: (share: ShareInfo | null) => void;
   onClose: (share: ShareInfo) => void;
 }
@@ -18,7 +21,7 @@ function getLayout(count: number, hasFocus: boolean): string {
   return `grid-${count}`;
 }
 
-export function ScreenShareGrid({ watchingShares, focusedShare, videoElements, onFocus, onClose }: ScreenShareGridProps) {
+export function ScreenShareGrid({ watchingShares, focusedShare, videoElements, roomQuality = 'unknown', shareQualities, onFocus, onClose }: ScreenShareGridProps) {
   // Clear focus when only one stream remains (revert to single-stream view)
   useEffect(() => {
     if (watchingShares.length <= 1 && focusedShare) {
@@ -53,6 +56,10 @@ export function ScreenShareGrid({ watchingShares, focusedShare, videoElements, o
     ? [focusedShare, ...watchingShares.filter(s => s.userId !== focusedShare.userId)]
     : watchingShares;
 
+  const qualityForShare = (userId: number): ScreenShareQuality => (
+    roomQuality === 'reconnecting' ? 'reconnecting' : shareQualities?.get(userId) ?? 'unknown'
+  );
+
   return (
     <div className="screen-share-grid" data-layout={layout}>
       {focusedShare && (
@@ -66,6 +73,7 @@ export function ScreenShareGrid({ watchingShares, focusedShare, videoElements, o
                 sharerName={focusedShare.userName}
                 isFocused={true}
                 isThumbnail={false}
+                quality={qualityForShare(focusedShare.userId)}
                 onClick={() => handleTileClick(focusedShare)}
                 onClose={() => onClose(focusedShare)}
               />
@@ -85,6 +93,7 @@ export function ScreenShareGrid({ watchingShares, focusedShare, videoElements, o
                 sharerName={share.userName}
                 isFocused={false}
                 isThumbnail={true}
+                quality={qualityForShare(share.userId)}
                 onClick={() => handleTileClick(share)}
                 onClose={() => onClose(share)}
               />
@@ -104,6 +113,7 @@ export function ScreenShareGrid({ watchingShares, focusedShare, videoElements, o
                 sharerName={share.userName}
                 isFocused={false}
                 isThumbnail={false}
+                quality={qualityForShare(share.userId)}
                 onClick={() => handleTileClick(share)}
                 onClose={() => onClose(share)}
               />

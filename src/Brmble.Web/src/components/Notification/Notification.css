@@ -16,16 +16,8 @@
   min-width: 320px;
 }
 
-/* Position variants */
 .notification--top-right {
   transform: translateY(-20px);
-}
-
-.notification--bottom-center {
-  position: fixed;
-  bottom: var(--space-lg);
-  left: 50%;
-  transform: translateX(-50%) translateY(20px);
 }
 
 .notification--visible {
@@ -36,9 +28,6 @@
   transform: translateY(0);
 }
 
-.notification--visible.notification--bottom-center {
-  transform: translateX(-50%) translateY(0);
-}
 
 /* Grid placement: row 1 = icon | message | close */
 .notification__icon {
@@ -152,12 +141,6 @@
   .notification {
     transition: opacity var(--transition-fast);
     transform: none !important;
-  }
-  .notification--bottom-center {
-    transform: translateX(-50%) !important;
-  }
-  .notification--visible.notification--bottom-center {
-    transform: translateX(-50%) !important;
   }
   .notification__timer {
     animation: none;

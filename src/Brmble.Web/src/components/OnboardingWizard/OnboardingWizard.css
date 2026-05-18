@@ -159,10 +159,21 @@
   padding-top: 0;
 }
 
+.onboarding-actions.onboarding-actions-compact {
+  border-top: none;
+  padding-top: 0;
+  margin-top: var(--space-sm);
+}
+
 .onboarding-error {
   color: var(--accent-danger-text);
   font-size: var(--text-sm);
   margin-bottom: var(--space-md);
+}
+
+.onboarding-readonly-static {
+  pointer-events: none;
+  user-select: none;
 }
 
 .onboarding-skip-link {

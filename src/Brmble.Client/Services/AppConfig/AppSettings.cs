@@ -29,7 +29,12 @@ public record MessagesSettings(
     bool TtsEnabled = false,
     int TtsVolume = 100,
     string TtsVoice = "",
-    bool NotificationsEnabled = true
+    bool NotificationsEnabled = true,
+    bool NotificationsDisabled = false,
+    bool NotificationRemoteScreenShare = true,
+    bool NotificationScreenShareStatus = true,
+    bool NotificationIdleWarning = true,
+    bool NotificationMovedChannel = true
 );
 
 public record OverlaySettings(

@@ -1,0 +1,60 @@
+.error-boundary-fallback {
+  padding: var(--space-lg);
+  margin: var(--space-xs);
+  background: var(--bg-surface);
+  border: 1px solid var(--accent-danger);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+.error-boundary-heading {
+  margin-bottom: var(--space-sm);
+}
+
+.error-boundary-title {
+  color: var(--accent-danger);
+  font-family: var(--font-display);
+}
+
+.error-boundary-message {
+  color: var(--text-muted);
+  margin: 0 0 var(--space-md) 0;
+}
+
+.error-boundary-details {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  margin-bottom: var(--space-md);
+}
+
+.error-boundary-error {
+  color: var(--accent-danger);
+  margin-bottom: var(--space-xs);
+}
+
+.error-boundary-stack {
+  white-space: pre-wrap;
+  color: var(--text-muted);
+}
+
+.error-boundary-component-stack {
+  opacity: 0.8;
+}
+
+.error-boundary-trace {
+  margin-top: var(--space-sm);
+}
+
+.error-boundary-summary {
+  cursor: pointer;
+  color: var(--accent-decorative);
+}
+
+.error-boundary-runtime-stack {
+  margin-top: var(--space-xs);
+  opacity: 0.7;
+}

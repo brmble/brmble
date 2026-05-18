@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import bridge from '../../bridge';
 import { type AllBindings, BINDING_LABELS } from './SettingsModal';
 import { confirm } from '../../hooks/usePrompt';
 import { Select } from '../Select';
 import { VadLevelMeter } from '../VadLevelMeter/VadLevelMeter';
+import { SettingsHelp } from './SettingsHelp';
 import './AudioSettingsTab.css';
 import './ShortcutsSettingsTab.css';
 
@@ -71,6 +72,8 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
   const [localSettings, setLocalSettings] = useState<AudioSettings>(settings);
   const [recording, setRecording] = useState(false);
   const [isPromptOpen, setIsPromptOpen] = useState(false);
+  const capturedInputRef = useRef<string | null>(null);
+  const hotkeysSuspendedRef = useRef(false);
   const [inputDevices, setInputDevices] = useState<AudioDeviceOption[]>([DEFAULT_DEVICE_OPTION]);
   const [outputDevices, setOutputDevices] = useState<AudioDeviceOption[]>([DEFAULT_DEVICE_OPTION]);
 
@@ -94,11 +97,13 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
     };
   }, []);
 
-  const handleChange = (key: keyof AudioSettings, value: string | number | TransmissionMode) => {
-    const newSettings = { ...localSettings, [key]: value };
-    setLocalSettings(newSettings);
-    onChange(newSettings);
-  };
+  const handleChange = useCallback((key: keyof AudioSettings, value: string | number | TransmissionMode) => {
+    setLocalSettings((prev) => {
+      const newSettings = { ...prev, [key]: value };
+      onChange(newSettings);
+      return newSettings;
+    });
+  }, [onChange]);
 
   const handleCaptureApiChange = (value: 'waveIn' | 'wasapi') => {
     const nextSettings: AudioSettings = {
@@ -130,6 +135,7 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
       setIsPromptOpen(false);
       
       if (!confirmed) {
+        capturedInputRef.current = null;
         setRecording(false);
         return;
       }
@@ -140,42 +146,71 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
     
     // Apply new binding
     handleChange('pushToTalkKey', key);
-    setRecording(false);
+    if (conflictEntry) {
+      capturedInputRef.current = null;
+      setRecording(false);
+    } else {
+      capturedInputRef.current = key;
+    }
   }, [recording, allBindings, handleChange, onClearBinding]);
 
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    e.preventDefault();
-    handleInput(e.code);
-  }, [handleInput]);
-
-  const handleMouseDown = useCallback((e: MouseEvent) => {
-    e.preventDefault();
-    const button = e.button;
-    const mouseButtonMap: Record<number, string> = {
-      0: 'MouseLeft',
-      1: 'MouseMiddle', 
-      2: 'MouseRight',
-      3: 'XButton1',
-      4: 'XButton2',
-    };
-    const key = mouseButtonMap[button];
-    if (key) {
-      handleInput(key);
-    }
-  }, [handleInput]);
+  // Route listeners through a ref so the recording useEffect does NOT
+  // depend on handleInput / handleKeyDown / handleMouseDown identity.
+  // Parent re-renders (settings.updated echo loop) recreate handleAudioChange,
+  // which cascades into handleInput; depending on those would tear down and
+  // re-attach the capture listeners on every echo, wiping capturedInputRef
+  // mid-binding and stranding only MouseLeft as the persisted value.
+  const handleInputRef = useRef(handleInput);
+  useEffect(() => { handleInputRef.current = handleInput; }, [handleInput]);
 
   useEffect(() => {
     if (recording && !isPromptOpen) {
-      bridge.send('voice.suspendHotkeys');
-      window.addEventListener('keydown', handleKeyDown);
-      window.addEventListener('mousedown', handleMouseDown);
+      if (!hotkeysSuspendedRef.current) {
+        bridge.send('voice.suspendHotkeys');
+        hotkeysSuspendedRef.current = true;
+      }
+      const onKey = (e: KeyboardEvent) => {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (capturedInputRef.current) return;
+        handleInputRef.current(e.code);
+      };
+      const onMouse = (e: MouseEvent) => {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (capturedInputRef.current) return;
+        const mouseButtonMap: Record<number, string> = {
+          0: 'MouseLeft',
+          1: 'MouseMiddle',
+          2: 'MouseRight',
+          3: 'XButton1',
+          4: 'XButton2',
+        };
+        const key = mouseButtonMap[e.button];
+        if (key) handleInputRef.current(key);
+      };
+      const finishRecording = () => {
+        if (!capturedInputRef.current) return;
+        capturedInputRef.current = null;
+        setRecording(false);
+      };
+      window.addEventListener('keydown', onKey, true);
+      window.addEventListener('mousedown', onMouse, true);
+      window.addEventListener('keyup', finishRecording, true);
+      window.addEventListener('mouseup', finishRecording, true);
       return () => {
-        window.removeEventListener('keydown', handleKeyDown);
-        window.removeEventListener('mousedown', handleMouseDown);
-        bridge.send('voice.resumeHotkeys');
+        window.removeEventListener('keydown', onKey, true);
+        window.removeEventListener('mousedown', onMouse, true);
+        window.removeEventListener('keyup', finishRecording, true);
+        window.removeEventListener('mouseup', finishRecording, true);
+        if (hotkeysSuspendedRef.current) {
+          bridge.send('voice.resumeHotkeys');
+          hotkeysSuspendedRef.current = false;
+        }
+        capturedInputRef.current = null;
       };
     }
-  }, [recording, isPromptOpen, handleKeyDown, handleMouseDown]);
+  }, [recording, isPromptOpen]);
 
   return (
     <div className="audio-settings-tab">
@@ -184,7 +219,10 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
       <div className="settings-section">
         <h3 className="heading-section settings-section-title">Input</h3>
         <div className="settings-item">
-          <label>Input Device</label>
+          <div className="settings-label-group">
+            <span className="settings-label">Input Device</span>
+            <SettingsHelp content="WaveIn uses the system default microphone only. Switch to WASAPI to choose a specific input device." label="More information about input device" />
+          </div>
           <Select
             value={localSettings.inputDevice}
             onChange={(v) => handleChange('inputDevice', v)}
@@ -192,11 +230,6 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
             disabled={localSettings.captureApi === 'waveIn'}
           />
         </div>
-        {localSettings.captureApi === 'waveIn' && (
-          <p className="settings-hint">
-            WaveIn uses the system default microphone only. Switch to WASAPI to choose a specific input device.
-          </p>
-        )}
 
         <div className="settings-item settings-slider">
           <label>Input Volume: {localSettings.inputVolume}%</label>
@@ -256,19 +289,34 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
           <>
             <div className="settings-item">
               <label>Push to Talk Key</label>
-              <button
-                className={`btn btn-secondary key-binding-btn ${recording ? 'recording' : ''}`}
-                onClick={() => setRecording(!recording)}
-              >
-                {recording ? 'Press any key...' : (localSettings.pushToTalkKey || 'Not bound')}
-              </button>
+              <div className="key-binding-actions">
+                {localSettings.pushToTalkKey && (
+                  <button
+                    className="btn btn-secondary key-binding-clear-btn"
+                    aria-label="Clear Push to Talk Key binding"
+                    onClick={() => {
+                      setLocalSettings((prev) => ({ ...prev, pushToTalkKey: null }));
+                      onClearBinding('pushToTalkKey');
+                    }}
+                  >
+                    Clear
+                  </button>
+                )}
+                <button
+                  className={`btn ${localSettings.pushToTalkKey && !recording ? 'btn-primary' : 'btn-secondary'} key-binding-btn ${recording ? 'recording' : ''}`}
+                  onClick={() => setRecording(!recording)}
+                >
+                  {recording ? 'Press any key...' : (localSettings.pushToTalkKey || 'Not bound')}
+                </button>
+              </div>
             </div>
             <div className="settings-item settings-slider">
-              <label>
-                Hold Time: {localSettings.voiceHoldMs}ms{localSettings.voiceHoldMs === 200 ? ' (default)' : ''}
-                <span className="tooltip-icon" data-tooltip="How long to keep transmitting after you release Push to Talk. Higher values add a short silence tail to help avoid clipping words during brief pauses or at the end of speech.">?</span>
-              </label>
+              <div className="settings-label-group">
+                <span className="settings-label">Hold Time: {localSettings.voiceHoldMs}ms{localSettings.voiceHoldMs === 200 ? ' (default)' : ''}</span>
+                <SettingsHelp content="How long to keep transmitting after you release Push to Talk. Higher values add a short silence tail to help avoid clipping words during brief pauses or at the end of speech." label="More information about hold time" />
+              </div>
               <input
+                aria-label="Hold Time"
                 type="range"
                 min="100"
                 max="2000"
@@ -283,10 +331,10 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
         {localSettings.transmissionMode === 'voiceActivity' && (
           <>
             <div className="settings-item">
-              <label>
-                Sensitivity
-                <span className="tooltip-icon" data-tooltip="How strictly background noise is rejected. Higher rejects more noise but needs clearer speech to trigger; lower picks up softer voices.">?</span>
-              </label>
+              <div className="settings-label-group">
+                <span className="settings-label">Sensitivity</span>
+                <SettingsHelp content="How strictly background noise is rejected. Higher rejects more noise but needs clearer speech to trigger; lower picks up softer voices." label="More information about sensitivity" />
+              </div>
               <Select
                 value={localSettings.vadSensitivity}
                 onChange={(v) => handleChange('vadSensitivity', v as VadSensitivity)}
@@ -305,10 +353,10 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
         )}
 
         <div className="settings-item">
-          <label>
-            Noise Suppression
-            <span className="tooltip-icon" data-tooltip="How aggressively to suppress background noise. Higher levels remove more noise but can muffle speech. AGC and high-pass filter run regardless of this setting.">?</span>
-          </label>
+          <div className="settings-label-group">
+            <span className="settings-label">Noise Suppression</span>
+            <SettingsHelp content="How aggressively to suppress background noise. Higher levels remove more noise but can muffle speech. AGC and high-pass filter run regardless of this setting." label="More information about noise suppression" />
+          </div>
           <Select
             value={noiseSuppression.level}
             onChange={(v) => onNoiseSuppressionChange({ level: v as NoiseSuppressionLevel })}
@@ -344,11 +392,12 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
           <div className="settings-section">
             <h3 className="heading-section settings-section-title">Encoding</h3>
             <div className="settings-item settings-slider">
-              <label>
-                Bitrate: {normBitrate / 1000} kbps{normBitrate === 72000 ? ' (default)' : ''}
-                <span className="tooltip-icon" data-tooltip="How much data is used per second of voice. Higher = better quality but uses more bandwidth. Lower = smaller data usage, good for slow connections. 72 kbps is recommended for most users.">?</span>
-              </label>
+              <div className="settings-label-group">
+                <span className="settings-label">Bitrate: {normBitrate / 1000} kbps{normBitrate === 72000 ? ' (default)' : ''}</span>
+                <SettingsHelp content="How much data is used per second of voice. Higher = better quality but uses more bandwidth. Lower = smaller data usage, good for slow connections. 72 kbps is recommended for most users." label="More information about bitrate" />
+              </div>
               <input
+                aria-label="Bitrate"
                 type="range"
                 min="0"
                 max={BITRATES.length - 1}
@@ -361,11 +410,12 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
               />
             </div>
             <div className="settings-item settings-slider">
-              <label>
-                Audio per packet: {normFrameSize} ms{normFrameSize === 20 ? ' (default)' : ''}
-                <span className="tooltip-icon" data-tooltip="How many milliseconds of audio are bundled into each network packet. Lower = your voice arrives faster (less delay). Higher = fewer packets sent, better for unstable connections. 20 ms is recommended for most users.">?</span>
-              </label>
+              <div className="settings-label-group">
+                <span className="settings-label">Audio per packet: {normFrameSize} ms{normFrameSize === 20 ? ' (default)' : ''}</span>
+                <SettingsHelp content="How many milliseconds of audio are bundled into each network packet. Lower = your voice arrives faster (less delay). Higher = fewer packets sent, better for unstable connections. 20 ms is recommended for most users." label="More information about audio per packet" />
+              </div>
               <input
+                aria-label="Audio per packet"
                 type="range"
                 min="0"
                 max={FRAME_SIZES.length - 1}
@@ -385,7 +435,7 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
       <div className="settings-section">
         <div className="settings-section-header">
           <span className="settings-dev-label">DEV</span>
-          <span className="settings-section-title">Audio Capture API</span>
+          <h3 className="heading-section settings-section-title">Audio Capture API</h3>
         </div>
         <div className="toggle-group">
           <button

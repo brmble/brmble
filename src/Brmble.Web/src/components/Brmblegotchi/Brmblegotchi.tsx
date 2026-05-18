@@ -850,7 +850,7 @@ export function BrmblegotchiWidget({ onOpenSettings, enabled = true }: Brmblegot
           <>
             {showCleanliness && (
               <div className="brmblegotchi-stat">
-                <div className="brmblegotchi-stat-icon" style={{ color: 'var(--accent-primary)' }}>
+                <div className="brmblegotchi-stat-icon cleanliness">
                   <Icon name="gotchi-cleanliness" />
                 </div>
                 <div className="brmblegotchi-stat-bar">
@@ -860,7 +860,7 @@ export function BrmblegotchiWidget({ onOpenSettings, enabled = true }: Brmblegot
             )}
             {showHunger && (
               <div className="brmblegotchi-stat">
-                <div className="brmblegotchi-stat-icon" style={{ color: 'var(--accent-secondary)' }}>
+                <div className="brmblegotchi-stat-icon hunger">
                   <Icon name="gotchi-hunger" />
                 </div>
                 <div className="brmblegotchi-stat-bar">
@@ -870,7 +870,7 @@ export function BrmblegotchiWidget({ onOpenSettings, enabled = true }: Brmblegot
             )}
             {showHappiness && (
               <div className="brmblegotchi-stat">
-                <div className="brmblegotchi-stat-icon" style={{ color: 'var(--accent-decorative)' }}>
+                <div className="brmblegotchi-stat-icon happiness">
                   <Icon name="gotchi-happiness" />
                 </div>
                 <div className="brmblegotchi-stat-bar">

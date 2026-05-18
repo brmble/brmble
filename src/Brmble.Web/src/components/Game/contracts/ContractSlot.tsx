@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { ActiveContract, Service, Contract } from '../types';
+import { Icon } from '../../Icon/Icon';
 import './ContractSlot.css';
 
 interface ContractSlotProps {
@@ -20,7 +21,7 @@ function formatVolume(bytes: number): string {
 }
 
 function renderStars(stars: number): string {
-  return '★'.repeat(stars) + '☆'.repeat(5 - stars);
+  return `${stars}/5 stars`;
 }
 
 function formatMoney(amount: number): string {
@@ -101,7 +102,9 @@ export function ContractSlot({ index, activeContract, pendingContract, license, 
       >
         <div className="slot-header">
           <span className="slot-label">Slot {index + 1}</span>
-          <button className="btn btn-ghost btn-xs slot-cancel" onClick={onCancel}>×</button>
+          <button className="btn btn-ghost btn-xs slot-cancel" onClick={onCancel} aria-label="Cancel contract">
+            <Icon name="x" size={12} />
+          </button>
         </div>
         <div className="pending-body">
           <div className="drag-handle">
@@ -113,7 +116,7 @@ export function ContractSlot({ index, activeContract, pendingContract, license, 
           </div>
         </div>
         <div className="pending-hint">
-          <span className="hint-icon">↔</span> Drag to a license to activate
+          Drag to a license to activate
         </div>
       </div>
     );
