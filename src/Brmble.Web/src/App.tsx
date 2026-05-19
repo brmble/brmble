@@ -600,7 +600,7 @@ interface ChannelChatAccessState {
 
 type ChannelChatAccessMap = Record<string, ChannelChatAccessState>;
 
-const MUMBLE_PERMISSION_ENTER = 2;
+const MUMBLE_PERMISSION_ENTER = 4;
 
 export function mergeChannelChatAccess(channels: Channel[], access: ChannelChatAccessMap): Channel[] {
   let changed = false;
@@ -630,14 +630,27 @@ export function canOpenChannelChat(channelId: string | undefined, channels: Chan
   if (!channelId) return false;
   if (channelId === 'server-root') return true;
   const channel = channels.find(c => String(c.id) === channelId);
-  return channel?.canOpenChat !== false;
+  return channel?.canOpenChat === true;
 }
 
 export function canSendToChannelChat(channelId: string | undefined, channels: Channel[]): boolean {
   if (!channelId) return false;
   if (channelId === 'server-root') return true;
   const channel = channels.find(c => String(c.id) === channelId);
-  return channel?.canSendChat !== false;
+  return channel?.canSendChat === true;
+}
+
+export function shouldAllowChannelChatSend(
+  channelId: string | undefined,
+  channels: Channel[],
+  statuses: ServiceStatusMap,
+): boolean {
+  return canSendToChannelChat(channelId, channels) || isTemporaryChannelChatActive(channelId, statuses);
+}
+
+export function getPermittedMatrixChannelId(channelId: string | undefined, channels: Channel[]): string | null {
+  if (!channelId || channelId === 'server-root') return null;
+  return canOpenChannelChat(channelId, channels) ? channelId : null;
 }
 
 export function getChannelSelectionOutcome(
@@ -1069,11 +1082,12 @@ function App() {
 
   // Per-panel Matrix room IDs for scoping mention suggestions
   const channelMatrixRoomId = useMemo(() => {
-    if (currentChannelId && currentChannelId !== 'server-root' && matrixCredentials?.roomMap?.[currentChannelId]) {
-      return matrixCredentials.roomMap[currentChannelId];
+    const matrixChannelId = getPermittedMatrixChannelId(currentChannelId, channels);
+    if (matrixChannelId && matrixCredentials?.roomMap?.[matrixChannelId]) {
+      return matrixCredentials.roomMap[matrixChannelId];
     }
     return null;
-  }, [currentChannelId, matrixCredentials?.roomMap]);
+  }, [channels, currentChannelId, matrixCredentials?.roomMap]);
 
   const channelKey = currentChannelId === 'server-root' ? 'server-root' : currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
   const { messages, addMessage } = useChatStore(channelKey);
@@ -1082,6 +1096,7 @@ function App() {
   const activeChannelId = currentChannelId && currentChannelId !== 'server-root'
     ? currentChannelId
     : undefined;
+  const permittedActiveMatrixChannelId = getPermittedMatrixChannelId(activeChannelId, channels);
 
   const dmStore = useDMStore({
     matrixDmLastMessages: matrixClient.dmLastMessages,
@@ -1099,8 +1114,8 @@ function App() {
   });
 
   useLayoutEffect(() => {
-    matrixClient.setActiveChannel(activeChannelId ?? null);
-  }, [activeChannelId, matrixClient.setActiveChannel]);
+    matrixClient.setActiveChannel(permittedActiveMatrixChannelId);
+  }, [matrixClient.setActiveChannel, permittedActiveMatrixChannelId]);
 
   useLayoutEffect(() => {
     matrixClient.setActiveDmContact(dmStore.selectedContact?.id ?? null);
@@ -1112,11 +1127,11 @@ function App() {
       const roomId = matrixClient.dmRoomMap.get(dmStore.selectedContact.id);
       if (roomId) return roomId;
     }
-    if (currentChannelId && currentChannelId !== 'server-root' && matrixCredentials?.roomMap?.[currentChannelId]) {
-      return matrixCredentials.roomMap[currentChannelId];
+    if (permittedActiveMatrixChannelId && matrixCredentials?.roomMap?.[permittedActiveMatrixChannelId]) {
+      return matrixCredentials.roomMap[permittedActiveMatrixChannelId];
     }
     return null;
-  }, [dmStore.selectedContact, currentChannelId, matrixClient?.dmRoomMap, matrixCredentials?.roomMap]);
+  }, [dmStore.selectedContact, matrixClient?.dmRoomMap, matrixCredentials?.roomMap, permittedActiveMatrixChannelId]);
 
   const dmMatrixRoomId = useMemo(() => {
     if (dmStore.selectedContact && matrixClient?.dmRoomMap) {
@@ -2622,10 +2637,10 @@ function App() {
   }, [channelChatAccessRequestKey, matrixCredentials?.roomMap, statuses.server.state]);
 
   useEffect(() => {
-    if (currentChannelId && currentChannelId !== 'server-root' && matrixCredentials) {
-      matrixClient.fetchHistory(currentChannelId).catch(console.error);
+    if (permittedActiveMatrixChannelId && matrixCredentials) {
+      matrixClient.fetchHistory(permittedActiveMatrixChannelId).catch(console.error);
     }
-  }, [currentChannelId, matrixCredentials]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [permittedActiveMatrixChannelId, matrixCredentials]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     return () => {
@@ -2781,7 +2796,7 @@ const handleConnect = (serverData: SavedServer) => {
 
     const channelId = currentChannelId;
     if (!channelId) return;
-    if (!canSendToChannelChat(channelId, channelsRef.current)) {
+    if (!shouldAllowChannelChatSend(channelId, channelsRef.current, statusesRef.current)) {
       return;
     }
 
@@ -3088,7 +3103,7 @@ const handleConnect = (serverData: SavedServer) => {
     ? isMatrixChannelChatActive(activeChannelId, matrixCredentials, statuses, selfUserForChat, channels)
     : false;
   const canOpenActiveChannelChat = canOpenChannelChat(activeChannelId, channels);
-  const canSendActiveChannelChat = canSendToChannelChat(activeChannelId, channels);
+  const canSendActiveChannelChat = canSendToChannelChat(activeChannelId, channels) || isTemporaryChannelChatActive(activeChannelId, statuses);
   const channelChatAccessNotice = activeChannelId && activeChannelId !== 'server-root' && !canOpenActiveChannelChat
     ? 'You do not have access to this channel chat.'
     : activeChannelId && activeChannelId !== 'server-root' && !canSendActiveChannelChat
@@ -3668,16 +3683,16 @@ const handleConnect = (serverData: SavedServer) => {
   // We depend on roomUnreads so that on reconnect (when sync populates data after
   // the channel was already selected) we get a second chance to snapshot.
   useEffect(() => {
-    const channelChanged = currentChannelId !== prevChannelIdRef.current;
+    const channelChanged = permittedActiveMatrixChannelId !== prevChannelIdRef.current;
     if (channelChanged) {
-      prevChannelIdRef.current = currentChannelId;
+      prevChannelIdRef.current = permittedActiveMatrixChannelId ?? undefined;
     }
 
-    if (!currentChannelId || currentChannelId === 'server-root') {
+    if (!permittedActiveMatrixChannelId) {
       if (channelChanged) setChannelDividerTs(null);
       return;
     }
-    const roomId = matrixCredentials?.roomMap?.[currentChannelId];
+    const roomId = matrixCredentials?.roomMap?.[permittedActiveMatrixChannelId];
     if (!roomId || !matrixClient?.client) {
       if (channelChanged) setChannelDividerTs(null);
       return;
@@ -3717,7 +3732,7 @@ const handleConnect = (serverData: SavedServer) => {
         return markerTs;
       });
     }
-  }, [currentChannelId, matrixCredentials?.roomMap, matrixClient, unreadTracker]);
+  }, [permittedActiveMatrixChannelId, matrixCredentials?.roomMap, matrixClient, unreadTracker]);
 
   // Same pattern for DM switches
   useEffect(() => {

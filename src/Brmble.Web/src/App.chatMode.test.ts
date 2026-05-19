@@ -6,10 +6,12 @@ import {
   getChannelAccessDeniedMessage,
   getChannelChatAccessRequestKey,
   getChannelChatAccessRequestIds,
+  getPermittedMatrixChannelId,
   getJoinAccessAction,
   isBrmbleServiceOutageActive,
   isMatrixChannelChatActive,
   isStructuredEnterDenied,
+  shouldAllowChannelChatSend,
   isTemporaryChannelChatActive,
   mergeChannelChatAccess,
   shouldShowBrmbleServiceWarningNotification,
@@ -130,20 +132,47 @@ describe('channel chat access helpers', () => {
     const channels = [
       { id: 1, name: 'Allowed', canOpenChat: true, canSendChat: true },
       { id: 2, name: 'Denied', canOpenChat: false, canSendChat: false },
+      { id: 3, name: 'Unknown' },
     ];
 
     expect(canOpenChannelChat('server-root', channels)).toBe(true);
     expect(canOpenChannelChat('1', channels)).toBe(true);
     expect(canOpenChannelChat('2', channels)).toBe(false);
+    expect(canOpenChannelChat('3', channels)).toBe(false);
     expect(canSendToChannelChat('1', channels)).toBe(true);
     expect(canSendToChannelChat('2', channels)).toBe(false);
+    expect(canSendToChannelChat('3', channels)).toBe(false);
+  });
+
+  it('returns a Matrix-accessible channel only when channel chat can be opened explicitly', () => {
+    const channels = [
+      { id: 1, name: 'Allowed', canOpenChat: true, canSendChat: true },
+      { id: 2, name: 'Denied', canOpenChat: false, canSendChat: false },
+      { id: 3, name: 'Unknown' },
+    ];
+
+    expect(getPermittedMatrixChannelId('1', channels)).toBe('1');
+    expect(getPermittedMatrixChannelId('2', channels)).toBeNull();
+    expect(getPermittedMatrixChannelId('3', channels)).toBeNull();
+    expect(getPermittedMatrixChannelId('server-root', channels)).toBeNull();
+    expect(getPermittedMatrixChannelId(undefined, channels)).toBeNull();
+  });
+
+  it('allows sending unknown channel chat only during temporary Mumble outage mode', () => {
+    const channels = [{ id: 3, name: 'Unknown' }];
+
+    expect(shouldAllowChannelChatSend('3', channels, connectedStatuses)).toBe(false);
+    expect(shouldAllowChannelChatSend('3', channels, {
+      ...connectedStatuses,
+      server: { state: 'connecting' },
+    })).toBe(true);
   });
 });
 
 describe('structured channel access denial helpers', () => {
   it('classifies Enter permission denials by structured permission field', () => {
-    expect(isStructuredEnterDenied({ type: 'permissionDenied', permission: 2, message: 'anything' })).toBe(true);
-    expect(isStructuredEnterDenied({ type: 'permissionDenied', permission: 4, message: 'Enter appears in text only' })).toBe(false);
+    expect(isStructuredEnterDenied({ type: 'permissionDenied', permission: 4, message: 'anything' })).toBe(true);
+    expect(isStructuredEnterDenied({ type: 'permissionDenied', permission: 2, message: 'Enter appears in text only' })).toBe(false);
   });
 
   it('uses password-specific copy only when the channel is known password restricted', () => {

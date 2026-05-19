@@ -2096,7 +2096,7 @@ describe('active share discovery', () => {
     await act(async () => {
       bridge.emit('voice.error', {
         type: 'permissionDenied',
-        permission: 2,
+        permission: 4,
         channelId: 2,
         message: CHANNEL_PASSWORD_DENIAL_MESSAGE,
       });
@@ -2149,7 +2149,7 @@ describe('active share discovery', () => {
     await act(async () => {
       bridge.emit('voice.error', {
         type: 'permissionDenied',
-        permission: 2,
+        permission: 4,
         channelId: 2,
         message: CHANNEL_PASSWORD_DENIAL_MESSAGE,
       });
@@ -2195,7 +2195,7 @@ describe('active share discovery', () => {
     await act(async () => {
       bridge.emit('voice.error', {
         type: 'permissionDenied',
-        permission: 2,
+        permission: 4,
         channelId: 2,
         message: 'Permission denied: missing enter permission',
       });
@@ -2238,7 +2238,7 @@ describe('active share discovery', () => {
     await act(async () => {
       bridge.emit('voice.error', {
         type: 'permissionDenied',
-        permission: 2,
+        permission: 4,
         channelId: 2,
         message: CHANNEL_PASSWORD_DENIAL_MESSAGE,
       });
@@ -2255,7 +2255,7 @@ describe('active share discovery', () => {
     await act(async () => {
       bridge.emit('voice.error', {
         type: 'permissionDenied',
-        permission: 2,
+        permission: 4,
         channelId: 2,
         message: CHANNEL_PASSWORD_DENIAL_MESSAGE,
       });
