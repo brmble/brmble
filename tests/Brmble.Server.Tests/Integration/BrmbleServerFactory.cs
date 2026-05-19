@@ -32,6 +32,26 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
         _keepAlive = new SqliteConnection(_cs);
         _keepAlive.Open();
         AclAuthorizationMock.Setup(a => a.CanManageChannelAclAsync(It.IsAny<long>(), 0)).ReturnsAsync(true);
+        var defaultSessionMapping = new SessionMappingService();
+        SessionMappingMock.Setup(s => s.SetNameForSession(It.IsAny<string>(), It.IsAny<int>()))
+            .Callback<string, int>(defaultSessionMapping.SetNameForSession);
+        SessionMappingMock.Setup(s => s.TryAddMatrixUser(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<long>(), It.IsAny<string>()))
+            .Returns((int sessionId, string matrixUserId, string mumbleName, long userId, string companionId) =>
+                defaultSessionMapping.TryAddMatrixUser(sessionId, matrixUserId, mumbleName, userId, companionId));
+        SessionMappingMock.Setup(s => s.TryUpdateBrmbleStatus(It.IsAny<int>(), It.IsAny<bool>()))
+            .Returns((int sessionId, bool isBrmbleClient) => defaultSessionMapping.TryUpdateBrmbleStatus(sessionId, isBrmbleClient));
+        SessionMappingMock.Setup(s => s.TryUpdateCompanionId(It.IsAny<int>(), It.IsAny<string>()))
+            .Returns((int sessionId, string companionId) => defaultSessionMapping.TryUpdateCompanionId(sessionId, companionId));
+        SessionMappingMock.Setup(s => s.TryGetSessionId(It.IsAny<string>(), out It.Ref<int>.IsAny))
+            .Returns((string mumbleName, out int sessionId) => defaultSessionMapping.TryGetSessionId(mumbleName, out sessionId));
+        SessionMappingMock.Setup(s => s.TryGetSessionByUserId(It.IsAny<long>(), out It.Ref<int>.IsAny))
+            .Returns((long userId, out int sessionId) => defaultSessionMapping.TryGetSessionByUserId(userId, out sessionId));
+        SessionMappingMock.Setup(s => s.TryGetMappingByUserId(It.IsAny<long>(), out It.Ref<int>.IsAny, out It.Ref<SessionMapping?>.IsAny))
+            .Returns((long userId, out int sessionId, out SessionMapping? mapping) =>
+                defaultSessionMapping.TryGetMappingByUserId(userId, out sessionId, out mapping));
+        SessionMappingMock.Setup(s => s.TryGetMatrixUserId(It.IsAny<int>(), out It.Ref<string?>.IsAny))
+            .Returns((int sessionId, out string? matrixUserId) => defaultSessionMapping.TryGetMatrixUserId(sessionId, out matrixUserId));
+        SessionMappingMock.Setup(s => s.GetSnapshot()).Returns(defaultSessionMapping.GetSnapshot);
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
