@@ -1,71 +1,15 @@
-import { useEffect, useState } from 'react';
-import bridge from '../../../bridge';
-import { confirm } from '../../../hooks/usePrompt';
+import { useState } from 'react';
 import { AdminSectionPlaceholder } from './AdminSectionPlaceholder';
-
-interface BanEntry {
-  address: string;
-  bits: number;
-  name: string;
-  hash: string;
-  reason: string;
-  start: number;
-  duration: number;
-}
+import { useAdminBanList } from './useAdminBanList';
 
 export function AdminModerationSection() {
-  const [bans, setBans] = useState<BanEntry[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { bans, loading, error, refresh, unban } = useAdminBanList();
   const [expandedBan, setExpandedBan] = useState<number | null>(null);
 
-  const loadBans = () => {
-    if (loading) return;
-    setLoading(true);
-    setError(null);
-
-    const timeoutId = setTimeout(() => {
-      setLoading(false);
-      setError('Failed to load bans: request timed out');
-    }, 5000);
-
-    const handleBans = (data: unknown) => {
-      clearTimeout(timeoutId);
-      setBans(data as BanEntry[]);
-      setLoading(false);
-    };
-
-    bridge.once('voice.bans', handleBans);
-    bridge.send('voice.getBans');
-  };
-
-  useEffect(() => {
-    loadBans();
-  }, []);
-
-  useEffect(() => {
-    const unbannedHandler = () => {
-      loadBans();
-    };
-    bridge.on('voice.unbanned', unbannedHandler);
-    return () => {
-      bridge.off('voice.unbanned', unbannedHandler);
-    };
-  }, []);
-
-  const handleUnban = async (index: number) => {
-    const ban = bans[index];
-    const confirmed = await confirm({
-      title: 'Unban User',
-      message: `Are you sure you want to unban ${ban.name || ban.address}?`,
-      confirmLabel: 'Unban',
-    });
-    if (!confirmed) return;
-    bridge.send('voice.unban', { index });
-  };
-
   const formatExpiry = (start: number, duration: number): string => {
-    if (duration === 0) return 'Permanent';
+    if (duration === 0) {
+      return 'Permanent';
+    }
     const expiry = start + duration;
     return new Date(expiry * 1000).toLocaleDateString();
   };
@@ -74,7 +18,7 @@ export function AdminModerationSection() {
     <section className="settings-section admin-section">
       <div className="admin-panel-header">
         <h3 className="heading-section settings-section-title">Moderation</h3>
-        <button type="button" className="btn btn-secondary btn-sm" onClick={loadBans} disabled={loading}>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={refresh} disabled={loading}>
           Refresh
         </button>
       </div>
@@ -104,7 +48,7 @@ export function AdminModerationSection() {
                   </div>
                   <span className="admin-ban-expiry">{formatExpiry(ban.start, ban.duration)}</span>
                 </button>
-                <button type="button" className="btn btn-danger btn-sm" onClick={() => handleUnban(index)}>
+                <button type="button" className="btn btn-danger btn-sm" onClick={() => void unban(index)}>
                   Unban
                 </button>
               </div>
