@@ -65,6 +65,28 @@ internal static class ThemeColors
     }
 
     /// <summary>
+    /// Returns the --border-subtle color for the given theme. Used by the
+    /// DWM window border (DWMWA_BORDER_COLOR) so the 1px outline around
+    /// the window matches the rest of the structural dividers in the UI.
+    /// These values must stay in sync with the CSS tokens in src/Brmble.Web/src/themes/.
+    /// </summary>
+    public static (byte R, byte G, byte B) GetBorderSubtle(string? themeName)
+    {
+        return themeName switch
+        {
+            "classic"        => (0x3D, 0x2A, 0x5C), // #3d2a5c
+            "clean"          => (0x3D, 0x2A, 0x5C), // #3d2a5c (inherits classic)
+            "blue-lagoon"    => (0x24, 0x38, 0x48), // #243848
+            "cosmopolitan"   => (0x3D, 0x24, 0x30), // #3d2430
+            "aperol-spritz"  => (0x3D, 0x2A, 0x1C), // #3d2a1c
+            "midori-sour"    => (0x1C, 0x3D, 0x2C), // #1c3d2c
+            "lemon-drop"     => (0x3D, 0x36, 0x20), // #3d3620
+            "retro-terminal" => (0x1A, 0x3A, 0x1A), // #1a3a1a
+            _                => (0x3D, 0x2A, 0x5C), // default to classic
+        };
+    }
+
+    /// <summary>
     /// Resolves the path to a theme's brmble.ico file.
     /// Falls back to the root Resources/brmble.ico if the theme folder doesn't exist.
     /// </summary>

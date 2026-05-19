@@ -143,6 +143,12 @@ static class Program
                 Win32Window.ShowWindow(_hwnd, Win32Window.SW_MAXIMIZE);
             Win32Window.ExtendFrameIntoClientArea(_hwnd);
             Win32Window.ForceFrameChange(_hwnd);
+
+            // Win11 chrome: rounded corners + 1px themed outline. Both are
+            // silently ignored on older Windows / pre-22H2 builds.
+            Win32Window.EnableRoundedCorners(_hwnd);
+            var (br, bg, bb) = ThemeColors.GetBorderSubtle(startupTheme);
+            Win32Window.SetBorderColor(_hwnd, (uint)(bb << 16 | bg << 8 | br));
             TrayIcon.Create(_hwnd);
             TaskbarBadge.Initialize(_hwnd);
             _ = InitWebView2Async(_hwnd, useDevServer);
@@ -477,6 +483,10 @@ static class Program
                     Win32Window.DeleteObject(oldBrush);
                 _currentBgBrush = newBrush;
                 Win32Window.InvalidateRect(_hwnd, IntPtr.Zero, true);
+
+                // Update the 1px DWM outline to match --border-subtle.
+                var (br, bg, bb) = ThemeColors.GetBorderSubtle(theme);
+                Win32Window.SetBorderColor(_hwnd, (uint)(bb << 16 | bg << 8 | br));
             }
             return Task.CompletedTask;
         });
