@@ -7,7 +7,18 @@ import { AdminUsersSection } from './admin/AdminUsersSection';
 import { AdminAuditLogSection } from './admin/AdminAuditLogSection';
 import { AdminGroupsSection } from './admin/AdminGroupsSection';
 
-export function AdminSettingsTab() {
+interface AdminSettingsTabProps {
+  liveUsers?: Array<{
+    session: number;
+    name: string;
+    channelId?: number;
+    matrixUserId?: string;
+    companionId?: string;
+    isBrmbleClient?: boolean;
+  }>;
+}
+
+export function AdminSettingsTab({ liveUsers = [] }: AdminSettingsTabProps) {
   const [activeTab, setActiveTab] = useState<AdminWorkspaceTab>('channels');
 
   return (
@@ -28,7 +39,7 @@ export function AdminSettingsTab() {
       </div>
       <div className="admin-workspace-body">
         {activeTab === 'channels' && <AdminChannelsSection />}
-        {activeTab === 'users' && <AdminUsersSection />}
+        {activeTab === 'users' && <AdminUsersSection liveUsers={liveUsers} />}
         {activeTab === 'groups' && <AdminGroupsSection />}
         {activeTab === 'moderation' && <AdminModerationSection />}
         {activeTab === 'audit-log' && <AdminAuditLogSection />}

@@ -46,6 +46,14 @@ interface SettingsModalProps {
   brmblegotchiEnabled?: boolean;
   setBrmblegotchiEnabled?: (enabled: boolean) => void;
   onLiveCompanionChange?: (nextCompanion: CompanionSelection, previousCompanion: CompanionSelection) => void;
+  liveUsers?: Array<{
+    session: number;
+    name: string;
+    channelId?: number;
+    matrixUserId?: string;
+    companionId?: string;
+    isBrmbleClient?: boolean;
+  }>;
 }
 
 export interface ScreenShareSettings {
@@ -500,7 +508,7 @@ export function SettingsModal(props: SettingsModalProps) {
               onChange={handleScreenShareChange}
             />
           )}
-          {activeTab === 'admin' && hasAdminPermission && <AdminSettingsTab />}
+          {activeTab === 'admin' && hasAdminPermission && <AdminSettingsTab liveUsers={props.liveUsers ?? []} />}
 
         </div>
 

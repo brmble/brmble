@@ -50,7 +50,8 @@ public class AclAdminEndpointTests
     public async Task GetRegisteredUsers_Authenticated_ReturnsRegisteredUsers()
     {
         using var factory = new BrmbleServerFactory("cert_registered_lookup");
-        await SeedUser(factory, "cert_registered_lookup", "Admin");
+        var user = await SeedUser(factory, "cert_registered_lookup", "Admin");
+        factory.AclAuthorizationMock.Setup(a => a.CanManageChannelAclAsync(user.Id, 0)).ReturnsAsync(true);
         factory.MumbleRegistrationMock
             .Setup(service => service.GetRegisteredUsersAsync(""))
             .ReturnsAsync(new Dictionary<int, string>
@@ -68,6 +69,35 @@ public class AclAdminEndpointTests
         Assert.IsNotNull(result);
         Assert.AreEqual("Alice", result["12"]);
         Assert.AreEqual("Bob", result["34"]);
+    }
+
+    [TestMethod]
+    public async Task GetRegisteredUsers_WithoutAdminAclPermission_ReturnsForbidden()
+    {
+        using var factory = new BrmbleServerFactory("cert_registered_forbidden");
+        var user = await SeedUser(factory, "cert_registered_forbidden", "Alice");
+        factory.AclAuthorizationMock.Setup(a => a.CanManageChannelAclAsync(user.Id, 0)).ReturnsAsync(false);
+        var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/admin/registered-users");
+
+        Assert.AreEqual(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task GetRegisteredUsers_WhenRegistrationLookupFails_ReturnsServiceUnavailable()
+    {
+        using var factory = new BrmbleServerFactory("cert_registered_error");
+        var user = await SeedUser(factory, "cert_registered_error", "Admin");
+        factory.AclAuthorizationMock.Setup(a => a.CanManageChannelAclAsync(user.Id, 0)).ReturnsAsync(true);
+        factory.MumbleRegistrationMock
+            .Setup(service => service.GetRegisteredUsersAsync(""))
+            .ThrowsAsync(new MumbleRegistrationException("ICE unavailable"));
+        var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/admin/registered-users");
+
+        Assert.AreEqual(HttpStatusCode.ServiceUnavailable, response.StatusCode);
     }
 
     [TestMethod]

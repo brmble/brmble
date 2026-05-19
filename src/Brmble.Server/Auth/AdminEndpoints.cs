@@ -31,7 +31,7 @@ public static class AdminEndpoints
             var canManageRoot = await aclAuthService.CanManageChannelAclAsync(user.Id, channelId: 0);
             if (!canManageRoot)
             {
-                return Results.Forbid();
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
             }
 
             try

@@ -24,6 +24,11 @@ vi.mock('../../hooks/usePermissions', () => ({
   Permission: { Ban: 4, Kick: 2 },
   usePermissions: () => ({ hasPermission: hasPermissionMock }),
 }));
+vi.mock('./AdminSettingsTab', () => ({
+  AdminSettingsTab: ({ liveUsers }: { liveUsers: Array<{ session: number; name: string }> }) => (
+    <div data-testid="admin-users-prop">{liveUsers.map(user => user.name).join(',')}</div>
+  ),
+}));
 
 describe('SettingsModal tabs', () => {
   beforeEach(() => {
@@ -56,5 +61,20 @@ describe('SettingsModal tabs', () => {
     hasPermissionMock.mockReturnValue(true);
     render(<SettingsModal isOpen onClose={vi.fn()} />);
     expect(screen.getByRole('button', { name: 'Admin' })).toBeInTheDocument();
+  });
+
+  it('passes live voice users into AdminSettingsTab', () => {
+    hasPermissionMock.mockReturnValue(true);
+
+    render(
+      <SettingsModal
+        isOpen
+        onClose={vi.fn()}
+        initialTab="admin"
+        liveUsers={[{ session: 7, name: 'Alice' }]}
+      />,
+    );
+
+    expect(screen.getByTestId('admin-users-prop')).toHaveTextContent('Alice');
   });
 });
