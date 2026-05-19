@@ -646,6 +646,23 @@ export function canSendToChannelChat(channelId: string | undefined, channels: Ch
   return channel?.canSendChat !== false;
 }
 
+export function getChannelSelectionOutcome(
+  channelId: number,
+  channels: Channel[],
+  appMode: 'channels' | 'dm',
+) {
+  const channel = channels.find(c => c.id === channelId);
+  if (!channel) return undefined;
+  const canOpenChat = canOpenChannelChat(String(channelId), channels);
+  return {
+    channelId: String(channelId),
+    channelName: channel.name,
+    canOpenChat,
+    shouldExitDmMode: appMode === 'dm',
+    shouldClearDmSelection: true,
+  };
+}
+
 export function isStructuredEnterDenied(data: unknown): boolean {
   const d = data as { type?: string; permission?: number } | undefined;
   return d?.type === 'permissionDenied' && d.permission === MUMBLE_PERMISSION_ENTER;
@@ -2689,21 +2706,21 @@ const handleConnect = (serverData: SavedServer) => {
   };
 
   const handleSelectChannel = (channelId: number) => {
-    const channel = channels.find(c => c.id === channelId);
-    if (channel) {
-      setCurrentChannelId(String(channelId));
-      setCurrentChannelName(channel.name);
+    const selection = getChannelSelectionOutcome(channelId, channels, dmStore.appMode);
+    if (selection) {
+      setCurrentChannelId(selection.channelId);
+      setCurrentChannelName(selection.channelName);
       setUnreadCount(0);
       setShowGame(false);
 
-      if (!canOpenChannelChat(String(channelId), channels)) {
-        return;
-      }
-
-      if (dmStore.appMode === 'dm') {
+      if (selection.shouldExitDmMode) {
         dmStore.toggleMode();
       }
-      dmStore.clearSelection();
+      if (selection.shouldClearDmSelection) {
+        dmStore.clearSelection();
+      }
+
+      if (!selection.canOpenChat) return;
     }
   };
 

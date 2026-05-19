@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   canOpenChannelChat,
   canSendToChannelChat,
+  getChannelSelectionOutcome,
   getChannelAccessDeniedMessage,
   getChannelChatAccessRequestKey,
   getChannelChatAccessRequestIds,
@@ -66,6 +67,16 @@ describe('isMatrixChannelChatActive', () => {
 });
 
 describe('channel chat access helpers', () => {
+  it('exits DM mode when selecting a channel whose chat cannot be opened', () => {
+    expect(getChannelSelectionOutcome(2, matrixChannels, 'dm')).toEqual({
+      channelId: '2',
+      channelName: 'Denied',
+      canOpenChat: false,
+      shouldExitDmMode: true,
+      shouldClearDmSelection: true,
+    });
+  });
+
   it('deduplicates positive channel ids for chat access requests', () => {
     expect(getChannelChatAccessRequestIds([
       { id: 0, name: 'Root' },
