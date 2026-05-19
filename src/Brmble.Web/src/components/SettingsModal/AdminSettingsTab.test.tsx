@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { AdminSettingsTab } from './AdminSettingsTab';
 import { confirm } from '../../hooks/usePrompt';
+import type { Channel } from '../../types';
 
 const { bridgeMock } = vi.hoisted(() => ({
   bridgeMock: {
@@ -35,6 +36,11 @@ const ban = {
   start: 1700000000,
   duration: 0,
 };
+
+const channels: Channel[] = [
+  { id: 1, name: 'General' },
+  { id: 2, name: 'Raid Planning', parent: 1 },
+];
 
 function renderWithBan() {
   bridgeMock.once.mockImplementation((type: string, handler: (data: unknown) => void) => {
@@ -85,5 +91,12 @@ describe('AdminSettingsTab', () => {
     expect(screen.getByRole('tablist', { name: 'Admin sections' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Channels' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('heading', { name: 'Channels' })).toHaveClass('heading-section');
+  });
+
+  it('renders the live channel list in the channels tab', () => {
+    render(<AdminSettingsTab channels={channels} />);
+
+    expect(screen.getByRole('row', { name: 'General' })).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: 'Raid Planning' })).toBeInTheDocument();
   });
 });

@@ -6,8 +6,10 @@ import { AdminChannelsSection } from './admin/AdminChannelsSection';
 import { AdminUsersSection } from './admin/AdminUsersSection';
 import { AdminAuditLogSection } from './admin/AdminAuditLogSection';
 import { AdminGroupsSection } from './admin/AdminGroupsSection';
+import type { Channel } from '../../types';
 
 interface AdminSettingsTabProps {
+  channels?: Channel[];
   liveUsers?: Array<{
     session: number;
     name: string;
@@ -18,7 +20,7 @@ interface AdminSettingsTabProps {
   }>;
 }
 
-export function AdminSettingsTab({ liveUsers = [] }: AdminSettingsTabProps) {
+export function AdminSettingsTab({ channels = [], liveUsers = [] }: AdminSettingsTabProps) {
   const [activeTab, setActiveTab] = useState<AdminWorkspaceTab>('channels');
 
   return (
@@ -38,7 +40,7 @@ export function AdminSettingsTab({ liveUsers = [] }: AdminSettingsTabProps) {
         ))}
       </div>
       <div className="admin-workspace-body">
-        {activeTab === 'channels' && <AdminChannelsSection />}
+        {activeTab === 'channels' && <AdminChannelsSection channels={channels} />}
         {activeTab === 'users' && <AdminUsersSection liveUsers={liveUsers} />}
         {activeTab === 'groups' && <AdminGroupsSection />}
         {activeTab === 'moderation' && <AdminModerationSection />}

@@ -1,16 +1,24 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { prompt } from '../../../hooks/usePrompt';
-
-const CHANNELS = [
-  { id: 1, name: 'Officer Chat' },
-  { id: 2, name: 'Raid Planning' },
-];
+import type { Channel } from '../../../types';
 
 const REQUESTS = [{ id: 1, requestedBy: 'Mike', channelName: 'Officer Chat', status: 'Pending' }];
 
-export function AdminChannelsSection() {
-  const [selectedChannelId, setSelectedChannelId] = useState<number>(CHANNELS[0].id);
-  const selectedChannel = CHANNELS.find(channel => channel.id === selectedChannelId) ?? null;
+interface AdminChannelsSectionProps {
+  channels?: Channel[];
+}
+
+export function AdminChannelsSection({ channels = [] }: AdminChannelsSectionProps) {
+  const [selectedChannelId, setSelectedChannelId] = useState<number | null>(channels[0]?.id ?? null);
+  const selectedChannel = channels.find(channel => channel.id === selectedChannelId) ?? null;
+
+  useEffect(() => {
+    if (selectedChannelId != null && channels.some(channel => channel.id === selectedChannelId)) {
+      return;
+    }
+
+    setSelectedChannelId(channels[0]?.id ?? null);
+  }, [channels, selectedChannelId]);
 
   const handleDeleteChannel = async () => {
     if (!selectedChannel) return;
@@ -35,18 +43,22 @@ export function AdminChannelsSection() {
       <div className="admin-card">
         <h4 className="heading-label">Existing Channels</h4>
         <div className="admin-table-placeholder" role="table" aria-label="Existing Channels table">
-          {CHANNELS.map(channel => (
-            <button
-              key={channel.id}
-              type="button"
-              className={`admin-channel-row ${channel.id === selectedChannelId ? 'selected' : ''}`}
-              role="row"
-              aria-label={channel.name}
-              onClick={() => setSelectedChannelId(channel.id)}
-            >
-              {channel.name}
-            </button>
-          ))}
+          {channels.length > 0 ? (
+            channels.map(channel => (
+              <button
+                key={channel.id}
+                type="button"
+                className={`admin-channel-row ${channel.id === selectedChannelId ? 'selected' : ''}`}
+                role="row"
+                aria-label={channel.name}
+                onClick={() => setSelectedChannelId(channel.id)}
+              >
+                {channel.name}
+              </button>
+            ))
+          ) : (
+            <p className="admin-help-text">No channels are available yet.</p>
+          )}
         </div>
       </div>
 
@@ -74,7 +86,7 @@ export function AdminChannelsSection() {
 
       <div className="admin-action-row">
         <button type="button" className="btn btn-secondary btn-sm" disabled>Create Channel</button>
-        <button type="button" className="btn btn-danger btn-sm" onClick={handleDeleteChannel}>Delete Channel</button>
+        <button type="button" className="btn btn-danger btn-sm" onClick={handleDeleteChannel} disabled={!selectedChannel}>Delete Channel</button>
       </div>
 
       <p className="admin-help-text">Create Channel is not available yet. Request actions and safe delete are available.</p>

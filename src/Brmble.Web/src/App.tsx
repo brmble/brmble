@@ -3795,6 +3795,7 @@ const handleConnect = (serverData: SavedServer) => {
         setBrmblegotchiEnabled={setBrmblegotchiEnabled}
         onLiveCompanionChange={handleLiveCompanionChange}
         liveUsers={users}
+        channels={channels}
       />
 
       <ConnectModal
