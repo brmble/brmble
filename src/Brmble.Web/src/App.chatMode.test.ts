@@ -6,6 +6,7 @@ import {
   getChannelAccessDeniedMessage,
   getChannelChatAccessRequestKey,
   getChannelChatAccessRequestIds,
+  getJoinAccessAction,
   isBrmbleServiceOutageActive,
   isMatrixChannelChatActive,
   isStructuredEnterDenied,
@@ -148,6 +149,18 @@ describe('structured channel access denial helpers', () => {
   it('uses password-specific copy only when the channel is known password restricted', () => {
     expect(getChannelAccessDeniedMessage({ hasPasswordRestriction: true })).toBe('Incorrect password or no access.');
     expect(getChannelAccessDeniedMessage({})).toBe('You do not have access to that channel.');
+  });
+});
+
+describe('getJoinAccessAction', () => {
+  it('joins normally when channel is enterable or canEnter is unknown', () => {
+    expect(getJoinAccessAction({ canEnter: true })).toBe('join');
+    expect(getJoinAccessAction({})).toBe('join');
+  });
+
+  it('prompts for password restricted denied channels and denies other restricted channels', () => {
+    expect(getJoinAccessAction({ canEnter: false, hasPasswordRestriction: true })).toBe('promptPassword');
+    expect(getJoinAccessAction({ canEnter: false })).toBe('deny');
   });
 });
 

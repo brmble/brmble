@@ -352,14 +352,8 @@ interface PendingJoinAttempt {
   passwordRetrySent: boolean;
 }
 
-function isPasswordProtectedJoinError(data: unknown): boolean {
-  const d = data as { type?: string; message?: string } | undefined;
-  if (d?.type !== 'permissionDenied') {
-    return false;
-  }
-
-  const message = (d.message ?? '').toLowerCase();
-  return message.includes('password') || message.includes('token') || message.includes('temporary access');
+function isPasswordProtectedJoinError(data: unknown, channel?: Channel): boolean {
+  return isStructuredEnterDenied(data) && channel?.hasPasswordRestriction === true;
 }
 
 interface NextLiveKitStatusOptions {
@@ -672,6 +666,13 @@ export function getChannelAccessDeniedMessage(channel: Pick<Channel, 'hasPasswor
   return channel?.hasPasswordRestriction
     ? 'Incorrect password or no access.'
     : 'You do not have access to that channel.';
+}
+
+export type JoinAccessAction = 'join' | 'promptPassword' | 'deny';
+
+export function getJoinAccessAction(channel: Pick<Channel, 'canEnter' | 'hasPasswordRestriction'>): JoinAccessAction {
+  if (channel.canEnter !== false) return 'join';
+  return channel.hasPasswordRestriction ? 'promptPassword' : 'deny';
 }
 
 export function isMatrixChannelChatActive(
@@ -1675,7 +1676,10 @@ function App() {
     const onVoiceError = ((data: unknown) => {
       clearPendingAction();
       const pendingJoinAttempt = pendingJoinAttemptRef.current;
-      if (pendingJoinAttempt && isPasswordProtectedJoinError(data)) {
+      const pendingChannel = pendingJoinAttempt
+        ? channelsRef.current.find(channel => channel.id === pendingJoinAttempt.channelId)
+        : undefined;
+      if (pendingJoinAttempt && isPasswordProtectedJoinError(data, pendingChannel)) {
         if (!pendingJoinAttempt.passwordRetrySent) {
           pendingJoinAttemptRef.current = {
             ...pendingJoinAttempt,
@@ -1704,6 +1708,18 @@ function App() {
         }
 
         clearPendingJoinAttempt();
+      }
+
+      if (isStructuredEnterDenied(data)) {
+        const d = data as { channelId?: number };
+        const deniedChannel = d.channelId != null
+          ? channelsRef.current.find(channel => channel.id === d.channelId)
+          : pendingJoinAttempt
+            ? channelsRef.current.find(channel => channel.id === pendingJoinAttempt.channelId)
+            : undefined;
+        addMessageToStore('server-root', 'Server', getChannelAccessDeniedMessage(deniedChannel), 'system');
+        clearPendingJoinAttempt();
+        return;
       }
 
       const d = data as { message?: string } | undefined;
@@ -2696,6 +2712,37 @@ const handleConnect = (serverData: SavedServer) => {
       await stopSharing();
       setSharingChannelId(undefined);
     }
+
+    const joinAction = getJoinAccessAction(channel);
+    if (joinAction === 'deny') {
+      addMessageToStore('server-root', 'Server', getChannelAccessDeniedMessage(channel), 'system');
+      return;
+    }
+
+    if (joinAction === 'promptPassword') {
+      const password = await prompt({
+        title: 'Channel Password',
+        message: `Enter the password for ${channel.name}.`,
+        placeholder: 'Password',
+        confirmLabel: 'Join',
+        cancelLabel: 'Cancel',
+        isPassword: true,
+      });
+
+      if (!password) {
+        return;
+      }
+
+      startPendingAction(channelId);
+      pendingJoinAttemptRef.current = {
+        channelId,
+        channelName: channel.name,
+        passwordRetrySent: true,
+      };
+      sendJoinChannel(channelId, password);
+      return;
+    }
+
     startPendingAction(channelId);
     pendingJoinAttemptRef.current = {
       channelId,
