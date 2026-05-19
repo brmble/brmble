@@ -128,6 +128,35 @@ public class MumbleAdapterBridgeTests
         Assert.AreEqual(0, restrictions.Count);
     }
 
+    [TestMethod]
+    public void PermissionDenied_ForwardsStructuredFields()
+    {
+        var adapter = CreateAdapterWithBridge(out var bridge);
+
+        adapter.PermissionDenied(new PermissionDenied
+        {
+            Type = PermissionDenied.DenyType.Permission,
+            Permission = (uint)Permission.Enter,
+            ChannelId = 4,
+            Session = 12,
+            Reason = "Denied",
+            Name = "Secret",
+        });
+
+        var sent = NativeBridgeTestHarness.DrainMessages(bridge);
+        var error = sent.Single(m => m.Type == "voice.error");
+        using var doc = JsonDocument.Parse(error.DataJson);
+        var payload = doc.RootElement;
+
+        Assert.AreEqual("permissionDenied", payload.GetProperty("type").GetString());
+        Assert.AreEqual("Permission", payload.GetProperty("denyType").GetString());
+        Assert.AreEqual((int)Permission.Enter, payload.GetProperty("permission").GetInt32());
+        Assert.AreEqual(4u, payload.GetProperty("channelId").GetUInt32());
+        Assert.AreEqual(12u, payload.GetProperty("session").GetUInt32());
+        Assert.AreEqual("Denied", payload.GetProperty("reason").GetString());
+        Assert.AreEqual("Secret", payload.GetProperty("name").GetString());
+    }
+
     private static MumbleAdapter CreateAdapterWithBridge(out NativeBridge bridge)
     {
         bridge = NativeBridgeTestHarness.Create();

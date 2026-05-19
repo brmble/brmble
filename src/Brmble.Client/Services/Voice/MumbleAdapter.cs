@@ -40,8 +40,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private readonly CertificateService? _certService;
     private uint? _previousChannelId;
     private uint? _pendingLocalJoinChannelId;
-    private string? _pendingJoinPassword;
-    private bool _hasActiveJoinToken;
     private bool _leftVoice;
     private bool _leaveVoiceInProgress;
     private bool _canRejoin;
@@ -421,8 +419,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _lastWelcomeText = null;
         _previousChannelId = null;
         _pendingLocalJoinChannelId = null;
-        _pendingJoinPassword = null;
-        _hasActiveJoinToken = false;
         if (_intentionalDisconnect || _reconnectHost == null)
         {
             _apiUrl = null;
@@ -962,44 +958,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             return;
 
         _pendingLocalJoinChannelId = channelId;
-        _pendingJoinPassword = string.IsNullOrWhiteSpace(password) ? null : password;
-        ApplyPendingJoinPasswordToken();
-        Connection.SendControl(PacketType.UserState, new UserState { ChannelId = channelId });
+        Connection.SendControl(PacketType.UserState, CreateJoinUserState(channelId, password));
         SendPermissionQuery(new PermissionQuery { ChannelId = channelId });
     }
 
-    private void ApplyPendingJoinPasswordToken()
+    private static UserState CreateJoinUserState(uint channelId, string? password)
     {
-        if (string.IsNullOrWhiteSpace(_pendingJoinPassword))
-            return;
-
-        var auth = new Authenticate
+        var userState = new UserState { ChannelId = channelId };
+        if (!string.IsNullOrWhiteSpace(password))
         {
-            Username = LocalUser?.Name ?? _reconnectUsername ?? string.Empty,
-            Opus = true,
-        };
-        auth.Tokens.Add(_pendingJoinPassword);
-        SendAuthenticate(auth);
-        _hasActiveJoinToken = true;
-    }
-
-    private void ClearTemporaryJoinToken()
-    {
-        if (!_hasActiveJoinToken)
-            return;
-
-        if (Connection is not { State: ConnectionStates.Connected })
-            return;
-
-        // Send empty token list to clear the temporary token from session
-        var auth = new Authenticate
-        {
-            Username = LocalUser?.Name ?? _reconnectUsername ?? string.Empty,
-            Opus = true,
-        };
-        // Empty Tokens collection removes all tokens from the session
-        SendAuthenticate(auth);
-        _hasActiveJoinToken = false;
+            userState.TemporaryAccessTokens.Add(password);
+        }
+        return userState;
     }
 
     public void RequestPermissions(uint channelId)
@@ -3860,15 +3830,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 if (_pendingLocalJoinChannelId == currentChannelId)
                 {
                     _pendingLocalJoinChannelId = null;
-                    _pendingJoinPassword = null;
-                    ClearTemporaryJoinToken();
                 }
             }
             else if (_pendingLocalJoinChannelId == currentChannelId)
             {
                 _pendingLocalJoinChannelId = null;
-                _pendingJoinPassword = null;
-                ClearTemporaryJoinToken();
                 if (_leftVoice && LocalUser != null)
                 {
                     ClearLeaveVoiceState();
@@ -4119,14 +4085,21 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     {
         base.PermissionDenied(permissionDenied);
 
-        _pendingJoinPassword = null;
-        ClearTemporaryJoinToken();
-
         var reason = !string.IsNullOrEmpty(permissionDenied.Reason)
             ? permissionDenied.Reason
             : $"Permission denied: {permissionDenied.Type}";
 
-        _bridge?.Send("voice.error", new { message = reason, type = "permissionDenied" });
+        _bridge?.Send("voice.error", new
+        {
+            type = "permissionDenied",
+            denyType = permissionDenied.Type.ToString(),
+            permission = permissionDenied.ShouldSerializePermission() ? (int?)permissionDenied.Permission : null,
+            channelId = permissionDenied.ShouldSerializeChannelId() ? (uint?)permissionDenied.ChannelId : null,
+            session = permissionDenied.ShouldSerializeSession() ? (uint?)permissionDenied.Session : null,
+            reason = permissionDenied.Reason,
+            name = permissionDenied.Name,
+            message = reason,
+        });
         _bridge?.NotifyUiThread();
     }
 

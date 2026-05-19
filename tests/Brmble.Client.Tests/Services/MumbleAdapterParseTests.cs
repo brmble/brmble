@@ -592,6 +592,22 @@ public class MumbleAdapterParseTests
     }
 
     [TestMethod]
+    public void CreateJoinUserState_IncludesTemporaryAccessTokenOnlyForThisJoin()
+    {
+        var method = typeof(MumbleAdapter).GetMethod("CreateJoinUserState", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.IsNotNull(method);
+
+        var passwordState = (MumbleProto.UserState)method!.Invoke(null, [4u, "secret-token"])!;
+        var normalState = (MumbleProto.UserState)method.Invoke(null, [5u, null])!;
+
+        Assert.AreEqual(4u, passwordState.ChannelId);
+        Assert.AreEqual(1, passwordState.TemporaryAccessTokens.Count);
+        Assert.AreEqual("secret-token", passwordState.TemporaryAccessTokens.Single());
+        Assert.AreEqual(5u, normalState.ChannelId);
+        Assert.AreEqual(0, normalState.TemporaryAccessTokens.Count);
+    }
+
+    [TestMethod]
     public async Task AclSetChannel_ConflictForwardsStructuredWriteResult()
     {
         var tempDir = Directory.CreateTempSubdirectory();
