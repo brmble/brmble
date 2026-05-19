@@ -59,4 +59,15 @@ public class MumbleAclServiceTests
 
         Assert.IsTrue(await service.HasWritePermissionAsync(sessionId: 12, channelId: 5));
     }
+
+    [TestMethod]
+    public async Task HasTextMessagePermissionAsync_DelegatesToMumblePermissionTextMessage()
+    {
+        var ice = new Mock<IMumbleAclIceClient>();
+        ice.Setup(i => i.HasPermissionAsync(12, 5, MumbleServer.PermissionTextMessage.value)).ReturnsAsync(true);
+        var service = new MumbleAclService(ice.Object, NullLogger<MumbleAclService>.Instance);
+
+        Assert.IsTrue(await service.HasTextMessagePermissionAsync(sessionId: 12, channelId: 5));
+        ice.Verify(i => i.HasPermissionAsync(12, 5, MumbleServer.PermissionTextMessage.value), Times.Once);
+    }
 }

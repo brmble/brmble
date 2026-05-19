@@ -7,6 +7,7 @@ public interface IMumbleAclService
     Task AddUserToGroupAsync(int channelId, int sessionId, string group);
     Task RemoveUserFromGroupAsync(int channelId, int sessionId, string group);
     Task<bool> HasWritePermissionAsync(int sessionId, int channelId);
+    Task<bool> HasTextMessagePermissionAsync(int sessionId, int channelId);
 }
 
 public interface IMumbleAclIceClient

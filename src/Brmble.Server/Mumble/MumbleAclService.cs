@@ -78,4 +78,17 @@ public sealed class MumbleAclService : IMumbleAclService
             throw new MumbleAclException($"Failed to verify write permission for session {sessionId} on channel {channelId}.", ex);
         }
     }
+
+    public async Task<bool> HasTextMessagePermissionAsync(int sessionId, int channelId)
+    {
+        try
+        {
+            return await _iceClient.HasPermissionAsync(sessionId, channelId, MumbleServer.PermissionTextMessage.value);
+        }
+        catch (Exception ex) when (ex is not MumbleAclUnavailableException and not MumbleAclException)
+        {
+            _logger.LogWarning(ex, "Failed to verify text message permission for session {SessionId} on channel {ChannelId}", sessionId, channelId);
+            throw new MumbleAclException($"Failed to verify text message permission for session {sessionId} on channel {channelId}.", ex);
+        }
+    }
 }
