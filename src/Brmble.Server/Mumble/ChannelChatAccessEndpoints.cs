@@ -39,7 +39,7 @@ public static class ChannelChatAccessEndpoints
             }
 
             var channels = new Dictionary<string, ChannelChatAccessState>();
-            foreach (var channelId in request.ChannelIds.Where(id => id > 0).Distinct())
+            foreach (var channelId in (request.ChannelIds ?? []).Where(id => id > 0).Distinct())
             {
                 var allowed = await aclService.HasTextMessagePermissionAsync(sessionId, channelId);
                 channels[channelId.ToString()] = new ChannelChatAccessState(allowed, allowed);

@@ -35,6 +35,8 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
         var defaultSessionMapping = new SessionMappingService();
         SessionMappingMock.Setup(s => s.SetNameForSession(It.IsAny<string>(), It.IsAny<int>()))
             .Callback<string, int>(defaultSessionMapping.SetNameForSession);
+        SessionMappingMock.Setup(s => s.RemoveSession(It.IsAny<int>()))
+            .Callback<int>(defaultSessionMapping.RemoveSession);
         SessionMappingMock.Setup(s => s.TryAddMatrixUser(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<long>(), It.IsAny<string>()))
             .Returns((int sessionId, string matrixUserId, string mumbleName, long userId, string companionId) =>
                 defaultSessionMapping.TryAddMatrixUser(sessionId, matrixUserId, mumbleName, userId, companionId));

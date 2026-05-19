@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text;
 using System.Net.Http.Json;
 using Brmble.Server.Auth;
 using Brmble.Server.Mumble;
@@ -62,6 +63,28 @@ public class ChannelChatAccessEndpointTests
         Assert.IsFalse(result.Channels["2"].CanRead);
         Assert.IsFalse(result.Channels["2"].CanSend);
         factory.MumbleAclMock.Verify(a => a.HasTextMessagePermissionAsync(42, 1), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetChannelChatAccess_MissingChannelIds_ReturnsEmptyAccess()
+    {
+        using var factory = new BrmbleServerFactory("cert_chat_empty_channels");
+        var user = await SeedUser(factory, "cert_chat_empty_channels", "Alice");
+        var sessionId = 42;
+        factory.SessionMappingMock
+            .Setup(s => s.TryGetSessionByUserId(user.Id, out sessionId))
+            .Returns(true);
+        var client = factory.CreateClient();
+
+        var response = await client.PostAsync(
+            "/chat/channel-access",
+            new StringContent("{}", Encoding.UTF8, "application/json"));
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        var result = await response.Content.ReadFromJsonAsync<ChannelChatAccessResponse>();
+        Assert.IsNotNull(result);
+        Assert.AreEqual(0, result.Channels.Count);
+        factory.MumbleAclMock.Verify(a => a.HasTextMessagePermissionAsync(It.IsAny<int>(), It.IsAny<int>()), Times.Never);
     }
 
     private static async Task<User> SeedUser(BrmbleServerFactory factory, string certHash, string name)
