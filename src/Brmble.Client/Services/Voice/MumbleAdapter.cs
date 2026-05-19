@@ -61,6 +61,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private string? _activeServerId;
     private Dictionary<string, string> _userMappings = new();
     private readonly ConcurrentDictionary<uint, SessionMappingEntry> _sessionMappings = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<uint, bool> _channelPasswordRestrictions = new();
     private CancellationTokenSource? _wsCts;
     private long _wsGeneration;
     private readonly IAppConfigService? _appConfigService;
@@ -1478,6 +1479,19 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private static bool IsBrmblePasswordMarker(string? group)
         => !string.IsNullOrWhiteSpace(group) && group.StartsWith(BrmblePasswordMarkerPrefix, StringComparison.Ordinal);
 
+    private void UpdateChannelPasswordRestriction(uint channelId, string aclJson)
+    {
+        _channelPasswordRestrictions[channelId] = ContainsManagedPasswordMarker(aclJson);
+        if (ChannelDictionary.TryGetValue(channelId, out var channel))
+        {
+            _bridge?.Send("voice.channelJoined", CreateChannelPayload(channel));
+            _bridge?.NotifyUiThread();
+        }
+    }
+
+    private static bool ContainsManagedPasswordMarker(string aclJson)
+        => aclJson.Contains("__brmble_password_marker__:#", StringComparison.Ordinal);
+
     private static bool IsManagedPasswordTokenRule(System.Text.Json.JsonElement acl, string selector)
     {
         var group = acl.TryGetProperty("group", out var groupProp) && groupProp.ValueKind != System.Text.Json.JsonValueKind.Null
@@ -2515,6 +2529,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     break;
 
                 case "acl.changed":
+                    var aclChannelId = root.TryGetProperty("channelId", out var aclChannelProp) ? aclChannelProp.GetUInt32() : 0u;
+                    if (aclChannelId > 0)
+                    {
+                        UpdateChannelPasswordRestriction(aclChannelId, json);
+                    }
                     _bridge?.Send("acl.changed", System.Text.Json.JsonSerializer.Deserialize<object>(json));
                     _bridge?.NotifyUiThread();
                     break;
@@ -3698,7 +3717,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         parent = channel.Parent,
         isEnterRestricted = channel.IsEnterRestricted,
         canEnter = channel.CanEnter,
-        hasPasswordRestriction = false,
+        hasPasswordRestriction = _channelPasswordRestrictions.TryGetValue(channel.Id, out var hasPasswordRestriction) && hasPasswordRestriction,
     };
 
     /// <summary>

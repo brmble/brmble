@@ -44,6 +44,30 @@ public class MumbleAdapterBridgeTests
     }
 
     [TestMethod]
+    public void SendVoiceConnected_DoesNotExposeManagedPasswordPlaintext()
+    {
+        var adapter = CreateAdapterWithBridge(out var bridge);
+        var channels = GetChannelDictionary(adapter);
+        channels[4] = new Channel(adapter, 4, "Locked", 0)
+        {
+            IsEnterRestricted = true,
+            CanEnter = false,
+        };
+        SetPrivateField(adapter, "_channelPasswordRestrictions", new System.Collections.Concurrent.ConcurrentDictionary<uint, bool>(
+            new[] { new KeyValuePair<uint, bool>(4, true) }));
+
+        InvokePrivate(adapter, "SendVoiceConnected");
+
+        var sent = NativeBridgeTestHarness.DrainMessages(bridge);
+        var connected = sent.Single(m => m.Type == "voice.connected");
+        using var doc = JsonDocument.Parse(connected.DataJson);
+        var channel = doc.RootElement.GetProperty("channels").EnumerateArray().Single();
+
+        Assert.IsTrue(channel.GetProperty("hasPasswordRestriction").GetBoolean());
+        Assert.IsFalse(connected.DataJson.Contains("secret", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [TestMethod]
     public void ChannelState_IncludesCanEnterInBridgePayload()
     {
         var adapter = CreateAdapterWithBridge(out var bridge);
@@ -71,7 +95,9 @@ public class MumbleAdapterBridgeTests
     private static MumbleAdapter CreateAdapterWithBridge(out NativeBridge bridge)
     {
         bridge = NativeBridgeTestHarness.Create();
-        return MumbleAdapterTestHarness.CreateWithBridge(bridge);
+        var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge);
+        SetPrivateField(adapter, "_channelPasswordRestrictions", new System.Collections.Concurrent.ConcurrentDictionary<uint, bool>());
+        return adapter;
     }
 
     private static void InvokePrivate(object instance, string methodName, string json)
@@ -85,6 +111,9 @@ public class MumbleAdapterBridgeTests
         var method = instance.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
         method!.Invoke(instance, [null]);
     }
+
+    private static void SetPrivateField(object instance, string name, object? value)
+        => instance.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(instance, value);
 
     private static System.Collections.Concurrent.ConcurrentDictionary<uint, Channel> GetChannelDictionary(MumbleAdapter adapter)
         => (System.Collections.Concurrent.ConcurrentDictionary<uint, Channel>)adapter
