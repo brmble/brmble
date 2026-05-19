@@ -14,6 +14,22 @@
   -webkit-app-region: drag;
 }
 
+/* The native top resize handle lives in a fixed overlay above .app, but
+   .header has app-region: drag which WebView2 may resolve over the overlay
+   for the topmost pixels. This pseudo-element punches a 6px no-drag strip
+   at the very top of the header so the resize handle wins there. */
+.header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 6px;
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
 .header-left {
   display: flex;
   align-items: center;

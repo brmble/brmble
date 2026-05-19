@@ -31,6 +31,11 @@ internal static class Win32Window
     public const uint WM_INPUT = 0x00FF;
     public const uint WM_HOTKEY = 0x0312;
     public const uint WM_SETICON = 0x0080;
+
+    // WM_SYSCOMMAND wParam values for SC_SIZE direction (see WinUser.h):
+    //   WMSZ_LEFT = 1, WMSZ_RIGHT = 2, WMSZ_TOP = 3, WMSZ_TOPLEFT = 4,
+    //   WMSZ_TOPRIGHT = 5, WMSZ_BOTTOM = 6, WMSZ_BOTTOMLEFT = 7, WMSZ_BOTTOMRIGHT = 8.
+    public const uint SC_SIZE = 0xF000;
     public const IntPtr ICON_SMALL = 0;
     public const IntPtr ICON_BIG = 1;
 
@@ -232,6 +237,9 @@ internal static class Win32Window
 
     [DllImport("user32.dll")]
     public static extern bool SetForegroundWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool ReleaseCapture();
 
     [DllImport("user32.dll")]
     public static extern bool DestroyWindow(IntPtr hwnd);

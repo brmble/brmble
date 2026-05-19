@@ -1,0 +1,90 @@
+/* Invisible edge handles that drive the native Win32 resize loop.
+   Sits above all app content (very high z-index) but only the thin
+   rims around the window edges are interactive. Corners sit on top
+   of edges so diagonal resize wins at the 4 corners. */
+
+.window-resize-handles {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 100000;
+}
+
+.wrh {
+  position: absolute;
+  pointer-events: auto;
+  background: transparent;
+  /* WebView2 treats CSS app-region:no-drag as "don't try to drag the window".
+     Title-bar drag uses app-region:drag elsewhere; here we explicitly opt
+     out so a mousedown on a handle doesn't get mistaken for a caption drag. */
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* Edges — inset 10px on each end so corners win at the 4 corners.
+   Top is thicker than the other edges: it borders the title bar
+   (app-region:drag) so users need a roomier target to grab it cleanly. */
+.wrh-top {
+  top: 0;
+  left: 10px;
+  right: 10px;
+  height: 6px;
+  cursor: ns-resize;
+}
+
+.wrh-bottom {
+  bottom: 0;
+  left: 10px;
+  right: 10px;
+  height: 6px;
+  cursor: ns-resize;
+}
+
+.wrh-left {
+  top: 10px;
+  bottom: 10px;
+  left: 0;
+  width: 6px;
+  cursor: ew-resize;
+}
+
+.wrh-right {
+  top: 10px;
+  bottom: 10px;
+  right: 0;
+  width: 6px;
+  cursor: ew-resize;
+}
+
+/* Corners — 10x10 squares, rendered after edges so they sit on top. */
+.wrh-top-left {
+  top: 0;
+  left: 0;
+  width: 10px;
+  height: 10px;
+  cursor: nwse-resize;
+}
+
+.wrh-top-right {
+  top: 0;
+  right: 0;
+  width: 10px;
+  height: 10px;
+  cursor: nesw-resize;
+}
+
+.wrh-bottom-left {
+  bottom: 0;
+  left: 0;
+  width: 10px;
+  height: 10px;
+  cursor: nesw-resize;
+}
+
+.wrh-bottom-right {
+  bottom: 0;
+  right: 0;
+  width: 10px;
+  height: 10px;
+  cursor: nwse-resize;
+}

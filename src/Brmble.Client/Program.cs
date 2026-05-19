@@ -36,22 +36,18 @@ static class Program
     private static volatile string? _closeAction; // null = ask, "minimize", "quit"
     private static IntPtr _currentBgBrush;
     private static System.Threading.Timer? _zoomSaveTimer;
-    private const int ResizeBorderWidth = 6;
-
     /// <summary>
-    /// Calculates the WebView2 bounds. In normal state we inset by the resize
-    /// border width so the native brush shows through as a grab-strip for
-    /// resizing. When maximized resizing is disabled, so the WebView2 fills
-    /// the full client rect — no dark strip visible against the screen edge.
+    /// WebView2 fills the entire client rect. Window resize is driven from
+    /// the frontend: transparent edge zones in the React app capture
+    /// mousedown and call the window.beginResize bridge handler, which
+    /// posts WM_SYSCOMMAND SC_SIZE so Windows runs its native modal resize
+    /// loop (correct cursors, Aero Snap, DWM previews). See
+    /// SetupBridgeHandlers below.
     /// </summary>
     private static Rectangle GetWebViewBounds(IntPtr hwnd)
     {
         Win32Window.GetClientRect(hwnd, out var rect);
-        int w = rect.Right - rect.Left;
-        int h = rect.Bottom - rect.Top;
-
-        int b = Win32Window.IsZoomed(hwnd) ? 0 : ResizeBorderWidth;
-        return new Rectangle(b, b, Math.Max(0, w - 2 * b), Math.Max(0, h - 2 * b));
+        return new Rectangle(0, 0, rect.Right - rect.Left, rect.Bottom - rect.Top);
     }
 
     private static readonly string LogPath = Path.Combine(
@@ -140,7 +136,7 @@ static class Program
             }
 
             var startupTheme = _appConfigService.GetSettings().Appearance.Theme;
-            var (sr, sg, sb) = ThemeColors.GetBgDeep(startupTheme);
+            var (sr, sg, sb) = ThemeColors.GetBgPrimary(startupTheme);
             uint startupBgColorRef = (uint)(sb << 16 | sg << 8 | sr);
             _hwnd = Win32Window.Create("BrmbleWindow", "Brmble", wx, wy, ww, wh, WndProc, startupBgColorRef);
             if (restoreMaximized)
@@ -382,6 +378,31 @@ static class Program
             return Task.CompletedTask;
         });
 
+        // Start a native Windows resize loop on behalf of a frontend edge handle.
+        // WebView2 captures all mouse events over its area, so we cannot let
+        // Windows resize via WM_NCHITTEST. Instead, transparent edge zones in
+        // the React app call this handler with edge = WMSZ_* (1..8). We
+        // release the WebView2 mouse capture and post WM_SYSCOMMAND SC_SIZE,
+        // which kicks Windows into its native modal resize loop — correct
+        // cursors, Aero Snap, and DWM previews work out of the box.
+        _bridge.RegisterHandler("window.beginResize", data =>
+        {
+            if (!data.TryGetProperty("edge", out var e)) return Task.CompletedTask;
+            int edge;
+            try { edge = e.GetInt32(); }
+            catch { return Task.CompletedTask; }
+            if (edge < 1 || edge > 8) return Task.CompletedTask;
+            if (Win32Window.IsZoomed(_hwnd)) return Task.CompletedTask;
+
+            Win32Window.ReleaseCapture();
+            Win32Window.PostMessage(
+                _hwnd,
+                Win32Window.WM_SYSCOMMAND,
+                (IntPtr)(Win32Window.SC_SIZE | (uint)edge),
+                IntPtr.Zero);
+            return Task.CompletedTask;
+        });
+
         _bridge.RegisterHandler("window.quit", _ =>
         {
             _closeAction = "quit";
@@ -437,8 +458,12 @@ static class Program
                 TaskbarBadge.SetTheme(theme);
                 Win32Window.SetWindowIcon(_hwnd, theme);
 
-                // Update the native resize border brush to match the theme
-                var (r, g, b) = ThemeColors.GetBgDeep(theme);
+                // Update the native window background brush to match the theme.
+                // With the WebView2 filling the client rect this brush is
+                // normally invisible, but it can flash briefly during resize
+                // before WebView2 catches up — matching --bg-primary blends
+                // that flash with the sidebar instead of contrasting darkly.
+                var (r, g, b) = ThemeColors.GetBgPrimary(theme);
                 uint colorRef = (uint)(b << 16 | g << 8 | r);
                 var newBrush = Win32Window.CreateBackgroundBrush(colorRef);
                 var oldBrush = Win32Window.SetClassLongPtr(
@@ -618,24 +643,13 @@ static class Program
                 return IntPtr.Zero;
 
             case Win32Window.WM_NCHITTEST:
-            {
-                // When maximized, no resize borders needed
-                if (Win32Window.IsZoomed(hwnd))
-                    return (IntPtr)HitTestHelper.HtClient;
-
-                // With no NC area, we handle all hit-testing ourselves.
-                Win32Window.GetCursorPos(out var cursor);
-                Win32Window.ScreenToClient(hwnd, ref cursor);
-                Win32Window.GetClientRect(hwnd, out var clientRect);
-
-                var hitCode = HitTestHelper.Calculate(
-                    cursor.X, cursor.Y,
-                    clientRect.Right - clientRect.Left,
-                    clientRect.Bottom - clientRect.Top,
-                    ResizeBorderWidth);
-
-                return (IntPtr)hitCode;
-            }
+                // NC area is collapsed and the WebView2 fills the client rect.
+                // Native resize zones are not used — the React app paints
+                // transparent edge handles that call window.beginResize, which
+                // posts WM_SYSCOMMAND SC_SIZE so Windows runs the native
+                // resize loop. Title-bar drag is handled by WebView2 via
+                // CSS app-region:drag + IsNonClientRegionSupportEnabled.
+                return (IntPtr)HitTestHelper.HtClient;
 
             case Win32Window.WM_GETMINMAXINFO:
             {
