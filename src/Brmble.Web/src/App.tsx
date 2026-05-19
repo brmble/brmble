@@ -2699,6 +2699,31 @@ const handleConnect = (serverData: SavedServer) => {
     if (!channel) {
       return;
     }
+
+    const joinAction = getJoinAccessAction(channel);
+    let password: string | undefined;
+    if (joinAction === 'deny') {
+      addMessageToStore('server-root', 'Server', getChannelAccessDeniedMessage(channel), 'system');
+      return;
+    }
+
+    if (joinAction === 'promptPassword') {
+      const enteredPassword = await prompt({
+        title: 'Channel Password',
+        message: `Enter the password for ${channel.name}.`,
+        placeholder: 'Password',
+        confirmLabel: 'Join',
+        cancelLabel: 'Cancel',
+        isPassword: true,
+      });
+
+      if (!enteredPassword) {
+        return;
+      }
+
+      password = enteredPassword;
+    }
+
     if (isSharing && sharingChannelId && String(channelId) !== sharingChannelId) {
       const shouldMove = await confirm({
         title: 'Screen share active',
@@ -2713,43 +2738,13 @@ const handleConnect = (serverData: SavedServer) => {
       setSharingChannelId(undefined);
     }
 
-    const joinAction = getJoinAccessAction(channel);
-    if (joinAction === 'deny') {
-      addMessageToStore('server-root', 'Server', getChannelAccessDeniedMessage(channel), 'system');
-      return;
-    }
-
-    if (joinAction === 'promptPassword') {
-      const password = await prompt({
-        title: 'Channel Password',
-        message: `Enter the password for ${channel.name}.`,
-        placeholder: 'Password',
-        confirmLabel: 'Join',
-        cancelLabel: 'Cancel',
-        isPassword: true,
-      });
-
-      if (!password) {
-        return;
-      }
-
-      startPendingAction(channelId);
-      pendingJoinAttemptRef.current = {
-        channelId,
-        channelName: channel.name,
-        passwordRetrySent: true,
-      };
-      sendJoinChannel(channelId, password);
-      return;
-    }
-
     startPendingAction(channelId);
     pendingJoinAttemptRef.current = {
       channelId,
       channelName: channel.name,
-      passwordRetrySent: false,
+      passwordRetrySent: joinAction === 'promptPassword',
     };
-    sendJoinChannel(channelId);
+    sendJoinChannel(channelId, password);
   };
 
   const handleSelectChannel = (channelId: number) => {
