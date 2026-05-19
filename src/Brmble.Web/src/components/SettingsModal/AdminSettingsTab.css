@@ -24,15 +24,26 @@
   border-bottom-color: var(--accent-primary);
 }
 
+.admin-workspace-body {
+  display: grid;
+  gap: var(--space-lg);
+}
+
+.admin-section {
+  display: grid;
+  gap: var(--space-md);
+}
+
 .admin-panel-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: var(--space-md);
+  margin-bottom: var(--space-sm);
 }
 
-.admin-panel-header .heading-section {
-  margin: 0;
+.admin-placeholder-section {
+  display: grid;
+  gap: var(--space-sm);
 }
 
 .admin-loading,
@@ -47,10 +58,85 @@
   color: var(--accent-danger);
 }
 
-.admin-ban-list {
-  display: flex;
-  flex-direction: column;
+.admin-empty {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.admin-card {
+  display: grid;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.admin-table-placeholder {
+  display: grid;
   gap: var(--space-xs);
+}
+
+.admin-channel-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: var(--space-sm);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+}
+
+.admin-channel-row.selected {
+  border-color: var(--accent-primary);
+  background: var(--bg-hover);
+}
+
+.admin-action-row,
+.admin-footer-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.admin-footer-row {
+  justify-content: flex-end;
+}
+
+.admin-help-text {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.admin-request-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.admin-request-status-cell,
+.admin-request-actions,
+.admin-ban-list,
+.admin-ban-info {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.admin-request-status-cell {
+  align-items: center;
+}
+
+.admin-request-actions {
+  flex-wrap: wrap;
+}
+
+.admin-ban-list {
+  flex-direction: column;
 }
 
 .admin-ban-row {
@@ -63,66 +149,28 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: var(--space-sm) var(--space-md);
   gap: var(--space-md);
-  transition: background var(--transition-fast);
+  padding: var(--space-sm) var(--space-md);
 }
 
 .admin-ban-expand {
   flex: 1;
   display: flex;
   justify-content: space-between;
-  align-items: center;
   gap: var(--space-md);
-  padding: 0;
   border: 0;
   background: transparent;
-  color: inherit;
-  cursor: pointer;
   text-align: left;
 }
 
-.admin-ban-summary:hover {
-  background: var(--bg-hover);
-}
-
 .admin-ban-info {
-  display: flex;
   flex-direction: column;
-  gap: var(--space-2xs);
-}
-
-.admin-ban-name {
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-.admin-ban-reason {
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-  max-width: 300px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.admin-ban-meta {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-}
-
-.admin-ban-expiry {
-  font-size: var(--text-sm);
-  color: var(--text-muted);
 }
 
 .admin-ban-details {
   padding: var(--space-sm) var(--space-md);
-  background: var(--bg-overlay);
   border-top: 1px solid var(--border-subtle);
-  font-size: var(--text-sm);
-  color: var(--text-muted);
+  background: var(--bg-overlay);
 }
 
 .admin-ban-detail {
@@ -130,60 +178,8 @@
   gap: var(--space-sm);
 }
 
-.admin-ban-detail span {
-  font-weight: 500;
-  color: var(--text-secondary);
-}
-
-.admin-settings-tab .btn-sm {
-  padding: var(--space-2xs) var(--space-sm);
-  font-size: var(--text-sm);
-}
-
-.admin-user-list {
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-surface);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-}
-
-.admin-user-header {
+.admin-groups-layout {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  padding: var(--space-sm) var(--space-md);
-  background: var(--bg-overlay);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  color: var(--text-secondary);
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.admin-user-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  padding: var(--space-sm) var(--space-md);
-  font-size: var(--text-sm);
-  color: var(--text-primary);
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.admin-user-row:last-child {
-  border-bottom: none;
-}
-
-.admin-user-row:hover {
-  background: var(--bg-hover);
-}
-
-.admin-user-name-col {
-  font-weight: 500;
-}
-
-.admin-user-email-col {
-  color: var(--text-muted);
-}
-
-.admin-user-last-col {
-  color: var(--text-muted);
+  gap: var(--space-md);
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }

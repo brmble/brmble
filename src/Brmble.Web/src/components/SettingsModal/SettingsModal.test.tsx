@@ -10,6 +10,8 @@ const { bridgeMock } = vi.hoisted(() => ({
   },
 }));
 
+const hasPermissionMock = vi.fn(() => false);
+
 vi.mock('../../bridge', () => ({
   default: bridgeMock,
 }));
@@ -20,12 +22,13 @@ vi.mock('../../hooks/useServerlist', () => ({
 
 vi.mock('../../hooks/usePermissions', () => ({
   Permission: { Ban: 4, Kick: 2 },
-  usePermissions: () => ({ hasPermission: () => false }),
+  usePermissions: () => ({ hasPermission: hasPermissionMock }),
 }));
 
 describe('SettingsModal tabs', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    hasPermissionMock.mockReturnValue(false);
   });
 
   it('labels the messages settings tab as Notifications', () => {
@@ -47,5 +50,11 @@ describe('SettingsModal tabs', () => {
         key: 'KeyG',
       });
     });
+  });
+
+  it('shows Admin tab only when the user has admin permissions', () => {
+    hasPermissionMock.mockReturnValue(true);
+    render(<SettingsModal isOpen onClose={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'Admin' })).toBeInTheDocument();
   });
 });
