@@ -93,8 +93,8 @@ describe('structured channel access denial helpers', () => {
   });
 
   it('uses password-specific copy only when the channel is known password restricted', () => {
-    expect(getChannelAccessDeniedMessage({ id: 1, name: 'Secret', hasPasswordRestriction: true })).toBe('Incorrect password or no access.');
-    expect(getChannelAccessDeniedMessage({ id: 2, name: 'Private' })).toBe('You do not have access to that channel.');
+    expect(getChannelAccessDeniedMessage({ hasPasswordRestriction: true })).toBe('Incorrect password or no access.');
+    expect(getChannelAccessDeniedMessage({})).toBe('You do not have access to that channel.');
   });
 });
 
