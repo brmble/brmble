@@ -3654,13 +3654,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private void SendVoiceConnected(uint? overrideChannelId = null)
     {
         var channelId = overrideChannelId ?? (uint)(LocalUser?.Channel?.Id ?? 0);
-        var channels = Channels.Select(c => new
-        {
-            id = c.Id,
-            name = c.Name,
-            parent = c.Parent,
-            isEnterRestricted = c.IsEnterRestricted
-        }).ToList();
+        var channels = Channels.Select(CreateChannelPayload).ToList();
         var users = Users.Select(u =>
         {
             var hasMap = _sessionMappings.TryGetValue(u.Id, out var sm);
@@ -3696,6 +3690,16 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         Debug.WriteLine($"[Mumble] Sent {channels.Count} channels and {users.Count} users");
     }
+
+    private object CreateChannelPayload(Channel channel) => new
+    {
+        id = channel.Id,
+        name = channel.Name,
+        parent = channel.Parent,
+        isEnterRestricted = channel.IsEnterRestricted,
+        canEnter = channel.CanEnter,
+        hasPasswordRestriction = false,
+    };
 
     /// <summary>
     /// Called when the server sends updated configuration.
@@ -4056,13 +4060,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         if (ChannelDictionary.TryGetValue(channelState.ChannelId, out var channel))
         {
-            _bridge?.Send("voice.channelJoined", new
-            {
-                id = channel.Id,
-                name = channel.Name,
-                parent = channel.Parent,
-                isEnterRestricted = channel.IsEnterRestricted
-            });
+            _bridge?.Send("voice.channelJoined", CreateChannelPayload(channel));
         }
     }
 
