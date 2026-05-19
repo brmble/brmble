@@ -12,6 +12,10 @@ export interface Channel {
   type?: 'voice' | 'text';
   description?: string;
   isEnterRestricted?: boolean;
+  canEnter?: boolean;
+  hasPasswordRestriction?: boolean;
+  canOpenChat?: boolean;
+  canSendChat?: boolean;
 }
 
 export interface User {

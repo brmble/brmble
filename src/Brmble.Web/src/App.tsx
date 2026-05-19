@@ -578,6 +578,10 @@ interface Channel {
   name: string;
   parent?: number;
   isEnterRestricted?: boolean;
+  canEnter?: boolean;
+  hasPasswordRestriction?: boolean;
+  canOpenChat?: boolean;
+  canSendChat?: boolean;
 }
 
 interface User {
@@ -593,6 +597,52 @@ interface User {
   certHash?: string;
   companionId?: CompanionId;
   isBrmbleClient?: boolean;
+}
+
+interface ChannelChatAccessState {
+  canRead: boolean;
+  canSend: boolean;
+}
+
+type ChannelChatAccessMap = Record<string, ChannelChatAccessState>;
+
+const MUMBLE_PERMISSION_ENTER = 2;
+
+export function mergeChannelChatAccess(channels: Channel[], access: ChannelChatAccessMap): Channel[] {
+  return channels.map(channel => {
+    const state = access[String(channel.id)];
+    if (!state) return channel;
+    return {
+      ...channel,
+      canOpenChat: state.canRead,
+      canSendChat: state.canSend,
+    };
+  });
+}
+
+export function canOpenChannelChat(channelId: string | undefined, channels: Channel[]): boolean {
+  if (!channelId) return false;
+  if (channelId === 'server-root') return true;
+  const channel = channels.find(c => String(c.id) === channelId);
+  return channel?.canOpenChat !== false;
+}
+
+export function canSendToChannelChat(channelId: string | undefined, channels: Channel[]): boolean {
+  if (!channelId) return false;
+  if (channelId === 'server-root') return true;
+  const channel = channels.find(c => String(c.id) === channelId);
+  return channel?.canSendChat !== false;
+}
+
+export function isStructuredEnterDenied(data: unknown): boolean {
+  const d = data as { type?: string; permission?: number } | undefined;
+  return d?.type === 'permissionDenied' && d.permission === MUMBLE_PERMISSION_ENTER;
+}
+
+export function getChannelAccessDeniedMessage(channel: Pick<Channel, 'hasPasswordRestriction'> | undefined): string {
+  return channel?.hasPasswordRestriction
+    ? 'Incorrect password or no access.'
+    : 'You do not have access to that channel.';
 }
 
 export function isMatrixChannelChatActive(

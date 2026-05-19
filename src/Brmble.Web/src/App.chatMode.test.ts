@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  canOpenChannelChat,
+  canSendToChannelChat,
+  getChannelAccessDeniedMessage,
   isBrmbleServiceOutageActive,
   isMatrixChannelChatActive,
+  isStructuredEnterDenied,
   isTemporaryChannelChatActive,
+  mergeChannelChatAccess,
   shouldShowBrmbleServiceWarningNotification,
 } from './App';
 import type { ServiceStatusMap } from './types';
@@ -43,6 +48,53 @@ describe('isMatrixChannelChatActive', () => {
 
   it('falls back to Mumble until self is restored as a Brmble client', () => {
     expect(isMatrixChannelChatActive('1', credentials, connectedStatuses, { session: 1, name: 'Me', self: true, isBrmbleClient: false })).toBe(false);
+  });
+});
+
+describe('channel chat access helpers', () => {
+  it('merges canRead and canSend without dropping voice channel state', () => {
+    const result = mergeChannelChatAccess([
+      { id: 1, name: 'General', isEnterRestricted: true, canEnter: false, hasPasswordRestriction: true },
+      { id: 2, name: 'Quiet' },
+    ], {
+      '1': { canRead: false, canSend: false },
+      '2': { canRead: true, canSend: true },
+    });
+
+    expect(result[0]).toMatchObject({
+      id: 1,
+      isEnterRestricted: true,
+      canEnter: false,
+      hasPasswordRestriction: true,
+      canOpenChat: false,
+      canSendChat: false,
+    });
+    expect(result[1]).toMatchObject({ canOpenChat: true, canSendChat: true });
+  });
+
+  it('allows server root chat and gates restricted Matrix channels', () => {
+    const channels = [
+      { id: 1, name: 'Allowed', canOpenChat: true, canSendChat: true },
+      { id: 2, name: 'Denied', canOpenChat: false, canSendChat: false },
+    ];
+
+    expect(canOpenChannelChat('server-root', channels)).toBe(true);
+    expect(canOpenChannelChat('1', channels)).toBe(true);
+    expect(canOpenChannelChat('2', channels)).toBe(false);
+    expect(canSendToChannelChat('1', channels)).toBe(true);
+    expect(canSendToChannelChat('2', channels)).toBe(false);
+  });
+});
+
+describe('structured channel access denial helpers', () => {
+  it('classifies Enter permission denials by structured permission field', () => {
+    expect(isStructuredEnterDenied({ type: 'permissionDenied', permission: 2, message: 'anything' })).toBe(true);
+    expect(isStructuredEnterDenied({ type: 'permissionDenied', permission: 4, message: 'Enter appears in text only' })).toBe(false);
+  });
+
+  it('uses password-specific copy only when the channel is known password restricted', () => {
+    expect(getChannelAccessDeniedMessage({ id: 1, name: 'Secret', hasPasswordRestriction: true })).toBe('Incorrect password or no access.');
+    expect(getChannelAccessDeniedMessage({ id: 2, name: 'Private' })).toBe('You do not have access to that channel.');
   });
 });
 
