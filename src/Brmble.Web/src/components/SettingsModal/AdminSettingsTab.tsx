@@ -42,7 +42,7 @@ export function AdminSettingsTab({ channels = [], liveUsers = [] }: AdminSetting
       <div className="admin-workspace-body">
         {activeTab === 'channels' && <AdminChannelsSection channels={channels} />}
         {activeTab === 'users' && <AdminUsersSection liveUsers={liveUsers} />}
-        {activeTab === 'groups' && <AdminGroupsSection />}
+        {activeTab === 'groups' && <AdminGroupsSection channels={channels} />}
         {activeTab === 'moderation' && <AdminModerationSection />}
         {activeTab === 'audit-log' && <AdminAuditLogSection />}
       </div>

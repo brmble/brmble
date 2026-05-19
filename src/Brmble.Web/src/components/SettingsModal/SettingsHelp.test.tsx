@@ -43,4 +43,9 @@ describe('SettingsHelp', () => {
     expect(settingsModalCss).toMatch(/\.settings-info-mark\s*{[^}]*height:\s*var\(--settings-help-mark-size\);/s);
     expect(settingsModalCss).toMatch(/\.settings-info-mark\s*{[^}]*font-size:\s*var\(--text-xs\);/s);
   });
+
+  it('uses a 1200px desktop base width for the settings modal', () => {
+    expect(settingsModalCss).toMatch(/\.settings-modal\s*{[^}]*min-width:\s*min\(1200px,\s*90vw\);/s);
+    expect(settingsModalCss).toMatch(/\.settings-modal\s*{[^}]*max-width:\s*90vw;/s);
+  });
 });
