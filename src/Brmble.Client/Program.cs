@@ -335,6 +335,11 @@ static class Program
                 if (e.IsSuccess)
                 {
                     _controller.CoreWebView2.NavigationCompleted -= onNavCompleted;
+                    // Send initial window state — WM_SIZE fires before the bridge
+                    // exists when starting maximized, so without this the React
+                    // app would default to maximized=false and render the
+                    // resize handles over a maximized window.
+                    _bridge?.Send("window.stateChanged", new { maximized = Win32Window.IsZoomed(_hwnd) });
                     TryAutoConnect();
                     _updateService?.SendVersion();
                     _updateService?.StartPeriodicChecks();
