@@ -37,6 +37,8 @@ interface Channel {
   parent?: number;
   description?: string;
   isEnterRestricted?: boolean;
+  canEnter?: boolean;
+  hasPasswordRestriction?: boolean;
 }
 
 interface ChannelWithUsers extends Channel {
@@ -271,6 +273,12 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     const isCurrentChannel = currentChannelId === channel.id;
     const unreadInfo = channelUnreads?.get(String(channel.id));
     const hasUnread = ((unreadInfo?.notificationCount ?? 0) + (unreadInfo?.highlightCount ?? 0)) > 0;
+    const lockIconName = channel.isEnterRestricted
+      ? channel.canEnter === false ? 'lock' : 'unlock'
+      : null;
+    const lockTooltip = channel.canEnter === false
+      ? 'Restricted channel'
+      : 'Restricted channel, access allowed';
 
     const isChannelActive = (channelId: number) => channelContextMenu?.channelId === channelId;
 
@@ -332,6 +340,13 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
             )}
           </span>
           <span className="channel-name">{channel.name}</span>
+          {lockIconName && (
+            <Tooltip content={lockTooltip}>
+              <span className="channel-access-icon" aria-label={lockTooltip}>
+                <Icon name={lockIconName} size={11} />
+              </span>
+            </Tooltip>
+          )}
           {channel.users.length > 0 && (
             <Tooltip content={(sortByNamePerChannel[channel.id] ?? false) ? 'Sort by join order' : 'Sort alphabetically'}>
             <button

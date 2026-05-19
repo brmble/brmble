@@ -274,6 +274,36 @@ describe('ChannelTree screen share behavior', () => {
   });
 });
 
+describe('ChannelTree channel access locks', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('renders no lock for unrestricted channels', () => {
+    render(<ChannelTree channels={[{ id: 1, name: 'Open' }]} users={[]} currentChannelId={1} onJoinChannel={vi.fn()} />);
+
+    const row = screen.getByText('Open').closest('.channel-row');
+    expect(row?.querySelector('[data-icon="lock"]')).toBeNull();
+    expect(row?.querySelector('[data-icon="unlock"]')).toBeNull();
+  });
+
+  it('renders an open lock for restricted channels the user can enter', () => {
+    render(<ChannelTree channels={[{ id: 1, name: 'Allowed', isEnterRestricted: true, canEnter: true }]} users={[]} currentChannelId={1} onJoinChannel={vi.fn()} />);
+
+    const row = screen.getByText('Allowed').closest('.channel-row');
+    expect(row?.querySelector('[data-icon="unlock"]')).not.toBeNull();
+    expect(row?.querySelector('[data-icon="lock"]')).toBeNull();
+  });
+
+  it('renders a closed lock for restricted channels the user cannot enter without exposing a password', () => {
+    render(<ChannelTree channels={[{ id: 1, name: 'Secret', isEnterRestricted: true, canEnter: false, hasPasswordRestriction: true }]} users={[]} currentChannelId={1} onJoinChannel={vi.fn()} />);
+
+    const row = screen.getByText('Secret').closest('.channel-row');
+    expect(row?.querySelector('[data-icon="lock"]')).not.toBeNull();
+    expect(row?.textContent).not.toContain('password');
+  });
+});
+
 describe('ChannelTree ACL integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
