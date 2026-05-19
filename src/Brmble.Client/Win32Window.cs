@@ -388,7 +388,7 @@ internal static class Win32Window
         }
     }
 
-    public static IntPtr Create(string className, string title, int x, int y, int width, int height, WndProc wndProc)
+    public static IntPtr Create(string className, string title, int x, int y, int width, int height, WndProc wndProc, uint backgroundColorRef)
     {
         var hInstance = GetModuleHandle(null);
         _wndProcRefs.Add(wndProc);
@@ -405,7 +405,7 @@ internal static class Win32Window
             hIcon = hIconLg,
             hIconSm = hIconSm,
             hCursor = LoadCursor(IntPtr.Zero, 32512),
-            hbrBackground = CreateSolidBrush(0x140a0f), // #0f0a14 as COLORREF (0x00BBGGRR)
+            hbrBackground = CreateSolidBrush(backgroundColorRef),
             lpszClassName = className
         };
         RegisterClassEx(ref wc);

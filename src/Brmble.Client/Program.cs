@@ -39,9 +39,10 @@ static class Program
     private const int ResizeBorderWidth = 6;
 
     /// <summary>
-    /// Calculates the WebView2 bounds, always inset from the client rect
-    /// by the resize border width so the native background shows through
-    /// on all edges in both normal and maximized states.
+    /// Calculates the WebView2 bounds. In normal state we inset by the resize
+    /// border width so the native brush shows through as a grab-strip for
+    /// resizing. When maximized resizing is disabled, so the WebView2 fills
+    /// the full client rect — no dark strip visible against the screen edge.
     /// </summary>
     private static Rectangle GetWebViewBounds(IntPtr hwnd)
     {
@@ -49,7 +50,7 @@ static class Program
         int w = rect.Right - rect.Left;
         int h = rect.Bottom - rect.Top;
 
-        int b = ResizeBorderWidth;
+        int b = Win32Window.IsZoomed(hwnd) ? 0 : ResizeBorderWidth;
         return new Rectangle(b, b, Math.Max(0, w - 2 * b), Math.Max(0, h - 2 * b));
     }
 
@@ -138,7 +139,10 @@ static class Program
                 }
             }
 
-            _hwnd = Win32Window.Create("BrmbleWindow", "Brmble", wx, wy, ww, wh, WndProc);
+            var startupTheme = _appConfigService.GetSettings().Appearance.Theme;
+            var (sr, sg, sb) = ThemeColors.GetBgDeep(startupTheme);
+            uint startupBgColorRef = (uint)(sb << 16 | sg << 8 | sr);
+            _hwnd = Win32Window.Create("BrmbleWindow", "Brmble", wx, wy, ww, wh, WndProc, startupBgColorRef);
             if (restoreMaximized)
                 Win32Window.ShowWindow(_hwnd, Win32Window.SW_MAXIMIZE);
             Win32Window.ExtendFrameIntoClientArea(_hwnd);
