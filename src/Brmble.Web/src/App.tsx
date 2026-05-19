@@ -662,8 +662,10 @@ export function isMatrixChannelChatActive(
   credentials: MatrixCredentials | null,
   statuses: ServiceStatusMap,
   selfUser: User | undefined,
+  channels: Channel[] = [],
 ): boolean {
   if (!channelId || channelId === 'server-root') return false;
+  if (!canOpenChannelChat(channelId, channels)) return false;
   if (statuses.server.state !== 'connected' || statuses.chat.state !== 'connected') return false;
   if (!selfUser?.isBrmbleClient) return false;
   return credentials?.roomMap[channelId] !== undefined;
@@ -1727,6 +1729,7 @@ function App() {
             matrixCredentialsRef.current,
             statusesRef.current,
             selfUser,
+            channelsRef.current,
           );
           if (!matrixActive) {
             const storeKey = `channel-${channelId}`;
@@ -2693,6 +2696,10 @@ const handleConnect = (serverData: SavedServer) => {
       setUnreadCount(0);
       setShowGame(false);
 
+      if (!canOpenChannelChat(String(channelId), channels)) {
+        return;
+      }
+
       if (dmStore.appMode === 'dm') {
         dmStore.toggleMode();
       }
@@ -2715,9 +2722,12 @@ const handleConnect = (serverData: SavedServer) => {
 
     const channelId = currentChannelId;
     if (!channelId) return;
+    if (!canSendToChannelChat(channelId, channelsRef.current)) {
+      return;
+    }
 
       const selfUser = usersRef.current.find(u => u.self);
-      const isMatrixChannel = isMatrixChannelChatActive(channelId, matrixCredentials, statuses, selfUser);
+      const isMatrixChannel = isMatrixChannelChatActive(channelId, matrixCredentials, statuses, selfUser, channels);
 
     // Send text content (existing behavior)
     if (content) {
@@ -3016,8 +3026,15 @@ const handleConnect = (serverData: SavedServer) => {
 
   const selfUserForChat = users.find(u => u.self);
   const isMatrixActive = activeChannelId
-    ? isMatrixChannelChatActive(activeChannelId, matrixCredentials, statuses, selfUserForChat)
+    ? isMatrixChannelChatActive(activeChannelId, matrixCredentials, statuses, selfUserForChat, channels)
     : false;
+  const canOpenActiveChannelChat = canOpenChannelChat(activeChannelId, channels);
+  const canSendActiveChannelChat = canSendToChannelChat(activeChannelId, channels);
+  const channelChatAccessNotice = activeChannelId && activeChannelId !== 'server-root' && !canOpenActiveChannelChat
+    ? 'You do not have access to this channel chat.'
+    : activeChannelId && activeChannelId !== 'server-root' && !canSendActiveChannelChat
+      ? 'You can read this channel chat, but cannot send messages.'
+      : undefined;
   const brmbleTemporaryChatActive = isTemporaryChannelChatActive(activeChannelId, statuses);
   const brmbleServiceOutageActive = isBrmbleServiceOutageActive(statuses);
   const matrixMessages = activeChannelId
@@ -3025,11 +3042,13 @@ const handleConnect = (serverData: SavedServer) => {
     : undefined;
 
   const channelChatMessages = useMemo(
-    () => [
-      ...(isMatrixActive ? (matrixMessages ?? []) : messages),
-      ...optimisticImages.filter(m => m.channelId === currentChannelId),
-    ],
-    [isMatrixActive, matrixMessages, messages, optimisticImages, currentChannelId],
+    () => canOpenActiveChannelChat
+      ? [
+        ...(isMatrixActive ? (matrixMessages ?? []) : messages),
+        ...optimisticImages.filter(m => m.channelId === currentChannelId),
+      ]
+      : [],
+    [canOpenActiveChannelChat, isMatrixActive, matrixMessages, messages, optimisticImages, currentChannelId],
   );
 
   const { Prompt, PromptWithInput } = usePrompt();
@@ -3375,6 +3394,7 @@ const handleConnect = (serverData: SavedServer) => {
     if (!matrixCredentials?.roomMap) return new Map<string, { notificationCount: number; highlightCount: number }>();
     const map = new Map<string, { notificationCount: number; highlightCount: number }>();
     for (const [channelId, roomId] of Object.entries(matrixCredentials.roomMap)) {
+      if (!canOpenChannelChat(channelId, channels)) continue;
       const unread = unreadTracker.getRoomUnread(roomId);
       if (unread.notificationCount > 0) {
         map.set(channelId, {
@@ -3384,7 +3404,7 @@ const handleConnect = (serverData: SavedServer) => {
       }
     }
     return map;
-  }, [matrixCredentials?.roomMap, unreadTracker.roomUnreads]);
+  }, [channels, matrixCredentials?.roomMap, unreadTracker.roomUnreads]);
 
   useEffect(() => {
     if (screenShareError) {
@@ -3803,7 +3823,8 @@ const handleConnect = (serverData: SavedServer) => {
                     onCloseShare={(share) => disconnectViewer(share.userId)}
                     screenShareViewerMode={screenShareSettings.viewerMode}
                     users={users}
-                    topNotice={brmbleTemporaryChatActive ? BRMBLE_SERVICE_TEMPORARY_CHAT_NOTICE : undefined}
+                    disabled={!canSendActiveChannelChat}
+                    topNotice={channelChatAccessNotice ?? (brmbleTemporaryChatActive ? BRMBLE_SERVICE_TEMPORARY_CHAT_NOTICE : undefined)}
                     onMessageContextMenu={handleChatMessageContextMenu}
                     onCopyToClipboard={handleCopyToClipboard}
                   />

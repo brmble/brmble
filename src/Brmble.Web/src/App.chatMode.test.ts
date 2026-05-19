@@ -29,27 +29,39 @@ const connectedStatuses: ServiceStatusMap = {
   livekit: { state: 'idle' },
 };
 
+const matrixChannels = [
+  { id: 1, name: 'Allowed', canOpenChat: true, canSendChat: true },
+  { id: 2, name: 'Denied', canOpenChat: false, canSendChat: false },
+];
+
 describe('isMatrixChannelChatActive', () => {
   it('uses Matrix only when room, Brmble server, Matrix chat, and self Brmble identity are ready', () => {
-    expect(isMatrixChannelChatActive('1', credentials, connectedStatuses, { session: 1, name: 'Me', self: true, isBrmbleClient: true })).toBe(true);
+    expect(isMatrixChannelChatActive('1', credentials, connectedStatuses, { session: 1, name: 'Me', self: true, isBrmbleClient: true }, matrixChannels)).toBe(true);
+  });
+
+  it('falls back to Mumble when channel chat access is denied', () => {
+    expect(isMatrixChannelChatActive('2', {
+      ...credentials,
+      roomMap: { ...credentials.roomMap, '2': '!denied:example.com' },
+    }, connectedStatuses, { session: 1, name: 'Me', self: true, isBrmbleClient: true }, matrixChannels)).toBe(false);
   });
 
   it('falls back to Mumble while Brmble server is reconnecting even if credentials still exist', () => {
     expect(isMatrixChannelChatActive('1', credentials, {
       ...connectedStatuses,
       server: { state: 'connecting' },
-    }, { session: 1, name: 'Me', self: true, isBrmbleClient: true })).toBe(false);
+    }, { session: 1, name: 'Me', self: true, isBrmbleClient: true }, matrixChannels)).toBe(false);
   });
 
   it('falls back to Mumble until Matrix chat is connected', () => {
     expect(isMatrixChannelChatActive('1', credentials, {
       ...connectedStatuses,
       chat: { state: 'connecting' },
-    }, { session: 1, name: 'Me', self: true, isBrmbleClient: true })).toBe(false);
+    }, { session: 1, name: 'Me', self: true, isBrmbleClient: true }, matrixChannels)).toBe(false);
   });
 
   it('falls back to Mumble until self is restored as a Brmble client', () => {
-    expect(isMatrixChannelChatActive('1', credentials, connectedStatuses, { session: 1, name: 'Me', self: true, isBrmbleClient: false })).toBe(false);
+    expect(isMatrixChannelChatActive('1', credentials, connectedStatuses, { session: 1, name: 'Me', self: true, isBrmbleClient: false }, matrixChannels)).toBe(false);
   });
 });
 
