@@ -136,13 +136,19 @@ static class Program
             }
 
             var startupTheme = _appConfigService.GetSettings().Appearance.Theme;
-            var (sr, sg, sb) = ThemeColors.GetBgPrimary(startupTheme);
-            uint startupBgColorRef = (uint)(sb << 16 | sg << 8 | sr);
+            var (br0, bg0, bb0) = ThemeColors.GetBgPrimary(startupTheme);
+            uint startupBgColorRef = Win32Window.ToColorRef(br0, bg0, bb0);
             _hwnd = Win32Window.Create("BrmbleWindow", "Brmble", wx, wy, ww, wh, WndProc, startupBgColorRef);
             if (restoreMaximized)
                 Win32Window.ShowWindow(_hwnd, Win32Window.SW_MAXIMIZE);
             Win32Window.ExtendFrameIntoClientArea(_hwnd);
             Win32Window.ForceFrameChange(_hwnd);
+
+            // Win11 chrome: rounded corners + 1px themed outline. Both are
+            // silently ignored on older Windows / pre-22H2 builds.
+            Win32Window.EnableRoundedCorners(_hwnd);
+            var (sbr, sbg, sbb) = ThemeColors.GetBorderSubtle(startupTheme);
+            Win32Window.SetBorderColor(_hwnd, Win32Window.ToColorRef(sbr, sbg, sbb));
             TrayIcon.Create(_hwnd);
             TaskbarBadge.Initialize(_hwnd);
             _ = InitWebView2Async(_hwnd, useDevServer);
@@ -469,14 +475,17 @@ static class Program
                 // before WebView2 catches up — matching --bg-primary blends
                 // that flash with the sidebar instead of contrasting darkly.
                 var (r, g, b) = ThemeColors.GetBgPrimary(theme);
-                uint colorRef = (uint)(b << 16 | g << 8 | r);
-                var newBrush = Win32Window.CreateBackgroundBrush(colorRef);
+                var newBrush = Win32Window.CreateBackgroundBrush(Win32Window.ToColorRef(r, g, b));
                 var oldBrush = Win32Window.SetClassLongPtr(
                     _hwnd, Win32Window.GCL_HBRBACKGROUND, newBrush);
                 if (oldBrush != IntPtr.Zero && oldBrush != newBrush)
                     Win32Window.DeleteObject(oldBrush);
                 _currentBgBrush = newBrush;
                 Win32Window.InvalidateRect(_hwnd, IntPtr.Zero, true);
+
+                // Update the 1px DWM outline to match --border-subtle.
+                var (bsr, bsg, bsb) = ThemeColors.GetBorderSubtle(theme);
+                Win32Window.SetBorderColor(_hwnd, Win32Window.ToColorRef(bsr, bsg, bsb));
             }
             return Task.CompletedTask;
         });
