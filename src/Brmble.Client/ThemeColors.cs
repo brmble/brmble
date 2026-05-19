@@ -43,6 +43,28 @@ internal static class ThemeColors
     }
 
     /// <summary>
+    /// Returns the --bg-primary color for the given theme. Used for the
+    /// native resize-border brush so the strip blends with the sidebar
+    /// background (which uses --bg-primary) instead of contrasting with it.
+    /// These values must stay in sync with the CSS tokens in src/Brmble.Web/src/themes/.
+    /// </summary>
+    public static (byte R, byte G, byte B) GetBgPrimary(string? themeName)
+    {
+        return themeName switch
+        {
+            "classic"        => (0x1A, 0x10, 0x25), // #1a1025
+            "clean"          => (0x1A, 0x10, 0x25), // #1a1025 (inherits classic)
+            "blue-lagoon"    => (0x12, 0x1E, 0x26), // #121e26
+            "cosmopolitan"   => (0x1F, 0x13, 0x17), // #1f1317
+            "aperol-spritz"  => (0x21, 0x17, 0x10), // #211710
+            "midori-sour"    => (0x0E, 0x1F, 0x18), // #0e1f18
+            "lemon-drop"     => (0x1F, 0x1C, 0x10), // #1f1c10
+            "retro-terminal" => (0x0A, 0x0A, 0x0A), // #0a0a0a
+            _                => (0x1A, 0x10, 0x25), // default to classic
+        };
+    }
+
+    /// <summary>
     /// Resolves the path to a theme's brmble.ico file.
     /// Falls back to the root Resources/brmble.ico if the theme folder doesn't exist.
     /// </summary>

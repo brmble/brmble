@@ -40,6 +40,7 @@ import { usePrompt, confirm } from './hooks/usePrompt';
 import { NeonDGame } from './components/NeonD/NeonDGame';
 import { ProfileProvider } from './contexts/ProfileContext';
 import { UpdateNotification } from './components/UpdateNotification/UpdateNotification';
+import { WindowResizeHandles } from './components/WindowResizeHandles/WindowResizeHandles';
 import { BrokenCertNotification } from './components/BrokenCertNotification/BrokenCertNotification';
 import { Notification } from './components/Notification/Notification';
 import type { NotificationStatus } from './components/Notification/Notification';
@@ -3604,6 +3605,7 @@ const handleConnect = (serverData: SavedServer) => {
 
   return (
     <div className={`app${showOnboarding ? ' app--onboarding' : ''}`}>
+      <WindowResizeHandles />
       <ProfileProvider value={certFingerprint}>
       <ErrorBoundary label="Header">
       <Header
