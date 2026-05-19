@@ -628,6 +628,10 @@ export function getChannelChatAccessRequestIds(channels: Channel[]): number[] {
   return [...new Set(channels.map(channel => channel.id).filter(id => id > 0))];
 }
 
+export function getChannelChatAccessRequestKey(channels: Channel[]): string {
+  return getChannelChatAccessRequestIds(channels).join(',');
+}
+
 export function canOpenChannelChat(channelId: string | undefined, channels: Channel[]): boolean {
   if (!channelId) return false;
   if (channelId === 'server-root') return true;
@@ -2572,12 +2576,14 @@ function App() {
     bridge.send('profiles.list');
   }, []);
 
+  const channelChatAccessRequestIds = useMemo(() => getChannelChatAccessRequestIds(channels), [channels]);
+  const channelChatAccessRequestKey = channelChatAccessRequestIds.join(',');
+
   useEffect(() => {
     if (statuses.server.state !== 'connected' || !matrixCredentials?.roomMap) return;
-    const channelIds = getChannelChatAccessRequestIds(channels);
-    if (channelIds.length === 0) return;
-    bridge.send('chat.getChannelAccess', { channelIds });
-  }, [channels, matrixCredentials?.roomMap, statuses.server.state]);
+    if (!channelChatAccessRequestKey) return;
+    bridge.send('chat.getChannelAccess', { channelIds: channelChatAccessRequestKey.split(',').map(Number) });
+  }, [channelChatAccessRequestKey, matrixCredentials?.roomMap, statuses.server.state]);
 
   useEffect(() => {
     if (currentChannelId && currentChannelId !== 'server-root' && matrixCredentials) {

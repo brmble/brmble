@@ -3,6 +3,7 @@ import {
   canOpenChannelChat,
   canSendToChannelChat,
   getChannelAccessDeniedMessage,
+  getChannelChatAccessRequestKey,
   getChannelChatAccessRequestIds,
   isBrmbleServiceOutageActive,
   isMatrixChannelChatActive,
@@ -60,6 +61,16 @@ describe('channel chat access helpers', () => {
       { id: 1, name: 'General duplicate' },
       { id: -2, name: 'Invalid' },
     ])).toEqual([1]);
+  });
+
+  it('keeps the chat access request key stable when only access flags change', () => {
+    expect(getChannelChatAccessRequestKey([
+      { id: 1, name: 'General' },
+      { id: 2, name: 'Quiet', canOpenChat: false, canSendChat: false },
+    ])).toBe(getChannelChatAccessRequestKey([
+      { id: 1, name: 'General', canOpenChat: true, canSendChat: true },
+      { id: 2, name: 'Quiet', canOpenChat: true, canSendChat: false },
+    ]));
   });
 
   it('merges canRead and canSend without dropping voice channel state', () => {
