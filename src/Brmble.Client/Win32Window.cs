@@ -364,6 +364,12 @@ internal static class Win32Window
     private const int DWMWCP_ROUND = 2;
 
     /// <summary>
+    /// Packs an (R, G, B) triple into a Win32 COLORREF (0x00BBGGRR).
+    /// Used by the window-class background brush and DWMWA_BORDER_COLOR.
+    /// </summary>
+    public static uint ToColorRef(byte r, byte g, byte b) => (uint)(b << 16 | g << 8 | r);
+
+    /// <summary>
     /// Enables Win11 rounded window corners (~8px radius). No-op on Windows 10.
     /// </summary>
     public static void EnableRoundedCorners(IntPtr hwnd)
