@@ -609,15 +609,23 @@ type ChannelChatAccessMap = Record<string, ChannelChatAccessState>;
 const MUMBLE_PERMISSION_ENTER = 2;
 
 export function mergeChannelChatAccess(channels: Channel[], access: ChannelChatAccessMap): Channel[] {
-  return channels.map(channel => {
+  let changed = false;
+  const merged = channels.map(channel => {
     const state = access[String(channel.id)];
     if (!state) return channel;
+    if (channel.canOpenChat === state.canRead && channel.canSendChat === state.canSend) return channel;
+    changed = true;
     return {
       ...channel,
       canOpenChat: state.canRead,
       canSendChat: state.canSend,
     };
   });
+  return changed ? merged : channels;
+}
+
+export function getChannelChatAccessRequestIds(channels: Channel[]): number[] {
+  return [...new Set(channels.map(channel => channel.id).filter(id => id > 0))];
 }
 
 export function canOpenChannelChat(channelId: string | undefined, channels: Channel[]): boolean {
@@ -2408,6 +2416,20 @@ function App() {
       } catch { /* ignore parse errors */ }
     };
 
+    const onChatChannelAccess = (data: unknown) => {
+      const payload = data as { body?: string; channels?: ChannelChatAccessMap } | undefined;
+      let channelsAccess = payload?.channels;
+      if (!channelsAccess && payload?.body) {
+        try {
+          channelsAccess = (JSON.parse(payload.body) as { channels?: ChannelChatAccessMap }).channels;
+        } catch {
+          channelsAccess = undefined;
+        }
+      }
+      if (!channelsAccess) return;
+      setChannels(prev => mergeChannelChatAccess(prev, channelsAccess));
+    };
+
     bridge.on('brmble.serviceStatus', onBrmbleServiceStatus);
     bridge.on('voice.connected', onVoiceConnected);
     bridge.on('voice.disconnected', onVoiceDisconnected);
@@ -2476,6 +2498,7 @@ function App() {
     bridge.on('voice.brmbleClientActivated', onBrmbleClientActivated);
     bridge.on('voice.brmbleClientDeactivated', onBrmbleClientDeactivated);
     bridge.on('voice.registrationStatus', onRegistrationStatus);
+    bridge.on('chat.channelAccess', onChatChannelAccess);
     const onVoiceLoss = (data: unknown) => {
       const payload = data as { loss?: number } | null;
       const loss = typeof payload?.loss === 'number' ? payload.loss : undefined;
@@ -2539,6 +2562,7 @@ function App() {
       bridge.off('voice.brmbleClientActivated', onBrmbleClientActivated);
       bridge.off('voice.brmbleClientDeactivated', onBrmbleClientDeactivated);
       bridge.off('voice.registrationStatus', onRegistrationStatus);
+      bridge.off('chat.channelAccess', onChatChannelAccess);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -2547,6 +2571,13 @@ function App() {
     bridge.send('cert.requestStatus');
     bridge.send('profiles.list');
   }, []);
+
+  useEffect(() => {
+    if (statuses.server.state !== 'connected' || !matrixCredentials?.roomMap) return;
+    const channelIds = getChannelChatAccessRequestIds(channels);
+    if (channelIds.length === 0) return;
+    bridge.send('chat.getChannelAccess', { channelIds });
+  }, [channels, matrixCredentials?.roomMap, statuses.server.state]);
 
   useEffect(() => {
     if (currentChannelId && currentChannelId !== 'server-root' && matrixCredentials) {

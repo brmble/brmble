@@ -238,6 +238,25 @@ public class MumbleAdapterParseTests
     }
 
     [TestMethod]
+    public async Task ChatGetChannelAccess_WithoutApiUrl_ReturnsEmptyAccessMap()
+    {
+        var bridge = NativeBridgeTestHarness.Create();
+        var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge, apiUrl: null);
+        adapter.RegisterHandlers(bridge);
+
+        using var doc = JsonDocument.Parse("""
+        { "channelIds": [1, 2] }
+        """);
+
+        await NativeBridgeTestHarness.InvokeAsync(bridge, "chat.getChannelAccess", doc.RootElement.Clone());
+
+        var sent = NativeBridgeTestHarness.DrainMessages(bridge);
+        var access = sent.Single(m => m.Type == "chat.channelAccess");
+        using var payload = JsonDocument.Parse(access.DataJson);
+        Assert.AreEqual(0, payload.RootElement.GetProperty("channels").EnumerateObject().Count());
+    }
+
+    [TestMethod]
     public async Task ActiveShareError_EchoesRequestId()
     {
         var bridge = NativeBridgeTestHarness.Create();

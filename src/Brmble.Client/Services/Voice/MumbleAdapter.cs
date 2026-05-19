@@ -3300,6 +3300,34 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _bridge?.NotifyUiThread();
         });
 
+        bridge.RegisterHandler("chat.getChannelAccess", async data =>
+        {
+            var channelIds = data.TryGetProperty("channelIds", out var ids) && ids.ValueKind == System.Text.Json.JsonValueKind.Array
+                ? ids.EnumerateArray().Where(e => e.ValueKind == System.Text.Json.JsonValueKind.Number).Select(e => e.GetInt32()).Where(id => id > 0).Distinct().ToArray()
+                : [];
+
+            if (channelIds.Length == 0 || _apiUrl is null)
+            {
+                _bridge?.Send("chat.channelAccess", new { channels = new Dictionary<string, object>() });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            using var cert = _certService?.GetExportableCertificate();
+            if (cert is null)
+            {
+                _bridge?.Send("chat.channelAccessError", new { error = "No client certificate" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            var uri = new Uri(new Uri(_apiUrl, UriKind.Absolute), "chat/channel-access");
+            var requestJson = System.Text.Json.JsonSerializer.Serialize(new { channelIds });
+            var result = await PostViaBcTls(cert, uri, requestJson);
+            _bridge?.Send(result.Success ? "chat.channelAccess" : "chat.channelAccessError", new { body = result.Body, statusCode = result.StatusCode, error = result.Error });
+            _bridge?.NotifyUiThread();
+        });
+
         bridge.RegisterHandler("acl.setChannel", async data =>
         {
             var channelId = data.TryGetProperty("channelId", out var cid) && cid.ValueKind == System.Text.Json.JsonValueKind.Number

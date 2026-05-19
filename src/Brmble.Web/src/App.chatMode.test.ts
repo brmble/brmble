@@ -3,6 +3,7 @@ import {
   canOpenChannelChat,
   canSendToChannelChat,
   getChannelAccessDeniedMessage,
+  getChannelChatAccessRequestIds,
   isBrmbleServiceOutageActive,
   isMatrixChannelChatActive,
   isStructuredEnterDenied,
@@ -52,6 +53,15 @@ describe('isMatrixChannelChatActive', () => {
 });
 
 describe('channel chat access helpers', () => {
+  it('deduplicates positive channel ids for chat access requests', () => {
+    expect(getChannelChatAccessRequestIds([
+      { id: 0, name: 'Root' },
+      { id: 1, name: 'General' },
+      { id: 1, name: 'General duplicate' },
+      { id: -2, name: 'Invalid' },
+    ])).toEqual([1]);
+  });
+
   it('merges canRead and canSend without dropping voice channel state', () => {
     const result = mergeChannelChatAccess([
       { id: 1, name: 'General', isEnterRestricted: true, canEnter: false, hasPasswordRestriction: true },
@@ -70,6 +80,15 @@ describe('channel chat access helpers', () => {
       canSendChat: false,
     });
     expect(result[1]).toMatchObject({ canOpenChat: true, canSendChat: true });
+  });
+
+  it('preserves channel array identity when access does not change', () => {
+    const channels = [{ id: 1, name: 'General', canOpenChat: true, canSendChat: true }];
+
+    expect(mergeChannelChatAccess(channels, {
+      '1': { canRead: true, canSend: true },
+    })).toBe(channels);
+    expect(mergeChannelChatAccess(channels, {})).toBe(channels);
   });
 
   it('allows server root chat and gates restricted Matrix channels', () => {
