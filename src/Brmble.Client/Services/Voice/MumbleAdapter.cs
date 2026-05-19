@@ -417,6 +417,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         UserDictionary.Clear();
         ChannelDictionary.Clear();
+        _channelPasswordRestrictions.Clear();
         _lastWelcomeText = null;
         _previousChannelId = null;
         _pendingLocalJoinChannelId = null;

@@ -92,12 +92,46 @@ public class MumbleAdapterBridgeTests
         Assert.IsFalse(channel.GetProperty("hasPasswordRestriction").GetBoolean());
     }
 
+    [TestMethod]
+    public void HandleWebSocketMessage_AclChangedManagedPasswordMarker_UpdatesChannelPayloadWithoutToken()
+    {
+        var adapter = CreateAdapterWithBridge(out var bridge);
+        var channels = GetChannelDictionary(adapter);
+        channels[4] = new Channel(adapter, 4, "Locked", 0)
+        {
+            IsEnterRestricted = true,
+            CanEnter = false,
+        };
+
+        InvokePrivate(adapter, "HandleWebSocketMessage", """
+        {"type":"acl.changed","channelId":4,"snapshot":{"acls":[{"group":"__brmble_password_marker__:#secret-token"}]}}
+        """);
+
+        var sent = NativeBridgeTestHarness.DrainMessages(bridge);
+        var channelJoined = sent.Single(m => m.Type == "voice.channelJoined");
+        using var doc = JsonDocument.Parse(channelJoined.DataJson);
+        var channel = doc.RootElement;
+
+        Assert.IsTrue(channel.GetProperty("hasPasswordRestriction").GetBoolean());
+        Assert.IsFalse(channelJoined.DataJson.Contains("secret-token", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void Disconnect_ClearsChannelPasswordRestrictionCache()
+    {
+        var adapter = CreateAdapterWithBridge(out _);
+        var restrictions = GetChannelPasswordRestrictionDictionary(adapter);
+        restrictions[4] = true;
+
+        adapter.Disconnect();
+
+        Assert.AreEqual(0, restrictions.Count);
+    }
+
     private static MumbleAdapter CreateAdapterWithBridge(out NativeBridge bridge)
     {
         bridge = NativeBridgeTestHarness.Create();
-        var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge);
-        SetPrivateField(adapter, "_channelPasswordRestrictions", new System.Collections.Concurrent.ConcurrentDictionary<uint, bool>());
-        return adapter;
+        return MumbleAdapterTestHarness.CreateWithBridge(bridge);
     }
 
     private static void InvokePrivate(object instance, string methodName, string json)
@@ -120,6 +154,12 @@ public class MumbleAdapterBridgeTests
             .GetType()
             .BaseType!
             .GetField("ChannelDictionary", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(adapter)!;
+
+    private static System.Collections.Concurrent.ConcurrentDictionary<uint, bool> GetChannelPasswordRestrictionDictionary(MumbleAdapter adapter)
+        => (System.Collections.Concurrent.ConcurrentDictionary<uint, bool>)adapter
+            .GetType()
+            .GetField("_channelPasswordRestrictions", BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(adapter)!;
 
     private static void AssertBridgeSent(NativeBridge bridge, string expectedType)

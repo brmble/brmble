@@ -76,6 +76,7 @@ internal static class MumbleAdapterTestHarness
         SetField(adapter, "_audioManager", audioManager);
         SetField(adapter, "_userMappings", new Dictionary<string, string>());
         SetField(adapter, "_sessionMappings", new ConcurrentDictionary<uint, MumbleAdapter.SessionMappingEntry>());
+        SetField(adapter, "_channelPasswordRestrictions", new ConcurrentDictionary<uint, bool>());
         return adapter;
     }
 
