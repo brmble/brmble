@@ -1,5 +1,6 @@
 using Brmble.Server.Auth;
 using Brmble.Server.Data;
+using Brmble.Server.Events;
 using Brmble.Server.Matrix;
 using Brmble.Server.Mumble;
 using Microsoft.AspNetCore.Hosting;
@@ -19,6 +20,8 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
     private readonly string? _certHash;
     public Mock<IAclAuthorizationService> AclAuthorizationMock { get; } = new();
     public Mock<IAclSyncCoordinator> AclCoordinatorMock { get; } = new();
+    public Mock<IMumbleAclService> MumbleAclMock { get; } = new();
+    public Mock<ISessionMappingService> SessionMappingMock { get; } = new();
     public Mock<IMumbleRegistrationService> MumbleRegistrationMock { get; } = new();
 
     public BrmbleServerFactory(string? certHash = "testcerthash123")
@@ -28,6 +31,7 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
         _cs = $"Data Source={dbName};Mode=Memory;Cache=Shared";
         _keepAlive = new SqliteConnection(_cs);
         _keepAlive.Open();
+        AclAuthorizationMock.Setup(a => a.CanManageChannelAclAsync(It.IsAny<long>(), 0)).ReturnsAsync(true);
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -80,6 +84,14 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
             var aclSync = services.FirstOrDefault(d => d.ServiceType == typeof(IAclSyncCoordinator));
             if (aclSync != null) services.Remove(aclSync);
             services.AddSingleton(AclCoordinatorMock.Object);
+
+            var aclService = services.FirstOrDefault(d => d.ServiceType == typeof(IMumbleAclService));
+            if (aclService != null) services.Remove(aclService);
+            services.AddSingleton(MumbleAclMock.Object);
+
+            var sessionMapping = services.FirstOrDefault(d => d.ServiceType == typeof(ISessionMappingService));
+            if (sessionMapping != null) services.Remove(sessionMapping);
+            services.AddSingleton(SessionMappingMock.Object);
 
             var registration = services.FirstOrDefault(d => d.ServiceType == typeof(IMumbleRegistrationService));
             if (registration != null) services.Remove(registration);

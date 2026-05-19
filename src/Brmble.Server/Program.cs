@@ -75,6 +75,7 @@ app.MapAuthEndpoints();
 app.MapAdminEndpoints();
 app.MapDmEndpoints();
 app.MapAclAdminEndpoints();
+app.MapChannelChatAccessEndpoints();
 app.Map("/ws", BrmbleWebSocketHandler.HandleAsync);
 app.MapServerInfoEndpoints();
 app.MapLiveKitEndpoints();
