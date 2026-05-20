@@ -13,6 +13,7 @@ import { AdminSettingsTab } from './AdminSettingsTab';
 import { ScreenShareSettingsTab } from './ScreenShareSettingsTab';
 import { useServerlist } from '../../hooks/useServerlist';
 import { usePermissions, Permission } from '../../hooks/usePermissions';
+import type { Channel } from '../../types';
 
 /** A flat map of every key binding in the app: bindingId → bound key code (or null). */
 export type AllBindings = Record<string, string | null>;
@@ -46,6 +47,15 @@ interface SettingsModalProps {
   brmblegotchiEnabled?: boolean;
   setBrmblegotchiEnabled?: (enabled: boolean) => void;
   onLiveCompanionChange?: (nextCompanion: CompanionSelection, previousCompanion: CompanionSelection) => void;
+  liveUsers?: Array<{
+    session: number;
+    name: string;
+    channelId?: number;
+    matrixUserId?: string;
+    companionId?: string;
+    isBrmbleClient?: boolean;
+  }>;
+  channels?: Channel[];
 }
 
 export interface ScreenShareSettings {
@@ -500,7 +510,7 @@ export function SettingsModal(props: SettingsModalProps) {
               onChange={handleScreenShareChange}
             />
           )}
-          {activeTab === 'admin' && hasAdminPermission && <AdminSettingsTab />}
+          {activeTab === 'admin' && hasAdminPermission && <AdminSettingsTab channels={props.channels ?? []} liveUsers={props.liveUsers ?? []} />}
 
         </div>
 

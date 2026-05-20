@@ -14,6 +14,7 @@ import type { ShareInfo } from '../../hooks/useScreenShare';
 import { EditChannelDialog } from '../EditChannelDialog/EditChannelDialog';
 import { RenameConfirmDialog } from '../RenameConfirmDialog/RenameConfirmDialog';
 import { Icon } from '../Icon/Icon';
+import { AclEditorDialog } from '../AclEditor/AclEditorDialog';
 import './ChannelTree.css';
 
 interface User {
@@ -35,6 +36,7 @@ interface Channel {
   name: string;
   parent?: number;
   description?: string;
+  isEnterRestricted?: boolean;
 }
 
 interface ChannelWithUsers extends Channel {
@@ -63,6 +65,23 @@ interface ChannelTreeProps {
   onMoveUser?: (session: number, channelId: number) => void;
 }
 
+function getManagedPasswordFromAclBody(body: string): string {
+  try {
+    const parsed = JSON.parse(body) as {
+      snapshot?: {
+        acls?: Array<{ group?: string | null }>;
+      };
+      acls?: Array<{ group?: string | null }>;
+    };
+    const acls = parsed.snapshot?.acls ?? parsed.acls ?? [];
+    const markerPrefix = '__brmble_password_marker__:#';
+    const marker = acls.find(acl => typeof acl.group === 'string' && acl.group.startsWith(markerPrefix))?.group;
+    return marker ? marker.slice(markerPrefix.length) : '';
+  } catch {
+    return '';
+  }
+}
+
 export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, speakingUsers, voiceIdle, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, onStopWatching, activeShares, watchingShares, onEditAvatar, onMoveUser }: ChannelTreeProps) {
   const [sortByNamePerChannel, setSortByNamePerChannel] = useState<Record<number, boolean>>({});
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string; isSelf: boolean; channelId?: number } | null>(null);
@@ -70,15 +89,14 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
   const [infoDialogUser, setInfoDialogUser] = useState<{ userId: string; userName: string; isSelf: boolean } | null>(null);
   const [draggedUser, setDraggedUser] = useState<number | null>(null);
   const [dropTargetChannel, setDropTargetChannel] = useState<number | null>(null);
-  const [editChannelDialog, setEditChannelDialog] = useState<{ id: number; name: string; description?: string } | null>(null);
+  const [editChannelDialog, setEditChannelDialog] = useState<{ id: number; name: string; description?: string; initialPassword: string } | null>(null);
+  const [aclEditorChannel, setAclEditorChannel] = useState<{ id: number; name: string } | null>(null);
   const [renameConfirmDialog, setRenameConfirmDialog] = useState<{
     channelId: number;
     oldName: string;
     newName: string;
     description: string;
   } | null>(null);
-  const [removeChannelDialog, setRemoveChannelDialog] = useState<{ id: number; name: string } | null>(null);
-  const [removeConfirmText, setRemoveConfirmText] = useState('');
   const { hasPermission, Permission, requestPermissions } = usePermissions();
   const sharingChannelIds = useMemo(() => {
     const ids = new Set<number>();
@@ -124,6 +142,28 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     };
     bridge.on('voice.error', handleError);
     return () => bridge.off('voice.error', handleError);
+  }, []);
+
+  useEffect(() => {
+    const handleAclChannel = (data: unknown) => {
+      const payload = data as { channelId?: number; body?: string } | undefined;
+      if (!payload?.body || payload.channelId == null) return;
+      const body = payload.body;
+
+      setEditChannelDialog(current => {
+        if (!current || current.id !== payload.channelId) {
+          return current;
+        }
+
+        return {
+          ...current,
+          initialPassword: getManagedPasswordFromAclBody(body),
+        };
+      });
+    };
+
+    bridge.on('acl.channel', handleAclChannel);
+    return () => bridge.off('acl.channel', handleAclChannel);
   }, []);
 
   const initialExpanded = useMemo(() => {
@@ -443,7 +483,9 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
             id: channelContextMenu.channelId,
             name: channelContextMenu.channelName,
             description: channel?.description || '',
+            initialPassword: '',
           });
+          bridge.send('acl.getChannel', { channelId: channelContextMenu.channelId });
           setChannelContextMenu(null);
         },
       });
@@ -452,9 +494,30 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     if (hasRemovePermission) {
       adminItems.push({
         type: 'item' as const,
-        label: 'Remove',
+        label: 'Edit Permissions',
         onClick: () => {
-          setRemoveChannelDialog({ id: channelContextMenu.channelId, name: channelContextMenu.channelName });
+          const channel = channels.find(c => c.id === channelContextMenu.channelId);
+          setAclEditorChannel({ id: channelContextMenu.channelId, name: channel?.name ?? 'Channel' });
+          setChannelContextMenu(null);
+        },
+      });
+
+      adminItems.push({
+        type: 'item' as const,
+        label: 'Remove',
+        onClick: async () => {
+          const result = await prompt({
+            title: 'Remove Channel',
+            message: `Type "Remove" to confirm deleting "${channelContextMenu.channelName}".`,
+            placeholder: 'Remove',
+            confirmLabel: 'Remove',
+            cancelLabel: 'Cancel',
+          });
+
+          if (result === 'Remove') {
+            bridge.send('voice.removeChannel', { channelId: channelContextMenu.channelId });
+          }
+
           setChannelContextMenu(null);
         },
       });
@@ -656,6 +719,7 @@ onClick: () => {
           isOpen={true}
           initialName={editChannelDialog.name}
           initialDescription={editChannelDialog.description}
+          initialPassword={editChannelDialog.initialPassword}
           onClose={() => setEditChannelDialog(null)}
           onSave={(name, description) => {
             const channel = channels.find(c => c.id === editChannelDialog!.id);
@@ -698,46 +762,15 @@ onClick: () => {
         />
       )}
 
-      {removeChannelDialog && (
-        <div className="modal-overlay" onClick={() => setRemoveChannelDialog(null)}>
-          <div
-            className="prompt glass-panel animate-slide-up"
-            role="dialog"
-            aria-modal="true"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="modal-header">
-              <h2 className="heading-title modal-title">Remove Channel</h2>
-              <p className="modal-subtitle">
-                Are you sure you want to remove "{removeChannelDialog.name}"?
-              </p>
-            </div>
-            <div className="prompt-input-container">
-              <input
-                type="text"
-                className="brmble-input"
-                placeholder='Type "Remove" to confirm'
-                onChange={(e) => setRemoveConfirmText(e.target.value)}
-              />
-            </div>
-            <div className="prompt-footer">
-              <button className="btn btn-secondary" onClick={() => setRemoveChannelDialog(null)}>
-                Cancel
-              </button>
-              <button
-                className="btn btn-primary"
-                disabled={removeConfirmText !== 'Remove'}
-                onClick={() => {
-                  bridge.send('voice.removeChannel', { channelId: removeChannelDialog.id });
-                  setRemoveChannelDialog(null);
-                  setRemoveConfirmText('');
-                }}
-              >
-                Remove
-              </button>
-            </div>
-          </div>
-        </div>
+      {aclEditorChannel && (
+        <AclEditorDialog
+          isOpen={true}
+          channelId={aclEditorChannel.id}
+          channelName={aclEditorChannel.name}
+          availableUsers={users}
+          isNativePasswordProtected={channels.find(c => c.id === aclEditorChannel.id)?.isEnterRestricted ?? false}
+          onClose={() => setAclEditorChannel(null)}
+        />
       )}
     </div>
   );

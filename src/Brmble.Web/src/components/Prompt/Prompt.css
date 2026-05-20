@@ -1,6 +1,11 @@
 .prompt {
+  --prompt-width: 23.75rem;
+  --prompt-button-width: 8.75rem;
+  --prompt-counter-width: 2.5rem;
+  --prompt-password-toggle-size: 1.75rem;
+
   width: 100%;
-  max-width: 380px;
+  max-width: var(--prompt-width);
   padding: var(--space-xl) var(--space-lg) var(--space-lg);
 }
 
@@ -17,11 +22,62 @@
 
 .prompt-input-container {
   margin: var(--space-lg) 0;
+  position: relative;
 }
 
 .prompt-input-container .brmble-input {
   width: 100%;
   box-sizing: border-box;
+}
+
+.prompt-input-container .brmble-input[type='password'],
+.prompt-input-container .brmble-input[type='text']:has(+ .password-toggle-btn) {
+  padding-right: var(--space-xl);
+}
+
+.prompt-input-container .brmble-input::-ms-reveal,
+.prompt-input-container .brmble-input::-ms-clear {
+  display: none;
+}
+
+.password-toggle-btn {
+  position: absolute;
+  right: var(--space-xs);
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--prompt-password-toggle-size);
+  height: var(--prompt-password-toggle-size);
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.prompt-input-container:focus-within .password-toggle-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.password-toggle-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.password-toggle-btn:active {
+  color: var(--text-primary);
+  background: var(--bg-active);
+}
+
+.password-toggle-btn:focus-visible {
+  outline: none;
 }
 
 .prompt-footer {
@@ -33,12 +89,12 @@
 
 .prompt-footer .btn {
   flex: 1;
-  max-width: 140px;
+  max-width: var(--prompt-button-width);
 }
 
 .char-counter {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
   align-self: center;
-  min-width: 40px;
+  min-width: var(--prompt-counter-width);
 }

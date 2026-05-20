@@ -6,8 +6,9 @@ interface EditChannelDialogProps {
   isOpen: boolean;
   initialName: string;
   initialDescription?: string;
+  initialPassword?: string;
   onClose: () => void;
-  onSave: (name: string, description: string) => void;
+  onSave: (name: string, description: string, password: string) => void;
   onError?: (message: string) => void;
 }
 
@@ -15,6 +16,7 @@ export function EditChannelDialog({
   isOpen,
   initialName,
   initialDescription = '',
+  initialPassword = '',
   onClose,
   onSave,
 }: EditChannelDialogProps) {
@@ -24,13 +26,13 @@ export function EditChannelDialog({
   useEffect(() => {
     setName(initialName);
     setDescription(initialDescription);
-  }, [initialName, initialDescription, isOpen]);
+  }, [initialName, initialDescription, initialPassword, isOpen]);
 
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(name, description);
+    onSave(name, description, initialPassword);
   };
 
   const hasChanges = name !== initialName || description !== initialDescription;
@@ -75,12 +77,11 @@ export function EditChannelDialog({
             />
           </div>
 
-          <div className="form-group password-placeholder">
-            <label>Password</label>
-            <div className="password-coming-soon">
-              <span className="coming-soon-text">Coming soon</span>
-              <p className="coming-soon-note">Channel passwords require ACL support (see issue #421)</p>
-            </div>
+          <div className="form-group">
+            <label>Password Access</label>
+            <p className="edit-channel-hint">
+              Channel password access is managed from the Permissions ACL editor so it stays visible alongside other group access rules.
+            </p>
           </div>
 
           <div className="edit-channel-footer">

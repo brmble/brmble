@@ -40,6 +40,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private readonly CertificateService? _certService;
     private uint? _previousChannelId;
     private uint? _pendingLocalJoinChannelId;
+    private string? _pendingJoinPassword;
+    private bool _hasActiveJoinToken;
     private bool _leftVoice;
     private bool _leaveVoiceInProgress;
     private bool _canRejoin;
@@ -417,6 +419,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _lastWelcomeText = null;
         _previousChannelId = null;
         _pendingLocalJoinChannelId = null;
+        _pendingJoinPassword = null;
+        _hasActiveJoinToken = false;
         if (_intentionalDisconnect || _reconnectHost == null)
         {
             _apiUrl = null;
@@ -948,13 +952,52 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     }
 
     public void JoinChannel(uint channelId)
+        => JoinChannel(channelId, password: null);
+
+    internal void JoinChannel(uint channelId, string? password)
     {
         if (Connection is not { State: ConnectionStates.Connected })
             return;
 
         _pendingLocalJoinChannelId = channelId;
+        _pendingJoinPassword = string.IsNullOrWhiteSpace(password) ? null : password;
+        ApplyPendingJoinPasswordToken();
         Connection.SendControl(PacketType.UserState, new UserState { ChannelId = channelId });
         SendPermissionQuery(new PermissionQuery { ChannelId = channelId });
+    }
+
+    private void ApplyPendingJoinPasswordToken()
+    {
+        if (string.IsNullOrWhiteSpace(_pendingJoinPassword))
+            return;
+
+        var auth = new Authenticate
+        {
+            Username = LocalUser?.Name ?? _reconnectUsername ?? string.Empty,
+            Opus = true,
+        };
+        auth.Tokens.Add(_pendingJoinPassword);
+        SendAuthenticate(auth);
+        _hasActiveJoinToken = true;
+    }
+
+    private void ClearTemporaryJoinToken()
+    {
+        if (!_hasActiveJoinToken)
+            return;
+
+        if (Connection is not { State: ConnectionStates.Connected })
+            return;
+
+        // Send empty token list to clear the temporary token from session
+        var auth = new Authenticate
+        {
+            Username = LocalUser?.Name ?? _reconnectUsername ?? string.Empty,
+            Opus = true,
+        };
+        // Empty Tokens collection removes all tokens from the session
+        SendAuthenticate(auth);
+        _hasActiveJoinToken = false;
     }
 
     public void RequestPermissions(uint channelId)
@@ -1325,6 +1368,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         return await SendViaBcTls(cert, uri, httpRequest);
     }
 
+    private static async Task<TlsResult> PutViaBcTls(X509Certificate2 cert, Uri uri, string jsonBody)
+    {
+        var hostHeader = uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}";
+        var contentLength = System.Text.Encoding.UTF8.GetByteCount(jsonBody);
+        var httpRequest = $"PUT {uri.PathAndQuery} HTTP/1.1\r\nHost: {hostHeader}\r\nContent-Type: application/json\r\nContent-Length: {contentLength}\r\nConnection: close\r\n\r\n{jsonBody}";
+        return await SendViaBcTls(cert, uri, httpRequest);
+    }
+
     internal static string CreateLiveKitTokenRequestBody(string roomName, string accessMode)
     {
         var normalizedAccessMode = accessMode.Trim().ToLowerInvariant() switch
@@ -1403,6 +1454,245 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         long currentGeneration,
         long taskGeneration)
         => isCancellationRequested && currentGeneration == taskGeneration;
+
+    private const string BrmblePasswordMarkerPrefix = "__brmble_password_marker__:";
+    private const string BrmblePasswordOpenBlockMarker = "__brmble_password_open_block__";
+
+    private static bool IsManagedAllUsersDenyRule(System.Text.Json.JsonElement acl)
+    {
+        var group = acl.TryGetProperty("group", out var groupProp) && groupProp.ValueKind != System.Text.Json.JsonValueKind.Null
+            ? groupProp.GetString()
+            : null;
+        var userId = acl.TryGetProperty("userId", out var userIdProp) && userIdProp.ValueKind != System.Text.Json.JsonValueKind.Null
+            ? userIdProp.GetInt32()
+            : (int?)null;
+        var applyHere = acl.TryGetProperty("applyHere", out var applyHereProp) && applyHereProp.GetBoolean();
+        var applySubs = acl.TryGetProperty("applySubs", out var applySubsProp) && applySubsProp.GetBoolean();
+        var allow = acl.TryGetProperty("allow", out var allowProp) ? allowProp.GetInt32() : 0;
+        var deny = acl.TryGetProperty("deny", out var denyProp) ? denyProp.GetInt32() : 0;
+
+        return userId is null
+            && string.Equals(group, "all", StringComparison.Ordinal)
+            && applyHere
+            && !applySubs
+            && allow == 0
+            && deny == (0x04 | 0x02);
+    }
+
+    private static bool IsBrmblePasswordOpenBlockMarker(string? group)
+        => string.Equals(group, BrmblePasswordOpenBlockMarker, StringComparison.Ordinal);
+
+    private static bool IsBrmblePasswordMarker(string? group)
+        => !string.IsNullOrWhiteSpace(group) && group.StartsWith(BrmblePasswordMarkerPrefix, StringComparison.Ordinal);
+
+    private static bool IsManagedPasswordTokenRule(System.Text.Json.JsonElement acl, string selector)
+    {
+        var group = acl.TryGetProperty("group", out var groupProp) && groupProp.ValueKind != System.Text.Json.JsonValueKind.Null
+            ? groupProp.GetString()
+            : null;
+        var userId = acl.TryGetProperty("userId", out var userIdProp) && userIdProp.ValueKind != System.Text.Json.JsonValueKind.Null
+            ? userIdProp.GetInt32()
+            : (int?)null;
+        var applyHere = acl.TryGetProperty("applyHere", out var applyHereProp) && applyHereProp.GetBoolean();
+        var applySubs = acl.TryGetProperty("applySubs", out var applySubsProp) && applySubsProp.GetBoolean();
+        var allow = acl.TryGetProperty("allow", out var allowProp) ? allowProp.GetInt32() : 0;
+        var deny = acl.TryGetProperty("deny", out var denyProp) ? denyProp.GetInt32() : 0;
+
+        return userId is null
+            && string.Equals(group, selector, StringComparison.Ordinal)
+            && applyHere
+            && !applySubs
+            && allow == (0x04 | 0x02)
+            && deny == 0;
+    }
+
+    internal static string? TryGetManagedChannelPassword(string snapshotBody)
+    {
+        using var rootDoc = System.Text.Json.JsonDocument.Parse(snapshotBody);
+        var snapshot = rootDoc.RootElement.TryGetProperty("snapshot", out var snap) ? snap : rootDoc.RootElement;
+        if (!snapshot.TryGetProperty("acls", out var aclsProp) || aclsProp.ValueKind != System.Text.Json.JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        foreach (var acl in aclsProp.EnumerateArray())
+        {
+            if (!acl.TryGetProperty("group", out var groupProp) || groupProp.ValueKind != System.Text.Json.JsonValueKind.String)
+            {
+                continue;
+            }
+
+            var group = groupProp.GetString();
+            if (!IsBrmblePasswordMarker(group))
+            {
+                continue;
+            }
+
+            var selector = group![BrmblePasswordMarkerPrefix.Length..];
+            return selector.StartsWith('#') ? selector[1..] : selector;
+        }
+
+        return null;
+    }
+
+    internal static string BuildSetChannelPasswordRequestBody(string snapshotBody, string password)
+    {
+        using var rootDoc = System.Text.Json.JsonDocument.Parse(snapshotBody);
+        var snapshot = rootDoc.RootElement.TryGetProperty("snapshot", out var snap) ? snap : rootDoc.RootElement;
+        var inheritAcls = snapshot.TryGetProperty("inheritAcls", out var inheritProp) && inheritProp.GetBoolean();
+        var expectedSnapshotHash = snapshot.TryGetProperty("snapshotHash", out var hashProp) ? hashProp.GetString() ?? "" : "";
+
+        var groups = snapshot.TryGetProperty("groups", out var groupsProp) && groupsProp.ValueKind == System.Text.Json.JsonValueKind.Array
+            ? groupsProp.EnumerateArray()
+                .Where(g => !(g.TryGetProperty("inherited", out var inheritedProp) && inheritedProp.GetBoolean()))
+                .Select(g => System.Text.Json.JsonSerializer.Deserialize<object>(g.GetRawText())!)
+                .ToList()
+            : [];
+
+        var localRules = new List<System.Text.Json.JsonElement>();
+        var markerIndex = -1;
+        string? managedToken = null;
+        var openBlockMarkerIndex = -1;
+        var openBlockRuleIndex = -1;
+
+        if (snapshot.TryGetProperty("acls", out var aclsProp) && aclsProp.ValueKind == System.Text.Json.JsonValueKind.Array)
+        {
+            foreach (var acl in aclsProp.EnumerateArray())
+            {
+                var inherited = acl.TryGetProperty("inherited", out var inheritedProp) && inheritedProp.GetBoolean();
+                if (inherited)
+                {
+                    continue;
+                }
+
+                var group = acl.TryGetProperty("group", out var groupProp) && groupProp.ValueKind != System.Text.Json.JsonValueKind.Null
+                    ? groupProp.GetString()
+                    : null;
+                if (IsBrmblePasswordMarker(group))
+                {
+                    managedToken = group![BrmblePasswordMarkerPrefix.Length..];
+                    markerIndex = localRules.Count;
+                }
+                else if (IsBrmblePasswordOpenBlockMarker(group))
+                {
+                    openBlockMarkerIndex = localRules.Count;
+                }
+                else if (IsManagedAllUsersDenyRule(acl))
+                {
+                    openBlockRuleIndex = localRules.Count;
+                }
+
+                localRules.Add(acl);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(managedToken) && markerIndex >= 0)
+        {
+            var managedTokenRuleIndex = -1;
+            for (var i = markerIndex - 1; i >= 0; i--)
+            {
+                if (IsManagedPasswordTokenRule(localRules[i], managedToken))
+                {
+                    managedTokenRuleIndex = i;
+                    break;
+                }
+            }
+
+            var filteredRules = new List<System.Text.Json.JsonElement>(localRules.Count);
+            for (var i = 0; i < localRules.Count; i++)
+            {
+                if (i == markerIndex || i == managedTokenRuleIndex)
+                {
+                    continue;
+                }
+
+                filteredRules.Add(localRules[i]);
+            }
+
+            localRules = filteredRules;
+        }
+
+        if (openBlockMarkerIndex >= 0)
+        {
+            var filteredRules = new List<System.Text.Json.JsonElement>(localRules.Count);
+            for (var i = 0; i < localRules.Count; i++)
+            {
+                if (i == openBlockMarkerIndex || i == openBlockRuleIndex)
+                {
+                    continue;
+                }
+
+                filteredRules.Add(localRules[i]);
+            }
+
+            localRules = filteredRules;
+        }
+
+        var normalizedPassword = password.Trim();
+        if (!string.IsNullOrWhiteSpace(normalizedPassword))
+        {
+            var hasEntryRestriction = localRules.Any(acl => IsManagedAllUsersDenyRule(acl));
+            if (!hasEntryRestriction)
+            {
+                var allUsersDenyRule = new
+                {
+                    applyHere = true,
+                    applySubs = false,
+                    inherited = false,
+                    userId = (int?)null,
+                    group = "all",
+                    allow = 0,
+                    deny = 0x04 | 0x02,
+                };
+                var openBlockMarkerRule = new
+                {
+                    applyHere = true,
+                    applySubs = false,
+                    inherited = false,
+                    userId = (int?)null,
+                    group = BrmblePasswordOpenBlockMarker,
+                    allow = 0,
+                    deny = 0,
+                };
+                localRules.Add(System.Text.Json.JsonSerializer.SerializeToElement(allUsersDenyRule));
+                localRules.Add(System.Text.Json.JsonSerializer.SerializeToElement(openBlockMarkerRule));
+            }
+
+            var selector = $"#{normalizedPassword}";
+            var tokenRule = new
+            {
+                applyHere = true,
+                applySubs = false,
+                inherited = false,
+                userId = (int?)null,
+                group = selector,
+                allow = 0x04 | 0x02,
+                deny = 0,
+            };
+            var markerRule = new
+            {
+                applyHere = true,
+                applySubs = false,
+                inherited = false,
+                userId = (int?)null,
+                group = $"{BrmblePasswordMarkerPrefix}{selector}",
+                allow = 0,
+                deny = 0,
+            };
+            localRules.Add(System.Text.Json.JsonSerializer.SerializeToElement(tokenRule));
+            localRules.Add(System.Text.Json.JsonSerializer.SerializeToElement(markerRule));
+        }
+
+        var request = new
+        {
+            inheritAcls,
+            groups,
+            acls = localRules.Select(acl => System.Text.Json.JsonSerializer.Deserialize<object>(acl.GetRawText())!).ToList(),
+            expectedSnapshotHash = expectedSnapshotHash,
+        };
+
+        return System.Text.Json.JsonSerializer.Serialize(request);
+    }
 
     internal sealed record ServerRemovalPayload(
         string Reason,
@@ -1589,6 +1879,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     {
         if (string.IsNullOrWhiteSpace(_apiUrl))
         {
+            LogToFile("[ACL] Registered users lookup skipped: API URL is missing");
+            _bridge?.Send("voice.registeredUsersError", new { message = "Brmble API URL is unavailable, so registered users could not be loaded." });
+            _bridge?.Send("voice.registeredUsers", Array.Empty<object>());
+            _bridge?.NotifyUiThread();
+            return;
+        }
+
+        using var cert = _certService?.GetExportableCertificate();
+        if (cert is null)
+        {
+            LogToFile("[ACL] Registered users lookup failed: no client certificate");
+            _bridge?.Send("voice.registeredUsersError", new { message = "No client certificate is available for the registered users lookup." });
             _bridge?.Send("voice.registeredUsers", Array.Empty<object>());
             _bridge?.NotifyUiThread();
             return;
@@ -1596,22 +1898,33 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         try
         {
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            var response = await _healthHttpClient.GetAsync($"{_apiUrl.TrimEnd('/')}/admin/registered-users", cts.Token);
-            if (!response.IsSuccessStatusCode)
+            var baseUri = new Uri(_apiUrl, UriKind.Absolute);
+            var uri = new Uri(baseUri, "admin/registered-users");
+            var result = await GetViaBcTls(cert, uri);
+            if (!result.Success || string.IsNullOrWhiteSpace(result.Body))
             {
+                LogToFile($"[ACL] Registered users lookup failed: success={result.Success}, status={result.StatusCode}, error={result.Error ?? "(none)"}, body={(result.Body ?? "(empty)")}");
+                _bridge?.Send("voice.registeredUsersError", new
+                {
+                    message = result.StatusCode > 0
+                        ? $"Registered users lookup failed with status {result.StatusCode}."
+                        : $"Registered users lookup failed: {result.Error ?? "unknown error"}",
+                });
                 _bridge?.Send("voice.registeredUsers", Array.Empty<object>());
                 _bridge?.NotifyUiThread();
                 return;
             }
 
-            var json = await response.Content.ReadAsStringAsync();
-            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            LogToFile($"[ACL] Registered users lookup succeeded: {result.Body}");
+            _bridge?.Send("voice.registeredUsersError", null);
+            using var doc = System.Text.Json.JsonDocument.Parse(result.Body);
             _bridge?.Send("voice.registeredUsers", doc.RootElement);
             _bridge?.NotifyUiThread();
         }
-        catch
+        catch (Exception ex)
         {
+            LogToFile($"[ACL] Registered users lookup threw: {ex}");
+            _bridge?.Send("voice.registeredUsersError", new { message = $"Registered users lookup threw an error: {ex.Message}" });
             _bridge?.Send("voice.registeredUsers", Array.Empty<object>());
             _bridge?.NotifyUiThread();
         }
@@ -2214,6 +2527,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                         _bridge?.NotifyUiThread();
                     }
                     break;
+
+                case "acl.changed":
+                    _bridge?.Send("acl.changed", System.Text.Json.JsonSerializer.Deserialize<object>(json));
+                    _bridge?.NotifyUiThread();
+                    break;
             }
         }
         catch (Exception ex)
@@ -2323,7 +2641,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         bridge.RegisterHandler("voice.joinChannel", data =>
         {
             if (data.TryGetProperty("channelId", out var id))
-                JoinChannel(id.GetUInt32());
+            {
+                var password = data.TryGetProperty("password", out var pw) ? pw.GetString() : null;
+                JoinChannel(id.GetUInt32(), password);
+            }
             return Task.CompletedTask;
         });
 
@@ -2977,6 +3298,173 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             }
         });
 
+        bridge.RegisterHandler("acl.getChannel", async data =>
+        {
+            var channelId = data.TryGetProperty("channelId", out var cid) && cid.ValueKind == System.Text.Json.JsonValueKind.Number
+                ? cid.GetInt32()
+                : 0;
+            if (channelId <= 0 || _apiUrl is null)
+            {
+                _bridge?.Send("acl.error", new { channelId, error = "Not connected or invalid channel" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            using var cert = _certService?.GetExportableCertificate();
+            if (cert is null)
+            {
+                _bridge?.Send("acl.error", new { channelId, error = "No client certificate" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            var uri = new Uri(new Uri(_apiUrl, UriKind.Absolute), $"acl/channels/{channelId}");
+            var result = await GetViaBcTls(cert, uri);
+            _bridge?.Send(result.Success ? "acl.channel" : "acl.error", new { channelId, body = result.Body, statusCode = result.StatusCode, error = result.Error });
+            _bridge?.NotifyUiThread();
+        });
+
+        bridge.RegisterHandler("acl.setChannel", async data =>
+        {
+            var channelId = data.TryGetProperty("channelId", out var cid) && cid.ValueKind == System.Text.Json.JsonValueKind.Number
+                ? cid.GetInt32()
+                : 0;
+            if (channelId <= 0 || _apiUrl is null)
+            {
+                _bridge?.Send("acl.error", new { channelId, error = "Not connected or invalid channel" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            using var cert = _certService?.GetExportableCertificate();
+            if (cert is null)
+            {
+                _bridge?.Send("acl.error", new { channelId, error = "No client certificate" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            var requestJson = data.TryGetProperty("request", out var request)
+                ? request.GetRawText()
+                : "{\"inheritAcls\":true,\"groups\":[],\"acls\":[]}";
+            var uri = new Uri(new Uri(_apiUrl, UriKind.Absolute), $"acl/channels/{channelId}");
+            var result = await PutViaBcTls(cert, uri, requestJson);
+            var eventType = result.Success || result.StatusCode == 409 ? "acl.writeResult" : "acl.error";
+            _bridge?.Send(eventType, new { channelId, body = result.Body, statusCode = result.StatusCode, error = result.Error });
+            _bridge?.NotifyUiThread();
+        });
+
+        bridge.RegisterHandler("acl.setChannelPassword", async data =>
+        {
+            var channelId = data.TryGetProperty("channelId", out var cid) && cid.ValueKind == System.Text.Json.JsonValueKind.Number
+                ? cid.GetInt32()
+                : 0;
+            var password = data.TryGetProperty("password", out var pwd) && pwd.ValueKind == System.Text.Json.JsonValueKind.String
+                ? pwd.GetString() ?? ""
+                : "";
+
+            if (channelId <= 0 || _apiUrl is null)
+            {
+                _bridge?.Send("acl.error", new { channelId, error = "Not connected or invalid channel" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            using var cert = _certService?.GetExportableCertificate();
+            if (cert is null)
+            {
+                _bridge?.Send("acl.error", new { channelId, error = "No client certificate" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            var baseUri = new Uri(_apiUrl, UriKind.Absolute);
+            var channelUri = new Uri(baseUri, $"acl/channels/{channelId}");
+            var current = await GetViaBcTls(cert, channelUri);
+            if (!current.Success || string.IsNullOrWhiteSpace(current.Body))
+            {
+                _bridge?.Send("acl.error", new { channelId, error = current.Error ?? "Failed to load ACL snapshot", statusCode = current.StatusCode });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            var requestJson = BuildSetChannelPasswordRequestBody(current.Body, password);
+            var result = await PutViaBcTls(cert, channelUri, requestJson);
+            var eventType = result.Success || result.StatusCode == 409 ? "acl.writeResult" : "acl.error";
+            _bridge?.Send(eventType, new { channelId, body = result.Body, statusCode = result.StatusCode, error = result.Error });
+            _bridge?.NotifyUiThread();
+        });
+
+        bridge.RegisterHandler("acl.addGroupMember", async data =>
+        {
+            var channelId = data.TryGetProperty("channelId", out var cid) && cid.ValueKind == System.Text.Json.JsonValueKind.Number
+                ? cid.GetInt32()
+                : 0;
+            var session = data.TryGetProperty("session", out var sid) && sid.ValueKind == System.Text.Json.JsonValueKind.Number
+                ? sid.GetInt32()
+                : 0;
+            var group = data.TryGetProperty("group", out var grp) && grp.ValueKind == System.Text.Json.JsonValueKind.String
+                ? grp.GetString() ?? ""
+                : "";
+
+            if (channelId <= 0 || session <= 0 || string.IsNullOrWhiteSpace(group) || _apiUrl is null)
+            {
+                _bridge?.Send("acl.error", new { channelId, error = "Not connected or invalid group member request" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            using var cert = _certService?.GetExportableCertificate();
+            if (cert is null)
+            {
+                _bridge?.Send("acl.error", new { channelId, error = "No client certificate" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            var uri = new Uri(new Uri(_apiUrl, UriKind.Absolute), $"acl/channels/{channelId}/groups/add");
+            var requestJson = System.Text.Json.JsonSerializer.Serialize(new { session, group });
+            var result = await PostViaBcTls(cert, uri, requestJson);
+            var eventType = result.Success ? "acl.writeResult" : "acl.error";
+            _bridge?.Send(eventType, new { channelId, body = result.Body, statusCode = result.StatusCode, error = result.Error });
+            _bridge?.NotifyUiThread();
+        });
+
+        bridge.RegisterHandler("acl.removeGroupMember", async data =>
+        {
+            var channelId = data.TryGetProperty("channelId", out var cid) && cid.ValueKind == System.Text.Json.JsonValueKind.Number
+                ? cid.GetInt32()
+                : 0;
+            var session = data.TryGetProperty("session", out var sid) && sid.ValueKind == System.Text.Json.JsonValueKind.Number
+                ? sid.GetInt32()
+                : 0;
+            var group = data.TryGetProperty("group", out var grp) && grp.ValueKind == System.Text.Json.JsonValueKind.String
+                ? grp.GetString() ?? ""
+                : "";
+
+            if (channelId <= 0 || session <= 0 || string.IsNullOrWhiteSpace(group) || _apiUrl is null)
+            {
+                _bridge?.Send("acl.error", new { channelId, error = "Not connected or invalid group member request" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            using var cert = _certService?.GetExportableCertificate();
+            if (cert is null)
+            {
+                _bridge?.Send("acl.error", new { channelId, error = "No client certificate" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            var uri = new Uri(new Uri(_apiUrl, UriKind.Absolute), $"acl/channels/{channelId}/groups/remove");
+            var requestJson = System.Text.Json.JsonSerializer.Serialize(new { session, group });
+            var result = await PostViaBcTls(cert, uri, requestJson);
+            var eventType = result.Success ? "acl.writeResult" : "acl.error";
+            _bridge?.Send(eventType, new { channelId, body = result.Body, statusCode = result.StatusCode, error = result.Error });
+            _bridge?.NotifyUiThread();
+        });
+
         bridge.RegisterHandler("voice.vadSensitivity", data =>
         {
             var value = data.TryGetProperty("value", out var v) ? v.GetString() : null;
@@ -3185,7 +3673,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private void SendVoiceConnected(uint? overrideChannelId = null)
     {
         var channelId = overrideChannelId ?? (uint)(LocalUser?.Channel?.Id ?? 0);
-        var channels = Channels.Select(c => new { id = c.Id, name = c.Name, parent = c.Parent }).ToList();
+        var channels = Channels.Select(c => new
+        {
+            id = c.Id,
+            name = c.Name,
+            parent = c.Parent,
+            isEnterRestricted = c.IsEnterRestricted
+        }).ToList();
         var users = Users.Select(u =>
         {
             var hasMap = _sessionMappings.TryGetValue(u.Id, out var sm);
@@ -3359,11 +3853,17 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             {
                 _leaveVoiceInProgress = false;
                 if (_pendingLocalJoinChannelId == currentChannelId)
+                {
                     _pendingLocalJoinChannelId = null;
+                    _pendingJoinPassword = null;
+                    ClearTemporaryJoinToken();
+                }
             }
             else if (_pendingLocalJoinChannelId == currentChannelId)
             {
                 _pendingLocalJoinChannelId = null;
+                _pendingJoinPassword = null;
+                ClearTemporaryJoinToken();
                 if (_leftVoice && LocalUser != null)
                 {
                     ClearLeaveVoiceState();
@@ -3579,7 +4079,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             {
                 id = channel.Id,
                 name = channel.Name,
-                parent = channel.Parent
+                parent = channel.Parent,
+                isEnterRestricted = channel.IsEnterRestricted
             });
         }
     }
@@ -3618,6 +4119,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     public override void PermissionDenied(PermissionDenied permissionDenied)
     {
         base.PermissionDenied(permissionDenied);
+
+        _pendingJoinPassword = null;
+        ClearTemporaryJoinToken();
 
         var reason = !string.IsNullOrEmpty(permissionDenied.Reason)
             ? permissionDenied.Reason

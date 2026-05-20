@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { AdminSettingsTab } from './AdminSettingsTab';
 import { confirm } from '../../hooks/usePrompt';
+import type { Channel } from '../../types';
 
 const { bridgeMock } = vi.hoisted(() => ({
   bridgeMock: {
@@ -10,6 +11,20 @@ const { bridgeMock } = vi.hoisted(() => ({
     off: vi.fn(),
     once: vi.fn(),
   },
+}));
+
+const saveSpy = vi.fn();
+
+vi.mock('../../bridge', () => ({ default: bridgeMock }));
+vi.mock('../../hooks/usePrompt', () => ({
+  confirm: vi.fn().mockResolvedValue(true),
+  prompt: vi.fn().mockResolvedValue(null),
+}));
+vi.mock('../../hooks/useAclAdmin', () => ({
+  useAclAdmin: () => ({
+    snapshot: { inheritAcls: true, groups: [], acls: [], snapshotHash: 'x' },
+    save: saveSpy,
+  }),
 }));
 
 const ban = {
@@ -22,13 +37,10 @@ const ban = {
   duration: 0,
 };
 
-vi.mock('../../bridge', () => ({
-  default: bridgeMock,
-}));
-
-vi.mock('../../hooks/usePrompt', () => ({
-  confirm: vi.fn().mockResolvedValue(true),
-}));
+const channels: Channel[] = [
+  { id: 1, name: 'General' },
+  { id: 2, name: 'Raid Planning', parent: 1 },
+];
 
 function renderWithBan() {
   bridgeMock.once.mockImplementation((type: string, handler: (data: unknown) => void) => {
@@ -43,33 +55,48 @@ describe('AdminSettingsTab', () => {
     vi.mocked(confirm).mockResolvedValue(true);
   });
 
-  it('renders ban summary and unban as sibling buttons', async () => {
-    renderWithBan();
+  it('renders the five admin workspace tabs', () => {
+    render(<AdminSettingsTab />);
 
-    const summary = await screen.findByRole('button', { name: /TroubleUser/ });
-    const unban = screen.getByRole('button', { name: 'Unban' });
-
-    expect(summary).not.toContainElement(unban);
-    expect(summary.parentElement).toContainElement(unban);
+    expect(screen.getByRole('tab', { name: 'Channels' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Users' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Groups' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Moderation' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Audit Log' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Ban List' })).not.toBeInTheDocument();
   });
 
-  it('keeps expand and unban behavior separate', async () => {
+  it('shows the moderation section by default with the ban list', async () => {
     renderWithBan();
 
-    const summary = await screen.findByRole('button', { name: /TroubleUser/ });
-    expect(summary).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByRole('tab', { name: 'Moderation' }));
 
-    fireEvent.click(summary);
-    expect(summary).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByText('IP:')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Moderation' })).toBeInTheDocument();
+    expect(screen.getByText('TroubleUser')).toBeInTheDocument();
+  });
 
-    const details = screen.getByText('IP:').closest('.admin-ban-details');
-    expect(details).toHaveAttribute('id', summary.getAttribute('aria-controls'));
+  it('keeps unban behavior working after the moderation move', async () => {
+    renderWithBan();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Unban' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Moderation' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Unban' }));
 
     await waitFor(() => {
       expect(bridgeMock.send).toHaveBeenCalledWith('voice.unban', { index: 0 });
     });
+  });
+
+  it('exposes tablist accessibility state for admin sections', () => {
+    render(<AdminSettingsTab />);
+    expect(screen.getByRole('tablist', { name: 'Admin sections' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Channels' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('heading', { name: 'Channels' })).toHaveClass('heading-section');
+  });
+
+  it('renders the live channel list in the channels tab', () => {
+    render(<AdminSettingsTab channels={channels} />);
+
+    expect(screen.getByRole('row', { name: 'General' })).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: 'Raid Planning' })).toBeInTheDocument();
   });
 });

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Icon } from '../components/Icon/Icon';
 import '../components/Prompt/Prompt.css';
 
 export interface PromptOptions {
@@ -11,6 +12,7 @@ export interface PromptOptions {
 export interface PromptWithInputOptions extends PromptOptions {
   placeholder?: string;
   defaultValue?: string;
+  isPassword?: boolean;
 }
 
 interface UsePromptReturn {
@@ -133,10 +135,12 @@ function PromptComponent() {
 function PromptWithInputComponent() {
   const isOpen = globalResolveInput !== null;
   const [inputValue, setInputValue] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       setInputValue(globalInputOptions.defaultValue || '');
+      setShowPassword(false);
     }
   }, [isOpen]);
 
@@ -176,15 +180,40 @@ function PromptWithInputComponent() {
           <h2 id="prompt-title" className="heading-title modal-title">{globalInputOptions.title}</h2>
           <p className="modal-subtitle">{globalInputOptions.message}</p>
         </div>
-        <div className="prompt-input-container">
+        <div 
+          className="prompt-input-container"
+          onBlur={(e) => {
+            // Reset password visibility when focus leaves the container
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+              setShowPassword(false);
+            }
+          }}
+        >
           <input
-            type="text"
+            type={globalInputOptions.isPassword && !showPassword ? 'password' : 'text'}
             className="brmble-input"
             placeholder={globalInputOptions.placeholder}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleSubmit();
+              }
+            }}
             autoFocus
           />
+          {globalInputOptions.isPassword && (
+            <button
+              type="button"
+              className="password-toggle-btn"
+              onMouseDown={(e) => { e.preventDefault(); setShowPassword(value => !value); }}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+              aria-pressed={showPassword}
+            >
+              {showPassword ? <Icon name="eye-off" size={18} /> : <Icon name="eye" size={18} />}
+            </button>
+          )}
         </div>
         <div className="prompt-footer">
           <button

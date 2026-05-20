@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { ChannelTree } from './ChannelTree';
 import type { ShareInfo } from '../../hooks/useScreenShare';
 
-const { bridgeMock, usePermissionsMock } = vi.hoisted(() => ({
+const { bridgeMock, usePermissionsMock, editChannelDialogPropsRef, aclEditorDialogPropsRef, promptMock } = vi.hoisted(() => ({
   bridgeMock: {
     on: vi.fn(),
     off: vi.fn(),
@@ -21,13 +21,16 @@ const { bridgeMock, usePermissionsMock } = vi.hoisted(() => ({
     },
     requestPermissions: vi.fn(),
   })),
+  editChannelDialogPropsRef: { current: null as null | Record<string, unknown> },
+  aclEditorDialogPropsRef: { current: null as null | Record<string, unknown> },
+  promptMock: vi.fn(),
 }));
 
 vi.mock('../ContextMenu/ContextMenu', () => ({
-  ContextMenu: ({ items }: { items: Array<{ label?: string; type: string }> }) => (
+  ContextMenu: ({ items }: { items: Array<{ label?: string; type: string; onClick?: () => void }> }) => (
     <div data-testid="context-menu">
       {items.map((item, index) =>
-        item.type === 'item' ? <button key={`${item.label}-${index}`}>{item.label}</button> : <hr key={`divider-${index}`} />
+        item.type === 'item' ? <button key={`${item.label}-${index}`} onClick={item.onClick}>{item.label}</button> : <hr key={`divider-${index}`} />
       )}
     </div>
   ),
@@ -46,11 +49,27 @@ vi.mock('../UserTooltip/UserTooltip', () => ({
 }));
 
 vi.mock('../EditChannelDialog/EditChannelDialog', () => ({
-  EditChannelDialog: () => null,
+  EditChannelDialog: (props: Record<string, unknown>) => {
+    editChannelDialogPropsRef.current = props;
+    return (
+      <div>
+        <button onClick={() => (props.onSave as (name: string, description: string, password: string) => void)('Secret', '', String(props.initialPassword ?? ''))}>
+          Save Edit Channel
+        </button>
+      </div>
+    );
+  },
 }));
 
 vi.mock('../RenameConfirmDialog/RenameConfirmDialog', () => ({
   RenameConfirmDialog: () => null,
+}));
+
+vi.mock('../AclEditor/AclEditorDialog', () => ({
+  AclEditorDialog: (props: Record<string, unknown>) => {
+    aclEditorDialogPropsRef.current = props;
+    return null;
+  },
 }));
 
 vi.mock('../Avatar/Avatar', () => ({
@@ -68,7 +87,7 @@ vi.mock('../../bridge', () => ({
 }));
 
 vi.mock('../../hooks/usePrompt', () => ({
-  prompt: vi.fn(),
+  prompt: promptMock,
 }));
 
 vi.mock('../../hooks/usePermissions', () => ({
@@ -252,6 +271,154 @@ describe('ChannelTree screen share behavior', () => {
     const indicator = screen.getByText('Sharing').closest('.sharing-indicator');
     expect(indicator).not.toBeNull();
     expect(indicator?.firstElementChild).toHaveTextContent('Sharing');
+  });
+});
+
+describe('ChannelTree ACL integration', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    editChannelDialogPropsRef.current = null;
+    aclEditorDialogPropsRef.current = null;
+    promptMock.mockReset();
+  });
+
+  it('shows Edit Permissions for editable channel context menu', () => {
+    usePermissionsMock.mockReturnValue({
+      hasPermission: vi.fn((channelId: number, permission: number) => channelId === 5 && permission === 0x01),
+      Permission: { Write: 0x01, MakeChannel: 0x40, Move: 0x20, Kick: 0x10000, Ban: 0x20000, MuteDeafen: 0x10 },
+      requestPermissions: vi.fn(),
+    });
+
+    render(
+      <ChannelTree
+        channels={[{ id: 5, name: 'Secret', parent: 0 }]}
+        users={[]}
+        currentChannelId={5}
+        onJoinChannel={vi.fn()}
+      />
+    );
+    fireEvent.contextMenu(screen.getByText('Secret'));
+
+    expect(screen.getByText('Edit Permissions')).toBeInTheDocument();
+  });
+
+  it('opens Edit Permissions without showing a debug alert', () => {
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+    usePermissionsMock.mockReturnValue({
+      hasPermission: vi.fn((channelId: number, permission: number) => channelId === 5 && permission === 0x01),
+      Permission: { Write: 0x01, MakeChannel: 0x40, Move: 0x20, Kick: 0x10000, Ban: 0x20000, MuteDeafen: 0x10 },
+      requestPermissions: vi.fn(),
+    });
+
+    render(
+      <ChannelTree
+        channels={[{ id: 5, name: 'Secret', parent: 0, isEnterRestricted: true }]}
+        users={[]}
+        currentChannelId={5}
+        onJoinChannel={vi.fn()}
+      />
+    );
+
+    fireEvent.contextMenu(screen.getByText('Secret'));
+    fireEvent.click(screen.getByText('Edit Permissions'));
+
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(aclEditorDialogPropsRef.current).toMatchObject({
+      channelId: 5,
+      channelName: 'Secret',
+      isNativePasswordProtected: true,
+    });
+
+    alertSpy.mockRestore();
+  });
+
+  it('loads the managed password for edit and does not rewrite it when unchanged', () => {
+    const bridgeHandlers = new Map<string, (data: unknown) => void>();
+    bridgeMock.on.mockImplementation((type: string, handler: (data: unknown) => void) => {
+      bridgeHandlers.set(type, handler);
+    });
+
+    usePermissionsMock.mockReturnValue({
+      hasPermission: vi.fn((channelId: number, permission: number) => channelId === 5 && (permission === 0x01 || permission === 0x40)),
+      Permission: { Write: 0x01, MakeChannel: 0x40, Move: 0x20, Kick: 0x10000, Ban: 0x20000, MuteDeafen: 0x10 },
+      requestPermissions: vi.fn(),
+    });
+
+    render(
+      <ChannelTree
+        channels={[{ id: 5, name: 'Secret', parent: 0 }]}
+        users={[]}
+        currentChannelId={5}
+        onJoinChannel={vi.fn()}
+      />
+    );
+
+    fireEvent.contextMenu(screen.getByText('Secret'));
+    fireEvent.click(screen.getByText('Edit'));
+
+    expect(bridgeMock.send).toHaveBeenCalledWith('acl.getChannel', { channelId: 5 });
+
+    act(() => {
+      bridgeHandlers.get('acl.channel')?.({
+        channelId: 5,
+        body: JSON.stringify({
+          snapshot: {
+            channelId: 5,
+            inheritAcls: true,
+            groups: [],
+            acls: [
+              { applyHere: true, applySubs: false, inherited: false, userId: null, group: '#secret-token', allow: 6, deny: 0 },
+              { applyHere: true, applySubs: false, inherited: false, userId: null, group: '__brmble_password_marker__:#secret-token', allow: 0, deny: 0 },
+            ],
+            fetchedAt: '2026-05-15T12:00:00Z',
+            stale: false,
+            warning: null,
+            snapshotHash: 'known-hash',
+          },
+        }),
+      });
+    });
+
+    expect(editChannelDialogPropsRef.current?.initialPassword).toBe('secret-token');
+
+    fireEvent.click(screen.getByText('Save Edit Channel'));
+
+    expect(bridgeMock.send).not.toHaveBeenCalledWith('acl.setChannelPassword', expect.anything());
+  });
+
+  it('uses the shared prompt flow before removing a channel', async () => {
+    usePermissionsMock.mockReturnValue({
+      hasPermission: vi.fn((channelId: number, permission: number) => channelId === 5 && permission === 0x01),
+      Permission: { Write: 0x01, MakeChannel: 0x40, Move: 0x20, Kick: 0x10000, Ban: 0x20000, MuteDeafen: 0x10 },
+      requestPermissions: vi.fn(),
+    });
+    promptMock.mockResolvedValue('Remove');
+
+    render(
+      <ChannelTree
+        channels={[{ id: 5, name: 'Secret', parent: 0 }]}
+        users={[]}
+        currentChannelId={5}
+        onJoinChannel={vi.fn()}
+      />
+    );
+
+    fireEvent.contextMenu(screen.getByText('Secret'));
+    fireEvent.click(screen.getByText('Remove'));
+
+    expect(promptMock).toHaveBeenCalledWith({
+      title: 'Remove Channel',
+      message: 'Type "Remove" to confirm deleting "Secret".',
+      placeholder: 'Remove',
+      confirmLabel: 'Remove',
+      cancelLabel: 'Cancel',
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(bridgeMock.send).toHaveBeenCalledWith('voice.removeChannel', { channelId: 5 });
   });
 });
 

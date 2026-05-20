@@ -4,7 +4,7 @@ const bridge = {
   _handlers: new Map<string, MessageHandler[]>(),
 
   init() {
-    const webview = window.chrome?.webview;
+    const webview = (window as Window & { chrome?: { webview?: { addEventListener: Function; postMessage: Function } } }).chrome?.webview;
     if (webview) {
       webview.addEventListener('message', (event: { data: unknown }) => {
         this._handleMessage(event as { data: { type: string; data?: unknown } | { type: string; data?: unknown }[] });
@@ -31,7 +31,7 @@ const bridge = {
   },
 
   send(type: string, data: unknown = null) {
-    const webview = window.chrome?.webview;
+    const webview = (window as Window & { chrome?: { webview?: { addEventListener: Function; postMessage: Function } } }).chrome?.webview;
     if (webview) {
       webview.postMessage({ type, data });
     } else {
