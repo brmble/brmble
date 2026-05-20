@@ -945,7 +945,7 @@ function App() {
 
   const handleMatrixTypingChange = useCallback((roomId: string | null, isTyping: boolean) => {
     void matrixClient.setRoomTyping(roomId, isTyping).catch(console.error);
-  }, [matrixClient]);
+  }, [matrixClient.setRoomTyping]);
 
   // Stop typing when the active Matrix room changes
   useEffect(() => {
@@ -953,7 +953,7 @@ function App() {
       // Cleanup: stop typing for the previous room when activeMatrixRoomId changes
       void matrixClient.setRoomTyping(null, false).catch(console.error);
     };
-  }, [activeMatrixRoomId, matrixClient]);
+  }, [activeMatrixRoomId, matrixClient.setRoomTyping]);
 
   const unreadTracker = useUnreadTracker(
     matrixClient?.client ?? null,

@@ -633,6 +633,12 @@ export function useMatrixClient(
       client.off(ClientEvent.Sync, onSync);
       client.off(RoomEvent.MyMembership, onMyMembership);
       clearTypingRefreshTimer();
+      const previousTypingRoom = localTypingRoomRef.current;
+      if (previousTypingRoom) {
+        void client.sendTyping(previousTypingRoom, false, 0).catch(() => {
+          // Best effort only during teardown.
+        });
+      }
       localTypingRoomRef.current = null;
       setTypingByRoom(new Map());
       client.stopClient();
