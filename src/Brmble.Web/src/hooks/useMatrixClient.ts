@@ -204,15 +204,21 @@ export function useMatrixClient(
   }, []);
 
   const setRoomTyping = useCallback(async (roomId: string | null | undefined, isTyping: boolean) => {
-    if (!clientRef.current || !roomId) return;
+    if (!clientRef.current) return;
 
-    if (!isTyping) {
+    // If stopping typing or roomId is null, stop local typing and clear timer
+    if (!isTyping || !roomId) {
       clearTypingRefreshTimer();
+      const previousRoom = localTypingRoomRef.current;
       localTypingRoomRef.current = null;
-      await clientRef.current.sendTyping(roomId, false, 0);
+      // Send typing=false for the previous room if we have a client and previous room
+      if (previousRoom && clientRef.current) {
+        await clientRef.current.sendTyping(previousRoom, false, 0);
+      }
       return;
     }
 
+    // Starting typing in a valid room
     localTypingRoomRef.current = roomId;
     await clientRef.current.sendTyping(roomId, true, TYPING_TIMEOUT_MS);
     clearTypingRefreshTimer();
