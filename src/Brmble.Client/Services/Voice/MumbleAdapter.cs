@@ -1412,7 +1412,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         bool credentialsAlreadyFetched,
         bool previousHealthWasConnected,
         bool sawHealthFailureSinceCredentials)
-        => credentialsAlreadyFetched && !previousHealthWasConnected && sawHealthFailureSinceCredentials;
+        => !credentialsAlreadyFetched && sawHealthFailureSinceCredentials
+            || !previousHealthWasConnected && sawHealthFailureSinceCredentials;
+
+    internal static bool ShouldMarkCredentialFailureAsServiceOutage(int httpStatus)
+        => httpStatus != 409;
+
+    internal static bool ShouldStartHealthCheckBeforeCredentialFetch(string? apiUrl)
+        => !string.IsNullOrWhiteSpace(apiUrl);
 
     internal static bool ShouldEmitSessionStoppedStatus(
         bool isCancellationRequested,
@@ -1761,6 +1768,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             var (credentials, httpStatus, errorBody) = await FetchCredentialsViaBcTls(cert, tokenUri, _reconnectUsername);
             if (credentials is null)
             {
+                if (ShouldMarkCredentialFailureAsServiceOutage(httpStatus))
+                {
+                    _sawServerHealthFailureSinceCredentials = true;
+                    SendBrmbleServiceStatus("server", "reconnecting", reason: httpStatus > 0 ? $"http-{httpStatus}" : "credentials-unavailable");
+                }
                 if (httpStatus == 409)
                 {
                     // Name conflict — parse error body and send to frontend
@@ -1841,6 +1853,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         catch (Exception ex)
         {
             Debug.WriteLine($"[Matrix] Failed to fetch credentials: {ex.Message}");
+            _sawServerHealthFailureSinceCredentials = true;
+            SendBrmbleServiceStatus("server", "reconnecting", reason: "credentials-unavailable");
             _bridge?.Send("voice.error", new { message = $"Failed to fetch chat credentials: {ex.Message}" });
             _bridge?.NotifyUiThread();
         }
@@ -3647,6 +3661,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (credentialUrl is not null)
         {
             var url = credentialUrl;
+            if (ShouldStartHealthCheckBeforeCredentialFetch(url))
+            {
+                StartHealthCheck(url);
+            }
+
             Task.Run(async () =>
             {
                 await FetchAndSendCredentials(url);

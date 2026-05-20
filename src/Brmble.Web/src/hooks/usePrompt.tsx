@@ -136,15 +136,11 @@ function PromptWithInputComponent() {
   const isOpen = globalResolveInput !== null;
   const [inputValue, setInputValue] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [inputFocused, setInputFocused] = useState(false);
-  const [toggleFocused, setToggleFocused] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       setInputValue(globalInputOptions.defaultValue || '');
       setShowPassword(false);
-      setInputFocused(false);
-      setToggleFocused(false);
     }
   }, [isOpen]);
 
@@ -184,15 +180,21 @@ function PromptWithInputComponent() {
           <h2 id="prompt-title" className="heading-title modal-title">{globalInputOptions.title}</h2>
           <p className="modal-subtitle">{globalInputOptions.message}</p>
         </div>
-        <div className="prompt-input-container">
+        <div 
+          className="prompt-input-container"
+          onBlur={(e) => {
+            // Reset password visibility when focus leaves the container
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+              setShowPassword(false);
+            }
+          }}
+        >
           <input
             type={globalInputOptions.isPassword && !showPassword ? 'password' : 'text'}
             className="brmble-input"
             placeholder={globalInputOptions.placeholder}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            onFocus={() => setInputFocused(true)}
-            onBlur={() => { setInputFocused(false); if (!toggleFocused) setShowPassword(false); }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();
@@ -201,13 +203,11 @@ function PromptWithInputComponent() {
             }}
             autoFocus
           />
-          {globalInputOptions.isPassword && (inputFocused || toggleFocused) && (
+          {globalInputOptions.isPassword && (
             <button
               type="button"
               className="password-toggle-btn"
               onMouseDown={(e) => { e.preventDefault(); setShowPassword(value => !value); }}
-              onFocus={() => setToggleFocused(true)}
-              onBlur={() => { setToggleFocused(false); setShowPassword(false); }}
               aria-label={showPassword ? 'Hide password' : 'Show password'}
               aria-pressed={showPassword}
             >

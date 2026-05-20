@@ -36,7 +36,11 @@ interface MessageBubbleProps {
   isReplyTargetHighlighted?: boolean;
   onReplyClick?: (eventId: string) => void;
   onDismiss?: (messageId: string) => void;
-  onOpenContextMenu?: (x: number, y: number, sender: string, senderMatrixUserId?: string, content?: string, messageId?: string) => void;
+  onOpenContextMenu?: (x: number, y: number, sender: string, senderMatrixUserId?: string, content?: string, messageId?: string, msgType?: string, reactions?: Record<string, string[]>, redacted?: boolean) => void;
+  reactions?: Record<string, string[]>;
+  redacted?: boolean;
+  currentUserMatrixId?: string;
+  onToggleReaction?: (messageId: string, emoji: string, isReacted: boolean) => void;
 }
 
 /** Highlight search matches within a plain-text string, returning React nodes. */
@@ -140,7 +144,7 @@ function processMessageContent(
   return mentionified;
 }
 
-export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & React.HTMLAttributes<HTMLDivElement>>(function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId, currentUsername, knownUsernames, messageId, pending, error, replyToEventId, replyToSender, replyToContent, isReplyTargetHighlighted, onReplyClick, onDismiss, onOpenContextMenu, className, ...rest }, ref) {
+export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & React.HTMLAttributes<HTMLDivElement>>(function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId, currentUsername, knownUsernames, messageId, pending, error, replyToEventId, replyToSender, replyToContent, isReplyTargetHighlighted, onReplyClick, onDismiss, onOpenContextMenu, className, reactions, redacted, currentUserMatrixId, onToggleReaction, ...rest }, ref) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const formatTime = (date: Date) => {
@@ -155,7 +159,36 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
   if (pending) classes.push('message-bubble--pending');
   if (error) classes.push('message-bubble--error');
   if (isReplyTargetHighlighted) classes.push('message-bubble--reply-target');
+  if (redacted) classes.push('message-bubble--redacted');
   if (className) classes.push(className);
+
+  // Show placeholder for redacted messages instead of hiding them
+  if (redacted) {
+    return (
+      <div ref={ref} className={classes.join(' ')} data-message-index={messageIndex} {...rest}>
+        {collapsed ? (
+          <div className="message-gutter">
+            <span className="message-hover-time">{formatTime(timestamp)}</span>
+          </div>
+        ) : (
+          <div className="message-avatar">
+            <Avatar user={{ name: sender, matrixUserId: senderMatrixUserId, avatarUrl: senderAvatarUrl }} size={48} isMumbleOnly={!isOwnMessage && !senderMatrixUserId} />
+          </div>
+        )}
+        <div className="message-content">
+          {!collapsed && (
+            <div className="message-header">
+              <span className="message-sender">{sender}</span>
+              <span className="message-time">{formatTime(timestamp)}</span>
+            </div>
+          )}
+          <div className="message-text" style={{ fontStyle: 'italic', opacity: 0.6 }}>
+            Message deleted
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const firstUrl = (!isSystem && content) ? extractFirstUrl(content) : null;
   const hasReplyPreview = Boolean(replyToEventId && (replyToSender || replyToContent));
@@ -172,7 +205,7 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
     <div ref={ref} className={classes.join(' ')} data-message-index={messageIndex} {...rest} onContextMenu={(e) => {
   if (onOpenContextMenu) {
     e.preventDefault();
-    onOpenContextMenu(e.clientX, e.clientY, sender, senderMatrixUserId, content, messageId);
+    onOpenContextMenu(e.clientX, e.clientY, sender, senderMatrixUserId, content, messageId, undefined, reactions, redacted);
   }
 }}>
       {collapsed ? (
@@ -246,6 +279,25 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
                 </button>
               )}
             </div>
+          </div>
+        )}
+        {reactions && messageId && Object.entries(reactions).length > 0 && (
+          <div className="message-reactions">
+            {Object.entries(reactions).map(([emoji, senders]) => {
+              const isReacted = currentUserMatrixId ? senders.includes(currentUserMatrixId) : false;
+              return (
+                <button
+                  key={emoji}
+                  className={`reaction-badge${isReacted ? ' reacted' : ''}`}
+                  onClick={() => onToggleReaction?.(messageId, emoji, isReacted)}
+                  title={`${senders.length} reaction${senders.length === 1 ? '' : 's'}`}
+                  aria-label={`${emoji} ${senders.length}`}
+                >
+                  <span className="reaction-emoji">{emoji}</span>
+                  <span className="reaction-count">{senders.length}</span>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>

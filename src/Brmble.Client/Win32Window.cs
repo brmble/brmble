@@ -31,6 +31,11 @@ internal static class Win32Window
     public const uint WM_INPUT = 0x00FF;
     public const uint WM_HOTKEY = 0x0312;
     public const uint WM_SETICON = 0x0080;
+
+    // WM_SYSCOMMAND wParam values for SC_SIZE direction (see WinUser.h):
+    //   WMSZ_LEFT = 1, WMSZ_RIGHT = 2, WMSZ_TOP = 3, WMSZ_TOPLEFT = 4,
+    //   WMSZ_TOPRIGHT = 5, WMSZ_BOTTOM = 6, WMSZ_BOTTOMLEFT = 7, WMSZ_BOTTOMRIGHT = 8.
+    public const uint SC_SIZE = 0xF000;
     public const IntPtr ICON_SMALL = 0;
     public const IntPtr ICON_BIG = 1;
 
@@ -234,6 +239,9 @@ internal static class Win32Window
     public static extern bool SetForegroundWindow(IntPtr hwnd);
 
     [DllImport("user32.dll")]
+    public static extern bool ReleaseCapture();
+
+    [DllImport("user32.dll")]
     public static extern bool DestroyWindow(IntPtr hwnd);
 
     [DllImport("user32.dll")]
@@ -347,6 +355,40 @@ internal static class Win32Window
     [DllImport("dwmapi.dll")]
     public static extern int DwmDefWindowProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam, out IntPtr result);
 
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, uint attribute, ref int pvAttribute, uint cbAttribute);
+
+    // Win11-only DWM attributes. Older Windows versions silently ignore them.
+    private const uint DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+    private const uint DWMWA_BORDER_COLOR = 34;
+    private const int DWMWCP_ROUND = 2;
+
+    /// <summary>
+    /// Packs an (R, G, B) triple into a Win32 COLORREF (0x00BBGGRR).
+    /// Used by the window-class background brush and DWMWA_BORDER_COLOR.
+    /// </summary>
+    public static uint ToColorRef(byte r, byte g, byte b) => (uint)(b << 16 | g << 8 | r);
+
+    /// <summary>
+    /// Enables Win11 rounded window corners (~8px radius). No-op on Windows 10.
+    /// </summary>
+    public static void EnableRoundedCorners(IntPtr hwnd)
+    {
+        int preference = DWMWCP_ROUND;
+        DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref preference, sizeof(int));
+    }
+
+    /// <summary>
+    /// Sets the 1px DWM-drawn outline color around the window. Win11 22H2+ only;
+    /// older Windows versions silently ignore the call. colorRef is COLORREF
+    /// (0x00BBGGRR) — same layout as the window-class brush colors.
+    /// </summary>
+    public static void SetBorderColor(IntPtr hwnd, uint colorRef)
+    {
+        int c = (int)colorRef;
+        DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, ref c, sizeof(int));
+    }
+
     private static readonly List<WndProc> _wndProcRefs = []; // prevent GC of delegates
 
     /// <summary>
@@ -388,7 +430,7 @@ internal static class Win32Window
         }
     }
 
-    public static IntPtr Create(string className, string title, int x, int y, int width, int height, WndProc wndProc)
+    public static IntPtr Create(string className, string title, int x, int y, int width, int height, WndProc wndProc, uint backgroundColorRef)
     {
         var hInstance = GetModuleHandle(null);
         _wndProcRefs.Add(wndProc);
@@ -405,7 +447,7 @@ internal static class Win32Window
             hIcon = hIconLg,
             hIconSm = hIconSm,
             hCursor = LoadCursor(IntPtr.Zero, 32512),
-            hbrBackground = CreateSolidBrush(0x140a0f), // #0f0a14 as COLORREF (0x00BBGGRR)
+            hbrBackground = CreateSolidBrush(backgroundColorRef),
             lpszClassName = className
         };
         RegisterClassEx(ref wc);
