@@ -4,6 +4,7 @@
 }
 
 .message-input-wrapper {
+  position: relative;
   display: flex;
   align-items: flex-end;
   gap: var(--space-sm);
@@ -47,9 +48,66 @@
   box-shadow: none;
 }
 
+.emoji-button {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+}
+
+.emoji-button:focus-visible {
+  box-shadow: none;
+}
+
 .send-button {
   width: 40px;
   height: 40px;
+}
+
+.message-emoji-picker {
+  position: absolute;
+  right: calc(40px + var(--space-sm) + var(--space-xs));
+  bottom: calc(100% + var(--space-xs));
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-xs);
+  padding: var(--space-xs);
+  min-width: 132px;
+  background: var(--bg-elevated, var(--bg-secondary));
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: 20;
+}
+
+.message-emoji-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    transform var(--transition-fast);
+}
+
+.message-emoji-option:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--border-primary);
+  transform: translateY(-1px);
+}
+
+.message-emoji-option:focus-visible {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 1px var(--accent-primary);
 }
 
 .send-button:hover:not(:disabled) {
