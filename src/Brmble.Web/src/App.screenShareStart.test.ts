@@ -2065,7 +2065,7 @@ describe('active share discovery', () => {
     expect(joinCall?.order).toBeGreaterThan(stopCall);
   });
 
-  it('prompts for a channel password after a password-protected join denial and retries once', async () => {
+  it('prompts for a known password-protected channel before joining', async () => {
     const { prompt } = await import('./hooks/usePrompt');
     vi.mocked(prompt).mockResolvedValueOnce('secret-token');
     const getJoinChannelCalls = () => vi.mocked(bridge.send).mock.calls.filter(
@@ -2091,7 +2091,48 @@ describe('active share discovery', () => {
       await Promise.resolve();
     });
 
-    expect(bridge.send).toHaveBeenCalledWith('voice.joinChannel', { channelId: 2 });
+    await waitFor(() => {
+      expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
+        title: 'Channel Password',
+        message: 'Enter the password for Gaming.',
+        placeholder: 'Password',
+        confirmLabel: 'Join',
+        cancelLabel: 'Cancel',
+      }));
+    });
+    await waitFor(() => {
+      expect(bridge.send).toHaveBeenCalledWith('voice.joinChannel', { channelId: 2, password: 'secret-token' });
+    });
+    expect(getJoinChannelCalls()).toEqual([
+      ['voice.joinChannel', { channelId: 2, password: 'secret-token' }],
+    ]);
+  });
+
+  it('prompts for a channel password when a password-denial reason reveals an uncached password ACL', async () => {
+    const { prompt } = await import('./hooks/usePrompt');
+    vi.mocked(prompt).mockResolvedValueOnce('secret-token');
+    const getJoinChannelCalls = () => vi.mocked(bridge.send).mock.calls.filter(
+      ([type]) => type === 'voice.joinChannel',
+    );
+
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming' },
+        ],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    await act(async () => {
+      view.getByTestId('sidebar-join-channel-2').click();
+      await Promise.resolve();
+    });
 
     await act(async () => {
       bridge.emit('voice.error', {
@@ -2106,9 +2147,6 @@ describe('active share discovery', () => {
       expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
         title: 'Channel Password',
         message: 'Enter the password for Gaming.',
-        placeholder: 'Password',
-        confirmLabel: 'Join',
-        cancelLabel: 'Cancel',
       }));
     });
     await waitFor(() => {
@@ -2120,7 +2158,7 @@ describe('active share discovery', () => {
     ]);
   });
 
-  it('does not retry when the user cancels the channel password prompt', async () => {
+  it('does not join when the user cancels the known channel password prompt', async () => {
     const { prompt } = await import('./hooks/usePrompt');
     vi.mocked(prompt).mockResolvedValueOnce(null);
     const getJoinChannelCalls = () => vi.mocked(bridge.send).mock.calls.filter(
@@ -2146,15 +2184,6 @@ describe('active share discovery', () => {
       await Promise.resolve();
     });
 
-    await act(async () => {
-      bridge.emit('voice.error', {
-        type: 'permissionDenied',
-        permission: 4,
-        channelId: 2,
-        message: CHANNEL_PASSWORD_DENIAL_MESSAGE,
-      });
-    });
-
     await waitFor(() => {
       expect(prompt).toHaveBeenCalledTimes(1);
     });
@@ -2162,9 +2191,7 @@ describe('active share discovery', () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(getJoinChannelCalls()).toEqual([
-      ['voice.joinChannel', { channelId: 2 }],
-    ]);
+    expect(getJoinChannelCalls()).toEqual([]);
   });
 
   it('does not prompt for unrelated permission denials', async () => {
@@ -2248,7 +2275,6 @@ describe('active share discovery', () => {
 
     expect(prompt).toHaveBeenCalledTimes(1);
     expect(getJoinChannelCalls()).toEqual([
-      ['voice.joinChannel', { channelId: 2 }],
       ['voice.joinChannel', { channelId: 2, password: 'wrong-secret' }],
     ]);
 
@@ -2265,7 +2291,6 @@ describe('active share discovery', () => {
 
     expect(prompt).toHaveBeenCalledTimes(1);
     expect(getJoinChannelCalls()).toEqual([
-      ['voice.joinChannel', { channelId: 2 }],
       ['voice.joinChannel', { channelId: 2, password: 'wrong-secret' }],
     ]);
   });

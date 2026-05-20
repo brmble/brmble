@@ -189,6 +189,7 @@ describe('getJoinAccessAction', () => {
 
   it('prompts for password restricted denied channels and denies other restricted channels', () => {
     expect(getJoinAccessAction({ canEnter: false, hasPasswordRestriction: true })).toBe('promptPassword');
+    expect(getJoinAccessAction({ hasPasswordRestriction: true })).toBe('promptPassword');
     expect(getJoinAccessAction({ canEnter: false })).toBe('deny');
   });
 });

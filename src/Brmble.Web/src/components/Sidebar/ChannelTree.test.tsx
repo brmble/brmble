@@ -302,6 +302,22 @@ describe('ChannelTree channel access locks', () => {
     expect(row?.querySelector('[data-icon="lock"]')).not.toBeNull();
     expect(row?.textContent).not.toContain('password');
   });
+
+  it('renders a closed lock for password-restricted channels even when enter metadata is missing', () => {
+    render(<ChannelTree channels={[{ id: 1, name: 'Secret', hasPasswordRestriction: true }]} users={[]} currentChannelId={1} onJoinChannel={vi.fn()} />);
+
+    const row = screen.getByText('Secret').closest('.channel-row');
+    expect(row?.querySelector('[data-icon="lock"]')).not.toBeNull();
+  });
+
+  it('renders channel access icons as the rightmost channel name sidebar icons', () => {
+    render(<ChannelTree channels={[{ id: 1, name: 'Secret', isEnterRestricted: true, canEnter: false }]} users={[{ session: 1, name: 'Alice', channelId: 1 }]} currentChannelId={1} onJoinChannel={vi.fn()} />);
+
+    const row = screen.getByText('Secret').closest('.channel-row');
+    const accessIcon = row?.querySelector('.channel-access-icon');
+    expect(accessIcon).not.toBeNull();
+    expect(accessIcon?.nextElementSibling).toBeNull();
+  });
 });
 
 describe('ChannelTree ACL integration', () => {

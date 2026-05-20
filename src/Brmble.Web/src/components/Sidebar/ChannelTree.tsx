@@ -273,10 +273,10 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     const isCurrentChannel = currentChannelId === channel.id;
     const unreadInfo = channelUnreads?.get(String(channel.id));
     const hasUnread = ((unreadInfo?.notificationCount ?? 0) + (unreadInfo?.highlightCount ?? 0)) > 0;
-    const lockIconName = channel.isEnterRestricted
-      ? channel.canEnter === false ? 'lock' : 'unlock'
+    const lockIconName = channel.isEnterRestricted || channel.hasPasswordRestriction
+      ? channel.hasPasswordRestriction || channel.canEnter === false ? 'lock' : 'unlock'
       : null;
-    const lockTooltip = channel.canEnter === false
+    const lockTooltip = channel.canEnter === false || channel.hasPasswordRestriction
       ? 'Restricted channel'
       : 'Restricted channel, access allowed';
 
@@ -340,13 +340,6 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
             )}
           </span>
           <span className="channel-name">{channel.name}</span>
-          {lockIconName && (
-            <Tooltip content={lockTooltip}>
-              <span className="channel-access-icon" aria-label={lockTooltip}>
-                <Icon name={lockIconName} size={11} />
-              </span>
-            </Tooltip>
-          )}
           {channel.users.length > 0 && (
             <Tooltip content={(sortByNamePerChannel[channel.id] ?? false) ? 'Sort by join order' : 'Sort alphabetically'}>
             <button
@@ -378,6 +371,13 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
               </>
             );
           })()}
+          {lockIconName && (
+            <Tooltip content={lockTooltip}>
+              <span className="channel-access-icon" aria-label={lockTooltip}>
+                <Icon name={lockIconName} size={11} />
+              </span>
+            </Tooltip>
+          )}
         </div>
         
         {isExpanded && (

@@ -352,8 +352,15 @@ interface PendingJoinAttempt {
   passwordRetrySent: boolean;
 }
 
+function isPasswordProtectedDenialReason(data: unknown): boolean {
+  const d = data as { message?: string; reason?: string } | undefined;
+  const text = `${d?.message ?? ''} ${d?.reason ?? ''}`.toLowerCase();
+  return text.includes('password') && text.includes('token');
+}
+
 function isPasswordProtectedJoinError(data: unknown, channel?: Channel): boolean {
-  return isStructuredEnterDenied(data) && channel?.hasPasswordRestriction === true;
+  return isStructuredEnterDenied(data)
+    && (channel?.hasPasswordRestriction === true || isPasswordProtectedDenialReason(data));
 }
 
 interface NextLiveKitStatusOptions {
@@ -684,8 +691,8 @@ export function getChannelAccessDeniedMessage(channel: Pick<Channel, 'hasPasswor
 export type JoinAccessAction = 'join' | 'promptPassword' | 'deny';
 
 export function getJoinAccessAction(channel: Pick<Channel, 'canEnter' | 'hasPasswordRestriction'>): JoinAccessAction {
-  if (channel.canEnter !== false) return 'join';
-  return channel.hasPasswordRestriction ? 'promptPassword' : 'deny';
+  if (channel.hasPasswordRestriction) return 'promptPassword';
+  return channel.canEnter === false ? 'deny' : 'join';
 }
 
 export function isMatrixChannelChatActive(
@@ -1695,6 +1702,12 @@ function App() {
         ? channelsRef.current.find(channel => channel.id === pendingJoinAttempt.channelId)
         : undefined;
       if (pendingJoinAttempt && isPasswordProtectedJoinError(data, pendingChannel)) {
+        if (pendingChannel && pendingChannel.hasPasswordRestriction !== true) {
+          setChannels(prev => prev.map(channel => channel.id === pendingChannel.id
+            ? { ...channel, hasPasswordRestriction: true }
+            : channel));
+        }
+
         if (!pendingJoinAttempt.passwordRetrySent) {
           pendingJoinAttemptRef.current = {
             ...pendingJoinAttempt,
