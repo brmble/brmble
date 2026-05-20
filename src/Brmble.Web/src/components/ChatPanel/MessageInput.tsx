@@ -8,8 +8,11 @@ import { Icon } from '../Icon/Icon';
 import { validateImageFile } from '../../utils/imageUpload';
 import './MessageInput.css';
 
+const TYPING_IDLE_TIMEOUT_MS = 10_000;
+
 interface MessageInputProps {
   onSend: (content: string, image?: File) => void;
+  onTypingChange?: (isTyping: boolean) => void;
   placeholder?: string;
   mentionableUsers?: MentionableUser[];
   disabled?: boolean;
@@ -26,10 +29,13 @@ interface MessageInputProps {
   matrixRoomId?: string | null;
 }
 
-export function MessageInput({ onSend, placeholder = 'Type a message...', mentionableUsers = [], disabled, replyState, onClearReply, matrixClient, matrixRoomId }: MessageInputProps) {
+export function MessageInput({ onSend, onTypingChange, placeholder = 'Type a message...', mentionableUsers = [], disabled, replyState, onClearReply, matrixClient, matrixRoomId }: MessageInputProps) {
   const [message, setMessage] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const typingStateRef = useRef(false);
+  const onTypingChangeRef = useRef(onTypingChange);
+  const typingIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [mentionActive, setMentionActive] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
   const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
@@ -58,6 +64,31 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
   useEffect(() => {
     textareaRef.current?.focus();
   }, [placeholder]);
+
+  useEffect(() => {
+    onTypingChangeRef.current = onTypingChange;
+  }, [onTypingChange]);
+
+  const emitTypingChange = useCallback((nextIsTyping: boolean) => {
+    if (typingStateRef.current === nextIsTyping) return;
+    typingStateRef.current = nextIsTyping;
+    onTypingChangeRef.current?.(nextIsTyping);
+  }, []);
+
+  const clearTypingIdleTimer = useCallback(() => {
+    if (typingIdleTimerRef.current) {
+      clearTimeout(typingIdleTimerRef.current);
+      typingIdleTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleTypingIdleTimeout = useCallback(() => {
+    clearTypingIdleTimer();
+    typingIdleTimerRef.current = setTimeout(() => {
+      typingIdleTimerRef.current = null;
+      emitTypingChange(false);
+    }, TYPING_IDLE_TIMEOUT_MS);
+  }, [clearTypingIdleTimer, emitTypingChange]);
 
   // Compute filtered users for reuse across handlers
   const filteredUsers = (() => {
@@ -127,8 +158,15 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
   const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
     setMessage(value);
+    const isTyping = value.trim().length > 0;
+    emitTypingChange(isTyping);
+    if (isTyping) {
+      scheduleTypingIdleTimeout();
+    } else {
+      clearTypingIdleTimer();
+    }
     updateMentionState(value, e.target.selectionStart ?? value.length);
-  }, [updateMentionState]);
+  }, [clearTypingIdleTimer, emitTypingChange, scheduleTypingIdleTimeout, updateMentionState]);
 
   // Recompute mention state when cursor moves without text change
   const handleSelect = useCallback(() => {
@@ -183,11 +221,19 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
     setValidationError(null);
   }, [imagePreviewUrl]);
 
-  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (validationTimerRef.current) clearTimeout(validationTimerRef.current);
+      clearTypingIdleTimer();
+      if (typingStateRef.current) {
+        emitTypingChange(false);
+      }
+    };
+  }, [clearTypingIdleTimer, emitTypingChange]);
+
   useEffect(() => {
     return () => {
       if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
-      if (validationTimerRef.current) clearTimeout(validationTimerRef.current);
     };
   }, [imagePreviewUrl]);
 
@@ -245,6 +291,8 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
         onSend(message.trim(), pendingImage ?? undefined);
       }
       setMessage('');
+      clearTypingIdleTimer();
+      emitTypingChange(false);
       setMentionActive(false);
       setPendingImage(null);
       if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);

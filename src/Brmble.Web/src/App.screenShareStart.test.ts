@@ -146,6 +146,9 @@ vi.mock('./hooks/useMatrixClient', () => ({
     fetchDMHistory: vi.fn(),
     setActiveChannel: vi.fn(),
     setActiveDmContact: vi.fn(),
+    setRoomTyping: vi.fn().mockResolvedValue(undefined),
+    getTypingUsers: vi.fn(() => []),
+    formatTypingLabel: vi.fn(() => ''),
   }),
 }));
 

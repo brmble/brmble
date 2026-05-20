@@ -1,10 +1,19 @@
 type MessageHandler = (data: unknown) => void;
 
+type WebView2HostWindow = Window & {
+  chrome?: {
+    webview?: {
+      addEventListener(type: 'message', handler: (event: { data: unknown }) => void): void;
+      postMessage(message: { type: string; data?: unknown }): void;
+    };
+  };
+};
+
 const bridge = {
   _handlers: new Map<string, MessageHandler[]>(),
 
   init() {
-    const webview = window.chrome?.webview;
+    const webview = (window as WebView2HostWindow).chrome?.webview;
     if (webview) {
       webview.addEventListener('message', (event: { data: unknown }) => {
         this._handleMessage(event as { data: { type: string; data?: unknown } | { type: string; data?: unknown }[] });
@@ -31,7 +40,7 @@ const bridge = {
   },
 
   send(type: string, data: unknown = null) {
-    const webview = window.chrome?.webview;
+    const webview = (window as WebView2HostWindow).chrome?.webview;
     if (webview) {
       webview.postMessage({ type, data });
     } else {

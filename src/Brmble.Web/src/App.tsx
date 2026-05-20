@@ -503,6 +503,27 @@ export function isMatrixChannelChatActive(
   return credentials?.roomMap[channelId] !== undefined;
 }
 
+export function getActiveMatrixRoomId(input: {
+  appMode: 'channels' | 'dm';
+  selectedDmUserId: string | null;
+  currentChannelId: string | undefined;
+  dmRoomMap: Map<string, string>;
+  roomMap?: Record<string, string>;
+}): string | null {
+  const { appMode, selectedDmUserId, currentChannelId, dmRoomMap, roomMap } = input;
+
+  if (appMode === 'dm' && selectedDmUserId) {
+    const dmRoomId = dmRoomMap.get(selectedDmUserId);
+    if (dmRoomId) return dmRoomId;
+  }
+
+  if (currentChannelId && currentChannelId !== 'server-root' && roomMap?.[currentChannelId]) {
+    return roomMap[currentChannelId];
+  }
+
+  return null;
+}
+
 export const BRMBLE_SERVICE_WARNING_ID = 'brmble-service-disconnected';
 
 export const BRMBLE_SERVICE_TEMPORARY_CHAT_NOTICE =
@@ -900,17 +921,20 @@ function App() {
     matrixClient.setActiveDmContact(dmStore.selectedContact?.id ?? null);
   }, [dmStore.selectedContact?.id, matrixClient.setActiveDmContact]);
 
-  // Determine active Matrix room ID (depends on dmStore.selectedContact)
   const activeMatrixRoomId = useMemo(() => {
-    if (dmStore.selectedContact && matrixClient?.dmRoomMap) {
-      const roomId = matrixClient.dmRoomMap.get(dmStore.selectedContact.id);
-      if (roomId) return roomId;
-    }
-    if (currentChannelId && currentChannelId !== 'server-root' && matrixCredentials?.roomMap?.[currentChannelId]) {
-      return matrixCredentials.roomMap[currentChannelId];
-    }
-    return null;
-  }, [dmStore.selectedContact, currentChannelId, matrixClient?.dmRoomMap, matrixCredentials?.roomMap]);
+    return getActiveMatrixRoomId({
+      appMode: dmStore.appMode,
+      selectedDmUserId: dmStore.selectedContact?.id ?? null,
+      currentChannelId,
+      dmRoomMap: matrixClient.dmRoomMap,
+      roomMap: matrixCredentials?.roomMap,
+    });
+  }, [dmStore.appMode, dmStore.selectedContact?.id, currentChannelId, matrixClient.dmRoomMap, matrixCredentials?.roomMap]);
+
+  const activeTypingLabel = useMemo(() => {
+    if (!activeMatrixRoomId) return '';
+    return matrixClient.formatTypingLabel(matrixClient.getTypingUsers(activeMatrixRoomId));
+  }, [activeMatrixRoomId, matrixClient]);
 
   const dmMatrixRoomId = useMemo(() => {
     if (dmStore.selectedContact && matrixClient?.dmRoomMap) {
@@ -918,6 +942,10 @@ function App() {
     }
     return null;
   }, [dmStore.selectedContact, matrixClient?.dmRoomMap]);
+
+  const handleMatrixTypingChange = useCallback((roomId: string | null, isTyping: boolean) => {
+    void matrixClient.setRoomTyping(roomId, isTyping).catch(console.error);
+  }, [matrixClient]);
 
   const unreadTracker = useUnreadTracker(
     matrixClient?.client ?? null,
@@ -3443,6 +3471,8 @@ const handleConnect = (serverData: SavedServer) => {
                     screenShareViewerMode={screenShareSettings.viewerMode}
                     users={users}
                     topNotice={brmbleTemporaryChatActive ? BRMBLE_SERVICE_TEMPORARY_CHAT_NOTICE : undefined}
+                    onTypingChange={handleMatrixTypingChange}
+                    typingLabel={channelMatrixRoomId && channelMatrixRoomId === activeMatrixRoomId ? activeTypingLabel : ''}
                     onMessageContextMenu={handleChatMessageContextMenu}
                     onCopyToClipboard={handleCopyToClipboard}
                   />
@@ -3463,6 +3493,8 @@ const handleConnect = (serverData: SavedServer) => {
                     users={users}
                     disabled={dmStore.selectedContact?.isEphemeral === true && dmStore.selectedContact?.mumbleSessionId == null}
                     topNotice={dmStore.selectedContact?.isEphemeral ? 'This is a Mumble direct message. Chat history will be lost when you disconnect.' : undefined}
+                    onTypingChange={handleMatrixTypingChange}
+                    typingLabel={dmMatrixRoomId && dmMatrixRoomId === activeMatrixRoomId ? activeTypingLabel : ''}
                     onMessageContextMenu={handleChatMessageContextMenu}
                     onCopyToClipboard={handleCopyToClipboard}
                   />

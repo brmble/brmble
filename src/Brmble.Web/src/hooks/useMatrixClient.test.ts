@@ -28,6 +28,7 @@ const mockClient = {
   createRoom: vi.fn().mockResolvedValue({ room_id: '!new:example.com' }),
   scrollback: vi.fn().mockResolvedValue(undefined),
   sendMessage: vi.fn().mockResolvedValue({}),
+  sendTyping: vi.fn().mockResolvedValue(undefined),
   mxcUrlToHttp: vi.fn((url: string) => url.replace('mxc://', 'https://matrix.example.com/_matrix/media/v3/download/')),
 };
 
@@ -35,6 +36,7 @@ vi.mock('matrix-js-sdk', () => ({
   createClient: vi.fn(() => mockClient),
   RoomEvent: { Timeline: 'Room.timeline' },
   RoomStateEvent: { Members: 'RoomState.members' },
+  RoomMemberEvent: { Typing: 'RoomMember.typing' },
   ClientEvent: { Sync: 'sync', AccountData: 'accountData' },
   EventType: { RoomMessage: 'm.room.message', Direct: 'm.direct' },
   MsgType: { Text: 'm.text' },
@@ -756,5 +758,91 @@ describe('useMatrixClient', () => {
       ts: 2000,
       sender: 'Bob',
     });
+  });
+
+  it('sends typing true with a 30000ms timeout when active Matrix drafting starts', async () => {
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+
+    await act(async () => {
+      await result.current.setRoomTyping('!room:example.com', true);
+    });
+
+    expect(mockClient.sendTyping).toHaveBeenCalledWith('!room:example.com', true, 30000);
+  });
+
+  it('sends typing false when active Matrix drafting stops', async () => {
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+
+    await act(async () => {
+      await result.current.setRoomTyping('!room:example.com', true);
+      await result.current.setRoomTyping('!room:example.com', false);
+    });
+
+    expect(mockClient.sendTyping).toHaveBeenNthCalledWith(1, '!room:example.com', true, 30000);
+    expect(mockClient.sendTyping).toHaveBeenNthCalledWith(2, '!room:example.com', false, 0);
+  });
+
+  it('formats typing users for one, two, and many names', () => {
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+
+    expect(result.current.formatTypingLabel([{ matrixUserId: '@a:test', displayName: 'Alice' }])).toBe('Alice is typing...');
+    expect(result.current.formatTypingLabel([
+      { matrixUserId: '@a:test', displayName: 'Alice' },
+      { matrixUserId: '@b:test', displayName: 'Bob' },
+    ])).toBe('Alice and Bob are typing...');
+    expect(result.current.formatTypingLabel([
+      { matrixUserId: '@a:test', displayName: 'Alice' },
+      { matrixUserId: '@b:test', displayName: 'Bob' },
+      { matrixUserId: '@c:test', displayName: 'Cara' },
+    ])).toBe('Alice, Bob, and others are typing...');
+  });
+
+  it('filters the current user out of remote typing members while local typing is active', async () => {
+    const room = {
+      currentState: {
+        getMembers: () => [
+          { userId: '@1:example.com', name: 'Me', rawDisplayName: 'Me', typing: true },
+          { userId: '@alice:example.com', name: 'Alice', rawDisplayName: 'Alice', typing: true },
+        ],
+      },
+    };
+    mockClient.getRoom.mockReturnValue(room);
+
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+    const onTyping = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'RoomMember.typing')?.[1] as
+      | ((ev: unknown, member: { roomId: string }) => void)
+      | undefined;
+
+    await act(async () => {
+      await result.current.setRoomTyping('!room:example.com', true);
+    });
+
+    act(() => onTyping?.({} as never, { roomId: '!room:example.com' } as never));
+
+    expect(result.current.getTypingUsers('!room:example.com')).toEqual([
+      { matrixUserId: '@alice:example.com', displayName: 'Alice' },
+    ]);
+  });
+
+  it('keeps same-user typing visible when another client is typing', () => {
+    const room = {
+      currentState: {
+        getMembers: () => [
+          { userId: '@1:example.com', name: 'Me', rawDisplayName: 'Me', typing: true },
+        ],
+      },
+    };
+    mockClient.getRoom.mockReturnValue(room);
+
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+    const onTyping = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'RoomMember.typing')?.[1] as
+      | ((ev: unknown, member: { roomId: string }) => void)
+      | undefined;
+
+    act(() => onTyping?.({} as never, { roomId: '!room:example.com' } as never));
+
+    expect(result.current.getTypingUsers('!room:example.com')).toEqual([
+      { matrixUserId: '@1:example.com', displayName: 'Me' },
+    ]);
   });
 });

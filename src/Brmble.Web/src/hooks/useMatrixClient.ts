@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { createClient, RoomEvent, RoomStateEvent, ClientEvent, EventType, MsgType, KnownMembership } from 'matrix-js-sdk';
+import { createClient, RoomEvent, RoomStateEvent, RoomMemberEvent, ClientEvent, EventType, MsgType, KnownMembership } from 'matrix-js-sdk';
 import type { MatrixClient, MatrixEvent, Room, RoomMember, RoomState } from 'matrix-js-sdk';
 import type { ChatMessage, MediaAttachment } from '../types';
 import { useServiceStatus } from './useServiceStatus';
@@ -113,6 +113,9 @@ function loadMessagesFromTimeline(
   return out;
 }
 
+const TYPING_TIMEOUT_MS = 30_000;
+const TYPING_REFRESH_MS = 20_000;
+
 export interface MatrixCredentials {
   homeserverUrl: string;
   accessToken: string;
@@ -125,6 +128,18 @@ export interface MessagePreview {
   content: string;
   ts: number;
   sender: string;
+}
+
+export type TypingUser = {
+  matrixUserId: string;
+  displayName: string;
+};
+
+function formatTypingLabel(users: TypingUser[]): string {
+  if (users.length === 0) return '';
+  if (users.length === 1) return `${users[0].displayName} is typing...`;
+  if (users.length === 2) return `${users[0].displayName} and ${users[1].displayName} are typing...`;
+  return `${users[0].displayName}, ${users[1].displayName}, and others are typing...`;
 }
 
 interface MatrixClientOverlayCallbacks {
@@ -158,10 +173,13 @@ export function useMatrixClient(
   // Active-only message state: only the currently-viewed channel/DM is loaded
   const [activeMessages, setActiveMessages] = useState<ChatMessage[]>([]);
   const [activeDmMessages, setActiveDmMessages] = useState<ChatMessage[]>([]);
+  const [typingByRoom, setTypingByRoom] = useState<Map<string, TypingUser[]>>(new Map());
   const activeChannelIdRef = useRef<string | null>(null);
   const activeDmContactIdRef = useRef<string | null>(null);
   const activeRoomVersionRef = useRef(0);
   const activeDmVersionRef = useRef(0);
+  const localTypingRoomRef = useRef<string | null>(null);
+  const typingRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const dmRoomMapRef = useRef<Map<string, string>>(new Map());
   // Keep ref in sync
@@ -171,6 +189,39 @@ export function useMatrixClient(
   const pendingRoomCreations = useRef(new Map<string, Promise<string>>());
   const lastSyncStateRef = useRef<string | null>(null);
   const waitForRoomRef = useRef<((roomId: string, timeoutMs?: number) => Promise<Room>) | null>(null);
+
+  const clearTypingRefreshTimer = useCallback(() => {
+    if (typingRefreshTimerRef.current) {
+      clearTimeout(typingRefreshTimerRef.current);
+      typingRefreshTimerRef.current = null;
+    }
+  }, []);
+
+  const resolveTypingDisplayName = useCallback((roomId: string, matrixUserId: string): string => {
+    const room = clientRef.current?.getRoom(roomId);
+    const member = room?.getMember?.(matrixUserId);
+    return member?.rawDisplayName || member?.name || matrixUserId;
+  }, []);
+
+  const setRoomTyping = useCallback(async (roomId: string | null | undefined, isTyping: boolean) => {
+    if (!clientRef.current || !roomId) return;
+
+    if (!isTyping) {
+      clearTypingRefreshTimer();
+      localTypingRoomRef.current = null;
+      await clientRef.current.sendTyping(roomId, false, 0);
+      return;
+    }
+
+    localTypingRoomRef.current = roomId;
+    await clientRef.current.sendTyping(roomId, true, TYPING_TIMEOUT_MS);
+    clearTypingRefreshTimer();
+    typingRefreshTimerRef.current = setTimeout(() => {
+      if (localTypingRoomRef.current === roomId) {
+        void setRoomTyping(roomId, true);
+      }
+    }, TYPING_REFRESH_MS);
+  }, [clearTypingRefreshTimer]);
 
   // Reverse lookup: matrixRoomId → mumbleChannelId
   const roomIdToChannelId = useMemo(() => {
@@ -190,6 +241,9 @@ export function useMatrixClient(
       setDmLastMessages(new Map());
       setActiveMessages([]);
       setActiveDmMessages([]);
+      clearTypingRefreshTimer();
+      localTypingRoomRef.current = null;
+      setTypingByRoom(new Map());
       activeChannelIdRef.current = null;
       activeDmContactIdRef.current = null;
       setDmRoomMap(new Map());
@@ -223,6 +277,38 @@ export function useMatrixClient(
       if (!member.userId || !member.getAvatarUrl) return;
       const avatarUrl = member.getAvatarUrl(client.baseUrl, 128, 128, 'crop', false, false);
       callbacksRef.current?.onUserAvatarChanged?.(member.userId, avatarUrl ?? null);
+    };
+
+    const onTyping = (_event: MatrixEvent, member: RoomMember) => {
+      const roomId = member.roomId;
+      const room = clientRef.current?.getRoom(roomId);
+      if (!room || !credentials) return;
+
+      const nextUsers = room.currentState
+        .getMembers()
+        .filter((m: RoomMember) => m.typing)
+        .filter((m: RoomMember) => {
+          if (m.userId !== credentials.userId) return true;
+
+          // Matrix typing is user-scoped rather than device-scoped. Keep the
+          // same account visible when another client is typing, but suppress
+          // the echo on the device that's actively composing in this room.
+          return localTypingRoomRef.current !== roomId;
+        })
+        .map((m: RoomMember) => ({
+          matrixUserId: m.userId,
+          displayName: m.rawDisplayName || m.name || resolveTypingDisplayName(roomId, m.userId),
+        }));
+
+      setTypingByRoom(prev => {
+        const next = new Map(prev);
+        if (nextUsers.length === 0) {
+          next.delete(roomId);
+        } else {
+          next.set(roomId, nextUsers);
+        }
+        return next;
+      });
     };
 
     const onTimeline = (
@@ -297,6 +383,7 @@ export function useMatrixClient(
 
     client.on(RoomEvent.Timeline, onTimeline);
     client.on(RoomStateEvent.Members, onMemberChanged);
+    client.on(RoomMemberEvent.Typing, onTyping);
     updateStatus('chat', { state: 'connecting', error: undefined });
     client.startClient({ initialSyncLimit: 5 });
     clientRef.current = client;
@@ -536,14 +623,18 @@ export function useMatrixClient(
       waitForRoomRef.current = null;
       client.off(RoomEvent.Timeline, onTimeline);
       client.off(RoomStateEvent.Members, onMemberChanged);
+      client.off(RoomMemberEvent.Typing, onTyping);
       client.off(ClientEvent.Sync, onSync);
       client.off(RoomEvent.MyMembership, onMyMembership);
+      clearTypingRefreshTimer();
+      localTypingRoomRef.current = null;
+      setTypingByRoom(new Map());
       client.stopClient();
       clientRef.current = null;
       setClient(null);
       updateStatus('chat', { state: 'idle', error: undefined });
     };
-  }, [credentials, roomIdToChannelId, updateStatus]);
+  }, [clearTypingRefreshTimer, credentials, resolveTypingDisplayName, roomIdToChannelId, updateStatus]);
 
   const sendMessage = useCallback(async (channelId: string, text: string) => {
     if (!credentials || !clientRef.current) return;
@@ -789,5 +880,7 @@ export function useMatrixClient(
            sendMessage, sendImageMessage, uploadContent, fetchHistory,
            dmLastMessages, activeDmMessages, setActiveDmContact, dmRoomMap,
            dmUserDisplayNames, dmUserAvatarUrls, sendDMMessage, fetchDMHistory,
-           fetchAvatarUrl, client };
+           fetchAvatarUrl, client, setRoomTyping,
+           getTypingUsers: (roomId: string | null | undefined) => roomId ? (typingByRoom.get(roomId) ?? []) : [],
+           formatTypingLabel };
 }

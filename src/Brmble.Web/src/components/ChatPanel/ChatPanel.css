@@ -402,6 +402,14 @@
   padding: 0 var(--space-lg) var(--space-md);
 }
 
+.chat-typing-indicator {
+  min-height: 1.25rem;
+  padding: 0.125rem 0.25rem 0;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.72));
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
 /* Scroll-to-bottom button */
 .chat-scroll-bottom {
   --scroll-btn-size: 40px;

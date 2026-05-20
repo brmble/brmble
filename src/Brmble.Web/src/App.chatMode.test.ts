@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  getActiveMatrixRoomId,
   isBrmbleServiceOutageActive,
   isMatrixChannelChatActive,
   isTemporaryChannelChatActive,
@@ -43,6 +44,30 @@ describe('isMatrixChannelChatActive', () => {
 
   it('falls back to Mumble until self is restored as a Brmble client', () => {
     expect(isMatrixChannelChatActive('1', credentials, connectedStatuses, { session: 1, name: 'Me', self: true, isBrmbleClient: false })).toBe(false);
+  });
+});
+
+describe('getActiveMatrixRoomId', () => {
+  const dmRoomMap = new Map<string, string>([['@alice:example.com', '!dm:example.com']]);
+
+  it('prefers the active channel room while channel chat is visible', () => {
+    expect(getActiveMatrixRoomId({
+      appMode: 'channels',
+      selectedDmUserId: '@alice:example.com',
+      currentChannelId: '1',
+      dmRoomMap,
+      roomMap: credentials.roomMap,
+    })).toBe('!room:example.com');
+  });
+
+  it('uses the DM room while dm view is visible', () => {
+    expect(getActiveMatrixRoomId({
+      appMode: 'dm',
+      selectedDmUserId: '@alice:example.com',
+      currentChannelId: '1',
+      dmRoomMap,
+      roomMap: credentials.roomMap,
+    })).toBe('!dm:example.com');
   });
 });
 
