@@ -219,6 +219,19 @@ a:hover {
   animation: pulse var(--animation-pulse) infinite;
 }
 
+.key-binding-actions {
+  display: flex;
+  gap: var(--space-xs);
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.key-binding-clear-btn {
+  min-width: auto;
+  padding-inline: var(--space-sm);
+}
+
 /* Buttons */
 .btn {
   display: inline-flex;
@@ -259,7 +272,7 @@ a:hover {
 
 .btn-primary {
   background: var(--accent-primary);
-  color: #ffffff;
+  color: var(--bg-deep);
   border: 1px solid transparent;
   box-shadow: 0 0 var(--glow-md) var(--accent-primary-glow);
 }

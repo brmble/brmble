@@ -94,33 +94,25 @@ git push -u origin feature/my-feature
 - Voice: MumbleSharp
 - Text: Matrix (via Continuwity)
 
-## UI Development Rules
+## UI Development
 
-Before building or modifying any UI component, read `docs/UI_GUIDE.md`. It covers:
-- The token system (never hardcode visual values)
-- The 3-tier heading system (`.heading-title`, `.heading-section`, `.heading-label`)
-- Component patterns (modals, settings tabs, sidebar sections, prompt/confirm dialogs, form inputs, buttons)
-- Theme compatibility rules
-- Typography tokens (`--font-display`, `--font-body`, `--font-mono`)
-- Interaction states (hover, active, focus)
-- Spacing and border radius scales
-- The centralized Icon system (`<Icon>` component)
+Before creating, modifying, styling, or reviewing any UI, read `docs/UI_GUIDE.md`, especially the AI Agent UI Gate.
 
-### Icon System
+Do not add new UI elements, components, settings, icons, notifications, modals, dialogs, prompts, confirmations, forms, inputs, selects, context menus, sidebar sections, user/channel rows, screen share UI, help text, empty/loading/error states, layout patterns, or CSS before checking the guide for the existing pattern.
 
-All UI icons use the centralized `<Icon>` component in `src/Brmble.Web/src/components/Icon/Icon.tsx`.
+Never hardcode colors, font sizes, font families, spacing, border radius, shadows, or transition values in UI code. Use existing CSS custom property tokens and theme variables. See `docs/UI_GUIDE.md` and `src/Brmble.Web/src/themes/_template.css`.
 
-**Rules:**
-- **Never use emoji characters for icons in the UI** — always use `<Icon name="..." />`
-- Icons follow Feather/Lucide conventions: stroke-based, `currentColor`, strokeWidth 2, round caps/joins, 24x24 viewBox
-- Use a flat name API: `<Icon name="mic" />`, `<Icon name="mic-off" />`
-- Pair toggleable icons with `-off` suffix (`mic` / `mic-off`)
-- Brmblegotchi icons are prefixed `gotchi-` (e.g. `gotchi-food`, `gotchi-play`)
-- Complex brand logos (`BrmbleLogo`, `MumbleIcon`, `BrmbleIcon`) stay as dedicated components — too complex for the icon map
+Do not create toast systems or toast components. Brmble uses top-right `<Notification>` with `useNotificationQueue`; repeatable informational notifications may need optional notification settings.
 
-**Adding icons:** Source SVG paths from [lucide.dev/icons](https://lucide.dev/icons). Strip the outer `<svg>` wrapper and all stroke/fill/viewBox attributes from inner elements — the `<Icon>` component applies these. After adding an icon to Icon.tsx, update the icon table in `docs/UI_GUIDE.md` section 11.
+`docs/UI_GUIDE.md` is the source of truth for:
+- Design tokens and theme compatibility
+- Component patterns
+- Modals, dialogs, prompts, and confirmations
+- Settings tab layout and `SettingsHelp`
+- Icon usage
+- Notification behavior and optionality
 
-See `docs/UI_GUIDE.md` section 11 for full icon list, adding new icons, and conventions.
+If the guide does not cover the UI pattern you need, update `docs/UI_GUIDE.md` in the same branch before or alongside the UI change.
 
 ## Running Docker (local dev)
 

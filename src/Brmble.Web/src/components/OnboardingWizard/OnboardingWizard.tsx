@@ -780,7 +780,6 @@ export function OnboardingWizard({ onComplete, onServersImported, isMaximized }:
               <label htmlFor="onboarding-profile-name">Profile name</label>
               <input
                 id="onboarding-profile-name"
-                className="brmble-input"
                 type="text"
                 value={newName}
                 onChange={e => setNewName(e.target.value)}
@@ -823,7 +822,7 @@ export function OnboardingWizard({ onComplete, onServersImported, isMaximized }:
                     {busy ? 'Setting up…' : 'Generate New Certificate'}
                   </button>
                 </div>
-                <div className="onboarding-actions" style={{ borderTop: 'none', paddingTop: 0, marginTop: 'var(--space-sm)' }}>
+                <div className="onboarding-actions onboarding-actions-compact">
                   <button className="btn btn-ghost btn-back" onClick={() => setStep('identity')}>Back</button>
                 </div>
                 <input
@@ -867,12 +866,11 @@ export function OnboardingWizard({ onComplete, onServersImported, isMaximized }:
             <div className="onboarding-new-identity-form">
               <label>Profile name</label>
               <input
-                className="brmble-input"
                 type="text"
                 value={newName}
                 readOnly
                 tabIndex={-1}
-                style={{ pointerEvents: 'none', userSelect: 'none' }}
+                className="brmble-input onboarding-readonly-static"
               />
             </div>
             {fingerprint && (
@@ -882,7 +880,7 @@ export function OnboardingWizard({ onComplete, onServersImported, isMaximized }:
               </div>
             )}
             {exportError && (
-              <p style={{ color: 'var(--accent-danger-text)', fontSize: 'var(--text-sm)', marginBottom: 'var(--space-md)' }}>
+              <p className="onboarding-error">
                 {exportError}
               </p>
             )}

@@ -225,6 +225,16 @@ const iconPaths: Record<string, IconDef> = {
       </>
     ),
   },
+  'refresh-cw': {
+    paths: (
+      <>
+        <polyline points="23 4 23 10 17 10" />
+        <polyline points="1 20 1 14 7 14" />
+        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10" />
+        <path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14" />
+      </>
+    ),
+  },
   'arrow-right': {
     paths: <path d="M5 12h14M12 5l7 7-7 7" />,
   },
@@ -372,7 +382,7 @@ const iconPaths: Record<string, IconDef> = {
     paths: (
       <>
         <rect x="2.5" y="0.5" width="7" height="7" fill="none" stroke="currentColor" strokeWidth="1" />
-        <rect x="0.5" y="2.5" width="7" height="7" fill="var(--bg-deep, #0f0a14)" stroke="currentColor" strokeWidth="1" />
+        <rect x="0.5" y="2.5" width="7" height="7" fill="var(--bg-deep)" stroke="currentColor" strokeWidth="1" />
       </>
     ),
   },

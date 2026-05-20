@@ -1,4 +1,5 @@
 import { Component, type ReactNode, type ErrorInfo } from 'react';
+import './ErrorBoundary.css';
 
 interface Props {
   label: string;
@@ -46,47 +47,32 @@ export class ErrorBoundary extends Component<Props, State> {
       const errorStack = this.state.error.stack;
       const componentStack = this.state.info?.componentStack;
       return (
-        <div className="error-boundary-fallback" style={{
-          padding: 'var(--space-lg)',
-          margin: 'var(--space-xs)',
-          background: 'var(--bg-surface)',
-          border: '1px solid var(--accent-danger)',
-          borderRadius: 'var(--radius-md)',
-          color: 'var(--text-primary)',
-          fontFamily: 'var(--font-body)',
-          fontSize: 'var(--text-sm, 0.875rem)',
-          textAlign: 'center',
-        }}>
-          <div style={{ marginBottom: 'var(--space-sm)' }}>
-            <strong style={{ color: 'var(--accent-danger)', fontFamily: 'var(--font-display)' }}>
+        <div className="error-boundary-fallback">
+          <div className="error-boundary-heading">
+            <strong className="error-boundary-title">
               Something went wrong
             </strong>
           </div>
-          <p style={{ color: 'var(--text-muted)', margin: '0 0 var(--space-md) 0' }}>
+          <p className="error-boundary-message">
             This section encountered an error and could not be displayed.
           </p>
-          <div style={{ 
-            textAlign: 'left',
-            fontFamily: 'var(--font-mono)', 
-            fontSize: 'var(--text-xs, 0.75rem)',
-            marginBottom: 'var(--space-md)',
-          }}>
+          <div className="error-boundary-details">
             {isDev && (
               <>
-                <p style={{ color: 'var(--accent-danger)', marginBottom: 'var(--space-xs)' }}>
+                <p className="error-boundary-error">
                   Error: {errorMessage}
                 </p>
                 {componentStack && (
-                  <pre style={{ whiteSpace: 'pre-wrap', opacity: 0.8, color: 'var(--text-muted)' }}>
+                  <pre className="error-boundary-stack error-boundary-component-stack">
                     {componentStack}
                   </pre>
                 )}
                 {errorStack && (
-                  <details style={{ marginTop: 'var(--space-sm)' }}>
-                    <summary style={{ cursor: 'pointer', color: 'var(--accent-decorative)' }}>
+                  <details className="error-boundary-trace">
+                    <summary className="error-boundary-summary">
                       Stack trace
                     </summary>
-                    <pre style={{ whiteSpace: 'pre-wrap', marginTop: 'var(--space-xs)', opacity: 0.7 }}>
+                    <pre className="error-boundary-stack error-boundary-runtime-stack">
                       {errorStack}
                     </pre>
                   </details>

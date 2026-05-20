@@ -1,7 +1,7 @@
 # LiveKit & Screen Sharing Feature Roadmap
 
 **Date:** 2026-04-17
-**Status:** Active roadmap. Foundation, recent follow-up fixes, and E. Token & Security are implemented; next recommended phase is F. Connection & Reliability.
+**Status:** Active roadmap. Foundation, recent follow-up fixes, E. Token & Security, and F1/F2 reliability work are implemented; remaining F work is future reliability hardening.
 
 This is the master feature list for LiveKit and screen sharing work. Completed sub-projects and shipped follow-up fixes are tracked here, while future work should continue through design -> plan -> implementation cycles.
 
@@ -15,7 +15,7 @@ This is the master feature list for LiveKit and screen sharing work. Completed s
 | C | Viewing Experience | Not started | -- |
 | D | Game Overlay | Not started | -- |
 | E | Token & Security | Implemented | `2026-04-30-livekit-token-security-phase-design.md`, `2026-05-11-livekit-token-refresh-revocation-design.md` |
-| F | Connection & Reliability | Not started | -- |
+| F | Connection & Reliability | F1/F2 implemented; future hardening pending | `2026-05-15-livekit-connection-reliability-f2-design.md` |
 | G | UI/UX Polish | Not started | -- |
 | H | Clips & Screenshots | Not started | -- |
 | I | Performance & Quality | Not started | -- |
@@ -102,13 +102,13 @@ See full spec: `2026-04-17-multi-share-foundation-design.md`
 
 > Making it robust.
 
-34. Auto-reconnect on drop
-35. ICE fallback / TURN relay (groundwork partially implemented; formal F-phase hardening still not started)
-36. Connection quality indicator
-37. Graceful degradation (auto-reduce quality instead of freezing)
-38. Disconnect notification ("User X's share ended unexpectedly")
-39. Independent service reconnect -- LiveKit without restarting Mumble (issue #380)
-40. Share state recovery after crash
+- [x] 34. Auto-reconnect on drop -- implemented for Brmble server/session and Matrix reconnect after Brmble services restarts; LiveKit rooms intentionally clear and require manual restart/watch.
+- [ ] 35. ICE fallback / TURN relay hardening -- future work.
+- [x] 36. Connection quality indicator -- implemented for LiveKit screen-share UI through room/share quality state, sidebar tooltip text, and watched-tile quality badges.
+- [x] 37. Graceful degradation -- implemented as informational reconnecting/poor-quality UI that preserves watched tiles during transient LiveKit reconnects.
+- [x] 38. Disconnect notification when share ends unexpectedly -- implemented through Brmble notifications for watched/local share interruption.
+- [x] 39. Reconnect non-voice services independently when Mumble stays connected -- implemented for Brmble server/session, Matrix chat, and screen-share support state.
+- [x] 40. Share state recovery after crash -- completed by intentionally clearing stale LiveKit state; users restart sharing/watching manually after crash or terminal service loss.
 
 ## G. UI/UX Polish
 
@@ -180,9 +180,10 @@ These items were discussed and explicitly parked:
 
 ## Next-Phase Issue Shortlist
 
-The remaining priority work moves to phase F and should start with:
+Remaining F priority work is future reliability hardening:
 
-- `#380` `feat: Reconnect non-voice services independently when Mumble stays connected`
+- ICE/TURN relay hardening
+- production TURN/relay deployment decisions
 
 Implemented by the current E-pass:
 
@@ -193,9 +194,7 @@ Implemented by the current E-pass:
 
 Known phase-F roadmap gaps with no dedicated issue yet:
 
-- auto-reconnect on drop
-- share state recovery after crash
-- connection quality indicator and graceful degradation
+- ICE/TURN relay hardening
 
 ## Suggested Build Order
 
@@ -204,7 +203,7 @@ The recommended next sequence is:
 1. **A. Multi-Share Foundation** -- implemented
 2. **A2. Multi-Share Layouts** -- implemented
 3. **E. Token & Security** -- implemented
-4. **F. Connection & Reliability** -- next priority; address reconnect, recovery, and connection-state behavior
+4. **F. Connection & Reliability** -- F1/F2 implemented; remaining priority is future ICE/TURN relay hardening
 5. **C. Viewing Experience** -- pop-out, PiP, fullscreen (needed before overlay)
 6. **B. Broadcaster Controls** -- window picker, audio, quality presets
 7. **D. Game Overlay** -- depends on C (PiP/pop-out patterns) and voice system

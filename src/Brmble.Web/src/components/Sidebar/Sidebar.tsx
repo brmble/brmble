@@ -11,6 +11,7 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { useServiceStatus } from '../../hooks/useServiceStatus';
 import { useResizable } from '../../hooks/useResizable';
 import type { ShareInfo } from '../../hooks/useScreenShare';
+import type { ScreenShareQuality } from '../../utils/screenShareQuality';
 import { useProfileFingerprint } from '../../contexts/ProfileContext';
 import { prompt } from '../../hooks/usePrompt';
 import bridge from '../../bridge';
@@ -46,6 +47,8 @@ interface SidebarProps {
   onStopWatching?: (userId: number) => void;
   activeShares?: ShareInfo[];
   watchingShares?: ShareInfo[];
+  isLiveKitRoomConnected?: boolean;
+  screenShareQuality?: ScreenShareQuality;
   onEditAvatar?: () => void;
 }
 
@@ -74,6 +77,8 @@ export function Sidebar({
   onStopWatching,
   activeShares,
   watchingShares,
+  isLiveKitRoomConnected = false,
+  screenShareQuality = 'unknown',
   onEditAvatar
 }: SidebarProps) {
   const fingerprint = useProfileFingerprint();
@@ -94,9 +99,9 @@ export function Sidebar({
   const nonRootChannels = rootChannel ? channels.filter(ch => ch !== rootChannel) : channels;
   const nonRootUsers = rootChannel ? users.filter(u => u.channelId !== rootChannel.id) : users;
 
-  const { statuses } = useServiceStatus();
+  const { effectiveStatuses } = useServiceStatus();
 
-  const serviceOrder: ServiceName[] = ['voice', 'chat', 'server', 'livekit'];
+  const serviceOrder: ServiceName[] = ['voice', 'server', 'chat', 'livekit'];
 
   const stateLabel = (state: ServiceState): string => {
     switch (state) {
@@ -113,9 +118,23 @@ export function Sidebar({
 
   const dotTooltip = (svc: ServiceName): string => {
     const name = SERVICE_DISPLAY_NAMES[svc];
-    const status = statuses[svc];
+    const status = effectiveStatuses[svc];
     const state = stateLabel(status.state);
     const error = status.error;
+
+    if (svc === 'livekit' && !error) {
+      if (status.state === 'connected' && !isLiveKitRoomConnected) {
+        return `${name}: Available`;
+      }
+
+      if (isLiveKitRoomConnected && screenShareQuality === 'reconnecting') {
+        return `${name}: Reconnecting`;
+      }
+
+      if (status.state === 'connected' && isLiveKitRoomConnected && screenShareQuality !== 'unknown') {
+        return `${name}: Connected - ${screenShareQuality}`;
+      }
+    }
 
     if (svc === 'voice' && status.state === 'connected' && typeof status.loss === 'number') {
       const quality = status.loss < 2 ? ' (good)' : status.loss < 10 ? ' (fair)' : ' (poor)';
@@ -130,6 +149,14 @@ export function Sidebar({
     }
 
     return error ? `${name}: ${state} — ${error}` : `${name}: ${state}`;
+  };
+
+  const serviceDotState = (svc: ServiceName): ServiceState => {
+    if (svc === 'livekit' && isLiveKitRoomConnected && screenShareQuality === 'reconnecting') {
+      return 'connecting';
+    }
+
+    return effectiveStatuses[svc].state;
   };
 
   const [contextMenu, setContextMenu] = useState<{
@@ -218,7 +245,7 @@ export function Sidebar({
                 {serviceOrder.map(svc => (
                   <Tooltip key={svc} content={dotTooltip(svc)} position="top">
                     <span
-                      className={`service-dot service-dot--${statuses[svc].state}`}
+                      className={`service-dot service-dot--${serviceDotState(svc)}`}
                       aria-label={dotTooltip(svc)}
                       tabIndex={0}
                     />
@@ -258,7 +285,7 @@ export function Sidebar({
                 {serviceOrder.map(svc => (
                   <Tooltip key={svc} content={dotTooltip(svc)} position="top">
                     <span
-                      className={`service-dot service-dot--${statuses[svc].state}`}
+                      className={`service-dot service-dot--${serviceDotState(svc)}`}
                       aria-label={dotTooltip(svc)}
                       tabIndex={0}
                     />
@@ -622,12 +649,11 @@ export function Sidebar({
             </div>
             <div className="prompt-input-container">
               <textarea
-                className="brmble-input"
+                className="brmble-input channel-description-input"
                 placeholder="Description (optional, max 127 chars)"
                 value={newChannelDescription}
                 onChange={(e) => setNewChannelDescription(e.target.value.slice(0, 127))}
                 rows={3}
-                style={{ resize: 'vertical', minHeight: '60px' }}
               />
             </div>
             <div className="prompt-footer">

@@ -106,4 +106,128 @@ public class MumbleAdapterCredentialsTests
         Assert.IsFalse(result);
         Assert.IsNull(accessMode);
     }
+
+    [TestMethod]
+    public void ShouldRefreshCredentialsAfterHealthSuccess_FirstSuccessAfterInitialCredentials_ReturnsFalse()
+    {
+        var result = MumbleAdapter.ShouldRefreshCredentialsAfterHealthSuccess(
+            credentialsAlreadyFetched: true,
+            previousHealthWasConnected: false,
+            sawHealthFailureSinceCredentials: false);
+
+        Assert.IsFalse(result);
+    }
+
+    [TestMethod]
+    public void ShouldRefreshCredentialsAfterHealthSuccess_RecoveryAfterFailure_ReturnsTrue()
+    {
+        var result = MumbleAdapter.ShouldRefreshCredentialsAfterHealthSuccess(
+            credentialsAlreadyFetched: true,
+            previousHealthWasConnected: false,
+            sawHealthFailureSinceCredentials: true);
+
+        Assert.IsTrue(result);
+    }
+
+    [TestMethod]
+    public void ShouldRefreshCredentialsAfterHealthSuccess_InitialRecoveryAfterFailure_ReturnsTrue()
+    {
+        var result = MumbleAdapter.ShouldRefreshCredentialsAfterHealthSuccess(
+            credentialsAlreadyFetched: false,
+            previousHealthWasConnected: false,
+            sawHealthFailureSinceCredentials: true);
+
+        Assert.IsTrue(result);
+    }
+
+    [TestMethod]
+    public void ShouldStartHealthCheckBeforeCredentialFetch_WithApiUrl_ReturnsTrue()
+    {
+        var result = MumbleAdapter.ShouldStartHealthCheckBeforeCredentialFetch("https://api.example.com");
+
+        Assert.IsTrue(result);
+    }
+
+    [TestMethod]
+    public void ShouldStartHealthCheckBeforeCredentialFetch_WithoutApiUrl_ReturnsFalse()
+    {
+        var result = MumbleAdapter.ShouldStartHealthCheckBeforeCredentialFetch(null);
+
+        Assert.IsFalse(result);
+    }
+
+    [TestMethod]
+    public void ShouldRefreshCredentialsAfterHealthSuccess_StillConnected_ReturnsFalse()
+    {
+        var result = MumbleAdapter.ShouldRefreshCredentialsAfterHealthSuccess(
+            credentialsAlreadyFetched: true,
+            previousHealthWasConnected: true,
+            sawHealthFailureSinceCredentials: true);
+
+        Assert.IsFalse(result);
+    }
+
+    [TestMethod]
+    public void ShouldRefreshCredentialsAfterHealthSuccess_InitialCredentialFailureWhileHealthStaysConnected_ReturnsTrue()
+    {
+        var result = MumbleAdapter.ShouldRefreshCredentialsAfterHealthSuccess(
+            credentialsAlreadyFetched: false,
+            previousHealthWasConnected: true,
+            sawHealthFailureSinceCredentials: true);
+
+        Assert.IsTrue(result);
+    }
+
+    [TestMethod]
+    public void ShouldMarkCredentialFailureAsServiceOutage_ForUnavailableService_ReturnsTrue()
+    {
+        Assert.IsTrue(MumbleAdapter.ShouldMarkCredentialFailureAsServiceOutage(503));
+        Assert.IsTrue(MumbleAdapter.ShouldMarkCredentialFailureAsServiceOutage(0));
+    }
+
+    [TestMethod]
+    public void ShouldMarkCredentialFailureAsServiceOutage_ForNameConflict_ReturnsFalse()
+    {
+        Assert.IsFalse(MumbleAdapter.ShouldMarkCredentialFailureAsServiceOutage(409));
+    }
+
+    [TestMethod]
+    public void ShouldEmitSessionStoppedStatus_StaleCanceledGeneration_ReturnsFalse()
+    {
+        var result = MumbleAdapter.ShouldEmitSessionStoppedStatus(
+            isCancellationRequested: true,
+            currentGeneration: 2,
+            taskGeneration: 1);
+
+        Assert.IsFalse(result);
+    }
+
+    [TestMethod]
+    public void CreateBrmbleServiceStatusPayload_WithReconnectContext_UsesExpectedShape()
+    {
+        var payload = MumbleAdapter.CreateBrmbleServiceStatusPayload(
+            "session",
+            "reconnecting",
+            reason: "connection-lost",
+            attempt: 2,
+            delayMs: 4000);
+
+        Assert.AreEqual("session", payload.Service);
+        Assert.AreEqual("reconnecting", payload.State);
+        Assert.AreEqual("connection-lost", payload.Reason);
+        Assert.AreEqual(2, payload.Attempt);
+        Assert.AreEqual(4000, payload.DelayMs);
+    }
+
+    [TestMethod]
+    public void CreateBrmbleServiceStatusPayload_Connected_CanOmitReconnectContext()
+    {
+        var payload = MumbleAdapter.CreateBrmbleServiceStatusPayload("server", "connected");
+
+        Assert.AreEqual("server", payload.Service);
+        Assert.AreEqual("connected", payload.State);
+        Assert.IsNull(payload.Reason);
+        Assert.IsNull(payload.Attempt);
+        Assert.IsNull(payload.DelayMs);
+    }
 }

@@ -147,6 +147,10 @@
   gap: var(--space-sm);
 }
 
+.user-info-no-transition {
+  transition: none;
+}
+
 .user-info-volume-section {
   margin-bottom: var(--space-lg);
 }

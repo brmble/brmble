@@ -30,7 +30,7 @@
 }
 
 .contract-slot.complete {
-  border-color: var(--accent-success, #22c55e);
+  border-color: var(--accent-success);
 }
 
 .slot-label {
@@ -52,7 +52,6 @@
 
 .contract-stars {
   color: var(--accent-primary);
-  letter-spacing: 1px;
   font-size: var(--text-sm);
 }
 
@@ -83,7 +82,7 @@
 }
 
 .timer-value.urgent {
-  color: var(--accent-danger, #ef4444);
+  color: var(--accent-danger);
 }
 
 .timer-progress {
@@ -94,32 +93,32 @@
 /* Contract progress bar - more prominent */
 .contract-progress-bar {
   height: 12px;
-  background: #2a2a2a;
-  border-radius: 6px;
+  background: var(--bg-input);
+  border-radius: var(--radius-sm);
   overflow: hidden;
   margin: var(--space-xs) 0;
-  border: 1px solid #444;
+  border: 1px solid var(--border-subtle);
 }
 
 .contract-progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #22c55e, #3b82f6);
+  background: linear-gradient(90deg, var(--accent-success), var(--accent-primary));
   transition: width 0.1s linear;
   min-width: 4px;
 }
 
 /* Pending contract state */
 .contract-slot.pending {
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.05) 100%);
-  border: 2px solid var(--accent-primary, #3b82f6);
+  background: var(--accent-primary-ghost);
+  border: 2px solid var(--accent-primary);
   cursor: grab;
   transition: all 0.2s ease;
 }
 
 .contract-slot.pending:hover {
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.25) 0%, rgba(59, 130, 246, 0.1) 100%);
+  background: var(--accent-primary-wash);
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+  box-shadow: 0 0 var(--glow-sm) var(--accent-primary-glow);
 }
 
 .contract-slot.pending:active {
@@ -145,7 +144,7 @@
   justify-content: center;
   width: 24px;
   height: 40px;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--bg-hover-light);
   border-radius: var(--radius-sm);
   flex-shrink: 0;
 }
@@ -189,7 +188,7 @@
   align-items: center;
   gap: var(--space-xs);
   font-size: var(--text-xs);
-  color: var(--accent-primary, #3b82f6);
+  color: var(--accent-primary);
   padding: var(--space-xs) 0;
 }
 

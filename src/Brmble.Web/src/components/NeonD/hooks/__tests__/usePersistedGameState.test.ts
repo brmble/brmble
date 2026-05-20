@@ -52,6 +52,31 @@ describe('usePersistedGameState', () => {
     expect(JSON.parse(localStorage.getItem('test_key') || '{}')).toEqual({ a: 55, nested: { b: 2, c: 3 } });
   });
 
+  it('saves to localStorage when document becomes hidden', () => {
+    const { result } = renderHook(() => usePersistedGameState('test_key', initial));
+    act(() => {
+      result.current[1]({ a: 77, nested: { b: 2, c: 3 } });
+    });
+
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => 'hidden',
+    });
+
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(JSON.parse(localStorage.getItem('test_key') || '{}')).toEqual({ a: 77, nested: { b: 2, c: 3 } });
+  });
+
+  it('saves to localStorage on unmount', () => {
+    const { result, unmount } = renderHook(() => usePersistedGameState('test_key', initial));
+    act(() => {
+      result.current[1]({ a: 88, nested: { b: 2, c: 3 } });
+    });
+
+    unmount();
+    expect(JSON.parse(localStorage.getItem('test_key') || '{}')).toEqual({ a: 88, nested: { b: 2, c: 3 } });
+  });
+
   it('clears localStorage when clear function is called', () => {
     localStorage.setItem('test_key', JSON.stringify({ a: 99, nested: { b: 99, c: 99 } }));
     const { result } = renderHook(() => usePersistedGameState('test_key', initial));

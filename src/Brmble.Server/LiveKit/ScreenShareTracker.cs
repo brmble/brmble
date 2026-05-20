@@ -12,6 +12,13 @@ public class ScreenShareTracker
         return room.TryAdd(userId, new ScreenShareInfo(userName, userId, matrixUserId));
     }
 
+    public bool StartOrRefresh(string roomName, string userName, long userId, string? matrixUserId = null)
+    {
+        var room = _shares.GetOrAdd(roomName, _ => new ConcurrentDictionary<long, ScreenShareInfo>());
+        room[userId] = new ScreenShareInfo(userName, userId, matrixUserId);
+        return true;
+    }
+
     public void Stop(string roomName)
         => _shares.TryRemove(roomName, out _);
 

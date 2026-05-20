@@ -263,6 +263,18 @@
   flex-shrink: 0;
 }
 
+.brmblegotchi-stat-icon.cleanliness {
+  color: var(--accent-primary);
+}
+
+.brmblegotchi-stat-icon.hunger {
+  color: var(--accent-secondary);
+}
+
+.brmblegotchi-stat-icon.happiness {
+  color: var(--accent-decorative);
+}
+
 .brmblegotchi-stat-icon svg {
   width: 100%;
   height: 100%;

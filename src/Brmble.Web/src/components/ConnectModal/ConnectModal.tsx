@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Icon } from '../Icon/Icon';
+import { Tooltip } from '../Tooltip/Tooltip';
 import './ConnectModal.css';
 
 interface ConnectModalProps {
@@ -26,8 +27,8 @@ export function ConnectModal({ isOpen, onClose, onConnect, registeredUsername }:
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="connect-modal glass-panel animate-slide-up" onClick={(e) => e.stopPropagation()}>
-        <button className="modal-close" onClick={onClose}>
-          <Icon name="x" size={20} style={{ pointerEvents: 'none' }} />
+        <button className="modal-close" onClick={onClose} aria-label="Close connect modal">
+          <Icon name="x" size={20} />
         </button>
 
         <div className="modal-header">
@@ -62,17 +63,20 @@ export function ConnectModal({ isOpen, onClose, onConnect, registeredUsername }:
 
           <div className="form-group">
             <label htmlFor="username">Username</label>
-            <input
-              id="username"
-              className="brmble-input"
-              type="text"
-              value={registeredUsername || username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="Your display name"
-              disabled={!!registeredUsername}
-              title={registeredUsername ? 'Username is locked after registration' : undefined}
-              required
-            />
+            <Tooltip content={registeredUsername ? 'Username is locked after registration' : ''}>
+              <span className="locked-input-tooltip-trigger" tabIndex={registeredUsername ? 0 : -1}>
+                <input
+                  id="username"
+                  className="brmble-input"
+                  type="text"
+                  value={registeredUsername || username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="Your display name"
+                  disabled={!!registeredUsername}
+                  required
+                />
+              </span>
+            </Tooltip>
           </div>
 
           <div className="form-group">

@@ -23,7 +23,7 @@ function getTimeRange(stars: number): string {
 }
 
 function renderStars(stars: number): string {
-  return '★'.repeat(stars) + '☆'.repeat(5 - stars);
+  return `${stars}/5 stars`;
 }
 
 export function ContractPopup({ contracts, onSelect, onClose }: ContractPopupProps) {
@@ -43,7 +43,7 @@ export function ContractPopup({ contracts, onSelect, onClose }: ContractPopupPro
                 className="contract-card"
                 onClick={() => onSelect(contract)}
               >
-                <h3 className="contract-name">{contract.name}</h3>
+                <h3 className="heading-section contract-name">{contract.name}</h3>
                 <div className="contract-stats">
                   <span>Volume: {formatVolume(contract.volumeBytes)}</span>
                   <span className="contract-stars">{renderStars(contract.multiplierStars)}</span>

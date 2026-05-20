@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ServiceStatusMap } from './types';
 
 type BridgeHandler = (data: unknown) => void;
 
@@ -10,10 +11,12 @@ const {
   disconnectViewer,
   setDiscoveryTarget,
   stopSharing,
+  handleScreenShareServiceUnavailable,
   markLocalShareTeardownIntent,
   connectAsViewer,
   serviceStatus,
   screenShareState,
+  clearChatStorage,
   notifQueue,
   idleActionsState,
   getIdleActionsArgs,
@@ -27,16 +30,31 @@ const {
   const disconnect = vi.fn();
   const setTarget = vi.fn();
   const stop = vi.fn();
+  const serviceUnavailable = vi.fn();
   const markIntent = vi.fn();
   const connectViewer = vi.fn();
   const status = {
+    statuses: {
+      voice: { state: 'connected' as const },
+      chat: { state: 'connected' as const },
+      server: { state: 'connected' as const },
+      livekit: { state: 'idle' as const, error: undefined },
+    } as ServiceStatusMap,
+    effectiveStatuses: {
+      voice: { state: 'connected' as const },
+      chat: { state: 'connected' as const },
+      server: { state: 'connected' as const },
+      livekit: { state: 'connected' as const, error: undefined },
+    } as ServiceStatusMap,
     updateStatus: vi.fn(),
     resetStatuses: vi.fn(),
   };
+  const clearChatStorageMock = vi.fn();
   const screenShare = {
     isSharing: false,
     error: null as string | null,
     isViewerConnectPending: false,
+    startSharing: vi.fn().mockResolvedValue(true),
     activeShares: [] as Array<{
       roomName: string;
       userName: string;
@@ -49,7 +67,7 @@ const {
     autoLeftAt: null as number | null,
     preLeaveStartedAt: null as number | null,
     preLeaveCancelledAt: null as number | null,
-    dismissToast: vi.fn(),
+    dismissNotification: vi.fn(),
     dismissPreLeaveCancelled: vi.fn(),
   };
   let idleActionsArgs: { onBeforeAutoLeave?: () => void | Promise<void> } | null = null;
@@ -84,10 +102,12 @@ const {
     disconnectViewer: disconnect,
     setDiscoveryTarget: setTarget,
     stopSharing: stop,
+    handleScreenShareServiceUnavailable: serviceUnavailable,
     markLocalShareTeardownIntent: markIntent,
     connectAsViewer: connectViewer,
     serviceStatus: status,
     screenShareState: screenShare,
+    clearChatStorage: clearChatStorageMock,
     idleActionsState: idleActions,
     getIdleActionsArgs: () => idleActionsArgs,
     clearIdleActionsArgs: () => {
@@ -134,8 +154,9 @@ vi.mock('./hooks/useScreenShare', () => ({
     captureLocalShareEndedHandler(onLocalShareEnded);
     return {
     isSharing: screenShareState.isSharing,
-    startSharing: vi.fn().mockResolvedValue(true),
+    startSharing: screenShareState.startSharing,
     stopSharing,
+    handleScreenShareServiceUnavailable,
     markLocalShareTeardownIntent,
     error: screenShareState.error,
     activeShare: null,
@@ -180,7 +201,8 @@ vi.mock('./hooks/useUnreadTracker', () => ({
 
 vi.mock('./hooks/useServiceStatus', () => ({
   useServiceStatus: () => ({
-    statuses: { voice: { error: undefined }, livekit: { state: 'idle', error: undefined } },
+    statuses: serviceStatus.statuses,
+    effectiveStatuses: serviceStatus.effectiveStatuses,
     updateStatus: serviceStatus.updateStatus,
     resetStatuses: serviceStatus.resetStatuses,
   }),
@@ -191,7 +213,7 @@ vi.mock('./hooks/useServerHealth', () => ({ useServerHealth: vi.fn() }));
 vi.mock('./hooks/useChatStore', () => ({
   useChatStore: () => ({ messages: [], addMessage: vi.fn() }),
   addMessageToStore: vi.fn(),
-  clearChatStorage: vi.fn(),
+  clearChatStorage,
   purgeEphemeralMessages: vi.fn(),
 }));
 
@@ -315,7 +337,7 @@ vi.mock('./components/Notification/Notification', () => ({
   ),
 }));
 
-import App, { canWatchShareFromChannel, getNextLiveKitStatusUpdate, shouldClearLocalShareStartPending, toggleLocalScreenShare } from './App';
+import App, { canWatchShareFromChannel, getNextLiveKitStatusUpdate, shouldClearLocalShareStartPending, shouldPublishServerJoinOverlayEvent, toggleLocalScreenShare } from './App';
 
 describe('toggleLocalScreenShare', () => {
   it('starts sharing in the current voice channel without changing LiveKit status first', async () => {
@@ -420,7 +442,39 @@ describe('getNextLiveKitStatusUpdate', () => {
       screenShareError: null,
       isLocalShareStartPending: false,
       isViewerConnectPending: false,
-    })).toEqual({ state: 'idle', error: undefined });
+    })).toBeNull();
+  });
+});
+
+describe('shouldPublishServerJoinOverlayEvent', () => {
+  it('suppresses server join overlay events during the initial post-connect grace window', () => {
+    expect(shouldPublishServerJoinOverlayEvent({
+      systemType: 'userJoined',
+      actorName: 'Alice',
+      selfName: 'TestUser',
+      connectedAtMs: 1_000,
+      nowMs: 3_500,
+    })).toBe(false);
+  });
+
+  it('allows server join overlay events after the initial post-connect grace window', () => {
+    expect(shouldPublishServerJoinOverlayEvent({
+      systemType: 'userJoined',
+      actorName: 'Alice',
+      selfName: 'TestUser',
+      connectedAtMs: 1_000,
+      nowMs: 4_000,
+    })).toBe(true);
+  });
+
+  it('suppresses self join overlay events', () => {
+    expect(shouldPublishServerJoinOverlayEvent({
+      systemType: 'userJoined',
+      actorName: 'TestUser',
+      selfName: 'TestUser',
+      connectedAtMs: 1_000,
+      nowMs: 10_000,
+    })).toBe(false);
   });
 });
 
@@ -453,12 +507,19 @@ describe('active share discovery', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useRealTimers();
     bridgeHandlers.clear();
     localStorage.clear();
     screenShareState.isSharing = false;
     screenShareState.error = null;
     screenShareState.isViewerConnectPending = false;
+    screenShareState.startSharing.mockResolvedValue(true);
     screenShareState.activeShares = [];
+    serviceStatus.statuses.server = { state: 'connected' };
+    serviceStatus.statuses.livekit = { state: 'idle', error: undefined };
+    serviceStatus.effectiveStatuses.server = { state: 'connected' };
+    serviceStatus.effectiveStatuses.livekit = { state: 'connected', error: undefined };
+    handleScreenShareServiceUnavailable.mockClear();
     idleActionsState.autoLeftAt = null;
     idleActionsState.preLeaveStartedAt = null;
     idleActionsState.preLeaveCancelledAt = null;
@@ -479,6 +540,175 @@ describe('active share discovery', () => {
     expect(screen.getByText('Still there?')).toBeInTheDocument();
     expect(screen.getByText("You'll leave voice soon due to inactivity.")).toBeInTheDocument();
     expect(screen.getByText('Still there?').parentElement).toHaveAttribute('data-duration', '60000');
+  });
+
+  it('does not register idle pre-leave notification when idle reminders are disabled', () => {
+    const { rerender } = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('settings.current', {
+        settings: {
+          messages: {
+            notificationsDisabled: false,
+            notificationRemoteScreenShare: true,
+            notificationScreenShareStatus: true,
+            notificationIdleWarning: false,
+            notificationMovedChannel: true,
+          },
+        },
+      });
+    });
+
+    idleActionsState.preLeaveStartedAt = 1234;
+    rerender(React.createElement(App));
+
+    expect(notifQueue.register).not.toHaveBeenCalledWith('idle-pre-leave', 'info');
+  });
+
+  it('unregisters idle pre-leave notification when idle pre-leave clears', async () => {
+    idleActionsState.preLeaveStartedAt = 1234;
+    const { rerender } = render(React.createElement(App));
+
+    await waitFor(() => {
+      expect(notifQueue.register).toHaveBeenCalledWith('idle-pre-leave', 'info');
+    });
+
+    vi.mocked(notifQueue.unregister).mockClear();
+    idleActionsState.preLeaveStartedAt = null;
+    rerender(React.createElement(App));
+
+    expect(notifQueue.unregister).toHaveBeenCalledWith('idle-pre-leave');
+  });
+
+  it('does not clear chat storage when credentials refresh after reconnect failure without session reset', () => {
+    render(React.createElement(App));
+
+    const credentials = {
+      matrix: {
+        homeserverUrl: 'https://matrix.example.com',
+        accessToken: 'tok_1',
+        userId: '@me:example.com',
+        roomMap: { '1': '!one:example.com' },
+      },
+    };
+
+    act(() => {
+      bridge.emit('server.credentials', credentials);
+      bridge.emit('voice.reconnectFailed', { reason: 'network' });
+      bridge.emit('server.credentials', { matrix: { ...credentials.matrix, accessToken: 'tok_2' } });
+    });
+
+    expect(clearChatStorage).toHaveBeenCalledTimes(1);
+  });
+
+  it('starts local sharing from an available screenshare service state', async () => {
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+      bridge.emit('brmble.serviceStatus', { service: 'screenshare', state: 'connected' });
+    });
+
+    await act(async () => {
+      view.getByTestId('header-toggle-screen-share').click();
+      await Promise.resolve();
+    });
+
+    expect(screenShareState.startSharing).toHaveBeenCalledWith('channel-1');
+    expect(bridge.send).toHaveBeenCalledWith('livekit.debug.toggleScreenShare.notSharing.inVoice.channel-1.canStart', {});
+    expect(serviceStatus.updateStatus).toHaveBeenCalledWith('livekit', { state: 'connecting', error: undefined });
+  });
+
+  it('does not start local sharing while Brmble-dependent screenshare status is idle', async () => {
+    serviceStatus.statuses.server = { state: 'connecting' };
+    serviceStatus.statuses.livekit = { state: 'connected' };
+    serviceStatus.effectiveStatuses.server = { state: 'connecting' };
+    serviceStatus.effectiveStatuses.livekit = { state: 'idle' };
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    await act(async () => {
+      view.getByTestId('header-toggle-screen-share').click();
+      await Promise.resolve();
+    });
+
+    expect(screenShareState.startSharing).not.toHaveBeenCalled();
+    expect(serviceStatus.updateStatus).not.toHaveBeenCalledWith('livekit', { state: 'connecting', error: undefined });
+  });
+
+  it('does not start local sharing while Screenshare is still connecting', async () => {
+    serviceStatus.statuses.server = { state: 'connected' };
+    serviceStatus.statuses.livekit = { state: 'idle' };
+    serviceStatus.effectiveStatuses.server = { state: 'connected' };
+    serviceStatus.effectiveStatuses.livekit = { state: 'connecting' };
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    await act(async () => {
+      view.getByTestId('header-toggle-screen-share').click();
+      await Promise.resolve();
+    });
+
+    expect(screenShareState.startSharing).not.toHaveBeenCalled();
+    expect(serviceStatus.updateStatus).not.toHaveBeenCalledWith('livekit', { state: 'connecting', error: undefined });
+  });
+
+  it('rechecks active shares when screenshare service reconnects after an interruption', async () => {
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    await waitFor(() => {
+      expect(bridge.send).toHaveBeenCalledWith('livekit.checkActiveShare', expect.objectContaining({ roomName: 'channel-1' }));
+    });
+
+    vi.mocked(bridge.send).mockClear();
+
+    act(() => {
+      bridge.emit('brmble.serviceStatus', { service: 'screenshare', state: 'disconnected', reason: 'active-share-request-failed' });
+      bridge.emit('brmble.serviceStatus', { service: 'screenshare', state: 'connected' });
+    });
+
+    expect(bridge.send).toHaveBeenCalledWith('livekit.checkActiveShare', expect.objectContaining({ roomName: 'channel-1' }));
+  });
+
+  it('does not tear down LiveKit lifecycle when active share discovery fails', () => {
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('brmble.serviceStatus', { service: 'screenshare', state: 'disconnected', reason: 'active-share-request-failed' });
+    });
+
+    expect(serviceStatus.updateStatus).toHaveBeenCalledWith('livekit', { state: 'connected', error: undefined });
+    expect(handleScreenShareServiceUnavailable).not.toHaveBeenCalled();
   });
 
   it('replaces the pre-idle warning with a cancellation notification', async () => {
@@ -509,6 +739,35 @@ describe('active share discovery', () => {
 
     expect(notifQueue.unregister).toHaveBeenCalledWith('idle-pre-leave-cancelled');
     expect(idleActionsState.dismissPreLeaveCancelled).toHaveBeenCalled();
+  });
+
+  it('does not register idle cancellation notification when idle reminders are disabled', () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id === 'idle-pre-leave-cancelled');
+
+    const { rerender } = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('settings.current', {
+        settings: {
+          messages: {
+            notificationsDisabled: false,
+            notificationRemoteScreenShare: true,
+            notificationScreenShareStatus: true,
+            notificationIdleWarning: false,
+            notificationMovedChannel: true,
+          },
+        },
+      });
+    });
+
+    vi.mocked(notifQueue.register).mockClear();
+    vi.mocked(notifQueue.unregister).mockClear();
+    idleActionsState.preLeaveCancelledAt = 2000;
+    rerender(React.createElement(App));
+
+    expect(notifQueue.register).not.toHaveBeenCalledWith('idle-pre-leave-cancelled', 'info');
+    expect(notifQueue.unregister).toHaveBeenCalledWith('idle-pre-leave-cancelled');
+    expect(screen.queryByText('Welcome back')).not.toBeInTheDocument();
   });
 
   it('requests active share discovery after connect for the current channel', async () => {
@@ -664,7 +923,7 @@ describe('active share discovery', () => {
     expect(serviceStatus.updateStatus).not.toHaveBeenCalledWith('livekit', { state: 'idle', error: undefined });
   });
 
-  it('toast watch does not connect as viewer from root selected channel', async () => {
+  it('notification watch does not connect as viewer from root selected channel', async () => {
     vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id === 'screen-share');
     screenShareState.activeShares = [{
       roomName: 'channel-1',
@@ -711,7 +970,7 @@ describe('active share discovery', () => {
     expect(serviceStatus.updateStatus).not.toHaveBeenCalledWith('livekit', { state: 'connecting', error: undefined });
   });
 
-  it('toast watch does not connect as viewer from the wrong selected channel', async () => {
+  it('notification watch does not connect as viewer from the wrong selected channel', async () => {
     vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id === 'screen-share');
     screenShareState.activeShares = [{
       roomName: 'channel-1',
@@ -761,7 +1020,7 @@ describe('active share discovery', () => {
     expect(serviceStatus.updateStatus).not.toHaveBeenCalledWith('livekit', { state: 'connecting', error: undefined });
   });
 
-  it('toast watch connects as viewer through the gate from the same selected channel', async () => {
+  it('notification watch connects as viewer through the gate from the same selected channel', async () => {
     vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id === 'screen-share');
     screenShareState.activeShares = [
       {
@@ -811,6 +1070,93 @@ describe('active share discovery', () => {
 
     expect(serviceStatus.updateStatus).toHaveBeenCalledWith('livekit', { state: 'connecting', error: undefined });
     expect(connectAsViewer).toHaveBeenCalledWith('channel-1', 42, '@alice:example.com');
+  });
+
+  it('does not register remote screen share notification when screen share invitations are disabled', async () => {
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [
+          { session: 7, name: 'TestUser', self: true, channelId: 1 },
+          { session: 2, name: 'Alice', channelId: 1, matrixUserId: '@alice:example.com' },
+        ],
+      });
+    });
+
+    act(() => {
+      bridge.emit('settings.current', {
+        settings: {
+          messages: {
+            notificationsDisabled: false,
+            notificationRemoteScreenShare: false,
+            notificationScreenShareStatus: true,
+            notificationIdleWarning: true,
+            notificationMovedChannel: true,
+          },
+        },
+      });
+      bridge.emit('livekit.screenShareStarted', {
+        roomName: 'channel-1',
+        userName: 'Alice',
+        userId: 42,
+        matrixUserId: '@alice:example.com',
+        sessionId: 2,
+      });
+    });
+
+    expect(notifQueue.register).not.toHaveBeenCalledWith('screen-share', 'info');
+    expect(screen.queryByText('Alice started sharing their screen')).not.toBeInTheDocument();
+  });
+
+  it('clears visible optional screen share notification when global disable is enabled', () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id === 'screen-share');
+
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [
+          { session: 7, name: 'TestUser', self: true, channelId: 1 },
+          { session: 2, name: 'Alice', channelId: 1, matrixUserId: '@alice:example.com' },
+        ],
+      });
+    });
+
+    act(() => {
+      bridge.emit('livekit.screenShareStarted', {
+        roomName: 'channel-1',
+        userName: 'Alice',
+        userId: 42,
+        matrixUserId: '@alice:example.com',
+        sessionId: 2,
+      });
+    });
+
+    expect(screen.getByText('Alice started sharing their screen')).toBeInTheDocument();
+
+    act(() => {
+      bridge.emit('settings.updated', {
+        settings: {
+          messages: {
+            notificationsDisabled: true,
+            notificationRemoteScreenShare: true,
+            notificationScreenShareStatus: true,
+            notificationIdleWarning: true,
+            notificationMovedChannel: true,
+          },
+        },
+      });
+    });
+
+    expect(notifQueue.unregister).toHaveBeenCalledWith('screen-share');
+    expect(screen.queryByText('Alice started sharing their screen')).not.toBeInTheDocument();
   });
 
   it('rechecks active share discovery after reconnect when the current channel is unchanged', async () => {
@@ -994,6 +1340,135 @@ describe('active share discovery', () => {
     });
   });
 
+  it('does not register moved channel notification when channel move notices are disabled', () => {
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('settings.current', {
+        settings: {
+          messages: {
+            notificationsDisabled: false,
+            notificationRemoteScreenShare: true,
+            notificationScreenShareStatus: true,
+            notificationIdleWarning: true,
+            notificationMovedChannel: false,
+          },
+        },
+      });
+    });
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming' },
+        ],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    act(() => {
+      bridge.emit('voice.channelChanged', { channelId: 2, name: 'Gaming', actorName: 'Moderator', reason: 'moved' });
+    });
+
+    expect(notifQueue.register).not.toHaveBeenCalledWith(expect.stringMatching(/^channel-moved-/), 'info');
+  });
+
+  it('hides a visible moved channel notification when channel move notices are disabled later', async () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id.startsWith('channel-moved-'));
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming' },
+        ],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    act(() => {
+      bridge.emit('voice.channelChanged', {
+        channelId: 2,
+        previousChannelId: 1,
+        actorName: 'Moderator',
+        reason: 'moved',
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Moved to Gaming')).toBeInTheDocument();
+    });
+
+    act(() => {
+      bridge.emit('settings.current', {
+        settings: {
+          messages: {
+            notificationsDisabled: false,
+            notificationRemoteScreenShare: true,
+            notificationScreenShareStatus: true,
+            notificationIdleWarning: true,
+            notificationMovedChannel: false,
+          },
+        },
+      });
+    });
+
+    expect(screen.queryByText('Moved to Gaming')).not.toBeInTheDocument();
+  });
+
+  it('clears visible moved channel notification when channel move notices are disabled later', async () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id.startsWith('channel-moved-'));
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming' },
+        ],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    act(() => {
+      bridge.emit('voice.channelChanged', {
+        channelId: 2,
+        previousChannelId: 1,
+        actorName: 'Moderator',
+        reason: 'moved',
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Moved to Gaming')).toBeInTheDocument();
+    });
+
+    act(() => {
+      bridge.emit('settings.updated', {
+        settings: {
+          messages: {
+            notificationsDisabled: false,
+            notificationRemoteScreenShare: true,
+            notificationScreenShareStatus: true,
+            notificationIdleWarning: true,
+            notificationMovedChannel: false,
+          },
+        },
+      });
+    });
+
+    expect(notifQueue.unregister).toHaveBeenCalledWith('channel-moved-0');
+    expect(screen.queryByText('Moved to Gaming')).not.toBeInTheDocument();
+  });
+
   it('keeps showing moved notifications after many replacements', async () => {
     vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id.startsWith('channel-moved-'));
     render(React.createElement(App));
@@ -1141,6 +1616,27 @@ describe('active share discovery', () => {
       expect(document.body.textContent).toContain('Moved to Gaming');
       expect(document.body.textContent).toContain('Screen sharing was stopped.');
       expect(document.body.textContent).not.toContain('technical issue');
+    });
+  });
+
+  it('manual share stop unregisters a previously queued share-ended notification', async () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id.startsWith('screen-share-ended-'));
+    render(React.createElement(App));
+
+    act(() => {
+      getLocalShareEndedHandler()?.('interrupted');
+    });
+
+    await waitFor(() => {
+      expect(notifQueue.register).toHaveBeenCalledWith('screen-share-ended-0', 'info');
+    });
+
+    act(() => {
+      getLocalShareEndedHandler()?.('manual');
+    });
+
+    await waitFor(() => {
+      expect(notifQueue.unregister).toHaveBeenCalledWith('screen-share-ended-0');
     });
   });
 
@@ -1816,6 +2312,78 @@ describe('active share discovery', () => {
     });
   });
 
+  it('refreshes a speaking remote companion display after mapping arrives while screen sharing', async () => {
+    localStorage.setItem('brmble-settings', JSON.stringify({
+      overlay: {
+        overlayEnabled: true,
+        mode: 'full',
+        myCompanion: 'floppy',
+      },
+    }));
+    screenShareState.isSharing = true;
+
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'me',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [
+          { session: 1, name: 'me', self: true, channelId: 1, companionId: 'floppy' },
+          { session: 2, name: 'alice', self: false, channelId: 1 },
+        ],
+      });
+    });
+
+    await waitFor(() => {
+      const overlaySyncCalls = vi.mocked(bridge.send).mock.calls
+        .filter(([type]) => type === 'overlay.sync');
+      const lastPayload = overlaySyncCalls.at(-1)?.[1] as {
+        snapshot?: { currentChannelId?: string | null };
+      } | undefined;
+      expect(lastPayload?.snapshot?.currentChannelId).toBe('1');
+    });
+
+    act(() => {
+      bridge.emit('voice.userSpeaking', { session: 2 });
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+    });
+
+    await waitFor(() => {
+      const overlaySyncCalls = vi.mocked(bridge.send).mock.calls
+        .filter(([type]) => type === 'overlay.sync');
+      const lastPayload = overlaySyncCalls.at(-1)?.[1] as {
+        snapshot?: { fullCompanion?: { activeDisplay?: { representedSession?: number; companionId?: string; isProxy?: boolean } } };
+      } | undefined;
+      expect(lastPayload?.snapshot?.fullCompanion?.activeDisplay?.representedSession).toBe(2);
+      expect(lastPayload?.snapshot?.fullCompanion?.activeDisplay?.companionId).toBe('floppy');
+      expect(lastPayload?.snapshot?.fullCompanion?.activeDisplay?.isProxy).toBe(true);
+    });
+
+    act(() => {
+      bridge.emit('voice.userMappingUpdated', {
+        sessionId: 2,
+        matrixUserId: '@alice:example.com',
+        companionId: 'retro',
+        action: 'added',
+      });
+    });
+
+    await waitFor(() => {
+      const overlaySyncCalls = vi.mocked(bridge.send).mock.calls
+        .filter(([type]) => type === 'overlay.sync');
+      const lastPayload = overlaySyncCalls.at(-1)?.[1] as {
+        snapshot?: { fullCompanion?: { activeDisplay?: { companionId?: string; isProxy?: boolean } } };
+      } | undefined;
+      expect(lastPayload?.snapshot?.fullCompanion?.activeDisplay?.companionId).toBe('retro');
+      expect(lastPayload?.snapshot?.fullCompanion?.activeDisplay?.isProxy).toBe(false);
+    });
+  });
+
   it('reconciles local myCompanion after connect when server state differs', async () => {
     localStorage.setItem('brmble-settings', JSON.stringify({
       overlay: {
@@ -1837,7 +2405,7 @@ describe('active share discovery', () => {
     });
 
     await waitFor(() => {
-      expect(bridge.send).toHaveBeenCalledWith('voice.setCompanion', { companionId: 'floppy' });
+      expect(bridge.send).toHaveBeenCalledWith('voice.setCompanion', expect.objectContaining({ companionId: 'floppy' }));
     });
   });
 
@@ -1862,7 +2430,7 @@ describe('active share discovery', () => {
     });
 
     await waitFor(() => {
-      expect(bridge.send).toHaveBeenCalledWith('voice.setCompanion', { companionId: 'floppy' });
+      expect(bridge.send).toHaveBeenCalledWith('voice.setCompanion', expect.objectContaining({ companionId: 'floppy' }));
     });
 
     act(() => {
@@ -1878,9 +2446,7 @@ describe('active share discovery', () => {
       expect(stored.overlay.myCompanion).toBe('floppy');
     });
 
-    expect(bridge.send).toHaveBeenCalledWith('voice.setCompanion', { companionId: 'floppy' });
+    expect(bridge.send).toHaveBeenCalledWith('voice.setCompanion', expect.objectContaining({ companionId: 'floppy' }));
   });
 
 });
-
-

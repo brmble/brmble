@@ -26,7 +26,7 @@ public class ScreenShareEndpointTests
     }
 
     [TestMethod]
-    public async Task ShareStarted_SameUserTwice_Returns409()
+    public async Task ShareStarted_SameUserTwice_ReturnsOk()
     {
         await using var factory = new BrmbleServerFactory();
         var client = factory.CreateClient();
@@ -34,7 +34,7 @@ public class ScreenShareEndpointTests
 
         await client.PostAsJsonAsync("/livekit/share-started", new { roomName = "channel-4" });
         var resp = await client.PostAsJsonAsync("/livekit/share-started", new { roomName = "channel-4" });
-        Assert.AreEqual(HttpStatusCode.Conflict, resp.StatusCode);
+        Assert.AreEqual(HttpStatusCode.OK, resp.StatusCode);
     }
 
     [TestMethod]

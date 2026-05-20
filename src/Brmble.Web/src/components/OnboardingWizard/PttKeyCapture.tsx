@@ -21,10 +21,12 @@ export function PttKeyCapture({ value, onChange }: PttKeyCaptureProps) {
 
     const onKeyDown = (e: KeyboardEvent) => {
       e.preventDefault();
+      e.stopImmediatePropagation();
       handleInput(e.code);
     };
     const onMouseDown = (e: MouseEvent) => {
       e.preventDefault();
+      e.stopImmediatePropagation();
       const map: Record<number, string> = {
         0: 'MouseLeft', 1: 'MouseMiddle', 2: 'MouseRight',
         3: 'XButton1', 4: 'XButton2',
@@ -33,12 +35,12 @@ export function PttKeyCapture({ value, onChange }: PttKeyCaptureProps) {
       if (key) handleInput(key);
     };
 
-    window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('keydown', onKeyDown, true);
+    window.addEventListener('mousedown', onMouseDown, true);
 
     return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('keydown', onKeyDown, true);
+      window.removeEventListener('mousedown', onMouseDown, true);
       bridge.send('voice.resumeHotkeys');
     };
   }, [recording, handleInput]);

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { Sidebar } from './Sidebar';
 import type { ShareInfo } from '../../hooks/useScreenShare';
+import type { ServiceStatusMap } from '../../types';
 
 const { bridgeMock, usePermissionsMock, useServiceStatusMock, useResizableMock } = vi.hoisted(() => ({
   bridgeMock: {
@@ -21,11 +22,17 @@ const { bridgeMock, usePermissionsMock, useServiceStatusMock, useResizableMock }
   })),
   useServiceStatusMock: vi.fn(() => ({
     statuses: {
-      voice: { state: 'idle' },
-      chat: { state: 'idle' },
-      server: { state: 'idle' },
-      livekit: { state: 'idle' },
-    },
+      voice: { state: 'connected' },
+      chat: { state: 'connected' },
+      server: { state: 'connected' },
+      livekit: { state: 'connected' },
+    } as ServiceStatusMap,
+    effectiveStatuses: {
+      voice: { state: 'connected' },
+      chat: { state: 'connected' },
+      server: { state: 'connected' },
+      livekit: { state: 'connected' },
+    } as ServiceStatusMap,
   })),
   useResizableMock: vi.fn(() => ({
     width: 340,
@@ -119,6 +126,106 @@ function renderSidebar(props: Partial<React.ComponentProps<typeof Sidebar>> = {}
 describe('Sidebar root user screen share behavior', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useServiceStatusMock.mockReturnValue({
+      statuses: {
+        voice: { state: 'connected' },
+        chat: { state: 'connected' },
+        server: { state: 'connected' },
+        livekit: { state: 'connected' },
+      } as ServiceStatusMap,
+      effectiveStatuses: {
+        voice: { state: 'connected' },
+        chat: { state: 'connected' },
+        server: { state: 'connected' },
+        livekit: { state: 'connected' },
+      } as ServiceStatusMap,
+    });
+  });
+
+  it('shows server reconnect state through service dots', () => {
+    useServiceStatusMock.mockReturnValue({
+      statuses: {
+        voice: { state: 'connected' },
+        chat: { state: 'connected' },
+        server: { state: 'connecting', error: 'Session reconnecting: connection-lost' },
+        livekit: { state: 'disconnected', error: 'token-request-failed' },
+      },
+      effectiveStatuses: {
+        voice: { state: 'connected' },
+        chat: { state: 'idle' },
+        server: { state: 'connecting', error: 'Session reconnecting: connection-lost' },
+        livekit: { state: 'idle' },
+      },
+    });
+
+    renderSidebar();
+
+    expect(screen.getByLabelText(/Brmble: Connecting/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('Chat: Idle')).toBeInTheDocument();
+    expect(screen.getByLabelText('Screenshare: Idle')).toBeInTheDocument();
+  });
+
+  it('orders service dots by dependency', () => {
+    renderSidebar();
+
+    const labels = screen.getAllByLabelText(/^(Voice|Brmble|Chat|Screenshare):/).map(el => el.getAttribute('aria-label'));
+
+    expect(labels).toEqual(['Voice: Connected', 'Brmble: Connected', 'Chat: Connected', 'Screenshare: Available']);
+  });
+
+  it('labels connected screenshare service as available until a LiveKit room is joined', () => {
+    useServiceStatusMock.mockReturnValue({
+      statuses: {
+        voice: { state: 'connected' },
+        chat: { state: 'connected' },
+        server: { state: 'connected' },
+        livekit: { state: 'connected' },
+      },
+      effectiveStatuses: {
+        voice: { state: 'connected' },
+        chat: { state: 'connected' },
+        server: { state: 'connected' },
+        livekit: { state: 'connected' },
+      },
+    });
+
+    const { rerender } = renderSidebar();
+
+    expect(screen.getByLabelText('Screenshare: Available')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Screenshare: Connected')).not.toBeInTheDocument();
+
+    rerender(
+      <Sidebar
+        channels={channels}
+        users={[]}
+        connectionStatus="connected"
+        onJoinChannel={vi.fn()}
+        onSelectChannel={vi.fn()}
+        isLiveKitRoomConnected={true}
+      />
+    );
+
+    expect(screen.getByLabelText('Screenshare: Connected')).toBeInTheDocument();
+  });
+
+  it('shows active Screenshare quality in service status tooltip text', () => {
+    renderSidebar({
+      isLiveKitRoomConnected: true,
+      screenShareQuality: 'poor',
+    });
+
+    expect(screen.getByLabelText('Screenshare: Connected - poor')).toBeInTheDocument();
+  });
+
+  it('shows reconnecting Screenshare state for transient LiveKit reconnects', () => {
+    renderSidebar({
+      isLiveKitRoomConnected: true,
+      screenShareQuality: 'reconnecting',
+    });
+
+    const dot = screen.getByLabelText('Screenshare: Reconnecting');
+    expect(dot).toBeInTheDocument();
+    expect(dot.classList.contains('service-dot--connecting')).toBe(true);
   });
 
   it('shows local sharing without watch controls or watch actions', () => {

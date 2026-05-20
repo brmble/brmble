@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import bridge from '../../bridge';
 import { Icon } from '../Icon/Icon';
 import Avatar from '../Avatar/Avatar';
+import { parseUserComment } from '../../utils/parseUserComment';
 import './UserInfoDialog.css';
 
 export interface UserInfoDialogProps {
@@ -32,6 +33,8 @@ export function UserInfoDialog({
   const [localMuted, setLocalMuted] = useState(false);
   const [editingComment, setEditingComment] = useState(false);
   const [commentDraft, setCommentDraft] = useState(comment || '');
+  const parsedComment = parseUserComment(comment);
+  const displayComment = parsedComment.text || 'No comment set';
 
   useEffect(() => {
     if (!isOpen) return;
@@ -220,7 +223,7 @@ export function UserInfoDialog({
               className={`user-info-comment-box ${isSelf ? 'editable' : ''}`}
               onClick={() => isSelf && setEditingComment(true)}
             >
-              {comment || 'No comment set'}
+              {displayComment}
               {isSelf && (
                 <span className="user-info-comment-edit-hint">Click to edit</span>
               )}
@@ -230,7 +233,7 @@ export function UserInfoDialog({
 
         <div className="user-info-actions">
           {editingComment && (
-            <button className="btn btn-secondary" style={{ transition: 'none' }} onClick={() => { setEditingComment(false); setCommentDraft(comment || ''); }}>
+            <button className="btn btn-secondary user-info-no-transition" onClick={() => { setEditingComment(false); setCommentDraft(comment || ''); }}>
               Cancel
             </button>
           )}
