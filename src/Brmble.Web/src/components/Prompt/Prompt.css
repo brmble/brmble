@@ -57,6 +57,13 @@
   color: var(--text-muted);
   cursor: pointer;
   transition: color var(--transition-fast), background var(--transition-fast);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.prompt-input-container:focus-within .password-toggle-btn {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .password-toggle-btn:hover {

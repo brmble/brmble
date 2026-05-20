@@ -14,6 +14,7 @@ interface CatalogState {
   acls: AclRule[];
   loading: boolean;
   error: string | null;
+  warning: string | null;
   refresh: () => void;
 }
 
@@ -57,6 +58,7 @@ export function useAdminGroupCatalog(channels: Channel[]): CatalogState {
   const [acls, setAcls] = useState<AclRule[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
 
   const refresh = useCallback(() => {
@@ -69,6 +71,7 @@ export function useAdminGroupCatalog(channels: Channel[]): CatalogState {
       setAcls([]);
       setLoading(false);
       setError(null);
+      setWarning(null);
       return;
     }
 
@@ -78,6 +81,7 @@ export function useAdminGroupCatalog(channels: Channel[]): CatalogState {
 
     setLoading(true);
     setError(null);
+    setWarning(null);
 
     const handleChannel = (data: unknown) => {
       const payload = data as BridgeResponse;
@@ -92,7 +96,16 @@ export function useAdminGroupCatalog(channels: Channel[]): CatalogState {
         setGroups(mergeGroups(resolvedSnapshots));
         setAcls(mergeAcls(resolvedSnapshots));
         setLoading(false);
-        setError(resolvedSnapshots.length === 0 && failures.length > 0 ? failures[0] : null);
+        
+        // Set error only if all channels failed
+        if (resolvedSnapshots.length === 0 && failures.length > 0) {
+          setError(failures[0]);
+        } else if (failures.length > 0) {
+          // Set warning if some channels failed but others succeeded
+          const failedCount = failures.length;
+          const totalCount = channels.length;
+          setWarning(`Some channels could not be loaded (${failedCount}/${totalCount} failed).`);
+        }
       }
     };
 
@@ -125,5 +138,5 @@ export function useAdminGroupCatalog(channels: Channel[]): CatalogState {
     };
   }, [channels, refreshToken]);
 
-  return { groups, acls, loading, error, refresh };
+  return { groups, acls, loading, error, warning, refresh };
 }

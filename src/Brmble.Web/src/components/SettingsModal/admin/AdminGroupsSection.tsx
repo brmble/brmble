@@ -73,7 +73,7 @@ interface AdminGroupsSectionProps {
 export function AdminGroupsSection({ channels = [] }: AdminGroupsSectionProps) {
   const isCatalogMode = channels.length > 0;
   const { snapshot, loading: snapshotLoading, error: snapshotError, refresh, save } = useAclAdmin(isCatalogMode ? null : 0);
-  const { groups: catalogGroups, acls: catalogAcls, loading: catalogLoading, error: catalogError } = useAdminGroupCatalog(channels);
+  const { groups: catalogGroups, acls: catalogAcls, loading: catalogLoading, error: catalogError, warning: catalogWarning } = useAdminGroupCatalog(channels);
   const { registeredUsers, loading: registeredUsersLoading, error: registeredUsersError } = useAdminRegisteredUsers();
   const sourceGroups = useMemo(() => (isCatalogMode ? catalogGroups : (snapshot?.groups ?? [])), [catalogGroups, isCatalogMode, snapshot]);
   const sourceAcls = useMemo(() => (isCatalogMode ? catalogAcls : (snapshot?.acls ?? [])), [catalogAcls, isCatalogMode, snapshot]);
@@ -349,6 +349,7 @@ export function AdminGroupsSection({ channels = [] }: AdminGroupsSectionProps) {
         <div className="admin-groups-status">
           {error && <div className="admin-error">{error}</div>}
           {registeredUsersError && <div className="admin-error">{registeredUsersError}</div>}
+          {catalogWarning && !error && <div className="admin-warning">{catalogWarning}</div>}
           {(loading || registeredUsersLoading) && <div className="admin-loading">Loading groups and registered users...</div>}
           {isCatalogMode && !loading && !error && (
             <div className="admin-help-text">Showing groups aggregated from all Mumble channels.</div>

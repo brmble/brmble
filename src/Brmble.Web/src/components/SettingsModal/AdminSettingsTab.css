@@ -48,6 +48,7 @@
 
 .admin-loading,
 .admin-error,
+.admin-warning,
 .admin-empty {
   padding: var(--space-lg);
   text-align: center;
@@ -56,6 +57,10 @@
 
 .admin-error {
   color: var(--accent-danger);
+}
+
+.admin-warning {
+  color: var(--accent-warning);
 }
 
 .admin-empty {

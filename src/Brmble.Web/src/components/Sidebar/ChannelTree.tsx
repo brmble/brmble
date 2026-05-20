@@ -739,13 +739,6 @@ onClick: () => {
                 description,
               });
             }
-
-            if (password !== editChannelDialog!.initialPassword) {
-              bridge.send('acl.setChannelPassword', {
-                channelId: editChannelDialog!.id,
-                password,
-              });
-            }
           }}
           onError={(msg) => console.error('Edit channel error:', msg)}
         />

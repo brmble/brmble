@@ -1621,7 +1621,10 @@ function App() {
           })();
           return;
         }
+      }
 
+      // Clear pending join attempt for any error that isn't eligible for password retry
+      if (pendingJoinAttempt) {
         clearPendingJoinAttempt();
       }
 
