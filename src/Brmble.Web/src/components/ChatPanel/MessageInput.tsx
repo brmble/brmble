@@ -6,6 +6,7 @@ import { ReplyHeader } from './ReplyHeader';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { Icon } from '../Icon/Icon';
 import { validateImageFile } from '../../utils/imageUpload';
+import { SUPPORTED_REACTIONS } from '../../utils/chatReactions';
 import './MessageInput.css';
 
 interface MessageInputProps {
@@ -30,6 +31,8 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
   const [message, setMessage] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const emojiPickerRef = useRef<HTMLDivElement>(null);
+  const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   const [mentionActive, setMentionActive] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
   const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
@@ -91,6 +94,7 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
       const query = value.slice(atIndex + 1, cursorPos);
       // Don't activate if there's a space right after @ with no text
       if (query.length === 0 || !query.startsWith(' ')) {
+        setIsEmojiPickerOpen(false);
         setMentionActive(true);
         setMentionQuery(query);
         setMentionActiveIndex(0);
@@ -157,6 +161,35 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
         textarea.focus();
         textarea.setSelectionRange(newPos, newPos);
       }
+    });
+  }, [message]);
+
+  const closeEmojiPicker = useCallback(() => {
+    setIsEmojiPickerOpen(false);
+  }, []);
+
+  const handleEmojiTriggerClick = useCallback(() => {
+    if (disabled) return;
+    setIsEmojiPickerOpen((open) => !open);
+  }, [disabled]);
+
+  const handleEmojiInsert = useCallback((emoji: string) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const selectionStart = textarea.selectionStart ?? message.length;
+    const selectionEnd = textarea.selectionEnd ?? selectionStart;
+    const before = message.slice(0, selectionStart);
+    const after = message.slice(selectionEnd);
+    const nextMessage = `${before}${emoji}${after}`;
+    const nextCaret = selectionStart + emoji.length;
+
+    setMessage(nextMessage);
+    setIsEmojiPickerOpen(false);
+
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.setSelectionRange(nextCaret, nextCaret);
     });
   }, [message]);
 
@@ -277,6 +310,12 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
       }
     }
 
+    if (e.key === 'Escape' && isEmojiPickerOpen) {
+      e.preventDefault();
+      closeEmojiPicker();
+      return;
+    }
+
     if (e.key === 'Escape' && pendingImage) {
       e.preventDefault();
       clearImage();
@@ -302,6 +341,20 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, [mentionActive]);
+
+  useEffect(() => {
+    if (!isEmojiPickerOpen) return;
+
+    const handleClick = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (wrapperRef.current?.contains(target)) return;
+      if (emojiPickerRef.current?.contains(target)) return;
+      setIsEmojiPickerOpen(false);
+    };
+
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [isEmojiPickerOpen]);
 
   // Compute ARIA active descendant
   const activeDescendant = mentionActive && filteredUsers.length > 0
@@ -364,14 +417,48 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
           aria-controls={mentionActive ? listboxId : undefined}
           aria-activedescendant={activeDescendant}
         />
+        <Tooltip content="Insert emoji">
+          <button
+            type="button"
+            className="btn btn-secondary btn-icon emoji-button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={handleEmojiTriggerClick}
+            disabled={disabled}
+            aria-label="Insert emoji"
+            aria-expanded={isEmojiPickerOpen}
+            aria-haspopup="dialog"
+          >
+            <Icon name="palette" size={18} />
+          </button>
+        </Tooltip>
+        {isEmojiPickerOpen && (
+          <div
+            ref={emojiPickerRef}
+            className="message-emoji-picker"
+            role="dialog"
+            aria-label="Emoji picker"
+          >
+            {SUPPORTED_REACTIONS.map((emoji) => (
+              <button
+                key={emoji}
+                type="button"
+                className="message-emoji-option"
+                onClick={() => handleEmojiInsert(emoji)}
+                aria-label={`Insert ${emoji}`}
+              >
+                <span aria-hidden="true">{emoji}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <Tooltip content="Send message">
-        <button
-          className="btn btn-primary btn-icon send-button"
-          onClick={() => handleSend().catch(error => console.error('Failed to send message:', error))}
-          disabled={disabled || (!message.trim() && !pendingImage)}
-        >
-          <Icon name="send" size={20} />
-        </button>
+          <button
+            className="btn btn-primary btn-icon send-button"
+            onClick={() => handleSend().catch(error => console.error('Failed to send message:', error))}
+            disabled={disabled || (!message.trim() && !pendingImage)}
+          >
+            <Icon name="send" size={20} />
+          </button>
         </Tooltip>
       </div>
       {mentionActive && (

@@ -27,7 +27,8 @@ const mockClient = {
   setAccountData: vi.fn().mockResolvedValue(undefined),
   createRoom: vi.fn().mockResolvedValue({ room_id: '!new:example.com' }),
   scrollback: vi.fn().mockResolvedValue(undefined),
-  sendMessage: vi.fn().mockResolvedValue({}),
+  sendMessage: vi.fn().mockResolvedValue({ event_id: '$sent-event' }),
+  redactEvent: vi.fn().mockResolvedValue(undefined),
   mxcUrlToHttp: vi.fn((url: string) => url.replace('mxc://', 'https://matrix.example.com/_matrix/media/v3/download/')),
 };
 
@@ -36,7 +37,7 @@ vi.mock('matrix-js-sdk', () => ({
   RoomEvent: { Timeline: 'Room.timeline' },
   RoomStateEvent: { Members: 'RoomState.members' },
   ClientEvent: { Sync: 'sync', AccountData: 'accountData' },
-  EventType: { RoomMessage: 'm.room.message', Direct: 'm.direct' },
+  EventType: { RoomMessage: 'm.room.message', Direct: 'm.direct', RoomRedaction: 'm.room.redaction' },
   MsgType: { Text: 'm.text' },
   Preset: { TrustedPrivateChat: 'trusted_private_chat' },
   KnownMembership: { Join: 'join', Invite: 'invite', Leave: 'leave' },
@@ -756,5 +757,202 @@ describe('useMatrixClient', () => {
       ts: 2000,
       sender: 'Bob',
     });
+  });
+
+  it('adds reaction events to active channel messages without creating sidebar previews', () => {
+    mockClient.getRoom.mockReturnValue(null);
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+    act(() => result.current.setActiveChannel('42'));
+
+    const onTimeline = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'Room.timeline')?.[1] as
+      | ((ev: unknown, r: unknown) => void)
+      | undefined;
+    const mockRoom = {
+      roomId: '!room:example.com',
+      getMember: () => ({ rawDisplayName: 'Alice', name: 'Alice' }),
+    };
+    const messageEvent = {
+      getType: () => 'm.room.message',
+      getId: () => '$message',
+      getSender: () => '@alice:example.com',
+      getContent: () => ({ body: 'react to me' }),
+      getTs: () => 1000,
+    };
+    const reactionEvent = {
+      getType: () => 'm.reaction',
+      getId: () => '$reaction',
+      getSender: () => '@bob:example.com',
+      getContent: () => ({
+        'm.relates_to': {
+          rel_type: 'm.annotation',
+          event_id: '$message',
+          key: '👍',
+        },
+      }),
+      getTs: () => 1001,
+    };
+
+    act(() => {
+      onTimeline?.(messageEvent, mockRoom);
+      onTimeline?.(reactionEvent, mockRoom);
+    });
+
+    expect(result.current.activeMessages[0]).toEqual(expect.objectContaining({
+      id: '$message',
+      reactions: { '👍': ['@bob:example.com'] },
+    }));
+    expect(result.current.lastMessages.get('42')).toEqual({
+      content: 'react to me',
+      ts: 1000,
+      sender: 'Alice',
+    });
+  });
+
+  it('aggregates reaction events when loading active channel timeline', () => {
+    const fakeEvents = [
+      {
+        getType: () => 'm.room.message',
+        getId: () => '$message',
+        getSender: () => '@alice:example.com',
+        getContent: () => ({ body: 'loaded from timeline' }),
+        getTs: () => 1000,
+      },
+      {
+        getType: () => 'm.reaction',
+        getId: () => '$reaction',
+        getSender: () => '@bob:example.com',
+        getContent: () => ({
+          'm.relates_to': {
+            rel_type: 'm.annotation',
+            event_id: '$message',
+            key: '😂',
+          },
+        }),
+        getTs: () => 1001,
+      },
+    ];
+    const mockRoom = {
+      roomId: '!room:example.com',
+      getMember: () => ({ rawDisplayName: 'Alice', name: 'Alice' }),
+      getLiveTimeline: () => ({ getEvents: () => fakeEvents }),
+    };
+    mockClient.getRoom.mockReturnValue(mockRoom);
+
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+    act(() => result.current.setActiveChannel('42'));
+
+    expect(result.current.activeMessages).toEqual([
+      expect.objectContaining({
+        id: '$message',
+        content: 'loaded from timeline',
+        reactions: { '😂': ['@bob:example.com'] },
+      }),
+    ]);
+  });
+
+  it('removes a reaction from an active channel message when the reaction event is redacted', () => {
+    mockClient.getRoom.mockReturnValue(null);
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+    act(() => result.current.setActiveChannel('42'));
+
+    const onTimeline = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'Room.timeline')?.[1] as
+      | ((ev: unknown, r: unknown) => void)
+      | undefined;
+    const mockRoom = {
+      roomId: '!room:example.com',
+      getMember: () => ({ rawDisplayName: 'Alice', name: 'Alice' }),
+    };
+    const messageEvent = {
+      getType: () => 'm.room.message',
+      getId: () => '$message',
+      getSender: () => '@alice:example.com',
+      getContent: () => ({ body: 'react then redact' }),
+      getTs: () => 1000,
+    };
+    const reactionEvent = {
+      getType: () => 'm.reaction',
+      getId: () => '$reaction',
+      getSender: () => '@bob:example.com',
+      getContent: () => ({
+        'm.relates_to': { rel_type: 'm.annotation', event_id: '$message', key: '👍' },
+      }),
+      getTs: () => 1001,
+    };
+    const redactionEvent = {
+      getType: () => 'm.room.redaction',
+      getId: () => '$redaction',
+      getSender: () => '@bob:example.com',
+      getContent: () => ({}),
+      getTs: () => 1002,
+      getRedacts: () => '$reaction',
+    };
+
+    act(() => {
+      onTimeline?.(messageEvent, mockRoom);
+      onTimeline?.(reactionEvent, mockRoom);
+      onTimeline?.(redactionEvent, mockRoom);
+    });
+
+    expect(result.current.activeMessages[0].reactions).toBeUndefined();
+  });
+
+  it('sendReaction sends a Matrix reaction event and optimistically marks the current user', async () => {
+    mockClient.getRoom.mockReturnValue(null);
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+    act(() => result.current.setActiveChannel('42'));
+
+    const onTimeline = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'Room.timeline')?.[1] as
+      | ((ev: unknown, r: unknown) => void)
+      | undefined;
+    const mockRoom = {
+      roomId: '!room:example.com',
+      getMember: () => ({ rawDisplayName: 'Alice', name: 'Alice' }),
+    };
+    const messageEvent = {
+      getType: () => 'm.room.message',
+      getId: () => '$message',
+      getSender: () => '@alice:example.com',
+      getContent: () => ({ body: 'reactable' }),
+      getTs: () => 1000,
+    };
+    act(() => onTimeline?.(messageEvent, mockRoom));
+
+    await act(() => result.current.sendReaction('42', '$message', '👍'));
+
+    expect(mockClient.sendMessage).toHaveBeenCalledWith('!room:example.com', {
+      'm.relates_to': {
+        rel_type: 'm.annotation',
+        event_id: '$message',
+        key: '👍',
+      },
+    });
+    expect(result.current.activeMessages[0].reactions).toEqual({ '👍': ['@1:example.com'] });
+  });
+
+  it('removeReaction redacts the cached reaction event and optimistically removes the current user', async () => {
+    mockClient.getRoom.mockReturnValue(null);
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+    act(() => result.current.setActiveChannel('42'));
+
+    const onTimeline = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'Room.timeline')?.[1] as
+      | ((ev: unknown, r: unknown) => void)
+      | undefined;
+    const mockRoom = {
+      roomId: '!room:example.com',
+      getMember: () => ({ rawDisplayName: 'Alice', name: 'Alice' }),
+    };
+    const messageEvent = {
+      getType: () => 'm.room.message',
+      getId: () => '$message',
+      getSender: () => '@alice:example.com',
+      getContent: () => ({ body: 'reactable' }),
+      getTs: () => 1000,
+    };
+    act(() => onTimeline?.(messageEvent, mockRoom));
+    await act(() => result.current.sendReaction('42', '$message', '👍'));
+    await act(() => result.current.removeReaction('42', '$message', '👍'));
+
+    expect(mockClient.redactEvent).toHaveBeenCalledWith('!room:example.com', '$sent-event');
+    expect(result.current.activeMessages[0].reactions).toBeUndefined();
   });
 });

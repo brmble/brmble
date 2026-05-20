@@ -249,3 +249,40 @@ p.message-text {
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-primary) 35%, transparent);
   }
 }
+
+/* Reactions */
+.message-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
+}
+
+.reaction-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.reaction-badge:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+}
+
+.reaction-badge.reacted {
+  background: var(--accent-primary-wash, color-mix(in srgb, var(--accent-primary) 15%, transparent));
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.reaction-count {
+  font-weight: 500;
+}
