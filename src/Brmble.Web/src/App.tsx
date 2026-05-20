@@ -514,7 +514,8 @@ export function getActiveMatrixRoomId(input: {
 
   if (appMode === 'dm' && selectedDmUserId) {
     const dmRoomId = dmRoomMap.get(selectedDmUserId);
-    if (dmRoomId) return dmRoomId;
+    // Return null if in DM mode but no DM room exists (don't fall through to channel)
+    return dmRoomId ?? null;
   }
 
   if (currentChannelId && currentChannelId !== 'server-root' && roomMap?.[currentChannelId]) {

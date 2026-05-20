@@ -180,6 +180,7 @@ export function useMatrixClient(
   const activeDmVersionRef = useRef(0);
   const localTypingRoomRef = useRef<string | null>(null);
   const typingRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const typingGenerationRef = useRef(0);
 
   const dmRoomMapRef = useRef<Map<string, string>>(new Map());
   // Keep ref in sync
@@ -206,6 +207,9 @@ export function useMatrixClient(
   const setRoomTyping = useCallback(async (roomId: string | null | undefined, isTyping: boolean) => {
     if (!clientRef.current) return;
 
+    // Increment generation to invalidate any in-flight calls
+    const currentGeneration = ++typingGenerationRef.current;
+
     // If stopping typing or roomId is null, stop local typing and clear timer
     if (!isTyping || !roomId) {
       clearTypingRefreshTimer();
@@ -221,12 +225,17 @@ export function useMatrixClient(
     // Starting typing in a valid room
     localTypingRoomRef.current = roomId;
     await clientRef.current.sendTyping(roomId, true, TYPING_TIMEOUT_MS);
-    clearTypingRefreshTimer();
-    typingRefreshTimerRef.current = setTimeout(() => {
-      if (localTypingRoomRef.current === roomId) {
-        void setRoomTyping(roomId, true);
-      }
-    }, TYPING_REFRESH_MS);
+    
+    // Only schedule refresh if this call is still current (not superseded)
+    if (typingGenerationRef.current === currentGeneration) {
+      clearTypingRefreshTimer();
+      typingRefreshTimerRef.current = setTimeout(() => {
+        // Double-check generation and room before recursive call
+        if (typingGenerationRef.current === currentGeneration && localTypingRoomRef.current === roomId) {
+          void setRoomTyping(roomId, true);
+        }
+      }, TYPING_REFRESH_MS);
+    }
   }, [clearTypingRefreshTimer]);
 
   // Reverse lookup: matrixRoomId → mumbleChannelId

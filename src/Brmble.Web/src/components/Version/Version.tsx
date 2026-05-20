@@ -1,16 +1,11 @@
 import { useState, useEffect } from 'react';
 import bridge from '../../bridge';
+import '../../types/webview2';
 import './Version.css';
-
-type WebView2HostWindow = Window & {
-  chrome?: {
-    webview?: unknown;
-  };
-};
 
 export function Version() {
   const [version, setVersion] = useState<string | null>(() =>
-    (window as WebView2HostWindow).chrome?.webview ? null : 'dev'
+    window.chrome?.webview ? null : 'dev'
   );
 
   useEffect(() => {
