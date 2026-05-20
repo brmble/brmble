@@ -135,15 +135,12 @@ function PromptComponent() {
 function PromptWithInputComponent() {
   const isOpen = globalResolveInput !== null;
   const [inputValue, setInputValue] = useState('');
-  const [isOpen, setIsOpen] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       setInputValue(globalInputOptions.defaultValue || '');
       setShowPassword(false);
-      setInputFocused(false);
-      setToggleFocused(false);
     }
   }, [isOpen]);
 
