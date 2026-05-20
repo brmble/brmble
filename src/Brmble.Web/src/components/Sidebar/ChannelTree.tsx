@@ -274,10 +274,12 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     const unreadInfo = channelUnreads?.get(String(channel.id));
     const hasUnread = ((unreadInfo?.notificationCount ?? 0) + (unreadInfo?.highlightCount ?? 0)) > 0;
     const lockIconName = channel.isEnterRestricted || channel.hasPasswordRestriction
-      ? channel.hasPasswordRestriction || channel.canEnter === false ? 'lock' : 'unlock'
+      ? channel.hasPasswordRestriction ? 'key-round' : channel.canEnter === false ? 'lock' : 'unlock'
       : null;
-    const lockTooltip = channel.canEnter === false || channel.hasPasswordRestriction
-      ? 'Restricted channel'
+    const lockTooltip = channel.hasPasswordRestriction
+      ? 'Password-protected channel'
+      : channel.canEnter === false
+        ? 'Restricted channel'
       : 'Restricted channel, access allowed';
 
     const isChannelActive = (channelId: number) => channelContextMenu?.channelId === channelId;

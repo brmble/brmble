@@ -168,6 +168,14 @@ const iconPaths: Record<string, IconDef> = {
       </>
     ),
   },
+  'key-round': {
+    paths: (
+      <>
+        <path d="M2 18v3h3l9.5-9.5" />
+        <circle cx="16" cy="8" r="6" />
+      </>
+    ),
+  },
   'shield': {
     paths: <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />,
   },

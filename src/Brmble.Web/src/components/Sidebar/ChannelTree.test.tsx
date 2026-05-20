@@ -295,19 +295,18 @@ describe('ChannelTree channel access locks', () => {
     expect(row?.querySelector('[data-icon="lock"]')).toBeNull();
   });
 
-  it('renders a closed lock for restricted channels the user cannot enter without exposing a password', () => {
-    render(<ChannelTree channels={[{ id: 1, name: 'Secret', isEnterRestricted: true, canEnter: false, hasPasswordRestriction: true }]} users={[]} currentChannelId={1} onJoinChannel={vi.fn()} />);
+  it('renders a closed lock for restricted channels the user cannot enter', () => {
+    render(<ChannelTree channels={[{ id: 1, name: 'Secret', isEnterRestricted: true, canEnter: false }]} users={[]} currentChannelId={1} onJoinChannel={vi.fn()} />);
 
     const row = screen.getByText('Secret').closest('.channel-row');
     expect(row?.querySelector('[data-icon="lock"]')).not.toBeNull();
-    expect(row?.textContent).not.toContain('password');
   });
 
-  it('renders a closed lock for password-restricted channels even when enter metadata is missing', () => {
+  it('renders a key icon for password-restricted channels even when enter metadata is missing', () => {
     render(<ChannelTree channels={[{ id: 1, name: 'Secret', hasPasswordRestriction: true }]} users={[]} currentChannelId={1} onJoinChannel={vi.fn()} />);
 
     const row = screen.getByText('Secret').closest('.channel-row');
-    expect(row?.querySelector('[data-icon="lock"]')).not.toBeNull();
+    expect(row?.querySelector('[data-icon="key-round"]')).not.toBeNull();
   });
 
   it('renders channel access icons as the rightmost channel name sidebar icons', () => {
