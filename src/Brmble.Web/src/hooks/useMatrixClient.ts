@@ -415,6 +415,9 @@ export function useMatrixClient(
 
   useEffect(() => {
     if (!credentials) {
+      if (localTypingRoomRef.current) {
+        void stopTypingForRoom(localTypingRoomRef.current);
+      }
       clientRef.current?.stopClient();
       clientRef.current = null;
       overlayLiveSinceRef.current = null;
@@ -436,9 +439,6 @@ export function useMatrixClient(
       if (typingExpiryTimerRef.current !== null) {
         window.clearTimeout(typingExpiryTimerRef.current);
         typingExpiryTimerRef.current = null;
-      }
-      if (localTypingRoomRef.current) {
-        void stopTypingForRoom(localTypingRoomRef.current);
       }
       clearLocalTypingState();
       updateStatus('chat', { state: 'idle', error: undefined });

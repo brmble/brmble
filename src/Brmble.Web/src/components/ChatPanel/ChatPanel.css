@@ -404,7 +404,7 @@
 
 .chat-typing-indicator {
   min-height: 20px;
-  padding: 0 16px 8px;
+  padding: 0 var(--space-md) var(--space-xs);
   color: var(--text-secondary);
   font-size: var(--text-xs);
   line-height: 1.4;
