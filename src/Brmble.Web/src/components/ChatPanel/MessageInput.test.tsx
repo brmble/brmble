@@ -1,6 +1,6 @@
 import { act } from 'react';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MessageInput } from './MessageInput';
 import { SUPPORTED_REACTIONS } from '../../utils/chatReactions';
@@ -115,5 +115,103 @@ describe('MessageInput emoji picker', () => {
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: `Insert ${SUPPORTED_REACTIONS[0]}` })).not.toBeInTheDocument();
     });
+  });
+});
+
+describe('MessageInput typing callbacks', () => {
+  it('starts typing for a non-empty draft and stops when the draft becomes empty', async () => {
+    const user = userEvent.setup();
+    const onTypingStart = vi.fn();
+    const onTypingStop = vi.fn();
+    const { textarea } = renderMessageInput({
+      matrixRoomId: '!room:example.com',
+      onTypingStart,
+      onTypingStop,
+      typingTargetId: '42',
+    });
+
+    await user.type(textarea, 'H');
+    expect(onTypingStart).toHaveBeenCalledWith('42');
+
+    await user.clear(textarea);
+    expect(onTypingStop).toHaveBeenCalledWith('42');
+  });
+
+  it('stops typing on blur without changing the draft', async () => {
+    const user = userEvent.setup();
+    const onTypingStop = vi.fn();
+    const { textarea } = renderMessageInput({
+      onTypingStop,
+      typingTargetId: '42',
+    });
+
+    await user.type(textarea, 'Hello');
+    await user.tab();
+    expect(onTypingStop).toHaveBeenCalledWith('42');
+    expect(textarea).toHaveValue('Hello');
+  });
+
+  it('stops typing after a successful send', async () => {
+    const user = userEvent.setup();
+    const onTypingStart = vi.fn();
+    const onTypingStop = vi.fn();
+    const { textarea, onSend } = renderMessageInput({
+      onTypingStart,
+      onTypingStop,
+      typingTargetId: '42',
+    });
+
+    await user.type(textarea, 'Hello again');
+    await user.click(screen.getByRole('button', { name: 'Send message' }));
+
+    expect(onSend).toHaveBeenCalledWith('Hello again', undefined);
+    expect(onTypingStop).toHaveBeenCalledWith('42');
+  });
+
+  it('does not start typing when only an image is staged', async () => {
+    const onTypingStart = vi.fn();
+    renderMessageInput({ onTypingStart, typingTargetId: '42' });
+
+    const file = new File(['image'], 'typing.png', { type: 'image/png' });
+    fireEvent.paste(screen.getByRole('combobox'), {
+      clipboardData: {
+        items: [{ type: 'image/png', getAsFile: () => file }],
+      },
+    });
+
+    expect(onTypingStart).not.toHaveBeenCalled();
+  });
+
+  it('stops typing for the previously started target when the conversation changes', async () => {
+    const onTypingStart = vi.fn();
+    const onTypingStop = vi.fn();
+    const onSend = vi.fn();
+    const { rerender } = render(
+      <MessageInput
+        onSend={onSend}
+        placeholder="Message #general"
+        mentionableUsers={[{ displayName: 'Alice', isOnline: true }]}
+        onTypingStart={onTypingStart}
+        onTypingStop={onTypingStop}
+        typingTargetId="42"
+      />,
+    );
+    const textarea = screen.getByRole('combobox') as HTMLTextAreaElement;
+
+    await userEvent.type(textarea, 'Hello');
+    expect(onTypingStart).toHaveBeenCalledWith('42');
+
+    rerender(
+      <MessageInput
+        onSend={onSend}
+        placeholder="Message #other"
+        mentionableUsers={[{ displayName: 'Alice', isOnline: true }]}
+        onTypingStart={onTypingStart}
+        onTypingStop={onTypingStop}
+        typingTargetId="84"
+      />,
+    );
+
+    expect(onTypingStop).toHaveBeenCalledWith('42');
   });
 });

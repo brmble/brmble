@@ -28,6 +28,7 @@ const mockClient = {
   createRoom: vi.fn().mockResolvedValue({ room_id: '!new:example.com' }),
   scrollback: vi.fn().mockResolvedValue(undefined),
   sendMessage: vi.fn().mockResolvedValue({ event_id: '$sent-event' }),
+  sendTyping: vi.fn().mockResolvedValue(undefined),
   redactEvent: vi.fn().mockResolvedValue(undefined),
   mxcUrlToHttp: vi.fn((url: string) => url.replace('mxc://', 'https://matrix.example.com/_matrix/media/v3/download/')),
 };
@@ -35,6 +36,7 @@ const mockClient = {
 vi.mock('matrix-js-sdk', () => ({
   createClient: vi.fn(() => mockClient),
   RoomEvent: { Timeline: 'Room.timeline' },
+  RoomMemberEvent: { Typing: 'RoomMember.typing' },
   RoomStateEvent: { Members: 'RoomState.members' },
   ClientEvent: { Sync: 'sync', AccountData: 'accountData' },
   EventType: { RoomMessage: 'm.room.message', Direct: 'm.direct', RoomRedaction: 'm.room.redaction' },
@@ -204,6 +206,169 @@ describe('useMatrixClient', () => {
     expect(mockClient.on).toHaveBeenCalledWith('Room.timeline', expect.any(Function));
   });
 
+  it('replaces active channel typers from the latest typing change and excludes the local user', () => {
+    vi.useFakeTimers();
+    try {
+      const members = [
+        { userId: '@alice:example.com', typing: false, name: 'Alice', rawDisplayName: 'Alice' },
+        { userId: '@bob:example.com', typing: false, name: 'Bob', rawDisplayName: 'Bob' },
+        { userId: '@1:example.com', typing: false, name: 'Me', rawDisplayName: 'Me' },
+      ];
+      const room = {
+        roomId: '!room:example.com',
+        getMember: (userId: string) => members.find((member) => member.userId === userId) ?? null,
+        getMembers: () => members,
+        getLiveTimeline: () => ({ getEvents: () => [] }),
+      };
+      mockClient.getRoom.mockReturnValue(room);
+
+      const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+      act(() => result.current.setActiveChannel('42'));
+
+      const onTyping = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'RoomMember.typing')?.[1] as
+        | ((ev: unknown, member: unknown) => void)
+        | undefined;
+
+      members[0].typing = true;
+      members[2].typing = true;
+      act(() => onTyping?.({ getRoomId: () => '!room:example.com' }, members[0]));
+      expect(result.current.activeTypingText).toBe('Alice is typing...');
+
+      members[0].typing = false;
+      members[1].typing = true;
+      members[2].typing = false;
+      act(() => onTyping?.({ getRoomId: () => '!room:example.com' }, members[1]));
+      expect(result.current.activeTypingText).toBe('Bob is typing...');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('expires active typers after 10 seconds of inactivity', () => {
+    vi.useFakeTimers();
+    try {
+      const member = { userId: '@alice:example.com', typing: true, name: 'Alice', rawDisplayName: 'Alice' };
+      const room = {
+        roomId: '!room:example.com',
+        getMember: () => member,
+        getMembers: () => [member],
+        getLiveTimeline: () => ({ getEvents: () => [] }),
+      };
+      mockClient.getRoom.mockReturnValue(room);
+
+      const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+      act(() => result.current.setActiveChannel('42'));
+
+      const onTyping = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'RoomMember.typing')?.[1] as
+        | ((ev: unknown, member: unknown) => void)
+        | undefined;
+
+      act(() => onTyping?.({ getRoomId: () => '!room:example.com' }, member));
+      expect(result.current.activeTypingText).toBe('Alice is typing...');
+
+      act(() => vi.advanceTimersByTime(10_001));
+      expect(result.current.activeTypingText).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('recomputes typing text for the new active conversation and clears the opposite active ref', () => {
+    const roomA = {
+      roomId: '!room-a:example.com',
+      getMember: () => ({ userId: '@alice:example.com', typing: true, name: 'Alice', rawDisplayName: 'Alice' }),
+      getMembers: () => [{ userId: '@alice:example.com', typing: true, name: 'Alice', rawDisplayName: 'Alice' }],
+      getLiveTimeline: () => ({ getEvents: () => [] }),
+    };
+    const roomB = {
+      roomId: '!room-b:example.com',
+      getMember: () => ({ userId: '@bob:example.com', typing: true, name: 'Bob', rawDisplayName: 'Bob' }),
+      getMembers: () => [{ userId: '@bob:example.com', typing: true, name: 'Bob', rawDisplayName: 'Bob' }],
+      getLiveTimeline: () => ({ getEvents: () => [] }),
+    };
+    mockClient.getRoom.mockImplementation((id: string) =>
+      id === '!room-a:example.com' ? roomA : id === '!room-b:example.com' ? roomB : null);
+
+    const { result } = renderHook(() => useMatrixClient({
+      ...creds,
+      roomMap: { A: '!room-a:example.com', B: '!room-b:example.com' },
+    }), { wrapper });
+
+    act(() => result.current.setActiveChannel('A'));
+    expect(result.current.activeTypingText).toBe('Alice is typing...');
+
+    act(() => result.current.setActiveChannel('B'));
+    expect(result.current.activeTypingText).toBe('Bob is typing...');
+  });
+
+  it('clears the previous indicator when the new active room has no typers', () => {
+    const roomA = {
+      roomId: '!room-a:example.com',
+      getMembers: () => [{ userId: '@alice:example.com', typing: true, name: 'Alice', rawDisplayName: 'Alice' }],
+      getLiveTimeline: () => ({ getEvents: () => [] }),
+    };
+    const roomB = {
+      roomId: '!room-b:example.com',
+      getMembers: () => [],
+      getLiveTimeline: () => ({ getEvents: () => [] }),
+    };
+    mockClient.getRoom.mockImplementation((id: string) =>
+      id === '!room-a:example.com' ? roomA : id === '!room-b:example.com' ? roomB : null);
+
+    const { result } = renderHook(() => useMatrixClient({
+      ...creds,
+      roomMap: { A: '!room-a:example.com', B: '!room-b:example.com' },
+    }), { wrapper });
+
+    act(() => result.current.setActiveChannel('A'));
+    expect(result.current.activeTypingText).toBe('Alice is typing...');
+
+    act(() => result.current.setActiveChannel('B'));
+    expect(result.current.activeTypingText).toBeNull();
+  });
+
+  it('uses the room member name so duplicate display names stay disambiguated', () => {
+    const members = [
+      { userId: '@alice:example.com', typing: true, name: 'Alice', rawDisplayName: 'Alice' },
+      { userId: '@alice-mobile:example.com', typing: true, name: 'Alice (mobile)', rawDisplayName: 'Alice' },
+    ];
+    const room = {
+      roomId: '!room:example.com',
+      getMember: (userId: string) => members.find((member) => member.userId === userId) ?? null,
+      getMembers: () => members,
+      getLiveTimeline: () => ({ getEvents: () => [] }),
+    };
+    mockClient.getRoom.mockReturnValue(room);
+
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+    act(() => result.current.setActiveChannel('42'));
+
+    expect(result.current.activeTypingText).toBe('Alice and Alice (mobile) are typing...');
+  });
+
+  it('clears active typing text when the room typing replacement becomes empty', () => {
+    const alice = { userId: '@alice:example.com', typing: true, name: 'Alice', rawDisplayName: 'Alice' };
+    const room = {
+      roomId: '!room:example.com',
+      getMember: () => alice,
+      getMembers: () => [alice],
+      getLiveTimeline: () => ({ getEvents: () => [] }),
+    };
+    mockClient.getRoom.mockReturnValue(room);
+
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+    act(() => result.current.setActiveChannel('42'));
+    expect(result.current.activeTypingText).toBe('Alice is typing...');
+
+    alice.typing = false;
+    const onTyping = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'RoomMember.typing')?.[1] as
+      | ((ev: unknown, member: unknown) => void)
+      | undefined;
+    act(() => onTyping?.({ getRoomId: () => '!room:example.com' }, alice));
+
+    expect(result.current.activeTypingText).toBeNull();
+  });
+
   it('sendMessage posts to correct Matrix room', async () => {
     const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
     await act(() => result.current.sendMessage('42', 'hello'));
@@ -211,12 +376,55 @@ describe('useMatrixClient', () => {
       msgtype: 'm.text',
       body: 'hello',
     });
+    expect(mockClient.sendTyping).toHaveBeenLastCalledWith('!room:example.com', false, 0);
   });
 
   it('sendMessage does nothing when channelId has no room mapping', async () => {
     const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
     await act(() => result.current.sendMessage('999', 'hello'));
     expect(mockClient.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('sends typing true with a 10000ms timeout and throttles refreshes', async () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+      await act(async () => result.current.startTyping('42'));
+      await act(async () => result.current.startTyping('42'));
+
+      expect(mockClient.sendTyping).toHaveBeenCalledTimes(1);
+      expect(mockClient.sendTyping).toHaveBeenCalledWith('!room:example.com', true, 10_000);
+
+      act(() => vi.advanceTimersByTime(5_001));
+      expect(mockClient.sendTyping).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not schedule a refresh loop when sendTyping(true) fails', async () => {
+    vi.useFakeTimers();
+    try {
+      mockClient.sendTyping.mockRejectedValueOnce(new Error('network'));
+      const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+      await act(async () => result.current.startTyping('42'));
+      act(() => vi.advanceTimersByTime(5_001));
+      expect(mockClient.sendTyping).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('clears timers on unmount and stops typing for the active room', async () => {
+    vi.useFakeTimers();
+    try {
+      const { result, unmount } = renderHook(() => useMatrixClient(creds), { wrapper });
+      await act(async () => result.current.startTyping('42'));
+      unmount();
+      expect(mockClient.sendTyping).toHaveBeenLastCalledWith('!room:example.com', false, 0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('fetchHistory calls scrollback on the room', async () => {

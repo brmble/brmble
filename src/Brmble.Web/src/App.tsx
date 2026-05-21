@@ -1054,12 +1054,12 @@ function App() {
   });
 
   useLayoutEffect(() => {
-    matrixClient.setActiveChannel(activeChannelId ?? null);
-  }, [activeChannelId, matrixClient.setActiveChannel]);
+    matrixClient.setActiveChannel(dmStore.appMode === 'dm' ? null : (activeChannelId ?? null));
+  }, [activeChannelId, dmStore.appMode, matrixClient.setActiveChannel]);
 
   useLayoutEffect(() => {
-    matrixClient.setActiveDmContact(dmStore.selectedContact?.id ?? null);
-  }, [dmStore.selectedContact?.id, matrixClient.setActiveDmContact]);
+    matrixClient.setActiveDmContact(dmStore.appMode === 'dm' ? (dmStore.selectedContact?.id ?? null) : null);
+  }, [dmStore.appMode, dmStore.selectedContact?.id, matrixClient.setActiveDmContact]);
 
   // Determine active Matrix room ID (depends on dmStore.selectedContact)
   const activeMatrixRoomId = useMemo(() => {
@@ -3823,9 +3823,13 @@ const handleConnect = (serverData: SavedServer) => {
                     users={users}
                     topNotice={brmbleServiceChatNotice}
                     onMessageContextMenu={handleChatMessageContextMenu}
-                    onCopyToClipboard={handleCopyToClipboard}
-                    currentUserMatrixId={matrixCredentials?.userId}
-                    onToggleReaction={handleToggleChannelReaction}
+                   onCopyToClipboard={handleCopyToClipboard}
+                   currentUserMatrixId={matrixCredentials?.userId}
+                   onToggleReaction={handleToggleChannelReaction}
+                    typingIndicatorText={matrixClient.activeTypingText}
+                    typingTargetId={activeChannelId ?? undefined}
+                    onTypingStart={matrixClient.startTyping}
+                    onTypingStop={matrixClient.stopTyping}
                   />
                   </ErrorBoundary>
                 </div>
@@ -3848,6 +3852,10 @@ const handleConnect = (serverData: SavedServer) => {
                     onCopyToClipboard={handleCopyToClipboard}
                     currentUserMatrixId={matrixCredentials?.userId}
                     onToggleReaction={handleToggleDmReaction}
+                    typingIndicatorText={matrixClient.activeTypingText}
+                    typingTargetId={dmStore.selectedContact?.id}
+                    onTypingStart={matrixClient.startTyping}
+                    onTypingStop={matrixClient.stopTyping}
                   />
                   </ErrorBoundary>
                 </div>
