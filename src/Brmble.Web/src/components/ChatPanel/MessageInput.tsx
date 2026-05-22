@@ -25,9 +25,12 @@ interface MessageInputProps {
   onClearReply?: () => void;
   matrixClient?: MatrixClient | null;
   matrixRoomId?: string | null;
+  typingTargetId?: string;
+  onTypingStart?: (targetId: string) => void | Promise<void>;
+  onTypingStop?: (targetId: string) => void | Promise<void>;
 }
 
-export function MessageInput({ onSend, placeholder = 'Type a message...', mentionableUsers = [], disabled, replyState, onClearReply, matrixClient, matrixRoomId }: MessageInputProps) {
+export function MessageInput({ onSend, placeholder = 'Type a message...', mentionableUsers = [], disabled, replyState, onClearReply, matrixClient, matrixRoomId, typingTargetId, onTypingStart, onTypingStop }: MessageInputProps) {
   const [message, setMessage] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -43,6 +46,8 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const validationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastTypingDraftRef = useRef(false);
+  const lastStartedTypingTargetRef = useRef<string | null>(null);
 
   // ARIA IDs for combobox pattern
   const listboxId = useId();
@@ -61,6 +66,36 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
   useEffect(() => {
     textareaRef.current?.focus();
   }, [placeholder]);
+
+  const stopTypingIfNeeded = useCallback(() => {
+    const targetToStop = lastStartedTypingTargetRef.current;
+    if (!targetToStop || !lastTypingDraftRef.current) return;
+    lastTypingDraftRef.current = false;
+    lastStartedTypingTargetRef.current = null;
+    void onTypingStop?.(targetToStop);
+  }, [onTypingStop]);
+
+  useEffect(() => {
+    const hasDraftText = message.trim().length > 0;
+    if (!typingTargetId) return;
+
+    if (hasDraftText && !lastTypingDraftRef.current) {
+      lastTypingDraftRef.current = true;
+      lastStartedTypingTargetRef.current = typingTargetId;
+      void onTypingStart?.(typingTargetId);
+      return;
+    }
+
+    if (!hasDraftText && lastTypingDraftRef.current) {
+      lastTypingDraftRef.current = false;
+      const targetToStop = lastStartedTypingTargetRef.current;
+      lastStartedTypingTargetRef.current = null;
+      if (targetToStop) void onTypingStop?.(targetToStop);
+    }
+  }, [message, onTypingStart, onTypingStop, typingTargetId]);
+
+  useEffect(() => stopTypingIfNeeded, [stopTypingIfNeeded]);
+  useEffect(() => { stopTypingIfNeeded(); }, [typingTargetId, stopTypingIfNeeded]);
 
   // Compute filtered users for reuse across handlers
   const filteredUsers = (() => {
@@ -277,6 +312,7 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
       } else {
         onSend(message.trim(), pendingImage ?? undefined);
       }
+      stopTypingIfNeeded();
       setMessage('');
       setMentionActive(false);
       setPendingImage(null);
@@ -416,6 +452,7 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
           aria-haspopup="listbox"
           aria-controls={mentionActive ? listboxId : undefined}
           aria-activedescendant={activeDescendant}
+          onBlur={stopTypingIfNeeded}
         />
         <Tooltip content="Insert emoji">
           <button
@@ -456,6 +493,7 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
             className="btn btn-primary btn-icon send-button"
             onClick={() => handleSend().catch(error => console.error('Failed to send message:', error))}
             disabled={disabled || (!message.trim() && !pendingImage)}
+            aria-label="Send message"
           >
             <Icon name="send" size={20} />
           </button>
