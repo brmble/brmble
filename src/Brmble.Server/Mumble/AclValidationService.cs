@@ -17,6 +17,7 @@ public sealed class AclValidationService
         MumbleServer.PermissionRegister.value |
         MumbleServer.PermissionRegisterSelf.value |
         MumbleServer.PermissionMakeTempChannel.value |
+        0x800 |
         MumbleServer.PermissionMuteDeafen.value |
         MumbleServer.ResetUserContent.value;
 

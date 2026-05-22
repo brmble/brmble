@@ -29,4 +29,20 @@ public class AclValidationServiceTests
         Assert.IsTrue(valid);
         Assert.IsNull(error);
     }
+
+    [TestMethod]
+    public void ValidateUpdate_AcceptsListenPermissionBit()
+    {
+        var service = new AclValidationService();
+        var request = new AclUpdateRequest(
+            true,
+            [],
+            [new AclRuleDto(true, false, false, null, "#secret", 0x800, 0)],
+            "hash");
+
+        var (valid, error) = service.ValidateUpdate(request);
+
+        Assert.IsTrue(valid);
+        Assert.IsNull(error);
+    }
 }
