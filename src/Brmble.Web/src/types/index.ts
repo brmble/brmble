@@ -65,6 +65,11 @@ export interface ChatMessage {
   replyToEventId?: string;
   replyToSender?: string;
   replyToContent?: string;
+  msgType?: string;
+  edited?: boolean;
+  originalContent?: string;
+  latestEditTimestamp?: number;
+  latestEditEventId?: string;
 }
 
 export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed' | 'disconnected';

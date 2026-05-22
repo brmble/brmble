@@ -4,6 +4,12 @@ import type { MatrixClient, MatrixEvent, Room, RoomMember, RoomState } from 'mat
 import type { ChatMessage, MediaAttachment } from '../types';
 import { addReactionSender, removeReactionSender } from '../utils/chatReactions';
 import { formatTypingIndicator } from '../utils/formatTypingIndicator';
+import {
+  compareReplacementEdits,
+  parseBundledReplacementFromUnsigned,
+  parseReplacementEvent,
+  type ParsedReplacementEvent,
+} from '../utils/matrixMessageEditing';
 import { useServiceStatus } from './useServiceStatus';
 import bridge from '../bridge';
 
@@ -97,6 +103,7 @@ function transformEventToChatMessage(
     senderMatrixUserId: senderId,
     content: displayContent,
     timestamp: new Date(event.getTs()),
+    msgType: content.msgtype,
     ...(media && { media }),
     ...(replyToEventId && { replyToEventId }),
   };
@@ -116,6 +123,8 @@ interface ReactionEventRecord {
   emoji: string;
   senderId: string;
 }
+
+type ReplacementEventRecord = ParsedReplacementEvent;
 
 function parseReactionEvent(event: MatrixEvent): ReactionEventRecord | null {
   if (event.getType() !== 'm.reaction') return null;
@@ -191,6 +200,27 @@ function markMessageRedacted(
   return changed ? updated : existing;
 }
 
+function applyReplacementToMessages(
+  existing: ChatMessage[],
+  replacement: ReplacementEventRecord,
+): ChatMessage[] {
+  let changed = false;
+  const updated = existing.map((message) => {
+    if (message.id !== replacement.targetEventId) return message;
+    if (message.senderMatrixUserId && message.senderMatrixUserId !== replacement.senderId) return message;
+    changed = true;
+    return {
+      ...message,
+      content: replacement.body,
+      edited: true,
+      originalContent: message.originalContent ?? message.content,
+      latestEditTimestamp: replacement.timestamp,
+      latestEditEventId: replacement.editEventId,
+    };
+  });
+  return changed ? updated : existing;
+}
+
 /**
  * Read all `m.room.message` events from a room's live timeline and transform
  * them into ChatMessages. Pure helper for active-message loading.
@@ -208,11 +238,13 @@ function loadMessagesFromTimeline(
   currentUserId?: string,
   reactionEventsRef?: React.MutableRefObject<Map<string, ReactionEventRecord>>,
   ownReactionEventIdsRef?: React.MutableRefObject<Map<string, Map<string, string>>>,
+  onReplacementEdit?: (replacement: ReplacementEventRecord) => void,
 ): ChatMessage[] {
   const room = client.getRoom(roomId);
   if (!room) return [];
   const out: ChatMessage[] = [];
   const pendingReactions: ReactionEventRecord[] = [];
+  const pendingReplacements: ReplacementEventRecord[] = [];
   const redactedEventIds = new Set<string>();
 
   for (const ev of room.getLiveTimeline().getEvents()) {
@@ -224,11 +256,25 @@ function loadMessagesFromTimeline(
 
     const m = transformEventToChatMessage(ev, room, targetId, client);
     if (m) {
+      const bundled = parseBundledReplacementFromUnsigned(ev as never);
+      if (bundled && !redactedEventIds.has(bundled.editEventId)) {
+        pendingReplacements.push(bundled);
+        onReplacementEdit?.(bundled);
+      }
       // Mark message as redacted if already redacted or has redaction event
       if (ev.isRedacted() || redactedEventIds.has(m.id)) {
         out.push({ ...m, redacted: true, content: '', media: undefined });
       } else {
         out.push(m);
+      }
+      continue;
+    }
+
+    const replacement = parseReplacementEvent(ev as never);
+    if (replacement) {
+      if (!redactedEventIds.has(replacement.editEventId)) {
+        pendingReplacements.push(replacement);
+        onReplacementEdit?.(replacement);
       }
       continue;
     }
@@ -251,7 +297,8 @@ function loadMessagesFromTimeline(
     }
   }
 
-  return pendingReactions.reduce(applyReactionToMessages, out);
+  const withReplacements = pendingReplacements.sort(compareReplacementEdits).reduce(applyReplacementToMessages, out);
+  return pendingReactions.reduce(applyReactionToMessages, withReplacements);
 }
 
 export interface MatrixCredentials {
@@ -320,6 +367,34 @@ export function useMatrixClient(
   const waitForRoomRef = useRef<((roomId: string, timeoutMs?: number) => Promise<Room>) | null>(null);
   const reactionEventsRef = useRef<Map<string, ReactionEventRecord>>(new Map());
   const ownReactionEventIdsRef = useRef<Map<string, Map<string, string>>>(new Map());
+  const replacementEventsByEditIdRef = useRef<Map<string, ReplacementEventRecord>>(new Map());
+  const replacementEditsByTargetRef = useRef<Map<string, ReplacementEventRecord[]>>(new Map());
+
+  const rememberReplacementEdit = useCallback((replacement: ReplacementEventRecord) => {
+    replacementEventsByEditIdRef.current.set(replacement.editEventId, replacement);
+    const existing = replacementEditsByTargetRef.current.get(replacement.targetEventId) ?? [];
+    const filtered = existing.filter((item) => item.editEventId !== replacement.editEventId);
+    filtered.push(replacement);
+    filtered.sort(compareReplacementEdits);
+    replacementEditsByTargetRef.current.set(replacement.targetEventId, filtered);
+  }, []);
+
+  const forgetReplacementEdit = useCallback((editEventId: string): { targetEventId: string; latestRemaining: ReplacementEventRecord | null } | null => {
+    const replacement = replacementEventsByEditIdRef.current.get(editEventId);
+    if (!replacement) return null;
+    replacementEventsByEditIdRef.current.delete(editEventId);
+    const existing = replacementEditsByTargetRef.current.get(replacement.targetEventId) ?? [];
+    const next = existing.filter((item) => item.editEventId !== editEventId);
+    if (next.length === 0) {
+      replacementEditsByTargetRef.current.delete(replacement.targetEventId);
+    } else {
+      replacementEditsByTargetRef.current.set(replacement.targetEventId, next);
+    }
+    return {
+      targetEventId: replacement.targetEventId,
+      latestRemaining: next.length > 0 ? next[next.length - 1] : null,
+    };
+  }, []);
 
   // Reverse lookup: matrixRoomId → mumbleChannelId
   const roomIdToChannelId = useMemo(() => {
@@ -435,6 +510,8 @@ export function useMatrixClient(
       lastSyncStateRef.current = null;
       reactionEventsRef.current.clear();
       ownReactionEventIdsRef.current.clear();
+      replacementEventsByEditIdRef.current.clear();
+      replacementEditsByTargetRef.current.clear();
       roomTypingRef.current.clear();
       if (typingExpiryTimerRef.current !== null) {
         window.clearTimeout(typingExpiryTimerRef.current);
@@ -486,6 +563,20 @@ export function useMatrixClient(
     ) => {
       const eventType = event.getType();
 
+      const replacement = parseReplacementEvent(event as never);
+      if (replacement) {
+        rememberReplacementEdit(replacement);
+        const channelId = roomIdToChannelId.get(room?.roomId ?? '');
+        if (channelId && activeChannelIdRef.current === channelId) {
+          setActiveMessages(prev => applyReplacementToMessages(prev, replacement));
+        }
+        const dmUserId = roomIdToDMUserIdRef.current.get(room?.roomId ?? '');
+        if (dmUserId && activeDmContactIdRef.current === dmUserId) {
+          setActiveDmMessages(prev => applyReplacementToMessages(prev, replacement));
+        }
+        return;
+      }
+
       if (eventType === 'm.reaction') {
         const reaction = parseReactionEvent(event);
         if (!reaction) return;
@@ -512,6 +603,34 @@ export function useMatrixClient(
 
       if (eventType === EventType.RoomRedaction) {
         const redactedEventId = getRedactedEventId(event as unknown as RedactionLikeEvent);
+        if (redactedEventId) {
+          const replacementState = forgetReplacementEdit(redactedEventId);
+          if (replacementState) {
+            const { targetEventId, latestRemaining } = replacementState;
+            const applyRevert = (existing: ChatMessage[]) => existing.map((message) => {
+              if (message.id !== targetEventId) return message;
+              if (latestRemaining && (!message.senderMatrixUserId || message.senderMatrixUserId === latestRemaining.senderId)) {
+                return {
+                  ...message,
+                  content: latestRemaining.body,
+                  edited: true,
+                  latestEditTimestamp: latestRemaining.timestamp,
+                  latestEditEventId: latestRemaining.editEventId,
+                };
+              }
+              return {
+                ...message,
+                content: message.originalContent ?? message.content,
+                edited: false,
+                latestEditTimestamp: undefined,
+                latestEditEventId: undefined,
+              };
+            });
+            setActiveMessages(prev => applyRevert(prev));
+            setActiveDmMessages(prev => applyRevert(prev));
+            return;
+          }
+        }
         const redactedReaction = redactedEventId ? reactionEventsRef.current.get(redactedEventId) : undefined;
         if (redactedReaction && redactedEventId) {
           reactionEventsRef.current.delete(redactedEventId);
@@ -690,7 +809,7 @@ export function useMatrixClient(
             if (roomId) {
               activeRoomVersionRef.current += 1;
               const myVersion = activeRoomVersionRef.current;
-              const messages = loadMessagesFromTimeline(client, roomId, channelId, credentials.userId, reactionEventsRef, ownReactionEventIdsRef);
+              const messages = loadMessagesFromTimeline(client, roomId, channelId, credentials.userId, reactionEventsRef, ownReactionEventIdsRef, rememberReplacementEdit);
               if (activeRoomVersionRef.current === myVersion) {
                 setActiveMessages(messages);
               }
@@ -702,7 +821,7 @@ export function useMatrixClient(
             if (dmRoomId) {
               activeDmVersionRef.current += 1;
               const myVersion = activeDmVersionRef.current;
-              const messages = loadMessagesFromTimeline(client, dmRoomId, dmContactId, credentials.userId, reactionEventsRef, ownReactionEventIdsRef);
+              const messages = loadMessagesFromTimeline(client, dmRoomId, dmContactId, credentials.userId, reactionEventsRef, ownReactionEventIdsRef, rememberReplacementEdit);
               if (activeDmVersionRef.current === myVersion) {
                 setActiveDmMessages(messages);
               }
@@ -873,7 +992,7 @@ export function useMatrixClient(
       setClient(null);
       updateStatus('chat', { state: 'idle', error: undefined });
     };
-  }, [clearLocalTypingState, credentials, replaceRoomTypingFromMembers, roomIdToChannelId, stopTypingForRoom, updateStatus]);
+  }, [clearLocalTypingState, credentials, forgetReplacementEdit, rememberReplacementEdit, replaceRoomTypingFromMembers, roomIdToChannelId, stopTypingForRoom, updateStatus]);
 
   const sendMessage = useCallback(async (channelId: string, text: string) => {
     if (!credentials || !clientRef.current) return;
@@ -1078,13 +1197,13 @@ export function useMatrixClient(
       hydrateRoomTypingFromCurrentMembers(nextRoomId);
       return;
     }
-    const messages = loadMessagesFromTimeline(client, roomId, channelId, credentials.userId, reactionEventsRef, ownReactionEventIdsRef);
+    const messages = loadMessagesFromTimeline(client, roomId, channelId, credentials.userId, reactionEventsRef, ownReactionEventIdsRef, rememberReplacementEdit);
 
     if (activeRoomVersionRef.current === myVersion) {
       setActiveMessages(messages);
     }
     hydrateRoomTypingFromCurrentMembers(nextRoomId);
-  }, [clearLocalTypingState, credentials, getActiveMatrixRoomId, hydrateRoomTypingFromCurrentMembers, stopTypingForRoom]);
+  }, [clearLocalTypingState, credentials, getActiveMatrixRoomId, hydrateRoomTypingFromCurrentMembers, rememberReplacementEdit, stopTypingForRoom]);
 
   // No deps: dmRoomMapRef is mutable and always reflects the latest map.
   const setActiveDmContact = useCallback((matrixUserId: string | null) => {
@@ -1115,13 +1234,13 @@ export function useMatrixClient(
       hydrateRoomTypingFromCurrentMembers(nextRoomId);
       return;
     }
-    const messages = loadMessagesFromTimeline(client, roomId, matrixUserId, credentials?.userId, reactionEventsRef, ownReactionEventIdsRef);
+    const messages = loadMessagesFromTimeline(client, roomId, matrixUserId, credentials?.userId, reactionEventsRef, ownReactionEventIdsRef, rememberReplacementEdit);
 
     if (activeDmVersionRef.current === myVersion) {
       setActiveDmMessages(messages);
     }
     hydrateRoomTypingFromCurrentMembers(nextRoomId);
-  }, [clearLocalTypingState, credentials?.userId, getActiveMatrixRoomId, hydrateRoomTypingFromCurrentMembers, stopTypingForRoom]);
+  }, [clearLocalTypingState, credentials?.userId, getActiveMatrixRoomId, hydrateRoomTypingFromCurrentMembers, rememberReplacementEdit, stopTypingForRoom]);
 
   // Resolve display names for DM partners from Matrix room membership.
   // This works even when the other user isn't connected to Mumble.
