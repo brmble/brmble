@@ -356,6 +356,73 @@ public class MumbleAdapterBridgeTests
         Assert.AreEqual("secret-token", saved[0].Password);
     }
 
+    [TestMethod]
+    public async Task GetChannelPassword_HandlerReturnsSavedPasswordForActiveServer()
+    {
+        var appConfig = new TestAppConfigService(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()));
+        appConfig.SaveChannelPassword("example.test:64738", 5, "Secret", "secret-token");
+        var bridge = NativeBridgeTestHarness.Create();
+        var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge, appConfigService: appConfig);
+        adapter.RegisterHandlers(bridge);
+        adapter.SetActiveServerForTests("example.test", 64738);
+        SetConnectedConnection(adapter);
+
+        await NativeBridgeTestHarness.InvokeAsync(bridge, "voice.getChannelPassword", JsonSerializer.SerializeToElement(new
+        {
+            channelId = 5,
+            requestId = "req-1"
+        }));
+
+        var sent = NativeBridgeTestHarness.DrainMessages(bridge);
+        var response = sent.Single(m => m.Type == "voice.channelPassword");
+        using var doc = JsonDocument.Parse(response.DataJson);
+        Assert.AreEqual("req-1", doc.RootElement.GetProperty("requestId").GetString());
+        Assert.AreEqual(5u, doc.RootElement.GetProperty("channelId").GetUInt32());
+        Assert.AreEqual("secret-token", doc.RootElement.GetProperty("password").GetString());
+    }
+
+    [TestMethod]
+    public async Task GetChannelPassword_HandlerReturnsEmptyPasswordWhenNoneSaved()
+    {
+        var appConfig = new TestAppConfigService(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()));
+        var bridge = NativeBridgeTestHarness.Create();
+        var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge, appConfigService: appConfig);
+        adapter.RegisterHandlers(bridge);
+        adapter.SetActiveServerForTests("example.test", 64738);
+        SetConnectedConnection(adapter);
+
+        await NativeBridgeTestHarness.InvokeAsync(bridge, "voice.getChannelPassword", JsonSerializer.SerializeToElement(new
+        {
+            channelId = 5,
+            requestId = "req-1"
+        }));
+
+        var sent = NativeBridgeTestHarness.DrainMessages(bridge);
+        var response = sent.Single(m => m.Type == "voice.channelPassword");
+        using var doc = JsonDocument.Parse(response.DataJson);
+        Assert.AreEqual("", doc.RootElement.GetProperty("password").GetString());
+    }
+
+    [TestMethod]
+    public async Task GetChannelPassword_HandlerIgnoresMalformedChannelId()
+    {
+        var appConfig = new TestAppConfigService(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()));
+        var bridge = NativeBridgeTestHarness.Create();
+        var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge, appConfigService: appConfig);
+        adapter.RegisterHandlers(bridge);
+        adapter.SetActiveServerForTests("example.test", 64738);
+        SetConnectedConnection(adapter);
+
+        await NativeBridgeTestHarness.InvokeAsync(bridge, "voice.getChannelPassword", JsonSerializer.SerializeToElement(new
+        {
+            channelId = "not-a-number",
+            requestId = "req-1"
+        }));
+
+        var sent = NativeBridgeTestHarness.DrainMessages(bridge);
+        Assert.IsFalse(sent.Any(m => m.Type == "voice.channelPassword"));
+    }
+
     private static MumbleAdapter CreateAdapterWithBridge(out NativeBridge bridge)
     {
         bridge = NativeBridgeTestHarness.Create();

@@ -529,6 +529,12 @@ describe('active share discovery', () => {
     clearIdleActionsArgs();
     clearLocalShareEndedHandler();
     vi.mocked(notifQueue.isVisible).mockReturnValue(false);
+    vi.mocked(bridge.once).mockImplementation((type: string, handler: BridgeHandler) => {
+      if (type === 'voice.channelPassword') {
+        handler({ requestId: 'channel-password-2', channelId: 2, password: '' });
+      }
+      return undefined;
+    });
   });
 
   it('renders a pre-idle warning notification when idle pre-leave starts', async () => {
@@ -2187,6 +2193,43 @@ describe('active share discovery', () => {
     expect(getJoinChannelCalls()).toEqual([
       ['voice.joinChannel', { channelId: 2, password: 'secret-token' }],
     ]);
+  });
+
+  it('prefills the known channel password prompt with the latest saved password', async () => {
+    const { prompt } = await import('./hooks/usePrompt');
+    vi.mocked(prompt).mockResolvedValueOnce('updated-secret');
+    vi.mocked(bridge.once).mockImplementation((type: string, handler: BridgeHandler) => {
+      if (type === 'voice.channelPassword') {
+        handler({ requestId: 'channel-password-2', channelId: 2, password: 'saved-secret' });
+      }
+      return undefined;
+    });
+
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming', hasPasswordRestriction: true },
+        ],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    await act(async () => {
+      view.getByTestId('sidebar-join-channel-2').click();
+      await Promise.resolve();
+    });
+
+    expect(bridge.send).toHaveBeenCalledWith('voice.getChannelPassword', { channelId: 2, requestId: 'channel-password-2' });
+    expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Channel Password',
+      defaultValue: 'saved-secret',
+    }));
+    expect(bridge.send).toHaveBeenCalledWith('voice.joinChannel', { channelId: 2, password: 'updated-secret' });
   });
 
   it('prompts for a channel password when a password-denial reason reveals an uncached password ACL', async () => {

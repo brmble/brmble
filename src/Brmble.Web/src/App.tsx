@@ -61,6 +61,7 @@ import {
 import { migrateLocalStorage } from './utils/migrateLocalStorage';
 import { mapBrmbleServiceStatus } from './utils/brmbleServiceStatus';
 import { areMatrixCredentialsEqual } from './utils/matrixCredentials';
+import { getSavedChannelPassword } from './utils/channelPasswords';
 import './App.css';
 
 export interface ScreenShareEndedNotification {
@@ -1764,10 +1765,12 @@ function App() {
           };
 
           void (async () => {
+            const savedPassword = await getSavedChannelPassword(pendingJoinAttempt.channelId);
             const password = await prompt({
               title: 'Channel Password',
               message: `Enter the password for ${pendingJoinAttempt.channelName}.`,
               placeholder: 'Password',
+              defaultValue: savedPassword,
               confirmLabel: 'Join',
               cancelLabel: 'Cancel',
               isPassword: true,
@@ -2796,10 +2799,12 @@ const handleConnect = (serverData: SavedServer) => {
     }
 
     if (joinAction === 'promptPassword') {
+      const savedPassword = await getSavedChannelPassword(channelId);
       const enteredPassword = await prompt({
         title: 'Channel Password',
         message: `Enter the password for ${channel.name}.`,
         placeholder: 'Password',
+        defaultValue: savedPassword,
         confirmLabel: 'Join',
         cancelLabel: 'Cancel',
         isPassword: true,

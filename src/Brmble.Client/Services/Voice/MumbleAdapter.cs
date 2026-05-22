@@ -2718,6 +2718,33 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             return Task.CompletedTask;
         });
 
+        bridge.RegisterHandler("voice.getChannelPassword", data =>
+        {
+            if (_appConfigService == null || string.IsNullOrWhiteSpace(_reconnectHost))
+            {
+                return Task.CompletedTask;
+            }
+
+            if (!data.TryGetProperty("channelId", out var id) ||
+                id.ValueKind != System.Text.Json.JsonValueKind.Number ||
+                !id.TryGetUInt32(out var channelId))
+            {
+                return Task.CompletedTask;
+            }
+
+            var requestId = data.TryGetProperty("requestId", out var requestIdEl) && requestIdEl.ValueKind == System.Text.Json.JsonValueKind.String
+                ? requestIdEl.GetString()
+                : null;
+            var serverKey = BuildServerKey(_reconnectHost, _reconnectPort);
+            var password = _appConfigService.GetChannelPasswords(serverKey)
+                .FirstOrDefault(p => p.ChannelId == channelId)
+                ?.Password ?? "";
+
+            _bridge?.Send("voice.channelPassword", new { requestId, channelId, password });
+            _bridge?.NotifyUiThread();
+            return Task.CompletedTask;
+        });
+
         bridge.RegisterHandler("voice.toggleMute", _ => { ToggleMute(); return Task.CompletedTask; });
         bridge.RegisterHandler("voice.toggleDeaf", _ => { ToggleDeaf(); return Task.CompletedTask; });
         bridge.RegisterHandler("voice.leaveVoice", _ => { LeaveVoice(); return Task.CompletedTask; });

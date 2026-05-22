@@ -14,6 +14,7 @@ import type { ShareInfo } from '../../hooks/useScreenShare';
 import { EditChannelDialog } from '../EditChannelDialog/EditChannelDialog';
 import { Icon } from '../Icon/Icon';
 import { AclEditorDialog } from '../AclEditor/AclEditorDialog';
+import { getSavedChannelPassword } from '../../utils/channelPasswords';
 import './ChannelTree.css';
 
 interface User {
@@ -481,10 +482,12 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
         type: 'item' as const,
         label: 'Edit Saved Password',
         onClick: async () => {
+          const savedPassword = await getSavedChannelPassword(channelContextMenu.channelId);
           const password = await prompt({
             title: 'Saved Channel Password',
             message: `Enter the password for ${channelContextMenu.channelName}. Leave blank to forget the saved password.`,
             placeholder: 'Password',
+            defaultValue: savedPassword,
             confirmLabel: 'Save',
             cancelLabel: 'Cancel',
             isPassword: true,
