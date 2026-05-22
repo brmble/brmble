@@ -3,6 +3,15 @@
   background: transparent;
 }
 
+.message-edit-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  color: var(--text-secondary);
+}
+
 .message-input-wrapper {
   position: relative;
   display: flex;

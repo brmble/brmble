@@ -28,9 +28,16 @@ interface MessageInputProps {
   typingTargetId?: string;
   onTypingStart?: (targetId: string) => void | Promise<void>;
   onTypingStop?: (targetId: string) => void | Promise<void>;
+  editState?: {
+    eventId: string;
+    originalContent: string;
+    currentContent: string;
+  } | null;
+  onClearEdit?: () => void;
+  onSaveEdit?: (eventId: string, body: string) => Promise<boolean>;
 }
 
-export function MessageInput({ onSend, placeholder = 'Type a message...', mentionableUsers = [], disabled, replyState, onClearReply, matrixClient, matrixRoomId, typingTargetId, onTypingStart, onTypingStop }: MessageInputProps) {
+export function MessageInput({ onSend, placeholder = 'Type a message...', mentionableUsers = [], disabled, replyState, onClearReply, matrixClient, matrixRoomId, typingTargetId, onTypingStart, onTypingStop, editState, onClearEdit, onSaveEdit }: MessageInputProps) {
   const [message, setMessage] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -66,6 +73,14 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
   useEffect(() => {
     textareaRef.current?.focus();
   }, [placeholder]);
+
+  useEffect(() => {
+    if (!editState) return;
+    // Only seed the composer when entering edit mode for a specific message.
+    // This prevents parent re-renders from overwriting in-progress typing.
+    setMessage(editState.originalContent || editState.currentContent);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, [editState?.eventId]);
 
   const stopTypingIfNeeded = useCallback(() => {
     const targetToStop = lastStartedTypingTargetRef.current;
@@ -296,6 +311,19 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
 
   const handleSend = async () => {
     if (message.trim() || pendingImage) {
+      const trimmed = message.trim();
+      if (editState && onSaveEdit) {
+        if (!trimmed || trimmed === editState.currentContent.trim()) {
+          return;
+        }
+
+        const saved = await onSaveEdit(editState.eventId, trimmed);
+        if (saved) {
+          setMessage('');
+          onClearEdit?.();
+        }
+        return;
+      }
       // If there's a replyState, we need to send a Matrix reply
       if (replyState && matrixClient && matrixRoomId) {
         const { buildReplyContent } = await import('../../utils/replyHelpers');
@@ -305,12 +333,12 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
           replyState.sender,
           replyState.senderMatrixUserId,
           replyState.content,
-          message.trim()
+          trimmed
         );
         await matrixClient.sendMessage(matrixRoomId, content);
         if (onClearReply) onClearReply();
       } else {
-        onSend(message.trim(), pendingImage ?? undefined);
+        onSend(trimmed, pendingImage ?? undefined);
       }
       stopTypingIfNeeded();
       setMessage('');
@@ -358,6 +386,12 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
       return;
     }
 
+    if (e.key === 'Escape' && editState) {
+      e.preventDefault();
+      onClearEdit?.();
+      return;
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend().catch(error => console.error('Failed to send message:', error));
@@ -396,9 +430,21 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
   const activeDescendant = mentionActive && filteredUsers.length > 0
     ? `${listboxId}-option-${Math.min(mentionActiveIndex, filteredUsers.length - 1)}`
     : undefined;
+  const trimmedMessage = message.trim();
+  const canSubmit = editState
+    ? trimmedMessage.length > 0 && trimmedMessage !== editState.currentContent.trim()
+    : trimmedMessage.length > 0 || Boolean(pendingImage);
 
   return (
     <div className="message-input-container">
+      {editState && onClearEdit && (
+        <div className="message-edit-header">
+          <span>Editing message</span>
+          <button type="button" onClick={onClearEdit} aria-label="Cancel edit">
+            Cancel
+          </button>
+        </div>
+      )}
       {replyState && onClearReply && (
         <ReplyHeader 
           replyState={replyState} 
@@ -492,7 +538,7 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
           <button
             className="btn btn-primary btn-icon send-button"
             onClick={() => handleSend().catch(error => console.error('Failed to send message:', error))}
-            disabled={disabled || (!message.trim() && !pendingImage)}
+            disabled={disabled || !canSubmit}
             aria-label="Send message"
           >
             <Icon name="send" size={20} />

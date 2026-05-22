@@ -15,6 +15,7 @@ import { Tooltip } from '../Tooltip/Tooltip';
 import { Icon } from '../Icon/Icon';
 import Avatar from '../Avatar/Avatar';
 import { SUPPORTED_REACTIONS } from '../../utils/chatReactions';
+import { buildMessageEditContent, canEditMessage } from '../../utils/matrixMessageEditing';
 import './ChatPanel.css';
 
 interface ChatPanelProps {
@@ -181,11 +182,31 @@ const [replyState, setReplyState] = useState<{
   html?: string;
   msgType: string;
 } | null>(null);
+  const [editState, setEditState] = useState<{
+    eventId: string;
+    originalContent: string;
+  } | null>(null);
   const [splitPercent, setSplitPercent] = useState(() => {
     const stored = localStorage.getItem(SPLIT_STORAGE_KEY);
     return stored ? Number(stored) : DEFAULT_SPLIT;
   });
   const isDraggingRef = useRef(false);
+
+  const editingMessage = useMemo(() => {
+    if (!editState) return null;
+    return lookupMessageById(editState.eventId) ?? null;
+  }, [editState, lookupMessageById]);
+
+  const handleSaveEdit = useCallback(async (eventId: string, body: string): Promise<boolean> => {
+    if (!matrixClient || !matrixRoomId) return false;
+
+    try {
+      await matrixClient.sendMessage(matrixRoomId, buildMessageEditContent(eventId, body) as never);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [matrixClient, matrixRoomId]);
 
   const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -469,6 +490,16 @@ const [replyState, setReplyState] = useState<{
     clearReplyHighlightTimeout();
     setHighlightedMessageId(null);
   }, [channelId, clearReplyHighlightTimeout]);
+
+  useEffect(() => {
+    setEditState(null);
+  }, [channelId]);
+
+  useEffect(() => {
+    if (editState && !editingMessage) {
+      setEditState(null);
+    }
+  }, [editState, editingMessage]);
 
   useEffect(() => {
     const container = messagesContainerRef.current;
@@ -961,6 +992,7 @@ const [replyState, setReplyState] = useState<{
                     redacted={item.message.redacted}
                     currentUserMatrixId={currentUserMatrixId}
                     onToggleReaction={(messageId, emoji, isReacted) => onToggleReaction?.(channelId || '', messageId, emoji, isReacted)}
+                    edited={item.message.edited}
                   />
                 </Fragment>
                 );
@@ -1003,6 +1035,24 @@ const [replyState, setReplyState] = useState<{
                   setContextMenu(null);
                 }
               });
+              const contextMessage = contextMenu.messageId ? lookupMessageById(contextMenu.messageId) : undefined;
+              const canEditContextMessage = contextMessage
+                ? Boolean(matrixClient && matrixRoomId) && canEditMessage(contextMessage, currentUserMatrixId)
+                : false;
+              if (canEditContextMessage && contextMessage) {
+                items.push({
+                  type: 'item',
+                  label: 'Edit message',
+                  onClick: () => {
+                    setReplyState(null); // Clear reply state to prevent conflict
+                    setEditState({
+                      eventId: contextMessage.id,
+                      originalContent: contextMessage.content,
+                    });
+                    setContextMenu(null);
+                  },
+                });
+              }
               items.push({
                 type: 'item',
                 label: 'Reply',
@@ -1059,7 +1109,26 @@ const [replyState, setReplyState] = useState<{
             {typingIndicatorText}
           </div>
         )}
-        <MessageInput onSend={onSendMessage} typingTargetId={typingTargetId} onTypingStart={onTypingStart} onTypingStop={onTypingStop} placeholder={isDM ? `Message @${channelName}` : `Message #${channelName}`} mentionableUsers={mentionableUsers} disabled={disabled} replyState={replyState} onClearReply={() => setReplyState(null)} matrixClient={matrixClient} matrixRoomId={matrixRoomId} />
+        <MessageInput
+          onSend={onSendMessage}
+          typingTargetId={typingTargetId}
+          onTypingStart={onTypingStart}
+          onTypingStop={onTypingStop}
+          placeholder={isDM ? `Message @${channelName}` : `Message #${channelName}`}
+          mentionableUsers={mentionableUsers}
+          disabled={disabled}
+          replyState={replyState}
+          onClearReply={() => setReplyState(null)}
+          matrixClient={matrixClient}
+          matrixRoomId={matrixRoomId}
+          editState={editingMessage ? {
+            eventId: editingMessage.id,
+            originalContent: editState?.originalContent ?? editingMessage.content,
+            currentContent: editingMessage.content,
+          } : null}
+          onClearEdit={() => setEditState(null)}
+          onSaveEdit={handleSaveEdit}
+        />
       </div>
     </div>
   );

@@ -42,6 +42,7 @@ interface MessageBubbleProps {
   redacted?: boolean;
   currentUserMatrixId?: string;
   onToggleReaction?: (messageId: string, emoji: string, isReacted: boolean) => void;
+  edited?: boolean;
 }
 
 /** Highlight search matches within a plain-text string, returning React nodes. */
@@ -145,7 +146,7 @@ function processMessageContent(
   return mentionified;
 }
 
-export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & React.HTMLAttributes<HTMLDivElement>>(function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId, currentUsername, knownUsernames, messageId, pending, error, replyToEventId, replyToSender, replyToContent, isReplyTargetHighlighted, onReplyClick, onDismiss, onOpenContextMenu, className, reactions, redacted, currentUserMatrixId, onToggleReaction, ...rest }, ref) {
+export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & React.HTMLAttributes<HTMLDivElement>>(function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId, currentUsername, knownUsernames, messageId, pending, error, replyToEventId, replyToSender, replyToContent, isReplyTargetHighlighted, onReplyClick, onDismiss, onOpenContextMenu, className, reactions, redacted, currentUserMatrixId, onToggleReaction, edited, ...rest }, ref) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const formatTime = (date: Date) => {
@@ -222,7 +223,10 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
         {!collapsed && (
           <div className="message-header">
             <span className="message-sender">{sender}</span>
-            <span className="message-time">{formatTime(timestamp)}</span>
+            <span className="message-time">
+              {formatTime(timestamp)}
+              {edited ? ' (edited)' : ''}
+            </span>
           </div>
         )}
         {hasReplyPreview && (

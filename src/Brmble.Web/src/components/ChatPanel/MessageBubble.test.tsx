@@ -27,6 +27,11 @@ describe('MessageBubble', () => {
     expect(screen.getByText('Message deleted')).toHaveClass('message-text--deleted');
   });
 
+  it('renders an edited indicator next to edited messages', () => {
+    renderBubble({ edited: true, timestamp: new Date('2026-05-22T10:15:00') });
+    expect(screen.getByText(/\(edited\)$/)).toBeInTheDocument();
+  });
+
   it('renders reaction badges and handles toggles', async () => {
     const onToggleReaction = vi.fn();
     const reactions = { '👍': ['user1', 'user2'], '😂': ['user1'] };
