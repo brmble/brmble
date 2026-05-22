@@ -474,6 +474,36 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
         },
       },
     ];
+    const channel = channels.find(c => c.id === channelContextMenu.channelId);
+
+    if (channel?.hasPasswordRestriction) {
+      items.push({
+        type: 'item' as const,
+        label: 'Edit Saved Password',
+        onClick: async () => {
+          const password = await prompt({
+            title: 'Saved Channel Password',
+            message: `Enter the password for ${channelContextMenu.channelName}. Leave blank to forget the saved password.`,
+            placeholder: 'Password',
+            confirmLabel: 'Save',
+            cancelLabel: 'Cancel',
+            isPassword: true,
+          });
+
+          if (password === null) {
+            setChannelContextMenu(null);
+            return;
+          }
+
+          bridge.send('voice.saveChannelPassword', {
+            channelId: channelContextMenu.channelId,
+            channelName: channelContextMenu.channelName,
+            password,
+          });
+          setChannelContextMenu(null);
+        },
+      });
+    }
 
     const hasEditPermission = hasPermission(channelContextMenu.channelId, Permission.MakeChannel);
     const hasRemovePermission = hasPermission(channelContextMenu.channelId, Permission.Write);
@@ -488,7 +518,6 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
         type: 'item' as const,
         label: 'Edit',
         onClick: () => {
-          const channel = channels.find(c => c.id === channelContextMenu.channelId);
           setEditChannelDialog({
             id: channelContextMenu.channelId,
             name: channelContextMenu.channelName,

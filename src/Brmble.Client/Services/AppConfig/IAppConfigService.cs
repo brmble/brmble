@@ -4,6 +4,7 @@ namespace Brmble.Client.Services.AppConfig;
 
 public record ProfileEntry(string Id, string Name);
 public record RegistrationInfo(bool Registered, string? RegisteredName);
+public record SavedChannelPassword(string ServerKey, uint ChannelId, string ChannelName, string Password);
 
 public interface IAppConfigService
 {
@@ -13,6 +14,10 @@ public interface IAppConfigService
     ServerEntry? UpdateServer(ServerEntry server);
     void RemoveServer(string id);
     AppSettings GetSettings();
+    IReadOnlyList<SavedChannelPassword> GetChannelPasswords(string serverKey);
+    IReadOnlyList<string> GetChannelAccessTokens(string serverKey);
+    void SaveChannelPassword(string serverKey, uint channelId, string channelName, string password);
+    void RemoveChannelPassword(string serverKey, uint channelId);
     void SetSettings(AppSettings settings);
     WindowState? GetWindowState();
     void SaveWindowState(WindowState state);

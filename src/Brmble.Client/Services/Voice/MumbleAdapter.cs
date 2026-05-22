@@ -253,6 +253,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     public void Initialize(NativeBridge bridge) { }
 
+    private static string BuildServerKey(string host, int port) => $"{host.Trim().ToLowerInvariant()}:{port}";
+
+    internal void SetActiveServerForTests(string host, int port)
+    {
+        _reconnectHost = host;
+        _reconnectPort = port;
+    }
+
     public void Connect(string host, int port, string username, string password = "", string? apiUrl = null)
     {
         // Clear reconnect flag on every fresh Connect() call.  ReconnectLoop
@@ -318,7 +326,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _bridge?.NotifyUiThread();
 
             var connection = new MumbleConnection(host, port, this, voiceSupport: true);
-            connection.Connect(username, password, Array.Empty<string>(), "Brmble");
+            var serverKey = BuildServerKey(host, port);
+            var accessTokens = _appConfigService?.GetChannelAccessTokens(serverKey).ToArray() ?? Array.Empty<string>();
+            connection.Connect(username, password, accessTokens, "Brmble");
 
             _cts = new CancellationTokenSource();
             _processThread = new Thread(() => ProcessLoop(_cts.Token))
@@ -1099,6 +1109,22 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         return doc.RootElement.Clone();
     }
 
+    private void ApplyPasswordProtectedChannelIdsFromCredentials(System.Text.Json.JsonElement credentials)
+    {
+        if (!credentials.TryGetProperty("passwordProtectedChannelIds", out var ids) || ids.ValueKind != System.Text.Json.JsonValueKind.Array)
+        {
+            return;
+        }
+
+        foreach (var id in ids.EnumerateArray())
+        {
+            if (id.ValueKind == System.Text.Json.JsonValueKind.Number && id.TryGetUInt32(out var channelId))
+            {
+                _channelPasswordRestrictions[channelId] = true;
+            }
+        }
+    }
+
     /// <summary>
     /// Fetches credentials via BouncyCastle managed TLS, bypassing Windows SChannel
     /// which silently refuses to present self-signed client certificates.
@@ -1832,6 +1858,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 foreach (var (sid, entry) in ParseSessionMappings(sessionMappingsElement))
                     _sessionMappings[sid] = entry;
             }
+
+            ApplyPasswordProtectedChannelIdsFromCredentials(credentials.Value);
 
             // The server returns its internal homeserverUrl (e.g. http://localhost:6167).
             // Clients reach Matrix via the YARP proxy on the same Brmble API URL,
@@ -2635,6 +2663,58 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 var password = data.TryGetProperty("password", out var pw) ? pw.GetString() : null;
                 JoinChannel(id.GetUInt32(), password);
             }
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.saveChannelPassword", data =>
+        {
+            if (_appConfigService == null ||
+                string.IsNullOrWhiteSpace(_reconnectHost) ||
+                Connection is not { State: ConnectionStates.Connected })
+            {
+                return Task.CompletedTask;
+            }
+
+            if (!data.TryGetProperty("channelId", out var id) ||
+                id.ValueKind != System.Text.Json.JsonValueKind.Number ||
+                !id.TryGetUInt32(out var channelId) ||
+                !data.TryGetProperty("channelName", out var nameEl) ||
+                nameEl.ValueKind != System.Text.Json.JsonValueKind.String)
+            {
+                return Task.CompletedTask;
+            }
+
+            var channelName = nameEl.GetString() ?? "Channel";
+            var password = "";
+            if (data.TryGetProperty("password", out var pw))
+            {
+                if (pw.ValueKind != System.Text.Json.JsonValueKind.String)
+                {
+                    return Task.CompletedTask;
+                }
+
+                password = pw.GetString() ?? "";
+            }
+            var serverKey = BuildServerKey(_reconnectHost, _reconnectPort);
+
+            try
+            {
+                if (string.IsNullOrWhiteSpace(password))
+                {
+                    _appConfigService.RemoveChannelPassword(serverKey, channelId);
+                }
+                else
+                {
+                    _appConfigService.SaveChannelPassword(serverKey, channelId, channelName, password.Trim());
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Mumble] Failed to save channel password for channel {channelId}: {ex.GetType().Name}");
+                _bridge?.Send("voice.channelPasswordSaveError", new { message = "Unable to save channel password" });
+                _bridge?.NotifyUiThread();
+            }
+
             return Task.CompletedTask;
         });
 

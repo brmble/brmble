@@ -28,6 +28,7 @@ internal sealed class AppConfigService : IAppConfigService
     private List<ProfileEntry> _profiles = new();
     private string? _activeProfileId;
     private Dictionary<string, Dictionary<string, RegistrationInfo>> _profileRegistrations = new();
+    private List<SavedChannelPassword> _channelPasswords = new();
     private readonly string _certsDir;
     private readonly object _lock = new();
     private readonly ISecurePasswordStorage _passwordStorage;
@@ -264,6 +265,57 @@ internal sealed class AppConfigService : IAppConfigService
         lock (_lock) return _settings;
     }
 
+    public IReadOnlyList<SavedChannelPassword> GetChannelPasswords(string serverKey)
+    {
+        lock (_lock)
+        {
+            return _channelPasswords
+                .Where(p => string.Equals(p.ServerKey, serverKey, StringComparison.Ordinal))
+                .ToList();
+        }
+    }
+
+    public IReadOnlyList<string> GetChannelAccessTokens(string serverKey)
+    {
+        lock (_lock)
+        {
+            return _channelPasswords
+                .Where(p => string.Equals(p.ServerKey, serverKey, StringComparison.Ordinal))
+                .Select(p => p.Password.Trim())
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+        }
+    }
+
+    public void SaveChannelPassword(string serverKey, uint channelId, string channelName, string password)
+    {
+        lock (_lock)
+        {
+            var previous = _channelPasswords.ToList();
+            try
+            {
+                _channelPasswords.RemoveAll(p => string.Equals(p.ServerKey, serverKey, StringComparison.Ordinal) && p.ChannelId == channelId);
+                _channelPasswords.Add(new SavedChannelPassword(serverKey, channelId, channelName, password));
+                Save();
+            }
+            catch
+            {
+                _channelPasswords = previous;
+                throw;
+            }
+        }
+    }
+
+    public void RemoveChannelPassword(string serverKey, uint channelId)
+    {
+        lock (_lock)
+        {
+            _channelPasswords.RemoveAll(p => string.Equals(p.ServerKey, serverKey, StringComparison.Ordinal) && p.ChannelId == channelId);
+            Save();
+        }
+    }
+
     public void SetSettings(AppSettings settings)
     {
         AppSettings capturedSettings;
@@ -394,6 +446,9 @@ internal sealed class AppConfigService : IAppConfigService
                 _profiles = data?.Profiles ?? new List<ProfileEntry>();
                 _activeProfileId = data?.ActiveProfileId;
                 _profileRegistrations = data?.ProfileRegistrations ?? new();
+                _channelPasswords = (data?.ChannelPasswords ?? new List<SavedChannelPassword>())
+                    .Select(p => p with { Password = TryDecryptPassword(p.Password, _passwordStorage) })
+                    .ToList();
                 _isFirstLaunch = false;
                 MigrateIdentityPfx();
                 if (HasLegacySettingsKeys(json))
@@ -432,6 +487,7 @@ internal sealed class AppConfigService : IAppConfigService
             _profiles = new List<ProfileEntry>();
             _activeProfileId = null;
             _profileRegistrations = new();
+            _channelPasswords = new();
             _isFirstLaunch = true;
         }
 
@@ -448,11 +504,18 @@ internal sealed class AppConfigService : IAppConfigService
                 : TryEncryptPassword(s.Password)
         }).ToList();
 
+        var encryptedChannelPasswords = _channelPasswords.Select(p => p with
+        {
+            Password = string.IsNullOrEmpty(p.Password) || _passwordStorage.IsEncrypted(p.Password)
+                ? p.Password
+                : _passwordStorage.Encrypt(p.Password)
+        }).ToList();
+
         var data = new ConfigData {
             Servers = encryptedServers, Settings = _settings, Window = _windowState,
             ClosePreference = _closePreference, LastConnectedServerId = _lastConnectedServerId,
             ZoomFactor = _zoomFactor, Profiles = _profiles, ActiveProfileId = _activeProfileId,
-            ProfileRegistrations = _profileRegistrations
+            ProfileRegistrations = _profileRegistrations, ChannelPasswords = encryptedChannelPasswords
         };
         File.WriteAllText(_configPath, JsonSerializer.Serialize(data, _jsonOptions));
     }
@@ -522,6 +585,7 @@ internal sealed class AppConfigService : IAppConfigService
         public List<ProfileEntry> Profiles { get; init; } = [];
         public string? ActiveProfileId { get; init; } = null;
         public Dictionary<string, Dictionary<string, RegistrationInfo>> ProfileRegistrations { get; init; } = new();
+        public List<SavedChannelPassword> ChannelPasswords { get; init; } = [];
     }
 
     private void MigrateIdentityPfx()

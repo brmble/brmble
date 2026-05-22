@@ -12,8 +12,10 @@ using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.Certificate;
 using Brmble.Client.Services.Serverlist;
 using Brmble.Client.Services.Voice;
+using MumbleSharp.Packets;
 using MumbleSharp.Model;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using ProtoBuf;
 
 namespace Brmble.Client.Tests.Services;
 
@@ -94,6 +96,7 @@ internal static class MumbleAdapterTestHarness
 internal sealed class TestAppConfigService : IAppConfigService
 {
     private readonly string _certsDir;
+    private readonly List<SavedChannelPassword> _channelPasswords = new();
 
     public TestAppConfigService(string certsDir) => _certsDir = certsDir;
 
@@ -105,6 +108,22 @@ internal sealed class TestAppConfigService : IAppConfigService
     public AppSettings CurrentSettings { get; private set; } = AppSettings.Default;
     public AppSettings? LastSetSettings { get; private set; }
     public AppSettings GetSettings() => CurrentSettings;
+    public IReadOnlyList<SavedChannelPassword> GetChannelPasswords(string serverKey)
+        => _channelPasswords.Where(p => p.ServerKey == serverKey).ToList();
+    public IReadOnlyList<string> GetChannelAccessTokens(string serverKey)
+        => _channelPasswords
+            .Where(p => p.ServerKey == serverKey)
+            .Select(p => p.Password.Trim())
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+    public void SaveChannelPassword(string serverKey, uint channelId, string channelName, string password)
+    {
+        _channelPasswords.RemoveAll(p => p.ServerKey == serverKey && p.ChannelId == channelId);
+        _channelPasswords.Add(new SavedChannelPassword(serverKey, channelId, channelName, password));
+    }
+    public void RemoveChannelPassword(string serverKey, uint channelId)
+        => _channelPasswords.RemoveAll(p => p.ServerKey == serverKey && p.ChannelId == channelId);
     public void SetSettings(AppSettings settings)
     {
         CurrentSettings = settings;
@@ -126,6 +145,76 @@ internal sealed class TestAppConfigService : IAppConfigService
     public void SetActiveProfileId(string? id) { }
     public string GetCertsDir() => _certsDir;
     public void SwapProfileRegistrations(string? oldProfileId, string? newProfileId) { }
+}
+
+internal sealed class MumbleProtocolTestHarness : IAsyncDisposable
+{
+    private readonly TcpListener _listener;
+    private readonly X509Certificate2 _serverCertificate;
+    private readonly Task<TcpClient> _acceptTask;
+    private SslStream? _ssl;
+    private TcpClient? _client;
+
+    private MumbleProtocolTestHarness()
+    {
+        _serverCertificate = TestTlsHttpServer.CreateCertificate("CN=localhost");
+        _listener = new TcpListener(IPAddress.Loopback, 0);
+        _listener.Start();
+        Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
+        _acceptTask = _listener.AcceptTcpClientAsync();
+    }
+
+    public int Port { get; }
+
+    public static Task<MumbleProtocolTestHarness> StartAsync()
+        => Task.FromResult(new MumbleProtocolTestHarness());
+
+    public async Task<MumbleProto.Authenticate> ReadAuthenticateAsync()
+    {
+        _client = await _acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        _ssl = new SslStream(_client.GetStream(), false);
+        await _ssl.AuthenticateAsServerAsync(_serverCertificate, clientCertificateRequired: false, enabledSslProtocols: System.Security.Authentication.SslProtocols.Tls12, checkCertificateRevocation: false);
+
+        _ = await ReadPacketAsync<MumbleProto.Version>();
+        var (type, authenticate) = await ReadPacketAsync<MumbleProto.Authenticate>();
+        Assert.AreEqual(PacketType.Authenticate, type);
+        return authenticate;
+    }
+
+    private async Task<(PacketType Type, T Payload)> ReadPacketAsync<T>()
+    {
+        var typeBytes = await ReadExactlyAsync(2);
+        var type = (PacketType)IPAddress.NetworkToHostOrder(BitConverter.ToInt16(typeBytes));
+        var lengthBytes = await ReadExactlyAsync(4);
+        var length = IPAddress.NetworkToHostOrder(BitConverter.ToInt32(lengthBytes));
+        var payloadBytes = await ReadExactlyAsync(length);
+        using var payload = new MemoryStream(payloadBytes);
+        return (type, Serializer.Deserialize<T>(payload));
+    }
+
+    private async Task<byte[]> ReadExactlyAsync(int length)
+    {
+        var buffer = new byte[length];
+        var offset = 0;
+        while (offset < length)
+        {
+            var read = await _ssl!.ReadAsync(buffer.AsMemory(offset, length - offset)).AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+            if (read == 0)
+                throw new EndOfStreamException();
+            offset += read;
+        }
+
+        return buffer;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _listener.Stop();
+        _ssl?.Dispose();
+        _client?.Dispose();
+        try { await _acceptTask; } catch { }
+        _serverCertificate.Dispose();
+    }
 }
 
 internal sealed class TestTlsHttpServer : IAsyncDisposable
@@ -235,6 +324,23 @@ public class MumbleAdapterParseTests
 
         Assert.IsTrue(sent.Any(x => x.Type == "livekit.activeShareError"));
         Assert.IsFalse(sent.Any(x => x.Type == "livekit.activeShareResult" && x.DataJson.Contains("\"shares\"")));
+    }
+
+    [TestMethod]
+    public async Task Connect_SendsSavedChannelPasswordsAsAuthenticateTokens()
+    {
+        await using var harness = await MumbleProtocolTestHarness.StartAsync();
+        var appConfig = new TestAppConfigService(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()));
+        appConfig.SaveChannelPassword("127.0.0.1:" + harness.Port, 5, "Secret", "secret-token");
+        appConfig.SaveChannelPassword("127.0.0.1:" + harness.Port, 6, "Other", "secret-token");
+        var adapter = new MumbleAdapter(NativeBridgeTestHarness.Create(), IntPtr.Zero, appConfigService: appConfig);
+
+        var authenticateTask = harness.ReadAuthenticateAsync();
+        adapter.Connect("127.0.0.1", harness.Port, "tester", "");
+        var authenticate = await authenticateTask;
+
+        Assert.AreEqual(1, authenticate.Tokens.Count);
+        Assert.AreEqual("secret-token", authenticate.Tokens.Single());
     }
 
     [TestMethod]
