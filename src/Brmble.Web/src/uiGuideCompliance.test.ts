@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 const sourceRoot = join(process.cwd(), 'src');
@@ -9,6 +9,8 @@ const excludedFiles = new Set([
   'uiGuideCompliance.test.ts',
   'components/Icon/Icon.tsx',
 ]);
+
+const scannedExtensions = /\.(css|tsx)$/;
 
 const colorAllowList = [
   'components/Icon/Icon.tsx',
@@ -28,7 +30,6 @@ const glyphAllowList = [
 const titleAttributeAllowList = [
   'App.tsx',
   'components/BrokenCertNotification/BrokenCertNotification.tsx',
-  'components/Toast/Toast.tsx',
   'components/UpdateNotification/UpdateNotification.tsx',
 ];
 
@@ -51,8 +52,20 @@ const inlineStyleAllowList = [
 const filesToScan = collectFiles(sourceRoot).filter((file) => {
   const rel = toPosix(relative(sourceRoot, file));
   if (excludedFiles.has(rel)) return false;
-  return /\.(css|tsx)$/.test(rel);
+  return scannedExtensions.test(rel);
 });
+
+const componentFilesToScan = filesToScan.filter((file) => {
+  const rel = toPosix(relative(sourceRoot, file));
+  return !rel.endsWith('.test.tsx');
+});
+
+const focusedCssTokenFiles = [
+  'components/ChatPanel/MessageBubble.css',
+  'components/VadLevelMeter/VadLevelMeter.css',
+  'components/Notification/Notification.css',
+  'components/Game/contracts/ContractSlot.css',
+].map((file) => join(sourceRoot, ...file.split('/')));
 
 function collectFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
@@ -70,10 +83,10 @@ function toPosix(path: string): string {
   return path.replace(/\\/g, '/');
 }
 
-function findViolations(pattern: RegExp, allowList: string[] = []): string[] {
+function findViolations(pattern: RegExp, allowList: string[] = [], files: string[] = componentFilesToScan): string[] {
   const violations: string[] = [];
 
-  for (const file of filesToScan) {
+  for (const file of files) {
     const rel = toPosix(relative(sourceRoot, file));
     if (allowList.includes(rel)) continue;
     const lines = readFileSync(file, 'utf8').split(/\r?\n/);
@@ -95,7 +108,7 @@ function findViolations(pattern: RegExp, allowList: string[] = []): string[] {
 function findInlineStyleViolations(): string[] {
   const violations: string[] = [];
 
-  for (const file of filesToScan) {
+  for (const file of componentFilesToScan) {
     const rel = toPosix(relative(sourceRoot, file));
     const lines = readFileSync(file, 'utf8').split(/\r?\n/);
 
@@ -118,6 +131,45 @@ function findInlineStyleViolations(): string[] {
   }
 
   return violations;
+}
+
+function findNativeSelectViolations(): string[] {
+  return findViolations(/<select\b/g);
+}
+
+function findToastArtifacts(): string[] {
+  const toastDir = join(sourceRoot, 'components', 'Toast');
+  const toastFiles = existsSync(toastDir)
+    ? collectFiles(toastDir).map((file) => toPosix(relative(sourceRoot, file)))
+    : [];
+
+  const toastReferences = findViolations(/\bToast\b|components\/Toast|components\\Toast/g);
+  return [...toastFiles, ...toastReferences];
+}
+
+function findSettingsPatternViolations(): string[] {
+  const violations: string[] = [];
+  const connectionSettings = readFileSync(join(sourceRoot, 'components', 'SettingsModal', 'ConnectionSettingsTab.tsx'), 'utf8');
+  const audioSettings = readFileSync(join(sourceRoot, 'components', 'SettingsModal', 'AudioSettingsTab.tsx'), 'utf8');
+
+  if (connectionSettings.includes('server-dropdown-row')) {
+    violations.push('components/SettingsModal/ConnectionSettingsTab.tsx: uses server-dropdown-row instead of settings-item');
+  }
+
+  if (!connectionSettings.includes('<SettingsHelp content={tooltipText}')) {
+    violations.push('components/SettingsModal/ConnectionSettingsTab.tsx: auto-connect help does not use SettingsHelp');
+  }
+
+  if (!audioSettings.includes('<div className="settings-item">\n          <span className="settings-label">Capture API</span>')) {
+    violations.push('components/SettingsModal/AudioSettingsTab.tsx: capture API controls are not in a settings-item row');
+  }
+
+  return violations;
+}
+
+function findFocusedCssTokenViolations(): string[] {
+  const timingPattern = /(?:transition|animation):[^;]*(?:\d+(?:\.\d+)?m?s)\b|animation-duration:\s*\d+(?:\.\d+)?m?s\b|font-size:\s*(?:\d+(?:\.\d+)?px|\d+(?:\.\d+)?em)\b|margin-top:\s*\d+(?:\.\d+)?px\b|padding:\s*\d+(?:\.\d+)?px\b/g;
+  return findViolations(timingPattern, [], focusedCssTokenFiles);
 }
 
 function isStyleExpressionClosed(expression: string): boolean {
@@ -147,6 +199,22 @@ describe('UI guide compliance', () => {
   });
 
   test('tooltips use Tooltip instead of native title attributes', () => {
-    expect(findViolations(/title="[^"]+"|title=\{[^}]+\}/g, titleAttributeAllowList)).toEqual([]);
+    expect(findViolations(/<[^>]+\stitle=("[^"]+"|\{[^}]+\})/g, titleAttributeAllowList)).toEqual([]);
+  });
+
+  test('forms use shared Select instead of native select elements', () => {
+    expect(findNativeSelectViolations()).toEqual([]);
+  });
+
+  test('toast components are not present or referenced', () => {
+    expect(findToastArtifacts()).toEqual([]);
+  });
+
+  test('settings tabs use shared settings row and help patterns', () => {
+    expect(findSettingsPatternViolations()).toEqual([]);
+  });
+
+  test('focused component css uses tokens for static visual values', () => {
+    expect(findFocusedCssTokenViolations()).toEqual([]);
   });
 });

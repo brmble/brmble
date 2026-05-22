@@ -1275,7 +1275,8 @@ function App() {
     }
     setSharingChannelId(undefined);
     setScreenShareNotification(null);
-  }, []);
+    notifQueue.unregister('screen-share');
+  }, [notifQueue]);
 
   const {
     autoLeftAt,
@@ -1703,6 +1704,7 @@ function App() {
       disconnectViewerRef.current?.();
       setSharingChannelId(undefined);
       setScreenShareNotification(null);
+      notifQueue.unregister('screen-share');
       // Reset divider timestamps so stale snapshots from the previous session
       // don't persist across disconnect/reconnect cycles.
       setChannelDividerTs(null);
@@ -3669,6 +3671,7 @@ const handleConnect = (serverData: SavedServer) => {
 
     const onRemoteShareStopped = () => {
       setScreenShareNotification(null);
+      notifQueue.unregister('screen-share');
     };
 
     bridge.on('livekit.screenShareStarted', onRemoteShareStarted);
@@ -3703,8 +3706,9 @@ const handleConnect = (serverData: SavedServer) => {
   useEffect(() => {
     disconnectViewer();
     setScreenShareNotification(null);
+    notifQueue.unregister('screen-share');
     requestActiveShareDiscovery(currentChannelId);
-  }, [currentChannelId, disconnectViewer, requestActiveShareDiscovery]);
+  }, [currentChannelId, disconnectViewer, notifQueue, requestActiveShareDiscovery]);
 
   useEffect(() => {
     const previousConnectionStatus = previousConnectionStatusRef.current;

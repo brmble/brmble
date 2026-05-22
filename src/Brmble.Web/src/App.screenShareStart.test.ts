@@ -1162,6 +1162,87 @@ describe('active share discovery', () => {
     expect(screen.queryByText('Alice started sharing their screen')).not.toBeInTheDocument();
   });
 
+  it('unregisters remote screen share notification when the remote share stops', async () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id === 'screen-share');
+
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [
+          { session: 7, name: 'TestUser', self: true, channelId: 1 },
+          { session: 2, name: 'Alice', channelId: 1, matrixUserId: '@alice:example.com' },
+        ],
+      });
+    });
+
+    act(() => {
+      bridge.emit('livekit.screenShareStarted', {
+        roomName: 'channel-1',
+        userName: 'Alice',
+        userId: 42,
+        matrixUserId: '@alice:example.com',
+        sessionId: 2,
+      });
+    });
+
+    expect(screen.getByText('Alice started sharing their screen')).toBeInTheDocument();
+
+    vi.mocked(notifQueue.unregister).mockClear();
+
+    act(() => {
+      bridge.emit('livekit.screenShareStopped', {});
+    });
+
+    expect(notifQueue.unregister).toHaveBeenCalledWith('screen-share');
+    expect(screen.queryByText('Alice started sharing their screen')).not.toBeInTheDocument();
+  });
+
+  it('unregisters remote screen share notification when switching channels', async () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id === 'screen-share');
+
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming' },
+        ],
+        users: [
+          { session: 7, name: 'TestUser', self: true, channelId: 1 },
+          { session: 2, name: 'Alice', channelId: 1, matrixUserId: '@alice:example.com' },
+        ],
+      });
+    });
+
+    act(() => {
+      bridge.emit('livekit.screenShareStarted', {
+        roomName: 'channel-1',
+        userName: 'Alice',
+        userId: 42,
+        matrixUserId: '@alice:example.com',
+        sessionId: 2,
+      });
+    });
+
+    expect(screen.getByText('Alice started sharing their screen')).toBeInTheDocument();
+
+    vi.mocked(notifQueue.unregister).mockClear();
+
+    act(() => {
+      bridge.emit('voice.channelChanged', { channelId: 2, name: 'Gaming' });
+    });
+
+    expect(notifQueue.unregister).toHaveBeenCalledWith('screen-share');
+    expect(screen.queryByText('Alice started sharing their screen')).not.toBeInTheDocument();
+  });
+
   it('rechecks active share discovery after reconnect when the current channel is unchanged', async () => {
     render(React.createElement(App));
 

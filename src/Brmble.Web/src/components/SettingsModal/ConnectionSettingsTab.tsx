@@ -1,5 +1,5 @@
-import { Tooltip } from '../Tooltip/Tooltip';
 import { Select } from '../Select';
+import { SettingsHelp } from './SettingsHelp';
 import './ConnectionSettingsTab.css';
 
 interface ConnectionSettingsTabProps {
@@ -86,21 +86,20 @@ export function ConnectionSettingsTab({ settings, onChange, servers }: Connectio
           </label>
         </div>
 
-        <div className="server-dropdown-row">
-          <label>Connect to</label>
-          <Tooltip content={tooltipText}>
-            <div>
-              <Select
-                value={settings.autoConnectServerId ?? ''}
-                onChange={handleServerChange}
-                disabled={!settings.autoConnectEnabled}
-                options={[
-                  { value: '', label: 'Last connected server' },
-                  ...servers.map(s => ({ value: s.id, label: s.label })),
-                ]}
-              />
-            </div>
-          </Tooltip>
+        <div className="settings-item">
+          <div className="settings-label-group">
+            <span className="settings-label">Connect to</span>
+            <SettingsHelp content={tooltipText} label="More information about auto-connect target" />
+          </div>
+          <Select
+            value={settings.autoConnectServerId ?? ''}
+            onChange={handleServerChange}
+            disabled={!settings.autoConnectEnabled}
+            options={[
+              { value: '', label: 'Last connected server' },
+              ...servers.map(s => ({ value: s.id, label: s.label })),
+            ]}
+          />
         </div>
       </div>
 

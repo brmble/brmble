@@ -437,21 +437,24 @@ export function AudioSettingsTab({ settings, noiseSuppression, onChange, onNoise
           <span className="settings-dev-label">DEV</span>
           <h3 className="heading-section settings-section-title">Audio Capture API</h3>
         </div>
-        <div className="toggle-group">
-          <button
-            type="button"
-            className={`toggle-btn ${localSettings.captureApi === 'waveIn' ? 'active' : ''}`}
-            onClick={() => handleCaptureApiChange('waveIn')}
-          >
-            WaveIn (Legacy)
-          </button>
-          <button
-            type="button"
-            className={`toggle-btn ${localSettings.captureApi === 'wasapi' ? 'active' : ''}`}
-            onClick={() => handleCaptureApiChange('wasapi')}
-          >
-            WASAPI
-          </button>
+        <div className="settings-item">
+          <span className="settings-label">Capture API</span>
+          <div className="toggle-group">
+            <button
+              type="button"
+              className={`toggle-btn ${localSettings.captureApi === 'waveIn' ? 'active' : ''}`}
+              onClick={() => handleCaptureApiChange('waveIn')}
+            >
+              WaveIn (Legacy)
+            </button>
+            <button
+              type="button"
+              className={`toggle-btn ${localSettings.captureApi === 'wasapi' ? 'active' : ''}`}
+              onClick={() => handleCaptureApiChange('wasapi')}
+            >
+              WASAPI
+            </button>
+          </div>
         </div>
       </div>
 

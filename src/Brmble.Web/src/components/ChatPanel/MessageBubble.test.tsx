@@ -21,9 +21,10 @@ function renderBubble(props: Partial<React.ComponentProps<typeof MessageBubble>>
 }
 
 describe('MessageBubble', () => {
-  it('renders nothing when message is redacted', () => {
-    const { container } = renderBubble({ content: '', redacted: true });
-    expect(container.firstChild).toBeNull();
+  it('renders deleted placeholder when message is redacted', () => {
+    renderBubble({ content: '', redacted: true });
+    expect(screen.getByText('Message deleted')).toBeInTheDocument();
+    expect(screen.getByText('Message deleted')).toHaveClass('message-text--deleted');
   });
 
   it('renders reaction badges and handles toggles', async () => {

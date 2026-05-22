@@ -8,6 +8,7 @@ import { ImageAttachment } from './ImageAttachment';
 import { ImageLightbox } from './ImageLightbox';
 import { LinkPreview } from './LinkPreview';
 import Avatar from '../Avatar/Avatar';
+import { Tooltip } from '../Tooltip/Tooltip';
 import './MessageBubble.css';
 
 interface MessageBubbleProps {
@@ -182,7 +183,7 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
               <span className="message-time">{formatTime(timestamp)}</span>
             </div>
           )}
-          <div className="message-text" style={{ fontStyle: 'italic', opacity: 0.6 }}>
+          <div className="message-text message-text--deleted">
             Message deleted
           </div>
         </div>
@@ -286,16 +287,16 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
             {Object.entries(reactions).map(([emoji, senders]) => {
               const isReacted = currentUserMatrixId ? senders.includes(currentUserMatrixId) : false;
               return (
-                <button
-                  key={emoji}
-                  className={`reaction-badge${isReacted ? ' reacted' : ''}`}
-                  onClick={() => onToggleReaction?.(messageId, emoji, isReacted)}
-                  title={`${senders.length} reaction${senders.length === 1 ? '' : 's'}`}
-                  aria-label={`${emoji} ${senders.length}`}
-                >
-                  <span className="reaction-emoji">{emoji}</span>
-                  <span className="reaction-count">{senders.length}</span>
-                </button>
+                <Tooltip key={emoji} content={`${senders.length} reaction${senders.length === 1 ? '' : 's'}`}>
+                  <button
+                    className={`reaction-badge${isReacted ? ' reacted' : ''}`}
+                    onClick={() => onToggleReaction?.(messageId, emoji, isReacted)}
+                    aria-label={`${emoji} ${senders.length}`}
+                  >
+                    <span className="reaction-emoji">{emoji}</span>
+                    <span className="reaction-count">{senders.length}</span>
+                  </button>
+                </Tooltip>
               );
             })}
           </div>

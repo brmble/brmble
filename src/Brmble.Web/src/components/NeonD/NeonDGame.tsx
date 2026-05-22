@@ -5,6 +5,7 @@ import { getBailCost } from './economy';
 import { confirm } from '../../hooks/usePrompt';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { Icon } from '../Icon/Icon';
+import { Select } from '../Select';
 import styles from './NeonD.module.css';
 
 
@@ -361,15 +362,14 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
                       
                       <div className={styles.statRow}>
                         <span className={styles.label}>Selling now:</span>
-                        <select
+                        <Select
                           value={slot.selling}
-                          onChange={(e) => handleDealerChange(slot.id, e.target.value)}
+                          onChange={(value) => handleDealerChange(slot.id, value)}
                           className={styles.select}
-                        >
-                          {visibleProduction.filter(p => state.unlockedProduction.includes(p.id)).map(p => (
-                            <option key={p.id} value={p.id}>{p.name}</option>
-                          ))}
-                        </select>
+                          options={visibleProduction
+                            .filter(p => state.unlockedProduction.includes(p.id))
+                            .map(p => ({ value: p.id, label: p.name }))}
+                        />
                       </div>
 
                       <div className={styles.statRow}>
