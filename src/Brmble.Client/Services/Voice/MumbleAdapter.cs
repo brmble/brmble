@@ -1455,7 +1455,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     private const string BrmblePasswordMarkerPrefix = "__brmble_password_marker__:";
     private const string BrmblePasswordOpenBlockMarker = "__brmble_password_open_block__";
-    private const int ManagedPasswordTokenAllowMask = 0x04 | 0x02;
+    private const int LegacyManagedPasswordTokenAllowMask = 0x04 | 0x02;
+    private const int ManagedPasswordTokenAllowMask = 0x02 | 0x04 | 0x08 | 0x100 | 0x200 | 0x800;
     private const int ManagedPasswordAllDenyMask = 0x02 | 0x04 | 0x08 | 0x100 | 0x200 | 0x400 | 0x800;
 
     private static string? GetAclGroup(System.Text.Json.JsonElement acl)
@@ -1498,7 +1499,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             && applyHere
             && !applySubs
             && allow == 0
-            && deny == ManagedPasswordTokenAllowMask;
+            && deny == LegacyManagedPasswordTokenAllowMask;
     }
 
     private static bool IsBrmblePasswordOpenBlockMarker(string? group)
@@ -1535,7 +1536,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             && string.Equals(group, selector, StringComparison.Ordinal)
             && applyHere
             && !applySubs
-            && allow == ManagedPasswordTokenAllowMask
+            && (allow == ManagedPasswordTokenAllowMask || allow == LegacyManagedPasswordTokenAllowMask)
             && deny == 0;
     }
 
