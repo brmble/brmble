@@ -435,7 +435,7 @@ export function AdminGroupsSection({ channels = [] }: AdminGroupsSectionProps) {
         <div className="admin-groups-permission-sections">
           {GROUP_PERMISSION_CATEGORIES.map(category => (
             <section key={category.title} className="admin-groups-permission-section">
-              <h5 className="heading-label">{category.title}</h5>
+              <h4 className="heading-label">{category.title}</h4>
               <div className="admin-groups-permission-grid">
                 {category.options.map(option => (
                   (() => {

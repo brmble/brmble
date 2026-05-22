@@ -272,7 +272,7 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
             <div className="message-error-actions">
               {onDismiss && (
                 <button
-                  className="message-error-btn message-error-dismiss"
+                  className="btn btn-secondary btn-sm message-error-btn message-error-dismiss"
                   onClick={() => onDismiss(messageId)}
                   aria-label="Dismiss failed message"
                 >

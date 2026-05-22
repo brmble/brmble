@@ -127,7 +127,7 @@ export function ServerList({ onConnect, connectDisabled, connectionError, onClea
             <span>{connectionError}</span>
             {onClearError && (
               <button className="server-list-error-dismiss" onClick={onClearError} aria-label="Dismiss error">
-                ✕
+                <Icon name="x" size={14} />
               </button>
             )}
           </div>
@@ -160,8 +160,9 @@ export function ServerList({ onConnect, connectDisabled, connectionError, onClea
                       <button
                         className="btn btn-ghost server-list-delete-btn"
                         onClick={() => handleDelete(server)}
+                        aria-label={`Delete ${server.label}`}
                       >
-                        ✕
+                        <Icon name="x" size={16} />
                       </button>
                       </Tooltip>
                       <button 

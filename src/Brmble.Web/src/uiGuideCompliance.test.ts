@@ -27,6 +27,12 @@ const glyphAllowList = [
   'components/NeonD/NeonDGame.tsx',
 ];
 
+const textInputClassAllowList = [
+  'components/ChatPanel/ChatPanel.tsx',
+  'components/ChatPanel/MessageInput.tsx',
+  'components/DMContactList/DMContactList.tsx',
+];
+
 const titleAttributeAllowList = [
   'App.tsx',
   'components/BrokenCertNotification/BrokenCertNotification.tsx',
@@ -65,6 +71,12 @@ const focusedCssTokenFiles = [
   'components/VadLevelMeter/VadLevelMeter.css',
   'components/Notification/Notification.css',
   'components/Game/contracts/ContractSlot.css',
+  'components/Brmblegotchi/Brmblegotchi.css',
+  'components/Sidebar/ChannelTree.css',
+  'components/Sidebar/Sidebar.css',
+  'components/SettingsModal/AdminSettingsTab.css',
+  'components/Game/GameUI.css',
+  'components/ServerList/ServerList.css',
 ].map((file) => join(sourceRoot, ...file.split('/')));
 
 function collectFiles(dir: string): string[] {
@@ -94,6 +106,7 @@ function findViolations(pattern: RegExp, allowList: string[] = [], files: string
     lines.forEach((line, index) => {
       const trimmed = line.trim();
       if (trimmed.startsWith('//') || trimmed.startsWith('/*') || /issue #\d+/i.test(trimmed)) return;
+      if (trimmed.startsWith('--')) return;
 
       pattern.lastIndex = 0;
       if (pattern.test(line)) {
@@ -183,8 +196,52 @@ function findSettingsPatternViolations(): string[] {
 }
 
 function findFocusedCssTokenViolations(): string[] {
-  const timingPattern = /(?:transition|animation):[^;]*(?:\d+(?:\.\d+)?m?s)\b|animation-duration:\s*\d+(?:\.\d+)?m?s\b|font-size:\s*(?:\d+(?:\.\d+)?px|\d+(?:\.\d+)?em)\b|margin-top:\s*\d+(?:\.\d+)?px\b|padding:\s*\d+(?:\.\d+)?px\b/g;
+  const timingPattern = /(?:transition|animation):[^;]*(?:\d+(?:\.\d+)?m?s)\b|animation-duration:\s*\d+(?:\.\d+)?m?s\b|font-size:\s*(?:\d+(?:\.\d+)?px|\d+(?:\.\d+)?em|\d+(?:\.\d+)?rem)\b|font-family:\s*var\([^;]+,[^)]+\)|(?:^|\s)(?:padding|gap|margin-top|margin-bottom|bottom|top|right):\s*(?:\d+(?:\.\d+)?px|\d+(?:\.\d+)?rem)\b|border-radius:\s*(?:\d+(?:\.\d+)?px\b|[^;]*\d+(?:\.\d+)?px)|box-shadow:[^;]*\d+(?:\.\d+)?px|filter:\s*drop-shadow\([^)]*\d+(?:\.\d+)?px|backdrop-filter:\s*blur\(\d+(?:\.\d+)?px\)/g;
   return findViolations(timingPattern, [], focusedCssTokenFiles);
+}
+
+function findTextInputClassViolations(): string[] {
+  const violations: string[] = [];
+  const inputPattern = /<(input|textarea)\b[\s\S]*?>/g;
+
+  for (const file of componentFilesToScan) {
+    const rel = toPosix(relative(sourceRoot, file));
+    if (textInputClassAllowList.includes(rel)) continue;
+
+    const content = readFileSync(file, 'utf8');
+    for (const match of content.matchAll(inputPattern)) {
+      const tag = match[0];
+      if (tag.includes('type="file"') || tag.includes('type="range"') || tag.includes('type="checkbox"')) continue;
+      if (!/\b(brmble-input)\b/.test(tag)) {
+        const line = content.slice(0, match.index).split(/\r?\n/).length;
+        violations.push(`${rel}:${line}: text input is not using brmble-input`);
+      }
+    }
+  }
+
+  return violations;
+}
+
+function findHeadingTierViolations(): string[] {
+  const violations: string[] = [];
+  const headingPattern = /<h([2-5])\b[^>]*className="([^"]*)"/g;
+
+  for (const file of componentFilesToScan) {
+    const rel = toPosix(relative(sourceRoot, file));
+    const content = readFileSync(file, 'utf8');
+
+    for (const match of content.matchAll(headingPattern)) {
+      const [, level, className] = match;
+      const expected = level === '2' ? 'heading-title' : level === '3' ? 'heading-section' : level === '4' ? 'heading-label' : null;
+      const hasHeadingClass = /\bheading-(title|section|label)\b/.test(className);
+      if ((expected && hasHeadingClass && !className.includes(expected)) || (!expected && hasHeadingClass)) {
+        const line = content.slice(0, match.index).split(/\r?\n/).length;
+        violations.push(`${rel}:${line}: h${level} uses incorrect heading tier class`);
+      }
+    }
+  }
+
+  return violations;
 }
 
 function isStyleExpressionClosed(expression: string): boolean {
@@ -231,5 +288,13 @@ describe('UI guide compliance', () => {
 
   test('focused component css uses tokens for static visual values', () => {
     expect(findFocusedCssTokenViolations()).toEqual([]);
+  });
+
+  test('text-style form fields use brmble-input outside chat surfaces', () => {
+    expect(findTextInputClassViolations()).toEqual([]);
+  });
+
+  test('heading classes match the documented heading tiers', () => {
+    expect(findHeadingTierViolations()).toEqual([]);
   });
 });
