@@ -45,6 +45,10 @@ interface ChatPanelProps {
   onCopyToClipboard?: (text: string) => void;
   currentUserMatrixId?: string;
   onToggleReaction?: (channelId: string, messageId: string, emoji: string, isCurrentlyReacted: boolean) => void;
+  typingIndicatorText?: string | null;
+  typingTargetId?: string;
+  onTypingStart?: (targetId: string) => void | Promise<void>;
+  onTypingStop?: (targetId: string) => void | Promise<void>;
 }
 
 const SCROLL_THRESHOLD = 150;
@@ -52,7 +56,7 @@ const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
 const DEFAULT_SPLIT = 50;
 const REPLY_TARGET_HIGHLIGHT_MS = 1600;
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, watchingShares, focusedShare, remoteVideoEls, roomQuality, shareQualities, onFocusShare, onCloseShare, screenShareViewerMode, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard, currentUserMatrixId, onToggleReaction }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, watchingShares, focusedShare, remoteVideoEls, roomQuality, shareQualities, onFocusShare, onCloseShare, screenShareViewerMode, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard, currentUserMatrixId, onToggleReaction, typingIndicatorText, typingTargetId, onTypingStart, onTypingStop }: ChatPanelProps) {
   // Build lookup maps from sender name and matrixUserId → avatar data for MessageBubble.
   // Name-based lookup works when Mumble name matches message sender.
   // MatrixUserId-based lookup handles cases where the user connected with a different
@@ -1050,9 +1054,13 @@ const [replyState, setReplyState] = useState<{
           </button>
           </Tooltip>
         )}
-        <MessageInput onSend={onSendMessage} placeholder={isDM ? `Message @${channelName}` : `Message #${channelName}`} mentionableUsers={mentionableUsers} disabled={disabled} replyState={replyState} onClearReply={() => setReplyState(null)} matrixClient={matrixClient} matrixRoomId={matrixRoomId} />
+        {typingIndicatorText && (
+          <div className="chat-typing-indicator" role="status" aria-live="polite">
+            {typingIndicatorText}
+          </div>
+        )}
+        <MessageInput onSend={onSendMessage} typingTargetId={typingTargetId} onTypingStart={onTypingStart} onTypingStop={onTypingStop} placeholder={isDM ? `Message @${channelName}` : `Message #${channelName}`} mentionableUsers={mentionableUsers} disabled={disabled} replyState={replyState} onClearReply={() => setReplyState(null)} matrixClient={matrixClient} matrixRoomId={matrixRoomId} />
       </div>
     </div>
   );
 }
-

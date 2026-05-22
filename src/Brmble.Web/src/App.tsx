@@ -1054,12 +1054,12 @@ function App() {
   });
 
   useLayoutEffect(() => {
-    matrixClient.setActiveChannel(activeChannelId ?? null);
-  }, [activeChannelId, matrixClient.setActiveChannel]);
+    matrixClient.setActiveChannel(dmStore.appMode === 'dm' ? null : (activeChannelId ?? null));
+  }, [activeChannelId, dmStore.appMode, matrixClient.setActiveChannel]);
 
   useLayoutEffect(() => {
-    matrixClient.setActiveDmContact(dmStore.selectedContact?.id ?? null);
-  }, [dmStore.selectedContact?.id, matrixClient.setActiveDmContact]);
+    matrixClient.setActiveDmContact(dmStore.appMode === 'dm' ? (dmStore.selectedContact?.id ?? null) : null);
+  }, [dmStore.appMode, dmStore.selectedContact?.id, matrixClient.setActiveDmContact]);
 
   // Determine active Matrix room ID (depends on dmStore.selectedContact)
   const activeMatrixRoomId = useMemo(() => {
@@ -3826,6 +3826,10 @@ const handleConnect = (serverData: SavedServer) => {
                     onCopyToClipboard={handleCopyToClipboard}
                     currentUserMatrixId={matrixCredentials?.userId}
                     onToggleReaction={handleToggleChannelReaction}
+                     typingIndicatorText={dmStore.appMode === 'dm' ? undefined : matrixClient.activeTypingText}
+                     typingTargetId={activeChannelId ?? undefined}
+                     onTypingStart={matrixClient.startTyping}
+                     onTypingStop={matrixClient.stopTyping}
                   />
                   </ErrorBoundary>
                 </div>
@@ -3845,9 +3849,13 @@ const handleConnect = (serverData: SavedServer) => {
                     disabled={dmStore.selectedContact?.isEphemeral === true && dmStore.selectedContact?.mumbleSessionId == null}
                     topNotice={dmStore.selectedContact?.isEphemeral ? 'This is a Mumble direct message. Chat history will be lost when you disconnect.' : undefined}
                     onMessageContextMenu={handleChatMessageContextMenu}
-                    onCopyToClipboard={handleCopyToClipboard}
-                    currentUserMatrixId={matrixCredentials?.userId}
-                    onToggleReaction={handleToggleDmReaction}
+                     onCopyToClipboard={handleCopyToClipboard}
+                     currentUserMatrixId={matrixCredentials?.userId}
+                     onToggleReaction={handleToggleDmReaction}
+                     typingIndicatorText={dmStore.appMode === 'dm' ? matrixClient.activeTypingText : undefined}
+                     typingTargetId={dmStore.selectedContact?.id}
+                     onTypingStart={matrixClient.startTyping}
+                     onTypingStop={matrixClient.stopTyping}
                   />
                   </ErrorBoundary>
                 </div>
