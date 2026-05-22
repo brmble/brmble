@@ -427,9 +427,10 @@
 .admin-groups-permission-option {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--space-sm);
-  min-height: 36px;
-  padding: 6px 0;
+  min-height: calc(var(--space-xl) + var(--space-2xs));
+  padding: var(--space-2xs) 0;
 }
 
 @media (max-width: 900px) {

@@ -151,6 +151,7 @@ function findSettingsPatternViolations(): string[] {
   const violations: string[] = [];
   const connectionSettings = readFileSync(join(sourceRoot, 'components', 'SettingsModal', 'ConnectionSettingsTab.tsx'), 'utf8');
   const audioSettings = readFileSync(join(sourceRoot, 'components', 'SettingsModal', 'AudioSettingsTab.tsx'), 'utf8');
+  const settingsFiles = componentFilesToScan.filter((file) => toPosix(relative(sourceRoot, file)).startsWith('components/SettingsModal/'));
 
   if (connectionSettings.includes('server-dropdown-row')) {
     violations.push('components/SettingsModal/ConnectionSettingsTab.tsx: uses server-dropdown-row instead of settings-item');
@@ -162,6 +163,20 @@ function findSettingsPatternViolations(): string[] {
 
   if (!audioSettings.includes('<div className="settings-item">\n          <span className="settings-label">Capture API</span>')) {
     violations.push('components/SettingsModal/AudioSettingsTab.tsx: capture API controls are not in a settings-item row');
+  }
+
+  for (const file of settingsFiles) {
+    const rel = toPosix(relative(sourceRoot, file));
+    const lines = readFileSync(file, 'utf8').split(/\r?\n/);
+
+    lines.forEach((line, index) => {
+      if (!line.includes('type="checkbox"')) return;
+
+      const precedingMarkup = lines.slice(Math.max(0, index - 3), index).join('\n');
+      if (!precedingMarkup.includes('className="brmble-toggle"')) {
+        violations.push(`${rel}:${index + 1}: checkbox input is not using label.brmble-toggle`);
+      }
+    });
   }
 
   return violations;

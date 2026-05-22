@@ -445,16 +445,19 @@ export function AdminGroupsSection({ channels = [] }: AdminGroupsSectionProps) {
 
                     return (
                       <label key={option.label} className="admin-groups-permission-option">
-                        <input
-                          type="checkbox"
-                          checked={permissionState.checked}
-                          disabled={isCatalogMode || option.supported === false || !selectedGroup || permissionState.inheritedOnly}
-                          onChange={event => {
-                            if (isCatalogMode || option.mask == null || permissionState.inheritedOnly) return;
-                            toggleSelectedGroupPermission(option.mask, event.target.checked);
-                          }}
-                        />
                         <span>{getPermissionLabel(option)}</span>
+                        <span className="brmble-toggle">
+                          <input
+                            type="checkbox"
+                            checked={permissionState.checked}
+                            disabled={isCatalogMode || option.supported === false || !selectedGroup || permissionState.inheritedOnly}
+                            onChange={event => {
+                              if (isCatalogMode || option.mask == null || permissionState.inheritedOnly) return;
+                              toggleSelectedGroupPermission(option.mask, event.target.checked);
+                            }}
+                          />
+                          <span className="brmble-toggle-slider"></span>
+                        </span>
                       </label>
                     );
                   })()
