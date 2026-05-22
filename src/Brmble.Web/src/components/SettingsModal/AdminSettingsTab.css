@@ -537,3 +537,54 @@
 .admin-groups-permission-option:hover {
   background: color-mix(in srgb, var(--bg-hover) 60%, transparent);
 }
+
+/* Responsive breakpoints for narrow viewports */
+@media (max-width: 1024px) {
+  .admin-groups-panel {
+    grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+  }
+  
+  .admin-groups-transfer-grid {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  }
+  
+  .admin-groups-permission-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .admin-groups-layout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  
+  .admin-groups-panel {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "rail"
+      "header"
+      "transfer"
+      "permissions"
+      "footer";
+  }
+  
+  .admin-groups-transfer-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto;
+  }
+  
+  .admin-groups-transfer-grid > :nth-child(2) {
+    grid-row: 2;
+    justify-self: center;
+  }
+  
+  .admin-groups-permission-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .admin-groups-layout {
+    grid-template-columns: 1fr;
+  }
+}

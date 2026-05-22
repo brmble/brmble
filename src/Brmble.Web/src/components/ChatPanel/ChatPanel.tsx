@@ -199,9 +199,18 @@ const [replyState, setReplyState] = useState<{
 
   const handleSaveEdit = useCallback(async (eventId: string, body: string): Promise<boolean> => {
     if (!matrixClient || !matrixRoomId) return false;
-    await matrixClient.sendMessage(matrixRoomId, buildMessageEditContent(eventId, body) as never);
-    return true;
-  }, [matrixClient, matrixRoomId]);
+    
+    // Revalidate that the message can still be edited at save time
+    const message = lookupMessageById(eventId);
+    if (!message || !canEditMessage(message, currentUserMatrixId)) return false;
+    
+    try {
+      await matrixClient.sendMessage(matrixRoomId, buildMessageEditContent(eventId, body) as never);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [matrixClient, matrixRoomId, lookupMessageById, currentUserMatrixId]);
 
   const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -1039,6 +1048,7 @@ const [replyState, setReplyState] = useState<{
                   type: 'item',
                   label: 'Edit message',
                   onClick: () => {
+                    setReplyState(null); // Clear reply state to prevent conflict
                     setEditState({
                       eventId: contextMessage.id,
                       originalContent: contextMessage.content,

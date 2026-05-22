@@ -674,6 +674,17 @@ export function useMatrixClient(
       if (channelId) {
         const message = transformEventToChatMessage(event, room, channelId, clientRef.current);
         if (!message) return;
+        
+        // Apply cached replacement edits if any exist for this message
+        const cachedReplacements = replacementEditsByTargetRef.current.get(message.id);
+        if (cachedReplacements && cachedReplacements.length > 0) {
+          const latestEdit = cachedReplacements[cachedReplacements.length - 1];
+          message.content = latestEdit.body;
+          message.edited = true;
+          message.latestEditTimestamp = latestEdit.timestamp;
+          message.latestEditEventId = latestEdit.editEventId;
+        }
+        
         if (credentials && message.senderMatrixUserId !== credentials.userId && shouldPublishOverlayEvent(event, data)) {
           callbacksRef.current?.onChannelMessage?.(channelId, message);
         }
@@ -709,6 +720,17 @@ export function useMatrixClient(
 
       const dmMessage = transformEventToChatMessage(event, room, dmUserId, clientRef.current);
       if (!dmMessage) return;
+      
+      // Apply cached replacement edits if any exist for this message
+      const cachedReplacements = replacementEditsByTargetRef.current.get(dmMessage.id);
+      if (cachedReplacements && cachedReplacements.length > 0) {
+        const latestEdit = cachedReplacements[cachedReplacements.length - 1];
+        dmMessage.content = latestEdit.body;
+        dmMessage.edited = true;
+        dmMessage.latestEditTimestamp = latestEdit.timestamp;
+        dmMessage.latestEditEventId = latestEdit.editEventId;
+      }
+      
       if (credentials && dmMessage.senderMatrixUserId !== credentials.userId && shouldPublishOverlayEvent(event, data)) {
         callbacksRef.current?.onDirectMessage?.(dmUserId, dmMessage);
       }
