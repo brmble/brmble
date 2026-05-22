@@ -28,10 +28,26 @@ const mockClient = {
   createRoom: vi.fn().mockResolvedValue({ room_id: '!new:example.com' }),
   scrollback: vi.fn().mockResolvedValue(undefined),
   sendMessage: vi.fn().mockResolvedValue({ event_id: '$sent-event' }),
+  sendEvent: vi.fn().mockResolvedValue({ event_id: '$sent-event' }),
   sendTyping: vi.fn().mockResolvedValue(undefined),
   redactEvent: vi.fn().mockResolvedValue(undefined),
   mxcUrlToHttp: vi.fn((url: string) => url.replace('mxc://', 'https://matrix.example.com/_matrix/media/v3/download/')),
 };
+
+function fakeRoomMessage(id: string, sender: string, body: string, ts: number) {
+  return {
+    getType: () => 'm.room.message',
+    getId: () => id,
+    getSender: () => sender,
+    getContent: () => ({ body }),
+    getTs: () => ts,
+    isRedacted: () => false,
+  };
+}
+
+function withNoTypingMembers<T extends object>(room: T): T & { getMembers: () => unknown[] } {
+  return { ...room, getMembers: () => [] };
+}
 
 vi.mock('matrix-js-sdk', () => ({
   createClient: vi.fn(() => mockClient),
@@ -39,8 +55,9 @@ vi.mock('matrix-js-sdk', () => ({
   RoomMemberEvent: { Typing: 'RoomMember.typing' },
   RoomStateEvent: { Members: 'RoomState.members' },
   ClientEvent: { Sync: 'sync', AccountData: 'accountData' },
-  EventType: { RoomMessage: 'm.room.message', Direct: 'm.direct', RoomRedaction: 'm.room.redaction' },
+  EventType: { RoomMessage: 'm.room.message', Direct: 'm.direct', RoomRedaction: 'm.room.redaction', Reaction: 'm.reaction' },
   MsgType: { Text: 'm.text' },
+  RelationType: { Annotation: 'm.annotation' },
   Preset: { TrustedPrivateChat: 'trusted_private_chat' },
   KnownMembership: { Join: 'join', Invite: 'invite', Leave: 'leave' },
 }));
@@ -289,10 +306,11 @@ describe('useMatrixClient', () => {
     mockClient.getRoom.mockImplementation((id: string) =>
       id === '!room-a:example.com' ? roomA : id === '!room-b:example.com' ? roomB : null);
 
-    const { result } = renderHook(() => useMatrixClient({
+    const roomCreds: MatrixCredentials = {
       ...creds,
       roomMap: { A: '!room-a:example.com', B: '!room-b:example.com' },
-    }), { wrapper });
+    };
+    const { result } = renderHook(() => useMatrixClient(roomCreds), { wrapper });
 
     act(() => result.current.setActiveChannel('A'));
     expect(result.current.activeTypingText).toBe('Alice is typing...');
@@ -315,10 +333,11 @@ describe('useMatrixClient', () => {
     mockClient.getRoom.mockImplementation((id: string) =>
       id === '!room-a:example.com' ? roomA : id === '!room-b:example.com' ? roomB : null);
 
-    const { result } = renderHook(() => useMatrixClient({
+    const roomCreds: MatrixCredentials = {
       ...creds,
       roomMap: { A: '!room-a:example.com', B: '!room-b:example.com' },
-    }), { wrapper });
+    };
+    const { result } = renderHook(() => useMatrixClient(roomCreds), { wrapper });
 
     act(() => result.current.setActiveChannel('A'));
     expect(result.current.activeTypingText).toBe('Alice is typing...');
@@ -652,26 +671,14 @@ describe('useMatrixClient', () => {
   it('setActiveChannel rebuilds activeMessages from SDK timeline', () => {
     const aliceMember = { rawDisplayName: 'Alice', name: 'Alice' };
     const fakeEvents = [
-      {
-        getType: () => 'm.room.message',
-        getId: () => '$e1',
-        getSender: () => '@alice:example.com',
-        getContent: () => ({ body: 'first' }),
-        getTs: () => 1000,
-      },
-      {
-        getType: () => 'm.room.message',
-        getId: () => '$e2',
-        getSender: () => '@alice:example.com',
-        getContent: () => ({ body: 'second' }),
-        getTs: () => 2000,
-      },
+      fakeRoomMessage('$e1', '@alice:example.com', 'first', 1000),
+      fakeRoomMessage('$e2', '@alice:example.com', 'second', 2000),
     ];
-    const mockRoom = {
+    const mockRoom = withNoTypingMembers({
       roomId: '!room:example.com',
       getMember: () => aliceMember,
       getLiveTimeline: () => ({ getEvents: () => fakeEvents }),
-    };
+    });
     mockClient.getRoom.mockReturnValue(mockRoom);
 
     const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
@@ -690,22 +697,20 @@ describe('useMatrixClient', () => {
   });
 
   it('rapid setActiveChannel switches commit only the latest load', () => {
-    const roomA = {
+    const roomA = withNoTypingMembers({
       roomId: '!a:example.com',
       getMember: () => ({ rawDisplayName: 'A', name: 'A' }),
       getLiveTimeline: () => ({ getEvents: () => [
-        { getType: () => 'm.room.message', getId: () => '$a1', getSender: () => '@a:example.com',
-          getContent: () => ({ body: 'A-msg' }), getTs: () => 1 },
+        fakeRoomMessage('$a1', '@a:example.com', 'A-msg', 1),
       ]}),
-    };
-    const roomB = {
+    });
+    const roomB = withNoTypingMembers({
       roomId: '!b:example.com',
       getMember: () => ({ rawDisplayName: 'B', name: 'B' }),
       getLiveTimeline: () => ({ getEvents: () => [
-        { getType: () => 'm.room.message', getId: () => '$b1', getSender: () => '@b:example.com',
-          getContent: () => ({ body: 'B-msg' }), getTs: () => 1 },
+        fakeRoomMessage('$b1', '@b:example.com', 'B-msg', 1),
       ]}),
-    };
+    });
     mockClient.getRoom.mockImplementation((id: string) =>
       id === '!a:example.com' ? roomA : id === '!b:example.com' ? roomB : null);
 
@@ -738,19 +743,13 @@ describe('useMatrixClient', () => {
     // Now simulate the SDK having the room and the timeline populated.
     const aliceMember = { rawDisplayName: 'Alice', name: 'Alice' };
     const fakeEvents = [
-      {
-        getType: () => 'm.room.message',
-        getId: () => '$e-prep-1',
-        getSender: () => '@alice:example.com',
-        getContent: () => ({ body: 'sync-delivered' }),
-        getTs: () => 5000,
-      },
+      fakeRoomMessage('$e-prep-1', '@alice:example.com', 'sync-delivered', 5000),
     ];
-    const mockRoom = {
+    const mockRoom = withNoTypingMembers({
       roomId: '!room:example.com',
       getMember: () => aliceMember,
       getLiveTimeline: () => ({ getEvents: () => fakeEvents }),
-    };
+    });
     mockClient.getRoom.mockReturnValue(mockRoom);
     mockClient.getRooms.mockReturnValue([mockRoom]);
 
@@ -784,16 +783,14 @@ describe('useMatrixClient', () => {
 
     const bobMember = { rawDisplayName: 'Bob', name: 'Bob', getAvatarUrl: () => null };
     const dmFakeEvents = [
-      { getType: () => 'm.room.message', getId: () => '$dm1', getSender: () => '@bob:example.com',
-        getContent: () => ({ body: 'hey' }), getTs: () => 1000 },
-      { getType: () => 'm.room.message', getId: () => '$dm2', getSender: () => '@bob:example.com',
-        getContent: () => ({ body: 'you there?' }), getTs: () => 2000 },
+      fakeRoomMessage('$dm1', '@bob:example.com', 'hey', 1000),
+      fakeRoomMessage('$dm2', '@bob:example.com', 'you there?', 2000),
     ];
-    const mockDmRoom = {
+    const mockDmRoom = withNoTypingMembers({
       roomId: '!dm-bob:example.com',
       getMember: () => bobMember,
       getLiveTimeline: () => ({ getEvents: () => dmFakeEvents }),
-    };
+    });
     mockClient.getRoom.mockReturnValue(mockDmRoom);
 
     act(() => result.current.setActiveDmContact('@bob:example.com'));
@@ -826,22 +823,20 @@ describe('useMatrixClient', () => {
       | undefined;
     act(() => onSync!('PREPARED'));
 
-    const roomBob = {
+    const roomBob = withNoTypingMembers({
       roomId: '!bob:example.com',
       getMember: () => ({ rawDisplayName: 'Bob', name: 'Bob', getAvatarUrl: () => null }),
       getLiveTimeline: () => ({ getEvents: () => [
-        { getType: () => 'm.room.message', getId: () => '$b1', getSender: () => '@bob:example.com',
-          getContent: () => ({ body: 'Bob-msg' }), getTs: () => 1 },
+        fakeRoomMessage('$b1', '@bob:example.com', 'Bob-msg', 1),
       ]}),
-    };
-    const roomCarol = {
+    });
+    const roomCarol = withNoTypingMembers({
       roomId: '!carol:example.com',
       getMember: () => ({ rawDisplayName: 'Carol', name: 'Carol', getAvatarUrl: () => null }),
       getLiveTimeline: () => ({ getEvents: () => [
-        { getType: () => 'm.room.message', getId: () => '$c1', getSender: () => '@carol:example.com',
-          getContent: () => ({ body: 'Carol-msg' }), getTs: () => 1 },
+        fakeRoomMessage('$c1', '@carol:example.com', 'Carol-msg', 1),
       ]}),
-    };
+    });
     mockClient.getRoom.mockImplementation((id: string) =>
       id === '!bob:example.com' ? roomBob : id === '!carol:example.com' ? roomCarol : null);
 
@@ -869,14 +864,13 @@ describe('useMatrixClient', () => {
 
     const bobMember = { rawDisplayName: 'Bob', name: 'Bob', getAvatarUrl: () => null };
     const dmFakeEvents = [
-      { getType: () => 'm.room.message', getId: () => '$dm-prep-1', getSender: () => '@bob:example.com',
-        getContent: () => ({ body: 'late arrival' }), getTs: () => 5000 },
+      fakeRoomMessage('$dm-prep-1', '@bob:example.com', 'late arrival', 5000),
     ];
-    const mockDmRoom = {
+    const mockDmRoom = withNoTypingMembers({
       roomId: '!dm-bob:example.com',
       getMember: () => bobMember,
       getLiveTimeline: () => ({ getEvents: () => dmFakeEvents }),
-    };
+    });
     mockClient.getRoom.mockReturnValue(mockDmRoom);
     mockClient.getRooms.mockReturnValue([mockDmRoom]);
 
@@ -935,16 +929,14 @@ describe('useMatrixClient', () => {
   it('dmLastMessages are bootstrapped on PREPARED from SDK timelines', () => {
     mockClient.getRoom.mockReturnValue(null);
 
-    const dmRoom = {
+    const dmRoom = withNoTypingMembers({
       roomId: '!dm-bob:example.com',
       getMember: vi.fn(() => ({ rawDisplayName: 'Bob', name: 'Bob', getAvatarUrl: () => null })),
       getLiveTimeline: () => ({ getEvents: () => [
-        { getType: () => 'm.room.message', getId: () => '$e1', getSender: () => '@bob:example.com',
-          getContent: () => ({ body: 'first' }), getTs: () => 1000 },
-        { getType: () => 'm.room.message', getId: () => '$e2', getSender: () => '@bob:example.com',
-          getContent: () => ({ body: 'last one' }), getTs: () => 2000 },
+        fakeRoomMessage('$e1', '@bob:example.com', 'first', 1000),
+        fakeRoomMessage('$e2', '@bob:example.com', 'last one', 2000),
       ]}),
-    };
+    });
     mockClient.getRooms.mockReturnValue([dmRoom]);
 
     const credsWithDm: MatrixCredentials = {
@@ -1018,13 +1010,7 @@ describe('useMatrixClient', () => {
 
   it('aggregates reaction events when loading active channel timeline', () => {
     const fakeEvents = [
-      {
-        getType: () => 'm.room.message',
-        getId: () => '$message',
-        getSender: () => '@alice:example.com',
-        getContent: () => ({ body: 'loaded from timeline' }),
-        getTs: () => 1000,
-      },
+      fakeRoomMessage('$message', '@alice:example.com', 'loaded from timeline', 1000),
       {
         getType: () => 'm.reaction',
         getId: () => '$reaction',
@@ -1039,11 +1025,11 @@ describe('useMatrixClient', () => {
         getTs: () => 1001,
       },
     ];
-    const mockRoom = {
+    const mockRoom = withNoTypingMembers({
       roomId: '!room:example.com',
       getMember: () => ({ rawDisplayName: 'Alice', name: 'Alice' }),
       getLiveTimeline: () => ({ getEvents: () => fakeEvents }),
-    };
+    });
     mockClient.getRoom.mockReturnValue(mockRoom);
 
     const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
@@ -1127,7 +1113,7 @@ describe('useMatrixClient', () => {
 
     await act(() => result.current.sendReaction('42', '$message', '👍'));
 
-    expect(mockClient.sendMessage).toHaveBeenCalledWith('!room:example.com', {
+    expect(mockClient.sendEvent).toHaveBeenCalledWith('!room:example.com', 'm.reaction', {
       'm.relates_to': {
         rel_type: 'm.annotation',
         event_id: '$message',

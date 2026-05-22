@@ -1,4 +1,33 @@
 .brmblegotchi-widget {
+  --brmblegotchi-size-sm: 36px;
+  --brmblegotchi-size-md: 48px;
+  --brmblegotchi-size-lg: 60px;
+  --brmblegotchi-size-xl: 80px;
+  --brmblegotchi-size-2xl: 100px;
+  --brmblegotchi-size-3xl: 140px;
+  --brmblegotchi-dot-size: 6px;
+  --brmblegotchi-eye-size: 8px;
+  --brmblegotchi-mouth-width: 12px;
+  --brmblegotchi-mouth-height: 6px;
+  --brmblegotchi-mouth-wide: 14px;
+  --brmblegotchi-mouth-wide-height: 7px;
+  --brmblegotchi-mouth-flat-width: 8px;
+  --brmblegotchi-mouth-flat-height: 2px;
+  --brmblegotchi-stat-icon-size: 14px;
+  --brmblegotchi-stat-bar-height: 4px;
+  --brmblegotchi-progress-height: 3px;
+  --brmblegotchi-action-size: 36px;
+  --brmblegotchi-action-icon-size: 18px;
+  --brmblegotchi-egg-width: 60px;
+  --brmblegotchi-ghost-mouth-width: 20px;
+  --brmblegotchi-ghost-mouth-height: 10px;
+  --brmblegotchi-ghost-mouth-border: 3px;
+  --brmblegotchi-pop-duration: var(--animation-normal);
+  --brmblegotchi-mood-duration: var(--animation-badge-pulse);
+  --brmblegotchi-slow-duration: var(--animation-heartbeat);
+  --brmblegotchi-fast-duration: var(--animation-pulse);
+  --brmblegotchi-action-duration: var(--animation-fast);
+  --brmblegotchi-click-duration: var(--animation-fast);
   position: fixed;
   bottom: var(--space-lg);
   right: var(--space-lg);
@@ -22,7 +51,7 @@
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-elevated);
   border: var(--glass-border);
-  animation: brmblegotchi-pop-up 200ms ease-out;
+  animation: brmblegotchi-pop-up var(--brmblegotchi-pop-duration) ease-out;
   z-index: 100;
 }
 
@@ -39,13 +68,13 @@
 }
 
 .brmblegotchi-drag-handle {
-  width: 80px;
-  height: 20px;
+  width: var(--brmblegotchi-size-xl);
+  height: var(--space-lg);
   cursor: grab;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: var(--brmblegotchi-dot-size);
   border-radius: var(--radius-md) var(--radius-md) 0 0;
   margin-top: var(--space-sm);
 }
@@ -55,8 +84,8 @@
 }
 
 .brmblegotchi-drag-handle span {
-  width: 6px;
-  height: 6px;
+  width: var(--brmblegotchi-dot-size);
+  height: var(--brmblegotchi-dot-size);
   background: var(--text-muted);
   border-radius: 50%;
   opacity: 0.8;
@@ -68,8 +97,8 @@
 }
 
 .brmblegotchi-pet {
-  width: 80px;
-  height: 80px;
+  width: var(--brmblegotchi-size-xl);
+  height: var(--brmblegotchi-size-xl);
   position: relative;
   display: flex;
   align-items: center;
@@ -84,8 +113,8 @@
 
 .theme-dino .brmblegotchi-pet,
 .theme-cat .brmblegotchi-pet {
-  width: 100px;
-  height: 100px;
+  width: var(--brmblegotchi-size-2xl);
+  height: var(--brmblegotchi-size-2xl);
 }
 
 .brmblegotchi-pet:hover {
@@ -97,22 +126,22 @@
 }
 
 .pet-sprite {
-  width: 64px;
-  height: 64px;
+  width: var(--space-3xl);
+  height: var(--space-3xl);
   image-rendering: pixelated;
   image-rendering: crisp-edges;
 }
 
 .theme-dino .brmblegotchi-pet .pet-sprite,
 .theme-cat .brmblegotchi-pet .pet-sprite {
-  width: 100px;
-  height: 100px;
-  animation: idle-breathing 2s ease-in-out infinite;
+  width: var(--brmblegotchi-size-2xl);
+  height: var(--brmblegotchi-size-2xl);
+  animation: idle-breathing var(--brmblegotchi-mood-duration) ease-in-out infinite;
 }
 
 .theme-cat .brmblegotchi-pet .pet-sprite {
-  width: 140px;
-  height: 140px;
+  width: var(--brmblegotchi-size-3xl);
+  height: var(--brmblegotchi-size-3xl);
 }
 
 @keyframes idle-breathing {
@@ -139,35 +168,35 @@
 }
 
 .brmblegotchi-ring-outer {
-  width: 72px;
-  height: 72px;
+  width: calc(var(--brmblegotchi-size-xl) - var(--space-xs));
+  height: calc(var(--brmblegotchi-size-xl) - var(--space-xs));
   border: 3px solid var(--accent-primary);
   opacity: 0.3;
-  animation: brmblegotchi-pulse-outer 2s ease-in-out infinite;
+  animation: brmblegotchi-pulse-outer var(--brmblegotchi-mood-duration) ease-in-out infinite;
 }
 
 .brmblegotchi-ring-middle {
-  width: 60px;
-  height: 60px;
+  width: var(--brmblegotchi-size-lg);
+  height: var(--brmblegotchi-size-lg);
   border: 2px solid var(--accent-primary);
   opacity: 0.5;
-  animation: brmblegotchi-pulse-middle 2s ease-in-out infinite 0.2s;
+  animation: brmblegotchi-pulse-middle var(--brmblegotchi-mood-duration) ease-in-out infinite var(--animation-fast);
 }
 
 .brmblegotchi-ring-inner {
-  width: 48px;
-  height: 48px;
+  width: var(--brmblegotchi-size-md);
+  height: var(--brmblegotchi-size-md);
   border: 2px solid var(--accent-primary);
   opacity: 0.7;
-  animation: brmblegotchi-pulse-inner 2s ease-in-out infinite 0.4s;
+  animation: brmblegotchi-pulse-inner var(--brmblegotchi-mood-duration) ease-in-out infinite var(--animation-slow);
 }
 
 .brmblegotchi-ring-center {
-  width: 36px;
-  height: 36px;
+  width: var(--brmblegotchi-size-sm);
+  height: var(--brmblegotchi-size-sm);
   background: var(--accent-primary);
   opacity: 1;
-  animation: brmblegotchi-breathe 2s ease-in-out infinite;
+  animation: brmblegotchi-breathe var(--brmblegotchi-mood-duration) ease-in-out infinite;
 }
 
 .brmblegotchi-face {
@@ -178,26 +207,26 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: var(--brmblegotchi-dot-size);
   z-index: 2;
 }
 
 .brmblegotchi-eyes {
   display: flex;
-  gap: 10px;
+  gap: var(--space-xs);
 }
 
 .brmblegotchi-eye {
-  width: 8px;
-  height: 8px;
+  width: var(--brmblegotchi-eye-size);
+  height: var(--brmblegotchi-eye-size);
   background: var(--bg-deep);
   border-radius: 50%;
   transition: all var(--transition-fast);
 }
 
 .brmblegotchi-eye.happy {
-  height: 4px;
-  border-radius: 4px 4px 0 0;
+  height: var(--space-2xs);
+  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
   transform: translateY(2px);
 }
 
@@ -206,38 +235,38 @@
 }
 
 .brmblegotchi-mouth {
-  width: 12px;
-  height: 6px;
+  width: var(--brmblegotchi-mouth-width);
+  height: var(--brmblegotchi-mouth-height);
   border: 2px solid var(--bg-deep);
   border-top: none;
-  border-radius: 0 0 12px 12px;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
   transition: all var(--transition-fast);
 }
 
 .brmblegotchi-mouth.happy {
-  width: 14px;
-  height: 7px;
+  width: var(--brmblegotchi-mouth-wide);
+  height: var(--brmblegotchi-mouth-wide-height);
 }
 
 .brmblegotchi-mouth.sad {
-  border-radius: 12px 12px 0 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   border: 2px solid var(--bg-deep);
   border-bottom: none;
-  height: 4px;
+  height: var(--space-2xs);
 }
 
 .brmblegotchi-mouth.neutral {
-  width: 8px;
-  height: 2px;
+  width: var(--brmblegotchi-mouth-flat-width);
+  height: var(--brmblegotchi-mouth-flat-height);
   background: var(--bg-deep);
   border: none;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
 }
 
 .brmblegotchi-stats {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-2xs);
   background: var(--bg-surface);
   padding: var(--space-xs);
   border-radius: var(--radius-md);
@@ -254,12 +283,12 @@
 .brmblegotchi-stat {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--brmblegotchi-dot-size);
 }
 
 .brmblegotchi-stat-icon {
-  width: 14px;
-  height: 14px;
+  width: var(--brmblegotchi-stat-icon-size);
+  height: var(--brmblegotchi-stat-icon-size);
   flex-shrink: 0;
 }
 
@@ -282,15 +311,15 @@
 
 .brmblegotchi-stat-bar {
   flex: 1;
-  height: 4px;
+  height: var(--brmblegotchi-stat-bar-height);
   background: var(--bg-deep);
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   overflow: hidden;
 }
 
 .brmblegotchi-stat-fill {
   height: 100%;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   transition: width var(--transition-normal);
 }
 
@@ -311,20 +340,20 @@
 }
 
 .brmblegotchi-progress-bar {
-  height: 3px;
+  height: var(--brmblegotchi-progress-height);
   background: var(--bg-deep);
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   overflow: hidden;
 }
 
 .brmblegotchi-progress-fill {
   height: 100%;
   background: var(--accent-primary);
-  transition: width 1s linear;
+  transition: width var(--transition-slow);
 }
 
 .brmblegotchi-age {
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--text-secondary);
   text-align: center;
   margin-top: var(--space-xs);
@@ -346,7 +375,7 @@
 }
 
 .brmblegotchi-context-header {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -360,9 +389,9 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--text-secondary);
-  padding: 2px 0;
+  padding: var(--space-2xs) 0;
 }
 
 .brmblegotchi-context-item span:last-child {
@@ -402,7 +431,7 @@
   border: none;
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--text-xs);
   cursor: pointer;
   transition: background var(--transition-fast);
 }
@@ -413,8 +442,8 @@
 }
 
 .brmblegotchi-action-btn {
-  width: 36px;
-  height: 36px;
+  width: var(--brmblegotchi-action-size);
+  height: var(--brmblegotchi-action-size);
   border-radius: var(--radius-md);
   border: none;
   background: var(--bg-hover);
@@ -437,8 +466,8 @@
 }
 
 .brmblegotchi-action-btn svg {
-  width: 18px;
-  height: 18px;
+  width: var(--brmblegotchi-action-icon-size);
+  height: var(--brmblegotchi-action-icon-size);
 }
 
 .brmblegotchi-action-btn.disabled {
@@ -453,7 +482,7 @@
 }
 
 .brmblegotchi-cooldown {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   color: var(--text-muted);
 }
@@ -479,23 +508,23 @@
 }
 
 .brmblegotchi-widget.sad .brmblegotchi-ring-outer {
-  animation-duration: 4s;
+  animation-duration: var(--brmblegotchi-slow-duration);
   opacity: 0.15;
 }
 
 .brmblegotchi-widget.sad .brmblegotchi-ring-middle {
-  animation-duration: 4s;
+  animation-duration: var(--brmblegotchi-slow-duration);
   opacity: 0.25;
 }
 
 .brmblegotchi-widget.sad .brmblegotchi-ring-inner {
-  animation-duration: 4s;
+  animation-duration: var(--brmblegotchi-slow-duration);
   opacity: 0.4;
 }
 
 .brmblegotchi-widget.sad .brmblegotchi-ring-center {
   background: var(--text-muted);
-  animation-duration: 4s;
+  animation-duration: var(--brmblegotchi-slow-duration);
 }
 
 .brmblegotchi-widget.stage-baby .brmblegotchi-pet-wrapper {
@@ -515,19 +544,19 @@
 }
 
 .brmblegotchi-widget.stage-egg .brmblegotchi-pet {
-  width: 60px;
-  height: 80px;
+  width: var(--brmblegotchi-egg-width);
+  height: var(--brmblegotchi-size-xl);
   background: var(--accent-primary);
   border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
   cursor: pointer;
-  animation: egg-wobble 2s ease-in-out infinite;
+  animation: egg-wobble var(--brmblegotchi-mood-duration) ease-in-out infinite;
   box-shadow: none;
   border: none;
   transform: none;
 }
 
 .brmblegotchi-widget.stage-egg .brmblegotchi-pet-wrapper {
-  animation: egg-wobble 2s ease-in-out infinite;
+  animation: egg-wobble var(--brmblegotchi-mood-duration) ease-in-out infinite;
   transform-origin: center center;
 }
 
@@ -542,7 +571,7 @@
 }
 
 .brmblegotchi-widget.stage-child .brmblegotchi-ring {
-  animation-duration: 4s;
+  animation-duration: var(--brmblegotchi-slow-duration);
 }
 
 .brmblegotchi-widget.stage-ghost .brmblegotchi-pet {
@@ -562,7 +591,7 @@
   content: '';
   position: absolute;
   width: 100%;
-  height: 2px;
+  height: var(--brmblegotchi-mouth-flat-height);
   background: var(--accent-primary);
   top: 50%;
   left: 0;
@@ -574,10 +603,10 @@
 }
 
 .brmblegotchi-widget.stage-ghost .brmblegotchi-mouth {
-  width: 20px;
-  height: 10px;
+  width: var(--brmblegotchi-ghost-mouth-width);
+  height: var(--brmblegotchi-ghost-mouth-height);
   border: none;
-  border-top: 3px solid var(--accent-primary);
+  border-top: var(--brmblegotchi-ghost-mouth-border) solid var(--accent-primary);
   border-radius: 0;
   transform: rotate(180deg);
 }
@@ -587,25 +616,25 @@
   bottom: -30px;
   left: 50%;
   transform: translateX(-50%);
-  font-family: var(--font-body, sans-serif);
-  font-size: 12px;
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
   color: var(--accent-primary);
   opacity: 0.8;
   white-space: nowrap;
 }
 
 .brmblegotchi-widget.happy .brmblegotchi-ring-outer {
-  animation-duration: 1s;
+  animation-duration: var(--brmblegotchi-fast-duration);
   opacity: 0.5;
 }
 
 .brmblegotchi-widget.happy .brmblegotchi-ring-middle {
-  animation-duration: 1s;
+  animation-duration: var(--brmblegotchi-fast-duration);
   opacity: 0.7;
 }
 
 .brmblegotchi-widget.happy .brmblegotchi-ring-inner {
-  animation-duration: 1s;
+  animation-duration: var(--brmblegotchi-fast-duration);
   opacity: 0.9;
 }
 
@@ -614,11 +643,11 @@
   top: -25px;
   left: 50%;
   transform: translateX(-50%);
-  font-family: var(--font-body, sans-serif);
-  font-size: 10px;
+  font-family: var(--font-body);
+  font-size: var(--text-2xs);
   color: var(--text-secondary);
   white-space: nowrap;
-  animation: hint-pulse 1.5s ease-in-out infinite;
+  animation: hint-pulse var(--animation-loading-dots) ease-in-out infinite;
 }
 
 @keyframes hint-pulse {
@@ -627,7 +656,7 @@
 }
 
 .brmblegotchi-widget.action-animating .brmblegotchi-pet {
-  animation: action-shake 0.5s ease-in-out;
+  animation: action-shake var(--brmblegotchi-action-duration) ease-in-out;
 }
 
 @keyframes action-shake {
@@ -639,7 +668,7 @@
 }
 
 .brmblegotchi-widget.egg-click-animating .brmblegotchi-pet {
-  animation: egg-click-shake 0.3s ease-in-out;
+  animation: egg-click-shake var(--brmblegotchi-click-duration) ease-in-out;
 }
 
 @keyframes egg-click-shake {

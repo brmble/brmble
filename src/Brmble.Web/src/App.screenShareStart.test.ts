@@ -1162,6 +1162,87 @@ describe('active share discovery', () => {
     expect(screen.queryByText('Alice started sharing their screen')).not.toBeInTheDocument();
   });
 
+  it('unregisters remote screen share notification when the remote share stops', async () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id === 'screen-share');
+
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [
+          { session: 7, name: 'TestUser', self: true, channelId: 1 },
+          { session: 2, name: 'Alice', channelId: 1, matrixUserId: '@alice:example.com' },
+        ],
+      });
+    });
+
+    act(() => {
+      bridge.emit('livekit.screenShareStarted', {
+        roomName: 'channel-1',
+        userName: 'Alice',
+        userId: 42,
+        matrixUserId: '@alice:example.com',
+        sessionId: 2,
+      });
+    });
+
+    expect(screen.getByText('Alice started sharing their screen')).toBeInTheDocument();
+
+    vi.mocked(notifQueue.unregister).mockClear();
+
+    act(() => {
+      bridge.emit('livekit.screenShareStopped', {});
+    });
+
+    expect(notifQueue.unregister).toHaveBeenCalledWith('screen-share');
+    expect(screen.queryByText('Alice started sharing their screen')).not.toBeInTheDocument();
+  });
+
+  it('unregisters remote screen share notification when switching channels', async () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id === 'screen-share');
+
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming' },
+        ],
+        users: [
+          { session: 7, name: 'TestUser', self: true, channelId: 1 },
+          { session: 2, name: 'Alice', channelId: 1, matrixUserId: '@alice:example.com' },
+        ],
+      });
+    });
+
+    act(() => {
+      bridge.emit('livekit.screenShareStarted', {
+        roomName: 'channel-1',
+        userName: 'Alice',
+        userId: 42,
+        matrixUserId: '@alice:example.com',
+        sessionId: 2,
+      });
+    });
+
+    expect(screen.getByText('Alice started sharing their screen')).toBeInTheDocument();
+
+    vi.mocked(notifQueue.unregister).mockClear();
+
+    act(() => {
+      bridge.emit('voice.channelChanged', { channelId: 2, name: 'Gaming' });
+    });
+
+    expect(notifQueue.unregister).toHaveBeenCalledWith('screen-share');
+    expect(screen.queryByText('Alice started sharing their screen')).not.toBeInTheDocument();
+  });
+
   it('rechecks active share discovery after reconnect when the current channel is unchanged', async () => {
     render(React.createElement(App));
 
@@ -1939,7 +2020,176 @@ describe('active share discovery', () => {
     expect(joinCall?.order).toBeGreaterThan(stopCall);
   });
 
-  it('prompts for a channel password after a password-protected join denial and retries once', async () => {
+  it('screen share active denied channel join keeps sharing and does not ask to stop sharing', async () => {
+    const { confirm } = await import('./hooks/usePrompt');
+
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming', canEnter: false },
+        ],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    await act(async () => {
+      view.getByTestId('header-toggle-screen-share').click();
+      await Promise.resolve();
+    });
+    screenShareState.isSharing = true;
+    view.rerender(React.createElement(App));
+
+    await act(async () => {
+      view.getByTestId('sidebar-join-channel-2').click();
+      await Promise.resolve();
+    });
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(stopSharing).not.toHaveBeenCalled();
+    expect(bridge.send).not.toHaveBeenCalledWith('voice.joinChannel', { channelId: 2 });
+  });
+
+  it('screen share active password join cancel keeps sharing and does not ask to stop sharing', async () => {
+    const { confirm, prompt } = await import('./hooks/usePrompt');
+    vi.mocked(prompt).mockResolvedValueOnce(null);
+
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming', canEnter: false, hasPasswordRestriction: true },
+        ],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    await act(async () => {
+      view.getByTestId('header-toggle-screen-share').click();
+      await Promise.resolve();
+    });
+    screenShareState.isSharing = true;
+    view.rerender(React.createElement(App));
+
+    await act(async () => {
+      view.getByTestId('sidebar-join-channel-2').click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Channel Password',
+      message: 'Enter the password for Gaming.',
+    }));
+    expect(confirm).not.toHaveBeenCalled();
+    expect(stopSharing).not.toHaveBeenCalled();
+    expect(bridge.send).not.toHaveBeenCalledWith('voice.joinChannel', { channelId: 2 });
+  });
+
+  it('screen share active password join confirm stops sharing before sending password join', async () => {
+    const { confirm, prompt } = await import('./hooks/usePrompt');
+    vi.mocked(prompt).mockResolvedValueOnce('secret-token');
+    vi.mocked(confirm).mockResolvedValueOnce(true);
+    vi.mocked(stopSharing).mockResolvedValueOnce(undefined);
+
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming', canEnter: false, hasPasswordRestriction: true },
+        ],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    await act(async () => {
+      view.getByTestId('header-toggle-screen-share').click();
+      await Promise.resolve();
+    });
+    screenShareState.isSharing = true;
+    view.rerender(React.createElement(App));
+
+    await act(async () => {
+      view.getByTestId('sidebar-join-channel-2').click();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Channel Password',
+      message: 'Enter the password for Gaming.',
+    }));
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Screen share active',
+      message: 'Moving to another channel will end your screen share. Move and stop sharing?',
+    }));
+    expect(stopSharing).toHaveBeenCalled();
+    expect(bridge.send).toHaveBeenCalledWith('voice.joinChannel', { channelId: 2, password: 'secret-token' });
+
+    const stopCall = vi.mocked(stopSharing).mock.invocationCallOrder[0];
+    const joinCall = vi.mocked(bridge.send).mock.calls
+      .map(([type], index) => ({ type, order: vi.mocked(bridge.send).mock.invocationCallOrder[index] }))
+      .find(call => call.type === 'voice.joinChannel');
+    expect(joinCall?.order).toBeGreaterThan(stopCall);
+  });
+
+  it('prompts for a known password-protected channel before joining', async () => {
+    const { prompt } = await import('./hooks/usePrompt');
+    vi.mocked(prompt).mockResolvedValueOnce('secret-token');
+    const getJoinChannelCalls = () => vi.mocked(bridge.send).mock.calls.filter(
+      ([type]) => type === 'voice.joinChannel',
+    );
+
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming', hasPasswordRestriction: true },
+        ],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    await act(async () => {
+      view.getByTestId('sidebar-join-channel-2').click();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
+        title: 'Channel Password',
+        message: 'Enter the password for Gaming.',
+        placeholder: 'Password',
+        confirmLabel: 'Join',
+        cancelLabel: 'Cancel',
+      }));
+    });
+    await waitFor(() => {
+      expect(bridge.send).toHaveBeenCalledWith('voice.joinChannel', { channelId: 2, password: 'secret-token' });
+    });
+    expect(getJoinChannelCalls()).toEqual([
+      ['voice.joinChannel', { channelId: 2, password: 'secret-token' }],
+    ]);
+  });
+
+  it('prompts for a channel password when a password-denial reason reveals an uncached password ACL', async () => {
     const { prompt } = await import('./hooks/usePrompt');
     vi.mocked(prompt).mockResolvedValueOnce('secret-token');
     const getJoinChannelCalls = () => vi.mocked(bridge.send).mock.calls.filter(
@@ -1965,11 +2215,11 @@ describe('active share discovery', () => {
       await Promise.resolve();
     });
 
-    expect(bridge.send).toHaveBeenCalledWith('voice.joinChannel', { channelId: 2 });
-
     await act(async () => {
       bridge.emit('voice.error', {
         type: 'permissionDenied',
+        permission: 4,
+        channelId: 2,
         message: CHANNEL_PASSWORD_DENIAL_MESSAGE,
       });
     });
@@ -1978,9 +2228,6 @@ describe('active share discovery', () => {
       expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
         title: 'Channel Password',
         message: 'Enter the password for Gaming.',
-        placeholder: 'Password',
-        confirmLabel: 'Join',
-        cancelLabel: 'Cancel',
       }));
     });
     await waitFor(() => {
@@ -1992,7 +2239,7 @@ describe('active share discovery', () => {
     ]);
   });
 
-  it('does not retry when the user cancels the channel password prompt', async () => {
+  it('does not join when the user cancels the known channel password prompt', async () => {
     const { prompt } = await import('./hooks/usePrompt');
     vi.mocked(prompt).mockResolvedValueOnce(null);
     const getJoinChannelCalls = () => vi.mocked(bridge.send).mock.calls.filter(
@@ -2007,7 +2254,7 @@ describe('active share discovery', () => {
         channelId: 1,
         channels: [
           { id: 1, name: 'General' },
-          { id: 2, name: 'Gaming' },
+          { id: 2, name: 'Gaming', hasPasswordRestriction: true },
         ],
         users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
       });
@@ -2018,13 +2265,6 @@ describe('active share discovery', () => {
       await Promise.resolve();
     });
 
-    await act(async () => {
-      bridge.emit('voice.error', {
-        type: 'permissionDenied',
-        message: CHANNEL_PASSWORD_DENIAL_MESSAGE,
-      });
-    });
-
     await waitFor(() => {
       expect(prompt).toHaveBeenCalledTimes(1);
     });
@@ -2032,9 +2272,7 @@ describe('active share discovery', () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(getJoinChannelCalls()).toEqual([
-      ['voice.joinChannel', { channelId: 2 }],
-    ]);
+    expect(getJoinChannelCalls()).toEqual([]);
   });
 
   it('does not prompt for unrelated permission denials', async () => {
@@ -2065,6 +2303,8 @@ describe('active share discovery', () => {
     await act(async () => {
       bridge.emit('voice.error', {
         type: 'permissionDenied',
+        permission: 4,
+        channelId: 2,
         message: 'Permission denied: missing enter permission',
       });
       await Promise.resolve();
@@ -2092,7 +2332,7 @@ describe('active share discovery', () => {
         channelId: 1,
         channels: [
           { id: 1, name: 'General' },
-          { id: 2, name: 'Gaming' },
+          { id: 2, name: 'Gaming', hasPasswordRestriction: true },
         ],
         users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
       });
@@ -2106,6 +2346,8 @@ describe('active share discovery', () => {
     await act(async () => {
       bridge.emit('voice.error', {
         type: 'permissionDenied',
+        permission: 4,
+        channelId: 2,
         message: CHANNEL_PASSWORD_DENIAL_MESSAGE,
       });
       await Promise.resolve();
@@ -2114,13 +2356,14 @@ describe('active share discovery', () => {
 
     expect(prompt).toHaveBeenCalledTimes(1);
     expect(getJoinChannelCalls()).toEqual([
-      ['voice.joinChannel', { channelId: 2 }],
       ['voice.joinChannel', { channelId: 2, password: 'wrong-secret' }],
     ]);
 
     await act(async () => {
       bridge.emit('voice.error', {
         type: 'permissionDenied',
+        permission: 4,
+        channelId: 2,
         message: CHANNEL_PASSWORD_DENIAL_MESSAGE,
       });
       await Promise.resolve();
@@ -2129,7 +2372,6 @@ describe('active share discovery', () => {
 
     expect(prompt).toHaveBeenCalledTimes(1);
     expect(getJoinChannelCalls()).toEqual([
-      ['voice.joinChannel', { channelId: 2 }],
       ['voice.joinChannel', { channelId: 2, password: 'wrong-secret' }],
     ]);
   });

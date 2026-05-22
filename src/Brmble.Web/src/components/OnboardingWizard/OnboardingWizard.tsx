@@ -780,6 +780,7 @@ export function OnboardingWizard({ onComplete, onServersImported, isMaximized }:
               <label htmlFor="onboarding-profile-name">Profile name</label>
               <input
                 id="onboarding-profile-name"
+                className="brmble-input"
                 type="text"
                 value={newName}
                 onChange={e => setNewName(e.target.value)}

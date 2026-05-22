@@ -403,7 +403,8 @@
 }
 
 .chat-typing-indicator {
-  min-height: 20px;
+  --chat-typing-indicator-min-height: calc(var(--space-lg) - var(--space-2xs));
+  min-height: var(--chat-typing-indicator-min-height);
   padding: 0 var(--space-md) var(--space-xs);
   color: var(--text-secondary);
   font-size: var(--text-xs);

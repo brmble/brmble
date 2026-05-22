@@ -100,6 +100,13 @@
   opacity: 1;
 }
 
+.channel-access-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-muted);
+  margin-left: var(--space-2xs);
+}
+
 .user-count {
   font-size: var(--text-xs);
   color: var(--text-muted);
@@ -180,10 +187,14 @@
    empty space that provides the visual tree indentation under the channel.
    Nothing outside this container shifts when mute/deafen toggles. */
 .user-status-area {
+  --user-status-gap: var(--space-2xs);
+  --user-status-hit-padding: var(--space-2xs);
+  --user-status-watch-glow: var(--glow-sm);
+  --user-status-badge-padding-block: var(--space-2xs);
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 2px;
+  gap: var(--user-status-gap);
   width: 24px;
   flex-shrink: 0;
 }
@@ -202,12 +213,12 @@
 .user-status-icon-btn {
   background: none;
   border: none;
-  padding: 2px;
+  padding: var(--user-status-hit-padding);
   border-radius: var(--radius-sm);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 
 .user-status-icon-btn:hover {
@@ -228,7 +239,7 @@
 }
 
 .user-status-icon--watching {
-  filter: drop-shadow(0 0 3px var(--accent-secondary));
+  filter: drop-shadow(0 0 var(--user-status-watch-glow) var(--accent-secondary));
 }
 
 .sharing-indicator {
@@ -245,7 +256,7 @@
 .sharing-badge {
   font-size: var(--text-2xs);
   color: var(--accent-primary);
-  padding: 1px var(--space-xs);
+  padding: var(--user-status-badge-padding-block) var(--space-xs);
   background: var(--accent-primary-subtle);
   border-radius: var(--radius-md);
   flex-shrink: 0;
@@ -267,7 +278,7 @@
 .self-badge {
   font-size: var(--text-2xs);
   color: var(--accent-success);
-  padding: 1px var(--space-xs);
+  padding: var(--user-status-badge-padding-block) var(--space-xs);
   background: var(--accent-success-subtle);
   border-radius: var(--radius-md);
   margin-left: var(--space-2xs);
@@ -325,7 +336,7 @@
   font-weight: 700;
   color: var(--bg-deep);
   background: var(--text-muted);
-  padding: 1px var(--space-xs);
+  padding: var(--user-status-badge-padding-block) var(--space-xs);
   border-radius: var(--radius-md);
   flex-shrink: 0;
   min-width: 18px;

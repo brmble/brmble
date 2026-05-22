@@ -123,7 +123,7 @@ export function AvatarEditorModal({ isOpen, onClose, currentUser, comment, onSet
   }
 
   return (
-    <div className="avatar-editor-overlay" onClick={onClose}>
+    <div className="modal-overlay avatar-editor-overlay" onClick={onClose}>
       <div
         ref={dialogRef}
         className="avatar-editor glass-panel animate-slide-up"
@@ -158,7 +158,7 @@ export function AvatarEditorModal({ isOpen, onClose, currentUser, comment, onSet
           {editingComment ? (
             <>
               <textarea
-                className="avatar-editor-comment-textarea"
+                className="brmble-input avatar-editor-comment-textarea"
                 value={commentDraft}
                 onChange={(e) => setCommentDraft(e.target.value)}
                 rows={3}

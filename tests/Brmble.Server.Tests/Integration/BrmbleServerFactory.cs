@@ -1,5 +1,6 @@
 using Brmble.Server.Auth;
 using Brmble.Server.Data;
+using Brmble.Server.Events;
 using Brmble.Server.Matrix;
 using Brmble.Server.Mumble;
 using Microsoft.AspNetCore.Hosting;
@@ -19,6 +20,8 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
     private readonly string? _certHash;
     public Mock<IAclAuthorizationService> AclAuthorizationMock { get; } = new();
     public Mock<IAclSyncCoordinator> AclCoordinatorMock { get; } = new();
+    public Mock<IMumbleAclService> MumbleAclMock { get; } = new();
+    public Mock<ISessionMappingService> SessionMappingMock { get; } = new();
     public Mock<IMumbleRegistrationService> MumbleRegistrationMock { get; } = new();
 
     public BrmbleServerFactory(string? certHash = "testcerthash123")
@@ -28,6 +31,29 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
         _cs = $"Data Source={dbName};Mode=Memory;Cache=Shared";
         _keepAlive = new SqliteConnection(_cs);
         _keepAlive.Open();
+        AclAuthorizationMock.Setup(a => a.CanManageChannelAclAsync(It.IsAny<long>(), 0)).ReturnsAsync(true);
+        var defaultSessionMapping = new SessionMappingService();
+        SessionMappingMock.Setup(s => s.SetNameForSession(It.IsAny<string>(), It.IsAny<int>()))
+            .Callback<string, int>(defaultSessionMapping.SetNameForSession);
+        SessionMappingMock.Setup(s => s.RemoveSession(It.IsAny<int>()))
+            .Callback<int>(defaultSessionMapping.RemoveSession);
+        SessionMappingMock.Setup(s => s.TryAddMatrixUser(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<long>(), It.IsAny<string>()))
+            .Returns((int sessionId, string matrixUserId, string mumbleName, long userId, string companionId) =>
+                defaultSessionMapping.TryAddMatrixUser(sessionId, matrixUserId, mumbleName, userId, companionId));
+        SessionMappingMock.Setup(s => s.TryUpdateBrmbleStatus(It.IsAny<int>(), It.IsAny<bool>()))
+            .Returns((int sessionId, bool isBrmbleClient) => defaultSessionMapping.TryUpdateBrmbleStatus(sessionId, isBrmbleClient));
+        SessionMappingMock.Setup(s => s.TryUpdateCompanionId(It.IsAny<int>(), It.IsAny<string>()))
+            .Returns((int sessionId, string companionId) => defaultSessionMapping.TryUpdateCompanionId(sessionId, companionId));
+        SessionMappingMock.Setup(s => s.TryGetSessionId(It.IsAny<string>(), out It.Ref<int>.IsAny))
+            .Returns((string mumbleName, out int sessionId) => defaultSessionMapping.TryGetSessionId(mumbleName, out sessionId));
+        SessionMappingMock.Setup(s => s.TryGetSessionByUserId(It.IsAny<long>(), out It.Ref<int>.IsAny))
+            .Returns((long userId, out int sessionId) => defaultSessionMapping.TryGetSessionByUserId(userId, out sessionId));
+        SessionMappingMock.Setup(s => s.TryGetMappingByUserId(It.IsAny<long>(), out It.Ref<int>.IsAny, out It.Ref<SessionMapping?>.IsAny))
+            .Returns((long userId, out int sessionId, out SessionMapping? mapping) =>
+                defaultSessionMapping.TryGetMappingByUserId(userId, out sessionId, out mapping));
+        SessionMappingMock.Setup(s => s.TryGetMatrixUserId(It.IsAny<int>(), out It.Ref<string?>.IsAny))
+            .Returns((int sessionId, out string? matrixUserId) => defaultSessionMapping.TryGetMatrixUserId(sessionId, out matrixUserId));
+        SessionMappingMock.Setup(s => s.GetSnapshot()).Returns(defaultSessionMapping.GetSnapshot);
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -80,6 +106,14 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
             var aclSync = services.FirstOrDefault(d => d.ServiceType == typeof(IAclSyncCoordinator));
             if (aclSync != null) services.Remove(aclSync);
             services.AddSingleton(AclCoordinatorMock.Object);
+
+            var aclService = services.FirstOrDefault(d => d.ServiceType == typeof(IMumbleAclService));
+            if (aclService != null) services.Remove(aclService);
+            services.AddSingleton(MumbleAclMock.Object);
+
+            var sessionMapping = services.FirstOrDefault(d => d.ServiceType == typeof(ISessionMappingService));
+            if (sessionMapping != null) services.Remove(sessionMapping);
+            services.AddSingleton(SessionMappingMock.Object);
 
             var registration = services.FirstOrDefault(d => d.ServiceType == typeof(IMumbleRegistrationService));
             if (registration != null) services.Remove(registration);

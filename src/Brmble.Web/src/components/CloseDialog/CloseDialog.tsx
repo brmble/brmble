@@ -53,16 +53,17 @@ export function CloseDialog({ isOpen, onMinimize, onQuit }: CloseDialogProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="close-dialog-overlay">
+    <div className="modal-overlay close-dialog-overlay" onClick={() => onMinimize(dontAskAgain)}>
       {/* Fix 2: ARIA dialog semantics */}
       <div
         className="close-dialog-card glass-panel animate-slide-up"
         role="dialog"
         aria-modal="true"
         aria-labelledby="close-dialog-title"
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Fix 2: id on heading to satisfy aria-labelledby */}
-        <h2 id="close-dialog-title" className="heading-title close-dialog-title">Leaving so soon?</h2>
+        <h2 id="close-dialog-title" className="heading-title modal-title close-dialog-title">Leaving so soon?</h2>
         <p className="close-dialog-subtitle">Choose what happens when you close the window.</p>
 
         <div className="close-dialog-buttons">

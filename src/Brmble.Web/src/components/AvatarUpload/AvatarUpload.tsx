@@ -178,7 +178,7 @@ export default function AvatarUpload({ onUpload, onCancel }: AvatarUploadProps) 
   }, [imageSrc]);
 
   return (
-    <div className="avatar-upload-overlay" onClick={onCancel}>
+    <div className="modal-overlay avatar-upload-overlay" onClick={onCancel}>
       <div
         ref={dialogRef}
         className="avatar-upload glass-panel animate-slide-up"

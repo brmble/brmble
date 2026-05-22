@@ -6,6 +6,7 @@ import { ContractSlot } from './contracts/ContractSlot';
 import { confirm } from '../../hooks/usePrompt';
 import { Select } from '../Select/Select';
 import { Tooltip } from '../Tooltip/Tooltip';
+import { Icon } from '../Icon/Icon';
 import './GameUI.css';
 
 interface GameUIProps {
@@ -20,7 +21,7 @@ function ContractsSection({ state, actions }: { state: GameState; actions: GameA
   return (
     <div className="contracts-section">
       <div className="contracts-header">
-        <h2 className="heading-section">Contracts</h2>
+        <h3 className="heading-section">Contracts</h3>
       </div>
       
       <div className="contracts-slots">
@@ -83,21 +84,33 @@ export function GameUI({ onClose }: GameUIProps) {
   }, [state.pendingContract]);
 
   const handleConfirmContract = useCallback(async () => {
-    if (pendingLicenseId) {
-      actions.assignContract(pendingLicenseId);
-      setPendingLicenseId(null);
-    }
-  }, [pendingLicenseId, actions]);
+    if (!pendingLicenseId || !state.pendingContract) return;
 
-  const handleCancelContract = useCallback(() => {
+    const serviceName = state.services.find(s => s.id === pendingLicenseId)?.name ?? 'this service';
+    const confirmed = await confirm({
+      title: 'Activate Contract?',
+      message: `Assign ${state.pendingContract.contract.name} to ${serviceName}? Once activated, the contract will start immediately and the time limit will begin counting down.`,
+      confirmLabel: 'Activate',
+      cancelLabel: 'Cancel',
+    });
+
+    if (confirmed) {
+      actions.assignContract(pendingLicenseId);
+    }
     setPendingLicenseId(null);
-  }, []);
+  }, [pendingLicenseId, state.pendingContract, state.services, actions]);
 
   useEffect(() => {
     if (!state.pendingContract && pendingLicenseId !== null) {
       setPendingLicenseId(null);
     }
   }, [state.pendingContract, pendingLicenseId]);
+
+  useEffect(() => {
+    if (pendingLicenseId && state.pendingContract) {
+      void handleConfirmContract();
+    }
+  }, [pendingLicenseId, state.pendingContract, handleConfirmContract]);
   
   const handleClose = useCallback(() => {
     actions.saveGame();
@@ -187,7 +200,7 @@ export function GameUI({ onClose }: GameUIProps) {
             </div>
             <div className="modal-body">
               <textarea
-                className="import-textarea"
+                className="brmble-input import-textarea"
                 value={importData}
                 onChange={e => setImportData(e.target.value)}
                 placeholder="Paste save data here..."
@@ -258,32 +271,6 @@ export function GameUI({ onClose }: GameUIProps) {
         />
       )}
 
-      {pendingLicenseId && state.pendingContract && (
-        <div className="modal-overlay" onClick={handleCancelContract}>
-          <div className="prompt glass-panel animate-slide-up" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2 className="heading-title modal-title">Activate Contract?</h2>
-              <p className="modal-subtitle">
-                Assign <strong>{state.pendingContract.contract.name}</strong> to{' '}
-                <strong>{state.services.find(s => s.id === pendingLicenseId)?.name}</strong>?
-              </p>
-            </div>
-            <div className="modal-body">
-              <p className="confirm-details">
-                Once activated, the contract will start immediately and the time limit will begin counting down.
-              </p>
-            </div>
-            <div className="prompt-footer">
-              <button className="btn btn-secondary" onClick={handleCancelContract}>
-                Cancel
-              </button>
-              <button className="btn btn-primary" onClick={handleConfirmContract}>
-                Activate
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -473,7 +460,7 @@ function InfrastructureTab({ infrastructure, onBuy, onUpgrade1, onUpgrade2, onUp
 
   return (
     <div className="infra-tab">
-      <h2 className="heading-section">Infrastructure</h2>
+      <h3 className="heading-section">Infrastructure</h3>
       <div className="services-section">
         {infrastructure.map(infra => {
           const cost = calculateCost(infra);
@@ -536,15 +523,15 @@ function TechUpgradesTab({ infrastructure, services, money, onUnlockInfrastructu
 
   return (
     <div className="upgrades-tab">
-      <h2 className="heading-section">Upgrades</h2>
+      <h3 className="heading-section">Upgrades</h3>
       
       {unlockedInfrastructure.length > 0 && (
         <div className="unlocked-section">
-          <h3 className="heading-label">Unlocked Infrastructure</h3>
+          <h4 className="heading-label">Unlocked Infrastructure</h4>
           <div className="unlocked-list">
             {unlockedInfrastructure.map(infra => (
               <div key={infra.id} className="unlocked-item">
-                <span className="unlocked-check">✓</span>
+                <Icon name="check" size={12} className="unlocked-check" />
                 <span className="unlocked-name">{infra.name}</span>
               </div>
             ))}
@@ -554,11 +541,11 @@ function TechUpgradesTab({ infrastructure, services, money, onUnlockInfrastructu
 
       {unlockedServices.length > 0 && (
         <div className="unlocked-section">
-          <h3 className="heading-label">Unlocked Services</h3>
+          <h4 className="heading-label">Unlocked Services</h4>
           <div className="unlocked-list">
             {unlockedServices.map(service => (
               <div key={service.id} className="unlocked-item">
-                <span className="unlocked-check">✓</span>
+                <Icon name="check" size={12} className="unlocked-check" />
                 <span className="unlocked-name">{service.name}</span>
               </div>
             ))}
@@ -617,7 +604,7 @@ function TechUpgradesTab({ infrastructure, services, money, onUnlockInfrastructu
       )}
 
       <div className="services-section">
-        <h3 className="heading-label">Contract Slots</h3>
+        <h4 className="heading-label">Contract Slots</h4>
         <div className="infra-row">
           <div className="infra-info">
             <span className="service-name">
@@ -675,7 +662,7 @@ function HostingTab({ services, uploadSpeed, bandwidthDemanded, onBuyService, on
       )}
       
       <div className="services-section">
-        <h3 className="heading-label">Services</h3>
+        <h4 className="heading-label">Services</h4>
         <div className="services-header">
           <span>Name</span>
           <span>Owned</span>
@@ -835,10 +822,10 @@ function OptionsTab({
 
   return (
     <div className="options-tab">
-      <h2 className="heading-section">Options</h2>
+      <h3 className="heading-section">Options</h3>
 
       <div className="options-section">
-        <h3 className="options-section-title">Theme</h3>
+        <h3 className="heading-section options-section-title">Theme</h3>
         <Select
           value={theme}
           onChange={(val) => { setTheme(val); onSetTheme(val); }}
@@ -850,7 +837,7 @@ function OptionsTab({
       </div>
 
       <div className="options-section">
-        <h3 className="options-section-title">Sound</h3>
+        <h3 className="heading-section options-section-title">Sound</h3>
         <div className="options-slider-container">
           <label className="options-label">Volume</label>
           <input 
@@ -866,7 +853,7 @@ function OptionsTab({
       </div>
 
       <div className="options-section">
-        <h3 className="options-section-title">Game Data</h3>
+        <h3 className="heading-section options-section-title">Game Data</h3>
         <div className="options-buttons">
           <button className="btn btn-secondary" onClick={onSave}>
             Save Now
@@ -882,7 +869,7 @@ function OptionsTab({
         <div className="import-section">
           <label className="options-label">Import Save Data</label>
           <textarea
-            className="options-textarea"
+            className="brmble-input options-textarea"
             value={importData}
             onChange={(e) => setImportData(e.target.value)}
             placeholder="Paste save data here..."

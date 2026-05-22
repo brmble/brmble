@@ -144,7 +144,7 @@ export function UserInfoDialog({
   if (!isOpen) return null;
 
   return (
-    <div className="user-info-overlay" onClick={onClose}>
+    <div className="modal-overlay user-info-overlay" onClick={onClose}>
       <div
         ref={dialogRef}
         className="user-info-card glass-panel animate-slide-up"
@@ -158,7 +158,7 @@ export function UserInfoDialog({
             <Avatar user={{ name: userName, matrixUserId, avatarUrl }} size={56} isMumbleOnly={!matrixUserId} />
           </div>
           <div className="user-info-title-row">
-            <h2 id="user-info-title" className="user-info-name">{userName}</h2>
+            <h2 id="user-info-title" className="heading-title modal-title user-info-name">{userName}</h2>
             {isSelf && <span className="user-info-badge">you</span>}
           </div>
         </div>
@@ -201,7 +201,7 @@ export function UserInfoDialog({
         <div className="user-info-mute-section">
           <span className="user-info-label">Local Mute</span>
           <button 
-            className={`user-info-mute-btn ${localMuted ? 'muted' : ''}`}
+            className={`btn btn-secondary user-info-mute-btn ${localMuted ? 'muted' : ''}`}
             onClick={toggleLocalMute}
           >
             {localMuted ? 'Unmute' : 'Mute'}
@@ -212,7 +212,7 @@ export function UserInfoDialog({
           <span className="user-info-label">Comment</span>
           {isSelf && editingComment ? (
             <textarea
-              className="user-info-comment-textarea"
+              className="brmble-input user-info-comment-textarea"
               value={commentDraft}
               onChange={(e) => setCommentDraft(e.target.value)}
               rows={3}

@@ -40,8 +40,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private readonly CertificateService? _certService;
     private uint? _previousChannelId;
     private uint? _pendingLocalJoinChannelId;
-    private string? _pendingJoinPassword;
-    private bool _hasActiveJoinToken;
     private bool _leftVoice;
     private bool _leaveVoiceInProgress;
     private bool _canRejoin;
@@ -61,6 +59,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private string? _activeServerId;
     private Dictionary<string, string> _userMappings = new();
     private readonly ConcurrentDictionary<uint, SessionMappingEntry> _sessionMappings = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<uint, bool> _channelPasswordRestrictions = new();
     private CancellationTokenSource? _wsCts;
     private long _wsGeneration;
     private readonly IAppConfigService? _appConfigService;
@@ -416,11 +415,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         UserDictionary.Clear();
         ChannelDictionary.Clear();
+        _channelPasswordRestrictions.Clear();
         _lastWelcomeText = null;
         _previousChannelId = null;
         _pendingLocalJoinChannelId = null;
-        _pendingJoinPassword = null;
-        _hasActiveJoinToken = false;
         if (_intentionalDisconnect || _reconnectHost == null)
         {
             _apiUrl = null;
@@ -960,44 +958,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             return;
 
         _pendingLocalJoinChannelId = channelId;
-        _pendingJoinPassword = string.IsNullOrWhiteSpace(password) ? null : password;
-        ApplyPendingJoinPasswordToken();
-        Connection.SendControl(PacketType.UserState, new UserState { ChannelId = channelId });
+        Connection.SendControl(PacketType.UserState, CreateJoinUserState(channelId, password));
         SendPermissionQuery(new PermissionQuery { ChannelId = channelId });
     }
 
-    private void ApplyPendingJoinPasswordToken()
+    private static UserState CreateJoinUserState(uint channelId, string? password)
     {
-        if (string.IsNullOrWhiteSpace(_pendingJoinPassword))
-            return;
-
-        var auth = new Authenticate
+        var userState = new UserState { ChannelId = channelId };
+        if (!string.IsNullOrWhiteSpace(password))
         {
-            Username = LocalUser?.Name ?? _reconnectUsername ?? string.Empty,
-            Opus = true,
-        };
-        auth.Tokens.Add(_pendingJoinPassword);
-        SendAuthenticate(auth);
-        _hasActiveJoinToken = true;
-    }
-
-    private void ClearTemporaryJoinToken()
-    {
-        if (!_hasActiveJoinToken)
-            return;
-
-        if (Connection is not { State: ConnectionStates.Connected })
-            return;
-
-        // Send empty token list to clear the temporary token from session
-        var auth = new Authenticate
-        {
-            Username = LocalUser?.Name ?? _reconnectUsername ?? string.Empty,
-            Opus = true,
-        };
-        // Empty Tokens collection removes all tokens from the session
-        SendAuthenticate(auth);
-        _hasActiveJoinToken = false;
+            userState.TemporaryAccessTokens.Add(password);
+        }
+        return userState;
     }
 
     public void RequestPermissions(uint channelId)
@@ -1484,6 +1456,19 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     private static bool IsBrmblePasswordMarker(string? group)
         => !string.IsNullOrWhiteSpace(group) && group.StartsWith(BrmblePasswordMarkerPrefix, StringComparison.Ordinal);
+
+    private void UpdateChannelPasswordRestriction(uint channelId, string aclJson)
+    {
+        _channelPasswordRestrictions[channelId] = ContainsManagedPasswordMarker(aclJson);
+        if (ChannelDictionary.TryGetValue(channelId, out var channel))
+        {
+            _bridge?.Send("voice.channelJoined", CreateChannelPayload(channel));
+            _bridge?.NotifyUiThread();
+        }
+    }
+
+    private static bool ContainsManagedPasswordMarker(string aclJson)
+        => aclJson.Contains("__brmble_password_marker__:#", StringComparison.Ordinal);
 
     private static bool IsManagedPasswordTokenRule(System.Text.Json.JsonElement acl, string selector)
     {
@@ -2529,6 +2514,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     break;
 
                 case "acl.changed":
+                    var aclChannelId = root.TryGetProperty("channelId", out var aclChannelProp) ? aclChannelProp.GetUInt32() : 0u;
+                    if (aclChannelId > 0)
+                    {
+                        UpdateChannelPasswordRestriction(aclChannelId, json);
+                    }
                     _bridge?.Send("acl.changed", System.Text.Json.JsonSerializer.Deserialize<object>(json));
                     _bridge?.NotifyUiThread();
                     break;
@@ -3324,6 +3314,34 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _bridge?.NotifyUiThread();
         });
 
+        bridge.RegisterHandler("chat.getChannelAccess", async data =>
+        {
+            var channelIds = data.TryGetProperty("channelIds", out var ids) && ids.ValueKind == System.Text.Json.JsonValueKind.Array
+                ? ids.EnumerateArray().Where(e => e.ValueKind == System.Text.Json.JsonValueKind.Number).Select(e => e.GetInt32()).Where(id => id > 0).Distinct().ToArray()
+                : [];
+
+            if (channelIds.Length == 0 || _apiUrl is null)
+            {
+                _bridge?.Send("chat.channelAccess", new { channels = new Dictionary<string, object>() });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            using var cert = _certService?.GetExportableCertificate();
+            if (cert is null)
+            {
+                _bridge?.Send("chat.channelAccessError", new { error = "No client certificate" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            var uri = new Uri(new Uri(_apiUrl, UriKind.Absolute), "chat/channel-access");
+            var requestJson = System.Text.Json.JsonSerializer.Serialize(new { channelIds });
+            var result = await PostViaBcTls(cert, uri, requestJson);
+            _bridge?.Send(result.Success ? "chat.channelAccess" : "chat.channelAccessError", new { body = result.Body, statusCode = result.StatusCode, error = result.Error });
+            _bridge?.NotifyUiThread();
+        });
+
         bridge.RegisterHandler("acl.setChannel", async data =>
         {
             var channelId = data.TryGetProperty("channelId", out var cid) && cid.ValueKind == System.Text.Json.JsonValueKind.Number
@@ -3673,13 +3691,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private void SendVoiceConnected(uint? overrideChannelId = null)
     {
         var channelId = overrideChannelId ?? (uint)(LocalUser?.Channel?.Id ?? 0);
-        var channels = Channels.Select(c => new
-        {
-            id = c.Id,
-            name = c.Name,
-            parent = c.Parent,
-            isEnterRestricted = c.IsEnterRestricted
-        }).ToList();
+        var channels = Channels.Select(CreateChannelPayload).ToList();
         var users = Users.Select(u =>
         {
             var hasMap = _sessionMappings.TryGetValue(u.Id, out var sm);
@@ -3715,6 +3727,16 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         Debug.WriteLine($"[Mumble] Sent {channels.Count} channels and {users.Count} users");
     }
+
+    private object CreateChannelPayload(Channel channel) => new
+    {
+        id = channel.Id,
+        name = channel.Name,
+        parent = channel.Parent,
+        isEnterRestricted = channel.IsEnterRestricted,
+        canEnter = channel.CanEnter,
+        hasPasswordRestriction = _channelPasswordRestrictions.TryGetValue(channel.Id, out var hasPasswordRestriction) && hasPasswordRestriction,
+    };
 
     /// <summary>
     /// Called when the server sends updated configuration.
@@ -3855,15 +3877,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 if (_pendingLocalJoinChannelId == currentChannelId)
                 {
                     _pendingLocalJoinChannelId = null;
-                    _pendingJoinPassword = null;
-                    ClearTemporaryJoinToken();
                 }
             }
             else if (_pendingLocalJoinChannelId == currentChannelId)
             {
                 _pendingLocalJoinChannelId = null;
-                _pendingJoinPassword = null;
-                ClearTemporaryJoinToken();
                 if (_leftVoice && LocalUser != null)
                 {
                     ClearLeaveVoiceState();
@@ -4075,13 +4093,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         if (ChannelDictionary.TryGetValue(channelState.ChannelId, out var channel))
         {
-            _bridge?.Send("voice.channelJoined", new
-            {
-                id = channel.Id,
-                name = channel.Name,
-                parent = channel.Parent,
-                isEnterRestricted = channel.IsEnterRestricted
-            });
+            _bridge?.Send("voice.channelJoined", CreateChannelPayload(channel));
         }
     }
 
@@ -4120,14 +4132,21 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     {
         base.PermissionDenied(permissionDenied);
 
-        _pendingJoinPassword = null;
-        ClearTemporaryJoinToken();
-
         var reason = !string.IsNullOrEmpty(permissionDenied.Reason)
             ? permissionDenied.Reason
             : $"Permission denied: {permissionDenied.Type}";
 
-        _bridge?.Send("voice.error", new { message = reason, type = "permissionDenied" });
+        _bridge?.Send("voice.error", new
+        {
+            type = "permissionDenied",
+            denyType = permissionDenied.Type.ToString(),
+            permission = permissionDenied.ShouldSerializePermission() ? (int?)permissionDenied.Permission : null,
+            channelId = permissionDenied.ShouldSerializeChannelId() ? (uint?)permissionDenied.ChannelId : null,
+            session = permissionDenied.ShouldSerializeSession() ? (uint?)permissionDenied.Session : null,
+            reason = permissionDenied.Reason,
+            name = permissionDenied.Name,
+            message = reason,
+        });
         _bridge?.NotifyUiThread();
     }
 

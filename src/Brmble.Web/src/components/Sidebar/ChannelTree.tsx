@@ -12,7 +12,6 @@ import { formatIdleDuration } from '../../utils/formatIdleDuration';
 import { AFK_THRESHOLD_SEC } from '../../hooks/useIdleActions';
 import type { ShareInfo } from '../../hooks/useScreenShare';
 import { EditChannelDialog } from '../EditChannelDialog/EditChannelDialog';
-import { RenameConfirmDialog } from '../RenameConfirmDialog/RenameConfirmDialog';
 import { Icon } from '../Icon/Icon';
 import { AclEditorDialog } from '../AclEditor/AclEditorDialog';
 import './ChannelTree.css';
@@ -37,6 +36,8 @@ interface Channel {
   parent?: number;
   description?: string;
   isEnterRestricted?: boolean;
+  canEnter?: boolean;
+  hasPasswordRestriction?: boolean;
 }
 
 interface ChannelWithUsers extends Channel {
@@ -91,12 +92,6 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
   const [dropTargetChannel, setDropTargetChannel] = useState<number | null>(null);
   const [editChannelDialog, setEditChannelDialog] = useState<{ id: number; name: string; description?: string; initialPassword: string } | null>(null);
   const [aclEditorChannel, setAclEditorChannel] = useState<{ id: number; name: string } | null>(null);
-  const [renameConfirmDialog, setRenameConfirmDialog] = useState<{
-    channelId: number;
-    oldName: string;
-    newName: string;
-    description: string;
-  } | null>(null);
   const { hasPermission, Permission, requestPermissions } = usePermissions();
   const sharingChannelIds = useMemo(() => {
     const ids = new Set<number>();
@@ -271,6 +266,14 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     const isCurrentChannel = currentChannelId === channel.id;
     const unreadInfo = channelUnreads?.get(String(channel.id));
     const hasUnread = ((unreadInfo?.notificationCount ?? 0) + (unreadInfo?.highlightCount ?? 0)) > 0;
+    const lockIconName = channel.isEnterRestricted || channel.hasPasswordRestriction
+      ? channel.hasPasswordRestriction ? 'key-round' : channel.canEnter === false ? 'lock' : 'unlock'
+      : null;
+    const lockTooltip = channel.hasPasswordRestriction
+      ? 'Password-protected channel'
+      : channel.canEnter === false
+        ? 'Restricted channel'
+      : 'Restricted channel, access allowed';
 
     const isChannelActive = (channelId: number) => channelContextMenu?.channelId === channelId;
 
@@ -338,7 +341,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
               className="channel-sort-btn"
               onClick={(e) => toggleSort(channel.id, e)}
             >
-              {(sortByNamePerChannel[channel.id] ?? false) ? 'A-Z' : '↺'}
+              {(sortByNamePerChannel[channel.id] ?? false) ? 'A-Z' : <Icon name="refresh-cw" size={12} />}
             </button>
             </Tooltip>
           )}
@@ -363,6 +366,13 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
               </>
             );
           })()}
+          {lockIconName && (
+            <Tooltip content={lockTooltip}>
+              <span className="channel-access-icon" aria-label={lockTooltip}>
+                <Icon name={lockIconName} size={11} />
+              </span>
+            </Tooltip>
+          )}
         </div>
         
         {isExpanded && (
@@ -721,44 +731,32 @@ onClick: () => {
           initialDescription={editChannelDialog.description}
           initialPassword={editChannelDialog.initialPassword}
           onClose={() => setEditChannelDialog(null)}
-          onSave={(name, description) => {
+          onSave={async (name, description) => {
             const channel = channels.find(c => c.id === editChannelDialog!.id);
             const oldName = channel?.name || '';
 
             if (name !== oldName) {
-              setRenameConfirmDialog({
-                channelId: editChannelDialog!.id,
-                oldName,
-                newName: name,
-                description,
+              const result = await prompt({
+                title: 'Confirm Channel Rename',
+                message: `Renaming "${oldName}" to "${name}" will update the channel name for all users. Type "change" to confirm.`,
+                placeholder: 'change',
+                confirmLabel: 'Confirm',
+                cancelLabel: 'Cancel',
               });
-            } else {
-              bridge.send('voice.editChannel', {
-                channelId: editChannelDialog!.id,
-                name,
-                description,
-              });
-            }
-          }}
-          onError={(msg) => console.error('Edit channel error:', msg)}
-        />
-      )}
 
-      {renameConfirmDialog && (
-        <RenameConfirmDialog
-          isOpen={true}
-          oldName={renameConfirmDialog.oldName}
-          newName={renameConfirmDialog.newName}
-          onClose={() => setRenameConfirmDialog(null)}
-          onConfirm={() => {
+              if (result?.trim().toLowerCase() !== 'change') return;
+            } else {
+              setEditChannelDialog(null);
+            }
+
             bridge.send('voice.editChannel', {
-              channelId: renameConfirmDialog.channelId,
-              name: renameConfirmDialog.newName,
-              description: renameConfirmDialog.description,
+              channelId: editChannelDialog!.id,
+              name,
+              description,
             });
             setEditChannelDialog(null);
-            setRenameConfirmDialog(null);
           }}
+          onError={(msg) => console.error('Edit channel error:', msg)}
         />
       )}
 

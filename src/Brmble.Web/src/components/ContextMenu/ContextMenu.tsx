@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { Icon } from '../Icon/Icon';
 import './ContextMenu.css';
 
 const MOUSE_LEAVE_CLOSE_DELAY = 400;
@@ -81,7 +82,9 @@ function CheckboxMenuItem({ item }: { item: { type: 'checkbox'; label: string; c
         }}
       >
         <span className="context-menu-label">{item.label}</span>
-        <span aria-hidden="true">{item.checked ? '☑' : '☐'}</span>
+        <span className="context-menu-check" aria-hidden="true">
+          {item.checked ? <Icon name="check" size={14} /> : null}
+        </span>
       </div>
     </div>
   );

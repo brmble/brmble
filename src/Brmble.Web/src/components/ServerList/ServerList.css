@@ -92,7 +92,7 @@
   border: none;
   color: var(--accent-danger);
   cursor: pointer;
-  padding: 0.25rem;
+  padding: var(--space-2xs);
   font-size: var(--text-base);
   line-height: 1;
   opacity: 0.7;
@@ -144,6 +144,8 @@
 }
 
 .server-list-icon {
+  --server-list-icon-shadow-y: var(--space-2xs);
+  --server-list-icon-shadow-blur: var(--space-sm);
   width: 44px;
   height: 44px;
   border-radius: var(--radius-lg);
@@ -156,7 +158,7 @@
   font-weight: 600;
   color: var(--text-primary);
   flex-shrink: 0;
-  box-shadow: 0 4px 12px var(--accent-primary-glow);
+  box-shadow: 0 var(--server-list-icon-shadow-y) var(--server-list-icon-shadow-blur) var(--accent-primary-glow);
 }
 
 .server-list-info {
@@ -164,7 +166,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.125rem;
+  gap: var(--space-2xs);
 }
 
 .server-list-name {
@@ -400,7 +402,7 @@
   font-size: var(--text-2xs);
   color: var(--text-muted);
   background: var(--bg-deep);
-  padding: 1px var(--space-xs);
+  padding: var(--space-2xs) var(--space-xs);
   border-radius: var(--radius-sm);
   white-space: nowrap;
   flex-shrink: 0;

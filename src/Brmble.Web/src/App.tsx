@@ -353,14 +353,15 @@ interface PendingJoinAttempt {
   passwordRetrySent: boolean;
 }
 
-function isPasswordProtectedJoinError(data: unknown): boolean {
-  const d = data as { type?: string; message?: string } | undefined;
-  if (d?.type !== 'permissionDenied') {
-    return false;
-  }
+function isPasswordProtectedDenialReason(data: unknown): boolean {
+  const d = data as { message?: string; reason?: string } | undefined;
+  const text = `${d?.message ?? ''} ${d?.reason ?? ''}`.toLowerCase();
+  return text.includes('password') && text.includes('token');
+}
 
-  const message = (d.message ?? '').toLowerCase();
-  return message.includes('password') || message.includes('token') || message.includes('temporary access');
+function isPasswordProtectedJoinError(data: unknown, channel?: Channel): boolean {
+  return isStructuredEnterDenied(data)
+    && (channel?.hasPasswordRestriction === true || isPasswordProtectedDenialReason(data));
 }
 
 interface NextLiveKitStatusOptions {
@@ -579,6 +580,10 @@ interface Channel {
   name: string;
   parent?: number;
   isEnterRestricted?: boolean;
+  canEnter?: boolean;
+  hasPasswordRestriction?: boolean;
+  canOpenChat?: boolean;
+  canSendChat?: boolean;
 }
 
 interface User {
@@ -596,13 +601,118 @@ interface User {
   isBrmbleClient?: boolean;
 }
 
+interface ChannelChatAccessState {
+  canRead: boolean;
+  canSend: boolean;
+}
+
+type ChannelChatAccessMap = Record<string, ChannelChatAccessState>;
+
+const MUMBLE_PERMISSION_ENTER = 4;
+
+export function mergeChannelChatAccess(channels: Channel[], access: ChannelChatAccessMap): Channel[] {
+  let changed = false;
+  const merged = channels.map(channel => {
+    const state = access[String(channel.id)];
+    if (!state) return channel;
+    if (channel.canOpenChat === state.canRead && channel.canSendChat === state.canSend) return channel;
+    changed = true;
+    return {
+      ...channel,
+      canOpenChat: state.canRead,
+      canSendChat: state.canSend,
+    };
+  });
+  return changed ? merged : channels;
+}
+
+export function getResolvedChannelChatAccess(channelIds: number[]): ChannelChatAccessMap {
+  return Object.fromEntries(channelIds.map(id => [String(id), { canRead: true, canSend: true }]));
+}
+
+export function getChannelChatAccessRequestIds(channels: Channel[]): number[] {
+  return [...new Set(channels.map(channel => channel.id).filter(id => id > 0))];
+}
+
+export function getChannelChatAccessRequestKey(channels: Channel[]): string {
+  return getChannelChatAccessRequestIds(channels).join(',');
+}
+
+export function canOpenChannelChat(channelId: string | undefined, channels: Channel[]): boolean {
+  if (!channelId) return false;
+  if (channelId === 'server-root') return true;
+  const channel = channels.find(c => String(c.id) === channelId);
+  return channel?.canOpenChat !== false;
+}
+
+export function canSendToChannelChat(channelId: string | undefined, channels: Channel[]): boolean {
+  if (!channelId) return false;
+  if (channelId === 'server-root') return true;
+  const channel = channels.find(c => String(c.id) === channelId);
+  return channel?.canSendChat !== false;
+}
+
+export function shouldAllowChannelChatSend(
+  channelId: string | undefined,
+  channels: Channel[],
+  statuses: ServiceStatusMap,
+  brmbleServiceBootstrapPhase: BrmbleServiceBootstrapPhase,
+): boolean {
+  return canSendToChannelChat(channelId, channels)
+    || isTemporaryChannelChatActive(channelId, statuses, brmbleServiceBootstrapPhase);
+}
+
+export function getPermittedMatrixChannelId(channelId: string | undefined, channels: Channel[]): string | null {
+  if (!channelId || channelId === 'server-root') return null;
+  const channel = channels.find(c => String(c.id) === channelId);
+  return channel?.canOpenChat === true ? channelId : null;
+}
+
+export function getChannelSelectionOutcome(
+  channelId: number,
+  channels: Channel[],
+  appMode: 'channels' | 'dm',
+) {
+  const channel = channels.find(c => c.id === channelId);
+  if (!channel) return undefined;
+  const canOpenChat = canOpenChannelChat(String(channelId), channels);
+  return {
+    channelId: String(channelId),
+    channelName: channel.name,
+    canOpenChat,
+    shouldExitDmMode: appMode === 'dm',
+    shouldClearDmSelection: true,
+  };
+}
+
+export function isStructuredEnterDenied(data: unknown): boolean {
+  const d = data as { type?: string; permission?: number } | undefined;
+  return d?.type === 'permissionDenied' && d.permission === MUMBLE_PERMISSION_ENTER;
+}
+
+export function getChannelAccessDeniedMessage(channel: Pick<Channel, 'hasPasswordRestriction'> | undefined): string {
+  return channel?.hasPasswordRestriction
+    ? 'Incorrect password or no access.'
+    : 'You do not have access to that channel.';
+}
+
+export type JoinAccessAction = 'join' | 'promptPassword' | 'deny';
+
+export function getJoinAccessAction(channel: Pick<Channel, 'canEnter' | 'hasPasswordRestriction'>): JoinAccessAction {
+  if (channel.canEnter === true) return 'join';
+  if (channel.hasPasswordRestriction) return 'promptPassword';
+  return channel.canEnter === false ? 'deny' : 'join';
+}
+
 export function isMatrixChannelChatActive(
   channelId: string | undefined,
   credentials: MatrixCredentials | null,
   statuses: ServiceStatusMap,
   selfUser: User | undefined,
+  channels: Channel[] = [],
 ): boolean {
   if (!channelId || channelId === 'server-root') return false;
+  if (!getPermittedMatrixChannelId(channelId, channels)) return false;
   if (statuses.server.state !== 'connected' || statuses.chat.state !== 'connected') return false;
   if (!selfUser?.isBrmbleClient) return false;
   return credentials?.roomMap[channelId] !== undefined;
@@ -1024,11 +1134,12 @@ function App() {
 
   // Per-panel Matrix room IDs for scoping mention suggestions
   const channelMatrixRoomId = useMemo(() => {
-    if (currentChannelId && currentChannelId !== 'server-root' && matrixCredentials?.roomMap?.[currentChannelId]) {
-      return matrixCredentials.roomMap[currentChannelId];
+    const matrixChannelId = getPermittedMatrixChannelId(currentChannelId, channels);
+    if (matrixChannelId && matrixCredentials?.roomMap?.[matrixChannelId]) {
+      return matrixCredentials.roomMap[matrixChannelId];
     }
     return null;
-  }, [currentChannelId, matrixCredentials?.roomMap]);
+  }, [channels, currentChannelId, matrixCredentials?.roomMap]);
 
   const channelKey = currentChannelId === 'server-root' ? 'server-root' : currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
   const { messages, addMessage } = useChatStore(channelKey);
@@ -1037,6 +1148,7 @@ function App() {
   const activeChannelId = currentChannelId && currentChannelId !== 'server-root'
     ? currentChannelId
     : undefined;
+  const permittedActiveMatrixChannelId = getPermittedMatrixChannelId(activeChannelId, channels);
 
   const dmStore = useDMStore({
     matrixDmLastMessages: matrixClient.dmLastMessages,
@@ -1054,8 +1166,8 @@ function App() {
   });
 
   useLayoutEffect(() => {
-    matrixClient.setActiveChannel(dmStore.appMode === 'dm' ? null : (activeChannelId ?? null));
-  }, [activeChannelId, dmStore.appMode, matrixClient.setActiveChannel]);
+    matrixClient.setActiveChannel(dmStore.appMode === 'dm' ? null : permittedActiveMatrixChannelId);
+  }, [dmStore.appMode, matrixClient.setActiveChannel, permittedActiveMatrixChannelId]);
 
   useLayoutEffect(() => {
     matrixClient.setActiveDmContact(dmStore.appMode === 'dm' ? (dmStore.selectedContact?.id ?? null) : null);
@@ -1067,11 +1179,11 @@ function App() {
       const roomId = matrixClient.dmRoomMap.get(dmStore.selectedContact.id);
       if (roomId) return roomId;
     }
-    if (currentChannelId && currentChannelId !== 'server-root' && matrixCredentials?.roomMap?.[currentChannelId]) {
-      return matrixCredentials.roomMap[currentChannelId];
+    if (permittedActiveMatrixChannelId && matrixCredentials?.roomMap?.[permittedActiveMatrixChannelId]) {
+      return matrixCredentials.roomMap[permittedActiveMatrixChannelId];
     }
     return null;
-  }, [dmStore.selectedContact, currentChannelId, matrixClient?.dmRoomMap, matrixCredentials?.roomMap]);
+  }, [dmStore.selectedContact, matrixClient?.dmRoomMap, matrixCredentials?.roomMap, permittedActiveMatrixChannelId]);
 
   const dmMatrixRoomId = useMemo(() => {
     if (dmStore.selectedContact && matrixClient?.dmRoomMap) {
@@ -1169,7 +1281,8 @@ function App() {
     }
     setSharingChannelId(undefined);
     setScreenShareNotification(null);
-  }, []);
+    notifQueue.unregister('screen-share');
+  }, [notifQueue]);
 
   const {
     autoLeftAt,
@@ -1597,6 +1710,7 @@ function App() {
       disconnectViewerRef.current?.();
       setSharingChannelId(undefined);
       setScreenShareNotification(null);
+      notifQueue.unregister('screen-share');
       // Reset divider timestamps so stale snapshots from the previous session
       // don't persist across disconnect/reconnect cycles.
       setChannelDividerTs(null);
@@ -1633,7 +1747,16 @@ function App() {
     const onVoiceError = ((data: unknown) => {
       clearPendingAction();
       const pendingJoinAttempt = pendingJoinAttemptRef.current;
-      if (pendingJoinAttempt && isPasswordProtectedJoinError(data)) {
+      const pendingChannel = pendingJoinAttempt
+        ? channelsRef.current.find(channel => channel.id === pendingJoinAttempt.channelId)
+        : undefined;
+      if (pendingJoinAttempt && isPasswordProtectedJoinError(data, pendingChannel)) {
+        if (pendingChannel && pendingChannel.hasPasswordRestriction !== true) {
+          setChannels(prev => prev.map(channel => channel.id === pendingChannel.id
+            ? { ...channel, hasPasswordRestriction: true }
+            : channel));
+        }
+
         if (!pendingJoinAttempt.passwordRetrySent) {
           pendingJoinAttemptRef.current = {
             ...pendingJoinAttempt,
@@ -1665,6 +1788,18 @@ function App() {
       // Clear pending join attempt for any error that isn't eligible for password retry
       if (pendingJoinAttempt) {
         clearPendingJoinAttempt();
+      }
+
+      if (isStructuredEnterDenied(data)) {
+        const d = data as { channelId?: number };
+        const deniedChannel = d.channelId != null
+          ? channelsRef.current.find(channel => channel.id === d.channelId)
+          : pendingJoinAttempt
+            ? channelsRef.current.find(channel => channel.id === pendingJoinAttempt.channelId)
+            : undefined;
+        addMessageToStore('server-root', 'Server', getChannelAccessDeniedMessage(deniedChannel), 'system');
+        clearPendingJoinAttempt();
+        return;
       }
 
       const d = data as { message?: string } | undefined;
@@ -1707,6 +1842,7 @@ function App() {
             matrixCredentialsRef.current,
             statusesRef.current,
             selfUser,
+            channelsRef.current,
           );
           if (!matrixActive) {
             const storeKey = `channel-${channelId}`;
@@ -2400,6 +2536,24 @@ function App() {
       } catch { /* ignore parse errors */ }
     };
 
+    const onChatChannelAccess = (data: unknown) => {
+      const payload = data as { body?: string; channels?: ChannelChatAccessMap } | undefined;
+      let channelsAccess = payload?.channels;
+      if (!channelsAccess && payload?.body) {
+        try {
+          channelsAccess = (JSON.parse(payload.body) as { channels?: ChannelChatAccessMap }).channels;
+        } catch {
+          channelsAccess = undefined;
+        }
+      }
+      if (!channelsAccess) return;
+      setChannels(prev => mergeChannelChatAccess(prev, channelsAccess));
+    };
+
+    const onChatChannelAccessError = () => {
+      setChannels(prev => mergeChannelChatAccess(prev, getResolvedChannelChatAccess(getChannelChatAccessRequestIds(prev))));
+    };
+
     bridge.on('brmble.serviceStatus', onBrmbleServiceStatus);
     bridge.on('voice.connected', onVoiceConnected);
     bridge.on('voice.disconnected', onVoiceDisconnected);
@@ -2468,6 +2622,8 @@ function App() {
     bridge.on('voice.brmbleClientActivated', onBrmbleClientActivated);
     bridge.on('voice.brmbleClientDeactivated', onBrmbleClientDeactivated);
     bridge.on('voice.registrationStatus', onRegistrationStatus);
+    bridge.on('chat.channelAccess', onChatChannelAccess);
+    bridge.on('chat.channelAccessError', onChatChannelAccessError);
     const onVoiceLoss = (data: unknown) => {
       const payload = data as { loss?: number } | null;
       const loss = typeof payload?.loss === 'number' ? payload.loss : undefined;
@@ -2531,6 +2687,8 @@ function App() {
       bridge.off('voice.brmbleClientActivated', onBrmbleClientActivated);
       bridge.off('voice.brmbleClientDeactivated', onBrmbleClientDeactivated);
       bridge.off('voice.registrationStatus', onRegistrationStatus);
+      bridge.off('chat.channelAccess', onChatChannelAccess);
+      bridge.off('chat.channelAccessError', onChatChannelAccessError);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -2540,11 +2698,20 @@ function App() {
     bridge.send('profiles.list');
   }, []);
 
+  const channelChatAccessRequestIds = useMemo(() => getChannelChatAccessRequestIds(channels), [channels]);
+  const channelChatAccessRequestKey = channelChatAccessRequestIds.join(',');
+
   useEffect(() => {
-    if (currentChannelId && currentChannelId !== 'server-root' && matrixCredentials) {
-      matrixClient.fetchHistory(currentChannelId).catch(console.error);
+    if (statuses.server.state !== 'connected' || !matrixCredentials?.roomMap) return;
+    if (!channelChatAccessRequestKey) return;
+    bridge.send('chat.getChannelAccess', { channelIds: channelChatAccessRequestKey.split(',').map(Number) });
+  }, [channelChatAccessRequestKey, matrixCredentials?.roomMap, statuses.server.state]);
+
+  useEffect(() => {
+    if (permittedActiveMatrixChannelId && matrixCredentials) {
+      matrixClient.fetchHistory(permittedActiveMatrixChannelId).catch(console.error);
     }
-  }, [currentChannelId, matrixCredentials]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [permittedActiveMatrixChannelId, matrixCredentials]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     return () => {
@@ -2620,6 +2787,31 @@ const handleConnect = (serverData: SavedServer) => {
     if (!channel) {
       return;
     }
+
+    const joinAction = getJoinAccessAction(channel);
+    let password: string | undefined;
+    if (joinAction === 'deny') {
+      addMessageToStore('server-root', 'Server', getChannelAccessDeniedMessage(channel), 'system');
+      return;
+    }
+
+    if (joinAction === 'promptPassword') {
+      const enteredPassword = await prompt({
+        title: 'Channel Password',
+        message: `Enter the password for ${channel.name}.`,
+        placeholder: 'Password',
+        confirmLabel: 'Join',
+        cancelLabel: 'Cancel',
+        isPassword: true,
+      });
+
+      if (!enteredPassword) {
+        return;
+      }
+
+      password = enteredPassword;
+    }
+
     if (isSharing && sharingChannelId && String(channelId) !== sharingChannelId) {
       const shouldMove = await confirm({
         title: 'Screen share active',
@@ -2633,27 +2825,32 @@ const handleConnect = (serverData: SavedServer) => {
       await stopSharing();
       setSharingChannelId(undefined);
     }
+
     startPendingAction(channelId);
     pendingJoinAttemptRef.current = {
       channelId,
       channelName: channel.name,
-      passwordRetrySent: false,
+      passwordRetrySent: joinAction === 'promptPassword',
     };
-    sendJoinChannel(channelId);
+    sendJoinChannel(channelId, password);
   };
 
   const handleSelectChannel = (channelId: number) => {
-    const channel = channels.find(c => c.id === channelId);
-    if (channel) {
-      setCurrentChannelId(String(channelId));
-      setCurrentChannelName(channel.name);
+    const selection = getChannelSelectionOutcome(channelId, channels, dmStore.appMode);
+    if (selection) {
+      setCurrentChannelId(selection.channelId);
+      setCurrentChannelName(selection.channelName);
       setUnreadCount(0);
       setShowGame(false);
 
-      if (dmStore.appMode === 'dm') {
+      if (selection.shouldExitDmMode) {
         dmStore.toggleMode();
       }
-      dmStore.clearSelection();
+      if (selection.shouldClearDmSelection) {
+        dmStore.clearSelection();
+      }
+
+      if (!selection.canOpenChat) return;
     }
   };
 
@@ -2672,9 +2869,12 @@ const handleConnect = (serverData: SavedServer) => {
 
     const channelId = currentChannelId;
     if (!channelId) return;
+    if (!shouldAllowChannelChatSend(channelId, channelsRef.current, statusesRef.current, brmbleServiceBootstrapPhase)) {
+      return;
+    }
 
       const selfUser = usersRef.current.find(u => u.self);
-      const isMatrixChannel = isMatrixChannelChatActive(channelId, matrixCredentials, statuses, selfUser);
+      const isMatrixChannel = isMatrixChannelChatActive(channelId, matrixCredentials, statuses, selfUser, channels);
 
     // Send text content (existing behavior)
     if (content) {
@@ -3002,7 +3202,7 @@ const handleConnect = (serverData: SavedServer) => {
 
   const selfUserForChat = users.find(u => u.self);
   const isMatrixActive = activeChannelId
-    ? isMatrixChannelChatActive(activeChannelId, matrixCredentials, statuses, selfUserForChat)
+    ? isMatrixChannelChatActive(activeChannelId, matrixCredentials, statuses, selfUserForChat, channels)
     : false;
   const brmbleServiceOutageActive = isBrmbleServiceOutageActive(statuses);
   const brmbleServiceBootstrapPhase = getBrmbleServiceBootstrapPhase(
@@ -3011,16 +3211,26 @@ const handleConnect = (serverData: SavedServer) => {
     brmbleServicesConnectedOnceRef.current,
   );
   const brmbleServiceChatNotice = getBrmbleServiceChatNotice(activeChannelId, statuses, brmbleServiceBootstrapPhase);
+  const canOpenActiveChannelChat = canOpenChannelChat(activeChannelId, channels);
+  const canSendActiveChannelChat = canSendToChannelChat(activeChannelId, channels)
+    || isTemporaryChannelChatActive(activeChannelId, statuses, brmbleServiceBootstrapPhase);
+  const channelChatAccessNotice = activeChannelId && activeChannelId !== 'server-root' && !canOpenActiveChannelChat
+    ? 'You do not have access to this channel chat.'
+    : activeChannelId && activeChannelId !== 'server-root' && !canSendActiveChannelChat
+      ? 'You can read this channel chat, but cannot send messages.'
+      : undefined;
   const matrixMessages = activeChannelId
     ? matrixClient.activeMessages
     : undefined;
 
   const channelChatMessages = useMemo(
-    () => [
-      ...(isMatrixActive ? (matrixMessages ?? []) : messages),
-      ...optimisticImages.filter(m => m.channelId === currentChannelId),
-    ],
-    [isMatrixActive, matrixMessages, messages, optimisticImages, currentChannelId],
+    () => canOpenActiveChannelChat
+      ? [
+        ...(isMatrixActive ? (matrixMessages ?? []) : messages),
+        ...optimisticImages.filter(m => m.channelId === currentChannelId),
+      ]
+      : [],
+    [canOpenActiveChannelChat, isMatrixActive, matrixMessages, messages, optimisticImages, currentChannelId],
   );
 
   const { Prompt, PromptWithInput } = usePrompt();
@@ -3392,6 +3602,7 @@ const handleConnect = (serverData: SavedServer) => {
     if (!matrixCredentials?.roomMap) return new Map<string, { notificationCount: number; highlightCount: number }>();
     const map = new Map<string, { notificationCount: number; highlightCount: number }>();
     for (const [channelId, roomId] of Object.entries(matrixCredentials.roomMap)) {
+      if (!canOpenChannelChat(channelId, channels)) continue;
       const unread = unreadTracker.getRoomUnread(roomId);
       if (unread.notificationCount > 0) {
         map.set(channelId, {
@@ -3401,7 +3612,7 @@ const handleConnect = (serverData: SavedServer) => {
       }
     }
     return map;
-  }, [matrixCredentials?.roomMap, unreadTracker.roomUnreads]);
+  }, [channels, matrixCredentials?.roomMap, unreadTracker.roomUnreads]);
 
   useEffect(() => {
     if (screenShareError) {
@@ -3472,6 +3683,7 @@ const handleConnect = (serverData: SavedServer) => {
 
     const onRemoteShareStopped = () => {
       setScreenShareNotification(null);
+      notifQueue.unregister('screen-share');
     };
 
     bridge.on('livekit.screenShareStarted', onRemoteShareStarted);
@@ -3506,8 +3718,9 @@ const handleConnect = (serverData: SavedServer) => {
   useEffect(() => {
     disconnectViewer();
     setScreenShareNotification(null);
+    notifQueue.unregister('screen-share');
     requestActiveShareDiscovery(currentChannelId);
-  }, [currentChannelId, disconnectViewer, requestActiveShareDiscovery]);
+  }, [currentChannelId, disconnectViewer, notifQueue, requestActiveShareDiscovery]);
 
   useEffect(() => {
     const previousConnectionStatus = previousConnectionStatusRef.current;
@@ -3606,16 +3819,16 @@ const handleConnect = (serverData: SavedServer) => {
   // We depend on roomUnreads so that on reconnect (when sync populates data after
   // the channel was already selected) we get a second chance to snapshot.
   useEffect(() => {
-    const channelChanged = currentChannelId !== prevChannelIdRef.current;
+    const channelChanged = permittedActiveMatrixChannelId !== prevChannelIdRef.current;
     if (channelChanged) {
-      prevChannelIdRef.current = currentChannelId;
+      prevChannelIdRef.current = permittedActiveMatrixChannelId ?? undefined;
     }
 
-    if (!currentChannelId || currentChannelId === 'server-root') {
+    if (!permittedActiveMatrixChannelId) {
       if (channelChanged) setChannelDividerTs(null);
       return;
     }
-    const roomId = matrixCredentials?.roomMap?.[currentChannelId];
+    const roomId = matrixCredentials?.roomMap?.[permittedActiveMatrixChannelId];
     if (!roomId || !matrixClient?.client) {
       if (channelChanged) setChannelDividerTs(null);
       return;
@@ -3655,7 +3868,7 @@ const handleConnect = (serverData: SavedServer) => {
         return markerTs;
       });
     }
-  }, [currentChannelId, matrixCredentials?.roomMap, matrixClient, unreadTracker]);
+  }, [permittedActiveMatrixChannelId, matrixCredentials?.roomMap, matrixClient, unreadTracker]);
 
   // Same pattern for DM switches
   useEffect(() => {
@@ -3821,7 +4034,8 @@ const handleConnect = (serverData: SavedServer) => {
                     onCloseShare={(share) => disconnectViewer(share.userId)}
                     screenShareViewerMode={screenShareSettings.viewerMode}
                     users={users}
-                    topNotice={brmbleServiceChatNotice}
+                    disabled={!canSendActiveChannelChat}
+                    topNotice={channelChatAccessNotice ?? brmbleServiceChatNotice}
                     onMessageContextMenu={handleChatMessageContextMenu}
                     onCopyToClipboard={handleCopyToClipboard}
                     currentUserMatrixId={matrixCredentials?.userId}

@@ -76,6 +76,7 @@ internal static class MumbleAdapterTestHarness
         SetField(adapter, "_audioManager", audioManager);
         SetField(adapter, "_userMappings", new Dictionary<string, string>());
         SetField(adapter, "_sessionMappings", new ConcurrentDictionary<uint, MumbleAdapter.SessionMappingEntry>());
+        SetField(adapter, "_channelPasswordRestrictions", new ConcurrentDictionary<uint, bool>());
         return adapter;
     }
 
@@ -234,6 +235,25 @@ public class MumbleAdapterParseTests
 
         Assert.IsTrue(sent.Any(x => x.Type == "livekit.activeShareError"));
         Assert.IsFalse(sent.Any(x => x.Type == "livekit.activeShareResult" && x.DataJson.Contains("\"shares\"")));
+    }
+
+    [TestMethod]
+    public async Task ChatGetChannelAccess_WithoutApiUrl_ReturnsEmptyAccessMap()
+    {
+        var bridge = NativeBridgeTestHarness.Create();
+        var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge, apiUrl: null);
+        adapter.RegisterHandlers(bridge);
+
+        using var doc = JsonDocument.Parse("""
+        { "channelIds": [1, 2] }
+        """);
+
+        await NativeBridgeTestHarness.InvokeAsync(bridge, "chat.getChannelAccess", doc.RootElement.Clone());
+
+        var sent = NativeBridgeTestHarness.DrainMessages(bridge);
+        var access = sent.Single(m => m.Type == "chat.channelAccess");
+        using var payload = JsonDocument.Parse(access.DataJson);
+        Assert.AreEqual(0, payload.RootElement.GetProperty("channels").EnumerateObject().Count());
     }
 
     [TestMethod]
@@ -588,6 +608,22 @@ public class MumbleAdapterParseTests
         """;
 
         Assert.AreEqual("old-secret", MumbleAdapter.TryGetManagedChannelPassword(body));
+    }
+
+    [TestMethod]
+    public void CreateJoinUserState_IncludesTemporaryAccessTokenOnlyForThisJoin()
+    {
+        var method = typeof(MumbleAdapter).GetMethod("CreateJoinUserState", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.IsNotNull(method);
+
+        var passwordState = (MumbleProto.UserState)method!.Invoke(null, [4u, "secret-token"])!;
+        var normalState = (MumbleProto.UserState)method.Invoke(null, [5u, null])!;
+
+        Assert.AreEqual(4u, passwordState.ChannelId);
+        Assert.AreEqual(1, passwordState.TemporaryAccessTokens.Count);
+        Assert.AreEqual("secret-token", passwordState.TemporaryAccessTokens.Single());
+        Assert.AreEqual(5u, normalState.ChannelId);
+        Assert.AreEqual(0, normalState.TemporaryAccessTokens.Count);
     }
 
     [TestMethod]
