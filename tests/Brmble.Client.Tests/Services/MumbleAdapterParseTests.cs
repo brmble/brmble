@@ -657,8 +657,83 @@ public class MumbleAdapterParseTests
         Assert.IsTrue(acls.Any(a =>
             a.GetProperty("group").GetString() == "all"
             && a.GetProperty("allow").GetInt32() == 0
-            && a.GetProperty("deny").GetInt32() == 6));
-        Assert.IsTrue(acls.Any(a => a.GetProperty("group").GetString() == "__brmble_password_open_block__"));
+            && a.GetProperty("deny").GetInt32() == (0x02 | 0x04 | 0x08 | 0x100 | 0x200 | 0x400 | 0x800)));
+        Assert.IsFalse(acls.Any(a => a.GetProperty("group").GetString() == "__brmble_password_open_block__"));
+    }
+
+    [TestMethod]
+    public void SetChannelPassword_BuildRequest_AddsExactlyOrderedPasswordAclBlock()
+    {
+        var body = """
+        {
+          "snapshot": {
+            "channelId": 4,
+            "inheritAcls": true,
+            "groups": [],
+            "acls": [
+              { "applyHere": true, "applySubs": true, "inherited": false, "userId": null, "group": "admin", "allow": 1, "deny": 0 }
+            ],
+            "fetchedAt": "2026-05-15T12:00:00Z",
+            "stale": false,
+            "warning": null,
+            "snapshotHash": "known-hash"
+          }
+        }
+        """;
+
+        var requestJson = MumbleAdapter.BuildSetChannelPasswordRequestBody(body, "new-secret");
+        using var doc = JsonDocument.Parse(requestJson);
+        var acls = doc.RootElement.GetProperty("acls").EnumerateArray().ToList();
+        var passwordBlock = acls.TakeLast(3).ToList();
+
+        Assert.AreEqual("all", passwordBlock[0].GetProperty("group").GetString());
+        Assert.AreEqual(0, passwordBlock[0].GetProperty("allow").GetInt32());
+        Assert.AreEqual(0x02 | 0x04 | 0x08 | 0x100 | 0x200 | 0x400 | 0x800, passwordBlock[0].GetProperty("deny").GetInt32());
+        Assert.AreEqual("#new-secret", passwordBlock[1].GetProperty("group").GetString());
+        Assert.AreEqual(0x04 | 0x02, passwordBlock[1].GetProperty("allow").GetInt32());
+        Assert.AreEqual(0, passwordBlock[1].GetProperty("deny").GetInt32());
+        Assert.AreEqual("__brmble_password_marker__:#new-secret", passwordBlock[2].GetProperty("group").GetString());
+        Assert.AreEqual(0, passwordBlock[2].GetProperty("allow").GetInt32());
+        Assert.AreEqual(0, passwordBlock[2].GetProperty("deny").GetInt32());
+        Assert.IsFalse(acls.Any(a => a.GetProperty("group").GetString() == "__brmble_password_open_block__"));
+    }
+
+    [TestMethod]
+    public void SetChannelPassword_BuildRequest_ChangingPasswordReplacesManagedAclBlock()
+    {
+        var body = """
+        {
+          "snapshot": {
+            "channelId": 4,
+            "inheritAcls": true,
+            "groups": [],
+            "acls": [
+              { "applyHere": true, "applySubs": false, "inherited": false, "userId": null, "group": "all", "allow": 0, "deny": 3854 },
+              { "applyHere": true, "applySubs": false, "inherited": false, "userId": null, "group": "#old-secret", "allow": 6, "deny": 0 },
+              { "applyHere": true, "applySubs": false, "inherited": false, "userId": null, "group": "__brmble_password_marker__:#old-secret", "allow": 0, "deny": 0 },
+              { "applyHere": true, "applySubs": true, "inherited": false, "userId": null, "group": "vip", "allow": 4, "deny": 0 }
+            ],
+            "fetchedAt": "2026-05-15T12:00:00Z",
+            "stale": false,
+            "warning": null,
+            "snapshotHash": "known-hash"
+          }
+        }
+        """;
+
+        var requestJson = MumbleAdapter.BuildSetChannelPasswordRequestBody(body, "new-secret");
+        using var doc = JsonDocument.Parse(requestJson);
+        var acls = doc.RootElement.GetProperty("acls").EnumerateArray().ToList();
+
+        Assert.IsFalse(acls.Any(a => a.GetProperty("group").GetString() == "#old-secret"));
+        Assert.IsFalse(acls.Any(a => a.GetProperty("group").GetString() == "__brmble_password_marker__:#old-secret"));
+        Assert.AreEqual(1, acls.Count(a => a.GetProperty("group").GetString() == "all" && a.GetProperty("deny").GetInt32() == 3854));
+        Assert.IsTrue(acls.Any(a => a.GetProperty("group").GetString() == "vip"));
+
+        var passwordBlock = acls.TakeLast(3).ToList();
+        Assert.AreEqual("all", passwordBlock[0].GetProperty("group").GetString());
+        Assert.AreEqual("#new-secret", passwordBlock[1].GetProperty("group").GetString());
+        Assert.AreEqual("__brmble_password_marker__:#new-secret", passwordBlock[2].GetProperty("group").GetString());
     }
 
     [TestMethod]
@@ -689,7 +764,43 @@ public class MumbleAdapterParseTests
         var acls = doc.RootElement.GetProperty("acls").EnumerateArray().ToList();
 
         Assert.IsFalse(acls.Any(a => a.GetProperty("group").GetString() == "all" && a.GetProperty("deny").GetInt32() == 6));
+        Assert.IsFalse(acls.Any(a => a.GetProperty("group").GetString() == "all" && a.GetProperty("deny").GetInt32() == (0x02 | 0x04 | 0x08 | 0x100 | 0x200 | 0x400 | 0x800)));
         Assert.IsFalse(acls.Any(a => a.GetProperty("group").GetString() == "__brmble_password_open_block__"));
+    }
+
+    [TestMethod]
+    public void SetChannelPassword_BuildRequest_RemovesManagedAclBlockWhenPasswordIsCleared()
+    {
+        var body = """
+        {
+          "snapshot": {
+            "channelId": 4,
+            "inheritAcls": true,
+            "groups": [],
+            "acls": [
+              { "applyHere": true, "applySubs": false, "inherited": false, "userId": null, "group": "all", "allow": 0, "deny": 3854 },
+              { "applyHere": true, "applySubs": false, "inherited": false, "userId": null, "group": "#old-secret", "allow": 6, "deny": 0 },
+              { "applyHere": true, "applySubs": false, "inherited": false, "userId": null, "group": "__brmble_password_marker__:#old-secret", "allow": 0, "deny": 0 },
+              { "applyHere": true, "applySubs": false, "inherited": false, "userId": null, "group": "__brmble_password_open_block__", "allow": 0, "deny": 0 },
+              { "applyHere": true, "applySubs": true, "inherited": false, "userId": null, "group": "all", "allow": 0, "deny": 8 }
+            ],
+            "fetchedAt": "2026-05-15T12:00:00Z",
+            "stale": false,
+            "warning": null,
+            "snapshotHash": "known-hash"
+          }
+        }
+        """;
+
+        var requestJson = MumbleAdapter.BuildSetChannelPasswordRequestBody(body, "");
+        using var doc = JsonDocument.Parse(requestJson);
+        var acls = doc.RootElement.GetProperty("acls").EnumerateArray().ToList();
+
+        Assert.IsFalse(acls.Any(a => a.GetProperty("group").GetString() == "all" && a.GetProperty("deny").GetInt32() == 3854));
+        Assert.IsFalse(acls.Any(a => a.GetProperty("group").GetString() == "#old-secret"));
+        Assert.IsFalse(acls.Any(a => a.GetProperty("group").GetString() == "__brmble_password_marker__:#old-secret"));
+        Assert.IsFalse(acls.Any(a => a.GetProperty("group").GetString() == "__brmble_password_open_block__"));
+        Assert.IsTrue(acls.Any(a => a.GetProperty("group").GetString() == "all" && a.GetProperty("applySubs").GetBoolean() && a.GetProperty("deny").GetInt32() == 8));
     }
 
     [TestMethod]
