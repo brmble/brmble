@@ -1163,4 +1163,93 @@ describe('useMatrixClient', () => {
     expect(mockClient.redactEvent).toHaveBeenCalledWith('!room:example.com', '$sent-event');
     expect(result.current.activeMessages[0].reactions).toBeUndefined();
   });
+
+  it('applies the latest replacement event to an existing active channel message', () => {
+    mockClient.getRoom.mockReturnValue(null);
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+    act(() => result.current.setActiveChannel('42'));
+
+    const onTimeline = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'Room.timeline')?.[1] as
+      | ((ev: unknown, r: unknown) => void)
+      | undefined;
+    const mockRoom = {
+      roomId: '!room:example.com',
+      getMember: () => ({ rawDisplayName: 'Alice', name: 'Alice' }),
+    };
+
+    const originalEvent = {
+      getType: () => 'm.room.message',
+      getId: () => '$message',
+      getSender: () => '@alice:example.com',
+      getContent: () => ({ body: 'before', msgtype: 'm.text' }),
+      getTs: () => 1000,
+    };
+    const replacementEvent = {
+      getType: () => 'm.room.message',
+      getId: () => '$replacement',
+      getSender: () => '@alice:example.com',
+      getContent: () => ({
+        body: '* after',
+        msgtype: 'm.text',
+        'm.new_content': { body: 'after', msgtype: 'm.text' },
+        'm.relates_to': { rel_type: 'm.replace', event_id: '$message' },
+      }),
+      getTs: () => 1001,
+    };
+
+    act(() => {
+      onTimeline?.(originalEvent, mockRoom);
+      onTimeline?.(replacementEvent, mockRoom);
+    });
+
+    expect(result.current.activeMessages).toHaveLength(1);
+    expect(result.current.activeMessages[0]).toEqual(expect.objectContaining({
+      id: '$message',
+      content: 'after',
+      edited: true,
+    }));
+  });
+
+  it('applies bundled replacement content when rebuilding active messages from timeline', () => {
+    const fakeEvents = [
+      {
+        getType: () => 'm.room.message',
+        getId: () => '$message',
+        getSender: () => '@alice:example.com',
+        getContent: () => ({ body: 'before', msgtype: 'm.text' }),
+        getUnsigned: () => ({
+          'm.relations': {
+            'm.replace': {
+              event_id: '$replacement',
+              origin_server_ts: 1001,
+              sender: '@alice:example.com',
+              content: {
+                body: '* after',
+                msgtype: 'm.text',
+                'm.new_content': { body: 'after', msgtype: 'm.text' },
+              },
+            },
+          },
+        }),
+        getTs: () => 1000,
+      },
+    ];
+    const mockRoom = {
+      roomId: '!room:example.com',
+      getMember: () => ({ rawDisplayName: 'Alice', name: 'Alice' }),
+      getLiveTimeline: () => ({ getEvents: () => fakeEvents }),
+    };
+    mockClient.getRoom.mockReturnValue(mockRoom);
+
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+    act(() => result.current.setActiveChannel('42'));
+
+    expect(result.current.activeMessages).toEqual([
+      expect.objectContaining({
+        id: '$message',
+        content: 'after',
+        edited: true,
+      }),
+    ]);
+  });
 });

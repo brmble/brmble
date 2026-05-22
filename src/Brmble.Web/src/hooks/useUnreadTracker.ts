@@ -187,10 +187,12 @@ function countUnreadFromTimeline(
     if (event.getId() === marker.eventId) break;
     // Only count events strictly newer than when we marked read
     if (event.getTs() <= marker.ts) continue;
-    if (event.getType() === 'm.room.message' && event.getSender() !== myUserId) {
+    const content = event.getContent() as { body?: string; 'm.relates_to'?: { rel_type?: string } };
+    const isReplacement = content?.['m.relates_to']?.rel_type === 'm.replace';
+    if (event.getType() === 'm.room.message' && !isReplacement && event.getSender() !== myUserId) {
       count++;
       if (mentionPattern) {
-        const body = (event.getContent() as { body?: string }).body ?? '';
+        const body = content.body ?? '';
         if (mentionPattern.test(body)) {
           mentionCount++;
         }
@@ -452,10 +454,12 @@ export function useUnreadTracker(
   useEffect(() => {
     if (!client || !activeRoomId) return;
 
-    const onTimeline = (event: { getType: () => string; getSender: () => string | undefined; getId: () => string | undefined; getTs?: () => number }, room: Room | undefined) => {
+    const onTimeline = (event: { getType: () => string; getSender: () => string | undefined; getId: () => string | undefined; getTs?: () => number; getContent?: () => unknown }, room: Room | undefined) => {
       if (!room || room.roomId !== activeRoomIdRef.current) return;
       // Only act on actual messages, not state events or reactions
       if (event.getType() !== 'm.room.message') return;
+      const content = (event.getContent?.() as { 'm.relates_to'?: { rel_type?: string } } | undefined);
+      if (content?.['m.relates_to']?.rel_type === 'm.replace') return;
       const eventId = event.getId();
       if (eventId) {
         // Advance the read marker for ALL messages in the active room,

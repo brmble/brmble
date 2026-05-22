@@ -215,3 +215,103 @@ describe('MessageInput typing callbacks', () => {
     expect(onTypingStop).toHaveBeenCalledWith('42');
   });
 });
+
+describe('MessageInput edit mode', () => {
+  it('shows an editing header, prefills the composer, and clears on cancel', async () => {
+    const user = userEvent.setup();
+    const onClearEdit = vi.fn();
+
+    renderMessageInput({
+      editState: {
+        eventId: '$msg',
+        originalContent: 'Existing text',
+        currentContent: 'Existing text',
+      },
+      onClearEdit,
+    });
+
+    const textarea = screen.getByRole('combobox');
+    expect(screen.getByText('Editing message')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel edit' })).toBeInTheDocument();
+    await waitFor(() => expect(textarea).toHaveValue('Existing text'));
+
+    await user.click(screen.getByRole('button', { name: 'Cancel edit' }));
+    expect(onClearEdit).toHaveBeenCalled();
+  });
+
+  it('disables send until the edit meaningfully changes the current message text', async () => {
+    const user = userEvent.setup();
+
+    renderMessageInput({
+      editState: {
+        eventId: '$msg',
+        originalContent: 'hello',
+        currentContent: 'hello',
+      },
+    });
+
+    const textarea = screen.getByRole('combobox');
+    const sendButton = screen.getByRole('button', { name: 'Send message' });
+
+    await waitFor(() => expect(textarea).toHaveValue('hello'));
+    expect(sendButton).toBeDisabled();
+
+    await user.type(textarea, ' ');
+    expect(sendButton).toBeDisabled();
+
+    await user.type(textarea, ' again');
+    expect(sendButton).toBeEnabled();
+  });
+
+  it('delegates edit saves to onSaveEdit and clears only on success', async () => {
+    const user = userEvent.setup();
+    const onSaveEdit = vi.fn().mockResolvedValue(true);
+    const onClearEdit = vi.fn();
+
+    renderMessageInput({
+      editState: {
+        eventId: '$msg',
+        originalContent: 'hello',
+        currentContent: 'hello',
+      },
+      onSaveEdit,
+      onClearEdit,
+    });
+
+    const textarea = screen.getByRole('combobox');
+    await user.clear(textarea);
+    await user.type(textarea, 'hello again{Enter}');
+
+    await waitFor(() => {
+      expect(onSaveEdit).toHaveBeenCalledWith('$msg', 'hello again');
+    });
+    expect(onClearEdit).toHaveBeenCalled();
+  });
+
+  it('keeps edit mode and composer contents when edit save fails', async () => {
+    const user = userEvent.setup();
+    const onSaveEdit = vi.fn().mockResolvedValue(false);
+    const onClearEdit = vi.fn();
+
+    renderMessageInput({
+      editState: {
+        eventId: '$msg',
+        originalContent: 'hello',
+        currentContent: 'hello',
+      },
+      onSaveEdit,
+      onClearEdit,
+    });
+
+    const textarea = screen.getByRole('combobox');
+    await user.clear(textarea);
+    await user.type(textarea, 'still editing{Enter}');
+
+    await waitFor(() => {
+      expect(onSaveEdit).toHaveBeenCalledWith('$msg', 'still editing');
+    });
+    expect(onClearEdit).not.toHaveBeenCalled();
+    expect(screen.getByText('Editing message')).toBeInTheDocument();
+    expect(textarea).toHaveValue('still editing');
+  });
+});
