@@ -11,6 +11,7 @@ import {
   getChannelChatAccessRequestIds,
   getPermittedMatrixChannelId,
   getJoinAccessAction,
+  getResolvedChannelChatAccess,
   isBrmbleServiceOutageActive,
   isMatrixChannelChatActive,
   isStructuredEnterDenied,
@@ -51,6 +52,16 @@ describe('isMatrixChannelChatActive', () => {
       ...credentials,
       roomMap: { ...credentials.roomMap, '2': '!denied:example.com' },
     }, connectedStatuses, { session: 1, name: 'Me', self: true, isBrmbleClient: true }, matrixChannels)).toBe(false);
+  });
+
+  it('falls back to Mumble until channel chat access is explicitly allowed', () => {
+    expect(isMatrixChannelChatActive('3', {
+      ...credentials,
+      roomMap: { ...credentials.roomMap, '3': '!unknown:example.com' },
+    }, connectedStatuses, { session: 1, name: 'Me', self: true, isBrmbleClient: true }, [
+      ...matrixChannels,
+      { id: 3, name: 'Unknown' },
+    ])).toBe(false);
   });
 
   it('falls back to Mumble while Brmble server is reconnecting even if credentials still exist', () => {
@@ -131,6 +142,13 @@ describe('channel chat access helpers', () => {
     expect(mergeChannelChatAccess(channels, {})).toBe(channels);
   });
 
+  it('allows every requested channel when channel chat access fails', () => {
+    expect(getResolvedChannelChatAccess([1, 2])).toEqual({
+      '1': { canRead: true, canSend: true },
+      '2': { canRead: true, canSend: true },
+    });
+  });
+
   it('allows server root chat and gates restricted Matrix channels', () => {
     const channels = [
       { id: 1, name: 'Allowed', canOpenChat: true, canSendChat: true },
@@ -141,10 +159,10 @@ describe('channel chat access helpers', () => {
     expect(canOpenChannelChat('server-root', channels)).toBe(true);
     expect(canOpenChannelChat('1', channels)).toBe(true);
     expect(canOpenChannelChat('2', channels)).toBe(false);
-    expect(canOpenChannelChat('3', channels)).toBe(false);
+    expect(canOpenChannelChat('3', channels)).toBe(true);
     expect(canSendToChannelChat('1', channels)).toBe(true);
     expect(canSendToChannelChat('2', channels)).toBe(false);
-    expect(canSendToChannelChat('3', channels)).toBe(false);
+    expect(canSendToChannelChat('3', channels)).toBe(true);
   });
 
   it('returns a Matrix-accessible channel only when channel chat can be opened explicitly', () => {
@@ -161,10 +179,16 @@ describe('channel chat access helpers', () => {
     expect(getPermittedMatrixChannelId(undefined, channels)).toBeNull();
   });
 
-  it('allows sending unknown channel chat only during temporary Mumble outage mode', () => {
+  it('allows sending channel chat while access flags are still loading', () => {
     const channels = [{ id: 3, name: 'Unknown' }];
 
-    expect(shouldAllowChannelChatSend('3', channels, connectedStatuses)).toBe(false);
+    expect(shouldAllowChannelChatSend('3', channels, connectedStatuses, 'ready')).toBe(true);
+  });
+
+  it('allows temporary channel chat when access flags are denied during Mumble outage mode', () => {
+    const channels = [{ id: 3, name: 'Denied', canOpenChat: false, canSendChat: false }];
+
+    expect(shouldAllowChannelChatSend('3', channels, connectedStatuses, 'ready')).toBe(false);
     expect(shouldAllowChannelChatSend('3', channels, {
       ...connectedStatuses,
       server: { state: 'connecting' },
@@ -194,6 +218,10 @@ describe('getJoinAccessAction', () => {
     expect(getJoinAccessAction({ canEnter: false, hasPasswordRestriction: true })).toBe('promptPassword');
     expect(getJoinAccessAction({ hasPasswordRestriction: true })).toBe('promptPassword');
     expect(getJoinAccessAction({ canEnter: false })).toBe('deny');
+  });
+
+  it('joins password restricted channels when access is already granted', () => {
+    expect(getJoinAccessAction({ canEnter: true, hasPasswordRestriction: true })).toBe('join');
   });
 });
 

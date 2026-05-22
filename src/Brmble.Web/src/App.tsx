@@ -626,6 +626,10 @@ export function mergeChannelChatAccess(channels: Channel[], access: ChannelChatA
   return changed ? merged : channels;
 }
 
+export function getResolvedChannelChatAccess(channelIds: number[]): ChannelChatAccessMap {
+  return Object.fromEntries(channelIds.map(id => [String(id), { canRead: true, canSend: true }]));
+}
+
 export function getChannelChatAccessRequestIds(channels: Channel[]): number[] {
   return [...new Set(channels.map(channel => channel.id).filter(id => id > 0))];
 }
@@ -638,14 +642,14 @@ export function canOpenChannelChat(channelId: string | undefined, channels: Chan
   if (!channelId) return false;
   if (channelId === 'server-root') return true;
   const channel = channels.find(c => String(c.id) === channelId);
-  return channel?.canOpenChat === true;
+  return channel?.canOpenChat !== false;
 }
 
 export function canSendToChannelChat(channelId: string | undefined, channels: Channel[]): boolean {
   if (!channelId) return false;
   if (channelId === 'server-root') return true;
   const channel = channels.find(c => String(c.id) === channelId);
-  return channel?.canSendChat === true;
+  return channel?.canSendChat !== false;
 }
 
 export function shouldAllowChannelChatSend(
@@ -660,7 +664,8 @@ export function shouldAllowChannelChatSend(
 
 export function getPermittedMatrixChannelId(channelId: string | undefined, channels: Channel[]): string | null {
   if (!channelId || channelId === 'server-root') return null;
-  return canOpenChannelChat(channelId, channels) ? channelId : null;
+  const channel = channels.find(c => String(c.id) === channelId);
+  return channel?.canOpenChat === true ? channelId : null;
 }
 
 export function getChannelSelectionOutcome(
@@ -694,6 +699,7 @@ export function getChannelAccessDeniedMessage(channel: Pick<Channel, 'hasPasswor
 export type JoinAccessAction = 'join' | 'promptPassword' | 'deny';
 
 export function getJoinAccessAction(channel: Pick<Channel, 'canEnter' | 'hasPasswordRestriction'>): JoinAccessAction {
+  if (channel.canEnter === true) return 'join';
   if (channel.hasPasswordRestriction) return 'promptPassword';
   return channel.canEnter === false ? 'deny' : 'join';
 }
@@ -706,7 +712,7 @@ export function isMatrixChannelChatActive(
   channels: Channel[] = [],
 ): boolean {
   if (!channelId || channelId === 'server-root') return false;
-  if (!canOpenChannelChat(channelId, channels)) return false;
+  if (!getPermittedMatrixChannelId(channelId, channels)) return false;
   if (statuses.server.state !== 'connected' || statuses.chat.state !== 'connected') return false;
   if (!selfUser?.isBrmbleClient) return false;
   return credentials?.roomMap[channelId] !== undefined;
@@ -2544,6 +2550,10 @@ function App() {
       setChannels(prev => mergeChannelChatAccess(prev, channelsAccess));
     };
 
+    const onChatChannelAccessError = () => {
+      setChannels(prev => mergeChannelChatAccess(prev, getResolvedChannelChatAccess(getChannelChatAccessRequestIds(prev))));
+    };
+
     bridge.on('brmble.serviceStatus', onBrmbleServiceStatus);
     bridge.on('voice.connected', onVoiceConnected);
     bridge.on('voice.disconnected', onVoiceDisconnected);
@@ -2613,6 +2623,7 @@ function App() {
     bridge.on('voice.brmbleClientDeactivated', onBrmbleClientDeactivated);
     bridge.on('voice.registrationStatus', onRegistrationStatus);
     bridge.on('chat.channelAccess', onChatChannelAccess);
+    bridge.on('chat.channelAccessError', onChatChannelAccessError);
     const onVoiceLoss = (data: unknown) => {
       const payload = data as { loss?: number } | null;
       const loss = typeof payload?.loss === 'number' ? payload.loss : undefined;
@@ -2677,6 +2688,7 @@ function App() {
       bridge.off('voice.brmbleClientDeactivated', onBrmbleClientDeactivated);
       bridge.off('voice.registrationStatus', onRegistrationStatus);
       bridge.off('chat.channelAccess', onChatChannelAccess);
+      bridge.off('chat.channelAccessError', onChatChannelAccessError);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
