@@ -6,6 +6,12 @@ on:
     branches:
       - main
 
+# Least privilege: the test jobs only read the checked-out code. Set this
+# explicitly (matching docker-server.yml / release.yml) so PR code never runs
+# with a write-scoped GITHUB_TOKEN.
+permissions:
+  contents: read
+
 # Cancel superseded runs on the same ref to save CI minutes.
 concurrency:
   group: tests-${{ github.workflow }}-${{ github.ref }}

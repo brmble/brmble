@@ -614,11 +614,13 @@ internal sealed class AudioManager : IDisposable
             }
             catch (COMException ex)
             {
-                // No capture device available (e.g. a user with no microphone,
-                // or a headless machine). Leave the mic off instead of crashing
-                // the caller — voice simply can't transmit until a device
-                // appears and the next StartMic retries.
-                AudioLog.Write($"[Audio] No capture device available; mic not started: {ex.Message}");
+                // Capture device couldn't be acquired — e.g. no microphone
+                // present (HRESULT 0x80070490, common on headless machines),
+                // device disabled, in use, or an unsupported format. Whatever
+                // the cause, leave the mic off instead of crashing the caller;
+                // voice can't transmit until a device is available and the next
+                // StartMic retries. Log the HRESULT so the cause is diagnosable.
+                AudioLog.Write($"[Audio] Capture device unavailable (HRESULT 0x{ex.HResult:X8}); mic not started: {ex.Message}");
                 _micStarted = false;
                 _waveIn = null;
                 return;
