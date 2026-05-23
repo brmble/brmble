@@ -1433,12 +1433,27 @@ function App() {
     bridge.send('voice.joinChannel', { channelId });
   }, []);
 
-  const saveChannelPassword = useCallback((channelId: number, channelName: string, password: string) => {
-    if (!password.trim()) {
+  const savedChannelPasswordsRef = useRef(new Map<number, string>());
+
+  const rememberChannelPassword = useCallback((channelId: number, password: string) => {
+    const normalized = password.trim();
+    if (!normalized) {
       return;
     }
 
-    bridge.send('voice.saveChannelPassword', { channelId, channelName, password });
+    savedChannelPasswordsRef.current.set(channelId, normalized);
+    setChannels(prev => prev.map(channel => channel.id === channelId
+      ? { ...channel, canEnter: true }
+      : channel));
+  }, []);
+
+  const saveChannelPassword = useCallback((channelId: number, channelName: string, password: string) => {
+    const normalized = password.trim();
+    if (!normalized) {
+      return;
+    }
+
+    bridge.send('voice.saveChannelPassword', { channelId, channelName, password: normalized });
   }, []);
 
   // Handle Push-to-Talk key detection via JavaScript when app is focused
@@ -1790,8 +1805,9 @@ function App() {
             }
 
             startPendingAction(pendingJoinAttempt.channelId);
-            saveChannelPassword(pendingJoinAttempt.channelId, pendingJoinAttempt.channelName, password);
             sendJoinChannel(pendingJoinAttempt.channelId, password);
+            rememberChannelPassword(pendingJoinAttempt.channelId, password);
+            saveChannelPassword(pendingJoinAttempt.channelId, pendingJoinAttempt.channelName, password);
           })();
           return;
         }
@@ -2807,8 +2823,22 @@ const handleConnect = (serverData: SavedServer) => {
       return;
     }
 
+    if (channel.hasPasswordRestriction) {
+      password = savedChannelPasswordsRef.current.get(channelId);
+    }
+
     if (joinAction === 'promptPassword') {
-      const savedPassword = await getSavedChannelPassword(channelId);
+      if (!password) {
+        const savedPassword = await getSavedChannelPassword(channelId);
+        if (savedPassword) {
+          rememberChannelPassword(channelId, savedPassword);
+          password = savedPassword;
+        }
+      }
+    }
+
+    if (joinAction === 'promptPassword' && !password) {
+      const savedPassword = savedChannelPasswordsRef.current.get(channelId) ?? '';
       const enteredPassword = await prompt({
         title: 'Channel Password',
         message: `Enter the password for ${channel.name}.`,
@@ -2824,6 +2854,7 @@ const handleConnect = (serverData: SavedServer) => {
       }
 
       password = enteredPassword;
+      rememberChannelPassword(channelId, enteredPassword);
       saveChannelPassword(channelId, channel.name, enteredPassword);
     }
 

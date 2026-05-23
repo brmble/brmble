@@ -8,6 +8,7 @@ type BridgeHandler = (data: unknown) => void;
 const {
   bridgeHandlers,
   bridge,
+  sidebarProps,
   disconnectViewer,
   setDiscoveryTarget,
   stopSharing,
@@ -72,6 +73,7 @@ const {
   };
   let idleActionsArgs: { onBeforeAutoLeave?: () => void | Promise<void> } | null = null;
   let localShareEndedHandler: ((reason: 'manual' | 'source-closed' | 'interrupted' | 'error' | 'blocked-capture' | 'moved-channel') => void) | null = null;
+  let latestSidebarProps: { channels?: Array<{ id: number; canEnter?: boolean; hasPasswordRestriction?: boolean }> } = {};
   const mockBridge = {
     send: vi.fn(),
     on: vi.fn((type: string, handler: BridgeHandler) => {
@@ -99,6 +101,10 @@ const {
   return {
     bridgeHandlers: handlers,
     bridge: mockBridge,
+    sidebarProps: {
+      get current() { return latestSidebarProps; },
+      set current(value: { channels?: Array<{ id: number; canEnter?: boolean; hasPasswordRestriction?: boolean }> }) { latestSidebarProps = value; },
+    },
     disconnectViewer: disconnect,
     setDiscoveryTarget: setTarget,
     stopSharing: stop,
@@ -277,27 +283,31 @@ vi.mock('./components/Header/UserPanel/UserPanel', () => ({
 }));
 vi.mock('./components/Header/BrmbleLogo', () => ({ BrmbleLogo: () => null }));
 vi.mock('./components/Sidebar/Sidebar', () => ({
-  Sidebar: ({ onDisconnect, onWatchScreenShare, onJoinChannel }: {
+  Sidebar: (props: {
     onDisconnect?: () => void;
     onWatchScreenShare?: (roomName: string, userId?: number, matrixUserId?: string) => void;
     onJoinChannel?: (channelId: number) => void;
-  }) => React.createElement(React.Fragment, null,
+    channels?: Array<{ id: number; canEnter?: boolean; hasPasswordRestriction?: boolean }>;
+  }) => {
+    sidebarProps.current = props;
+    return React.createElement(React.Fragment, null,
     React.createElement('button', {
       type: 'button',
       'data-testid': 'sidebar-disconnect',
-      onClick: onDisconnect,
+      onClick: props.onDisconnect,
     }),
     React.createElement('button', {
       type: 'button',
       'data-testid': 'sidebar-watch-share',
-      onClick: () => onWatchScreenShare?.('channel-0', 42, '@alice:example.com'),
+      onClick: () => props.onWatchScreenShare?.('channel-0', 42, '@alice:example.com'),
     }),
     React.createElement('button', {
       type: 'button',
       'data-testid': 'sidebar-join-channel-2',
-      onClick: () => onJoinChannel?.(2),
+      onClick: () => props.onJoinChannel?.(2),
     }),
-  ),
+  );
+  },
 }));
 vi.mock('./components/ChatPanel/ChatPanel', () => ({ ChatPanel: () => null }));
 vi.mock('./components/ConnectModal/ConnectModal', () => ({ ConnectModal: () => null }));
@@ -528,6 +538,7 @@ describe('active share discovery', () => {
     idleActionsState.preLeaveCancelledAt = null;
     clearIdleActionsArgs();
     clearLocalShareEndedHandler();
+    sidebarProps.current = {};
     vi.mocked(notifQueue.isVisible).mockReturnValue(false);
     vi.mocked(bridge.on).mockImplementation((type: string, handler: BridgeHandler) => {
       const eventHandlers = bridgeHandlers.get(type) ?? new Set<BridgeHandler>();
@@ -2198,9 +2209,8 @@ describe('active share discovery', () => {
     ]);
   });
 
-  it('prefills the known channel password prompt with the latest saved password', async () => {
+  it('uses the latest saved password without prompting for a known password channel', async () => {
     const { prompt } = await import('./hooks/usePrompt');
-    vi.mocked(prompt).mockResolvedValueOnce('updated-secret');
     vi.mocked(bridge.on).mockImplementation((type: string, handler: BridgeHandler) => {
       const eventHandlers = bridgeHandlers.get(type) ?? new Set<BridgeHandler>();
       eventHandlers.add(handler);
@@ -2231,11 +2241,8 @@ describe('active share discovery', () => {
     });
 
     expect(bridge.send).toHaveBeenCalledWith('voice.getChannelPassword', { channelId: 2, requestId: 'channel-password-2' });
-    expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'Channel Password',
-      defaultValue: 'saved-secret',
-    }));
-    expect(bridge.send).toHaveBeenCalledWith('voice.joinChannel', { channelId: 2, password: 'updated-secret' });
+    expect(prompt).not.toHaveBeenCalled();
+    expect(bridge.send).toHaveBeenCalledWith('voice.joinChannel', { channelId: 2, password: 'saved-secret' });
   });
 
   it('stores a password entered in the known channel password prompt', async () => {
@@ -2269,6 +2276,74 @@ describe('active share discovery', () => {
       });
     });
     expect(bridge.send).toHaveBeenCalledWith('voice.joinChannel', { channelId: 2, password: 'secret-token' });
+  });
+
+  it('uses a saved channel password without prompting again in the same connection', async () => {
+    const { prompt } = await import('./hooks/usePrompt');
+    vi.mocked(prompt).mockResolvedValueOnce('secret-token');
+
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming', hasPasswordRestriction: true },
+        ],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    await act(async () => {
+      view.getByTestId('sidebar-join-channel-2').click();
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(bridge.send).toHaveBeenCalledWith('voice.joinChannel', { channelId: 2, password: 'secret-token' });
+    });
+
+    vi.mocked(prompt).mockClear();
+    vi.mocked(bridge.send).mockClear();
+
+    await act(async () => {
+      view.getByTestId('sidebar-join-channel-2').click();
+      await Promise.resolve();
+    });
+
+    expect(prompt).not.toHaveBeenCalled();
+    expect(bridge.send).toHaveBeenCalledWith('voice.joinChannel', { channelId: 2, password: 'secret-token' });
+  });
+
+  it('marks a password channel enterable after joining with a saved password', async () => {
+    const { prompt } = await import('./hooks/usePrompt');
+    vi.mocked(prompt).mockResolvedValueOnce('secret-token');
+
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General' },
+          { id: 2, name: 'Gaming', hasPasswordRestriction: true },
+        ],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    await act(async () => {
+      view.getByTestId('sidebar-join-channel-2').click();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      const channel = sidebarProps.current.channels?.find(c => c.id === 2);
+      expect(channel?.canEnter).toBe(true);
+      expect(channel?.hasPasswordRestriction).toBe(true);
+    });
   });
 
   it('prompts for a channel password when a password-denial reason reveals an uncached password ACL', async () => {
