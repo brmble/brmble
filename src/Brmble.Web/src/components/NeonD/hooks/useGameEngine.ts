@@ -5,6 +5,8 @@ import type { GameState, Dealer, DealerUpgrade } from '../types';
 import { INITIAL_GAME_STATE, UNLOCK_COSTS, PRODUCT_TIERS, DEALER_FIRST_NAMES, DEALER_LAST_NAMES, SLOT_UNLOCK_COSTS, VOLUME_RANGES, MARGIN_RANGES, ARREST_CHECK_INTERVAL_MS, DEALER_PROTECTION_INCOME_MULTIPLIER, PRODUCT_ARREST_RISK } from '../constants';
 import { getBailCost } from '../economy';
 
+const OFFLINE_EARNINGS_POPUP_THRESHOLD_MS = 10 * 60 * 1000;
+
 // Roll a random value within a given range
 function rollWithinRange(min: number, max: number): number {
   return min + Math.random() * (max - min);
@@ -245,10 +247,22 @@ const advanceGameState = (state: GameState, now: number): GameState => {
   const elapsedSeconds = Math.floor((now - lastTickAt) / 1000);
   if (elapsedSeconds <= 0) return state;
 
+  const moneyBefore = state.money;
   let nextState = state;
   for (let tickIndex = 0; tickIndex < elapsedSeconds; tickIndex += 1) {
     const tickTime = lastTickAt + ((tickIndex + 1) * 1000);
     nextState = simulateSingleSecond(nextState, tickTime);
+  }
+
+  const awayMs = now - lastTickAt;
+  if (awayMs >= OFFLINE_EARNINGS_POPUP_THRESHOLD_MS) {
+    nextState = {
+      ...nextState,
+      offlineEarningsSummary: {
+        awayMs,
+        earned: nextState.money - moneyBefore,
+      },
+    };
   }
 
   return nextState;
@@ -293,6 +307,7 @@ export const useGameEngine = () => {
       activeDealers: prev.activeDealers.map(dealer => (dealer ? normalizeDealerRiskState(dealer) : null)),
       availableDealers: prev.availableDealers.map(dealer => normalizeDealerRiskState(dealer)),
       lastTickAt: prev.lastTickAt ?? Date.now(),
+      offlineEarningsSummary: prev.offlineEarningsSummary ?? null,
     }));
   }, [state.activeDealers, state.availableDealers, setState]);
 
@@ -515,6 +530,13 @@ export const useGameEngine = () => {
     });
   };
 
+  const dismissOfflineEarningsSummary = () => {
+    setState(prev => ({
+      ...prev,
+      offlineEarningsSummary: null,
+    }));
+  };
+
   const resetGame = useCallback(() => {
     clearStorage();
     setState({
@@ -544,5 +566,6 @@ export const useGameEngine = () => {
     toggleDealerProtection,
     forceArrestDealer,
     payDealerBail,
+    dismissOfflineEarningsSummary,
   };
 };

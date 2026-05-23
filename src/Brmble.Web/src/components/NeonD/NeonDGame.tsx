@@ -80,6 +80,18 @@ function formatMoney(value: number) {
   return `$${Math.round(value).toLocaleString()}`;
 }
 
+function formatAwayDuration(awayMs: number) {
+  const totalMinutes = Math.floor(awayMs / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+
+  return `${minutes}m`;
+}
+
 export function NeonDGame({ onClose }: { onClose?: () => void }) {
   const {
     state,
@@ -95,6 +107,7 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     buyEquipment,
     toggleDealerProtection,
     payDealerBail,
+    dismissOfflineEarningsSummary,
   } = useGameEngine();
   const [upgradingDealerId, setUpgradingDealerId] = useState<string | null>(null);
 
@@ -494,6 +507,23 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
                 </button>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {state.offlineEarningsSummary && (
+        <div className={styles.equipmentModalOverlay}>
+          <div className={`glass-panel animate-slide-up ${styles.offlineSummaryModal}`}>
+            <h3 className={`heading-section ${styles.columnHeader}`}>Welcome back</h3>
+            <p className={styles.offlineSummaryText}>
+              You've been away for {formatAwayDuration(state.offlineEarningsSummary.awayMs)}.
+            </p>
+            <p className={styles.offlineSummaryText}>
+              In that time, you've earned {formatMoney(state.offlineEarningsSummary.earned)}.
+            </p>
+            <button className={styles.buyButton} onClick={dismissOfflineEarningsSummary}>
+              Accept
+            </button>
           </div>
         </div>
       )}
