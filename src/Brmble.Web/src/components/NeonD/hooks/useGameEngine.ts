@@ -153,67 +153,168 @@ const normalizeDealerRiskState = (dealer: Dealer): Dealer => ({
   pendingUpgradeOptions: dealer.pendingUpgradeOptions ?? [],
 });
 
-const simulateSingleSecond = (state: GameState, now: number): GameState => {
-  const nextProduction = { ...state.production };
-  const nextEarnings: Record<string, number> = {};
-  let totalEarnedThisTick = 0;
+type ProductDemand = {
+  dealerId: string;
+  amountPerSecond: number;
+  earningsPerUnit: number;
+};
 
-  Object.keys(nextProduction).forEach(key => {
-    if (nextProduction[key].rate > 0) {
-      nextProduction[key] = {
-        ...nextProduction[key],
-        stock: nextProduction[key].stock + nextProduction[key].rate
-      };
-    }
+const allocateDemandForTick = (availableStock: number, demands: ProductDemand[]) => {
+  let remainingStock = availableStock;
+  const soldByDealer: Record<string, number> = {};
+
+  demands.forEach((demand) => {
+    const sold = Math.min(remainingStock, demand.amountPerSecond);
+    soldByDealer[demand.dealerId] = sold;
+    remainingStock = Math.max(0, remainingStock - sold);
   });
 
+  return {
+    remainingStock,
+    soldByDealer,
+  };
+};
+
+const buildProductDemands = (state: GameState) => {
+  const productDemands = new Map<string, ProductDemand[]>();
+
   state.activeDealers.forEach((dealer) => {
-    if (!dealer) return;
-    if (dealer.isArrested) {
-      nextEarnings[dealer.id] = 0;
-      return;
-    }
-    let dealerGross = 0;
+    if (!dealer || dealer.isArrested) return;
 
     const effectiveVolume = dealer.volume * (1 + dealer.volumeBonus);
     const effectiveMargin = dealer.margin * (1 + dealer.marginBonus);
+    const earningsMultiplier = dealer.isProtected ? DEALER_PROTECTION_INCOME_MULTIPLIER : 1;
+    const appendDemand = (productId: string, amountPerSecond: number) => {
+      if (amountPerSecond <= 0) return;
 
-    const primaryProd = nextProduction[dealer.selling];
-    if (primaryProd) {
-      const primarySold = Math.min(primaryProd.stock, effectiveVolume);
-      nextProduction[dealer.selling] = {
-        ...primaryProd,
-        stock: Math.max(0, primaryProd.stock - primarySold)
-      };
-      dealerGross += primarySold * (effectiveMargin * (PRODUCT_TIERS[dealer.selling] || 1));
-    }
+      const demands = productDemands.get(productId) ?? [];
+      demands.push({
+        dealerId: dealer.id,
+        amountPerSecond,
+        earningsPerUnit: effectiveMargin * (PRODUCT_TIERS[productId] || 1) * earningsMultiplier,
+      });
+      productDemands.set(productId, demands);
+    };
+
+    appendDemand(dealer.selling, effectiveVolume);
 
     if (dealer.sideVolume > 0) {
       const bleedAmount = effectiveVolume * dealer.sideVolume;
-      for (const product of state.unlockedProduction) {
-        if (product !== dealer.selling) {
-          const sideProd = nextProduction[product];
-          if (!sideProd) continue;
-          const sold = Math.min(sideProd.stock, bleedAmount);
-          nextProduction[product] = { ...sideProd, stock: Math.max(0, sideProd.stock - sold) };
-          dealerGross += sold * (effectiveMargin * (PRODUCT_TIERS[product] || 1));
+      state.unlockedProduction.forEach((productId) => {
+        if (productId !== dealer.selling) {
+          appendDemand(productId, bleedAmount);
         }
-      }
+      });
     }
-
-    if (dealer.isProtected) {
-      dealerGross *= DEALER_PROTECTION_INCOME_MULTIPLIER;
-    }
-
-    nextEarnings[dealer.id] = dealerGross;
-    totalEarnedThisTick += dealerGross;
   });
 
-  let nextDealers = state.activeDealers.map(dealer => dealer ? { ...dealer } : null);
-  nextDealers = nextDealers.map(dealer => {
+  return productDemands;
+};
+
+const advanceStateBySeconds = (state: GameState, seconds: number, now: number): GameState => {
+  if (seconds <= 0) return state;
+
+  const nextProduction = { ...state.production };
+  const nextEarnings: Record<string, number> = {};
+  let totalEarnedAcrossSpan = 0;
+  const productDemands = buildProductDemands(state);
+
+  state.activeDealers.forEach((dealer) => {
+    if (!dealer) return;
+    nextEarnings[dealer.id] = 0;
+  });
+
+  Object.keys(nextProduction).forEach((productId) => {
+    const item = nextProduction[productId];
+    const demands = productDemands.get(productId) ?? [];
+
+    if (demands.length === 0) {
+      if (item.rate > 0) {
+        nextProduction[productId] = {
+          ...item,
+          stock: item.stock + item.rate * seconds,
+        };
+      }
+      return;
+    }
+
+    const totalDemandPerSecond = demands.reduce((sum, demand) => sum + demand.amountPerSecond, 0);
+
+    if (totalDemandPerSecond <= item.rate) {
+      nextProduction[productId] = {
+        ...item,
+        stock: item.stock + (item.rate - totalDemandPerSecond) * seconds,
+      };
+
+      demands.forEach((demand) => {
+        const spanSold = demand.amountPerSecond * seconds;
+        const spanEarned = spanSold * demand.earningsPerUnit;
+        totalEarnedAcrossSpan += spanEarned;
+        nextEarnings[demand.dealerId] += demand.amountPerSecond * demand.earningsPerUnit;
+      });
+      return;
+    }
+
+    const stockDeficitPerSecond = totalDemandPerSecond - item.rate;
+    const fullDemandTicks = Math.min(seconds, Math.floor(item.stock / stockDeficitPerSecond));
+
+    if (fullDemandTicks > 0) {
+      demands.forEach((demand) => {
+        totalEarnedAcrossSpan += fullDemandTicks * demand.amountPerSecond * demand.earningsPerUnit;
+      });
+    }
+
+    if (fullDemandTicks === seconds) {
+      nextProduction[productId] = {
+        ...item,
+        stock: item.stock - stockDeficitPerSecond * seconds,
+      };
+
+      demands.forEach((demand) => {
+        nextEarnings[demand.dealerId] += demand.amountPerSecond * demand.earningsPerUnit;
+      });
+      return;
+    }
+
+    const stockBeforePartialTick = item.stock - fullDemandTicks * stockDeficitPerSecond;
+    const partialTickAllocation = allocateDemandForTick(stockBeforePartialTick + item.rate, demands);
+    const zeroStockAllocation = allocateDemandForTick(item.rate, demands);
+    const zeroStockTicks = seconds - fullDemandTicks - 1;
+    const finalTickAllocation = zeroStockTicks > 0 ? zeroStockAllocation : partialTickAllocation;
+
+    demands.forEach((demand) => {
+      const partialSold = partialTickAllocation.soldByDealer[demand.dealerId] ?? 0;
+      const zeroStockSold = zeroStockAllocation.soldByDealer[demand.dealerId] ?? 0;
+      const spanSold = fullDemandTicks * demand.amountPerSecond + partialSold + zeroStockTicks * zeroStockSold;
+      const spanEarned = spanSold * demand.earningsPerUnit;
+
+      totalEarnedAcrossSpan += spanEarned;
+      nextEarnings[demand.dealerId] += (finalTickAllocation.soldByDealer[demand.dealerId] ?? 0) * demand.earningsPerUnit;
+    });
+
+    nextProduction[productId] = {
+      ...item,
+      stock: zeroStockTicks > 0 ? 0 : partialTickAllocation.remainingStock,
+    };
+  });
+
+  return {
+    ...state,
+    money: state.money + totalEarnedAcrossSpan,
+    totalEarned: state.totalEarned + totalEarnedAcrossSpan,
+    production: nextProduction,
+    lastEarningsPerDealer: nextEarnings,
+    lastTickAt: now,
+  };
+};
+
+const applyDueArrestChecks = (state: GameState, now: number): GameState => {
+  let changed = false;
+  const nextDealers = state.activeDealers.map((dealer) => {
     if (!dealer || dealer.isArrested || dealer.isProtected) return dealer;
     if (dealer.nextArrestCheckAt > now) return dealer;
 
+    changed = true;
     const risk = getDealerRisk(dealer.selling);
     const rolledArrest = Math.random() < risk.chance;
 
@@ -231,15 +332,36 @@ const simulateSingleSecond = (state: GameState, now: number): GameState => {
     };
   });
 
-  return {
-    ...state,
-    money: state.money + totalEarnedThisTick,
-    totalEarned: state.totalEarned + totalEarnedThisTick,
-    production: nextProduction,
-    activeDealers: nextDealers,
-    lastEarningsPerDealer: nextEarnings,
-    lastTickAt: now,
-  };
+  return changed
+    ? {
+        ...state,
+        activeDealers: nextDealers,
+      }
+    : state;
+};
+
+const getNextArrestEventTick = (state: GameState, targetTime: number) => {
+  let nextEventTick: number | null = null;
+
+  state.activeDealers.forEach((dealer) => {
+    if (!dealer || dealer.isArrested || dealer.isProtected) return;
+
+    const secondsUntilCheck = Math.max(1, Math.ceil((dealer.nextArrestCheckAt - state.lastTickAt) / 1000));
+    const eventTick = state.lastTickAt + secondsUntilCheck * 1000;
+
+    if (eventTick > targetTime) return;
+    if (nextEventTick === null || eventTick < nextEventTick) {
+      nextEventTick = eventTick;
+    }
+  });
+
+  return nextEventTick;
+};
+
+const simulateSingleSecond = (state: GameState, now: number): GameState => {
+  const advancedState = advanceStateBySeconds(state, 1, now);
+
+  return applyDueArrestChecks(advancedState, now);
 };
 
 const advanceGameState = (state: GameState, now: number): GameState => {
@@ -248,10 +370,19 @@ const advanceGameState = (state: GameState, now: number): GameState => {
   if (elapsedSeconds <= 0) return state;
 
   const moneyBefore = state.money;
+  const targetTime = lastTickAt + elapsedSeconds * 1000;
   let nextState = state;
-  for (let tickIndex = 0; tickIndex < elapsedSeconds; tickIndex += 1) {
-    const tickTime = lastTickAt + ((tickIndex + 1) * 1000);
-    nextState = simulateSingleSecond(nextState, tickTime);
+
+  while (nextState.lastTickAt < targetTime) {
+    const eventTick = getNextArrestEventTick(nextState, targetTime);
+    const spanEnd = eventTick ?? targetTime;
+    const secondsToAdvance = Math.floor((spanEnd - nextState.lastTickAt) / 1000);
+
+    nextState = advanceStateBySeconds(nextState, secondsToAdvance, spanEnd);
+
+    if (eventTick !== null && spanEnd === eventTick) {
+      nextState = applyDueArrestChecks(nextState, spanEnd);
+    }
   }
 
   const awayMs = now - lastTickAt;
