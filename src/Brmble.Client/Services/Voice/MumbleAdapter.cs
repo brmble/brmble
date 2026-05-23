@@ -2652,6 +2652,27 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             return Task.CompletedTask;
         });
 
+        bridge.RegisterHandler("voice.reconnect", data =>
+        {
+            if (string.IsNullOrWhiteSpace(_reconnectHost) ||
+                _reconnectPort <= 0 ||
+                string.IsNullOrWhiteSpace(_reconnectUsername))
+            {
+                _bridge?.Send("voice.reconnectFailed", new { reason = "No server connection available to reconnect" });
+                _bridge?.NotifyUiThread();
+                return Task.CompletedTask;
+            }
+
+            _intentionalDisconnect = false;
+            _rejected = false;
+            _reconnectCts?.Cancel();
+            _bridge?.Send("voice.reconnecting", new { attempt = 1, delayMs = 0 });
+            _bridge?.NotifyUiThread();
+            Disconnect();
+            _ = Task.Run(() => ReconnectLoop());
+            return Task.CompletedTask;
+        });
+
         bridge.RegisterHandler("voice.sendMessage", data =>
         {
             if (data.TryGetProperty("message", out var message))

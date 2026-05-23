@@ -2107,18 +2107,18 @@ describe('active share discovery', () => {
 
     expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Channel Password',
-      message: 'Enter the password for Gaming.',
+      message: 'Enter the password for Gaming. Save the password and reconnect to authenticate it.',
+      confirmLabel: 'Save and reconnect',
     }));
     expect(confirm).not.toHaveBeenCalled();
     expect(stopSharing).not.toHaveBeenCalled();
     expect(bridge.send).not.toHaveBeenCalledWith('voice.joinChannel', { channelId: 2 });
+    expect(bridge.send).not.toHaveBeenCalledWith('voice.reconnect');
   });
 
-  it('screen share active password join confirm stops sharing before sending password join', async () => {
+  it('screen share active password join confirm saves and reconnects without asking to stop sharing', async () => {
     const { confirm, prompt } = await import('./hooks/usePrompt');
     vi.mocked(prompt).mockResolvedValueOnce('secret-token');
-    vi.mocked(confirm).mockResolvedValueOnce(true);
-    vi.mocked(stopSharing).mockResolvedValueOnce(undefined);
 
     const view = render(React.createElement(App));
 
@@ -2150,23 +2150,21 @@ describe('active share discovery', () => {
 
     expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Channel Password',
-      message: 'Enter the password for Gaming.',
+      message: 'Enter the password for Gaming. Save the password and reconnect to authenticate it.',
+      confirmLabel: 'Save and reconnect',
     }));
-    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'Screen share active',
-      message: 'Moving to another channel will end your screen share. Move and stop sharing?',
-    }));
-    expect(stopSharing).toHaveBeenCalled();
-    expect(bridge.send).toHaveBeenCalledWith('voice.joinChannel', { channelId: 2, password: 'secret-token' });
-
-    const stopCall = vi.mocked(stopSharing).mock.invocationCallOrder[0];
-    const joinCall = vi.mocked(bridge.send).mock.calls
-      .map(([type], index) => ({ type, order: vi.mocked(bridge.send).mock.invocationCallOrder[index] }))
-      .find(call => call.type === 'voice.joinChannel');
-    expect(joinCall?.order).toBeGreaterThan(stopCall);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(stopSharing).not.toHaveBeenCalled();
+    expect(bridge.send).toHaveBeenCalledWith('voice.saveChannelPassword', {
+      channelId: 2,
+      channelName: 'Gaming',
+      password: 'secret-token',
+    });
+    expect(bridge.send).toHaveBeenCalledWith('voice.reconnect');
+    expect(bridge.send).not.toHaveBeenCalledWith('voice.joinChannel', expect.objectContaining({ password: expect.any(String) }));
   });
 
-  it('prompts for a known password-protected channel before joining', async () => {
+  it('prompts for a known password-protected channel before reconnecting', async () => {
     const { prompt } = await import('./hooks/usePrompt');
     vi.mocked(prompt).mockResolvedValueOnce('secret-token');
     const getJoinChannelCalls = () => vi.mocked(bridge.send).mock.calls.filter(
@@ -2195,22 +2193,26 @@ describe('active share discovery', () => {
     await waitFor(() => {
       expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
         title: 'Channel Password',
-        message: 'Enter the password for Gaming.',
+        message: 'Enter the password for Gaming. Save the password and reconnect to authenticate it.',
         placeholder: 'Password',
-        confirmLabel: 'Join',
+        confirmLabel: 'Save and reconnect',
         cancelLabel: 'Cancel',
       }));
     });
     await waitFor(() => {
-      expect(bridge.send).toHaveBeenCalledWith('voice.joinChannel', { channelId: 2, password: 'secret-token' });
+      expect(bridge.send).toHaveBeenCalledWith('voice.saveChannelPassword', {
+        channelId: 2,
+        channelName: 'Gaming',
+        password: 'secret-token',
+      });
     });
-    expect(getJoinChannelCalls()).toEqual([
-      ['voice.joinChannel', { channelId: 2, password: 'secret-token' }],
-    ]);
+    expect(bridge.send).toHaveBeenCalledWith('voice.reconnect');
+    expect(getJoinChannelCalls()).toEqual([]);
   });
 
-  it('uses the latest saved password without prompting for a known password channel', async () => {
+  it('prompts to save and reconnect when a saved password exists for a known password channel', async () => {
     const { prompt } = await import('./hooks/usePrompt');
+    vi.mocked(prompt).mockResolvedValueOnce('updated-secret');
     vi.mocked(bridge.on).mockImplementation((type: string, handler: BridgeHandler) => {
       const eventHandlers = bridgeHandlers.get(type) ?? new Set<BridgeHandler>();
       eventHandlers.add(handler);
@@ -2241,8 +2243,19 @@ describe('active share discovery', () => {
     });
 
     expect(bridge.send).toHaveBeenCalledWith('voice.getChannelPassword', { channelId: 2, requestId: 'channel-password-2' });
-    expect(prompt).not.toHaveBeenCalled();
-    expect(bridge.send).toHaveBeenCalledWith('voice.joinChannel', { channelId: 2, password: 'saved-secret' });
+    expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Channel Password',
+      message: 'Enter the password for Gaming. Save the password and reconnect to authenticate it.',
+      defaultValue: 'saved-secret',
+      confirmLabel: 'Save and reconnect',
+    }));
+    expect(bridge.send).toHaveBeenCalledWith('voice.saveChannelPassword', {
+      channelId: 2,
+      channelName: 'Gaming',
+      password: 'updated-secret',
+    });
+    expect(bridge.send).toHaveBeenCalledWith('voice.reconnect');
+    expect(bridge.send).not.toHaveBeenCalledWith('voice.joinChannel', expect.objectContaining({ password: expect.any(String) }));
   });
 
   it('stores a password entered in the known channel password prompt', async () => {
@@ -2275,10 +2288,11 @@ describe('active share discovery', () => {
         password: 'secret-token',
       });
     });
-    expect(bridge.send).toHaveBeenCalledWith('voice.joinChannel', { channelId: 2, password: 'secret-token' });
+    expect(bridge.send).toHaveBeenCalledWith('voice.reconnect');
+    expect(bridge.send).not.toHaveBeenCalledWith('voice.joinChannel', expect.objectContaining({ password: expect.any(String) }));
   });
 
-  it('uses a saved channel password without prompting again in the same connection', async () => {
+  it('reconnects instead of using saved passwords in the same connection', async () => {
     const { prompt } = await import('./hooks/usePrompt');
     vi.mocked(prompt).mockResolvedValueOnce('secret-token');
 
@@ -2301,7 +2315,7 @@ describe('active share discovery', () => {
       await Promise.resolve();
     });
     await waitFor(() => {
-      expect(bridge.send).toHaveBeenCalledWith('voice.joinChannel', { channelId: 2, password: 'secret-token' });
+      expect(bridge.send).toHaveBeenCalledWith('voice.reconnect');
     });
 
     vi.mocked(prompt).mockClear();
@@ -2312,11 +2326,11 @@ describe('active share discovery', () => {
       await Promise.resolve();
     });
 
-    expect(prompt).not.toHaveBeenCalled();
-    expect(bridge.send).toHaveBeenCalledWith('voice.joinChannel', { channelId: 2, password: 'secret-token' });
+    await waitFor(() => expect(prompt).toHaveBeenCalledTimes(1));
+    expect(bridge.send).not.toHaveBeenCalledWith('voice.joinChannel', expect.objectContaining({ password: expect.any(String) }));
   });
 
-  it('marks a password channel enterable after joining with a saved password', async () => {
+  it('does not mark a password channel enterable until reconnect authenticates tokens', async () => {
     const { prompt } = await import('./hooks/usePrompt');
     vi.mocked(prompt).mockResolvedValueOnce('secret-token');
 
@@ -2339,11 +2353,10 @@ describe('active share discovery', () => {
       await Promise.resolve();
     });
 
-    await waitFor(() => {
-      const channel = sidebarProps.current.channels?.find(c => c.id === 2);
-      expect(channel?.canEnter).toBe(true);
-      expect(channel?.hasPasswordRestriction).toBe(true);
-    });
+    const channel = sidebarProps.current.channels?.find(c => c.id === 2);
+    expect(channel?.canEnter).toBeUndefined();
+    expect(channel?.hasPasswordRestriction).toBe(true);
+    expect(bridge.send).toHaveBeenCalledWith('voice.reconnect');
   });
 
   it('prompts for a channel password when a password-denial reason reveals an uncached password ACL', async () => {
@@ -2384,15 +2397,20 @@ describe('active share discovery', () => {
     await waitFor(() => {
       expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
         title: 'Channel Password',
-        message: 'Enter the password for Gaming.',
+        message: 'Enter the password for Gaming. Save the password and reconnect to authenticate it.',
+        confirmLabel: 'Save and reconnect',
       }));
     });
     await waitFor(() => {
-      expect(bridge.send).toHaveBeenCalledWith('voice.joinChannel', { channelId: 2, password: 'secret-token' });
+      expect(bridge.send).toHaveBeenCalledWith('voice.saveChannelPassword', {
+        channelId: 2,
+        channelName: 'Gaming',
+        password: 'secret-token',
+      });
     });
+    expect(bridge.send).toHaveBeenCalledWith('voice.reconnect');
     expect(getJoinChannelCalls()).toEqual([
       ['voice.joinChannel', { channelId: 2 }],
-      ['voice.joinChannel', { channelId: 2, password: 'secret-token' }],
     ]);
   });
 
@@ -2435,7 +2453,8 @@ describe('active share discovery', () => {
         password: 'secret-token',
       });
     });
-    expect(bridge.send).toHaveBeenCalledWith('voice.joinChannel', { channelId: 2, password: 'secret-token' });
+    expect(bridge.send).toHaveBeenCalledWith('voice.reconnect');
+    expect(bridge.send).not.toHaveBeenCalledWith('voice.joinChannel', expect.objectContaining({ password: expect.any(String) }));
   });
 
   it('does not join when the user cancels the known channel password prompt', async () => {
@@ -2444,7 +2463,6 @@ describe('active share discovery', () => {
     const getJoinChannelCalls = () => vi.mocked(bridge.send).mock.calls.filter(
       ([type]) => type === 'voice.joinChannel',
     );
-
     const view = render(React.createElement(App));
 
     act(() => {
@@ -2519,9 +2537,6 @@ describe('active share discovery', () => {
   it('does not reopen the password prompt after a second failed retry', async () => {
     const { prompt } = await import('./hooks/usePrompt');
     vi.mocked(prompt).mockResolvedValueOnce('wrong-secret');
-    const getJoinChannelCalls = () => vi.mocked(bridge.send).mock.calls.filter(
-      ([type]) => type === 'voice.joinChannel',
-    );
 
     const view = render(React.createElement(App));
 
@@ -2554,9 +2569,13 @@ describe('active share discovery', () => {
     });
 
     expect(prompt).toHaveBeenCalledTimes(1);
-    expect(getJoinChannelCalls()).toEqual([
-      ['voice.joinChannel', { channelId: 2, password: 'wrong-secret' }],
-    ]);
+    expect(bridge.send).toHaveBeenCalledWith('voice.saveChannelPassword', {
+      channelId: 2,
+      channelName: 'Gaming',
+      password: 'wrong-secret',
+    });
+    expect(bridge.send).toHaveBeenCalledWith('voice.reconnect');
+    expect(bridge.send).not.toHaveBeenCalledWith('voice.joinChannel', expect.objectContaining({ password: expect.any(String) }));
 
     await act(async () => {
       bridge.emit('voice.error', {
@@ -2570,9 +2589,7 @@ describe('active share discovery', () => {
     });
 
     expect(prompt).toHaveBeenCalledTimes(1);
-    expect(getJoinChannelCalls()).toEqual([
-      ['voice.joinChannel', { channelId: 2, password: 'wrong-secret' }],
-    ]);
+    expect(bridge.send).toHaveBeenCalledWith('voice.reconnect');
   });
 
   it('screen share active leave voice cancel keeps sharing and does not leave voice', async () => {

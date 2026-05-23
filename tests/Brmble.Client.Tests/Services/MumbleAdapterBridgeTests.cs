@@ -209,6 +209,23 @@ public class MumbleAdapterBridgeTests
     }
 
     [TestMethod]
+    public async Task Reconnect_HandlerEmitsReconnectingWhenCredentialsAreAvailable()
+    {
+        var bridge = NativeBridgeTestHarness.Create();
+        var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge);
+        adapter.RegisterHandlers(bridge);
+        adapter.SetActiveServerForTests("example.test", 64738);
+        SetPrivateField(adapter, "_reconnectUsername", "TestUser");
+        SetPrivateField(adapter, "_reconnectPassword", "server-password");
+        SetConnectedConnection(adapter);
+
+        await NativeBridgeTestHarness.InvokeAsync(bridge, "voice.reconnect", JsonSerializer.SerializeToElement(new { }));
+
+        var sent = NativeBridgeTestHarness.DrainMessages(bridge);
+        Assert.IsTrue(sent.Any(m => m.Type == "voice.reconnecting"));
+    }
+
+    [TestMethod]
     public async Task SaveChannelPassword_HandlerRemovesPasswordWhenBlank()
     {
         var appConfig = new TestAppConfigService(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()));
