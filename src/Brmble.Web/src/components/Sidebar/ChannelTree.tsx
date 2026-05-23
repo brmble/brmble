@@ -275,6 +275,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
       : channel.canEnter === false
         ? 'Restricted channel'
       : 'Restricted channel, access allowed';
+    const isAccessBlocked = lockIconName !== null && channel.canEnter !== true;
 
     const isChannelActive = (channelId: number) => channelContextMenu?.channelId === channelId;
 
@@ -369,7 +370,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
           })()}
           {lockIconName && (
             <Tooltip content={lockTooltip}>
-              <span className="channel-access-icon" aria-label={lockTooltip}>
+              <span className={`channel-access-icon${isAccessBlocked ? ' channel-access-icon--blocked' : ''}`} aria-label={lockTooltip}>
                 <Icon name={lockIconName} size={11} />
               </span>
             </Tooltip>

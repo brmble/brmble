@@ -107,6 +107,11 @@
   margin-left: var(--space-2xs);
 }
 
+.channel-access-icon--blocked {
+  color: var(--accent-danger);
+  filter: drop-shadow(0 0 var(--glow-sm) var(--accent-danger));
+}
+
 .user-count {
   font-size: var(--text-xs);
   color: var(--text-muted);
