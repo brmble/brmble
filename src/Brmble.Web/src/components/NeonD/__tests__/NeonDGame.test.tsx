@@ -48,6 +48,7 @@ const mockNeonD = vi.hoisted(() => {
     lastRefreshTime: 0,
     lastEarningsPerDealer: { 'dealer-ui': 8.5 },
     lastTickAt: Date.now(),
+    offlineEarningsSummary: null,
     ...overrides,
   });
 
@@ -83,6 +84,7 @@ const mockNeonD = vi.hoisted(() => {
       toggleDealerProtection: vi.fn(),
       payDealerBail: vi.fn(),
       forceArrestDealer: vi.fn(),
+      dismissOfflineEarningsSummary: vi.fn(),
     }),
   };
 });
@@ -229,4 +231,41 @@ it('shows bail and fire actions for arrested dealers', () => {
   expect(screen.getAllByText(/arrested/i).length).toBeGreaterThan(0);
   expect(screen.getByRole('button', { name: /pay bail \(\$900\)/i })).toBeInTheDocument();
   expect(screen.getByRole('button', { name: /fire dealer/i })).toBeInTheDocument();
+});
+
+it('shows an offline earnings popup after a long enough break and dismisses it on accept', async () => {
+  const user = userEvent.setup();
+  const dismissOfflineEarningsSummary = vi.fn();
+
+  mockNeonD.useGameEngine = () => ({
+    state: mockNeonD.createState({
+      offlineEarningsSummary: {
+        awayMs: 65 * 60 * 1000,
+        earned: 12345,
+      },
+    }),
+    upgrade: vi.fn(),
+    unlockProduction: vi.fn(),
+    hireDealer: vi.fn(),
+    fireDealer: vi.fn(),
+    refreshPool: vi.fn(),
+    resetGame: vi.fn(),
+    unlockSlot: vi.fn(),
+    setDealerSelling: vi.fn(),
+    startDealerUpgrade: mockNeonD.startDealerUpgradeMock,
+    buyEquipment: mockNeonD.buyEquipmentMock,
+    toggleDealerProtection: vi.fn(),
+    payDealerBail: vi.fn(),
+    forceArrestDealer: vi.fn(),
+    dismissOfflineEarningsSummary,
+  });
+
+  render(<NeonDGame />);
+
+  expect(screen.getByText(/welcome back/i)).toBeInTheDocument();
+  expect(screen.getByText(/you've been away for 1h 5m/i)).toBeInTheDocument();
+  expect(screen.getByText(/you've earned \$12[.,]345/i)).toBeInTheDocument();
+
+  await user.click(screen.getByRole('button', { name: /accept/i }));
+  expect(dismissOfflineEarningsSummary).toHaveBeenCalled();
 });

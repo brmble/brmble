@@ -214,6 +214,19 @@
   max-width: 500px;
 }
 
+.offlineSummaryModal {
+  padding: var(--space-xl);
+  max-width: 420px;
+  display: grid;
+  gap: var(--space-md);
+}
+
+.offlineSummaryText {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
 .equipmentOptions {
   display: grid;
   gap: var(--space-xs);

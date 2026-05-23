@@ -387,6 +387,7 @@ export const INITIAL_GAME_STATE: GameState = {
   lastRefreshTime: 0,
   lastEarningsPerDealer: {},
   lastTickAt: Date.now(),
+  offlineEarningsSummary: null,
 };
 
 // Star-based dealer stat ranges (rolled once at generation)
