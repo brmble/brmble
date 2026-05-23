@@ -358,12 +358,6 @@ const getNextArrestEventTick = (state: GameState, targetTime: number) => {
   return nextEventTick;
 };
 
-const simulateSingleSecond = (state: GameState, now: number): GameState => {
-  const advancedState = advanceStateBySeconds(state, 1, now);
-
-  return applyDueArrestChecks(advancedState, now);
-};
-
 const advanceGameState = (state: GameState, now: number): GameState => {
   const lastTickAt = state.lastTickAt ?? now;
   const elapsedSeconds = Math.floor((now - lastTickAt) / 1000);
