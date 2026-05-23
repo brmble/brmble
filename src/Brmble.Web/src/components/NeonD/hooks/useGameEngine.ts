@@ -399,18 +399,18 @@ const advanceGameState = (state: GameState, now: number): GameState => {
   return nextState;
 };
 
+const createInitialGameState = (): GameState => ({
+  ...INITIAL_GAME_STATE,
+  activeDealers: [null, null, null],
+  unlockedSlots: 1,
+  availableDealers: Array.from({ length: 3 }, () =>
+    generateRandomDealer(INITIAL_GAME_STATE.unlockedProduction, INITIAL_GAME_STATE.totalEarned)
+  ),
+  lastTickAt: Date.now(),
+});
+
 export const useGameEngine = () => {
-  const [state, setState, clearStorage] = usePersistedGameState<GameState>('brmble_neon_d_save', () => {
-    const initial = INITIAL_GAME_STATE;
-    return {
-      ...initial,
-      activeDealers: [null, null, null],
-      unlockedSlots: 1,
-      availableDealers: Array.from({ length: 3 }, () => 
-        generateRandomDealer(initial.unlockedProduction, initial.totalEarned)
-      )
-    };
-  });
+  const [state, setState, clearStorage] = usePersistedGameState<GameState>('brmble_neon_d_save', createInitialGameState);
 
   useEffect(() => {
     const needsMigration = state.activeDealers.some(dealer =>
@@ -429,7 +429,7 @@ export const useGameEngine = () => {
         dealer.hasPendingUpgrade === undefined ||
         dealer.pendingUpgradeOptions === undefined
       )
-    ) || state.lastTickAt === undefined;
+    ) || state.lastTickAt === undefined || state.lastTickAt <= 0;
 
     if (!needsMigration) return;
 
@@ -437,7 +437,7 @@ export const useGameEngine = () => {
       ...prev,
       activeDealers: prev.activeDealers.map(dealer => (dealer ? normalizeDealerRiskState(dealer) : null)),
       availableDealers: prev.availableDealers.map(dealer => normalizeDealerRiskState(dealer)),
-      lastTickAt: prev.lastTickAt ?? Date.now(),
+      lastTickAt: prev.lastTickAt && prev.lastTickAt > 0 ? prev.lastTickAt : Date.now(),
       offlineEarningsSummary: prev.offlineEarningsSummary ?? null,
     }));
   }, [state.activeDealers, state.availableDealers, setState]);
@@ -670,14 +670,7 @@ export const useGameEngine = () => {
 
   const resetGame = useCallback(() => {
     clearStorage();
-    setState({
-      ...INITIAL_GAME_STATE,
-      activeDealers: [null, null, null],
-      unlockedSlots: 1,
-      availableDealers: Array.from({ length: 3 }, () => 
-        generateRandomDealer(INITIAL_GAME_STATE.unlockedProduction, INITIAL_GAME_STATE.totalEarned)
-      )
-    });
+    setState(createInitialGameState());
   }, [setState, clearStorage]);
 
   useInterval(tick, 1000);

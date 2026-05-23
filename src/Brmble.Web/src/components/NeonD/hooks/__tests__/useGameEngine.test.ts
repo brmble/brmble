@@ -92,6 +92,20 @@ describe('useGameEngine', () => {
     expect((dealer?.nextArrestCheckAt ?? 0)).toBeGreaterThan(Date.now());
   });
 
+  it('resetGame stamps a fresh lastTickAt so a new run does not trigger fake offline catch-up', () => {
+    const { result } = renderHook(() => useGameEngine());
+
+    act(() => {
+      vi.advanceTimersByTime(2 * 60 * 60 * 1000);
+      result.current.resetGame();
+    });
+
+    expect(result.current.state.money).toBe(250);
+    expect(result.current.state.totalEarned).toBe(0);
+    expect(result.current.state.offlineEarningsSummary).toBeNull();
+    expect(result.current.state.lastTickAt).toBe(Date.now());
+  });
+
   it('should update production without dealer', async () => {
     const { result } = renderHook(() => useGameEngine());
     

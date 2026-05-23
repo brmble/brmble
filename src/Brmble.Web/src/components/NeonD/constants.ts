@@ -386,7 +386,7 @@ export const INITIAL_GAME_STATE: GameState = {
   unlockedSlots: 1,
   lastRefreshTime: 0,
   lastEarningsPerDealer: {},
-  lastTickAt: Date.now(),
+  lastTickAt: 0,
   offlineEarningsSummary: null,
 };
 
