@@ -385,7 +385,9 @@ export const INITIAL_GAME_STATE: GameState = {
   availableDealers: [],
   unlockedSlots: 1,
   lastRefreshTime: 0,
-  lastEarningsPerDealer: {}
+  lastEarningsPerDealer: {},
+  lastTickAt: 0,
+  offlineEarningsSummary: null,
 };
 
 // Star-based dealer stat ranges (rolled once at generation)
