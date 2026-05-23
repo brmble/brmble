@@ -9,17 +9,19 @@ interface ChannelPasswordResponse {
 export function getSavedChannelPassword(channelId: number): Promise<string> {
   const requestId = `channel-password-${channelId}`;
   return new Promise(resolve => {
-    const timeout = window.setTimeout(() => resolve(''), 250);
-    bridge.once('voice.channelPassword', (data: unknown) => {
+    const finish = (password: string) => {
+      window.clearTimeout(timeout);
+      bridge.off('voice.channelPassword', handleResponse);
+      resolve(password);
+    };
+    const handleResponse = (data: unknown) => {
       const response = data as ChannelPasswordResponse | null;
       if (response?.requestId === requestId && response.channelId === channelId && typeof response.password === 'string') {
-        window.clearTimeout(timeout);
-        resolve(response.password);
-        return;
+        finish(response.password);
       }
-      window.clearTimeout(timeout);
-      resolve('');
-    });
+    };
+    const timeout = window.setTimeout(() => finish(''), 250);
+    bridge.on('voice.channelPassword', handleResponse);
     bridge.send('voice.getChannelPassword', { channelId, requestId });
   });
 }

@@ -326,7 +326,7 @@ describe('ChannelTree ACL integration', () => {
     editChannelDialogPropsRef.current = null;
     aclEditorDialogPropsRef.current = null;
     promptMock.mockReset();
-    bridgeMock.once.mockImplementation((type: string, handler: (data: unknown) => void) => {
+    bridgeMock.on.mockImplementation((type: string, handler: (data: unknown) => void) => {
       if (type === 'voice.channelPassword') {
         handler({ requestId: 'channel-password-5', channelId: 5, password: '' });
       }
@@ -475,7 +475,7 @@ describe('ChannelTree ACL integration', () => {
 
   it('saves a channel password through the saved-token bridge handler', async () => {
     promptMock.mockResolvedValue('new-secret');
-    bridgeMock.once.mockImplementation((type: string, handler: (data: unknown) => void) => {
+    bridgeMock.on.mockImplementation((type: string, handler: (data: unknown) => void) => {
       if (type === 'voice.channelPassword') {
         handler({ requestId: 'channel-password-5', channelId: 5, password: '' });
       }
@@ -517,7 +517,7 @@ describe('ChannelTree ACL integration', () => {
 
   it('prefills Edit Saved Password with the latest saved channel password', async () => {
     promptMock.mockResolvedValue('updated-secret');
-    bridgeMock.once.mockImplementation((type: string, handler: (data: unknown) => void) => {
+    bridgeMock.on.mockImplementation((type: string, handler: (data: unknown) => void) => {
       if (type === 'voice.channelPassword') {
         handler({ requestId: 'channel-password-5', channelId: 5, password: 'saved-secret' });
       }

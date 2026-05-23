@@ -1433,6 +1433,14 @@ function App() {
     bridge.send('voice.joinChannel', { channelId });
   }, []);
 
+  const saveChannelPassword = useCallback((channelId: number, channelName: string, password: string) => {
+    if (!password.trim()) {
+      return;
+    }
+
+    bridge.send('voice.saveChannelPassword', { channelId, channelName, password });
+  }, []);
+
   // Handle Push-to-Talk key detection via JavaScript when app is focused
   // Keys naturally pass through to other apps when window loses focus
   useEffect(() => {
@@ -1782,6 +1790,7 @@ function App() {
             }
 
             startPendingAction(pendingJoinAttempt.channelId);
+            saveChannelPassword(pendingJoinAttempt.channelId, pendingJoinAttempt.channelName, password);
             sendJoinChannel(pendingJoinAttempt.channelId, password);
           })();
           return;
@@ -2815,6 +2824,7 @@ const handleConnect = (serverData: SavedServer) => {
       }
 
       password = enteredPassword;
+      saveChannelPassword(channelId, channel.name, enteredPassword);
     }
 
     if (isSharing && sharingChannelId && String(channelId) !== sharingChannelId) {
