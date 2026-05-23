@@ -47,6 +47,7 @@ const mockNeonD = vi.hoisted(() => {
     unlockedSlots: 1,
     lastRefreshTime: 0,
     lastEarningsPerDealer: { 'dealer-ui': 8.5 },
+    lastTickAt: Date.now(),
     ...overrides,
   });
 
@@ -102,6 +103,13 @@ it('shows protection state and risk label on an active dealer card', () => {
   expect(screen.getByText(/-15% income/i)).toBeInTheDocument();
   expect(screen.getByRole('button', { name: /pay off cops/i })).toBeInTheDocument();
   expect(screen.getByLabelText(/production and dealer sales are balanced/i)).toBeInTheDocument();
+});
+
+it('renders dealer volume and margin as star ratings instead of fractions', () => {
+  render(<NeonDGame />);
+
+  expect(screen.queryByText('3/5')).not.toBeInTheDocument();
+  expect(screen.getAllByText('★★★☆☆').length).toBeGreaterThan(0);
 });
 
 it('reopens stored dealer upgrade options without rerolling and uses the engine flow', async () => {
