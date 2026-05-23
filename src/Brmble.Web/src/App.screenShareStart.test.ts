@@ -320,7 +320,6 @@ vi.mock('./components/Version/Version', () => ({ Version: () => null }));
 vi.mock('./components/ZoomIndicator/ZoomIndicator', () => ({ ZoomIndicator: () => null }));
 vi.mock('./components/DMContactList/DMContactList', () => ({ DMContactList: () => null }));
 vi.mock('./components/NeonD/NeonDGame', () => ({ NeonDGame: () => null }));
-vi.mock('./components/Brmblegotchi/Brmblegotchi', () => ({ Brmblegotchi: () => null }));
 vi.mock('./components/UpdateNotification/UpdateNotification', () => ({ UpdateNotification: () => null }));
 vi.mock('./components/BrokenCertNotification/BrokenCertNotification', () => ({ BrokenCertNotification: () => null }));
 vi.mock('./components/Notification/Notification', () => ({
