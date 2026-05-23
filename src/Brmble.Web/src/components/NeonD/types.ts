@@ -54,4 +54,5 @@ export interface GameState {
   unlockedSlots: number;
   lastRefreshTime: number;
   lastEarningsPerDealer: Record<string, number>;
+  lastTickAt: number;
 }

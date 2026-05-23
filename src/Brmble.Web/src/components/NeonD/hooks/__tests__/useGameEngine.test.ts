@@ -592,4 +592,43 @@ describe('useGameEngine', () => {
     expect(dealer?.hasPendingUpgrade).toBe(false);
     expect(dealer?.pendingUpgradeOptions).toEqual([]);
   });
+
+  it('catches up production and earnings after the game was closed for a few seconds', () => {
+    localStorage.setItem('brmble_neon_d_save', JSON.stringify({
+      money: 100,
+      totalEarned: 0,
+      researchSpeed: 1,
+      production: {
+        weed: {
+          id: 'weed',
+          name: 'Weed',
+          stock: 0,
+          rate: 2,
+          yieldPerLevel: 0.2,
+          costMultiplier: 1.12,
+          level: 1,
+          upgradeCost: 16,
+        },
+      },
+      unlockedProduction: ['weed'],
+      activeDealers: [makeDealer({
+        id: 'offline-earner',
+        volume: 1,
+        margin: 1,
+        sideVolume: 0,
+      }), null, null],
+      availableDealers: [],
+      unlockedSlots: 1,
+      lastRefreshTime: 0,
+      lastEarningsPerDealer: {},
+      lastTickAt: Date.now() - 5_000,
+    }));
+
+    const { result } = renderHook(() => useGameEngine());
+
+    expect(result.current.state.money).toBeCloseTo(121, 5);
+    expect(result.current.state.totalEarned).toBeCloseTo(21, 5);
+    expect(result.current.state.production.weed.stock).toBeCloseTo(5, 5);
+    expect(result.current.state.lastEarningsPerDealer['offline-earner']).toBeCloseTo(4.2, 5);
+  });
 });
