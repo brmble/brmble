@@ -1218,13 +1218,14 @@ describe('useMatrixClient', () => {
           },
         }),
         getTs: () => 1000,
+        isRedacted: () => false,
       },
     ];
-    const mockRoom = {
+    const mockRoom = withNoTypingMembers({
       roomId: '!room:example.com',
       getMember: () => ({ rawDisplayName: 'Alice', name: 'Alice' }),
       getLiveTimeline: () => ({ getEvents: () => fakeEvents }),
-    };
+    });
     mockClient.getRoom.mockReturnValue(mockRoom);
 
     const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
