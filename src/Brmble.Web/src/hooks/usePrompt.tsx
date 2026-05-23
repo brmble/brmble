@@ -192,7 +192,12 @@ function PromptWithInputComponent() {
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onFocus={() => setInputFocused(true)}
-            onBlur={() => setInputFocused(false)}
+            onBlur={() => {
+              setInputFocused(false);
+              // Hide the password again when focus leaves the field, unless
+              // it moved to the toggle button (matches AclEditorDialog).
+              if (!toggleFocused) setShowPassword(false);
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();

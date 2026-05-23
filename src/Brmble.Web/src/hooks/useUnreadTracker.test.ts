@@ -53,45 +53,52 @@ describe('useUnreadTracker replacement filtering', () => {
   it('does not count replacement events as unread', async () => {
     // markRoomRead anchors the stored marker ts to max(Date.now(), markedEventTs)
     // as clock-skew protection, and countUnreadFromTimeline only counts events
-    // strictly newer than that marker ts. So the unread events must sit just
-    // after "now": $m1 is the (older) marked message, $r1/$m2 arrive after it.
-    const now = Date.now();
-    const events = [
-      makeMessageEvent('$m1', now - 3000, 'one'),
-      makeReplacementEvent('$r1', now + 1000, '$m1'),
-      makeMessageEvent('$m2', now + 2000, 'two'),
-    ];
-    const room = {
-      roomId: '!room:example.com',
-      getLiveTimeline: () => ({ getEvents: () => events }),
-      getUnreadNotificationCount: () => 0,
-      getAccountData: () => null,
-      findEventById: (id: string) => events.find((e) => e.getId() === id) ?? null,
-    };
-    mockClient.getRooms.mockReturnValue([room]);
-    mockClient.getRoom.mockReturnValue(room);
+    // strictly newer than that marker ts. Freeze the clock so the unread events
+    // ($r1/$m2, after "now") stay newer than the marker regardless of how slow
+    // the run is — otherwise a slow CI run advances Date.now() past them.
+    vi.useFakeTimers();
+    try {
+      const now = 1_700_000_000_000;
+      vi.setSystemTime(now);
+      const events = [
+        makeMessageEvent('$m1', now - 3000, 'one'),
+        makeReplacementEvent('$r1', now + 1000, '$m1'),
+        makeMessageEvent('$m2', now + 2000, 'two'),
+      ];
+      const room = {
+        roomId: '!room:example.com',
+        getLiveTimeline: () => ({ getEvents: () => events }),
+        getUnreadNotificationCount: () => 0,
+        getAccountData: () => null,
+        findEventById: (id: string) => events.find((e) => e.getId() === id) ?? null,
+      };
+      mockClient.getRooms.mockReturnValue([room]);
+      mockClient.getRoom.mockReturnValue(room);
 
-    const { result } = renderHook(() =>
-      useUnreadTracker(mockClient as never, NO_DM_ROOMS, null, 'Me', 'fp1'),
-    );
+      const { result } = renderHook(() =>
+        useUnreadTracker(mockClient as never, NO_DM_ROOMS, null, 'Me', 'fp1'),
+      );
 
-    await act(async () => {
-      await result.current.markRoomRead('!room:example.com', '$m1');
-    });
+      await act(async () => {
+        await result.current.markRoomRead('!room:example.com', '$m1');
+      });
 
-    // markRoomRead stores the read marker but optimistically shows 0 unread;
-    // the count is recomputed from the marker on the next Room.timeline event.
-    // Fire that handler so buildRoomUnread runs with the marker in place.
-    const onTimeline = mockClient.on.mock.calls
-      .filter((call) => call[0] === 'Room.timeline')
-      .map((call) => call[1] as (event: unknown, room: unknown) => void)
-      .at(-1)!;
-    act(() => {
-      onTimeline(null, room);
-    });
+      // markRoomRead stores the read marker but optimistically shows 0 unread;
+      // the count is recomputed from the marker on the next Room.timeline event.
+      // Fire that handler so buildRoomUnread runs with the marker in place.
+      const onTimeline = mockClient.on.mock.calls
+        .filter((call) => call[0] === 'Room.timeline')
+        .map((call) => call[1] as (event: unknown, room: unknown) => void)
+        .at(-1)!;
+      act(() => {
+        onTimeline(null, room);
+      });
 
-    const unread = result.current.getRoomUnread('!room:example.com');
-    expect(unread.notificationCount).toBe(1);
+      const unread = result.current.getRoomUnread('!room:example.com');
+      expect(unread.notificationCount).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not auto-mark active room read for replacement events', () => {
