@@ -31,7 +31,7 @@ import { CloseDialog } from './components/CloseDialog/CloseDialog';
 import { OnboardingWizard } from './components/OnboardingWizard/OnboardingWizard';
 import { Version } from './components/Version/Version';
 import { ZoomIndicator } from './components/ZoomIndicator/ZoomIndicator';
-import { useChatStore, addMessageToStore, clearChatStorage, purgeEphemeralMessages } from './hooks/useChatStore';
+import { useChatStore, addMessageToStore, clearChatStorage, purgeEphemeralMessages, markMessageDeletedInStore } from './hooks/useChatStore';
 import { parseMessageMedia } from './utils/parseMessageMedia';
 import { linkifyForMumble } from './utils/linkifyForMumble';
 import { useDMStore } from './hooks/useDMStore';
@@ -61,6 +61,7 @@ import {
 import { migrateLocalStorage } from './utils/migrateLocalStorage';
 import { mapBrmbleServiceStatus } from './utils/brmbleServiceStatus';
 import { areMatrixCredentialsEqual } from './utils/matrixCredentials';
+import { deleteMessage, deleteMessageViaBridge, DeleteMessageError, resolveDeleteMessageApiBaseUrl } from './utils/deleteMessage';
 import './App.css';
 
 export interface ScreenShareEndedNotification {
@@ -666,6 +667,29 @@ export function getPermittedMatrixChannelId(channelId: string | undefined, chann
   if (!channelId || channelId === 'server-root') return null;
   const channel = channels.find(c => String(c.id) === channelId);
   return channel?.canOpenChat === true ? channelId : null;
+}
+
+export function getRoomIdForDeleteMessage(input: {
+  appMode: 'channels' | 'dm';
+  messageChannelId: string;
+  channelMatrixRoomId: string | null;
+  dmMatrixRoomId: string | null;
+}): string | null {
+  if (input.appMode === 'dm') return input.dmMatrixRoomId;
+  if (input.messageChannelId.startsWith('dm-')) return input.dmMatrixRoomId;
+  return input.channelMatrixRoomId;
+}
+
+export function getDeleteMessageFailureDetail(input: {
+  status: number;
+  errorCode: string;
+}): string {
+  if (input.errorCode === 'message_too_old') return 'Message can only be deleted within 24 hours.';
+  if (input.errorCode === 'not_message_owner') return 'You can only delete your own messages.';
+  if (input.errorCode === 'already_deleted') return 'This message was already deleted.';
+  if (input.errorCode === 'event_not_found' || input.status === 404) return 'The message could not be found in this chat.';
+  if (input.status === 401) return 'Your chat session expired. Reconnect and try again.';
+  return 'Try again in a moment.';
 }
 
 export function getChannelSelectionOutcome(
@@ -3200,6 +3224,68 @@ const handleConnect = (serverData: SavedServer) => {
     }
   }, [notifQueue]);
 
+  const handleDeleteMessage = useCallback(async (message: ChatMessage) => {
+    const roomIdForDelete = getRoomIdForDeleteMessage({
+      appMode: dmStore.appMode,
+      messageChannelId: message.channelId,
+      channelMatrixRoomId: channelMatrixRoomId ?? activeMatrixRoomId,
+      dmMatrixRoomId: dmMatrixRoomId ?? activeMatrixRoomId,
+    });
+    if (!matrixCredentials?.accessToken || !roomIdForDelete) {
+      setDeleteMessageNotification({
+        title: 'Could not delete message',
+        detail: 'Try again in a moment.',
+      });
+      notifQueue.register('delete-message', 'error');
+      return;
+    }
+
+    try {
+      const deleteRequest = {
+        roomId: roomIdForDelete,
+        eventId: message.id,
+        txnId: crypto.randomUUID(),
+      };
+      const response = ((window as Window & { chrome?: { webview?: unknown } }).chrome?.webview)
+        ? await deleteMessageViaBridge(deleteRequest)
+        : await deleteMessage(resolveDeleteMessageApiBaseUrl({
+          homeserverUrl: matrixCredentials.homeserverUrl,
+          fallbackOrigin: window.location.origin,
+        }), matrixCredentials.accessToken, deleteRequest);
+
+      matrixClient.markMessageDeletedLocally(message.id, response.placeholderText);
+      if (currentChannelId) {
+        markMessageDeletedInStore(currentChannelId, message.id, response.placeholderText);
+      }
+    } catch (error) {
+      let detail = 'Try again in a moment.';
+      if (error instanceof DeleteMessageError) {
+        detail = error.errorCode === 'network_error'
+          ? `Delete request could not reach the server: ${error.detail ?? 'network error'}`
+          : getDeleteMessageFailureDetail({
+            status: error.status,
+            errorCode: error.errorCode,
+          });
+        console.error('[delete-message] request failed', {
+          status: error.status,
+          errorCode: error.errorCode,
+          detail: error.detail,
+          roomId: roomIdForDelete,
+          eventId: message.id,
+          apiBaseUrl: resolveDeleteMessageApiBaseUrl({
+            homeserverUrl: matrixCredentials.homeserverUrl,
+            fallbackOrigin: window.location.origin,
+          }),
+        });
+      }
+      setDeleteMessageNotification({
+        title: 'Could not delete message',
+        detail,
+      });
+      notifQueue.register('delete-message', 'error');
+    }
+  }, [activeMatrixRoomId, channelMatrixRoomId, currentChannelId, dmMatrixRoomId, dmStore.appMode, matrixClient, matrixCredentials?.accessToken, matrixCredentials?.homeserverUrl, notifQueue]);
+
   const selfUserForChat = users.find(u => u.self);
   const isMatrixActive = activeChannelId
     ? isMatrixChannelChatActive(activeChannelId, matrixCredentials, statuses, selfUserForChat, channels)
@@ -3313,6 +3399,7 @@ const handleConnect = (serverData: SavedServer) => {
   const screenShareEndedNotificationRef = useRef<QueuedScreenShareEndedNotification | null>(null);
   const movedChannelNotificationRef = useRef<QueuedMovedChannelNotification | null>(null);
   const [copyNotification, setCopyNotification] = useState<{ message: string } | null>(null);
+  const [deleteMessageNotification, setDeleteMessageNotification] = useState<{ title: string; detail: string } | null>(null);
   const [updateInfo, setUpdateInfo] = useState<{ version: string } | null>(null);
   const [updateProgress, setUpdateProgress] = useState<number | null>(null);
   const [brokenCertInfo, setBrokenCertInfo] = useState<{
@@ -4038,6 +4125,7 @@ const handleConnect = (serverData: SavedServer) => {
                     topNotice={channelChatAccessNotice ?? brmbleServiceChatNotice}
                     onMessageContextMenu={handleChatMessageContextMenu}
                     onCopyToClipboard={handleCopyToClipboard}
+                    onDeleteMessage={handleDeleteMessage}
                     currentUserMatrixId={matrixCredentials?.userId}
                     onToggleReaction={handleToggleChannelReaction}
                      typingIndicatorText={dmStore.appMode === 'dm' ? undefined : matrixClient.activeTypingText}
@@ -4064,6 +4152,7 @@ const handleConnect = (serverData: SavedServer) => {
                     topNotice={dmStore.selectedContact?.isEphemeral ? 'This is a Mumble direct message. Chat history will be lost when you disconnect.' : undefined}
                     onMessageContextMenu={handleChatMessageContextMenu}
                      onCopyToClipboard={handleCopyToClipboard}
+                     onDeleteMessage={handleDeleteMessage}
                      currentUserMatrixId={matrixCredentials?.userId}
                      onToggleReaction={handleToggleDmReaction}
                      typingIndicatorText={dmStore.appMode === 'dm' ? matrixClient.activeTypingText : undefined}
@@ -4314,6 +4403,22 @@ const handleConnect = (serverData: SavedServer) => {
             }}
             onExited={() => {
               notifQueue.unregister('copy');
+            }}
+          />
+        )}
+        {deleteMessageNotification && notifQueue.isVisible('delete-message') && (
+          <Notification
+            status="error"
+            position="top-right"
+            visible={!!deleteMessageNotification}
+            duration={5000}
+            title={deleteMessageNotification.title}
+            detail={deleteMessageNotification.detail}
+            onDismiss={() => {
+              setDeleteMessageNotification(null);
+            }}
+            onExited={() => {
+              notifQueue.unregister('delete-message');
             }}
           />
         )}

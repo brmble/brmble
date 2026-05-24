@@ -12,6 +12,7 @@ import {
 } from '../utils/matrixMessageEditing';
 import { useServiceStatus } from './useServiceStatus';
 import bridge from '../bridge';
+import { getRedactionPlaceholder } from '../utils/redactionPlaceholders';
 
 const TYPING_TIMEOUT_MS = 10_000;
 const TYPING_REFRESH_MS = 5_000;
@@ -195,7 +196,7 @@ function markMessageRedacted(
   const updated = existing.map((message) => {
     if (message.id !== redactedEventId) return message;
     changed = true;
-    return { ...message, redacted: true, content: '', media: undefined };
+    return { ...message, redacted: true, isDeleted: true, deletedPlaceholder: message.deletedPlaceholder ?? 'This message was deleted', content: '', media: undefined };
   });
   return changed ? updated : existing;
 }
@@ -263,7 +264,15 @@ function loadMessagesFromTimeline(
       }
       // Mark message as redacted if already redacted or has redaction event
       if (ev.isRedacted() || redactedEventIds.has(m.id)) {
-        out.push({ ...m, redacted: true, content: '', media: undefined });
+        const placeholder = getRedactionPlaceholder(ev as unknown as { unsigned?: { redacted_because?: { content?: { reason?: string } } } });
+        out.push({
+          ...m,
+          redacted: true,
+          isDeleted: true,
+          deletedPlaceholder: placeholder?.text ?? 'This message was deleted',
+          content: '',
+          media: undefined
+        });
       } else {
         out.push(m);
       }
@@ -1385,10 +1394,35 @@ export function useMatrixClient(
     }
   }, [credentials]);
 
+  const markMessageDeletedLocally = useCallback((eventId: string, placeholderText: string) => {
+    setActiveMessages(prev => prev.map((message) => {
+      if (message.id !== eventId) return message;
+      return {
+        ...message,
+        redacted: true,
+        isDeleted: true,
+        deletedPlaceholder: placeholderText,
+        content: '',
+        media: undefined,
+      };
+    }));
+    setActiveDmMessages(prev => prev.map((message) => {
+      if (message.id !== eventId) return message;
+      return {
+        ...message,
+        redacted: true,
+        isDeleted: true,
+        deletedPlaceholder: placeholderText,
+        content: '',
+        media: undefined,
+      };
+    }));
+  }, []);
+
   return { lastMessages, activeMessages, setActiveChannel,
            sendMessage, sendImageMessage, uploadContent, fetchHistory,
            sendReaction, removeReaction,
            dmLastMessages, activeDmMessages, setActiveDmContact, dmRoomMap,
            dmUserDisplayNames, dmUserAvatarUrls, sendDMMessage, fetchDMHistory,
-           fetchAvatarUrl, client, activeTypingText, startTyping, stopTyping };
+           fetchAvatarUrl, client, activeTypingText, startTyping, stopTyping, markMessageDeletedLocally };
 }

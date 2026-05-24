@@ -16,6 +16,9 @@ import { Icon } from '../Icon/Icon';
 import Avatar from '../Avatar/Avatar';
 import { SUPPORTED_REACTIONS } from '../../utils/chatReactions';
 import { buildMessageEditContent, canEditMessage } from '../../utils/matrixMessageEditing';
+import { canShowDeleteMessageAction } from '../../utils/messageDeletionPermissions';
+import { confirm } from '../../hooks/usePrompt';
+import { Permission, usePermissions } from '../../hooks/usePermissions';
 import './ChatPanel.css';
 
 interface ChatPanelProps {
@@ -50,6 +53,7 @@ interface ChatPanelProps {
   typingTargetId?: string;
   onTypingStart?: (targetId: string) => void | Promise<void>;
   onTypingStop?: (targetId: string) => void | Promise<void>;
+  onDeleteMessage?: (message: ChatMessage) => Promise<void>;
 }
 
 const SCROLL_THRESHOLD = 150;
@@ -57,7 +61,9 @@ const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
 const DEFAULT_SPLIT = 50;
 const REPLY_TARGET_HIGHLIGHT_MS = 1600;
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, watchingShares, focusedShare, remoteVideoEls, roomQuality, shareQualities, onFocusShare, onCloseShare, screenShareViewerMode, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard, currentUserMatrixId, onToggleReaction, typingIndicatorText, typingTargetId, onTypingStart, onTypingStop }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, watchingShares, focusedShare, remoteVideoEls, roomQuality, shareQualities, onFocusShare, onCloseShare, screenShareViewerMode, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard, currentUserMatrixId, onToggleReaction, typingIndicatorText, typingTargetId, onTypingStart, onTypingStop, onDeleteMessage }: ChatPanelProps) {
+  const { hasPermission } = usePermissions();
+  const requesterIsAdmin = hasPermission(0, Permission.Ban) || hasPermission(0, Permission.Kick);
   // Build lookup maps from sender name and matrixUserId → avatar data for MessageBubble.
   // Name-based lookup works when Mumble name matches message sender.
   // MatrixUserId-based lookup handles cases where the user connected with a different
@@ -691,6 +697,7 @@ const [replyState, setReplyState] = useState<{
     const query = searchQuery.toLowerCase();
     const indices: number[] = [];
     messages.forEach((msg, i) => {
+      if (msg.isDeleted || msg.redacted) return;
       if (msg.content && msg.content.toLowerCase().includes(query)) {
         indices.push(i);
       }
@@ -984,12 +991,14 @@ const [replyState, setReplyState] = useState<{
                     onReplyClick={scrollToMessage}
                     onDismiss={onDismissMessage}
                     onOpenContextMenu={onMessageContextMenu ? (x, y, s, m, c, msgId, msgType = 'm.text', reactions, redacted) => {
-                      if (!redacted) {
+                      if (!(redacted || item.message.isDeleted)) {
                         setContextMenu({ x, y, sender: s, senderMatrixUserId: m, content: c, messageId: msgId, msgType, reactions });
                       }
                     } : undefined}
                     reactions={item.message.reactions}
                     redacted={item.message.redacted}
+                    isDeleted={item.message.isDeleted}
+                    deletedPlaceholder={item.message.deletedPlaceholder}
                     currentUserMatrixId={currentUserMatrixId}
                     onToggleReaction={(messageId, emoji, isReacted) => onToggleReaction?.(channelId || '', messageId, emoji, isReacted)}
                     edited={item.message.edited}
@@ -1049,6 +1058,35 @@ const [replyState, setReplyState] = useState<{
                       eventId: contextMessage.id,
                       originalContent: contextMessage.content,
                     });
+                    setContextMenu(null);
+                  },
+                });
+              }
+              const canDeleteContextMessage = contextMessage
+                ? Boolean(onDeleteMessage && canShowDeleteMessageAction({
+                  senderMatrixUserId: contextMessage.senderMatrixUserId,
+                  currentUserMatrixId,
+                  isDeleted: contextMessage.isDeleted || contextMessage.redacted,
+                  createdAt: contextMessage.timestamp,
+                  requesterIsAdmin,
+                }))
+                : false;
+              if (canDeleteContextMessage && contextMessage) {
+                items.push({
+                  type: 'item',
+                  label: 'Delete',
+                  onClick: async () => {
+                    const confirmed = await confirm({
+                      title: 'Delete message?',
+                      message: 'Are you sure you want to delete this message?',
+                      confirmLabel: 'Yes',
+                      cancelLabel: 'No'
+                    });
+                    if (!confirmed) {
+                      setContextMenu(null);
+                      return;
+                    }
+                    await onDeleteMessage?.(contextMessage);
                     setContextMenu(null);
                   },
                 });

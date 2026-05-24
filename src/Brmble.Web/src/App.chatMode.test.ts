@@ -11,6 +11,8 @@ import {
   getChannelChatAccessRequestIds,
   getPermittedMatrixChannelId,
   getJoinAccessAction,
+  getDeleteMessageFailureDetail,
+  getRoomIdForDeleteMessage,
   getResolvedChannelChatAccess,
   isBrmbleServiceOutageActive,
   isMatrixChannelChatActive,
@@ -193,6 +195,19 @@ describe('channel chat access helpers', () => {
       ...connectedStatuses,
       server: { state: 'connecting' },
     }, 'degraded')).toBe(true);
+  });
+
+  it('uses the active DM room when deleting a DM message', () => {
+    expect(getRoomIdForDeleteMessage({
+      appMode: 'dm',
+      messageChannelId: '@alice:example.com',
+      channelMatrixRoomId: '!channel:example.com',
+      dmMatrixRoomId: '!dm:example.com',
+    })).toBe('!dm:example.com');
+  });
+
+  it('surfaces event-not-found failures instead of showing the generic retry message', () => {
+    expect(getDeleteMessageFailureDetail({ status: 404, errorCode: 'event_not_found' })).toBe('The message could not be found in this chat.');
   });
 });
 

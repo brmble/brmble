@@ -274,6 +274,30 @@ export function addMessageToStore(
   localStorage.setItem(fullKey, JSON.stringify(messages));
 }
 
+export function markMessageDeletedInStore(channelId: string, messageId: string, placeholderText: string) {
+  const fullKey = `${STORAGE_KEY_PREFIX}${channelId}`;
+  const stored = localStorage.getItem(fullKey);
+  if (!stored) return;
+  let messages: ChatMessage[] = [];
+  try {
+    messages = JSON.parse(stored);
+  } catch {
+    return;
+  }
+  const next = messages.map((message) => {
+    if (message.id !== messageId) return message;
+    return {
+      ...message,
+      redacted: true,
+      isDeleted: true,
+      deletedPlaceholder: placeholderText,
+      content: '',
+      media: undefined,
+    };
+  });
+  localStorage.setItem(fullKey, JSON.stringify(next));
+}
+
 /** Clear all chat messages from localStorage.
  *  Preserves server-root messages since those are current-session system messages. */
 export function clearChatStorage() {

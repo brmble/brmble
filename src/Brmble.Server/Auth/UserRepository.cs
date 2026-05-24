@@ -168,4 +168,16 @@ public class UserRepository
             """,
             new { MatrixUserId = matrixUserId });
     }
+
+    public virtual async Task<User?> GetByMatrixAccessToken(string matrixAccessToken)
+    {
+        using var conn = _db.CreateConnection();
+        return await conn.QuerySingleOrDefaultAsync<User>(
+            """
+            SELECT id AS Id, cert_hash AS CertHash, display_name AS DisplayName, matrix_user_id AS MatrixUserId, matrix_access_token AS MatrixAccessToken
+            FROM users
+            WHERE matrix_access_token = @MatrixAccessToken
+            """,
+            new { MatrixAccessToken = matrixAccessToken });
+    }
 }

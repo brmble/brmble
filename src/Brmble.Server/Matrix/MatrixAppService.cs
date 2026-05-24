@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using Brmble.Server.Messages;
 using Microsoft.Extensions.Options;
 
 namespace Brmble.Server.Matrix;
@@ -20,6 +21,18 @@ public interface IMatrixAppService
     Task SendImageMessage(string roomId, string displayName, string mxcUrl, string fileName, string mimetype, int size);
     Task SetAccountData(string localpart, string eventType, string jsonContent);
     Task<string?> GetAccountData(string localpart, string eventType);
+    Task<MatrixTimelineEventInfo?> GetRoomEventAsync(
+        string roomId,
+        string eventId,
+        string requesterMatrixAccessToken,
+        CancellationToken cancellationToken = default);
+    Task<string> RedactEventAsync(
+        string roomId,
+        string eventId,
+        string txnId,
+        string reason,
+        string asMatrixUserId,
+        CancellationToken cancellationToken = default);
 }
 
 public class MatrixAppService : IMatrixAppService
@@ -284,10 +297,61 @@ public class MatrixAppService : IMatrixAppService
         }
     }
 
-    private Task<string> SendRequest(HttpMethod method, string url, string jsonBody, string? actAs = null)
-        => SendRequestCore(method, url, jsonBody, actAs ?? _botUserId);
+    public async Task<MatrixTimelineEventInfo?> GetRoomEventAsync(
+        string roomId,
+        string eventId,
+        string requesterMatrixAccessToken,
+        CancellationToken cancellationToken = default)
+    {
+        var client = _httpClientFactory.CreateClient();
+        var url = $"{_homeserverUrl}/_matrix/client/v3/rooms/{roomId}/event/{eventId}";
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", requesterMatrixAccessToken);
+        var response = await client.SendAsync(request, cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+        response.EnsureSuccessStatusCode();
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+        var json = JsonSerializer.Deserialize<JsonElement>(responseBody);
 
-    private async Task<string> SendRequestCore(HttpMethod method, string url, string jsonBody, string? userId)
+        var sender = json.TryGetProperty("sender", out var senderElement)
+            ? senderElement.GetString() ?? string.Empty
+            : string.Empty;
+        var originServerTs = json.TryGetProperty("origin_server_ts", out var tsElement)
+            ? DateTimeOffset.FromUnixTimeMilliseconds(tsElement.GetInt64())
+            : DateTimeOffset.UtcNow;
+        var eventType = json.TryGetProperty("type", out var eventTypeElement)
+            ? eventTypeElement.GetString() ?? string.Empty
+            : string.Empty;
+        var isStateEvent = json.TryGetProperty("state_key", out _);
+        var isRedacted = json.TryGetProperty("unsigned", out var unsigned)
+            && unsigned.TryGetProperty("redacted_because", out _);
+
+        return new MatrixTimelineEventInfo(roomId, eventId, sender, originServerTs, eventType, isRedacted, isStateEvent);
+    }
+
+    public async Task<string> RedactEventAsync(
+        string roomId,
+        string eventId,
+        string txnId,
+        string reason,
+        string asMatrixUserId,
+        CancellationToken cancellationToken = default)
+    {
+        var url = $"{_homeserverUrl}/_matrix/client/v3/rooms/{roomId}/redact/{eventId}/{txnId}";
+        var body = JsonSerializer.Serialize(new { reason });
+        var response = await SendRequestCore(HttpMethod.Put, url, body, asMatrixUserId, cancellationToken);
+        var json = JsonSerializer.Deserialize<JsonElement>(response);
+        return json.GetProperty("event_id").GetString()
+            ?? throw new InvalidOperationException("Matrix did not return redaction event_id");
+    }
+
+    private Task<string> SendRequest(HttpMethod method, string url, string jsonBody, string? actAs = null, CancellationToken cancellationToken = default)
+        => SendRequestCore(method, url, jsonBody, actAs ?? _botUserId, cancellationToken);
+
+    private async Task<string> SendRequestCore(HttpMethod method, string url, string jsonBody, string? userId, CancellationToken cancellationToken = default)
     {
         var client = _httpClientFactory.CreateClient();
         var urlWithUser = userId is not null
@@ -301,7 +365,7 @@ public class MatrixAppService : IMatrixAppService
         }
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _appServiceToken);
         _logger.LogDebug("Matrix request: {Method} {Url}", method, urlWithUser);
-        var response = await client.SendAsync(request);
+        var response = await client.SendAsync(request, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
             var body = await response.Content.ReadAsStringAsync();

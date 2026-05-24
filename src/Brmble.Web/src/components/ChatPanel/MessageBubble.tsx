@@ -9,6 +9,7 @@ import { ImageLightbox } from './ImageLightbox';
 import { LinkPreview } from './LinkPreview';
 import Avatar from '../Avatar/Avatar';
 import { Tooltip } from '../Tooltip/Tooltip';
+import { DeletedMessagePlaceholder } from './DeletedMessagePlaceholder';
 import './MessageBubble.css';
 
 interface MessageBubbleProps {
@@ -40,6 +41,8 @@ interface MessageBubbleProps {
   onOpenContextMenu?: (x: number, y: number, sender: string, senderMatrixUserId?: string, content?: string, messageId?: string, msgType?: string, reactions?: Record<string, string[]>, redacted?: boolean) => void;
   reactions?: Record<string, string[]>;
   redacted?: boolean;
+  isDeleted?: boolean;
+  deletedPlaceholder?: string;
   currentUserMatrixId?: string;
   onToggleReaction?: (messageId: string, emoji: string, isReacted: boolean) => void;
   edited?: boolean;
@@ -146,7 +149,7 @@ function processMessageContent(
   return mentionified;
 }
 
-export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & React.HTMLAttributes<HTMLDivElement>>(function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId, currentUsername, knownUsernames, messageId, pending, error, replyToEventId, replyToSender, replyToContent, isReplyTargetHighlighted, onReplyClick, onDismiss, onOpenContextMenu, className, reactions, redacted, currentUserMatrixId, onToggleReaction, edited, ...rest }, ref) {
+export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & React.HTMLAttributes<HTMLDivElement>>(function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId, currentUsername, knownUsernames, messageId, pending, error, replyToEventId, replyToSender, replyToContent, isReplyTargetHighlighted, onReplyClick, onDismiss, onOpenContextMenu, className, reactions, redacted, isDeleted, deletedPlaceholder, currentUserMatrixId, onToggleReaction, edited, ...rest }, ref) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const formatTime = (date: Date) => {
@@ -161,11 +164,11 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
   if (pending) classes.push('message-bubble--pending');
   if (error) classes.push('message-bubble--error');
   if (isReplyTargetHighlighted) classes.push('message-bubble--reply-target');
-  if (redacted) classes.push('message-bubble--redacted');
+  if (redacted || isDeleted) classes.push('message-bubble--redacted');
   if (className) classes.push(className);
 
   // Show placeholder for redacted messages instead of hiding them
-  if (redacted) {
+  if (redacted || isDeleted) {
     return (
       <div ref={ref} className={classes.join(' ')} data-message-index={messageIndex} {...rest}>
         {collapsed ? (
@@ -185,7 +188,7 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
             </div>
           )}
           <div className="message-text message-text--deleted">
-            Message deleted
+            <DeletedMessagePlaceholder text={deletedPlaceholder ?? 'This message was deleted'} />
           </div>
         </div>
       </div>

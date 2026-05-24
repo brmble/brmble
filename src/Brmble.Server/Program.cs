@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Brmble.Server.Data;
 using Brmble.Server.LiveKit;
 using Brmble.Server.Matrix;
+using Brmble.Server.Messages;
 using Brmble.Server.Mumble;
 using Brmble.Server.ServerInfo;
 using Brmble.Server.WebSockets;
@@ -36,12 +37,22 @@ builder.Services.AddDatabase(builder.Configuration);
 builder.Services.AddMumble();
 builder.Services.AddAuth();
 builder.Services.AddMatrix();
+builder.Services.AddMessageDeletion();
 builder.Services.AddLiveKit();
 builder.Services.AddOptions<ServerInfoSettings>()
     .BindConfiguration("ServerInfo");
 builder.Services.AddSingleton<IServerVersionProvider, ServerVersionProvider>();
 builder.Services.AddReverseProxy()
     .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("BrmbleClient", policy =>
+    {
+        policy.WithOrigins("https://brmble.local", "http://localhost:5173")
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
+});
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -67,6 +78,7 @@ var app = builder.Build();
 
 app.UseWebSockets();
 app.UseMiddleware<ConnectionLoggingMiddleware>();
+app.UseCors("BrmbleClient");
 app.UseRateLimiter();
 
 app.MapGet("/health", (IServerVersionProvider version) =>
@@ -79,6 +91,7 @@ app.MapChannelChatAccessEndpoints();
 app.Map("/ws", BrmbleWebSocketHandler.HandleAsync);
 app.MapServerInfoEndpoints();
 app.MapLiveKitEndpoints();
+app.MapMessageDeletionEndpoints();
 app.MapReverseProxy();
 
 app.Run();

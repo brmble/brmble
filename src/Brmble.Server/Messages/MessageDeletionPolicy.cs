@@ -41,7 +41,7 @@ public sealed class MessageDeletionPolicy
                 ActorType: "admin");
         }
 
-        if (!string.Equals(targetEvent.SenderMatrixUserId, requesterMatrixUserId, StringComparison.Ordinal))
+        if (!IsSameMatrixUser(targetEvent.SenderMatrixUserId, requesterMatrixUserId))
         {
             return Deny("not_message_owner");
         }
@@ -67,5 +67,27 @@ public sealed class MessageDeletionPolicy
             Reason: null,
             PlaceholderText: null,
             ActorType: null);
+    }
+
+    private static bool IsSameMatrixUser(string left, string right)
+    {
+        if (string.Equals(left, right, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return string.Equals(GetLocalpart(left), GetLocalpart(right), StringComparison.Ordinal);
+    }
+
+    private static string GetLocalpart(string matrixUserId)
+    {
+        var trimmed = matrixUserId.Trim();
+        if (trimmed.StartsWith('@'))
+        {
+            trimmed = trimmed[1..];
+        }
+
+        var colonIndex = trimmed.IndexOf(':');
+        return colonIndex >= 0 ? trimmed[..colonIndex] : trimmed;
     }
 }

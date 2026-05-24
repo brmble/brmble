@@ -73,4 +73,21 @@ public sealed class MessageDeletionEndpointTests
 
         Assert.AreEqual(HttpStatusCode.Conflict, response.StatusCode);
     }
+
+    [TestMethod]
+    public async Task RedactMessage_PreflightFromDesktopOrigin_AllowsAuthorizationHeader()
+    {
+        using var factory = new Integration.BrmbleServerFactory(certHash: null);
+        var client = factory.CreateClient();
+        var request = new HttpRequestMessage(HttpMethod.Options, "/messages/redact");
+        request.Headers.Add("Origin", "https://brmble.local");
+        request.Headers.Add("Access-Control-Request-Method", "POST");
+        request.Headers.Add("Access-Control-Request-Headers", "authorization,content-type");
+
+        var response = await client.SendAsync(request);
+
+        Assert.AreEqual(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.AreEqual("https://brmble.local", response.Headers.GetValues("Access-Control-Allow-Origin").Single());
+        StringAssert.Contains(string.Join(",", response.Headers.GetValues("Access-Control-Allow-Headers")), "authorization");
+    }
 }

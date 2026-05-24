@@ -50,6 +50,21 @@ public class Database
                 is_stale        INTEGER NOT NULL DEFAULT 0,
                 stale_reason    TEXT
             );
+            CREATE TABLE IF NOT EXISTS message_redactions (
+                id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+                room_id                     TEXT NOT NULL,
+                event_id                    TEXT NOT NULL,
+                redaction_event_id          TEXT NOT NULL UNIQUE,
+                deleted_by_matrix_user_id   TEXT NOT NULL,
+                reason                      TEXT NOT NULL,
+                placeholder_text            TEXT NOT NULL,
+                actor_type                  TEXT NOT NULL,
+                deleted_at                  TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_message_redactions_room_event
+                ON message_redactions(room_id, event_id);
+            CREATE INDEX IF NOT EXISTS idx_message_redactions_room_id
+                ON message_redactions(room_id);
             """);
 
         // Migrate existing deployments: add matrix_access_token if the column is missing

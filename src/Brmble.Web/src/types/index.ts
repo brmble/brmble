@@ -65,6 +65,8 @@ export interface ChatMessage {
   pending?: boolean;
   error?: boolean;
   redacted?: boolean;
+  isDeleted?: boolean;
+  deletedPlaceholder?: string;
   reactions?: Record<string, string[]>;
   replyToEventId?: string;
   replyToSender?: string;

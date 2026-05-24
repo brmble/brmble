@@ -23,6 +23,18 @@ public sealed class MessageDeletionPolicyTests
     }
 
     [TestMethod]
+    public void Decide_Allows_Own_Message_When_Localpart_Matches_But_Domain_Differs()
+    {
+        var policy = new MessageDeletionPolicy();
+        var targetEvent = Event(sender: "@1:noscope.it", sentAt: Now.AddHours(-1));
+
+        var decision = policy.Decide(targetEvent, "@1:localhost", requesterIsAdmin: false, Now);
+
+        Assert.IsTrue(decision.Allowed);
+        Assert.AreEqual(MessageDeletionReasons.SelfDelete, decision.Reason);
+    }
+
+    [TestMethod]
     public void Decide_Denies_Own_Message_After_24_Hours()
     {
         var policy = new MessageDeletionPolicy();

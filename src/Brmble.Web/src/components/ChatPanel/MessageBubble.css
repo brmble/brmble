@@ -59,6 +59,11 @@
   font-style: italic;
 }
 
+.deleted-message-placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 p.message-text {
   white-space: pre-wrap;
 }

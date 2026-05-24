@@ -2,6 +2,7 @@ using Brmble.Server.Auth;
 using Brmble.Server.Data;
 using Brmble.Server.Events;
 using Brmble.Server.Matrix;
+using Brmble.Server.Messages;
 using Brmble.Server.Mumble;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -23,6 +24,7 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
     public Mock<IMumbleAclService> MumbleAclMock { get; } = new();
     public Mock<ISessionMappingService> SessionMappingMock { get; } = new();
     public Mock<IMumbleRegistrationService> MumbleRegistrationMock { get; } = new();
+    public Mock<IMatrixAppService> MatrixAppServiceMock { get; } = new();
 
     public BrmbleServerFactory(string? certHash = "testcerthash123")
     {
@@ -84,12 +86,15 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
             // Stub IMatrixAppService so no real HTTP calls are made
             var existing = services.FirstOrDefault(d => d.ServiceType == typeof(IMatrixAppService));
             if (existing != null) services.Remove(existing);
-            var mock = new Mock<IMatrixAppService>();
-            mock.Setup(m => m.RegisterUser(It.IsAny<string>(), It.IsAny<string>()))
+            MatrixAppServiceMock.Setup(m => m.RegisterUser(It.IsAny<string>(), It.IsAny<string>()))
                 .ReturnsAsync("stub_matrix_token");
-            mock.Setup(m => m.LoginUser(It.IsAny<string>()))
+            MatrixAppServiceMock.Setup(m => m.LoginUser(It.IsAny<string>()))
                 .ReturnsAsync("stub_matrix_token");
-            services.AddSingleton<IMatrixAppService>(mock.Object);
+            MatrixAppServiceMock.Setup(m => m.GetRoomEventAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync((MatrixTimelineEventInfo?)null);
+            MatrixAppServiceMock.Setup(m => m.RedactEventAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync("$redaction:example.com");
+            services.AddSingleton<IMatrixAppService>(MatrixAppServiceMock.Object);
 
             // Stub ICertificateHashExtractor — WebApplicationFactory bypasses TLS so
             // context.Connection.ClientCertificate is always null in tests.

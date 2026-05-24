@@ -23,8 +23,7 @@ function renderBubble(props: Partial<React.ComponentProps<typeof MessageBubble>>
 describe('MessageBubble', () => {
   it('renders deleted placeholder when message is redacted', () => {
     renderBubble({ content: '', redacted: true });
-    expect(screen.getByText('Message deleted')).toBeInTheDocument();
-    expect(screen.getByText('Message deleted')).toHaveClass('message-text--deleted');
+    expect(screen.getByText('This message was deleted')).toBeInTheDocument();
   });
 
   it('renders an edited indicator next to edited messages', () => {

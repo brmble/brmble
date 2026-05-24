@@ -1,7 +1,24 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatPanel } from './ChatPanel';
+
+const confirmMock = vi.fn();
+const hasPermissionMock = vi.fn<(channelId: number, permission: number) => boolean>(() => false);
+vi.mock('../../hooks/usePrompt', () => ({
+  confirm: (...args: unknown[]) => confirmMock(...args),
+}));
+vi.mock('../../hooks/usePermissions', () => ({
+  Permission: { Ban: 4, Kick: 2 },
+  usePermissions: () => ({ hasPermission: hasPermissionMock }),
+}));
+
+beforeEach(() => {
+  confirmMock.mockReset();
+  confirmMock.mockResolvedValue(true);
+  hasPermissionMock.mockReset();
+  hasPermissionMock.mockReturnValue(false);
+});
 
 beforeAll(() => {
   class ResizeObserverMock {
@@ -170,5 +187,92 @@ describe('ChatPanel edit flow', () => {
         },
       }));
     });
+  });
+});
+
+describe('ChatPanel delete action', () => {
+  it('shows Delete for own recent message', async () => {
+    const user = userEvent.setup();
+    render(
+      <ChatPanel
+        channelId="42"
+        channelName="general"
+        messages={[{
+          id: '$msg',
+          channelId: '42',
+          sender: 'Alice',
+          senderMatrixUserId: '@alice:example.com',
+          content: 'hello',
+          timestamp: new Date(),
+        }]}
+        currentUsername="Alice"
+        currentUserMatrixId="@alice:example.com"
+        onSendMessage={() => {}}
+        onMessageContextMenu={() => {}}
+        onDeleteMessage={async () => {}}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByText('hello'), { clientX: 40, clientY: 40 });
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
+
+    expect(confirmMock).toHaveBeenCalledWith({
+      title: 'Delete message?',
+      message: 'Are you sure you want to delete this message?',
+      confirmLabel: 'Yes',
+      cancelLabel: 'No'
+    });
+  });
+
+  it('hides Delete for another users message', () => {
+    render(
+      <ChatPanel
+        channelId="42"
+        channelName="general"
+        messages={[{
+          id: '$msg',
+          channelId: '42',
+          sender: 'Bob',
+          senderMatrixUserId: '@bob:example.com',
+          content: 'hello',
+          timestamp: new Date(),
+        }]}
+        currentUsername="Alice"
+        currentUserMatrixId="@alice:example.com"
+        onSendMessage={() => {}}
+        onMessageContextMenu={() => {}}
+        onDeleteMessage={async () => {}}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByText('hello'), { clientX: 40, clientY: 40 });
+    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument();
+  });
+
+  it('shows Delete for admins on another users message', () => {
+    hasPermissionMock.mockImplementation((channelId: number, permission: number) => channelId === 0 && permission === 4);
+
+    render(
+      <ChatPanel
+        channelId="42"
+        channelName="general"
+        messages={[{
+          id: '$msg',
+          channelId: '42',
+          sender: 'Bob',
+          senderMatrixUserId: '@bob:example.com',
+          content: 'hello',
+          timestamp: new Date(Date.now() - (48 * 60 * 60 * 1000)),
+        }]}
+        currentUsername="Alice"
+        currentUserMatrixId="@alice:example.com"
+        onSendMessage={() => {}}
+        onMessageContextMenu={() => {}}
+        onDeleteMessage={async () => {}}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByText('hello'), { clientX: 40, clientY: 40 });
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument();
   });
 });

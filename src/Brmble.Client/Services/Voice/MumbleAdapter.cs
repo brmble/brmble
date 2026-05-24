@@ -56,6 +56,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private string? _currentPttKey;
     private readonly Stopwatch _notifyThrottle = Stopwatch.StartNew();
     private string? _apiUrl;
+    private string? _matrixAccessToken;
     private string? _activeServerId;
     private Dictionary<string, string> _userMappings = new();
     private readonly ConcurrentDictionary<uint, SessionMappingEntry> _sessionMappings = new();
@@ -1333,9 +1334,30 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     private static async Task<TlsResult> PostViaBcTls(X509Certificate2 cert, Uri uri, string jsonBody)
     {
+        return await PostViaBcTls(cert, uri, jsonBody, headers: null);
+    }
+
+    private static async Task<TlsResult> PostViaBcTls(
+        X509Certificate2 cert,
+        Uri uri,
+        string jsonBody,
+        IReadOnlyDictionary<string, string>? headers)
+    {
         var hostHeader = uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}";
         var contentLength = System.Text.Encoding.UTF8.GetByteCount(jsonBody);
-        var httpRequest = $"POST {uri.PathAndQuery} HTTP/1.1\r\nHost: {hostHeader}\r\nContent-Type: application/json\r\nContent-Length: {contentLength}\r\nConnection: close\r\n\r\n{jsonBody}";
+        var headerBlock = new System.Text.StringBuilder();
+        if (headers is not null)
+        {
+            foreach (var header in headers)
+            {
+                headerBlock.Append(header.Key)
+                    .Append(": ")
+                    .Append(header.Value)
+                    .Append("\r\n");
+            }
+        }
+        var httpRequest =
+            $"POST {uri.PathAndQuery} HTTP/1.1\r\nHost: {hostHeader}\r\nContent-Type: application/json\r\n{headerBlock}Content-Length: {contentLength}\r\nConnection: close\r\n\r\n{jsonBody}";
 
         return await SendViaBcTls(cert, uri, httpRequest);
     }
@@ -1836,6 +1858,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             // The server returns its internal homeserverUrl (e.g. http://localhost:6167).
             // Clients reach Matrix via the YARP proxy on the same Brmble API URL,
             // so rewrite homeserverUrl to the API URL the client connected to.
+            if (credentials.Value.TryGetProperty("matrix", out var matrixElement)
+                && matrixElement.TryGetProperty("accessToken", out var accessTokenElement))
+            {
+                _matrixAccessToken = accessTokenElement.GetString();
+            }
             var rewritten = RewriteMatrixHomeserverUrl(credentials.Value, apiUrl);
             _bridge?.Send("server.credentials", rewritten);
             _bridge?.NotifyUiThread();
@@ -3284,6 +3311,130 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             {
                 LogToFile($"[DM] Failed to get/create DM room for {targetMatrixUserId}: {ex.Message}");
                 _bridge?.Send("dm.roomError", new { targetMatrixUserId, error = ex.Message });
+                _bridge?.NotifyUiThread();
+            }
+        });
+
+        bridge.RegisterHandler("chat.deleteMessage", async data =>
+        {
+            var requestId = data.TryGetProperty("requestId", out var requestIdProp) ? requestIdProp.GetString() : null;
+            var roomId = data.TryGetProperty("roomId", out var roomIdProp) ? roomIdProp.GetString() : null;
+            var eventId = data.TryGetProperty("eventId", out var eventIdProp) ? eventIdProp.GetString() : null;
+            var txnId = data.TryGetProperty("txnId", out var txnIdProp) ? txnIdProp.GetString() : null;
+
+            if (string.IsNullOrWhiteSpace(requestId) || string.IsNullOrWhiteSpace(roomId) || string.IsNullOrWhiteSpace(eventId))
+            {
+                _bridge?.Send("chat.deleteMessageError", new
+                {
+                    requestId = requestId ?? "",
+                    status = 0,
+                    errorCode = "invalid_request",
+                    detail = "Missing roomId, eventId, or requestId."
+                });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            if (_apiUrl is null || string.IsNullOrWhiteSpace(_matrixAccessToken))
+            {
+                _bridge?.Send("chat.deleteMessageError", new
+                {
+                    requestId,
+                    status = 0,
+                    errorCode = "not_connected",
+                    detail = "Missing API URL or Matrix access token."
+                });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            using var cert = _certService?.GetExportableCertificate();
+            if (cert is null)
+            {
+                _bridge?.Send("chat.deleteMessageError", new
+                {
+                    requestId,
+                    status = 0,
+                    errorCode = "missing_certificate",
+                    detail = "No client certificate available."
+                });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            try
+            {
+                var baseUri = new Uri(_apiUrl, UriKind.Absolute);
+                var uri = new Uri(baseUri, "messages/redact");
+                var jsonBody = System.Text.Json.JsonSerializer.Serialize(new { roomId, eventId, txnId });
+                var result = await PostViaBcTls(cert, uri, jsonBody, new Dictionary<string, string>
+                {
+                    ["Authorization"] = $"Bearer {_matrixAccessToken}"
+                });
+
+                if (result.Success && result.Body is not null)
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(result.Body);
+                    var root = doc.RootElement;
+                    _bridge?.Send("chat.deleteMessageSuccess", new
+                    {
+                        requestId,
+                        roomId = root.TryGetProperty("roomId", out var responseRoomId) ? responseRoomId.GetString() : roomId,
+                        eventId = root.TryGetProperty("eventId", out var responseEventId) ? responseEventId.GetString() : eventId,
+                        redactionEventId = root.TryGetProperty("redactionEventId", out var redactionEventIdProp) ? redactionEventIdProp.GetString() : null,
+                        reason = root.TryGetProperty("reason", out var reasonProp) ? reasonProp.GetString() : null,
+                        placeholderText = root.TryGetProperty("placeholderText", out var placeholderProp) ? placeholderProp.GetString() : null,
+                        actorType = root.TryGetProperty("actorType", out var actorTypeProp) ? actorTypeProp.GetString() : null,
+                    });
+                    _bridge?.NotifyUiThread();
+                    return;
+                }
+
+                string errorCode = "delete_failed";
+                string? detail = result.Error;
+                if (!string.IsNullOrWhiteSpace(result.Body))
+                {
+                    try
+                    {
+                        using var errorDoc = System.Text.Json.JsonDocument.Parse(result.Body);
+                        var root = errorDoc.RootElement;
+                        if (root.TryGetProperty("errorCode", out var errorCodeProp))
+                        {
+                            errorCode = errorCodeProp.GetString() ?? errorCode;
+                        }
+                        if (root.TryGetProperty("detail", out var detailProp))
+                        {
+                            detail = detailProp.GetString() ?? detail;
+                        }
+                        else if (root.TryGetProperty("title", out var titleProp))
+                        {
+                            detail = titleProp.GetString() ?? detail;
+                        }
+                    }
+                    catch
+                    {
+                        // Keep the original transport error when the body isn't JSON.
+                    }
+                }
+
+                _bridge?.Send("chat.deleteMessageError", new
+                {
+                    requestId,
+                    status = result.StatusCode,
+                    errorCode,
+                    detail
+                });
+                _bridge?.NotifyUiThread();
+            }
+            catch (Exception ex)
+            {
+                _bridge?.Send("chat.deleteMessageError", new
+                {
+                    requestId,
+                    status = 0,
+                    errorCode = "delete_failed",
+                    detail = ex.Message
+                });
                 _bridge?.NotifyUiThread();
             }
         });
