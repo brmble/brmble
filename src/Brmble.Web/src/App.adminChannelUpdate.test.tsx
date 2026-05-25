@@ -242,11 +242,12 @@ describe('admin channel update notifications', () => {
     (bridge as unknown as { __reset: () => void }).__reset();
   });
 
-  it('shows an info notification when admin channel updates fail', async () => {
+  it('shows a warning notification when admin channel updates fail', async () => {
     renderApp();
 
     await emitAdminChannelUpdateError();
 
+    expect(mockValues.notificationQueue.register).toHaveBeenCalledWith('admin-channel-update-error', 'warning');
     expect(await screen.findByText('Channel position was not saved')).toBeInTheDocument();
     expect(screen.getByText('You need Write permission on that channel. Check the channel ACL if inheritance is disabled.')).toBeInTheDocument();
   });
@@ -260,7 +261,7 @@ describe('admin channel update notifications', () => {
     expect(mockValues.notificationQueue.unregister).toHaveBeenCalledWith('admin-channel-update-error');
   });
 
-  it('refreshes the notification timer for repeated failures while visible', async () => {
+  it('keeps the warning visible for repeated failures', async () => {
     vi.useFakeTimers();
     try {
       renderApp();
@@ -273,16 +274,11 @@ describe('admin channel update notifications', () => {
       });
       await emitAdminChannelUpdateError();
       await act(async () => {
-        vi.advanceTimersByTime(200);
+        vi.advanceTimersByTime(5200);
       });
 
       expect(screen.getByText('Channel position was not saved')).toBeInTheDocument();
-
-      await act(async () => {
-        vi.advanceTimersByTime(5000);
-      });
-
-      expect(screen.queryByText('Channel position was not saved')).not.toBeInTheDocument();
+      expect(mockValues.notificationQueue.register).toHaveBeenCalledWith('admin-channel-update-error', 'warning');
     } finally {
       vi.useRealTimers();
     }

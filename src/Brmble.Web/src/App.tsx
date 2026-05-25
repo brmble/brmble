@@ -2571,7 +2571,7 @@ function App() {
     const onAdminChannelUpdateError = () => {
       setAdminChannelUpdateErrorSequence(sequence => sequence + 1);
       setAdminChannelUpdateErrorVisible(true);
-      notifQueue.register('admin-channel-update-error', 'info');
+      notifQueue.register('admin-channel-update-error', 'warning');
     };
 
     bridge.on('brmble.serviceStatus', onBrmbleServiceStatus);
@@ -4314,7 +4314,7 @@ const handleConnect = (serverData: SavedServer) => {
         {adminChannelUpdateErrorVisible && notifQueue.isVisible('admin-channel-update-error') && (
           <Notification
             key={adminChannelUpdateErrorSequence}
-            status="info"
+            status="warning"
             position="top-right"
             visible={adminChannelUpdateErrorVisible}
             title="Channel position was not saved"

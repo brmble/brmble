@@ -6,6 +6,7 @@ import { ContextMenu } from '../../ContextMenu/ContextMenu';
 import type { ContextMenuItem } from '../../ContextMenu/ContextMenu';
 import { EditChannelDialog } from '../../EditChannelDialog/EditChannelDialog';
 import { AclEditorDialog } from '../../AclEditor/AclEditorDialog';
+import { SettingsHelp } from '../SettingsHelp';
 import { sortChannelsByMumbleOrder } from '../../../utils/channelOrdering';
 
 const REQUESTS = [{ id: 1, requestedBy: 'Mike', channelName: 'Officer Chat', status: 'Pending' }];
@@ -107,9 +108,10 @@ export function AdminChannelsSection({ channels = [] }: AdminChannelsSectionProp
 
       <div className="admin-action-row">
         <button type="button" className="btn btn-secondary btn-sm" disabled>Create Channel</button>
+        <SettingsHelp content="Right-click a channel for admin actions." label="More information about channel admin actions" />
       </div>
 
-      <p className="admin-help-text">Create Channel is not available yet. Right-click a channel for admin actions.</p>
+      <p className="admin-help-text">Create Channel is not available yet.</p>
       {contextMenu && menuItems.length > 0 && (
         <ContextMenu
           x={contextMenu.x}

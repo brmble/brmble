@@ -39,6 +39,12 @@ vi.mock('../../AclEditor/AclEditorDialog', () => ({
   AclEditorDialog: () => <div data-testid="admin-acl-editor" />,
 }));
 
+vi.mock('../SettingsHelp', () => ({
+  SettingsHelp: ({ content, label }: { content: string; label: string }) => (
+    <button type="button" aria-label={label} data-help-content={content}>?</button>
+  ),
+}));
+
 vi.mock('../../../bridge', () => ({
   default: {
     send: vi.fn(),
@@ -109,7 +115,11 @@ describe('Admin workspace sections', () => {
   it('keeps disabled admin actions paired with visible explanatory text', () => {
     render(<AdminChannelsSection channels={liveChannels} />);
     expect(screen.getByRole('button', { name: 'Create Channel' })).toBeDisabled();
-    expect(screen.getByText('Create Channel is not available yet. Right-click a channel for admin actions.')).toBeInTheDocument();
+    expect(screen.getByText('Create Channel is not available yet.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'More information about channel admin actions' })).toHaveAttribute(
+      'data-help-content',
+      'Right-click a channel for admin actions.',
+    );
   });
 
   it('shows an empty-state message when no live channels are available', () => {
