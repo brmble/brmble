@@ -128,7 +128,7 @@
   flex: 0 0 auto;
   padding: var(--space-2xs) var(--space-xs);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-full);
   background: var(--bg-overlay);
   color: var(--text-secondary);
   font-size: var(--text-xs);
