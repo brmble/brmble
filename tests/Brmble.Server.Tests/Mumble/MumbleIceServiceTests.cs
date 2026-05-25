@@ -14,7 +14,10 @@ namespace Brmble.Server.Tests.Mumble;
 [TestClass]
 public class MumbleIceServiceTests
 {
-    private static MumbleIceService CreateService(string host = "localhost", int port = 9999)
+    private static MumbleIceService CreateService(
+        string host = "localhost",
+        int port = 9999,
+        IMumbleIceCommunicatorFactory? communicatorFactory = null)
     {
         var participantRemover = new Mock<ILiveKitParticipantRemover>().Object;
         var revocationScheduler = new LiveKitParticipantRevocationScheduler(
@@ -44,20 +47,29 @@ public class MumbleIceServiceTests
         var registrationService = new MumbleRegistrationService(NullLogger<MumbleRegistrationService>.Instance);
         var aclIceClient = new MumbleAclIceClient();
 
+        communicatorFactory ??= CreateFailingCommunicatorFactory();
+
         return new MumbleIceService(
             callback,
             registrationService,
             aclIceClient,
             matrixService,
             iceSettings,
+            communicatorFactory,
             NullLogger<MumbleIceService>.Instance);
     }
 
-    [TestMethod]
-    public async Task StartAsync_IceUnavailable_CompletesWithoutThrowing()
+    private static IMumbleIceCommunicatorFactory CreateFailingCommunicatorFactory()
     {
-        // Port 9999 on localhost — nothing listening, Ice connection will fail.
-        // Per spec: if Ice fails at startup, log warning and continue.
+        var communicatorFactory = new Mock<IMumbleIceCommunicatorFactory>();
+        communicatorFactory.Setup(f => f.Create())
+            .Throws(new InvalidOperationException("Ice unavailable in test"));
+        return communicatorFactory.Object;
+    }
+
+    [TestMethod]
+    public async Task StartAsync_IceStartupThrows_CompletesWithoutThrowing()
+    {
         var svc = CreateService();
         await svc.StartAsync(CancellationToken.None);
     }

@@ -10,6 +10,7 @@ public class MumbleIceService : IHostedService
     private readonly MumbleAclIceClient _aclIceClient;
     private readonly MatrixService _matrixService;
     private readonly IceSettings _settings;
+    private readonly IMumbleIceCommunicatorFactory _communicatorFactory;
     private readonly ILogger<MumbleIceService> _logger;
     private Ice.Communicator? _communicator;
 
@@ -19,6 +20,7 @@ public class MumbleIceService : IHostedService
         MumbleAclIceClient aclIceClient,
         MatrixService matrixService,
         IOptions<IceSettings> settings,
+        IMumbleIceCommunicatorFactory communicatorFactory,
         ILogger<MumbleIceService> logger)
     {
         _callback = callback;
@@ -26,6 +28,7 @@ public class MumbleIceService : IHostedService
         _aclIceClient = aclIceClient;
         _matrixService = matrixService;
         _settings = settings.Value;
+        _communicatorFactory = communicatorFactory;
         _logger = logger;
     }
 
@@ -33,12 +36,7 @@ public class MumbleIceService : IHostedService
     {
         try
         {
-            var properties = new Ice.Properties();
-            properties.setProperty("Ice.Default.EncodingVersion", "1.0");
-            properties.setProperty("Ice.MessageSizeMax", "65536"); // 64 MB — match Mumble server default
-
-            var initData = new Ice.InitializationData { properties = properties };
-            _communicator = new Ice.Communicator(initData);
+            _communicator = _communicatorFactory.Create();
 
             var context = new Dictionary<string, string> { ["secret"] = _settings.Secret };
             var proxy = (_communicator.stringToProxy($"s/1 -e 1.0:tcp -h {_settings.Host} -p {_settings.Port}")
