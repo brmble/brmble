@@ -65,7 +65,7 @@ export function AdminChannelsSection({ channels = [] }: AdminChannelsSectionProp
                 type="button"
                 className={`admin-channel-row ${channel.id === selectedChannelId ? 'selected' : ''}`}
                 role="row"
-                aria-label={channel.name}
+                aria-label={`${channel.name} Position ${channel.position ?? 0}`}
                 onClick={() => setSelectedChannelId(channel.id)}
                 onContextMenu={(e) => {
                   e.preventDefault();
@@ -73,7 +73,8 @@ export function AdminChannelsSection({ channels = [] }: AdminChannelsSectionProp
                   setContextMenu({ x: e.clientX, y: e.clientY, channelId: channel.id });
                 }}
               >
-                {channel.name}
+                <span className="admin-channel-row-name">{channel.name}</span>
+                <span className="admin-channel-position-pill">Position {channel.position ?? 0}</span>
               </button>
             ))
           ) : (

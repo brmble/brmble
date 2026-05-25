@@ -74,8 +74,8 @@ describe('Admin workspace sections', () => {
     expect(screen.getByRole('heading', { name: 'Channels' })).toBeInTheDocument();
     expect(screen.getByText('Existing Channels')).toBeInTheDocument();
     expect(screen.getByText('Channel Requests')).toBeInTheDocument();
-    expect(screen.getByRole('row', { name: 'General' })).toBeInTheDocument();
-    expect(screen.getByRole('row', { name: 'Raid Planning' })).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: 'General Position 2' })).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: 'Raid Planning Position 1' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Create Channel' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Delete Channel' })).not.toBeInTheDocument();
   });
@@ -91,7 +91,7 @@ describe('Admin workspace sections', () => {
     promptMock.mockResolvedValue('General');
     render(<AdminChannelsSection channels={liveChannels} />);
 
-    fireEvent.contextMenu(screen.getByRole('row', { name: /General/i }));
+    fireEvent.contextMenu(screen.getByRole('row', { name: /General Position 2/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Delete Channel' }));
 
     await waitFor(() => {
@@ -126,13 +126,27 @@ describe('Admin workspace sections', () => {
       { id: 9, name: 'Alpha', position: 1 },
     ]} />);
 
-    expect(screen.getAllByRole('row').map(row => row.getAttribute('aria-label'))).toEqual(['Alpha', 'Bravo', 'Zulu']);
+    expect(screen.getAllByRole('row').map(row => row.getAttribute('aria-label'))).toEqual(['Alpha Position 1', 'Bravo Position 1', 'Zulu Position 3']);
+  });
+
+  it('shows each admin channel position in row labels and visible pills', () => {
+    render(<AdminChannelsSection channels={[
+      { id: 7, name: 'Root' },
+      { id: 8, name: 'Raid', position: 12 },
+      { id: 9, name: 'No Position', position: undefined },
+    ]} />);
+
+    expect(screen.getByRole('row', { name: 'Root Position 0' })).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: 'Raid Position 12' })).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: 'No Position Position 0' })).toBeInTheDocument();
+    expect(screen.getAllByText('Position 0')).toHaveLength(2);
+    expect(screen.getByText('Position 12')).toBeInTheDocument();
   });
 
   it('opens admin channel actions from a right-click context menu', () => {
     render(<AdminChannelsSection channels={liveChannels} />);
 
-    fireEvent.contextMenu(screen.getByRole('row', { name: 'General' }));
+    fireEvent.contextMenu(screen.getByRole('row', { name: 'General Position 2' }));
 
     expect(screen.getByTestId('admin-channel-menu')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Edit Channel' })).toBeInTheDocument();
@@ -144,7 +158,7 @@ describe('Admin workspace sections', () => {
   it('sends edited channel position through the admin edit action', () => {
     render(<AdminChannelsSection channels={[{ id: 7, name: 'General', position: 3 }]} />);
 
-    fireEvent.contextMenu(screen.getByRole('row', { name: 'General' }));
+    fireEvent.contextMenu(screen.getByRole('row', { name: 'General Position 3' }));
     fireEvent.click(screen.getByRole('button', { name: 'Edit Channel' }));
 
     expect(screen.getByText('position enabled')).toBeInTheDocument();
