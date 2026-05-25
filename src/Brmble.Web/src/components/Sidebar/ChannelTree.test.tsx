@@ -330,14 +330,25 @@ describe('ChannelTree channel access locks', () => {
 });
 
 describe('ChannelTree ACL integration', () => {
+  const bridgeHandlers = new Map<string, (data: unknown) => void>();
+
   beforeEach(() => {
     vi.clearAllMocks();
+    bridgeHandlers.clear();
     editChannelDialogPropsRef.current = null;
     aclEditorDialogPropsRef.current = null;
     promptMock.mockReset();
     bridgeMock.on.mockImplementation((type: string, handler: (data: unknown) => void) => {
-      if (type === 'voice.channelPassword') {
-        handler({ requestId: 'channel-password-5', channelId: 5, password: '' });
+      bridgeHandlers.set(type, handler);
+    });
+    bridgeMock.send.mockImplementation((type: string, payload?: unknown) => {
+      if (type === 'voice.getChannelPassword') {
+        const request = payload as { channelId?: number; requestId?: string };
+        bridgeHandlers.get('voice.channelPassword')?.({
+          requestId: request.requestId,
+          channelId: request.channelId,
+          password: '',
+        });
       }
     });
   });
@@ -484,11 +495,6 @@ describe('ChannelTree ACL integration', () => {
 
   it('saves a channel password through the saved-token bridge handler', async () => {
     promptMock.mockResolvedValue('new-secret');
-    bridgeMock.on.mockImplementation((type: string, handler: (data: unknown) => void) => {
-      if (type === 'voice.channelPassword') {
-        handler({ requestId: 'channel-password-5', channelId: 5, password: '' });
-      }
-    });
 
     render(
       <ChannelTree
@@ -527,9 +533,14 @@ describe('ChannelTree ACL integration', () => {
 
   it('prefills Edit Saved Password with the latest saved channel password', async () => {
     promptMock.mockResolvedValue('updated-secret');
-    bridgeMock.on.mockImplementation((type: string, handler: (data: unknown) => void) => {
-      if (type === 'voice.channelPassword') {
-        handler({ requestId: 'channel-password-5', channelId: 5, password: 'saved-secret' });
+    bridgeMock.send.mockImplementation((type: string, payload?: unknown) => {
+      if (type === 'voice.getChannelPassword') {
+        const request = payload as { channelId?: number; requestId?: string };
+        bridgeHandlers.get('voice.channelPassword')?.({
+          requestId: request.requestId,
+          channelId: request.channelId,
+          password: 'saved-secret',
+        });
       }
     });
 
@@ -549,7 +560,10 @@ describe('ChannelTree ACL integration', () => {
       await Promise.resolve();
     });
 
-    expect(bridgeMock.send).toHaveBeenCalledWith('voice.getChannelPassword', { channelId: 5, requestId: 'channel-password-5' });
+    expect(bridgeMock.send).toHaveBeenCalledWith('voice.getChannelPassword', {
+      channelId: 5,
+      requestId: expect.stringMatching(/^channel-password-5-/),
+    });
     expect(promptMock).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Saved Channel Password',
       defaultValue: 'saved-secret',

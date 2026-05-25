@@ -539,13 +539,20 @@ describe('active share discovery', () => {
     clearLocalShareEndedHandler();
     sidebarProps.current = {};
     vi.mocked(notifQueue.isVisible).mockReturnValue(false);
+    vi.mocked(bridge.send).mockImplementation((type: string, payload?: unknown) => {
+      if (type === 'voice.getChannelPassword') {
+        const request = payload as { channelId?: number; requestId?: string };
+        bridge.emit('voice.channelPassword', {
+          requestId: request.requestId,
+          channelId: request.channelId,
+          password: '',
+        });
+      }
+    });
     vi.mocked(bridge.on).mockImplementation((type: string, handler: BridgeHandler) => {
       const eventHandlers = bridgeHandlers.get(type) ?? new Set<BridgeHandler>();
       eventHandlers.add(handler);
       bridgeHandlers.set(type, eventHandlers);
-      if (type === 'voice.channelPassword') {
-        handler({ requestId: 'channel-password-2', channelId: 2, password: '' });
-      }
       return undefined;
     });
   });
@@ -2212,14 +2219,15 @@ describe('active share discovery', () => {
   it('prompts to save and reconnect when a saved password exists for a known password channel', async () => {
     const { prompt } = await import('./hooks/usePrompt');
     vi.mocked(prompt).mockResolvedValueOnce('updated-secret');
-    vi.mocked(bridge.on).mockImplementation((type: string, handler: BridgeHandler) => {
-      const eventHandlers = bridgeHandlers.get(type) ?? new Set<BridgeHandler>();
-      eventHandlers.add(handler);
-      bridgeHandlers.set(type, eventHandlers);
-      if (type === 'voice.channelPassword') {
-        handler({ requestId: 'channel-password-2', channelId: 2, password: 'saved-secret' });
+    vi.mocked(bridge.send).mockImplementation((type: string, payload?: unknown) => {
+      if (type === 'voice.getChannelPassword') {
+        const request = payload as { channelId?: number; requestId?: string };
+        bridge.emit('voice.channelPassword', {
+          requestId: request.requestId,
+          channelId: request.channelId,
+          password: 'saved-secret',
+        });
       }
-      return undefined;
     });
 
     const view = render(React.createElement(App));
@@ -2241,7 +2249,10 @@ describe('active share discovery', () => {
       await Promise.resolve();
     });
 
-    expect(bridge.send).toHaveBeenCalledWith('voice.getChannelPassword', { channelId: 2, requestId: 'channel-password-2' });
+    expect(bridge.send).toHaveBeenCalledWith('voice.getChannelPassword', {
+      channelId: 2,
+      requestId: expect.stringMatching(/^channel-password-2-/),
+    });
     expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Channel Password',
       message: 'Enter the password for Gaming. Save the password and reconnect to authenticate it.',
