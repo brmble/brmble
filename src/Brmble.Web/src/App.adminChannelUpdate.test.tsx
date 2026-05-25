@@ -259,4 +259,32 @@ describe('admin channel update notifications', () => {
 
     expect(mockValues.notificationQueue.unregister).toHaveBeenCalledWith('admin-channel-update-error');
   });
+
+  it('refreshes the notification timer for repeated failures while visible', async () => {
+    vi.useFakeTimers();
+    try {
+      renderApp();
+      await emitAdminChannelUpdateError();
+
+      expect(screen.getByText('Channel position was not saved')).toBeInTheDocument();
+
+      await act(async () => {
+        vi.advanceTimersByTime(4900);
+      });
+      await emitAdminChannelUpdateError();
+      await act(async () => {
+        vi.advanceTimersByTime(200);
+      });
+
+      expect(screen.getByText('Channel position was not saved')).toBeInTheDocument();
+
+      await act(async () => {
+        vi.advanceTimersByTime(5000);
+      });
+
+      expect(screen.queryByText('Channel position was not saved')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

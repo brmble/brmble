@@ -2569,6 +2569,7 @@ function App() {
     };
 
     const onAdminChannelUpdateError = () => {
+      setAdminChannelUpdateErrorSequence(sequence => sequence + 1);
       setAdminChannelUpdateErrorVisible(true);
       notifQueue.register('admin-channel-update-error', 'info');
     };
@@ -3329,6 +3330,7 @@ const handleConnect = (serverData: SavedServer) => {
   const [serverRemovalNotification, setServerRemovalNotification] = useState<ServerRemovalNotification | null>(null);
   const [brmbleServiceWarningNotification, setBrmbleServiceWarningNotification] = useState<typeof BRMBLE_SERVICE_DISCONNECTED_NOTIFICATION | null>(null);
   const [adminChannelUpdateErrorVisible, setAdminChannelUpdateErrorVisible] = useState(false);
+  const [adminChannelUpdateErrorSequence, setAdminChannelUpdateErrorSequence] = useState(0);
   const brmbleServiceWarningDismissedForOutageRef = useRef(false);
   const nextScreenShareEndedNotificationIdRef = useRef(0);
   const nextWatchedShareEndedNotificationIdRef = useRef(0);
@@ -4311,6 +4313,7 @@ const handleConnect = (serverData: SavedServer) => {
         )}
         {adminChannelUpdateErrorVisible && notifQueue.isVisible('admin-channel-update-error') && (
           <Notification
+            key={adminChannelUpdateErrorSequence}
             status="info"
             position="top-right"
             visible={adminChannelUpdateErrorVisible}
