@@ -53,6 +53,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private int _reconnectPort;
     private volatile string? _reconnectUsername;
     private string? _reconnectPassword;
+    private uint? _reconnectTargetChannelId;
     private string? _currentPttKey;
     private readonly Stopwatch _notifyThrottle = Stopwatch.StartNew();
     private string? _apiUrl;
@@ -434,6 +435,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _apiUrl = null;
             _activeServerId = null;
             _reconnectPassword = null;
+            _reconnectTargetChannelId = null;
         }
         _leftVoice = false;
         _leaveVoiceInProgress = false;
@@ -541,7 +543,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         // If intentional or CTS was cancelled, Disconnect() was already called by the handler.
     }
 
-    private async Task ReconnectLoop()
+    private async Task ReconnectLoop(bool immediateFirstAttempt = false)
     {
         var delays = new[] { 2000, 4000, 8000, 16000, 30000 };
         int attempt = 0;
@@ -553,17 +555,22 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         {
             while (!token.IsCancellationRequested && !_intentionalDisconnect)
             {
-                int delayMs = delays[Math.Min(attempt, delays.Length - 1)];
+                int delayMs = immediateFirstAttempt && attempt == 0
+                    ? 0
+                    : delays[Math.Min(attempt, delays.Length - 1)];
                 _bridge?.Send("voice.reconnecting", new { attempt = attempt + 1, delayMs });
                 _bridge?.NotifyUiThread();
 
-                try
+                if (delayMs > 0)
                 {
-                    await Task.Delay(delayMs, token);
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
+                    try
+                    {
+                        await Task.Delay(delayMs, token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
                 }
 
                 if (_intentionalDisconnect || token.IsCancellationRequested)
@@ -2639,6 +2646,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         {
             _intentionalDisconnect = true;
             _reconnectCts?.Cancel();
+            _reconnectTargetChannelId = null;
             Disconnect();
             return Task.CompletedTask;
         });
@@ -2647,6 +2655,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         {
             _intentionalDisconnect = true;
             _reconnectCts?.Cancel();
+            _reconnectTargetChannelId = null;
             _bridge?.Send("voice.disconnected", null);
             _bridge?.NotifyUiThread();
             return Task.CompletedTask;
@@ -2666,10 +2675,15 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _intentionalDisconnect = false;
             _rejected = false;
             _reconnectCts?.Cancel();
+            _reconnectTargetChannelId = data.TryGetProperty("channelId", out var channelIdEl) &&
+                channelIdEl.ValueKind == System.Text.Json.JsonValueKind.Number &&
+                channelIdEl.TryGetUInt32(out var channelId)
+                    ? channelId
+                    : null;
             _bridge?.Send("voice.reconnecting", new { attempt = 1, delayMs = 0 });
             _bridge?.NotifyUiThread();
             Disconnect();
-            _ = Task.Run(() => ReconnectLoop());
+            _ = Task.Run(() => ReconnectLoop(immediateFirstAttempt: true));
             return Task.CompletedTask;
         });
 
@@ -3775,6 +3789,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             ActivateLeaveVoice(channelMoveInProgress: true);
         }
 
+        if (_isReconnect && _reconnectTargetChannelId is { } reconnectTargetChannelId)
+        {
+            _reconnectTargetChannelId = null;
+            JoinChannel(reconnectTargetChannelId);
+            voiceConnectedChannelId = reconnectTargetChannelId;
+        }
+
         _isReconnect = false;
 
         // Determine the API URL for credential fetch.
@@ -4212,6 +4233,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _reconnectHost = null;
             _reconnectUsername = null;
             _reconnectPassword = null;
+            _reconnectTargetChannelId = null;
 
             if (userRemove.Ban == true)
             {

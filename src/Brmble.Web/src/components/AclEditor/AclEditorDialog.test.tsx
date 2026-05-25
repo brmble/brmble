@@ -202,10 +202,12 @@ describe('AclEditorDialog', () => {
 
     render(<AclEditorDialog isOpen channelId={4} channelName="Secret" onClose={vi.fn()} />);
 
-    fireEvent.change(screen.getByLabelText('Channel password selector'), { target: { value: '#new-secret' } });
+    expect(screen.getByLabelText('Channel password selector')).toHaveValue('secret');
+
+    fireEvent.change(screen.getByLabelText('Channel password selector'), { target: { value: 'new-secret' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save password' }));
 
-    expect(savePassword).toHaveBeenCalledWith('#new-secret');
+    expect(savePassword).toHaveBeenCalledWith('new-secret');
   });
 
   it('shows cancel and highlighted save only when an existing password changes', () => {
@@ -225,14 +227,14 @@ describe('AclEditorDialog', () => {
     expect(screen.queryByRole('button', { name: 'Cancel password change' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Save password' })).not.toBeInTheDocument();
 
-    fireEvent.change(passwordInput, { target: { value: '#new-secret' } });
+    fireEvent.change(passwordInput, { target: { value: 'new-secret' } });
 
     expect(screen.getByRole('button', { name: 'Cancel password change' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save password' })).toHaveClass('btn-primary');
 
     fireEvent.click(screen.getByRole('button', { name: 'Save password' }));
 
-    expect(savePassword).toHaveBeenCalledWith('#new-secret');
+    expect(savePassword).toHaveBeenCalledWith('new-secret');
   });
 
   it('reverts unsaved password changes when cancel is pressed', () => {
@@ -249,10 +251,12 @@ describe('AclEditorDialog', () => {
 
     const passwordInput = screen.getByLabelText('Channel password selector');
 
-    fireEvent.change(passwordInput, { target: { value: '#draft-secret' } });
+    expect(passwordInput).toHaveValue('secret');
+
+    fireEvent.change(passwordInput, { target: { value: 'draft-secret' } });
     fireEvent.click(screen.getByRole('button', { name: 'Cancel password change' }));
 
-    expect(passwordInput).toHaveValue('#secret');
+    expect(passwordInput).toHaveValue('secret');
     expect(screen.queryByRole('button', { name: 'Cancel password change' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Save password' })).not.toBeInTheDocument();
   });

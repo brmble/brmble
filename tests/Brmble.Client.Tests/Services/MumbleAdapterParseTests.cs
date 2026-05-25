@@ -12,6 +12,8 @@ using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.Certificate;
 using Brmble.Client.Services.Serverlist;
 using Brmble.Client.Services.Voice;
+using MumbleProto;
+using MumbleSharp;
 using MumbleSharp.Packets;
 using MumbleSharp.Model;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -85,12 +87,18 @@ internal static class MumbleAdapterTestHarness
     public static void SetField(object instance, string name, object? value)
         => instance.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(instance, value);
 
+    public static T GetField<T>(object instance, string name)
+        => (T)instance.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(instance)!;
+
     public static void InvokeHandleWebSocketMessage(MumbleAdapter adapter, string json)
         => adapter.GetType().GetMethod("HandleWebSocketMessage", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(adapter, [json]);
 
     private static void SetBaseField(object instance, string name, object? value)
         => instance.GetType().BaseType!.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(instance, value);
+
+    public static T GetBaseField<T>(object instance, string name)
+        => (T)instance.GetType().BaseType!.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(instance)!;
 }
 
 internal sealed class TestAppConfigService : IAppConfigService
@@ -279,6 +287,27 @@ internal sealed class TestTlsHttpServer : IAsyncDisposable
 [TestClass]
 public class MumbleAdapterParseTests
 {
+    [TestMethod]
+    public void ServerSync_JoinsReconnectTargetAfterAuthenticateTokensApply()
+    {
+        var bridge = NativeBridgeTestHarness.Create();
+        var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge);
+        var connection = new MumbleConnection(new IPEndPoint(IPAddress.Loopback, 64738), adapter, voiceSupport: false);
+        adapter.Initialise(connection);
+        typeof(MumbleConnection).GetProperty(nameof(MumbleConnection.State))!.SetValue(connection, ConnectionStates.Connected);
+        var channelDictionary = MumbleAdapterTestHarness.GetBaseField<ConcurrentDictionary<uint, Channel>>(adapter, "ChannelDictionary");
+        channelDictionary[0] = new Channel(adapter, 0, "Root", 0);
+        var userDictionary = MumbleAdapterTestHarness.GetBaseField<ConcurrentDictionary<uint, User>>(adapter, "UserDictionary");
+        userDictionary[1] = new User(adapter, 1) { Name = "TestUser", Channel = channelDictionary[0] };
+        MumbleAdapterTestHarness.SetField(adapter, "_isReconnect", true);
+        MumbleAdapterTestHarness.SetField(adapter, "_reconnectTargetChannelId", 5u);
+
+        adapter.ServerSync(new ServerSync { Session = 1 });
+
+        Assert.AreEqual(5u, MumbleAdapterTestHarness.GetField<uint?>(adapter, "_pendingLocalJoinChannelId"));
+        Assert.IsNull(MumbleAdapterTestHarness.GetField<uint?>(adapter, "_reconnectTargetChannelId"));
+    }
+
     [TestMethod]
     public void HandleWebSocketAclChanged_ForwardsToBridge()
     {

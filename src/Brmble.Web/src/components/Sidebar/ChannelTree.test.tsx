@@ -507,7 +507,7 @@ describe('ChannelTree ACL integration', () => {
       message: 'Enter the password for Secret. Leave blank to forget the saved password. Save and reconnect to authenticate changes.',
       placeholder: 'Password',
       defaultValue: '',
-      confirmLabel: 'Save and reconnect',
+      confirmLabel: 'Save & reconnect',
       cancelLabel: 'Cancel',
       isPassword: true,
     }));
@@ -521,7 +521,7 @@ describe('ChannelTree ACL integration', () => {
       channelName: 'Secret',
       password: 'new-secret',
     });
-    expect(bridgeMock.send).toHaveBeenCalledWith('voice.reconnect');
+    expect(bridgeMock.send).toHaveBeenCalledWith('voice.reconnect', { channelId: 5 });
     expect(bridgeMock.send).not.toHaveBeenCalledWith('acl.setChannelPassword', expect.anything());
   });
 
@@ -580,7 +580,7 @@ describe('ChannelTree ACL integration', () => {
       channelName: 'Secret',
       password: '',
     });
-    expect(bridgeMock.send).toHaveBeenCalledWith('voice.reconnect');
+    expect(bridgeMock.send).toHaveBeenCalledWith('voice.reconnect', { channelId: 5 });
   });
 
   it('does not save channel password when prompt is canceled', async () => {

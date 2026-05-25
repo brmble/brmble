@@ -2108,7 +2108,7 @@ describe('active share discovery', () => {
     expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Channel Password',
       message: 'Enter the password for Gaming. Save the password and reconnect to authenticate it.',
-      confirmLabel: 'Save and reconnect',
+      confirmLabel: 'Save & reconnect',
     }));
     expect(confirm).not.toHaveBeenCalled();
     expect(stopSharing).not.toHaveBeenCalled();
@@ -2151,7 +2151,7 @@ describe('active share discovery', () => {
     expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Channel Password',
       message: 'Enter the password for Gaming. Save the password and reconnect to authenticate it.',
-      confirmLabel: 'Save and reconnect',
+      confirmLabel: 'Save & reconnect',
     }));
     expect(confirm).not.toHaveBeenCalled();
     expect(stopSharing).not.toHaveBeenCalled();
@@ -2160,7 +2160,7 @@ describe('active share discovery', () => {
       channelName: 'Gaming',
       password: 'secret-token',
     });
-    expect(bridge.send).toHaveBeenCalledWith('voice.reconnect');
+    expect(bridge.send).toHaveBeenCalledWith('voice.reconnect', { channelId: 2 });
     expect(bridge.send).not.toHaveBeenCalledWith('voice.joinChannel', expect.objectContaining({ password: expect.any(String) }));
   });
 
@@ -2195,7 +2195,7 @@ describe('active share discovery', () => {
         title: 'Channel Password',
         message: 'Enter the password for Gaming. Save the password and reconnect to authenticate it.',
         placeholder: 'Password',
-        confirmLabel: 'Save and reconnect',
+        confirmLabel: 'Save & reconnect',
         cancelLabel: 'Cancel',
       }));
     });
@@ -2206,7 +2206,7 @@ describe('active share discovery', () => {
         password: 'secret-token',
       });
     });
-    expect(bridge.send).toHaveBeenCalledWith('voice.reconnect');
+    expect(bridge.send).toHaveBeenCalledWith('voice.reconnect', { channelId: 2 });
     expect(getJoinChannelCalls()).toEqual([]);
   });
 
@@ -2247,14 +2247,14 @@ describe('active share discovery', () => {
       title: 'Channel Password',
       message: 'Enter the password for Gaming. Save the password and reconnect to authenticate it.',
       defaultValue: 'saved-secret',
-      confirmLabel: 'Save and reconnect',
+      confirmLabel: 'Save & reconnect',
     }));
     expect(bridge.send).toHaveBeenCalledWith('voice.saveChannelPassword', {
       channelId: 2,
       channelName: 'Gaming',
       password: 'updated-secret',
     });
-    expect(bridge.send).toHaveBeenCalledWith('voice.reconnect');
+    expect(bridge.send).toHaveBeenCalledWith('voice.reconnect', { channelId: 2 });
     expect(bridge.send).not.toHaveBeenCalledWith('voice.joinChannel', expect.objectContaining({ password: expect.any(String) }));
   });
 
@@ -2288,7 +2288,7 @@ describe('active share discovery', () => {
         password: 'secret-token',
       });
     });
-    expect(bridge.send).toHaveBeenCalledWith('voice.reconnect');
+    expect(bridge.send).toHaveBeenCalledWith('voice.reconnect', { channelId: 2 });
     expect(bridge.send).not.toHaveBeenCalledWith('voice.joinChannel', expect.objectContaining({ password: expect.any(String) }));
   });
 
@@ -2315,7 +2315,7 @@ describe('active share discovery', () => {
       await Promise.resolve();
     });
     await waitFor(() => {
-      expect(bridge.send).toHaveBeenCalledWith('voice.reconnect');
+      expect(bridge.send).toHaveBeenCalledWith('voice.reconnect', { channelId: 2 });
     });
 
     vi.mocked(prompt).mockClear();
@@ -2356,7 +2356,7 @@ describe('active share discovery', () => {
     const channel = sidebarProps.current.channels?.find(c => c.id === 2);
     expect(channel?.canEnter).toBeUndefined();
     expect(channel?.hasPasswordRestriction).toBe(true);
-    expect(bridge.send).toHaveBeenCalledWith('voice.reconnect');
+    expect(bridge.send).toHaveBeenCalledWith('voice.reconnect', { channelId: 2 });
   });
 
   it('prompts for a channel password when a password-denial reason reveals an uncached password ACL', async () => {
@@ -2398,7 +2398,7 @@ describe('active share discovery', () => {
       expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
         title: 'Channel Password',
         message: 'Enter the password for Gaming. Save the password and reconnect to authenticate it.',
-        confirmLabel: 'Save and reconnect',
+        confirmLabel: 'Save & reconnect',
       }));
     });
     await waitFor(() => {
@@ -2408,7 +2408,7 @@ describe('active share discovery', () => {
         password: 'secret-token',
       });
     });
-    expect(bridge.send).toHaveBeenCalledWith('voice.reconnect');
+    expect(bridge.send).toHaveBeenCalledWith('voice.reconnect', { channelId: 2 });
     expect(getJoinChannelCalls()).toEqual([
       ['voice.joinChannel', { channelId: 2 }],
     ]);
@@ -2453,7 +2453,7 @@ describe('active share discovery', () => {
         password: 'secret-token',
       });
     });
-    expect(bridge.send).toHaveBeenCalledWith('voice.reconnect');
+    expect(bridge.send).toHaveBeenCalledWith('voice.reconnect', { channelId: 2 });
     expect(bridge.send).not.toHaveBeenCalledWith('voice.joinChannel', expect.objectContaining({ password: expect.any(String) }));
   });
 
@@ -2574,7 +2574,7 @@ describe('active share discovery', () => {
       channelName: 'Gaming',
       password: 'wrong-secret',
     });
-    expect(bridge.send).toHaveBeenCalledWith('voice.reconnect');
+    expect(bridge.send).toHaveBeenCalledWith('voice.reconnect', { channelId: 2 });
     expect(bridge.send).not.toHaveBeenCalledWith('voice.joinChannel', expect.objectContaining({ password: expect.any(String) }));
 
     await act(async () => {
@@ -2589,7 +2589,7 @@ describe('active share discovery', () => {
     });
 
     expect(prompt).toHaveBeenCalledTimes(1);
-    expect(bridge.send).toHaveBeenCalledWith('voice.reconnect');
+    expect(bridge.send).toHaveBeenCalledWith('voice.reconnect', { channelId: 2 });
   });
 
   it('screen share active leave voice cancel keeps sharing and does not leave voice', async () => {

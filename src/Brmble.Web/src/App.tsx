@@ -1440,7 +1440,7 @@ function App() {
     }
 
     bridge.send('voice.saveChannelPassword', { channelId, channelName, password: normalized });
-    bridge.send('voice.reconnect');
+    bridge.send('voice.reconnect', { channelId });
   }, []);
 
   // Handle Push-to-Talk key detection via JavaScript when app is focused
@@ -1781,7 +1781,7 @@ function App() {
               message: `Enter the password for ${pendingJoinAttempt.channelName}. Save the password and reconnect to authenticate it.`,
               placeholder: 'Password',
               defaultValue: savedPassword,
-              confirmLabel: 'Save and reconnect',
+              confirmLabel: 'Save & reconnect',
               cancelLabel: 'Cancel',
               isPassword: true,
             });
@@ -2814,7 +2814,7 @@ const handleConnect = (serverData: SavedServer) => {
         message: `Enter the password for ${channel.name}. Save the password and reconnect to authenticate it.`,
         placeholder: 'Password',
         defaultValue: savedPassword,
-        confirmLabel: 'Save and reconnect',
+        confirmLabel: 'Save & reconnect',
         cancelLabel: 'Cancel',
         isPassword: true,
       });

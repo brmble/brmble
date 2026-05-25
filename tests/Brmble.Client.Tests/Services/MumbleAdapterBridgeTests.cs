@@ -219,10 +219,25 @@ public class MumbleAdapterBridgeTests
         SetPrivateField(adapter, "_reconnectPassword", "server-password");
         SetConnectedConnection(adapter);
 
-        await NativeBridgeTestHarness.InvokeAsync(bridge, "voice.reconnect", JsonSerializer.SerializeToElement(new { }));
+        await NativeBridgeTestHarness.InvokeAsync(bridge, "voice.reconnect", JsonSerializer.SerializeToElement(new { channelId = 5 }));
+        await Task.Delay(50);
 
         var sent = NativeBridgeTestHarness.DrainMessages(bridge);
         Assert.IsTrue(sent.Any(m => m.Type == "voice.reconnecting"));
+        var reconnectingDelays = sent
+            .Where(m => m.Type == "voice.reconnecting")
+            .Select(m => JsonDocument.Parse(m.DataJson))
+            .ToList();
+        try
+        {
+            Assert.IsTrue(reconnectingDelays.All(doc => doc.RootElement.GetProperty("delayMs").GetInt32() == 0));
+        }
+        finally
+        {
+            foreach (var doc in reconnectingDelays)
+                doc.Dispose();
+        }
+        Assert.AreEqual(5u, GetPrivateField<uint?>(adapter, "_reconnectTargetChannelId"));
     }
 
     [TestMethod]
@@ -466,6 +481,9 @@ public class MumbleAdapterBridgeTests
 
     private static void SetPrivateField(object instance, string name, object? value)
         => instance.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(instance, value);
+
+    private static T GetPrivateField<T>(object instance, string name)
+        => (T)instance.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(instance)!;
 
     private static void SetConnectedConnection(MumbleAdapter adapter)
     {
