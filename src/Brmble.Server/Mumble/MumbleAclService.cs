@@ -40,6 +40,29 @@ public sealed class MumbleAclService : IMumbleAclService
         }
     }
 
+    public async Task UpdateChannelStateAsync(int channelId, ChannelUpdateRequest request)
+    {
+        try
+        {
+            var current = await _iceClient.GetChannelStateAsync(channelId);
+            var updated = new MumbleServer.Channel(
+                current.id,
+                request.Name.Trim(),
+                current.parent,
+                current.links,
+                request.Description ?? string.Empty,
+                current.temporary,
+                request.Position);
+
+            await _iceClient.SetChannelStateAsync(updated);
+        }
+        catch (Exception ex) when (ex is not MumbleAclUnavailableException and not MumbleAclException)
+        {
+            _logger.LogWarning(ex, "Failed to update channel state for channel {ChannelId}", channelId);
+            throw new MumbleAclException($"Failed to update channel {channelId}.", ex);
+        }
+    }
+
     public async Task AddUserToGroupAsync(int channelId, int sessionId, string group)
     {
         try

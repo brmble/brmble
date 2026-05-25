@@ -127,7 +127,7 @@ export function AdminChannelsSection({ channels = [] }: AdminChannelsSectionProp
           showPosition
           onClose={() => setEditChannel(null)}
           onSave={(name, description, position) => {
-            bridge.send('voice.editChannel', {
+            bridge.send('admin.updateChannel', {
               channelId: editChannel.id,
               name,
               description,

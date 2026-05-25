@@ -1382,6 +1382,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         return await SendViaBcTls(cert, uri, httpRequest);
     }
 
+    private static async Task<TlsResult> PatchViaBcTls(X509Certificate2 cert, Uri uri, string jsonBody)
+    {
+        var hostHeader = uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}";
+        var contentLength = System.Text.Encoding.UTF8.GetByteCount(jsonBody);
+        var httpRequest = $"PATCH {uri.PathAndQuery} HTTP/1.1\r\nHost: {hostHeader}\r\nContent-Type: application/json\r\nContent-Length: {contentLength}\r\nConnection: close\r\n\r\n{jsonBody}";
+        return await SendViaBcTls(cert, uri, httpRequest);
+    }
+
     internal static string CreateLiveKitTokenRequestBody(string roomName, string accessMode)
     {
         var normalizedAccessMode = accessMode.Trim().ToLowerInvariant() switch
@@ -3545,6 +3553,38 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             var result = await PutViaBcTls(cert, uri, requestJson);
             var eventType = result.Success || result.StatusCode == 409 ? "acl.writeResult" : "acl.error";
             _bridge?.Send(eventType, new { channelId, body = result.Body, statusCode = result.StatusCode, error = result.Error });
+            _bridge?.NotifyUiThread();
+        });
+
+        bridge.RegisterHandler("admin.updateChannel", async data =>
+        {
+            var channelId = data.TryGetProperty("channelId", out var cid) && cid.ValueKind == System.Text.Json.JsonValueKind.Number
+                ? cid.GetInt32()
+                : 0;
+            if (channelId <= 0 || _apiUrl is null)
+            {
+                _bridge?.Send("admin.channelUpdateError", new { channelId, error = "Not connected or invalid channel" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            using var cert = _certService?.GetExportableCertificate();
+            if (cert is null)
+            {
+                _bridge?.Send("admin.channelUpdateError", new { channelId, error = "No client certificate" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            var name = data.TryGetProperty("name", out var nameEl) ? nameEl.GetString() : string.Empty;
+            var description = data.TryGetProperty("description", out var descEl) ? descEl.GetString() : string.Empty;
+            var position = data.TryGetProperty("position", out var posEl) && posEl.TryGetInt32(out var parsedPosition)
+                ? parsedPosition
+                : 0;
+            var requestJson = System.Text.Json.JsonSerializer.Serialize(new { name, description, position });
+            var uri = new Uri(new Uri(_apiUrl, UriKind.Absolute), $"acl/channels/{channelId}/state");
+            var result = await PatchViaBcTls(cert, uri, requestJson);
+            _bridge?.Send(result.Success ? "admin.channelUpdated" : "admin.channelUpdateError", new { channelId, body = result.Body, statusCode = result.StatusCode, error = result.Error });
             _bridge?.NotifyUiThread();
         });
 

@@ -3,6 +3,7 @@ namespace Brmble.Server.Mumble;
 public interface IMumbleAclService
 {
     Task<AclChannelSnapshotDto> GetChannelAclAsync(int channelId);
+    Task UpdateChannelStateAsync(int channelId, ChannelUpdateRequest request);
     Task SetChannelAclAsync(int channelId, AclUpdateRequest request);
     Task AddUserToGroupAsync(int channelId, int sessionId, string group);
     Task RemoveUserFromGroupAsync(int channelId, int sessionId, string group);
@@ -13,6 +14,8 @@ public interface IMumbleAclService
 public interface IMumbleAclIceClient
 {
     Task<MumbleServer.Server_GetACLResult> GetAclAsync(int channelId);
+    Task<MumbleServer.Channel> GetChannelStateAsync(int channelId);
+    Task SetChannelStateAsync(MumbleServer.Channel channel);
     Task SetAclAsync(int channelId, MumbleServer.ACL[] acls, MumbleServer.Group[] groups, bool inherit);
     Task AddUserToGroupAsync(int channelId, int sessionId, string group);
     Task RemoveUserFromGroupAsync(int channelId, int sessionId, string group);

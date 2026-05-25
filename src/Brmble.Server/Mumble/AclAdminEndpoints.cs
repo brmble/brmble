@@ -28,6 +28,33 @@ public static class AclAdminEndpoints
             return Results.Ok(new { snapshot = canonical, cached });
         });
 
+        group.MapPatch("state", async (
+            int channelId,
+            ChannelUpdateRequest request,
+            HttpContext httpContext,
+            ICertificateHashExtractor certHashExtractor,
+            UserRepository userRepo,
+            IAclAuthorizationService authorization,
+            IMumbleAclService mumbleAcl,
+            ILoggerFactory loggerFactory) =>
+        {
+            var auth = await ResolveAuthorizedUser(httpContext, certHashExtractor, userRepo, authorization, channelId);
+            if (auth.Result is not null)
+            {
+                return auth.Result;
+            }
+
+            if (string.IsNullOrWhiteSpace(request.Name))
+            {
+                return Results.BadRequest(new { error = "Channel name is required." });
+            }
+
+            await mumbleAcl.UpdateChannelStateAsync(channelId, request);
+            loggerFactory.CreateLogger("Brmble.Server.Mumble.AclAudit")
+                .LogInformation("Channel state update actor={UserId} channel={ChannelId}", auth.User!.Id, channelId);
+            return Results.NoContent();
+        });
+
         group.MapPut("", async (
             int channelId,
             AclUpdateRequest request,

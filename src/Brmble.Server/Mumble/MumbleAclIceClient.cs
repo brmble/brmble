@@ -14,6 +14,12 @@ public sealed class MumbleAclIceClient : IMumbleAclIceClient
     public Task<MumbleServer.Server_GetACLResult> GetAclAsync(int channelId)
         => GetProxy().getACLAsync(channelId);
 
+    public Task<MumbleServer.Channel> GetChannelStateAsync(int channelId)
+        => GetProxy().getChannelStateAsync(channelId);
+
+    public Task SetChannelStateAsync(MumbleServer.Channel channel)
+        => GetProxy().setChannelStateAsync(channel);
+
     public Task SetAclAsync(int channelId, MumbleServer.ACL[] acls, MumbleServer.Group[] groups, bool inherit)
         => GetProxy().setACLAsync(channelId, acls, groups, inherit);
 

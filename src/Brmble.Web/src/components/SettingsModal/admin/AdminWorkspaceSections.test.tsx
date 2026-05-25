@@ -150,7 +150,7 @@ describe('Admin workspace sections', () => {
     expect(screen.getByText('position enabled')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Save Admin Edit Channel' }));
 
-    expect(vi.mocked(bridge.send)).toHaveBeenCalledWith('voice.editChannel', {
+    expect(vi.mocked(bridge.send)).toHaveBeenCalledWith('admin.updateChannel', {
       channelId: 7,
       name: 'General',
       description: 'Updated',

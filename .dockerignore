@@ -3,6 +3,12 @@
 **/obj/
 **/.vs/
 **/.git/
+!.git/
+!.git/HEAD
+!.git/refs/
+!.git/refs/heads/
+!.git/refs/heads/**
+!.git/packed-refs
 .worktrees/
 src/Brmble.Web/
 src/Brmble.Client/
