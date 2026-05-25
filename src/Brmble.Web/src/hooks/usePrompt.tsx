@@ -136,15 +136,15 @@ function PromptWithInputComponent() {
   const isOpen = globalResolveInput !== null;
   const [inputValue, setInputValue] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [passwordInputFocused, setPasswordInputFocused] = useState(false);
-  const [passwordToggleFocused, setPasswordToggleFocused] = useState(false);
+  const [inputFocused, setInputFocused] = useState(false);
+  const [toggleFocused, setToggleFocused] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       setInputValue(globalInputOptions.defaultValue || '');
       setShowPassword(false);
-      setPasswordInputFocused(false);
-      setPasswordToggleFocused(false);
+      setInputFocused(false);
+      setToggleFocused(false);
     }
   }, [isOpen]);
 
@@ -166,8 +166,8 @@ function PromptWithInputComponent() {
       globalResolveInput = null;
       setInputValue('');
       setShowPassword(false);
-      setPasswordInputFocused(false);
-      setPasswordToggleFocused(false);
+      setInputFocused(false);
+      setToggleFocused(false);
       globalForceUpdate?.();
     }
   }, [inputValue]);
@@ -187,22 +187,20 @@ function PromptWithInputComponent() {
           <h2 id="prompt-title" className="heading-title modal-title">{globalInputOptions.title}</h2>
           <p className="modal-subtitle">{globalInputOptions.message}</p>
         </div>
-        <div 
-          className="prompt-input-container"
-          onBlur={(e) => {
-            // Reset password visibility when focus leaves the container
-            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-              setShowPassword(false);
-            }
-          }}
-        >
+        <div className="prompt-input-container">
           <input
             type={globalInputOptions.isPassword && !showPassword ? 'password' : 'text'}
             className="brmble-input"
             placeholder={globalInputOptions.placeholder}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            onFocus={() => setPasswordInputFocused(true)}
+            onFocus={() => setInputFocused(true)}
+            onBlur={() => {
+              setInputFocused(false);
+              // Hide the password again when focus leaves the field, unless
+              // it moved to the toggle button (matches AclEditorDialog).
+              if (!toggleFocused) setShowPassword(false);
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();
@@ -211,13 +209,16 @@ function PromptWithInputComponent() {
             }}
             autoFocus
           />
-          {globalInputOptions.isPassword && (passwordInputFocused || passwordToggleFocused) && (
+          {/* Reveal toggle follows the shared focus-gated pattern (see
+              AclEditorDialog): it only appears while the field or toggle is
+              focused, and hides the password again on blur. */}
+          {globalInputOptions.isPassword && (inputFocused || toggleFocused) && (
             <button
               type="button"
               className="password-toggle-btn"
               onMouseDown={(e) => { e.preventDefault(); setShowPassword(value => !value); }}
-              onFocus={() => setPasswordToggleFocused(true)}
-              onBlur={() => { setPasswordToggleFocused(false); setShowPassword(false); }}
+              onFocus={() => setToggleFocused(true)}
+              onBlur={() => { setToggleFocused(false); setShowPassword(false); }}
               aria-label={showPassword ? 'Hide password' : 'Show password'}
               aria-pressed={showPassword}
             >

@@ -23,7 +23,6 @@ const colorAllowList = [
 const glyphAllowList = [
   'components/Icon/Icon.tsx',
   'components/Header/BrmbleLogo.css',
-  'components/Game/contracts/ContractSlot.tsx',
   'components/NeonD/NeonDGame.tsx',
 ];
 
@@ -70,12 +69,9 @@ const focusedCssTokenFiles = [
   'components/ChatPanel/MessageBubble.css',
   'components/VadLevelMeter/VadLevelMeter.css',
   'components/Notification/Notification.css',
-  'components/Game/contracts/ContractSlot.css',
-  'components/Brmblegotchi/Brmblegotchi.css',
   'components/Sidebar/ChannelTree.css',
   'components/Sidebar/Sidebar.css',
   'components/SettingsModal/AdminSettingsTab.css',
-  'components/Game/GameUI.css',
   'components/ServerList/ServerList.css',
 ].map((file) => join(sourceRoot, ...file.split('/')));
 

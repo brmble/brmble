@@ -128,10 +128,8 @@
 }
 
 .admin-channel-row.selected {
-  --admin-channel-selected-ring: 1px;
-  border-color: color-mix(in srgb, var(--accent-primary) 60%, var(--border-subtle));
+  border-color: color-mix(in srgb, var(--accent-primary) 70%, var(--border-subtle));
   background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-surface));
-  box-shadow: inset 0 0 0 var(--admin-channel-selected-ring) color-mix(in srgb, var(--accent-primary) 70%, transparent);
 }
 
 .admin-action-row,

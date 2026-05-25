@@ -52,9 +52,14 @@ describe('MessageInput emoji picker', () => {
     await user.click(screen.getByRole('button', { name: `Insert ${SUPPORTED_REACTIONS[0]}` }));
 
     await waitFor(() => expect(textarea).toHaveValue(`Hello${SUPPORTED_REACTIONS[0]} friend`));
-    expect(textarea).toHaveFocus();
-    expect(textarea.selectionStart).toBe(5 + SUPPORTED_REACTIONS[0].length);
-    expect(textarea.selectionEnd).toBe(5 + SUPPORTED_REACTIONS[0].length);
+    // Focus and caret are restored in a requestAnimationFrame after the value
+    // update, so poll for them rather than asserting synchronously (the rAF may
+    // not have fired yet on slower environments — this was flaky on CI).
+    await waitFor(() => {
+      expect(textarea).toHaveFocus();
+      expect(textarea.selectionStart).toBe(5 + SUPPORTED_REACTIONS[0].length);
+      expect(textarea.selectionEnd).toBe(5 + SUPPORTED_REACTIONS[0].length);
+    });
   });
 
   it('replaces the selected range with the chosen emoji', async () => {

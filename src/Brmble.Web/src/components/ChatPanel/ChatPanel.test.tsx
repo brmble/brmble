@@ -71,7 +71,7 @@ describe('ChatPanel edit flow', () => {
           sender: 'Alice',
           senderMatrixUserId: '@alice:example.com',
           content: 'hello',
-          timestamp: new Date(Date.now() - 60_000),
+          timestamp: new Date(),
           msgType: 'm.text',
         }]}
         currentUsername="Alice"
@@ -122,7 +122,7 @@ describe('ChatPanel edit flow', () => {
       sender: 'Alice',
       senderMatrixUserId: '@alice:example.com',
       content: 'hello',
-      timestamp: new Date(Date.now() - 60_000),
+      timestamp: new Date(),
       msgType: 'm.text' as const,
     };
 

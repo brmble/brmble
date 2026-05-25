@@ -92,6 +92,20 @@ describe('useGameEngine', () => {
     expect((dealer?.nextArrestCheckAt ?? 0)).toBeGreaterThan(Date.now());
   });
 
+  it('resetGame stamps a fresh lastTickAt so a new run does not trigger fake offline catch-up', () => {
+    const { result } = renderHook(() => useGameEngine());
+
+    act(() => {
+      vi.advanceTimersByTime(2 * 60 * 60 * 1000);
+      result.current.resetGame();
+    });
+
+    expect(result.current.state.money).toBe(250);
+    expect(result.current.state.totalEarned).toBe(0);
+    expect(result.current.state.offlineEarningsSummary).toBeNull();
+    expect(result.current.state.lastTickAt).toBe(Date.now());
+  });
+
   it('should update production without dealer', async () => {
     const { result } = renderHook(() => useGameEngine());
     
@@ -591,5 +605,207 @@ describe('useGameEngine', () => {
 
     expect(dealer?.hasPendingUpgrade).toBe(false);
     expect(dealer?.pendingUpgradeOptions).toEqual([]);
+  });
+
+  it('catches up production and earnings after the game was closed for a few seconds', () => {
+    localStorage.setItem('brmble_neon_d_save', JSON.stringify({
+      money: 100,
+      totalEarned: 0,
+      researchSpeed: 1,
+      production: {
+        weed: {
+          id: 'weed',
+          name: 'Weed',
+          stock: 0,
+          rate: 2,
+          yieldPerLevel: 0.2,
+          costMultiplier: 1.12,
+          level: 1,
+          upgradeCost: 16,
+        },
+      },
+      unlockedProduction: ['weed'],
+      activeDealers: [makeDealer({
+        id: 'offline-earner',
+        volume: 1,
+        margin: 1,
+        sideVolume: 0,
+      }), null, null],
+      availableDealers: [],
+      unlockedSlots: 1,
+      lastRefreshTime: 0,
+      lastEarningsPerDealer: {},
+      lastTickAt: Date.now() - 5_000,
+      offlineEarningsSummary: null,
+    }));
+
+    const { result } = renderHook(() => useGameEngine());
+
+    expect(result.current.state.money).toBeCloseTo(121, 5);
+    expect(result.current.state.totalEarned).toBeCloseTo(21, 5);
+    expect(result.current.state.production.weed.stock).toBeCloseTo(5, 5);
+    expect(result.current.state.lastEarningsPerDealer['offline-earner']).toBeCloseTo(4.2, 5);
+  });
+
+  it('stores an offline earnings summary after 10 minutes away', () => {
+    localStorage.setItem('brmble_neon_d_save', JSON.stringify({
+      money: 100,
+      totalEarned: 0,
+      researchSpeed: 1,
+      production: {
+        weed: {
+          id: 'weed',
+          name: 'Weed',
+          stock: 0,
+          rate: 2,
+          yieldPerLevel: 0.2,
+          costMultiplier: 1.12,
+          level: 1,
+          upgradeCost: 16,
+        },
+      },
+      unlockedProduction: ['weed'],
+      activeDealers: [makeDealer({
+        id: 'offline-summary',
+        volume: 1,
+        margin: 1,
+        sideVolume: 0,
+      }), null, null],
+      availableDealers: [],
+      unlockedSlots: 1,
+      lastRefreshTime: 0,
+      lastEarningsPerDealer: {},
+      lastTickAt: Date.now() - 10 * 60 * 1000,
+      offlineEarningsSummary: null,
+    }));
+
+    const { result } = renderHook(() => useGameEngine());
+
+    expect(result.current.state.offlineEarningsSummary?.awayMs).toBe(10 * 60 * 1000);
+    expect(result.current.state.offlineEarningsSummary?.earned).toBeCloseTo(2520, 5);
+  });
+
+  it('bulk-catches up a week of offline earnings without replaying every second', { timeout: 750 }, () => {
+    localStorage.setItem('brmble_neon_d_save', JSON.stringify({
+      money: 100,
+      totalEarned: 0,
+      researchSpeed: 1,
+      production: {
+        weed: {
+          id: 'weed',
+          name: 'Weed',
+          stock: 0,
+          rate: 2,
+          yieldPerLevel: 0.2,
+          costMultiplier: 1.12,
+          level: 1,
+          upgradeCost: 16,
+        },
+      },
+      unlockedProduction: ['weed'],
+      activeDealers: [makeDealer({
+        id: 'offline-week',
+        volume: 1,
+        margin: 1,
+        sideVolume: 0,
+        nextArrestCheckAt: Date.now() + 14 * 24 * 60 * 60 * 1000,
+      }), null, null],
+      availableDealers: [],
+      unlockedSlots: 1,
+      lastRefreshTime: 0,
+      lastEarningsPerDealer: {},
+      lastTickAt: Date.now() - 7 * 24 * 60 * 60 * 1000,
+      offlineEarningsSummary: null,
+    }));
+
+    const { result } = renderHook(() => useGameEngine());
+
+    expect(result.current.state.money).toBeCloseTo(2_540_260, 5);
+    expect(result.current.state.totalEarned).toBeCloseTo(2_540_160, 5);
+    expect(result.current.state.production.weed.stock).toBeCloseTo(604_800, 5);
+    expect(result.current.state.lastEarningsPerDealer['offline-week']).toBeCloseTo(4.2, 5);
+    expect(result.current.state.offlineEarningsSummary?.earned).toBeCloseTo(2_540_160, 5);
+  });
+
+  it('processes offline arrest checks at their scheduled moment during bulk catch-up', () => {
+    const arrestSpy = vi.spyOn(Math, 'random').mockReturnValue(0);
+
+    localStorage.setItem('brmble_neon_d_save', JSON.stringify({
+      money: 100,
+      totalEarned: 0,
+      researchSpeed: 1,
+      production: {
+        weed: {
+          id: 'weed',
+          name: 'Weed',
+          stock: 0,
+          rate: 2,
+          yieldPerLevel: 0.2,
+          costMultiplier: 1.12,
+          level: 1,
+          upgradeCost: 16,
+        },
+      },
+      unlockedProduction: ['weed'],
+      activeDealers: [makeDealer({
+        id: 'offline-arrest',
+        volume: 1,
+        margin: 1,
+        sideVolume: 0,
+        nextArrestCheckAt: Date.now() - 3_000,
+      }), null, null],
+      availableDealers: [],
+      unlockedSlots: 1,
+      lastRefreshTime: 0,
+      lastEarningsPerDealer: {},
+      lastTickAt: Date.now() - 5_000,
+      offlineEarningsSummary: null,
+    }));
+
+    const { result } = renderHook(() => useGameEngine());
+
+    expect(result.current.state.money).toBeCloseTo(108.4, 5);
+    expect(result.current.state.totalEarned).toBeCloseTo(8.4, 5);
+    expect(result.current.state.production.weed.stock).toBeCloseTo(8, 5);
+    expect(result.current.state.activeDealers[0]?.isArrested).toBe(true);
+    expect(result.current.state.lastEarningsPerDealer['offline-arrest']).toBe(0);
+    expect(arrestSpy).toHaveBeenCalled();
+  });
+
+  it('does not store an offline earnings summary before 10 minutes away', () => {
+    localStorage.setItem('brmble_neon_d_save', JSON.stringify({
+      money: 100,
+      totalEarned: 0,
+      researchSpeed: 1,
+      production: {
+        weed: {
+          id: 'weed',
+          name: 'Weed',
+          stock: 0,
+          rate: 2,
+          yieldPerLevel: 0.2,
+          costMultiplier: 1.12,
+          level: 1,
+          upgradeCost: 16,
+        },
+      },
+      unlockedProduction: ['weed'],
+      activeDealers: [makeDealer({
+        id: 'offline-short',
+        volume: 1,
+        margin: 1,
+        sideVolume: 0,
+      }), null, null],
+      availableDealers: [],
+      unlockedSlots: 1,
+      lastRefreshTime: 0,
+      lastEarningsPerDealer: {},
+      lastTickAt: Date.now() - (9 * 60 * 1000 + 59 * 1000),
+      offlineEarningsSummary: null,
+    }));
+
+    const { result } = renderHook(() => useGameEngine());
+
+    expect(result.current.state.offlineEarningsSummary).toBeNull();
   });
 });

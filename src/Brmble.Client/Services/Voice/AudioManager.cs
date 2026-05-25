@@ -581,34 +581,50 @@ internal sealed class AudioManager : IDisposable
 
         if (_waveIn == null)
         {
-            if (_captureApi == "wasapi")
+            try
             {
-                using var enumerator = new MMDeviceEnumerator();
-                using var device = ResolveCaptureDevice(enumerator);
-                var wasapi = new WasapiCapture(device, true, 20)
+                if (_captureApi == "wasapi")
                 {
-                    ShareMode = AudioClientShareMode.Shared
-                };
-                AudioLog.Write($"[Audio] WASAPI capture format: {wasapi.WaveFormat.SampleRate}Hz, {wasapi.WaveFormat.BitsPerSample}bit, {wasapi.WaveFormat.Channels}ch");
-                wasapi.RecordingStopped += (s, e) =>
-                {
-                    if (e.Exception != null)
+                    using var enumerator = new MMDeviceEnumerator();
+                    using var device = ResolveCaptureDevice(enumerator);
+                    var wasapi = new WasapiCapture(device, true, 20)
                     {
-                        AudioLog.Write($"[Audio] WASAPI recording stopped with error: {e.Exception.Message}");
-                    }
-                };
-                _waveIn = wasapi;
-            }
-            else
-            {
-                _waveIn = new WaveInEvent
+                        ShareMode = AudioClientShareMode.Shared
+                    };
+                    AudioLog.Write($"[Audio] WASAPI capture format: {wasapi.WaveFormat.SampleRate}Hz, {wasapi.WaveFormat.BitsPerSample}bit, {wasapi.WaveFormat.Channels}ch");
+                    wasapi.RecordingStopped += (s, e) =>
+                    {
+                        if (e.Exception != null)
+                        {
+                            AudioLog.Write($"[Audio] WASAPI recording stopped with error: {e.Exception.Message}");
+                        }
+                    };
+                    _waveIn = wasapi;
+                }
+                else
                 {
-                    DeviceNumber = -1,
-                    BufferMilliseconds = 20,
-                    WaveFormat = new WaveFormat(48000, 16, 1)
-                };
+                    _waveIn = new WaveInEvent
+                    {
+                        DeviceNumber = -1,
+                        BufferMilliseconds = 20,
+                        WaveFormat = new WaveFormat(48000, 16, 1)
+                    };
+                }
+                _waveIn.DataAvailable += OnMicData;
             }
-            _waveIn.DataAvailable += OnMicData;
+            catch (COMException ex)
+            {
+                // Capture device couldn't be acquired — e.g. no microphone
+                // present (HRESULT 0x80070490, common on headless machines),
+                // device disabled, in use, or an unsupported format. Whatever
+                // the cause, leave the mic off instead of crashing the caller;
+                // voice can't transmit until a device is available and the next
+                // StartMic retries. Log the HRESULT so the cause is diagnosable.
+                AudioLog.Write($"[Audio] Capture device unavailable (HRESULT 0x{ex.HResult:X8}); mic not started: {ex.Message}");
+                _micStarted = false;
+                _waveIn = null;
+                return;
+            }
         }
 
         // WasapiCapture.StopRecording() only signals the capture thread to

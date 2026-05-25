@@ -5,6 +5,8 @@ import type { GameState, Dealer, DealerUpgrade } from '../types';
 import { INITIAL_GAME_STATE, UNLOCK_COSTS, PRODUCT_TIERS, DEALER_FIRST_NAMES, DEALER_LAST_NAMES, SLOT_UNLOCK_COSTS, VOLUME_RANGES, MARGIN_RANGES, ARREST_CHECK_INTERVAL_MS, DEALER_PROTECTION_INCOME_MULTIPLIER, PRODUCT_ARREST_RISK } from '../constants';
 import { getBailCost } from '../economy';
 
+const OFFLINE_EARNINGS_POPUP_THRESHOLD_MS = 10 * 60 * 1000;
+
 // Roll a random value within a given range
 function rollWithinRange(min: number, max: number): number {
   return min + Math.random() * (max - min);
@@ -151,18 +153,258 @@ const normalizeDealerRiskState = (dealer: Dealer): Dealer => ({
   pendingUpgradeOptions: dealer.pendingUpgradeOptions ?? [],
 });
 
-export const useGameEngine = () => {
-  const [state, setState, clearStorage] = usePersistedGameState<GameState>('brmble_neon_d_save', () => {
-    const initial = INITIAL_GAME_STATE;
-    return {
-      ...initial,
-      activeDealers: [null, null, null],
-      unlockedSlots: 1,
-      availableDealers: Array.from({ length: 3 }, () => 
-        generateRandomDealer(initial.unlockedProduction, initial.totalEarned)
-      )
+type ProductDemand = {
+  dealerId: string;
+  amountPerSecond: number;
+  earningsPerUnit: number;
+};
+
+const allocateDemandForTick = (availableStock: number, demands: ProductDemand[]) => {
+  let remainingStock = availableStock;
+  const soldByDealer: Record<string, number> = {};
+
+  demands.forEach((demand) => {
+    const sold = Math.min(remainingStock, demand.amountPerSecond);
+    soldByDealer[demand.dealerId] = sold;
+    remainingStock = Math.max(0, remainingStock - sold);
+  });
+
+  return {
+    remainingStock,
+    soldByDealer,
+  };
+};
+
+const buildProductDemands = (state: GameState) => {
+  const productDemands = new Map<string, ProductDemand[]>();
+
+  state.activeDealers.forEach((dealer) => {
+    if (!dealer || dealer.isArrested) return;
+
+    const effectiveVolume = dealer.volume * (1 + dealer.volumeBonus);
+    const effectiveMargin = dealer.margin * (1 + dealer.marginBonus);
+    const earningsMultiplier = dealer.isProtected ? DEALER_PROTECTION_INCOME_MULTIPLIER : 1;
+    const appendDemand = (productId: string, amountPerSecond: number) => {
+      if (amountPerSecond <= 0) return;
+
+      const demands = productDemands.get(productId) ?? [];
+      demands.push({
+        dealerId: dealer.id,
+        amountPerSecond,
+        earningsPerUnit: effectiveMargin * (PRODUCT_TIERS[productId] || 1) * earningsMultiplier,
+      });
+      productDemands.set(productId, demands);
+    };
+
+    appendDemand(dealer.selling, effectiveVolume);
+
+    if (dealer.sideVolume > 0) {
+      const bleedAmount = effectiveVolume * dealer.sideVolume;
+      state.unlockedProduction.forEach((productId) => {
+        if (productId !== dealer.selling) {
+          appendDemand(productId, bleedAmount);
+        }
+      });
+    }
+  });
+
+  return productDemands;
+};
+
+const advanceStateBySeconds = (state: GameState, seconds: number, now: number): GameState => {
+  if (seconds <= 0) return state;
+
+  const nextProduction = { ...state.production };
+  const nextEarnings: Record<string, number> = {};
+  let totalEarnedAcrossSpan = 0;
+  const productDemands = buildProductDemands(state);
+
+  state.activeDealers.forEach((dealer) => {
+    if (!dealer) return;
+    nextEarnings[dealer.id] = 0;
+  });
+
+  Object.keys(nextProduction).forEach((productId) => {
+    const item = nextProduction[productId];
+    const demands = productDemands.get(productId) ?? [];
+
+    if (demands.length === 0) {
+      if (item.rate > 0) {
+        nextProduction[productId] = {
+          ...item,
+          stock: item.stock + item.rate * seconds,
+        };
+      }
+      return;
+    }
+
+    const totalDemandPerSecond = demands.reduce((sum, demand) => sum + demand.amountPerSecond, 0);
+
+    if (totalDemandPerSecond <= item.rate) {
+      nextProduction[productId] = {
+        ...item,
+        stock: item.stock + (item.rate - totalDemandPerSecond) * seconds,
+      };
+
+      demands.forEach((demand) => {
+        const spanSold = demand.amountPerSecond * seconds;
+        const spanEarned = spanSold * demand.earningsPerUnit;
+        totalEarnedAcrossSpan += spanEarned;
+        nextEarnings[demand.dealerId] += demand.amountPerSecond * demand.earningsPerUnit;
+      });
+      return;
+    }
+
+    const stockDeficitPerSecond = totalDemandPerSecond - item.rate;
+    const fullDemandTicks = Math.min(seconds, Math.floor(item.stock / stockDeficitPerSecond));
+
+    if (fullDemandTicks > 0) {
+      demands.forEach((demand) => {
+        totalEarnedAcrossSpan += fullDemandTicks * demand.amountPerSecond * demand.earningsPerUnit;
+      });
+    }
+
+    if (fullDemandTicks === seconds) {
+      nextProduction[productId] = {
+        ...item,
+        stock: item.stock - stockDeficitPerSecond * seconds,
+      };
+
+      demands.forEach((demand) => {
+        nextEarnings[demand.dealerId] += demand.amountPerSecond * demand.earningsPerUnit;
+      });
+      return;
+    }
+
+    const stockBeforePartialTick = item.stock - fullDemandTicks * stockDeficitPerSecond;
+    const partialTickAllocation = allocateDemandForTick(stockBeforePartialTick + item.rate, demands);
+    const zeroStockAllocation = allocateDemandForTick(item.rate, demands);
+    const zeroStockTicks = seconds - fullDemandTicks - 1;
+    const finalTickAllocation = zeroStockTicks > 0 ? zeroStockAllocation : partialTickAllocation;
+
+    demands.forEach((demand) => {
+      const partialSold = partialTickAllocation.soldByDealer[demand.dealerId] ?? 0;
+      const zeroStockSold = zeroStockAllocation.soldByDealer[demand.dealerId] ?? 0;
+      const spanSold = fullDemandTicks * demand.amountPerSecond + partialSold + zeroStockTicks * zeroStockSold;
+      const spanEarned = spanSold * demand.earningsPerUnit;
+
+      totalEarnedAcrossSpan += spanEarned;
+      nextEarnings[demand.dealerId] += (finalTickAllocation.soldByDealer[demand.dealerId] ?? 0) * demand.earningsPerUnit;
+    });
+
+    nextProduction[productId] = {
+      ...item,
+      stock: zeroStockTicks > 0 ? 0 : partialTickAllocation.remainingStock,
     };
   });
+
+  return {
+    ...state,
+    money: state.money + totalEarnedAcrossSpan,
+    totalEarned: state.totalEarned + totalEarnedAcrossSpan,
+    production: nextProduction,
+    lastEarningsPerDealer: nextEarnings,
+    lastTickAt: now,
+  };
+};
+
+const applyDueArrestChecks = (state: GameState, now: number): GameState => {
+  let changed = false;
+  const nextDealers = state.activeDealers.map((dealer) => {
+    if (!dealer || dealer.isArrested || dealer.isProtected) return dealer;
+    if (dealer.nextArrestCheckAt > now) return dealer;
+
+    changed = true;
+    const risk = getDealerRisk(dealer.selling);
+    const rolledArrest = Math.random() < risk.chance;
+
+    if (rolledArrest) {
+      return {
+        ...dealer,
+        isArrested: true,
+        isProtected: false,
+      };
+    }
+
+    return {
+      ...dealer,
+      nextArrestCheckAt: scheduleNextArrestCheck(now),
+    };
+  });
+
+  return changed
+    ? {
+        ...state,
+        activeDealers: nextDealers,
+      }
+    : state;
+};
+
+const getNextArrestEventTick = (state: GameState, targetTime: number) => {
+  let nextEventTick: number | null = null;
+
+  state.activeDealers.forEach((dealer) => {
+    if (!dealer || dealer.isArrested || dealer.isProtected) return;
+
+    const secondsUntilCheck = Math.max(1, Math.ceil((dealer.nextArrestCheckAt - state.lastTickAt) / 1000));
+    const eventTick = state.lastTickAt + secondsUntilCheck * 1000;
+
+    if (eventTick > targetTime) return;
+    if (nextEventTick === null || eventTick < nextEventTick) {
+      nextEventTick = eventTick;
+    }
+  });
+
+  return nextEventTick;
+};
+
+const advanceGameState = (state: GameState, now: number): GameState => {
+  const lastTickAt = state.lastTickAt ?? now;
+  const elapsedSeconds = Math.floor((now - lastTickAt) / 1000);
+  if (elapsedSeconds <= 0) return state;
+
+  const moneyBefore = state.money;
+  const targetTime = lastTickAt + elapsedSeconds * 1000;
+  let nextState = state;
+
+  while (nextState.lastTickAt < targetTime) {
+    const eventTick = getNextArrestEventTick(nextState, targetTime);
+    const spanEnd = eventTick ?? targetTime;
+    const secondsToAdvance = Math.floor((spanEnd - nextState.lastTickAt) / 1000);
+
+    nextState = advanceStateBySeconds(nextState, secondsToAdvance, spanEnd);
+
+    if (eventTick !== null && spanEnd === eventTick) {
+      nextState = applyDueArrestChecks(nextState, spanEnd);
+    }
+  }
+
+  const awayMs = now - lastTickAt;
+  if (awayMs >= OFFLINE_EARNINGS_POPUP_THRESHOLD_MS) {
+    nextState = {
+      ...nextState,
+      offlineEarningsSummary: {
+        awayMs,
+        earned: nextState.money - moneyBefore,
+      },
+    };
+  }
+
+  return nextState;
+};
+
+const createInitialGameState = (): GameState => ({
+  ...INITIAL_GAME_STATE,
+  activeDealers: [null, null, null],
+  unlockedSlots: 1,
+  availableDealers: Array.from({ length: 3 }, () =>
+    generateRandomDealer(INITIAL_GAME_STATE.unlockedProduction, INITIAL_GAME_STATE.totalEarned)
+  ),
+  lastTickAt: Date.now(),
+});
+
+export const useGameEngine = () => {
+  const [state, setState, clearStorage] = usePersistedGameState<GameState>('brmble_neon_d_save', createInitialGameState);
 
   useEffect(() => {
     const needsMigration = state.activeDealers.some(dealer =>
@@ -181,7 +423,7 @@ export const useGameEngine = () => {
         dealer.hasPendingUpgrade === undefined ||
         dealer.pendingUpgradeOptions === undefined
       )
-    );
+    ) || state.lastTickAt === undefined || state.lastTickAt <= 0;
 
     if (!needsMigration) return;
 
@@ -189,100 +431,18 @@ export const useGameEngine = () => {
       ...prev,
       activeDealers: prev.activeDealers.map(dealer => (dealer ? normalizeDealerRiskState(dealer) : null)),
       availableDealers: prev.availableDealers.map(dealer => normalizeDealerRiskState(dealer)),
+      lastTickAt: prev.lastTickAt && prev.lastTickAt > 0 ? prev.lastTickAt : Date.now(),
+      offlineEarningsSummary: prev.offlineEarningsSummary ?? null,
     }));
   }, [state.activeDealers, state.availableDealers, setState]);
 
   const tick = () => {
-    setState(prev => {
-      const nextProduction = { ...prev.production };
-      const nextEarnings: Record<string, number> = {};
-      let totalEarnedThisTick = 0;
-
-      Object.keys(nextProduction).forEach(key => {
-        if (nextProduction[key].rate > 0) {
-          nextProduction[key] = {
-            ...nextProduction[key],
-            stock: nextProduction[key].stock + nextProduction[key].rate
-          };
-        }
-      });
-
-      prev.activeDealers.forEach((dealer) => {
-        if (!dealer) return;
-        if (dealer.isArrested) {
-          nextEarnings[dealer.id] = 0;
-          return;
-        }
-        let dealerGross = 0;
-
-        const effectiveVolume = dealer.volume * (1 + dealer.volumeBonus);
-        const effectiveMargin = dealer.margin * (1 + dealer.marginBonus);
-
-        const primaryProd = nextProduction[dealer.selling];
-        if (primaryProd) {
-          const primarySold = Math.min(primaryProd.stock, effectiveVolume);
-          nextProduction[dealer.selling] = { 
-            ...primaryProd, 
-            stock: Math.max(0, primaryProd.stock - primarySold) 
-          };
-          dealerGross += primarySold * (effectiveMargin * (PRODUCT_TIERS[dealer.selling] || 1));
-        }
-
-        if (dealer.sideVolume > 0) {
-          const bleedAmount = effectiveVolume * dealer.sideVolume;
-          // Side volume only applies to other UNLOCKED products
-          for (const product of prev.unlockedProduction) {
-            if (product !== dealer.selling) {
-              const sideProd = nextProduction[product];
-              if (!sideProd) continue;
-              const sold = Math.min(sideProd.stock, bleedAmount);
-              nextProduction[product] = { ...sideProd, stock: Math.max(0, sideProd.stock - sold) };
-              dealerGross += sold * (effectiveMargin * (PRODUCT_TIERS[product] || 1));
-            }
-          }
-        }
-
-        if (dealer.isProtected) {
-          dealerGross *= DEALER_PROTECTION_INCOME_MULTIPLIER;
-        }
-
-        nextEarnings[dealer.id] = dealerGross;
-        totalEarnedThisTick += dealerGross;
-      });
-
-      const now = Date.now();
-      let nextDealers = prev.activeDealers.map(dealer => dealer ? { ...dealer } : null);
-      nextDealers = nextDealers.map(dealer => {
-        if (!dealer || dealer.isArrested || dealer.isProtected) return dealer;
-        if (dealer.nextArrestCheckAt > now) return dealer;
-
-        const risk = getDealerRisk(dealer.selling);
-        const rolledArrest = Math.random() < risk.chance;
-
-        if (rolledArrest) {
-          return {
-            ...dealer,
-            isArrested: true,
-            isProtected: false,
-          };
-        }
-
-        return {
-          ...dealer,
-          nextArrestCheckAt: scheduleNextArrestCheck(now),
-        };
-      });
-
-      return {
-        ...prev,
-        money: prev.money + totalEarnedThisTick,
-        totalEarned: prev.totalEarned + totalEarnedThisTick,
-        production: nextProduction,
-        activeDealers: nextDealers,
-        lastEarningsPerDealer: nextEarnings
-      };
-    });
+    setState(prev => advanceGameState(prev, Date.now()));
   };
+
+  useEffect(() => {
+    setState(prev => advanceGameState(prev, Date.now()));
+  }, [setState]);
 
   const upgrade = (id: string) => {
     setState(prev => {
@@ -495,16 +655,16 @@ export const useGameEngine = () => {
     });
   };
 
+  const dismissOfflineEarningsSummary = () => {
+    setState(prev => ({
+      ...prev,
+      offlineEarningsSummary: null,
+    }));
+  };
+
   const resetGame = useCallback(() => {
     clearStorage();
-    setState({
-      ...INITIAL_GAME_STATE,
-      activeDealers: [null, null, null],
-      unlockedSlots: 1,
-      availableDealers: Array.from({ length: 3 }, () => 
-        generateRandomDealer(INITIAL_GAME_STATE.unlockedProduction, INITIAL_GAME_STATE.totalEarned)
-      )
-    });
+    setState(createInitialGameState());
   }, [setState, clearStorage]);
 
   useInterval(tick, 1000);
@@ -524,5 +684,6 @@ export const useGameEngine = () => {
     toggleDealerProtection,
     forceArrestDealer,
     payDealerBail,
+    dismissOfflineEarningsSummary,
   };
 };

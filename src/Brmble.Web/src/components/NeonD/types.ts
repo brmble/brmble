@@ -43,6 +43,11 @@ export interface Dealer {
   pendingUpgradeOptions: DealerUpgrade[];
 }
 
+export interface OfflineEarningsSummary {
+  awayMs: number;
+  earned: number;
+}
+
 export interface GameState {
   money: number;
   totalEarned: number;
@@ -54,4 +59,6 @@ export interface GameState {
   unlockedSlots: number;
   lastRefreshTime: number;
   lastEarningsPerDealer: Record<string, number>;
+  lastTickAt: number;
+  offlineEarningsSummary: OfflineEarningsSummary | null;
 }
