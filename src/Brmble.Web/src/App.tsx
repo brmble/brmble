@@ -2568,7 +2568,13 @@ function App() {
       setChannels(prev => mergeChannelChatAccess(prev, getResolvedChannelChatAccess(getChannelChatAccessRequestIds(prev))));
     };
 
+    const onAdminChannelUpdateError = () => {
+      setAdminChannelUpdateErrorVisible(true);
+      notifQueue.register('admin-channel-update-error', 'info');
+    };
+
     bridge.on('brmble.serviceStatus', onBrmbleServiceStatus);
+    bridge.on('admin.channelUpdateError', onAdminChannelUpdateError);
     bridge.on('voice.connected', onVoiceConnected);
     bridge.on('voice.disconnected', onVoiceDisconnected);
     bridge.on('voice.error', onVoiceError);
@@ -2657,6 +2663,7 @@ function App() {
       bridge.off('app.updateAvailable', onUpdateAvailable);
       bridge.off('app.updateProgress', onUpdateProgress);
       bridge.off('brmble.serviceStatus', onBrmbleServiceStatus);
+      bridge.off('admin.channelUpdateError', onAdminChannelUpdateError);
       bridge.off('voice.connected', onVoiceConnected);
       bridge.off('voice.disconnected', onVoiceDisconnected);
       bridge.off('voice.error', onVoiceError);
@@ -3321,6 +3328,7 @@ const handleConnect = (serverData: SavedServer) => {
   const [movedChannelNotification, setMovedChannelNotification] = useState<QueuedMovedChannelNotification | null>(null);
   const [serverRemovalNotification, setServerRemovalNotification] = useState<ServerRemovalNotification | null>(null);
   const [brmbleServiceWarningNotification, setBrmbleServiceWarningNotification] = useState<typeof BRMBLE_SERVICE_DISCONNECTED_NOTIFICATION | null>(null);
+  const [adminChannelUpdateErrorVisible, setAdminChannelUpdateErrorVisible] = useState(false);
   const brmbleServiceWarningDismissedForOutageRef = useRef(false);
   const nextScreenShareEndedNotificationIdRef = useRef(0);
   const nextWatchedShareEndedNotificationIdRef = useRef(0);
@@ -4298,6 +4306,21 @@ const handleConnect = (serverData: SavedServer) => {
             }}
             onExited={() => {
               notifQueue.unregister(serverRemovalNotification.id);
+            }}
+          />
+        )}
+        {adminChannelUpdateErrorVisible && notifQueue.isVisible('admin-channel-update-error') && (
+          <Notification
+            status="info"
+            position="top-right"
+            visible={adminChannelUpdateErrorVisible}
+            title="Channel position was not saved"
+            detail="You need Write permission on that channel. Check the channel ACL if inheritance is disabled."
+            onDismiss={() => {
+              setAdminChannelUpdateErrorVisible(false);
+            }}
+            onExited={() => {
+              notifQueue.unregister('admin-channel-update-error');
             }}
           />
         )}
