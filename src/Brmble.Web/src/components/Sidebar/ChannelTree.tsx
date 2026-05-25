@@ -770,7 +770,7 @@ onClick: () => {
           initialPassword={editChannelDialog.initialPassword}
           initialPosition={editChannelDialog.position}
           onClose={() => setEditChannelDialog(null)}
-          onSave={async (name, description, position) => {
+          onSave={async (name, description) => {
             const channel = channels.find(c => c.id === editChannelDialog!.id);
             const oldName = channel?.name || '';
 
@@ -792,7 +792,6 @@ onClick: () => {
               channelId: editChannelDialog!.id,
               name,
               description,
-              position,
             });
             setEditChannelDialog(null);
           }}

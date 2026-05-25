@@ -27,6 +27,7 @@ vi.mock('../../EditChannelDialog/EditChannelDialog', () => ({
   EditChannelDialog: (props: Record<string, unknown>) => (
     <div data-testid="admin-edit-channel-dialog">
       <span>{String(props.initialPosition)}</span>
+      <span>{props.showPosition ? 'position enabled' : 'position hidden'}</span>
       <button onClick={() => (props.onSave as (name: string, description: string, position: number) => void)('General', 'Updated', 12)}>
         Save Admin Edit Channel
       </button>
@@ -145,6 +146,8 @@ describe('Admin workspace sections', () => {
 
     fireEvent.contextMenu(screen.getByRole('row', { name: 'General' }));
     fireEvent.click(screen.getByRole('button', { name: 'Edit Channel' }));
+
+    expect(screen.getByText('position enabled')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Save Admin Edit Channel' }));
 
     expect(vi.mocked(bridge.send)).toHaveBeenCalledWith('voice.editChannel', {

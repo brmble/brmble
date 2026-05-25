@@ -114,7 +114,7 @@ export function Sidebar({
   };
 
   const formatServerVersion = (v: string): string => {
-    if (v.startsWith('Dev main ')) return v;
+    if (v === 'Dev main' || v.startsWith('Dev main ')) return v;
 
     const metadataSha = v.match(/\+([0-9a-f]{7,40})$/i)?.[1];
     if (metadataSha && /^0\.0\.0(?:[-+]|$)/i.test(v)) {

@@ -249,6 +249,27 @@ describe('Sidebar root user screen share behavior', () => {
     expect(screen.getByLabelText('Brmble: Connected — Dev main 8f4a2c9')).toBeInTheDocument();
   });
 
+  it('does not prefix already formatted local development server versions', () => {
+    useServiceStatusMock.mockReturnValue({
+      statuses: {
+        voice: { state: 'connected' },
+        chat: { state: 'connected' },
+        server: { state: 'connected', version: 'Dev main' },
+        livekit: { state: 'connected' },
+      } as ServiceStatusMap,
+      effectiveStatuses: {
+        voice: { state: 'connected' },
+        chat: { state: 'connected' },
+        server: { state: 'connected', version: 'Dev main' },
+        livekit: { state: 'connected' },
+      } as ServiceStatusMap,
+    });
+
+    renderSidebar();
+
+    expect(screen.getByLabelText('Brmble: Connected — Dev main')).toBeInTheDocument();
+  });
+
   it('formats released server versions as clean SemVer', () => {
     useServiceStatusMock.mockReturnValue({
       statuses: {

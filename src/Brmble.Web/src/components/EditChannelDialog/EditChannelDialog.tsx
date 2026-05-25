@@ -8,6 +8,7 @@ interface EditChannelDialogProps {
   initialDescription?: string;
   initialPassword?: string;
   initialPosition?: number;
+  showPosition?: boolean;
   onClose: () => void;
   onSave: (name: string, description: string, position: number, password: string) => void;
   onError?: (message: string) => void;
@@ -19,6 +20,7 @@ export function EditChannelDialog({
   initialDescription = '',
   initialPassword = '',
   initialPosition = 0,
+  showPosition = false,
   onClose,
   onSave,
 }: EditChannelDialogProps) {
@@ -41,7 +43,7 @@ export function EditChannelDialog({
 
   const hasChanges = name !== initialName
     || description !== initialDescription
-    || (Number.parseInt(position, 10) || 0) !== initialPosition;
+    || (showPosition && (Number.parseInt(position, 10) || 0) !== initialPosition);
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -83,23 +85,18 @@ export function EditChannelDialog({
             />
           </div>
 
-          <div className="form-group">
-            <label htmlFor="channel-position">Position</label>
-            <input
-              id="channel-position"
-              className="brmble-input"
-              type="number"
-              value={position}
-              onChange={(e) => setPosition(e.target.value)}
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Password Access</label>
-            <p className="edit-channel-hint">
-              Channel password access is managed from the Permissions ACL editor so it stays visible alongside other group access rules.
-            </p>
-          </div>
+          {showPosition && (
+            <div className="form-group">
+              <label htmlFor="channel-position">Position</label>
+              <input
+                id="channel-position"
+                className="brmble-input"
+                type="number"
+                value={position}
+                onChange={(e) => setPosition(e.target.value)}
+              />
+            </div>
+          )}
 
           <div className="edit-channel-footer">
             <button type="button" className="btn btn-secondary" onClick={onClose}>

@@ -1451,6 +1451,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         => new()
         {
             ChannelId = channelId,
+            Parent = channel.Parent,
             Name = name,
             Description = description ?? string.Empty,
             Position = position ?? channel.Position,

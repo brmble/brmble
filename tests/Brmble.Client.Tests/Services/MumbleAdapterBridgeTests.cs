@@ -120,14 +120,44 @@ public class MumbleAdapterBridgeTests
     public void CreateEditChannelState_IncludesRequestedPosition()
     {
         var adapter = CreateAdapterWithBridge(out _);
-        var channel = new Channel(adapter, 4, "Secret", 0) { Position = 2 };
+        var channel = new Channel(adapter, 4, "Secret", 7) { Position = 2 };
 
         var state = MumbleAdapter.CreateEditChannelState(4, channel, "Secret", "Updated", 12);
 
         Assert.AreEqual(4u, state.ChannelId);
+        Assert.AreEqual(7u, state.Parent);
+        Assert.IsTrue(state.ShouldSerializeParent());
         Assert.AreEqual("Secret", state.Name);
         Assert.AreEqual("Updated", state.Description);
         Assert.AreEqual(12, state.Position);
+    }
+
+    [TestMethod]
+    public void CreateEditChannelState_MarksZeroPositionForSerialization()
+    {
+        var adapter = CreateAdapterWithBridge(out _);
+        var channel = new Channel(adapter, 4, "Secret", 0) { Position = 2 };
+
+        var state = MumbleAdapter.CreateEditChannelState(4, channel, "Secret", "Updated", 0);
+
+        Assert.AreEqual(0, state.Position);
+        Assert.IsTrue(state.ShouldSerializePosition());
+    }
+
+    [TestMethod]
+    public void CreateEditChannelState_RoundTripsZeroPositionThroughProtobuf()
+    {
+        var adapter = CreateAdapterWithBridge(out _);
+        var channel = new Channel(adapter, 4, "Secret", 0) { Position = 2 };
+        var state = MumbleAdapter.CreateEditChannelState(4, channel, "Secret", "Updated", 0);
+
+        using var stream = new MemoryStream();
+        ProtoBuf.Serializer.Serialize(stream, state);
+        stream.Position = 0;
+
+        var roundTripped = ProtoBuf.Serializer.Deserialize<ChannelState>(stream);
+        Assert.IsTrue(roundTripped.ShouldSerializePosition());
+        Assert.AreEqual(0, roundTripped.Position);
     }
 
     [TestMethod]
