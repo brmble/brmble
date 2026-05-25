@@ -4317,6 +4317,7 @@ const handleConnect = (serverData: SavedServer) => {
             title="Channel position was not saved"
             detail="You need Write permission on that channel. Check the channel ACL if inheritance is disabled."
             onDismiss={() => {
+              notifQueue.unregister('admin-channel-update-error');
               setAdminChannelUpdateErrorVisible(false);
             }}
             onExited={() => {

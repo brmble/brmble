@@ -1,4 +1,4 @@
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, fireEvent } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import bridge from './bridge';
@@ -92,7 +92,20 @@ const mockValues = vi.hoisted(() => {
     handleScreenShareServiceUnavailable: vi.fn(),
   };
 
-  return { matrixClient, dmStore, unreadTracker, idleActions, screenShare };
+  const notificationQueueIds = new Set<string>();
+  const notificationQueue = {
+    register: vi.fn((id: string) => {
+      notificationQueueIds.add(id);
+    }),
+    unregister: vi.fn((id: string) => {
+      notificationQueueIds.delete(id);
+    }),
+    isVisible: vi.fn((id: string) => notificationQueueIds.has(id)),
+    visibleCount: 0,
+    totalCount: 0,
+  };
+
+  return { matrixClient, dmStore, unreadTracker, idleActions, screenShare, notificationQueue, notificationQueueIds };
 });
 
 vi.mock('./bridge', () => {
@@ -199,29 +212,51 @@ vi.mock('./hooks/useLeaveVoiceCooldown', () => ({
   useLeaveVoiceCooldown: () => ({ isOnCooldown: false, trigger: vi.fn() }),
 }));
 
+vi.mock('./hooks/useNotificationQueue', () => ({
+  useNotificationQueue: () => mockValues.notificationQueue,
+}));
+
 vi.mock('./hooks/useScreenShare', () => ({
   useScreenShare: () => mockValues.screenShare,
 }));
 
+function renderApp() {
+  render(
+    <ServiceStatusProvider>
+      <App />
+    </ServiceStatusProvider>,
+  );
+}
+
+async function emitAdminChannelUpdateError() {
+  await act(async () => {
+    (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('admin.channelUpdateError', { channelId: 7, statusCode: 403 });
+  });
+}
+
 describe('admin channel update notifications', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockValues.notificationQueueIds.clear();
     localStorage.clear();
     (bridge as unknown as { __reset: () => void }).__reset();
   });
 
   it('shows an info notification when admin channel updates fail', async () => {
-    render(
-      <ServiceStatusProvider>
-        <App />
-      </ServiceStatusProvider>,
-    );
+    renderApp();
 
-    await act(async () => {
-      (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('admin.channelUpdateError', { channelId: 7, statusCode: 403 });
-    });
+    await emitAdminChannelUpdateError();
 
     expect(await screen.findByText('Channel position was not saved')).toBeInTheDocument();
     expect(screen.getByText('You need Write permission on that channel. Check the channel ACL if inheritance is disabled.')).toBeInTheDocument();
+  });
+
+  it('unregisters the queue entry when dismissed', async () => {
+    renderApp();
+    await emitAdminChannelUpdateError();
+
+    fireEvent.click(await screen.findByLabelText('Dismiss notification'));
+
+    expect(mockValues.notificationQueue.unregister).toHaveBeenCalledWith('admin-channel-update-error');
   });
 });
