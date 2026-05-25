@@ -13,6 +13,7 @@ import { AFK_THRESHOLD_SEC } from '../../hooks/useIdleActions';
 import type { ShareInfo } from '../../hooks/useScreenShare';
 import { EditChannelDialog } from '../EditChannelDialog/EditChannelDialog';
 import { Icon } from '../Icon/Icon';
+import { compareChannelsByMumbleOrder, sortChannelsByMumbleOrder } from '../../utils/channelOrdering';
 import { AclEditorDialog } from '../AclEditor/AclEditorDialog';
 import { getSavedChannelPassword } from '../../utils/channelPasswords';
 import './ChannelTree.css';
@@ -35,6 +36,7 @@ interface Channel {
   id: number;
   name: string;
   parent?: number;
+  position?: number;
   description?: string;
   isEnterRestricted?: boolean;
   canEnter?: boolean;
@@ -91,7 +93,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
   const [infoDialogUser, setInfoDialogUser] = useState<{ userId: string; userName: string; isSelf: boolean } | null>(null);
   const [draggedUser, setDraggedUser] = useState<number | null>(null);
   const [dropTargetChannel, setDropTargetChannel] = useState<number | null>(null);
-  const [editChannelDialog, setEditChannelDialog] = useState<{ id: number; name: string; description?: string; initialPassword: string } | null>(null);
+  const [editChannelDialog, setEditChannelDialog] = useState<{ id: number; name: string; description?: string; initialPassword: string; position: number } | null>(null);
   const [aclEditorChannel, setAclEditorChannel] = useState<{ id: number; name: string } | null>(null);
   const { hasPermission, Permission, requestPermissions } = usePermissions();
   const sharingChannelIds = useMemo(() => {
@@ -240,9 +242,10 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     });
 
     const sortChildren = (channels: ChannelWithUsers[]) => {
+      channels.sort(compareChannelsByMumbleOrder);
       channels.forEach(ch => {
         if (ch.children.length > 0) {
-          ch.children.sort((a, b) => a.id - b.id);
+          ch.children = sortChannelsByMumbleOrder(ch.children);
           sortChildren(ch.children);
         }
       });
@@ -280,7 +283,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     const isChannelActive = (channelId: number) => channelContextMenu?.channelId === channelId;
 
     return (
-      <div key={channel.id} className={`channel-item${pendingChannelAction !== null ? ' channel-item--pending' : ''}`} data-level={level}>
+      <div key={channel.id} className={`channel-item${pendingChannelAction !== null ? ' channel-item--pending' : ''}`} data-level={level} data-channel-id={channel.id}>
         <div 
           className={`channel-row ${isCurrentChannel ? 'current' : ''}${hasUnread ? ' channel-row--unread' : ''}${channel.users.length === 0 && !hasUnread ? ' channel-row--empty' : ''}${isFolder ? ' is-folder' : ''}${dropTargetChannel === channel.id ? ' channel-row--drop-target' : ''}${isChannelActive(channel.id) ? ' channel-row--context-active' : ''}`}
           style={{ paddingLeft: `calc(16px + ${level * 20}px)` }}
@@ -528,6 +531,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
             name: channelContextMenu.channelName,
             description: channel?.description || '',
             initialPassword: '',
+            position: channel?.position ?? 0,
           });
           bridge.send('acl.getChannel', { channelId: channelContextMenu.channelId });
           setChannelContextMenu(null);
@@ -764,8 +768,9 @@ onClick: () => {
           initialName={editChannelDialog.name}
           initialDescription={editChannelDialog.description}
           initialPassword={editChannelDialog.initialPassword}
+          initialPosition={editChannelDialog.position}
           onClose={() => setEditChannelDialog(null)}
-          onSave={async (name, description) => {
+          onSave={async (name, description, position) => {
             const channel = channels.find(c => c.id === editChannelDialog!.id);
             const oldName = channel?.name || '';
 
@@ -787,6 +792,7 @@ onClick: () => {
               channelId: editChannelDialog!.id,
               name,
               description,
+              position,
             });
             setEditChannelDialog(null);
           }}

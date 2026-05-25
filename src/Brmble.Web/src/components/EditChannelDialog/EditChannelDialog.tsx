@@ -7,8 +7,9 @@ interface EditChannelDialogProps {
   initialName: string;
   initialDescription?: string;
   initialPassword?: string;
+  initialPosition?: number;
   onClose: () => void;
-  onSave: (name: string, description: string, password: string) => void;
+  onSave: (name: string, description: string, position: number, password: string) => void;
   onError?: (message: string) => void;
 }
 
@@ -17,25 +18,30 @@ export function EditChannelDialog({
   initialName,
   initialDescription = '',
   initialPassword = '',
+  initialPosition = 0,
   onClose,
   onSave,
 }: EditChannelDialogProps) {
   const [name, setName] = useState(initialName);
   const [description, setDescription] = useState(initialDescription);
+  const [position, setPosition] = useState(String(initialPosition));
 
   useEffect(() => {
     setName(initialName);
     setDescription(initialDescription);
-  }, [initialName, initialDescription, initialPassword, isOpen]);
+    setPosition(String(initialPosition));
+  }, [initialName, initialDescription, initialPassword, initialPosition, isOpen]);
 
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(name, description, initialPassword);
+    onSave(name, description, Number.parseInt(position, 10) || 0, initialPassword);
   };
 
-  const hasChanges = name !== initialName || description !== initialDescription;
+  const hasChanges = name !== initialName
+    || description !== initialDescription
+    || (Number.parseInt(position, 10) || 0) !== initialPosition;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -74,6 +80,17 @@ export function EditChannelDialog({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="channel-position">Position</label>
+            <input
+              id="channel-position"
+              className="brmble-input"
+              type="number"
+              value={position}
+              onChange={(e) => setPosition(e.target.value)}
             />
           </div>
 

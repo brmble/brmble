@@ -33,6 +33,7 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
   const [recordingKey, setRecordingKey] = useState<keyof ShortcutsSettings | null>(null);
   const [localSettings, setLocalSettings] = useState<ShortcutsSettings>(settings);
   const [isPromptOpen, setIsPromptOpen] = useState(false);
+  const [capturedBindingKey, setCapturedBindingKey] = useState<keyof ShortcutsSettings | null>(null);
   const capturedInputRef = useRef<string | null>(null);
   const hotkeysSuspendedRef = useRef(false);
 
@@ -46,7 +47,13 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
   };
 
   const keyButtonClass = (bindingId: keyof ShortcutsSettings) => (
-    `btn ${localSettings[bindingId] && recordingKey !== bindingId ? 'btn-primary' : 'btn-secondary'} key-binding-btn ${recordingKey === bindingId ? 'recording' : ''}`
+    `btn ${localSettings[bindingId] && (recordingKey !== bindingId || capturedBindingKey === bindingId) ? 'btn-primary' : 'btn-secondary'} key-binding-btn ${recordingKey === bindingId && capturedBindingKey !== bindingId ? 'recording' : ''}`
+  );
+
+  const keyButtonLabel = (bindingId: keyof ShortcutsSettings) => (
+    recordingKey === bindingId && capturedBindingKey !== bindingId
+      ? 'Press any key...'
+      : (localSettings[bindingId] || 'Not bound')
   );
 
   const handleInput = useCallback(async (key: string) => {
@@ -70,6 +77,7 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
       
       if (!confirmed) {
         capturedInputRef.current = null;
+        setCapturedBindingKey(null);
         setRecordingKey(null);
         return;
       }
@@ -88,6 +96,7 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
         return newSettings;
       });
       capturedInputRef.current = null;
+      setCapturedBindingKey(null);
       setRecordingKey(null);
       return;
     }
@@ -99,6 +108,7 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
       return newSettings;
     });
     capturedInputRef.current = key;
+    setCapturedBindingKey(recordingKey);
   }, [recordingKey, allBindings, onChange, onClearBinding]);
 
   useEffect(() => {
@@ -134,6 +144,7 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
       const finishRecording = () => {
         if (!capturedInputRef.current) return;
         capturedInputRef.current = null;
+        setCapturedBindingKey(null);
         setRecordingKey(null);
       };
       window.addEventListener('keydown', onKey, true);
@@ -150,6 +161,7 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
           hotkeysSuspendedRef.current = false;
         }
         capturedInputRef.current = null;
+        setCapturedBindingKey(null);
       };
     }
   }, [recordingKey, isPromptOpen, handleInput]);
@@ -166,7 +178,7 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
               className={keyButtonClass('toggleLeaveVoiceKey')}
               onClick={() => setRecordingKey(recordingKey === 'toggleLeaveVoiceKey' ? null : 'toggleLeaveVoiceKey')}
             >
-              {recordingKey === 'toggleLeaveVoiceKey' ? 'Press any key...' : (localSettings.toggleLeaveVoiceKey || 'Not bound')}
+                  {keyButtonLabel('toggleLeaveVoiceKey')}
             </button>
           </div>
         </div>
@@ -179,7 +191,7 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
               className={keyButtonClass('toggleMuteDeafenKey')}
               onClick={() => setRecordingKey(recordingKey === 'toggleMuteDeafenKey' ? null : 'toggleMuteDeafenKey')}
             >
-              {recordingKey === 'toggleMuteDeafenKey' ? 'Press any key...' : (localSettings.toggleMuteDeafenKey || 'Not bound')}
+                  {keyButtonLabel('toggleMuteDeafenKey')}
             </button>
           </div>
         </div>
@@ -192,7 +204,7 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
               className={keyButtonClass('toggleMuteKey')}
               onClick={() => setRecordingKey(recordingKey === 'toggleMuteKey' ? null : 'toggleMuteKey')}
             >
-              {recordingKey === 'toggleMuteKey' ? 'Press any key...' : (localSettings.toggleMuteKey || 'Not bound')}
+                  {keyButtonLabel('toggleMuteKey')}
             </button>
           </div>
         </div>
@@ -208,7 +220,7 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
               className={keyButtonClass('toggleDMScreenKey')}
               onClick={() => setRecordingKey(recordingKey === 'toggleDMScreenKey' ? null : 'toggleDMScreenKey')}
             >
-              {recordingKey === 'toggleDMScreenKey' ? 'Press any key...' : (localSettings.toggleDMScreenKey || 'Not bound')}
+                  {keyButtonLabel('toggleDMScreenKey')}
             </button>
           </div>
         </div>
@@ -224,7 +236,7 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
               className={keyButtonClass('toggleScreenShareKey')}
               onClick={() => setRecordingKey(recordingKey === 'toggleScreenShareKey' ? null : 'toggleScreenShareKey')}
             >
-              {recordingKey === 'toggleScreenShareKey' ? 'Press any key...' : (localSettings.toggleScreenShareKey || 'Not bound')}
+                  {keyButtonLabel('toggleScreenShareKey')}
             </button>
           </div>
         </div>
@@ -240,7 +252,7 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
               className={keyButtonClass('toggleGameKey')}
               onClick={() => setRecordingKey(recordingKey === 'toggleGameKey' ? null : 'toggleGameKey')}
             >
-              {recordingKey === 'toggleGameKey' ? 'Press any key...' : (localSettings.toggleGameKey || 'Not bound')}
+                  {keyButtonLabel('toggleGameKey')}
             </button>
           </div>
         </div>

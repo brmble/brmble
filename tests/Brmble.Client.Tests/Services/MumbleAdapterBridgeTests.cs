@@ -31,7 +31,7 @@ public class MumbleAdapterBridgeTests
     {
         var adapter = CreateAdapterWithBridge(out var bridge);
         var channels = GetChannelDictionary(adapter);
-        channels[4] = new Channel(adapter, 4, "Secret", 0) { IsEnterRestricted = true, CanEnter = false };
+        channels[4] = new Channel(adapter, 4, "Secret", 0) { IsEnterRestricted = true, CanEnter = false, Position = 9 };
 
         InvokePrivate(adapter, "SendVoiceConnected");
 
@@ -44,6 +44,7 @@ public class MumbleAdapterBridgeTests
         Assert.IsTrue(channel.GetProperty("isEnterRestricted").GetBoolean());
         Assert.IsFalse(channel.GetProperty("canEnter").GetBoolean());
         Assert.IsFalse(channel.GetProperty("hasPasswordRestriction").GetBoolean());
+        Assert.AreEqual(9, channel.GetProperty("position").GetInt32());
     }
 
     [TestMethod]
@@ -93,6 +94,26 @@ public class MumbleAdapterBridgeTests
         Assert.IsTrue(channel.GetProperty("isEnterRestricted").GetBoolean());
         Assert.IsTrue(channel.GetProperty("canEnter").GetBoolean());
         Assert.IsFalse(channel.GetProperty("hasPasswordRestriction").GetBoolean());
+    }
+
+    [TestMethod]
+    public void ChannelState_IncludesPositionInBridgePayload()
+    {
+        var adapter = CreateAdapterWithBridge(out var bridge);
+
+        adapter.ChannelState(new ChannelState
+        {
+            ChannelId = 4,
+            Name = "Secret",
+            Parent = 0,
+            Position = 12
+        });
+
+        var sent = NativeBridgeTestHarness.DrainMessages(bridge);
+        var channelJoined = sent.Single(m => m.Type == "voice.channelJoined");
+        using var doc = JsonDocument.Parse(channelJoined.DataJson);
+
+        Assert.AreEqual(12, doc.RootElement.GetProperty("position").GetInt32());
     }
 
     [TestMethod]

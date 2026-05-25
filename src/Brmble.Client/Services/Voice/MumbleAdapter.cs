@@ -3015,11 +3015,15 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 return Task.CompletedTask;
             }
 
+            var position = channel.Position;
+            var hasPosition = data.TryGetProperty("position", out var pos) && pos.TryGetInt32(out position);
+
             Connection.SendControl(PacketType.ChannelState, new ChannelState
             {
                 ChannelId = channelId,
                 Name = name,
                 Description = description ?? string.Empty,
+                Position = hasPosition ? position : channel.Position,
             });
 
             return Task.CompletedTask;
@@ -3897,6 +3901,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         id = channel.Id,
         name = channel.Name,
         parent = channel.Parent,
+        position = channel.Position,
         isEnterRestricted = channel.IsEnterRestricted,
         canEnter = channel.CanEnter,
         hasPasswordRestriction = _channelPasswordRestrictions.TryGetValue(channel.Id, out var hasPasswordRestriction) && hasPasswordRestriction,

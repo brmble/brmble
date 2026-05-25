@@ -23,4 +23,22 @@ public class ServerVersionProviderTests
         Assert.IsFalse(provider.Version.StartsWith("v", StringComparison.OrdinalIgnoreCase),
             $"Version should be SemVer without 'v' prefix, got '{provider.Version}'.");
     }
+
+    [TestMethod]
+    public void FormatVersion_ForRelease_ReturnsSemVer()
+    {
+        Assert.AreEqual("1.2.3", ServerVersionProvider.FormatVersion("1.2.3", null));
+    }
+
+    [TestMethod]
+    public void FormatVersion_ForReleaseWithSourceRevision_ReturnsSemVer()
+    {
+        Assert.AreEqual("1.2.3", ServerVersionProvider.FormatVersion("1.2.3+8f4a2c91b7e0", null));
+    }
+
+    [TestMethod]
+    public void FormatVersion_ForMainBuild_ReturnsDevMainShortSha()
+    {
+        Assert.AreEqual("Dev main 8f4a2c9", ServerVersionProvider.FormatVersion("0.0.0-alpha.0", "8f4a2c91b7e0"));
+    }
 }

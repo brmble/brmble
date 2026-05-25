@@ -26,6 +26,7 @@ RUN curl -fsSL -o /usr/local/bin/continuwuity \
 # ── Stage 2: Build Brmble.Server ─────────────────────────────────────────────
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG VERSION=0.0.0-dev
+ARG SOURCE_REVISION_ID=
 WORKDIR /src
 
 COPY Directory.Build.props .
@@ -36,6 +37,7 @@ RUN dotnet publish src/Brmble.Server/Brmble.Server.csproj \
     -r linux-x64 \
     --no-self-contained \
     -p:Version=${VERSION} \
+    -p:SourceRevisionId=${SOURCE_REVISION_ID} \
     -o /app/publish
 
 # ── Stage 3: Runtime image ────────────────────────────────────────────────────

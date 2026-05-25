@@ -111,6 +111,26 @@ describe('ChannelTree screen share behavior', () => {
     vi.clearAllMocks();
   });
 
+  it('sorts sibling channels by Mumble position, then name, then id', () => {
+    render(
+      <ChannelTree
+        channels={[
+          { id: 4, name: 'Zulu', position: 5 },
+          { id: 2, name: 'Bravo', position: 1 },
+          { id: 3, name: 'Alpha', position: 1 },
+          { id: 5, name: 'Alpha', position: 1 },
+        ]}
+        users={[]}
+        onJoinChannel={vi.fn()}
+      />
+    );
+
+    const labels = Array.from(document.querySelectorAll('.channel-name')).map(el => el.textContent);
+
+    expect(labels).toEqual(['Alpha', 'Alpha', 'Bravo', 'Zulu']);
+    expect(screen.getAllByText('Alpha')[0].closest('.channel-item')).toHaveAttribute('data-channel-id', '3');
+  });
+
   it('shows channel sharing indicators for every active share room', () => {
     render(
       <ChannelTree

@@ -105,6 +105,26 @@ describe('ShortcutsSettingsTab', () => {
     }
   });
 
+  it('shows a newly recorded shortcut key immediately after successful capture', () => {
+    const onChange = vi.fn();
+
+    render(
+      <ShortcutsSettingsTab
+        settings={baseSettings}
+        onChange={onChange}
+        allBindings={{}}
+        onClearBinding={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Not bound' })[0]);
+    fireEvent.keyDown(window, { code: 'KeyM' });
+
+    expect(screen.getByRole('button', { name: 'KeyM' })).toHaveClass('btn-primary');
+    expect(screen.queryByRole('button', { name: 'Press any key...' })).not.toBeInTheDocument();
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ toggleLeaveVoiceKey: 'KeyM' }));
+  });
+
   it('keeps hotkeys suspended until the recorded keyboard input is released', () => {
     render(
       <ShortcutsSettingsTab

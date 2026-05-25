@@ -128,5 +128,6 @@ jobs:
           push: true
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
+            SOURCE_REVISION_ID=${{ github.sha }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

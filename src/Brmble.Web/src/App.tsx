@@ -580,6 +580,7 @@ interface Channel {
   id: number;
   name: string;
   parent?: number;
+  position?: number;
   isEnterRestricted?: boolean;
   canEnter?: boolean;
   hasPasswordRestriction?: boolean;

@@ -40,5 +40,7 @@ jobs:
           context: .
           file: src/Brmble.Server/Dockerfile
           push: true
+          build-args: |
+            SOURCE_REVISION_ID=${{ github.sha }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

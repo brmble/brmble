@@ -228,6 +228,48 @@ describe('Sidebar root user screen share behavior', () => {
     expect(dot.classList.contains('service-dot--connecting')).toBe(true);
   });
 
+  it('formats development server versions as Dev main short sha', () => {
+    useServiceStatusMock.mockReturnValue({
+      statuses: {
+        voice: { state: 'connected' },
+        chat: { state: 'connected' },
+        server: { state: 'connected', version: '0.0.0-alpha.0+8f4a2c91b7e0' },
+        livekit: { state: 'connected' },
+      } as ServiceStatusMap,
+      effectiveStatuses: {
+        voice: { state: 'connected' },
+        chat: { state: 'connected' },
+        server: { state: 'connected', version: '0.0.0-alpha.0+8f4a2c91b7e0' },
+        livekit: { state: 'connected' },
+      } as ServiceStatusMap,
+    });
+
+    renderSidebar();
+
+    expect(screen.getByLabelText('Brmble: Connected — Dev main 8f4a2c9')).toBeInTheDocument();
+  });
+
+  it('formats released server versions as clean SemVer', () => {
+    useServiceStatusMock.mockReturnValue({
+      statuses: {
+        voice: { state: 'connected' },
+        chat: { state: 'connected' },
+        server: { state: 'connected', version: '1.2.3' },
+        livekit: { state: 'connected' },
+      } as ServiceStatusMap,
+      effectiveStatuses: {
+        voice: { state: 'connected' },
+        chat: { state: 'connected' },
+        server: { state: 'connected', version: '1.2.3' },
+        livekit: { state: 'connected' },
+      } as ServiceStatusMap,
+    });
+
+    renderSidebar();
+
+    expect(screen.getByLabelText('Brmble: Connected — v1.2.3')).toBeInTheDocument();
+  });
+
   it('shows local sharing without watch controls or watch actions', () => {
     const onWatchScreenShare = vi.fn();
 
