@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Moq;
 
 namespace Brmble.Server.Tests.Integration;
@@ -80,6 +81,11 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
             var db = new Database(_cs);
             db.Initialize();
             services.AddSingleton(db);
+
+            var mumbleIceHostedService = services.FirstOrDefault(d =>
+                d.ServiceType == typeof(IHostedService) &&
+                d.ImplementationType == typeof(MumbleIceService));
+            if (mumbleIceHostedService != null) services.Remove(mumbleIceHostedService);
 
             // Stub IMatrixAppService so no real HTTP calls are made
             var existing = services.FirstOrDefault(d => d.ServiceType == typeof(IMatrixAppService));
