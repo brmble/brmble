@@ -136,11 +136,15 @@ function PromptWithInputComponent() {
   const isOpen = globalResolveInput !== null;
   const [inputValue, setInputValue] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [passwordInputFocused, setPasswordInputFocused] = useState(false);
+  const [passwordToggleFocused, setPasswordToggleFocused] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       setInputValue(globalInputOptions.defaultValue || '');
       setShowPassword(false);
+      setPasswordInputFocused(false);
+      setPasswordToggleFocused(false);
     }
   }, [isOpen]);
 
@@ -161,6 +165,9 @@ function PromptWithInputComponent() {
       globalResolveInput(inputValue);
       globalResolveInput = null;
       setInputValue('');
+      setShowPassword(false);
+      setPasswordInputFocused(false);
+      setPasswordToggleFocused(false);
       globalForceUpdate?.();
     }
   }, [inputValue]);
@@ -195,6 +202,7 @@ function PromptWithInputComponent() {
             placeholder={globalInputOptions.placeholder}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
+            onFocus={() => setPasswordInputFocused(true)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();
@@ -203,11 +211,13 @@ function PromptWithInputComponent() {
             }}
             autoFocus
           />
-          {globalInputOptions.isPassword && (
+          {globalInputOptions.isPassword && (passwordInputFocused || passwordToggleFocused) && (
             <button
               type="button"
               className="password-toggle-btn"
               onMouseDown={(e) => { e.preventDefault(); setShowPassword(value => !value); }}
+              onFocus={() => setPasswordToggleFocused(true)}
+              onBlur={() => { setPasswordToggleFocused(false); setShowPassword(false); }}
               aria-label={showPassword ? 'Hide password' : 'Show password'}
               aria-pressed={showPassword}
             >

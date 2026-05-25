@@ -14,7 +14,7 @@ public class InputRouterShortcutKeyboardTests
     public void TwoKeyboardShortcuts_Independent()
     {
         var backend = new FakeInputBackend();
-        using var router = new InputRouter(backend);
+        using var router = new InputRouter(backend, autoStartTimers: false);
 
         var pressed = new List<string>();
         var released = new List<string>();
@@ -45,7 +45,7 @@ public class InputRouterShortcutKeyboardTests
     public void ClearShortcutBinding_RemovesPolling()
     {
         var backend = new FakeInputBackend();
-        using var router = new InputRouter(backend);
+        using var router = new InputRouter(backend, autoStartTimers: false);
 
         var pressed = new List<string>();
         router.ShortcutPressed += a => pressed.Add(a);
@@ -63,7 +63,7 @@ public class InputRouterShortcutKeyboardTests
     public void ClearShortcutBinding_WhileHeld_FiresRelease()
     {
         var backend = new FakeInputBackend();
-        using var router = new InputRouter(backend);
+        using var router = new InputRouter(backend, autoStartTimers: false);
 
         var released = new List<string>();
         router.ShortcutReleased += (a, _) => released.Add(a);
@@ -81,7 +81,7 @@ public class InputRouterShortcutKeyboardTests
     public void ReleaseAllHeld_ReleasesHeldKeyboardShortcuts()
     {
         var backend = new FakeInputBackend();
-        using var router = new InputRouter(backend);
+        using var router = new InputRouter(backend, autoStartTimers: false);
 
         var released = new List<string>();
         router.ShortcutReleased += (a, _) => released.Add(a);
