@@ -6,6 +6,7 @@ public static class LiveKitExtensions
     {
         services.AddOptions<LiveKitSettings>()
             .BindConfiguration("LiveKit");
+        services.AddSingleton<ILiveKitRoomClient, LiveKitRoomClient>();
         services.AddSingleton<LiveKitService>();
         services.AddSingleton<ILiveKitRoomQuery>(sp => sp.GetRequiredService<LiveKitService>());
         services.AddSingleton<ILiveKitParticipantRemover>(sp => sp.GetRequiredService<LiveKitService>());
