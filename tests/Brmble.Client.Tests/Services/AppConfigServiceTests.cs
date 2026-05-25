@@ -285,6 +285,23 @@ public class AppConfigServiceTests
     }
 
     [TestMethod]
+    public void RemoveChannelPassword_PreservesExistingPassword_WhenSaveFails()
+    {
+        var passwordStorage = new ToggleableThrowingSecurePasswordStorage();
+        var svc = new AppConfigService(_tempDir, passwordStorage);
+        svc.SaveChannelPassword("server-1", 5, "Secret", "secret-token");
+        svc.SaveChannelPassword("server-1", 6, "Other", "other-token");
+        passwordStorage.ThrowOnEncrypt = true;
+
+        Assert.ThrowsException<InvalidOperationException>(() =>
+            svc.RemoveChannelPassword("server-1", 5));
+
+        var saved = svc.GetChannelPasswords("server-1");
+        Assert.AreEqual(2, saved.Count);
+        CollectionAssert.AreEquivalent(new[] { "secret-token", "other-token" }, saved.Select(p => p.Password).ToArray());
+    }
+
+    [TestMethod]
     public void SavesAndReloads_WindowState()
     {
         var svc = new AppConfigService(_tempDir, null);
@@ -580,6 +597,26 @@ public class AppConfigServiceTests
         public string Encrypt(string plainText)
         {
             if (plainText == tokenToFail)
+                throw new InvalidOperationException("Encryption unavailable");
+            return "encrypted:" + plainText;
+        }
+
+        public string Decrypt(string encryptedBase64) => encryptedBase64["encrypted:".Length..];
+        public bool TryDecrypt(string encryptedBase64, out string? plainText)
+        {
+            plainText = IsEncrypted(encryptedBase64) ? Decrypt(encryptedBase64) : null;
+            return plainText != null;
+        }
+        public bool IsEncrypted(string value) => value.StartsWith("encrypted:", StringComparison.Ordinal);
+    }
+
+    private sealed class ToggleableThrowingSecurePasswordStorage : ISecurePasswordStorage
+    {
+        public bool ThrowOnEncrypt { get; set; }
+
+        public string Encrypt(string plainText)
+        {
+            if (ThrowOnEncrypt)
                 throw new InvalidOperationException("Encryption unavailable");
             return "encrypted:" + plainText;
         }

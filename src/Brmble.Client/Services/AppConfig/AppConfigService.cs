@@ -311,8 +311,17 @@ internal sealed class AppConfigService : IAppConfigService
     {
         lock (_lock)
         {
-            _channelPasswords.RemoveAll(p => string.Equals(p.ServerKey, serverKey, StringComparison.Ordinal) && p.ChannelId == channelId);
-            Save();
+            var previous = _channelPasswords.ToList();
+            try
+            {
+                _channelPasswords.RemoveAll(p => string.Equals(p.ServerKey, serverKey, StringComparison.Ordinal) && p.ChannelId == channelId);
+                Save();
+            }
+            catch
+            {
+                _channelPasswords = previous;
+                throw;
+            }
         }
     }
 

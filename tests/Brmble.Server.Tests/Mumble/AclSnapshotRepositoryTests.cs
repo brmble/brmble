@@ -1,5 +1,6 @@
 using Brmble.Server.Data;
 using Brmble.Server.Mumble;
+using Dapper;
 using Microsoft.Data.Sqlite;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -60,5 +61,47 @@ public class AclSnapshotRepositoryTests
         Assert.IsNotNull(loaded);
         Assert.IsTrue(loaded!.Stale);
         Assert.AreEqual("refresh failed", loaded.Warning);
+    }
+
+    [TestMethod]
+    public async Task GetPasswordProtectedChannelIdsAsync_ReturnsOnlyFreshRowsWithPasswordMarker()
+    {
+        await _repo.UpsertAsync(new AclChannelSnapshotDto(
+            4,
+            true,
+            [],
+            [new AclRuleDto(true, true, false, null, "__brmble_password_marker__:#secret", 0, 0)],
+            DateTimeOffset.UtcNow,
+            false,
+            null));
+        await _repo.UpsertAsync(new AclChannelSnapshotDto(5, true, [], [], DateTimeOffset.UtcNow, false, null));
+        await _repo.UpsertAsync(new AclChannelSnapshotDto(
+            6,
+            true,
+            [],
+            [new AclRuleDto(true, true, false, null, "__brmble_password_marker__:#stale", 0, 0)],
+            DateTimeOffset.UtcNow,
+            false,
+            null));
+        await _repo.MarkStaleAsync(6, "stale");
+
+        var channelIds = await _repo.GetPasswordProtectedChannelIdsAsync();
+
+        CollectionAssert.AreEqual(new[] { 4 }, channelIds.ToArray());
+    }
+
+    [TestMethod]
+    public async Task GetPasswordProtectedChannelIdsAsync_DoesNotDeserializeRowsWithoutPasswordMarker()
+    {
+        using var conn = _db.CreateConnection();
+        await conn.ExecuteAsync(
+            """
+            INSERT INTO acl_snapshots (channel_id, payload_json, payload_hash, fetched_at, is_stale, stale_reason)
+            VALUES (7, '{not valid json', 'hash', '2026-05-25T00:00:00.0000000Z', 0, NULL)
+            """);
+
+        var channelIds = await _repo.GetPasswordProtectedChannelIdsAsync();
+
+        Assert.AreEqual(0, channelIds.Count);
     }
 }

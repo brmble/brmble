@@ -96,7 +96,7 @@ public sealed class AclSnapshotRepository : IAclSnapshotRepository
             """
             SELECT channel_id AS ChannelId, payload_json AS PayloadJson
             FROM acl_snapshots
-            WHERE is_stale = 0
+            WHERE is_stale = 0 AND payload_json LIKE '%__brmble_password_marker__:#%'
             """);
 
         var channelIds = new List<int>();

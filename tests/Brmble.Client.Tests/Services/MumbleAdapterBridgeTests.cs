@@ -146,6 +146,33 @@ public class MumbleAdapterBridgeTests
     }
 
     [TestMethod]
+    public void ApplyPasswordProtectedChannelIdsFromCredentials_ReplacesPreviousRestrictionCache()
+    {
+        var adapter = CreateAdapterWithBridge(out var bridge);
+        var channels = GetChannelDictionary(adapter);
+        channels[4] = new Channel(adapter, 4, "Old Locked", 0) { IsEnterRestricted = true, CanEnter = false };
+        channels[5] = new Channel(adapter, 5, "New Locked", 0) { IsEnterRestricted = true, CanEnter = false };
+        var restrictions = GetChannelPasswordRestrictionDictionary(adapter);
+        restrictions[4] = true;
+
+        using var doc = JsonDocument.Parse("""
+        {"passwordProtectedChannelIds":[5]}
+        """);
+        InvokePrivate(adapter, "ApplyPasswordProtectedChannelIdsFromCredentials", (object)doc.RootElement);
+        InvokePrivate(adapter, "SendVoiceConnected");
+
+        var sent = NativeBridgeTestHarness.DrainMessages(bridge);
+        var connected = sent.Single(m => m.Type == "voice.connected");
+        using var payload = JsonDocument.Parse(connected.DataJson);
+        var channelStates = payload.RootElement.GetProperty("channels").EnumerateArray().ToDictionary(
+            channel => channel.GetProperty("id").GetUInt32(),
+            channel => channel.GetProperty("hasPasswordRestriction").GetBoolean());
+
+        Assert.IsFalse(channelStates[4]);
+        Assert.IsTrue(channelStates[5]);
+    }
+
+    [TestMethod]
     public void Disconnect_ClearsChannelPasswordRestrictionCache()
     {
         var adapter = CreateAdapterWithBridge(out _);
@@ -230,6 +257,7 @@ public class MumbleAdapterBridgeTests
             .ToList();
         try
         {
+            Assert.AreEqual(1, reconnectingDelays.Count);
             Assert.IsTrue(reconnectingDelays.All(doc => doc.RootElement.GetProperty("delayMs").GetInt32() == 0));
         }
         finally
@@ -259,6 +287,28 @@ public class MumbleAdapterBridgeTests
         }));
 
         Assert.AreEqual(0, appConfig.GetChannelPasswords("example.test:64738").Count);
+    }
+
+    [TestMethod]
+    public async Task SaveChannelPassword_HandlerIgnoresMissingPasswordWithoutRemovingExistingPassword()
+    {
+        var appConfig = new TestAppConfigService(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()));
+        appConfig.SaveChannelPassword("example.test:64738", 5, "Secret", "secret-token");
+        var bridge = NativeBridgeTestHarness.Create();
+        var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge, appConfigService: appConfig);
+        adapter.RegisterHandlers(bridge);
+        adapter.SetActiveServerForTests("example.test", 64738);
+        SetConnectedConnection(adapter);
+
+        await NativeBridgeTestHarness.InvokeAsync(bridge, "voice.saveChannelPassword", JsonSerializer.SerializeToElement(new
+        {
+            channelId = 5,
+            channelName = "Secret"
+        }));
+
+        var saved = appConfig.GetChannelPasswords("example.test:64738");
+        Assert.AreEqual(1, saved.Count);
+        Assert.AreEqual("secret-token", saved[0].Password);
     }
 
     [TestMethod]

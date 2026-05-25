@@ -1123,6 +1123,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             return;
         }
 
+        _channelPasswordRestrictions.Clear();
         foreach (var id in ids.EnumerateArray())
         {
             if (id.ValueKind == System.Text.Json.JsonValueKind.Number && id.TryGetUInt32(out var channelId))
@@ -2680,8 +2681,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 channelIdEl.TryGetUInt32(out var channelId)
                     ? channelId
                     : null;
-            _bridge?.Send("voice.reconnecting", new { attempt = 1, delayMs = 0 });
-            _bridge?.NotifyUiThread();
             Disconnect();
             _ = Task.Run(() => ReconnectLoop(immediateFirstAttempt: true));
             return Task.CompletedTask;
@@ -2739,17 +2738,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 return Task.CompletedTask;
             }
 
-            var channelName = nameEl.GetString() ?? "Channel";
-            var password = "";
-            if (data.TryGetProperty("password", out var pw))
+            if (!data.TryGetProperty("password", out var pw) || pw.ValueKind != System.Text.Json.JsonValueKind.String)
             {
-                if (pw.ValueKind != System.Text.Json.JsonValueKind.String)
-                {
-                    return Task.CompletedTask;
-                }
-
-                password = pw.GetString() ?? "";
+                return Task.CompletedTask;
             }
+
+            var channelName = nameEl.GetString() ?? "Channel";
+            var password = pw.GetString() ?? "";
             var serverKey = BuildServerKey(_reconnectHost, _reconnectPort);
 
             try

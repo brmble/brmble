@@ -7,7 +7,7 @@ interface ChannelPasswordResponse {
 }
 
 export function getSavedChannelPassword(channelId: number): Promise<string> {
-  const requestId = `channel-password-${channelId}`;
+  const requestId = `channel-password-${channelId}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   return new Promise(resolve => {
     const finish = (password: string) => {
       window.clearTimeout(timeout);
