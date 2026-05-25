@@ -96,7 +96,7 @@ describe('AdminSettingsTab', () => {
   it('renders the live channel list in the channels tab', () => {
     render(<AdminSettingsTab channels={channels} />);
 
-    expect(screen.getByRole('row', { name: 'General' })).toBeInTheDocument();
-    expect(screen.getByRole('row', { name: 'Raid Planning' })).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: 'General Position 0' })).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: 'Raid Planning Position 0' })).toBeInTheDocument();
   });
 });
