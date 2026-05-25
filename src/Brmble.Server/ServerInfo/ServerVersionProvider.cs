@@ -19,6 +19,13 @@ public sealed class ServerVersionProvider : IServerVersionProvider
             return releaseMatch.Groups[1].Value;
         }
 
+        if (System.Text.RegularExpressions.Regex.IsMatch(version, @"^0\.0\.0(?:[-+]|$)", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+            && string.IsNullOrWhiteSpace(sourceRevisionId)
+            && !System.Text.RegularExpressions.Regex.IsMatch(version, @"\+[0-9a-f]{7,40}$", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+        {
+            return "Dev main";
+        }
+
         var sha = sourceRevisionId;
         if (string.IsNullOrWhiteSpace(sha))
         {

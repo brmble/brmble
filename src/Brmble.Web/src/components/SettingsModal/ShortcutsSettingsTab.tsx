@@ -35,11 +35,17 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
   const [isPromptOpen, setIsPromptOpen] = useState(false);
   const [capturedBindingKey, setCapturedBindingKey] = useState<keyof ShortcutsSettings | null>(null);
   const capturedInputRef = useRef<string | null>(null);
+  const capturedBindingKeyRef = useRef<keyof ShortcutsSettings | null>(null);
   const hotkeysSuspendedRef = useRef(false);
 
   useEffect(() => {
     setLocalSettings(settings);
   }, [settings]);
+
+  const markCapturedBinding = (bindingId: keyof ShortcutsSettings | null) => {
+    capturedBindingKeyRef.current = bindingId;
+    setCapturedBindingKey(bindingId);
+  };
 
   const clearBinding = (bindingId: keyof ShortcutsSettings) => {
     setLocalSettings((prev) => ({ ...prev, [bindingId]: null }));
@@ -77,7 +83,7 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
       
       if (!confirmed) {
         capturedInputRef.current = null;
-        setCapturedBindingKey(null);
+        markCapturedBinding(null);
         setRecordingKey(null);
         return;
       }
@@ -96,7 +102,7 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
         return newSettings;
       });
       capturedInputRef.current = null;
-      setCapturedBindingKey(null);
+      markCapturedBinding(null);
       setRecordingKey(null);
       return;
     }
@@ -108,7 +114,7 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
       return newSettings;
     });
     capturedInputRef.current = key;
-    setCapturedBindingKey(recordingKey);
+    markCapturedBinding(recordingKey);
   }, [recordingKey, allBindings, onChange, onClearBinding]);
 
   useEffect(() => {
@@ -144,7 +150,7 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
       const finishRecording = () => {
         if (!capturedInputRef.current) return;
         capturedInputRef.current = null;
-        setCapturedBindingKey(null);
+        markCapturedBinding(null);
         setRecordingKey(null);
       };
       window.addEventListener('keydown', onKey, true);
@@ -156,15 +162,36 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
         window.removeEventListener('mousedown', onMouse, true);
         window.removeEventListener('keyup', finishRecording, true);
         window.removeEventListener('mouseup', finishRecording, true);
-        if (hotkeysSuspendedRef.current) {
+        if (hotkeysSuspendedRef.current && (!capturedInputRef.current || capturedBindingKeyRef.current)) {
           bridge.send('voice.resumeHotkeys');
           hotkeysSuspendedRef.current = false;
         }
+        if (capturedInputRef.current) return;
         capturedInputRef.current = null;
-        setCapturedBindingKey(null);
+        markCapturedBinding(null);
       };
     }
   }, [recordingKey, isPromptOpen, handleInput]);
+
+  useEffect(() => {
+    if (!capturedInputRef.current || !recordingKey || capturedBindingKeyRef.current !== recordingKey) return;
+    const finishRecording = () => {
+      capturedInputRef.current = null;
+      markCapturedBinding(null);
+      setRecordingKey(null);
+    };
+
+    window.addEventListener('keyup', finishRecording, true);
+    window.addEventListener('mouseup', finishRecording, true);
+    return () => {
+      window.removeEventListener('keyup', finishRecording, true);
+      window.removeEventListener('mouseup', finishRecording, true);
+      if (hotkeysSuspendedRef.current && !capturedInputRef.current) {
+        bridge.send('voice.resumeHotkeys');
+        hotkeysSuspendedRef.current = false;
+      }
+    };
+  }, [recordingKey, capturedBindingKey]);
 
   return (
     <div className="shortcuts-settings-tab">

@@ -73,7 +73,7 @@ const {
   };
   let idleActionsArgs: { onBeforeAutoLeave?: () => void | Promise<void> } | null = null;
   let localShareEndedHandler: ((reason: 'manual' | 'source-closed' | 'interrupted' | 'error' | 'blocked-capture' | 'moved-channel') => void) | null = null;
-  let latestSidebarProps: { channels?: Array<{ id: number; canEnter?: boolean; hasPasswordRestriction?: boolean }> } = {};
+  let latestSidebarProps: { channels?: Array<{ id: number; canEnter?: boolean; hasPasswordRestriction?: boolean; position?: number; description?: string }> } = {};
   const mockBridge = {
     send: vi.fn(),
     on: vi.fn((type: string, handler: BridgeHandler) => {
@@ -103,7 +103,7 @@ const {
     bridge: mockBridge,
     sidebarProps: {
       get current() { return latestSidebarProps; },
-      set current(value: { channels?: Array<{ id: number; canEnter?: boolean; hasPasswordRestriction?: boolean }> }) { latestSidebarProps = value; },
+      set current(value: { channels?: Array<{ id: number; canEnter?: boolean; hasPasswordRestriction?: boolean; position?: number; description?: string }> }) { latestSidebarProps = value; },
     },
     disconnectViewer: disconnect,
     setDiscoveryTarget: setTarget,
@@ -287,7 +287,7 @@ vi.mock('./components/Sidebar/Sidebar', () => ({
     onDisconnect?: () => void;
     onWatchScreenShare?: (roomName: string, userId?: number, matrixUserId?: string) => void;
     onJoinChannel?: (channelId: number) => void;
-    channels?: Array<{ id: number; canEnter?: boolean; hasPasswordRestriction?: boolean }>;
+    channels?: Array<{ id: number; canEnter?: boolean; hasPasswordRestriction?: boolean; position?: number; description?: string }>;
   }) => {
     sidebarProps.current = props;
     return React.createElement(React.Fragment, null,
@@ -2367,6 +2367,32 @@ describe('active share discovery', () => {
     expect(channel?.canEnter).toBeUndefined();
     expect(channel?.hasPasswordRestriction).toBe(true);
     expect(bridge.send).toHaveBeenCalledWith('voice.reconnect', { channelId: 2 });
+  });
+
+  it('preserves channel metadata when a channel update omits unchanged fields', async () => {
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [
+          { id: 1, name: 'General', position: 1, description: 'Lobby' },
+          { id: 2, name: 'Gaming', position: 3, description: 'Games' },
+        ],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    act(() => {
+      bridge.emit('voice.channelJoined', { id: 2, name: 'Gaming' });
+    });
+
+    await waitFor(() => {
+      const channel = sidebarProps.current.channels?.find(c => c.id === 2);
+      expect(channel?.position).toBe(3);
+      expect(channel?.description).toBe('Games');
+    });
   });
 
   it('prompts for a channel password when a password-denial reason reveals an uncached password ACL', async () => {

@@ -1442,6 +1442,20 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         int? delayMs = null)
         => new(service, state, reason, attempt, delayMs);
 
+    internal static ChannelState CreateEditChannelState(
+        uint channelId,
+        Channel channel,
+        string name,
+        string? description,
+        int? position)
+        => new()
+        {
+            ChannelId = channelId,
+            Name = name,
+            Description = description ?? string.Empty,
+            Position = position ?? channel.Position,
+        };
+
     internal static bool ShouldRefreshCredentialsAfterHealthSuccess(
         bool credentialsAlreadyFetched,
         bool previousHealthWasConnected,
@@ -3015,16 +3029,16 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 return Task.CompletedTask;
             }
 
-            var position = channel.Position;
-            var hasPosition = data.TryGetProperty("position", out var pos) && pos.TryGetInt32(out position);
+            var position = data.TryGetProperty("position", out var pos) && pos.TryGetInt32(out var parsedPosition)
+                ? parsedPosition
+                : (int?)null;
 
-            Connection.SendControl(PacketType.ChannelState, new ChannelState
-            {
-                ChannelId = channelId,
-                Name = name,
-                Description = description ?? string.Empty,
-                Position = hasPosition ? position : channel.Position,
-            });
+            Connection.SendControl(PacketType.ChannelState, CreateEditChannelState(
+                channelId,
+                channel,
+                name,
+                description,
+                position));
 
             return Task.CompletedTask;
         });

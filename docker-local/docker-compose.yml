@@ -22,6 +22,8 @@ services:
     build:
       context: ..
       dockerfile: src/Brmble.Server/Dockerfile
+      args:
+        SOURCE_REVISION_ID: ${SOURCE_REVISION_ID:-}
     ports:
       - "1912:8080"
       - "7881:7881"

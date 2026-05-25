@@ -117,6 +117,31 @@ public class MumbleAdapterBridgeTests
     }
 
     [TestMethod]
+    public void CreateEditChannelState_IncludesRequestedPosition()
+    {
+        var adapter = CreateAdapterWithBridge(out _);
+        var channel = new Channel(adapter, 4, "Secret", 0) { Position = 2 };
+
+        var state = MumbleAdapter.CreateEditChannelState(4, channel, "Secret", "Updated", 12);
+
+        Assert.AreEqual(4u, state.ChannelId);
+        Assert.AreEqual("Secret", state.Name);
+        Assert.AreEqual("Updated", state.Description);
+        Assert.AreEqual(12, state.Position);
+    }
+
+    [TestMethod]
+    public void CreateEditChannelState_PreservesExistingPositionWhenMissing()
+    {
+        var adapter = CreateAdapterWithBridge(out _);
+        var channel = new Channel(adapter, 4, "Secret", 0) { Position = 2 };
+
+        var state = MumbleAdapter.CreateEditChannelState(4, channel, "Secret", "Updated", null);
+
+        Assert.AreEqual(2, state.Position);
+    }
+
+    [TestMethod]
     public void HandleWebSocketMessage_AclChangedManagedPasswordMarker_UpdatesChannelPayloadWithoutToken()
     {
         var adapter = CreateAdapterWithBridge(out var bridge);

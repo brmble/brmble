@@ -41,4 +41,10 @@ public class ServerVersionProviderTests
     {
         Assert.AreEqual("Dev main 8f4a2c9", ServerVersionProvider.FormatVersion("0.0.0-alpha.0", "8f4a2c91b7e0"));
     }
+
+    [TestMethod]
+    public void FormatVersion_ForMainBuildWithoutSha_ReturnsDevMain()
+    {
+        Assert.AreEqual("Dev main", ServerVersionProvider.FormatVersion("0.0.0-alpha.0", null));
+    }
 }
