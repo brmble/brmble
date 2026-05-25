@@ -10,6 +10,7 @@ public interface IAclSnapshotRepository
 {
     Task UpsertAsync(AclChannelSnapshotDto snapshot);
     Task<AclChannelSnapshotDto?> GetAsync(int channelId);
+    Task<IReadOnlyList<int>> GetPasswordProtectedChannelIdsAsync();
     Task MarkStaleAsync(int channelId, string reason);
 }
 
@@ -88,6 +89,29 @@ public sealed class AclSnapshotRepository : IAclSnapshotRepository
             : snapshot with { Stale = row.IsStale != 0, Warning = row.StaleReason, SnapshotHash = row.PayloadHash };
     }
 
+    public async Task<IReadOnlyList<int>> GetPasswordProtectedChannelIdsAsync()
+    {
+        using var conn = _db.CreateConnection();
+        var rows = await conn.QueryAsync<PasswordRow>(
+            """
+            SELECT channel_id AS ChannelId, payload_json AS PayloadJson
+            FROM acl_snapshots
+            WHERE is_stale = 0 AND payload_json LIKE '%__brmble_password_marker__:#%'
+            """);
+
+        var channelIds = new List<int>();
+        foreach (var row in rows)
+        {
+            var snapshot = JsonSerializer.Deserialize<AclChannelSnapshotDto>(row.PayloadJson, JsonOptions);
+            if (snapshot?.Acls.Any(acl => acl.Group?.StartsWith("__brmble_password_marker__:#", StringComparison.Ordinal) == true) == true)
+            {
+                channelIds.Add((int)row.ChannelId);
+            }
+        }
+
+        return channelIds;
+    }
+
     public async Task MarkStaleAsync(int channelId, string reason)
     {
         using var conn = _db.CreateConnection();
@@ -107,5 +131,11 @@ public sealed class AclSnapshotRepository : IAclSnapshotRepository
         public string PayloadHash { get; init; } = string.Empty;
         public long IsStale { get; init; }
         public string? StaleReason { get; init; }
+    }
+
+    private sealed class PasswordRow
+    {
+        public long ChannelId { get; init; }
+        public string PayloadJson { get; init; } = string.Empty;
     }
 }

@@ -83,6 +83,10 @@ const ALL_USERS_SELECTOR = 'all';
 const MODERATOR_PERMISSIONS = Permission.Kick | Permission.Ban | Permission.Move | Permission.MuteDeafen;
 const CHANNEL_ENTRY_PERMISSIONS = Permission.Enter | Permission.Traverse;
 
+function normalizePasswordSelector(selector: string): string {
+  return selector.startsWith('#') ? selector.slice(1) : selector;
+}
+
 function buildSharedAccessEntries(acls: AclRule[]): SharedAccessEntry[] {
   const markerBySelector = new Map<string, number>();
   acls.forEach((rule, index) => {
@@ -97,7 +101,7 @@ function buildSharedAccessEntries(acls: AclRule[]): SharedAccessEntry[] {
 
     return [{
       kind: markerBySelector.has(rule.group) ? 'password' : rule.group.startsWith('#') ? 'token' : 'group',
-      selector: rule.group,
+      selector: markerBySelector.has(rule.group) ? normalizePasswordSelector(rule.group) : rule.group,
       allow: rule.allow,
       deny: rule.deny,
       applyHere: rule.applyHere,

@@ -2,6 +2,9 @@ namespace Brmble.Server.Mumble;
 
 public sealed class AclValidationService
 {
+    // Mumble's Listen ACL bit is not exposed by the generated MumbleServer constants.
+    private const int PermissionListen = 0x800;
+
     private const int KnownPermissionMask =
         MumbleServer.PermissionWrite.value |
         MumbleServer.PermissionTraverse.value |
@@ -17,6 +20,7 @@ public sealed class AclValidationService
         MumbleServer.PermissionRegister.value |
         MumbleServer.PermissionRegisterSelf.value |
         MumbleServer.PermissionMakeTempChannel.value |
+        PermissionListen |
         MumbleServer.PermissionMuteDeafen.value |
         MumbleServer.ResetUserContent.value;
 

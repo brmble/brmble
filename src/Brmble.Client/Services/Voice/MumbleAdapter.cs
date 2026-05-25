@@ -53,6 +53,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private int _reconnectPort;
     private volatile string? _reconnectUsername;
     private string? _reconnectPassword;
+    private uint? _reconnectTargetChannelId;
     private string? _currentPttKey;
     private readonly Stopwatch _notifyThrottle = Stopwatch.StartNew();
     private string? _apiUrl;
@@ -253,6 +254,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     public void Initialize(NativeBridge bridge) { }
 
+    private static string BuildServerKey(string host, int port) => $"{host.Trim().ToLowerInvariant()}:{port}";
+
+    internal void SetActiveServerForTests(string host, int port)
+    {
+        _reconnectHost = host;
+        _reconnectPort = port;
+    }
+
     public void Connect(string host, int port, string username, string password = "", string? apiUrl = null)
     {
         // Clear reconnect flag on every fresh Connect() call.  ReconnectLoop
@@ -318,7 +327,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _bridge?.NotifyUiThread();
 
             var connection = new MumbleConnection(host, port, this, voiceSupport: true);
-            connection.Connect(username, password, Array.Empty<string>(), "Brmble");
+            var serverKey = BuildServerKey(host, port);
+            var accessTokens = _appConfigService?.GetChannelAccessTokens(serverKey).ToArray() ?? Array.Empty<string>();
+            connection.Connect(username, password, accessTokens, "Brmble");
 
             _cts = new CancellationTokenSource();
             _processThread = new Thread(() => ProcessLoop(_cts.Token))
@@ -424,6 +435,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _apiUrl = null;
             _activeServerId = null;
             _reconnectPassword = null;
+            _reconnectTargetChannelId = null;
         }
         _leftVoice = false;
         _leaveVoiceInProgress = false;
@@ -531,7 +543,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         // If intentional or CTS was cancelled, Disconnect() was already called by the handler.
     }
 
-    private async Task ReconnectLoop()
+    private async Task ReconnectLoop(bool immediateFirstAttempt = false)
     {
         var delays = new[] { 2000, 4000, 8000, 16000, 30000 };
         int attempt = 0;
@@ -543,17 +555,22 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         {
             while (!token.IsCancellationRequested && !_intentionalDisconnect)
             {
-                int delayMs = delays[Math.Min(attempt, delays.Length - 1)];
+                int delayMs = immediateFirstAttempt && attempt == 0
+                    ? 0
+                    : delays[Math.Min(attempt, delays.Length - 1)];
                 _bridge?.Send("voice.reconnecting", new { attempt = attempt + 1, delayMs });
                 _bridge?.NotifyUiThread();
 
-                try
+                if (delayMs > 0)
                 {
-                    await Task.Delay(delayMs, token);
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
+                    try
+                    {
+                        await Task.Delay(delayMs, token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
                 }
 
                 if (_intentionalDisconnect || token.IsCancellationRequested)
@@ -1099,6 +1116,23 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         return doc.RootElement.Clone();
     }
 
+    private void ApplyPasswordProtectedChannelIdsFromCredentials(System.Text.Json.JsonElement credentials)
+    {
+        if (!credentials.TryGetProperty("passwordProtectedChannelIds", out var ids) || ids.ValueKind != System.Text.Json.JsonValueKind.Array)
+        {
+            return;
+        }
+
+        _channelPasswordRestrictions.Clear();
+        foreach (var id in ids.EnumerateArray())
+        {
+            if (id.ValueKind == System.Text.Json.JsonValueKind.Number && id.TryGetUInt32(out var channelId))
+            {
+                _channelPasswordRestrictions[channelId] = true;
+            }
+        }
+    }
+
     /// <summary>
     /// Fetches credentials via BouncyCastle managed TLS, bypassing Windows SChannel
     /// which silently refuses to present self-signed client certificates.
@@ -1429,12 +1463,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     private const string BrmblePasswordMarkerPrefix = "__brmble_password_marker__:";
     private const string BrmblePasswordOpenBlockMarker = "__brmble_password_open_block__";
+    private const int LegacyManagedPasswordTokenAllowMask = 0x04 | 0x02;
+    private const int ManagedPasswordTokenAllowMask = 0x02 | 0x04 | 0x08 | 0x100 | 0x200 | 0x800;
+    private const int ManagedPasswordAllDenyMask = 0x02 | 0x04 | 0x08 | 0x100 | 0x200 | 0x400 | 0x800;
+
+    private static string? GetAclGroup(System.Text.Json.JsonElement acl)
+        => acl.TryGetProperty("group", out var groupProp) && groupProp.ValueKind != System.Text.Json.JsonValueKind.Null
+            ? groupProp.GetString()
+            : null;
 
     private static bool IsManagedAllUsersDenyRule(System.Text.Json.JsonElement acl)
     {
-        var group = acl.TryGetProperty("group", out var groupProp) && groupProp.ValueKind != System.Text.Json.JsonValueKind.Null
-            ? groupProp.GetString()
-            : null;
+        var group = GetAclGroup(acl);
         var userId = acl.TryGetProperty("userId", out var userIdProp) && userIdProp.ValueKind != System.Text.Json.JsonValueKind.Null
             ? userIdProp.GetInt32()
             : (int?)null;
@@ -1448,7 +1488,26 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             && applyHere
             && !applySubs
             && allow == 0
-            && deny == (0x04 | 0x02);
+            && deny == ManagedPasswordAllDenyMask;
+    }
+
+    private static bool IsLegacyManagedAllUsersDenyRule(System.Text.Json.JsonElement acl)
+    {
+        var group = GetAclGroup(acl);
+        var userId = acl.TryGetProperty("userId", out var userIdProp) && userIdProp.ValueKind != System.Text.Json.JsonValueKind.Null
+            ? userIdProp.GetInt32()
+            : (int?)null;
+        var applyHere = acl.TryGetProperty("applyHere", out var applyHereProp) && applyHereProp.GetBoolean();
+        var applySubs = acl.TryGetProperty("applySubs", out var applySubsProp) && applySubsProp.GetBoolean();
+        var allow = acl.TryGetProperty("allow", out var allowProp) ? allowProp.GetInt32() : 0;
+        var deny = acl.TryGetProperty("deny", out var denyProp) ? denyProp.GetInt32() : 0;
+
+        return userId is null
+            && string.Equals(group, "all", StringComparison.Ordinal)
+            && applyHere
+            && !applySubs
+            && allow == 0
+            && deny == LegacyManagedPasswordTokenAllowMask;
     }
 
     private static bool IsBrmblePasswordOpenBlockMarker(string? group)
@@ -1472,9 +1531,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     private static bool IsManagedPasswordTokenRule(System.Text.Json.JsonElement acl, string selector)
     {
-        var group = acl.TryGetProperty("group", out var groupProp) && groupProp.ValueKind != System.Text.Json.JsonValueKind.Null
-            ? groupProp.GetString()
-            : null;
+        var group = GetAclGroup(acl);
         var userId = acl.TryGetProperty("userId", out var userIdProp) && userIdProp.ValueKind != System.Text.Json.JsonValueKind.Null
             ? userIdProp.GetInt32()
             : (int?)null;
@@ -1487,7 +1544,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             && string.Equals(group, selector, StringComparison.Ordinal)
             && applyHere
             && !applySubs
-            && allow == (0x04 | 0x02)
+            && (allow == ManagedPasswordTokenAllowMask || allow == LegacyManagedPasswordTokenAllowMask)
             && deny == 0;
     }
 
@@ -1583,10 +1640,22 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 }
             }
 
+            var managedAllUsersDenyRuleIndex = -1;
+            if (managedTokenRuleIndex > 0 && IsManagedAllUsersDenyRule(localRules[managedTokenRuleIndex - 1]))
+            {
+                managedAllUsersDenyRuleIndex = managedTokenRuleIndex - 1;
+            }
+            else if (managedTokenRuleIndex > 1
+                && IsBrmblePasswordOpenBlockMarker(GetAclGroup(localRules[managedTokenRuleIndex - 1]))
+                && IsLegacyManagedAllUsersDenyRule(localRules[managedTokenRuleIndex - 2]))
+            {
+                managedAllUsersDenyRuleIndex = managedTokenRuleIndex - 2;
+            }
+
             var filteredRules = new List<System.Text.Json.JsonElement>(localRules.Count);
             for (var i = 0; i < localRules.Count; i++)
             {
-                if (i == markerIndex || i == managedTokenRuleIndex)
+                if (i == markerIndex || i == managedTokenRuleIndex || i == managedAllUsersDenyRuleIndex)
                 {
                     continue;
                 }
@@ -1602,7 +1671,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             var filteredRules = new List<System.Text.Json.JsonElement>(localRules.Count);
             for (var i = 0; i < localRules.Count; i++)
             {
-                if (i == openBlockMarkerIndex || i == openBlockRuleIndex)
+                if (i == openBlockMarkerIndex || i == openBlockRuleIndex || IsBrmblePasswordOpenBlockMarker(GetAclGroup(localRules[i])))
                 {
                     continue;
                 }
@@ -1616,32 +1685,16 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         var normalizedPassword = password.Trim();
         if (!string.IsNullOrWhiteSpace(normalizedPassword))
         {
-            var hasEntryRestriction = localRules.Any(acl => IsManagedAllUsersDenyRule(acl));
-            if (!hasEntryRestriction)
+            var allUsersDenyRule = new
             {
-                var allUsersDenyRule = new
-                {
-                    applyHere = true,
-                    applySubs = false,
-                    inherited = false,
-                    userId = (int?)null,
-                    group = "all",
-                    allow = 0,
-                    deny = 0x04 | 0x02,
-                };
-                var openBlockMarkerRule = new
-                {
-                    applyHere = true,
-                    applySubs = false,
-                    inherited = false,
-                    userId = (int?)null,
-                    group = BrmblePasswordOpenBlockMarker,
-                    allow = 0,
-                    deny = 0,
-                };
-                localRules.Add(System.Text.Json.JsonSerializer.SerializeToElement(allUsersDenyRule));
-                localRules.Add(System.Text.Json.JsonSerializer.SerializeToElement(openBlockMarkerRule));
-            }
+                applyHere = true,
+                applySubs = false,
+                inherited = false,
+                userId = (int?)null,
+                group = "all",
+                allow = 0,
+                deny = ManagedPasswordAllDenyMask,
+            };
 
             var selector = $"#{normalizedPassword}";
             var tokenRule = new
@@ -1651,7 +1704,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 inherited = false,
                 userId = (int?)null,
                 group = selector,
-                allow = 0x04 | 0x02,
+                allow = ManagedPasswordTokenAllowMask,
                 deny = 0,
             };
             var markerRule = new
@@ -1664,6 +1717,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 allow = 0,
                 deny = 0,
             };
+            localRules.Add(System.Text.Json.JsonSerializer.SerializeToElement(allUsersDenyRule));
             localRules.Add(System.Text.Json.JsonSerializer.SerializeToElement(tokenRule));
             localRules.Add(System.Text.Json.JsonSerializer.SerializeToElement(markerRule));
         }
@@ -1832,6 +1886,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 foreach (var (sid, entry) in ParseSessionMappings(sessionMappingsElement))
                     _sessionMappings[sid] = entry;
             }
+
+            ApplyPasswordProtectedChannelIdsFromCredentials(credentials.Value);
 
             // The server returns its internal homeserverUrl (e.g. http://localhost:6167).
             // Clients reach Matrix via the YARP proxy on the same Brmble API URL,
@@ -2591,6 +2647,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         {
             _intentionalDisconnect = true;
             _reconnectCts?.Cancel();
+            _reconnectTargetChannelId = null;
             Disconnect();
             return Task.CompletedTask;
         });
@@ -2599,8 +2656,33 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         {
             _intentionalDisconnect = true;
             _reconnectCts?.Cancel();
+            _reconnectTargetChannelId = null;
             _bridge?.Send("voice.disconnected", null);
             _bridge?.NotifyUiThread();
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.reconnect", data =>
+        {
+            if (string.IsNullOrWhiteSpace(_reconnectHost) ||
+                _reconnectPort <= 0 ||
+                string.IsNullOrWhiteSpace(_reconnectUsername))
+            {
+                _bridge?.Send("voice.reconnectFailed", new { reason = "No server connection available to reconnect" });
+                _bridge?.NotifyUiThread();
+                return Task.CompletedTask;
+            }
+
+            _intentionalDisconnect = false;
+            _rejected = false;
+            _reconnectCts?.Cancel();
+            _reconnectTargetChannelId = data.TryGetProperty("channelId", out var channelIdEl) &&
+                channelIdEl.ValueKind == System.Text.Json.JsonValueKind.Number &&
+                channelIdEl.TryGetUInt32(out var channelId)
+                    ? channelId
+                    : null;
+            Disconnect();
+            _ = Task.Run(() => ReconnectLoop(immediateFirstAttempt: true));
             return Task.CompletedTask;
         });
 
@@ -2635,6 +2717,81 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 var password = data.TryGetProperty("password", out var pw) ? pw.GetString() : null;
                 JoinChannel(id.GetUInt32(), password);
             }
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.saveChannelPassword", data =>
+        {
+            if (_appConfigService == null ||
+                string.IsNullOrWhiteSpace(_reconnectHost) ||
+                Connection is not { State: ConnectionStates.Connected })
+            {
+                return Task.CompletedTask;
+            }
+
+            if (!data.TryGetProperty("channelId", out var id) ||
+                id.ValueKind != System.Text.Json.JsonValueKind.Number ||
+                !id.TryGetUInt32(out var channelId) ||
+                !data.TryGetProperty("channelName", out var nameEl) ||
+                nameEl.ValueKind != System.Text.Json.JsonValueKind.String)
+            {
+                return Task.CompletedTask;
+            }
+
+            if (!data.TryGetProperty("password", out var pw) || pw.ValueKind != System.Text.Json.JsonValueKind.String)
+            {
+                return Task.CompletedTask;
+            }
+
+            var channelName = nameEl.GetString() ?? "Channel";
+            var password = pw.GetString() ?? "";
+            var serverKey = BuildServerKey(_reconnectHost, _reconnectPort);
+
+            try
+            {
+                if (string.IsNullOrWhiteSpace(password))
+                {
+                    _appConfigService.RemoveChannelPassword(serverKey, channelId);
+                }
+                else
+                {
+                    _appConfigService.SaveChannelPassword(serverKey, channelId, channelName, password.Trim());
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Mumble] Failed to save channel password for channel {channelId}: {ex.GetType().Name}");
+                _bridge?.Send("voice.channelPasswordSaveError", new { message = "Unable to save channel password" });
+                _bridge?.NotifyUiThread();
+            }
+
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.getChannelPassword", data =>
+        {
+            if (_appConfigService == null || string.IsNullOrWhiteSpace(_reconnectHost))
+            {
+                return Task.CompletedTask;
+            }
+
+            if (!data.TryGetProperty("channelId", out var id) ||
+                id.ValueKind != System.Text.Json.JsonValueKind.Number ||
+                !id.TryGetUInt32(out var channelId))
+            {
+                return Task.CompletedTask;
+            }
+
+            var requestId = data.TryGetProperty("requestId", out var requestIdEl) && requestIdEl.ValueKind == System.Text.Json.JsonValueKind.String
+                ? requestIdEl.GetString()
+                : null;
+            var serverKey = BuildServerKey(_reconnectHost, _reconnectPort);
+            var password = _appConfigService.GetChannelPasswords(serverKey)
+                .FirstOrDefault(p => p.ChannelId == channelId)
+                ?.Password ?? "";
+
+            _bridge?.Send("voice.channelPassword", new { requestId, channelId, password });
+            _bridge?.NotifyUiThread();
             return Task.CompletedTask;
         });
 
@@ -3627,6 +3784,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             ActivateLeaveVoice(channelMoveInProgress: true);
         }
 
+        if (_isReconnect && _reconnectTargetChannelId is { } reconnectTargetChannelId)
+        {
+            _reconnectTargetChannelId = null;
+            JoinChannel(reconnectTargetChannelId);
+            voiceConnectedChannelId = reconnectTargetChannelId;
+        }
+
         _isReconnect = false;
 
         // Determine the API URL for credential fetch.
@@ -4064,6 +4228,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _reconnectHost = null;
             _reconnectUsername = null;
             _reconnectPassword = null;
+            _reconnectTargetChannelId = null;
 
             if (userRemove.Ban == true)
             {

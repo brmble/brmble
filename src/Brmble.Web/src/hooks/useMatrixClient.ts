@@ -262,7 +262,8 @@ function loadMessagesFromTimeline(
         onReplacementEdit?.(bundled);
       }
       // Mark message as redacted if already redacted or has redaction event
-      if (ev.isRedacted() || redactedEventIds.has(m.id)) {
+      const isEventRedacted = typeof ev.isRedacted === 'function' && ev.isRedacted();
+      if (isEventRedacted || redactedEventIds.has(m.id)) {
         out.push({ ...m, redacted: true, content: '', media: undefined });
       } else {
         out.push(m);
@@ -447,7 +448,8 @@ export function useMatrixClient(
   }, [refreshActiveTypingText]);
 
   const replaceRoomTypingFromMembers = useCallback((room: Room | undefined, roomId: string, now: number) => {
-    const nextEntries = (room?.getMembers() ?? [])
+    const members = typeof room?.getMembers === 'function' ? room.getMembers() : [];
+    const nextEntries = members
       .filter((member) => member.typing)
       .filter((member) => member.userId !== credentials?.userId)
       .map((member) => ({

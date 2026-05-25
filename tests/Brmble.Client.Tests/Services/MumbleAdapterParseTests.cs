@@ -12,8 +12,12 @@ using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.Certificate;
 using Brmble.Client.Services.Serverlist;
 using Brmble.Client.Services.Voice;
+using MumbleProto;
+using MumbleSharp;
+using MumbleSharp.Packets;
 using MumbleSharp.Model;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using ProtoBuf;
 
 namespace Brmble.Client.Tests.Services;
 
@@ -83,17 +87,24 @@ internal static class MumbleAdapterTestHarness
     public static void SetField(object instance, string name, object? value)
         => instance.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(instance, value);
 
+    public static T GetField<T>(object instance, string name)
+        => (T)instance.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(instance)!;
+
     public static void InvokeHandleWebSocketMessage(MumbleAdapter adapter, string json)
         => adapter.GetType().GetMethod("HandleWebSocketMessage", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(adapter, [json]);
 
     private static void SetBaseField(object instance, string name, object? value)
         => instance.GetType().BaseType!.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(instance, value);
+
+    public static T GetBaseField<T>(object instance, string name)
+        => (T)instance.GetType().BaseType!.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(instance)!;
 }
 
 internal sealed class TestAppConfigService : IAppConfigService
 {
     private readonly string _certsDir;
+    private readonly List<SavedChannelPassword> _channelPasswords = new();
 
     public TestAppConfigService(string certsDir) => _certsDir = certsDir;
 
@@ -105,6 +116,22 @@ internal sealed class TestAppConfigService : IAppConfigService
     public AppSettings CurrentSettings { get; private set; } = AppSettings.Default;
     public AppSettings? LastSetSettings { get; private set; }
     public AppSettings GetSettings() => CurrentSettings;
+    public IReadOnlyList<SavedChannelPassword> GetChannelPasswords(string serverKey)
+        => _channelPasswords.Where(p => p.ServerKey == serverKey).ToList();
+    public IReadOnlyList<string> GetChannelAccessTokens(string serverKey)
+        => _channelPasswords
+            .Where(p => p.ServerKey == serverKey)
+            .Select(p => p.Password.Trim())
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+    public void SaveChannelPassword(string serverKey, uint channelId, string channelName, string password)
+    {
+        _channelPasswords.RemoveAll(p => p.ServerKey == serverKey && p.ChannelId == channelId);
+        _channelPasswords.Add(new SavedChannelPassword(serverKey, channelId, channelName, password));
+    }
+    public void RemoveChannelPassword(string serverKey, uint channelId)
+        => _channelPasswords.RemoveAll(p => p.ServerKey == serverKey && p.ChannelId == channelId);
     public void SetSettings(AppSettings settings)
     {
         CurrentSettings = settings;
@@ -126,6 +153,76 @@ internal sealed class TestAppConfigService : IAppConfigService
     public void SetActiveProfileId(string? id) { }
     public string GetCertsDir() => _certsDir;
     public void SwapProfileRegistrations(string? oldProfileId, string? newProfileId) { }
+}
+
+internal sealed class MumbleProtocolTestHarness : IAsyncDisposable
+{
+    private readonly TcpListener _listener;
+    private readonly X509Certificate2 _serverCertificate;
+    private readonly Task<TcpClient> _acceptTask;
+    private SslStream? _ssl;
+    private TcpClient? _client;
+
+    private MumbleProtocolTestHarness()
+    {
+        _serverCertificate = TestTlsHttpServer.CreateCertificate("CN=localhost");
+        _listener = new TcpListener(IPAddress.Loopback, 0);
+        _listener.Start();
+        Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
+        _acceptTask = _listener.AcceptTcpClientAsync();
+    }
+
+    public int Port { get; }
+
+    public static Task<MumbleProtocolTestHarness> StartAsync()
+        => Task.FromResult(new MumbleProtocolTestHarness());
+
+    public async Task<MumbleProto.Authenticate> ReadAuthenticateAsync()
+    {
+        _client = await _acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        _ssl = new SslStream(_client.GetStream(), false);
+        await _ssl.AuthenticateAsServerAsync(_serverCertificate, clientCertificateRequired: false, enabledSslProtocols: System.Security.Authentication.SslProtocols.Tls12, checkCertificateRevocation: false);
+
+        _ = await ReadPacketAsync<MumbleProto.Version>();
+        var (type, authenticate) = await ReadPacketAsync<MumbleProto.Authenticate>();
+        Assert.AreEqual(PacketType.Authenticate, type);
+        return authenticate;
+    }
+
+    private async Task<(PacketType Type, T Payload)> ReadPacketAsync<T>()
+    {
+        var typeBytes = await ReadExactlyAsync(2);
+        var type = (PacketType)IPAddress.NetworkToHostOrder(BitConverter.ToInt16(typeBytes));
+        var lengthBytes = await ReadExactlyAsync(4);
+        var length = IPAddress.NetworkToHostOrder(BitConverter.ToInt32(lengthBytes));
+        var payloadBytes = await ReadExactlyAsync(length);
+        using var payload = new MemoryStream(payloadBytes);
+        return (type, Serializer.Deserialize<T>(payload));
+    }
+
+    private async Task<byte[]> ReadExactlyAsync(int length)
+    {
+        var buffer = new byte[length];
+        var offset = 0;
+        while (offset < length)
+        {
+            var read = await _ssl!.ReadAsync(buffer.AsMemory(offset, length - offset)).AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+            if (read == 0)
+                throw new EndOfStreamException();
+            offset += read;
+        }
+
+        return buffer;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _listener.Stop();
+        _ssl?.Dispose();
+        _client?.Dispose();
+        try { await _acceptTask; } catch { }
+        _serverCertificate.Dispose();
+    }
 }
 
 internal sealed class TestTlsHttpServer : IAsyncDisposable
@@ -191,6 +288,27 @@ internal sealed class TestTlsHttpServer : IAsyncDisposable
 public class MumbleAdapterParseTests
 {
     [TestMethod]
+    public void ServerSync_JoinsReconnectTargetAfterAuthenticateTokensApply()
+    {
+        var bridge = NativeBridgeTestHarness.Create();
+        var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge);
+        var connection = new MumbleConnection(new IPEndPoint(IPAddress.Loopback, 64738), adapter, voiceSupport: false);
+        adapter.Initialise(connection);
+        typeof(MumbleConnection).GetProperty(nameof(MumbleConnection.State))!.SetValue(connection, ConnectionStates.Connected);
+        var channelDictionary = MumbleAdapterTestHarness.GetBaseField<ConcurrentDictionary<uint, Channel>>(adapter, "ChannelDictionary");
+        channelDictionary[0] = new Channel(adapter, 0, "Root", 0);
+        var userDictionary = MumbleAdapterTestHarness.GetBaseField<ConcurrentDictionary<uint, User>>(adapter, "UserDictionary");
+        userDictionary[1] = new User(adapter, 1) { Name = "TestUser", Channel = channelDictionary[0] };
+        MumbleAdapterTestHarness.SetField(adapter, "_isReconnect", true);
+        MumbleAdapterTestHarness.SetField(adapter, "_reconnectTargetChannelId", 5u);
+
+        adapter.ServerSync(new ServerSync { Session = 1 });
+
+        Assert.AreEqual(5u, MumbleAdapterTestHarness.GetField<uint?>(adapter, "_pendingLocalJoinChannelId"));
+        Assert.IsNull(MumbleAdapterTestHarness.GetField<uint?>(adapter, "_reconnectTargetChannelId"));
+    }
+
+    [TestMethod]
     public void HandleWebSocketAclChanged_ForwardsToBridge()
     {
         var bridge = NativeBridgeTestHarness.Create();
@@ -235,6 +353,23 @@ public class MumbleAdapterParseTests
 
         Assert.IsTrue(sent.Any(x => x.Type == "livekit.activeShareError"));
         Assert.IsFalse(sent.Any(x => x.Type == "livekit.activeShareResult" && x.DataJson.Contains("\"shares\"")));
+    }
+
+    [TestMethod]
+    public async Task Connect_SendsSavedChannelPasswordsAsAuthenticateTokens()
+    {
+        await using var harness = await MumbleProtocolTestHarness.StartAsync();
+        var appConfig = new TestAppConfigService(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()));
+        appConfig.SaveChannelPassword("127.0.0.1:" + harness.Port, 5, "Secret", "secret-token");
+        appConfig.SaveChannelPassword("127.0.0.1:" + harness.Port, 6, "Other", "secret-token");
+        var adapter = new MumbleAdapter(NativeBridgeTestHarness.Create(), IntPtr.Zero, appConfigService: appConfig);
+
+        var authenticateTask = harness.ReadAuthenticateAsync();
+        adapter.Connect("127.0.0.1", harness.Port, "tester", "");
+        var authenticate = await authenticateTask;
+
+        Assert.AreEqual(1, authenticate.Tokens.Count);
+        Assert.AreEqual("secret-token", authenticate.Tokens.Single());
     }
 
     [TestMethod]
@@ -551,8 +686,114 @@ public class MumbleAdapterParseTests
         Assert.IsTrue(acls.Any(a =>
             a.GetProperty("group").GetString() == "all"
             && a.GetProperty("allow").GetInt32() == 0
-            && a.GetProperty("deny").GetInt32() == 6));
-        Assert.IsTrue(acls.Any(a => a.GetProperty("group").GetString() == "__brmble_password_open_block__"));
+            && a.GetProperty("deny").GetInt32() == (0x02 | 0x04 | 0x08 | 0x100 | 0x200 | 0x400 | 0x800)));
+        Assert.IsFalse(acls.Any(a => a.GetProperty("group").GetString() == "__brmble_password_open_block__"));
+    }
+
+    [TestMethod]
+    public void SetChannelPassword_BuildRequest_AddsExactlyOrderedPasswordAclBlock()
+    {
+        var body = """
+        {
+          "snapshot": {
+            "channelId": 4,
+            "inheritAcls": true,
+            "groups": [],
+            "acls": [
+              { "applyHere": true, "applySubs": true, "inherited": false, "userId": null, "group": "admin", "allow": 1, "deny": 0 }
+            ],
+            "fetchedAt": "2026-05-15T12:00:00Z",
+            "stale": false,
+            "warning": null,
+            "snapshotHash": "known-hash"
+          }
+        }
+        """;
+
+        var requestJson = MumbleAdapter.BuildSetChannelPasswordRequestBody(body, "new-secret");
+        using var doc = JsonDocument.Parse(requestJson);
+        var acls = doc.RootElement.GetProperty("acls").EnumerateArray().ToList();
+        var passwordBlock = acls.TakeLast(3).ToList();
+
+        Assert.AreEqual("all", passwordBlock[0].GetProperty("group").GetString());
+        Assert.AreEqual(0, passwordBlock[0].GetProperty("allow").GetInt32());
+        Assert.AreEqual(0x02 | 0x04 | 0x08 | 0x100 | 0x200 | 0x400 | 0x800, passwordBlock[0].GetProperty("deny").GetInt32());
+        Assert.AreEqual("#new-secret", passwordBlock[1].GetProperty("group").GetString());
+        Assert.AreEqual(0x02 | 0x04 | 0x08 | 0x100 | 0x200 | 0x800, passwordBlock[1].GetProperty("allow").GetInt32());
+        Assert.AreEqual(0, passwordBlock[1].GetProperty("deny").GetInt32());
+        Assert.AreEqual("__brmble_password_marker__:#new-secret", passwordBlock[2].GetProperty("group").GetString());
+        Assert.AreEqual(0, passwordBlock[2].GetProperty("allow").GetInt32());
+        Assert.AreEqual(0, passwordBlock[2].GetProperty("deny").GetInt32());
+        Assert.IsFalse(acls.Any(a => a.GetProperty("group").GetString() == "__brmble_password_open_block__"));
+    }
+
+    [TestMethod]
+    public void SetChannelPassword_BuildRequest_ChangingPasswordReplacesManagedAclBlock()
+    {
+        var body = """
+        {
+          "snapshot": {
+            "channelId": 4,
+            "inheritAcls": true,
+            "groups": [],
+            "acls": [
+              { "applyHere": true, "applySubs": false, "inherited": false, "userId": null, "group": "all", "allow": 0, "deny": 3854 },
+              { "applyHere": true, "applySubs": false, "inherited": false, "userId": null, "group": "#old-secret", "allow": 6, "deny": 0 },
+              { "applyHere": true, "applySubs": false, "inherited": false, "userId": null, "group": "__brmble_password_marker__:#old-secret", "allow": 0, "deny": 0 },
+              { "applyHere": true, "applySubs": true, "inherited": false, "userId": null, "group": "vip", "allow": 4, "deny": 0 }
+            ],
+            "fetchedAt": "2026-05-15T12:00:00Z",
+            "stale": false,
+            "warning": null,
+            "snapshotHash": "known-hash"
+          }
+        }
+        """;
+
+        var requestJson = MumbleAdapter.BuildSetChannelPasswordRequestBody(body, "new-secret");
+        using var doc = JsonDocument.Parse(requestJson);
+        var acls = doc.RootElement.GetProperty("acls").EnumerateArray().ToList();
+
+        Assert.IsFalse(acls.Any(a => a.GetProperty("group").GetString() == "#old-secret"));
+        Assert.IsFalse(acls.Any(a => a.GetProperty("group").GetString() == "__brmble_password_marker__:#old-secret"));
+        Assert.AreEqual(1, acls.Count(a => a.GetProperty("group").GetString() == "all" && a.GetProperty("deny").GetInt32() == 3854));
+        Assert.IsTrue(acls.Any(a => a.GetProperty("group").GetString() == "vip"));
+
+        var passwordBlock = acls.TakeLast(3).ToList();
+        Assert.AreEqual("all", passwordBlock[0].GetProperty("group").GetString());
+        Assert.AreEqual("#new-secret", passwordBlock[1].GetProperty("group").GetString());
+        Assert.AreEqual("__brmble_password_marker__:#new-secret", passwordBlock[2].GetProperty("group").GetString());
+    }
+
+    [TestMethod]
+    public void SetChannelPassword_BuildRequest_ChangingLegacyPasswordAllowMaskWritesExpandedAllowMask()
+    {
+        var body = """
+        {
+          "snapshot": {
+            "channelId": 4,
+            "inheritAcls": true,
+            "groups": [],
+            "acls": [
+              { "applyHere": true, "applySubs": false, "inherited": false, "userId": null, "group": "all", "allow": 0, "deny": 3854 },
+              { "applyHere": true, "applySubs": false, "inherited": false, "userId": null, "group": "#old-secret", "allow": 6, "deny": 0 },
+              { "applyHere": true, "applySubs": false, "inherited": false, "userId": null, "group": "__brmble_password_marker__:#old-secret", "allow": 0, "deny": 0 }
+            ],
+            "fetchedAt": "2026-05-15T12:00:00Z",
+            "stale": false,
+            "warning": null,
+            "snapshotHash": "known-hash"
+          }
+        }
+        """;
+
+        var requestJson = MumbleAdapter.BuildSetChannelPasswordRequestBody(body, "new-secret");
+        using var doc = JsonDocument.Parse(requestJson);
+        var acls = doc.RootElement.GetProperty("acls").EnumerateArray().ToList();
+        var passwordRule = acls.Single(a => a.GetProperty("group").GetString() == "#new-secret");
+
+        Assert.IsFalse(acls.Any(a => a.GetProperty("group").GetString() == "#old-secret"));
+        Assert.AreEqual(0x02 | 0x04 | 0x08 | 0x100 | 0x200 | 0x800, passwordRule.GetProperty("allow").GetInt32());
     }
 
     [TestMethod]
@@ -583,7 +824,43 @@ public class MumbleAdapterParseTests
         var acls = doc.RootElement.GetProperty("acls").EnumerateArray().ToList();
 
         Assert.IsFalse(acls.Any(a => a.GetProperty("group").GetString() == "all" && a.GetProperty("deny").GetInt32() == 6));
+        Assert.IsFalse(acls.Any(a => a.GetProperty("group").GetString() == "all" && a.GetProperty("deny").GetInt32() == (0x02 | 0x04 | 0x08 | 0x100 | 0x200 | 0x400 | 0x800)));
         Assert.IsFalse(acls.Any(a => a.GetProperty("group").GetString() == "__brmble_password_open_block__"));
+    }
+
+    [TestMethod]
+    public void SetChannelPassword_BuildRequest_RemovesManagedAclBlockWhenPasswordIsCleared()
+    {
+        var body = """
+        {
+          "snapshot": {
+            "channelId": 4,
+            "inheritAcls": true,
+            "groups": [],
+            "acls": [
+              { "applyHere": true, "applySubs": false, "inherited": false, "userId": null, "group": "all", "allow": 0, "deny": 3854 },
+              { "applyHere": true, "applySubs": false, "inherited": false, "userId": null, "group": "#old-secret", "allow": 6, "deny": 0 },
+              { "applyHere": true, "applySubs": false, "inherited": false, "userId": null, "group": "__brmble_password_marker__:#old-secret", "allow": 0, "deny": 0 },
+              { "applyHere": true, "applySubs": false, "inherited": false, "userId": null, "group": "__brmble_password_open_block__", "allow": 0, "deny": 0 },
+              { "applyHere": true, "applySubs": true, "inherited": false, "userId": null, "group": "all", "allow": 0, "deny": 8 }
+            ],
+            "fetchedAt": "2026-05-15T12:00:00Z",
+            "stale": false,
+            "warning": null,
+            "snapshotHash": "known-hash"
+          }
+        }
+        """;
+
+        var requestJson = MumbleAdapter.BuildSetChannelPasswordRequestBody(body, "");
+        using var doc = JsonDocument.Parse(requestJson);
+        var acls = doc.RootElement.GetProperty("acls").EnumerateArray().ToList();
+
+        Assert.IsFalse(acls.Any(a => a.GetProperty("group").GetString() == "all" && a.GetProperty("deny").GetInt32() == 3854));
+        Assert.IsFalse(acls.Any(a => a.GetProperty("group").GetString() == "#old-secret"));
+        Assert.IsFalse(acls.Any(a => a.GetProperty("group").GetString() == "__brmble_password_marker__:#old-secret"));
+        Assert.IsFalse(acls.Any(a => a.GetProperty("group").GetString() == "__brmble_password_open_block__"));
+        Assert.IsTrue(acls.Any(a => a.GetProperty("group").GetString() == "all" && a.GetProperty("applySubs").GetBoolean() && a.GetProperty("deny").GetInt32() == 8));
     }
 
     [TestMethod]

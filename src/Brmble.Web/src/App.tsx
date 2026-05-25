@@ -61,6 +61,7 @@ import {
 import { migrateLocalStorage } from './utils/migrateLocalStorage';
 import { mapBrmbleServiceStatus } from './utils/brmbleServiceStatus';
 import { areMatrixCredentialsEqual } from './utils/matrixCredentials';
+import { getSavedChannelPassword } from './utils/channelPasswords';
 import './App.css';
 
 export interface ScreenShareEndedNotification {
@@ -1432,6 +1433,16 @@ function App() {
     bridge.send('voice.joinChannel', { channelId });
   }, []);
 
+  const saveChannelPasswordAndReconnect = useCallback((channelId: number, channelName: string, password: string) => {
+    const normalized = password.trim();
+    if (!normalized) {
+      return;
+    }
+
+    bridge.send('voice.saveChannelPassword', { channelId, channelName, password: normalized });
+    bridge.send('voice.reconnect', { channelId });
+  }, []);
+
   // Handle Push-to-Talk key detection via JavaScript when app is focused
   // Keys naturally pass through to other apps when window loses focus
   useEffect(() => {
@@ -1764,11 +1775,13 @@ function App() {
           };
 
           void (async () => {
+            const savedPassword = await getSavedChannelPassword(pendingJoinAttempt.channelId);
             const password = await prompt({
               title: 'Channel Password',
-              message: `Enter the password for ${pendingJoinAttempt.channelName}.`,
+              message: `Enter the password for ${pendingJoinAttempt.channelName}. Save the password and reconnect to authenticate it.`,
               placeholder: 'Password',
-              confirmLabel: 'Join',
+              defaultValue: savedPassword,
+              confirmLabel: 'Save & reconnect',
               cancelLabel: 'Cancel',
               isPassword: true,
             });
@@ -1778,8 +1791,8 @@ function App() {
               return;
             }
 
-            startPendingAction(pendingJoinAttempt.channelId);
-            sendJoinChannel(pendingJoinAttempt.channelId, password);
+            clearPendingJoinAttempt();
+            saveChannelPasswordAndReconnect(pendingJoinAttempt.channelId, pendingJoinAttempt.channelName, password);
           })();
           return;
         }
@@ -2789,18 +2802,19 @@ const handleConnect = (serverData: SavedServer) => {
     }
 
     const joinAction = getJoinAccessAction(channel);
-    let password: string | undefined;
     if (joinAction === 'deny') {
       addMessageToStore('server-root', 'Server', getChannelAccessDeniedMessage(channel), 'system');
       return;
     }
 
     if (joinAction === 'promptPassword') {
+      const savedPassword = await getSavedChannelPassword(channelId);
       const enteredPassword = await prompt({
         title: 'Channel Password',
-        message: `Enter the password for ${channel.name}.`,
+        message: `Enter the password for ${channel.name}. Save the password and reconnect to authenticate it.`,
         placeholder: 'Password',
-        confirmLabel: 'Join',
+        defaultValue: savedPassword,
+        confirmLabel: 'Save & reconnect',
         cancelLabel: 'Cancel',
         isPassword: true,
       });
@@ -2809,7 +2823,8 @@ const handleConnect = (serverData: SavedServer) => {
         return;
       }
 
-      password = enteredPassword;
+      saveChannelPasswordAndReconnect(channelId, channel.name, enteredPassword);
+      return;
     }
 
     if (isSharing && sharingChannelId && String(channelId) !== sharingChannelId) {
@@ -2830,9 +2845,9 @@ const handleConnect = (serverData: SavedServer) => {
     pendingJoinAttemptRef.current = {
       channelId,
       channelName: channel.name,
-      passwordRetrySent: joinAction === 'promptPassword',
+      passwordRetrySent: false,
     };
-    sendJoinChannel(channelId, password);
+    sendJoinChannel(channelId);
   };
 
   const handleSelectChannel = (channelId: number) => {

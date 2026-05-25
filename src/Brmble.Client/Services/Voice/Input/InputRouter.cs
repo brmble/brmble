@@ -8,6 +8,7 @@ namespace Brmble.Client.Services.Voice.Input;
 public sealed class InputRouter : IDisposable
 {
     private readonly IInputBackend _backend;
+    private readonly bool _autoStartTimers;
 
     // Mouse dispatch table — one hook, multiplexed across bindings.
     // _mouseLock guards both the dictionary topology AND each binding's
@@ -92,9 +93,10 @@ public sealed class InputRouter : IDisposable
     /// </summary>
     public event Action? JsForceReleaseRequested;
 
-    public InputRouter(IInputBackend backend)
+    public InputRouter(IInputBackend backend, bool autoStartTimers = true)
     {
         _backend = backend ?? throw new ArgumentNullException(nameof(backend));
+        _autoStartTimers = autoStartTimers;
     }
 
     public void SetPttBinding(string? key)
@@ -253,6 +255,7 @@ public sealed class InputRouter : IDisposable
 
     private void StartPttPolling()
     {
+        if (!_autoStartTimers) return;
         StopPttPolling();
         _pttPollingTimer = new System.Threading.Timer(_ => TickPollOnce(), null, 0, PttPollIntervalMs);
     }
@@ -350,6 +353,7 @@ public sealed class InputRouter : IDisposable
 
     private void EnsureShortcutPolling()
     {
+        if (!_autoStartTimers) return;
         if (_shortcutKbTimer != null) return;
         _shortcutKbTimer = new System.Threading.Timer(_ => TickShortcutPollOnce(), null, 0, ShortcutPollIntervalMs);
     }

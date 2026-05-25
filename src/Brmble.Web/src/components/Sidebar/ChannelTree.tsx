@@ -14,6 +14,7 @@ import type { ShareInfo } from '../../hooks/useScreenShare';
 import { EditChannelDialog } from '../EditChannelDialog/EditChannelDialog';
 import { Icon } from '../Icon/Icon';
 import { AclEditorDialog } from '../AclEditor/AclEditorDialog';
+import { getSavedChannelPassword } from '../../utils/channelPasswords';
 import './ChannelTree.css';
 
 interface User {
@@ -274,6 +275,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
       : channel.canEnter === false
         ? 'Restricted channel'
       : 'Restricted channel, access allowed';
+    const isAccessBlocked = lockIconName !== null && channel.canEnter !== true;
 
     const isChannelActive = (channelId: number) => channelContextMenu?.channelId === channelId;
 
@@ -368,7 +370,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
           })()}
           {lockIconName && (
             <Tooltip content={lockTooltip}>
-              <span className="channel-access-icon" aria-label={lockTooltip}>
+              <span className={`channel-access-icon${isAccessBlocked ? ' channel-access-icon--blocked' : ''}`} aria-label={lockTooltip}>
                 <Icon name={lockIconName} size={11} />
               </span>
             </Tooltip>
@@ -474,6 +476,39 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
         },
       },
     ];
+    const channel = channels.find(c => c.id === channelContextMenu.channelId);
+
+    if (channel?.hasPasswordRestriction) {
+      items.push({
+        type: 'item' as const,
+        label: 'Edit Saved Password',
+        onClick: async () => {
+          const savedPassword = await getSavedChannelPassword(channelContextMenu.channelId);
+          const password = await prompt({
+            title: 'Saved Channel Password',
+            message: `Enter the password for ${channelContextMenu.channelName}. Leave blank to forget the saved password. Save and reconnect to authenticate changes.`,
+            placeholder: 'Password',
+            defaultValue: savedPassword,
+            confirmLabel: 'Save & reconnect',
+            cancelLabel: 'Cancel',
+            isPassword: true,
+          });
+
+          if (password === null) {
+            setChannelContextMenu(null);
+            return;
+          }
+
+          bridge.send('voice.saveChannelPassword', {
+            channelId: channelContextMenu.channelId,
+            channelName: channelContextMenu.channelName,
+            password,
+          });
+          bridge.send('voice.reconnect', { channelId: channelContextMenu.channelId });
+          setChannelContextMenu(null);
+        },
+      });
+    }
 
     const hasEditPermission = hasPermission(channelContextMenu.channelId, Permission.MakeChannel);
     const hasRemovePermission = hasPermission(channelContextMenu.channelId, Permission.Write);
@@ -488,7 +523,6 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
         type: 'item' as const,
         label: 'Edit',
         onClick: () => {
-          const channel = channels.find(c => c.id === channelContextMenu.channelId);
           setEditChannelDialog({
             id: channelContextMenu.channelId,
             name: channelContextMenu.channelName,

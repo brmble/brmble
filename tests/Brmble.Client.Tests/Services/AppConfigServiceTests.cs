@@ -189,6 +189,119 @@ public class AppConfigServiceTests
     }
 
     [TestMethod]
+    public void SavesAndReloads_ChannelPasswordTokensEncryptedAtRest()
+    {
+        var svc = new AppConfigService(_tempDir, null);
+
+        svc.SaveChannelPassword("server-1", 5, "Secret", "secret-token");
+        var rawJson = File.ReadAllText(Path.Combine(_tempDir, "config.json"));
+        var svc2 = new AppConfigService(_tempDir, null);
+
+        Assert.IsFalse(rawJson.Contains("secret-token"));
+        var saved = svc2.GetChannelPasswords("server-1");
+        Assert.AreEqual(1, saved.Count);
+        Assert.AreEqual("server-1", saved[0].ServerKey);
+        Assert.AreEqual(5u, saved[0].ChannelId);
+        Assert.AreEqual("Secret", saved[0].ChannelName);
+        Assert.AreEqual("secret-token", saved[0].Password);
+    }
+
+    [TestMethod]
+    public void SaveChannelPassword_ReplacesExistingChannelPassword()
+    {
+        var svc = new AppConfigService(_tempDir, null);
+
+        svc.SaveChannelPassword("server-1", 5, "Secret", "old-token");
+        svc.SaveChannelPassword("server-1", 5, "Renamed Secret", "new-token");
+
+        var saved = svc.GetChannelPasswords("server-1");
+        Assert.AreEqual(1, saved.Count);
+        Assert.AreEqual("Renamed Secret", saved[0].ChannelName);
+        Assert.AreEqual("new-token", saved[0].Password);
+    }
+
+    [TestMethod]
+    public void RemoveChannelPassword_RemovesOnlyMatchingServerAndChannel()
+    {
+        var svc = new AppConfigService(_tempDir, null);
+        svc.SaveChannelPassword("server-1", 5, "Secret", "secret-token");
+        svc.SaveChannelPassword("server-1", 6, "Other", "other-token");
+        svc.SaveChannelPassword("server-2", 5, "Remote", "remote-token");
+
+        svc.RemoveChannelPassword("server-1", 5);
+
+        CollectionAssert.AreEqual(new[] { "other-token" }, svc.GetChannelAccessTokens("server-1").ToArray());
+        CollectionAssert.AreEqual(new[] { "remote-token" }, svc.GetChannelAccessTokens("server-2").ToArray());
+    }
+
+    [TestMethod]
+    public void GetChannelAccessTokens_DeduplicatesAndSkipsBlankTokens()
+    {
+        var svc = new AppConfigService(_tempDir, null);
+        svc.SaveChannelPassword("server-1", 5, "Secret", "same-token");
+        svc.SaveChannelPassword("server-1", 6, "Other", "same-token");
+        svc.SaveChannelPassword("server-1", 7, "Blank", " ");
+
+        var tokens = svc.GetChannelAccessTokens("server-1");
+
+        CollectionAssert.AreEqual(new[] { "same-token" }, tokens.ToArray());
+    }
+
+    [TestMethod]
+    public void SaveChannelPassword_DoesNotWritePlaintext_WhenEncryptionFails()
+    {
+        var svc = new AppConfigService(_tempDir, new ThrowingSecurePasswordStorage());
+
+        Assert.ThrowsException<InvalidOperationException>(() =>
+            svc.SaveChannelPassword("server-1", 5, "Secret", "secret-token"));
+
+        var configPath = Path.Combine(_tempDir, "config.json");
+        if (File.Exists(configPath))
+        {
+            var rawJson = File.ReadAllText(configPath);
+            Assert.IsFalse(rawJson.Contains("secret-token"));
+        }
+        Assert.AreEqual(0, svc.GetChannelPasswords("server-1").Count);
+        Assert.AreEqual(0, svc.GetChannelAccessTokens("server-1").Count);
+    }
+
+    [TestMethod]
+    public void SaveChannelPassword_PreservesExistingPassword_WhenReplacementEncryptionFails()
+    {
+        var passwordStorage = new FailingForTokenSecurePasswordStorage("new-token");
+        var svc = new AppConfigService(_tempDir, passwordStorage);
+        svc.SaveChannelPassword("server-1", 5, "Secret", "old-token");
+
+        Assert.ThrowsException<InvalidOperationException>(() =>
+            svc.SaveChannelPassword("server-1", 5, "Renamed Secret", "new-token"));
+
+        var rawJson = File.ReadAllText(Path.Combine(_tempDir, "config.json"));
+        Assert.IsFalse(rawJson.Contains("new-token"));
+        var saved = svc.GetChannelPasswords("server-1");
+        Assert.AreEqual(1, saved.Count);
+        Assert.AreEqual("Secret", saved[0].ChannelName);
+        Assert.AreEqual("old-token", saved[0].Password);
+        CollectionAssert.AreEqual(new[] { "old-token" }, svc.GetChannelAccessTokens("server-1").ToArray());
+    }
+
+    [TestMethod]
+    public void RemoveChannelPassword_PreservesExistingPassword_WhenSaveFails()
+    {
+        var passwordStorage = new ToggleableThrowingSecurePasswordStorage();
+        var svc = new AppConfigService(_tempDir, passwordStorage);
+        svc.SaveChannelPassword("server-1", 5, "Secret", "secret-token");
+        svc.SaveChannelPassword("server-1", 6, "Other", "other-token");
+        passwordStorage.ThrowOnEncrypt = true;
+
+        Assert.ThrowsException<InvalidOperationException>(() =>
+            svc.RemoveChannelPassword("server-1", 5));
+
+        var saved = svc.GetChannelPasswords("server-1");
+        Assert.AreEqual(2, saved.Count);
+        CollectionAssert.AreEquivalent(new[] { "secret-token", "other-token" }, saved.Select(p => p.Password).ToArray());
+    }
+
+    [TestMethod]
     public void SavesAndReloads_WindowState()
     {
         var svc = new AppConfigService(_tempDir, null);
@@ -466,6 +579,56 @@ public class AppConfigServiceTests
     }
 
     private AppConfigService CreateService() => new AppConfigService(_tempDir, null);
+
+    private sealed class ThrowingSecurePasswordStorage : ISecurePasswordStorage
+    {
+        public string Encrypt(string plainText) => throw new InvalidOperationException("Encryption unavailable");
+        public string Decrypt(string encryptedBase64) => encryptedBase64;
+        public bool TryDecrypt(string encryptedBase64, out string? plainText)
+        {
+            plainText = null;
+            return false;
+        }
+        public bool IsEncrypted(string value) => false;
+    }
+
+    private sealed class FailingForTokenSecurePasswordStorage(string tokenToFail) : ISecurePasswordStorage
+    {
+        public string Encrypt(string plainText)
+        {
+            if (plainText == tokenToFail)
+                throw new InvalidOperationException("Encryption unavailable");
+            return "encrypted:" + plainText;
+        }
+
+        public string Decrypt(string encryptedBase64) => encryptedBase64["encrypted:".Length..];
+        public bool TryDecrypt(string encryptedBase64, out string? plainText)
+        {
+            plainText = IsEncrypted(encryptedBase64) ? Decrypt(encryptedBase64) : null;
+            return plainText != null;
+        }
+        public bool IsEncrypted(string value) => value.StartsWith("encrypted:", StringComparison.Ordinal);
+    }
+
+    private sealed class ToggleableThrowingSecurePasswordStorage : ISecurePasswordStorage
+    {
+        public bool ThrowOnEncrypt { get; set; }
+
+        public string Encrypt(string plainText)
+        {
+            if (ThrowOnEncrypt)
+                throw new InvalidOperationException("Encryption unavailable");
+            return "encrypted:" + plainText;
+        }
+
+        public string Decrypt(string encryptedBase64) => encryptedBase64["encrypted:".Length..];
+        public bool TryDecrypt(string encryptedBase64, out string? plainText)
+        {
+            plainText = IsEncrypted(encryptedBase64) ? Decrypt(encryptedBase64) : null;
+            return plainText != null;
+        }
+        public bool IsEncrypted(string value) => value.StartsWith("encrypted:", StringComparison.Ordinal);
+    }
 
     [TestMethod]
     public void LoadsLegacySettings_WithSpeechDenoiseAndProcessingStack_ReturnsDefaultNoiseSuppression()

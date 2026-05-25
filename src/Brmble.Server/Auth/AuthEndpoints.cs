@@ -150,6 +150,10 @@ public static class AuthEndpoints
                 publicHomeserverUrl = $"{request.Scheme}://{request.Host}";
             }
 
+            var passwordProtectedChannelIds = await httpContext.RequestServices
+                .GetRequiredService<IAclSnapshotRepository>()
+                .GetPasswordProtectedChannelIdsAsync();
+
             return Results.Ok(new
             {
                 matrix = new
@@ -173,6 +177,7 @@ public static class AuthEndpoints
                         }),
                 registered = result.IsRegistered,
                 registeredName = result.DisplayName,
+                passwordProtectedChannelIds,
                 livekit = (object?)null
             });
         });

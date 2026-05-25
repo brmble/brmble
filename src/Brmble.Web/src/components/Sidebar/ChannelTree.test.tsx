@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { ChannelTree } from './ChannelTree';
 import type { ShareInfo } from '../../hooks/useScreenShare';
 
@@ -8,6 +8,7 @@ const { bridgeMock, usePermissionsMock, editChannelDialogPropsRef, aclEditorDial
     on: vi.fn(),
     off: vi.fn(),
     send: vi.fn(),
+    once: vi.fn(),
   },
   usePermissionsMock: vi.fn(() => ({
     hasPermission: vi.fn((_channelId: number, _permission: number) => false),
@@ -293,20 +294,29 @@ describe('ChannelTree channel access locks', () => {
     const row = screen.getByText('Allowed').closest('.channel-row');
     expect(row?.querySelector('[data-icon="unlock"]')).not.toBeNull();
     expect(row?.querySelector('[data-icon="lock"]')).toBeNull();
+    expect(row?.querySelector('.channel-access-icon--blocked')).toBeNull();
   });
 
   it('renders a closed lock for restricted channels the user cannot enter', () => {
     render(<ChannelTree channels={[{ id: 1, name: 'Secret', isEnterRestricted: true, canEnter: false }]} users={[]} currentChannelId={1} onJoinChannel={vi.fn()} />);
 
     const row = screen.getByText('Secret').closest('.channel-row');
-    expect(row?.querySelector('[data-icon="lock"]')).not.toBeNull();
+    expect(row?.querySelector('.channel-access-icon--blocked [data-icon="lock"]')).not.toBeNull();
   });
 
   it('renders a key icon for password-restricted channels even when enter metadata is missing', () => {
     render(<ChannelTree channels={[{ id: 1, name: 'Secret', hasPasswordRestriction: true }]} users={[]} currentChannelId={1} onJoinChannel={vi.fn()} />);
 
     const row = screen.getByText('Secret').closest('.channel-row');
+    expect(row?.querySelector('.channel-access-icon--blocked [data-icon="key-round"]')).not.toBeNull();
+  });
+
+  it('does not highlight password icon when the user can enter', () => {
+    render(<ChannelTree channels={[{ id: 1, name: 'Secret', hasPasswordRestriction: true, canEnter: true }]} users={[]} currentChannelId={1} onJoinChannel={vi.fn()} />);
+
+    const row = screen.getByText('Secret').closest('.channel-row');
     expect(row?.querySelector('[data-icon="key-round"]')).not.toBeNull();
+    expect(row?.querySelector('.channel-access-icon--blocked')).toBeNull();
   });
 
   it('renders channel access icons as the rightmost channel name sidebar icons', () => {
@@ -320,11 +330,27 @@ describe('ChannelTree channel access locks', () => {
 });
 
 describe('ChannelTree ACL integration', () => {
+  const bridgeHandlers = new Map<string, (data: unknown) => void>();
+
   beforeEach(() => {
     vi.clearAllMocks();
+    bridgeHandlers.clear();
     editChannelDialogPropsRef.current = null;
     aclEditorDialogPropsRef.current = null;
     promptMock.mockReset();
+    bridgeMock.on.mockImplementation((type: string, handler: (data: unknown) => void) => {
+      bridgeHandlers.set(type, handler);
+    });
+    bridgeMock.send.mockImplementation((type: string, payload?: unknown) => {
+      if (type === 'voice.getChannelPassword') {
+        const request = payload as { channelId?: number; requestId?: string };
+        bridgeHandlers.get('voice.channelPassword')?.({
+          requestId: request.requestId,
+          channelId: request.channelId,
+          password: '',
+        });
+      }
+    });
   });
 
   it('shows Edit Permissions for editable channel context menu', () => {
@@ -429,6 +455,168 @@ describe('ChannelTree ACL integration', () => {
     fireEvent.click(screen.getByText('Save Edit Channel'));
 
     expect(bridgeMock.send).not.toHaveBeenCalledWith('acl.setChannelPassword', expect.anything());
+  });
+
+  it('shows Edit Saved Password for password-protected channels without admin permission', () => {
+    usePermissionsMock.mockReturnValue({
+      hasPermission: vi.fn(() => false),
+      Permission: { Write: 0x01, MakeChannel: 0x40, Move: 0x20, Kick: 0x10000, Ban: 0x20000, MuteDeafen: 0x10 },
+      requestPermissions: vi.fn(),
+    });
+
+    render(
+      <ChannelTree
+        channels={[{ id: 5, name: 'Secret', parent: 0, hasPasswordRestriction: true }]}
+        users={[]}
+        currentChannelId={5}
+        onJoinChannel={vi.fn()}
+      />
+    );
+
+    fireEvent.contextMenu(screen.getByText('Secret'));
+
+    expect(screen.getByText('Edit Saved Password')).toBeInTheDocument();
+  });
+
+  it('does not show Edit Saved Password for unrestricted channels', () => {
+    render(
+      <ChannelTree
+        channels={[{ id: 5, name: 'Open', parent: 0 }]}
+        users={[]}
+        currentChannelId={5}
+        onJoinChannel={vi.fn()}
+      />
+    );
+
+    fireEvent.contextMenu(screen.getByText('Open'));
+
+    expect(screen.queryByText('Edit Saved Password')).not.toBeInTheDocument();
+  });
+
+  it('saves a channel password through the saved-token bridge handler', async () => {
+    promptMock.mockResolvedValue('new-secret');
+
+    render(
+      <ChannelTree
+        channels={[{ id: 5, name: 'Secret', parent: 0, hasPasswordRestriction: true }]}
+        users={[]}
+        currentChannelId={5}
+        onJoinChannel={vi.fn()}
+      />
+    );
+
+    fireEvent.contextMenu(screen.getByText('Secret'));
+    fireEvent.click(screen.getByText('Edit Saved Password'));
+
+    await waitFor(() => expect(promptMock).toHaveBeenCalledWith({
+      title: 'Saved Channel Password',
+      message: 'Enter the password for Secret. Leave blank to forget the saved password. Save and reconnect to authenticate changes.',
+      placeholder: 'Password',
+      defaultValue: '',
+      confirmLabel: 'Save & reconnect',
+      cancelLabel: 'Cancel',
+      isPassword: true,
+    }));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(bridgeMock.send).toHaveBeenCalledWith('voice.saveChannelPassword', {
+      channelId: 5,
+      channelName: 'Secret',
+      password: 'new-secret',
+    });
+    expect(bridgeMock.send).toHaveBeenCalledWith('voice.reconnect', { channelId: 5 });
+    expect(bridgeMock.send).not.toHaveBeenCalledWith('acl.setChannelPassword', expect.anything());
+  });
+
+  it('prefills Edit Saved Password with the latest saved channel password', async () => {
+    promptMock.mockResolvedValue('updated-secret');
+    bridgeMock.send.mockImplementation((type: string, payload?: unknown) => {
+      if (type === 'voice.getChannelPassword') {
+        const request = payload as { channelId?: number; requestId?: string };
+        bridgeHandlers.get('voice.channelPassword')?.({
+          requestId: request.requestId,
+          channelId: request.channelId,
+          password: 'saved-secret',
+        });
+      }
+    });
+
+    render(
+      <ChannelTree
+        channels={[{ id: 5, name: 'Secret', parent: 0, hasPasswordRestriction: true }]}
+        users={[]}
+        currentChannelId={5}
+        onJoinChannel={vi.fn()}
+      />
+    );
+
+    fireEvent.contextMenu(screen.getByText('Secret'));
+    fireEvent.click(screen.getByText('Edit Saved Password'));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(bridgeMock.send).toHaveBeenCalledWith('voice.getChannelPassword', {
+      channelId: 5,
+      requestId: expect.stringMatching(/^channel-password-5-/),
+    });
+    expect(promptMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Saved Channel Password',
+      defaultValue: 'saved-secret',
+    }));
+  });
+
+  it('removes a saved channel password when prompt is saved empty', async () => {
+    promptMock.mockResolvedValue('');
+
+    render(
+      <ChannelTree
+        channels={[{ id: 5, name: 'Secret', parent: 0, hasPasswordRestriction: true }]}
+        users={[]}
+        currentChannelId={5}
+        onJoinChannel={vi.fn()}
+      />
+    );
+
+    fireEvent.contextMenu(screen.getByText('Secret'));
+    fireEvent.click(screen.getByText('Edit Saved Password'));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(bridgeMock.send).toHaveBeenCalledWith('voice.saveChannelPassword', {
+      channelId: 5,
+      channelName: 'Secret',
+      password: '',
+    });
+    expect(bridgeMock.send).toHaveBeenCalledWith('voice.reconnect', { channelId: 5 });
+  });
+
+  it('does not save channel password when prompt is canceled', async () => {
+    promptMock.mockResolvedValue(null);
+
+    render(
+      <ChannelTree
+        channels={[{ id: 5, name: 'Secret', parent: 0, hasPasswordRestriction: true }]}
+        users={[]}
+        currentChannelId={5}
+        onJoinChannel={vi.fn()}
+      />
+    );
+
+    fireEvent.contextMenu(screen.getByText('Secret'));
+    fireEvent.click(screen.getByText('Edit Saved Password'));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(bridgeMock.send).not.toHaveBeenCalledWith('voice.saveChannelPassword', expect.anything());
   });
 
   it('uses the shared prompt flow before removing a channel', async () => {

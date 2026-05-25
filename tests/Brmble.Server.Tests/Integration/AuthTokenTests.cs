@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using Brmble.Server.Events;
+using Brmble.Server.Mumble;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -156,5 +157,29 @@ public class AuthTokenTests : IDisposable
             "Session mapping entry should contain isBrmbleClient");
         Assert.IsTrue(isBrmble.GetBoolean(),
             "Self session should have isBrmbleClient = true after auth");
+    }
+
+    [TestMethod]
+    public async Task PostAuthToken_IncludesPasswordProtectedChannelIdsWithoutTokenPlaintext()
+    {
+        var snapshots = _factory.Services.GetRequiredService<IAclSnapshotRepository>();
+        await snapshots.UpsertAsync(new AclChannelSnapshotDto(
+            ChannelId: 5,
+            InheritAcls: true,
+            Groups: [],
+            Acls: [new AclRuleDto(true, false, false, null, "__brmble_password_marker__:#secret-token", 0, 0)],
+            FetchedAt: DateTimeOffset.UtcNow,
+            Stale: false,
+            Warning: null));
+
+        var response = await _client.PostAsync("/auth/token", null);
+        response.EnsureSuccessStatusCode();
+
+        var json = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(json);
+        var ids = doc.RootElement.GetProperty("passwordProtectedChannelIds").EnumerateArray().Select(e => e.GetInt32()).ToArray();
+
+        CollectionAssert.AreEqual(new[] { 5 }, ids);
+        Assert.IsFalse(json.Contains("secret-token", StringComparison.Ordinal));
     }
 }

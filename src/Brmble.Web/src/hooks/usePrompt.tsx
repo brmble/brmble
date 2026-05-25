@@ -165,6 +165,9 @@ function PromptWithInputComponent() {
       globalResolveInput(inputValue);
       globalResolveInput = null;
       setInputValue('');
+      setShowPassword(false);
+      setInputFocused(false);
+      setToggleFocused(false);
       globalForceUpdate?.();
     }
   }, [inputValue]);
