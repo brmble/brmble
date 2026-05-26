@@ -13,15 +13,18 @@ public class LiveKitService : ILiveKitRoomQuery, ILiveKitParticipantRemover
 
     private readonly LiveKitSettings _settings;
     private readonly UserRepository _userRepo;
+    private readonly ILiveKitRoomClient _roomClient;
     private readonly ILogger<LiveKitService> _logger;
 
     public LiveKitService(
         IOptions<LiveKitSettings> settings,
         UserRepository userRepo,
+        ILiveKitRoomClient roomClient,
         ILogger<LiveKitService> logger)
     {
         _settings = settings.Value;
         _userRepo = userRepo;
+        _roomClient = roomClient;
         _logger = logger;
     }
 
@@ -111,16 +114,7 @@ public class LiveKitService : ILiveKitRoomQuery, ILiveKitParticipantRemover
     {
         try
         {
-            var roomService = new RoomServiceClient(
-                _settings.ServerUrl,
-                _settings.ApiKey,
-                _settings.ApiSecret);
-
-            await roomService.RemoveParticipant(new Livekit.Server.Sdk.Dotnet.RoomParticipantIdentity
-            {
-                Room = roomName,
-                Identity = participantIdentity
-            });
+            await _roomClient.RemoveParticipant(roomName, participantIdentity);
 
             _logger.LogInformation("Removed participant {Identity} from room {Room}", participantIdentity, roomName);
             return true;
@@ -137,17 +131,7 @@ public class LiveKitService : ILiveKitRoomQuery, ILiveKitParticipantRemover
     {
         try
         {
-            var roomService = new RoomServiceClient(
-                _settings.ServerUrl,
-                _settings.ApiKey,
-                _settings.ApiSecret);
-
-            var response = await roomService.ListParticipants(new Livekit.Server.Sdk.Dotnet.ListParticipantsRequest
-            {
-                Room = roomName
-            });
-
-            return response.Participants.Select(p => p.Identity).ToList();
+            return await _roomClient.ListParticipantIdentities(roomName);
         }
         catch (Exception ex)
         {
