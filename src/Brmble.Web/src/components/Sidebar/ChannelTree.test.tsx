@@ -773,3 +773,27 @@ describe('ChannelTree idle (moon) icon', () => {
     expect(row?.querySelector('.user-status-area [data-icon="moon"]')).not.toBeNull();
   });
 });
+
+describe('ChannelTree channel ordering', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('renders ChannelTree siblings using channel position instead of id order', () => {
+    render(
+      <ChannelTree
+        channels={[
+          { id: 0, name: 'Root', position: 0 },
+          { id: 20, name: 'Raid', parent: 0, position: 0 },
+          { id: 10, name: 'General', parent: 0, position: 1 },
+        ]}
+        users={[]}
+        currentChannelId={0}
+        onJoinChannel={vi.fn()}
+      />,
+    );
+
+    const labels = screen.getAllByText(/Raid|General/).map(element => element.textContent);
+    expect(labels).toEqual(['Raid', 'General']);
+  });
+});

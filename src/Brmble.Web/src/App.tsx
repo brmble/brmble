@@ -62,6 +62,7 @@ import { migrateLocalStorage } from './utils/migrateLocalStorage';
 import { mapBrmbleServiceStatus } from './utils/brmbleServiceStatus';
 import { areMatrixCredentialsEqual } from './utils/matrixCredentials';
 import { getSavedChannelPassword } from './utils/channelPasswords';
+import { getOrderedChannels } from './utils/channelOrder';
 import './App.css';
 
 export interface ScreenShareEndedNotification {
@@ -580,6 +581,7 @@ interface Channel {
   id: number;
   name: string;
   parent?: number;
+  description?: string;
   position?: number;
   isEnterRestricted?: boolean;
   canEnter?: boolean;
@@ -1244,6 +1246,8 @@ function App() {
   addMessageRef.current = addMessage;
   const currentChannelIdRef = useRef(currentChannelId);
   currentChannelIdRef.current = currentChannelId;
+  const currentChannelNameRef = useRef(currentChannelName);
+  currentChannelNameRef.current = currentChannelName;
   const previousConnectionStatusRef = useRef(connectionStatus);
   const overlayConnectedAtRef = useRef<number | null>(null);
   const previousCurrentChannelIdRef = useRef(currentChannelId);
@@ -1611,7 +1615,7 @@ function App() {
         setUsername(d.username);
       }
       if (d?.channels) {
-        setChannels(d.channels);
+        setChannels(getOrderedChannels(d.channels));
       }
       if (d?.users) {
         setUsers(d.users);
@@ -2017,11 +2021,11 @@ function App() {
       const d = data as Channel | undefined;
       if (d?.id !== undefined) {
         setChannels(prev => {
-          const existing = prev.find(c => c.id === d.id);
-          if (existing) {
-            return prev.map(c => c.id === d.id ? { ...c, ...d } : c);
-          }
-          return [...prev, d];
+          const next = prev.some(channel => channel.id === d.id)
+            ? prev.map(channel => channel.id === d.id ? { ...channel, ...d } : channel)
+            : [...prev, d];
+
+          return getOrderedChannels(next);
         });
       }
     });
@@ -2070,6 +2074,7 @@ function App() {
               || (d.channelId === 0 ? (serverLabel || 'Server') : `Channel ${d.channelId}`);
             const previousChannelName = d.previousChannelId !== undefined
               ? channelsRef.current.find(c => c.id === d.previousChannelId)?.name
+                || (currentChannelIdRef.current === String(d.previousChannelId) ? currentChannelNameRef.current : undefined)
               : undefined;
             const notification = {
               id: `channel-moved-${nextMovedChannelNotificationIdRef.current++}`,
@@ -4153,6 +4158,7 @@ const handleConnect = (serverData: SavedServer) => {
         onLiveCompanionChange={handleLiveCompanionChange}
         liveUsers={users}
         channels={channels}
+        onChannelsChange={setChannels}
       />
 
       <ConnectModal

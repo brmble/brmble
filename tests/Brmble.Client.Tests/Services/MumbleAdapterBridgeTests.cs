@@ -1,13 +1,19 @@
+using System.IO;
+using System.Net;
+using System.Net.Sockets;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Brmble.Client.Bridge;
 using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.Serverlist;
 using Brmble.Client.Services.Voice;
 using MumbleSharp;
+using MumbleSharp.Packets;
 using MumbleProto;
 using MumbleSharp.Model;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using ProtoBuf;
 
 namespace Brmble.Client.Tests.Services;
 
@@ -69,6 +75,28 @@ public class MumbleAdapterBridgeTests
 
         Assert.IsTrue(channel.GetProperty("hasPasswordRestriction").GetBoolean());
         Assert.IsFalse(connected.DataJson.Contains("secret", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [TestMethod]
+    public void SendVoiceConnected_IncludesChannelDescriptionAndPosition()
+    {
+        var adapter = CreateAdapterWithBridge(out var bridge);
+        var channels = GetChannelDictionary(adapter);
+        channels[4] = new Channel(adapter, 4, "General", 0)
+        {
+            Description = "Lobby",
+            Position = 7,
+        };
+
+        InvokePrivate(adapter, "SendVoiceConnected");
+
+        var sent = NativeBridgeTestHarness.DrainMessages(bridge);
+        var connected = sent.Single(m => m.Type == "voice.connected");
+        using var doc = JsonDocument.Parse(connected.DataJson);
+        var channel = doc.RootElement.GetProperty("channels").EnumerateArray().Single();
+
+        Assert.AreEqual("Lobby", channel.GetProperty("description").GetString());
+        Assert.AreEqual(7, channel.GetProperty("position").GetInt32());
     }
 
     [TestMethod]
@@ -581,6 +609,50 @@ public class MumbleAdapterBridgeTests
         Assert.IsFalse(sent.Any(m => m.Type == "voice.channelPassword"));
     }
 
+    [TestMethod]
+    public void VoiceReorderChannels_RejectsMixedParentGroups()
+    {
+        var adapter = CreateAdapterWithBridge(out var bridge);
+        adapter.RegisterHandlers(bridge);
+        var channels = GetChannelDictionary(adapter);
+        channels[10] = new Channel(adapter, 10, "General", 0) { Position = 0 };
+        channels[20] = new Channel(adapter, 20, "Raid", 10) { Position = 0 };
+        SetConnectedConnection(adapter);
+
+        InvokeBridgeHandler(bridge, "voice.reorderChannels", """
+        {"parentId":0,"channelIds":[10,20]}
+        """);
+
+        var sent = NativeBridgeTestHarness.DrainMessages(bridge);
+        Assert.IsTrue(sent.Any(message => message.Type == "voice.error" && message.DataJson.Contains("same parent", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [TestMethod]
+    public void VoiceReorderChannels_SendsDistinctChannelPositions()
+    {
+        var bridge = NativeBridgeTestHarness.Create();
+        var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge);
+        adapter.RegisterHandlers(bridge);
+        var capture = AttachCapturingConnection(adapter);
+        adapter.ChannelState(new ChannelState { ChannelId = 0, Name = "Root" });
+        adapter.ChannelState(new ChannelState { ChannelId = 10, Name = "General", Parent = 0, Position = 0 });
+        adapter.ChannelState(new ChannelState { ChannelId = 20, Name = "Raid", Parent = 0, Position = 1 });
+        _ = NativeBridgeTestHarness.DrainMessages(bridge);
+
+        InvokeBridgeHandler(bridge, "voice.reorderChannels", """
+        {"parentId":0,"channelIds":[20,10]}
+        """);
+
+        var sentPackets = ReadSentChannelStatePackets(capture.PacketStream)
+            .Where(packet => packet.ShouldSerializePosition())
+            .ToArray();
+
+        CollectionAssert.AreEqual(new[] { 20u, 10u }, sentPackets.Select(packet => packet.ChannelId).ToArray());
+        CollectionAssert.AreEqual(new[] { 0, 10 }, sentPackets.Select(packet => packet.Position).ToArray());
+        Assert.IsTrue(sentPackets.All(packet => !packet.ShouldSerializeParent()));
+        capture.Dispose();
+    }
+
     private static MumbleAdapter CreateAdapterWithBridge(out NativeBridge bridge)
     {
         bridge = NativeBridgeTestHarness.Create();
@@ -620,6 +692,66 @@ public class MumbleAdapterBridgeTests
             .SetValue(connection, ConnectionStates.Connected);
     }
 
+    private static CapturingConnection AttachCapturingConnection(MumbleAdapter adapter)
+    {
+        var connection = new MumbleConnection(new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 64738), adapter, voiceSupport: false);
+        adapter.Initialise(connection);
+        typeof(MumbleConnection)
+            .GetProperty(nameof(MumbleConnection.State))!
+            .SetValue(connection, ConnectionStates.Connected);
+
+        var packetStream = new MemoryStream();
+        var socketPair = CreateSocketPair();
+        var tcpSocketType = Type.GetType("MumbleSharp.TcpSocket, MumbleSharp")!;
+        var tcpSocket = RuntimeHelpers.GetUninitializedObject(tcpSocketType);
+        tcpSocketType.GetField("_netStream", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(tcpSocket, socketPair.Client.GetStream());
+        tcpSocketType.GetField("_tlsStream", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(tcpSocket, packetStream);
+        tcpSocketType.GetField("_writer", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(tcpSocket, new BinaryWriter(packetStream));
+        tcpSocketType.GetField("_sendLock", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(tcpSocket, new object());
+        typeof(MumbleConnection).GetField("_tcp", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(connection, tcpSocket);
+
+        return new CapturingConnection(packetStream, socketPair.Client, socketPair.Server);
+    }
+
+    private static (TcpClient Client, TcpClient Server) CreateSocketPair()
+    {
+        var listener = new TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        try
+        {
+            var client = new TcpClient();
+            client.Connect((System.Net.IPEndPoint)listener.LocalEndpoint);
+            var server = listener.AcceptTcpClient();
+            return (client, server);
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    private static ChannelState[] ReadSentChannelStatePackets(MemoryStream stream)
+    {
+        stream.Position = 0;
+        using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: true);
+        var packets = new List<ChannelState>();
+
+        while (stream.Position < stream.Length)
+        {
+            var packetType = (PacketType)IPAddress.NetworkToHostOrder(reader.ReadInt16());
+            Assert.AreEqual(PacketType.ChannelState, packetType);
+            packets.Add(Serializer.DeserializeWithLengthPrefix<ChannelState>(stream, PrefixStyle.Fixed32BigEndian));
+        }
+
+        return packets.ToArray();
+    }
+
+    private static void InvokeBridgeHandler(NativeBridge bridge, string type, string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        NativeBridgeTestHarness.InvokeAsync(bridge, type, doc.RootElement.Clone()).GetAwaiter().GetResult();
+    }
+
     private static System.Collections.Concurrent.ConcurrentDictionary<uint, Channel> GetChannelDictionary(MumbleAdapter adapter)
         => (System.Collections.Concurrent.ConcurrentDictionary<uint, Channel>)adapter
             .GetType()
@@ -637,6 +769,27 @@ public class MumbleAdapterBridgeTests
     {
         var sent = NativeBridgeTestHarness.DrainMessages(bridge);
         Assert.IsTrue(sent.Any(m => m.Type == expectedType), $"Expected bridge message '{expectedType}' to be sent.");
+    }
+
+    private sealed class CapturingConnection : IDisposable
+    {
+        public CapturingConnection(MemoryStream packetStream, TcpClient client, TcpClient server)
+        {
+            PacketStream = packetStream;
+            Client = client;
+            Server = server;
+        }
+
+        public MemoryStream PacketStream { get; }
+        private TcpClient Client { get; }
+        private TcpClient Server { get; }
+
+        public void Dispose()
+        {
+            Client.Dispose();
+            Server.Dispose();
+            PacketStream.Dispose();
+        }
     }
 
     private sealed class ThrowingAppConfigService : IAppConfigService

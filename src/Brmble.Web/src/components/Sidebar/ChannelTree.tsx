@@ -13,9 +13,9 @@ import { AFK_THRESHOLD_SEC } from '../../hooks/useIdleActions';
 import type { ShareInfo } from '../../hooks/useScreenShare';
 import { EditChannelDialog } from '../EditChannelDialog/EditChannelDialog';
 import { Icon } from '../Icon/Icon';
-import { compareChannelsByMumbleOrder, sortChannelsByMumbleOrder } from '../../utils/channelOrdering';
 import { AclEditorDialog } from '../AclEditor/AclEditorDialog';
 import { getSavedChannelPassword } from '../../utils/channelPasswords';
+import { getOrderedChildChannels, sortChannels } from '../../utils/channelOrder';
 import './ChannelTree.css';
 
 interface User {
@@ -168,7 +168,8 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     const expanded = new Set<number>();
     channels.forEach(ch => {
       const hasUsers = users.some(u => u.channelId === ch.id);
-      if (hasUsers) {
+      const hasChildren = channels.some(candidate => candidate.parent === ch.id);
+      if (hasUsers || hasChildren) {
         expanded.add(ch.id);
       }
     });
@@ -183,7 +184,8 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
       let changed = false;
       channels.forEach(ch => {
         const hasUsers = users.some(u => u.channelId === ch.id);
-        if (hasUsers && !next.has(ch.id)) {
+        const hasChildren = channels.some(candidate => candidate.parent === ch.id);
+        if ((hasUsers || hasChildren) && !next.has(ch.id)) {
           next.add(ch.id);
           changed = true;
         }
@@ -234,25 +236,26 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     });
 
     channelMap.forEach(ch => {
-      if (ch.parent && channelMap.has(ch.parent)) {
+      if (ch.parent !== undefined && ch.parent !== ch.id && channelMap.has(ch.parent)) {
         channelMap.get(ch.parent)!.children.push(ch);
       } else {
         roots.push(ch);
       }
     });
 
-    const sortChildren = (channels: ChannelWithUsers[]) => {
-      channels.sort(compareChannelsByMumbleOrder);
-      channels.forEach(ch => {
-        if (ch.children.length > 0) {
-          ch.children = sortChannelsByMumbleOrder(ch.children);
-          sortChildren(ch.children);
+    const sortChildren = (entries: ChannelWithUsers[]) => {
+      entries.forEach(channel => {
+        if (channel.children.length > 0) {
+          channel.children = getOrderedChildChannels(channel.children, channel.id) as ChannelWithUsers[];
+          sortChildren(channel.children);
         }
       });
     };
-    sortChildren(roots);
 
-    return roots;
+    const orderedRoots = sortChannels(roots) as ChannelWithUsers[];
+    sortChildren(orderedRoots);
+
+    return orderedRoots;
   }, [channels, users, sortByNamePerChannel]);
 
   const tree = useMemo(() => buildTree(), [buildTree]);

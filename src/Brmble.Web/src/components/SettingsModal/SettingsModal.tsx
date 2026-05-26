@@ -56,6 +56,7 @@ interface SettingsModalProps {
     isBrmbleClient?: boolean;
   }>;
   channels?: Channel[];
+  onChannelsChange?: (channels: Channel[]) => void;
 }
 
 export interface ScreenShareSettings {
@@ -510,7 +511,13 @@ export function SettingsModal(props: SettingsModalProps) {
               onChange={handleScreenShareChange}
             />
           )}
-          {activeTab === 'admin' && hasAdminPermission && <AdminSettingsTab channels={props.channels ?? []} liveUsers={props.liveUsers ?? []} />}
+          {activeTab === 'admin' && hasAdminPermission && (
+            <AdminSettingsTab
+              channels={props.channels ?? []}
+              onChannelsChange={props.onChannelsChange}
+              liveUsers={props.liveUsers ?? []}
+            />
+          )}
 
         </div>
 

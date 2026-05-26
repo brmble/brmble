@@ -1,12 +1,19 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AdminSectionPlaceholder } from './AdminSectionPlaceholder';
 import { AdminChannelsSection } from './AdminChannelsSection';
 import type { Channel } from '../../../types';
 import bridge from '../../../bridge';
 
-const { promptMock } = vi.hoisted(() => ({
+const { promptMock, aclEditorDialogMock } = vi.hoisted(() => ({
   promptMock: vi.fn(),
+  aclEditorDialogMock: vi.fn(),
+}));
+const { bridgeMock, usePermissionsMock } = vi.hoisted(() => ({
+  bridgeMock: {
+    send: vi.fn(),
+  },
+  usePermissionsMock: vi.fn(),
 }));
 
 vi.mock('../../../hooks/usePrompt', () => ({
@@ -36,7 +43,10 @@ vi.mock('../../EditChannelDialog/EditChannelDialog', () => ({
 }));
 
 vi.mock('../../AclEditor/AclEditorDialog', () => ({
-  AclEditorDialog: () => <div data-testid="admin-acl-editor" />,
+  AclEditorDialog: (props: unknown) => {
+    aclEditorDialogMock(props);
+    return <div data-testid="acl-editor-dialog" />;
+  },
 }));
 
 vi.mock('../SettingsHelp', () => ({
@@ -46,11 +56,11 @@ vi.mock('../SettingsHelp', () => ({
 }));
 
 vi.mock('../../../bridge', () => ({
-  default: {
-    send: vi.fn(),
-    on: vi.fn(),
-    off: vi.fn(),
-  },
+  default: bridgeMock,
+}));
+
+vi.mock('../../../hooks/usePermissions', () => ({
+  usePermissions: () => usePermissionsMock(),
 }));
 
 const liveChannels: Channel[] = [
@@ -59,6 +69,16 @@ const liveChannels: Channel[] = [
 ];
 
 describe('Admin workspace sections', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    usePermissionsMock.mockReturnValue({
+      permissions: new Map<number, number>([[0, 0x40], [7, 0x40], [9, 0x40], [10, 0x40], [20, 0x40]]),
+      hasPermission: vi.fn((_channelId: number, permission: number) => permission === 0x40),
+      requestPermissions: vi.fn(),
+      Permission: { MakeChannel: 0x40 },
+    });
+  });
+
   it('renders guide-compliant placeholder copy without fake actions', () => {
     render(
       <AdminSectionPlaceholder
@@ -93,6 +113,104 @@ describe('Admin workspace sections', () => {
     expect(screen.getByRole('button', { name: 'Deny Mike request' })).toBeInTheDocument();
   });
 
+  it('opens the shared ACL editor via right-click context menu', () => {
+    render(<AdminChannelsSection channels={[
+      { id: 7, name: 'General' },
+      { id: 9, name: 'Raid Planning', parent: 7, isEnterRestricted: true },
+    ]} />);
+
+    fireEvent.contextMenu(screen.getByRole('row', { name: 'Raid Planning Position 0' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Permissions' }));
+
+    expect(screen.getByTestId('acl-editor-dialog')).toBeInTheDocument();
+    expect(aclEditorDialogMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      isOpen: true,
+      channelId: 9,
+      channelName: 'Raid Planning',
+      isNativePasswordProtected: true,
+      onClose: expect.any(Function),
+    }));
+  });
+
+  it('opens a typed confirmation before deleting the selected channel from context menu', async () => {
+    promptMock.mockResolvedValue('General');
+
+    render(<AdminChannelsSection channels={[
+      { id: 7, name: 'General' },
+      { id: 9, name: 'Raid Planning', parent: 7, isEnterRestricted: true },
+    ]} />);
+
+    fireEvent.contextMenu(screen.getByRole('row', { name: /General Position 0/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Channel' }));
+
+    await waitFor(() => {
+      expect(promptMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Delete Channel',
+          message: expect.stringContaining('General'),
+          placeholder: 'General',
+        }),
+      );
+    });
+  });
+
+  it('reorders sibling channels when a channel row is dragged onto another row', () => {
+    const onChannelsChange = vi.fn();
+    const dataTransfer = { effectAllowed: '', setData: vi.fn() };
+
+    render(
+      <AdminChannelsSection
+        channels={[
+          { id: 0, name: 'Root', position: 0 },
+          { id: 10, name: 'General', parent: 0, position: 0 },
+          { id: 20, name: 'Raid', parent: 0, position: 1 },
+        ]}
+        onChannelsChange={onChannelsChange}
+      />,
+    );
+
+    const generalRow = screen.getByRole('row', { name: 'General Position 0' });
+    const raidRow = screen.getByRole('row', { name: 'Raid Position 1' });
+
+    fireEvent.dragStart(raidRow, { dataTransfer });
+    fireEvent.dragOver(generalRow, { dataTransfer });
+    fireEvent.drop(generalRow, { dataTransfer });
+
+    expect(bridgeMock.send).toHaveBeenCalledWith('admin.updateChannel', expect.objectContaining({
+      channelId: 20,
+      position: 0,
+    }));
+    expect(bridgeMock.send).toHaveBeenCalledWith('admin.updateChannel', expect.objectContaining({
+      channelId: 10,
+      position: 10,
+    }));
+  });
+
+  it('highlights the dragged channel during reorder and keeps a recently-moved highlight after drop', () => {
+    const dataTransfer = { effectAllowed: '', setData: vi.fn() };
+
+    render(
+      <AdminChannelsSection
+        channels={[
+          { id: 0, name: 'Root', position: 0 },
+          { id: 10, name: 'General', parent: 0, position: 0 },
+          { id: 20, name: 'Raid', parent: 0, position: 1 },
+        ]}
+      />,
+    );
+
+    const generalRow = screen.getByRole('row', { name: 'General Position 0' });
+    const raidRow = screen.getByRole('row', { name: 'Raid Position 1' });
+
+    fireEvent.dragStart(raidRow, { dataTransfer });
+    expect(raidRow).toHaveClass('admin-channel-row--dragging');
+
+    fireEvent.dragOver(generalRow, { dataTransfer });
+    fireEvent.drop(generalRow, { dataTransfer });
+
+    expect(screen.getByRole('row', { name: 'Raid Position 0' })).toHaveClass('admin-channel-row--recently-moved');
+  });
+
   it('opens a typed confirmation before deleting the selected channel', async () => {
     promptMock.mockResolvedValue('General');
     render(<AdminChannelsSection channels={liveChannels} />);
@@ -115,7 +233,7 @@ describe('Admin workspace sections', () => {
   it('keeps disabled admin actions paired with visible explanatory text', () => {
     render(<AdminChannelsSection channels={liveChannels} />);
     expect(screen.getByRole('button', { name: 'Create Channel' })).toBeDisabled();
-    expect(screen.getByText('Create Channel is not available yet.')).toBeInTheDocument();
+    expect(screen.getByText(/Create Channel is not available yet/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'More information about channel admin actions' })).toHaveAttribute(
       'data-help-content',
       'Right-click a channel for admin actions.',

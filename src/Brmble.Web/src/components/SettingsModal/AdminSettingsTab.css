@@ -154,6 +154,61 @@
   background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-surface));
 }
 
+.admin-channel-row--management {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-md);
+  align-items: center;
+  cursor: default;
+}
+
+.admin-channel-row--drop-target {
+  border-color: color-mix(in srgb, var(--accent-primary) 55%, var(--border-subtle));
+  background: color-mix(in srgb, var(--accent-primary) 8%, var(--bg-surface));
+}
+
+.admin-channel-list {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.admin-channel-row__details {
+  display: grid;
+  gap: var(--space-2xs);
+  min-width: 0;
+}
+
+.admin-channel-row__name {
+  font-weight: 600;
+}
+
+.admin-channel-row__meta {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.admin-channel-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-xs);
+}
+
+.admin-create-channel-dialog {
+  width: min(100%, 520px);
+}
+
+.admin-create-channel-form {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.admin-create-channel-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+}
+
 .admin-action-row,
 .admin-footer-row {
   display: flex;
