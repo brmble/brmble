@@ -236,7 +236,7 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
           initialPassword=""
           showPosition
           onClose={() => setEditChannel(null)}
-          onSave={(name, description, position) => {
+          onSave={(name, description, position, _password) => {
             bridge.send('admin.updateChannel', {
               channelId: editChannel.id,
               name,
