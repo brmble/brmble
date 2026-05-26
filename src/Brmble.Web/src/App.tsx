@@ -2568,7 +2568,8 @@ function App() {
       setChannels(prev => mergeChannelChatAccess(prev, getResolvedChannelChatAccess(getChannelChatAccessRequestIds(prev))));
     };
 
-    const onAdminChannelUpdateError = (payload?: { statusCode?: number; body?: string; error?: string }) => {
+    const onAdminChannelUpdateError = (data: unknown) => {
+      const payload = data as { statusCode?: number; body?: string; error?: string } | undefined;
       if (payload?.statusCode === 403) {
         setAdminChannelUpdateError({
           title: 'Channel position was not saved',
