@@ -3056,11 +3056,30 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 return Task.CompletedTask;
             }
 
+            if (!data.TryGetProperty("channelIds", out var channelIdsProp) || channelIdsProp.ValueKind != System.Text.Json.JsonValueKind.Array)
+            {
+                _bridge?.Send("voice.error", new { message = "channelIds must be an array", type = "invalidRequest" });
+                return Task.CompletedTask;
+            }
+
             var parentId = data.TryGetProperty("parentId", out var parentProp) ? parentProp.GetUInt32() : 0u;
-            var channelIds = data.GetProperty("channelIds").EnumerateArray().Select(element => element.GetUInt32()).ToArray();
+            var channelIds = channelIdsProp.EnumerateArray().Select(element => element.GetUInt32()).ToArray();
+            
             if (channelIds.Length < 2)
             {
                 _bridge?.Send("voice.error", new { message = "At least two sibling channels are required for reorder", type = "invalidRequest" });
+                return Task.CompletedTask;
+            }
+
+            if (channelIds.Distinct().Count() != channelIds.Length)
+            {
+                _bridge?.Send("voice.error", new { message = "channelIds must not contain duplicates", type = "invalidRequest" });
+                return Task.CompletedTask;
+            }
+
+            if (channelIds.Contains(0u))
+            {
+                _bridge?.Send("voice.error", new { message = "Cannot reorder root channel (id 0)", type = "invalidRequest" });
                 return Task.CompletedTask;
             }
 

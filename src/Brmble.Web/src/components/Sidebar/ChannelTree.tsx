@@ -236,7 +236,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     });
 
     channelMap.forEach(ch => {
-      if (ch.parent !== undefined && channelMap.has(ch.parent)) {
+      if (ch.parent !== undefined && ch.parent !== ch.id && channelMap.has(ch.parent)) {
         channelMap.get(ch.parent)!.children.push(ch);
       } else {
         roots.push(ch);

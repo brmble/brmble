@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import './AdminSettingsTab.css';
+import '../AdminSettingsTab.css';
 import { AclEditorDialog } from '../../../components/AclEditor/AclEditorDialog';
 import bridge from '../../../bridge';
 import { prompt } from '../../../hooks/usePrompt';
@@ -101,9 +101,11 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
                     event.preventDefault();
                     setSelectedChannelId(channel.id);
                   }}
-                  onDragStart={() => {
+                  onDragStart={event => {
                     setRecentlyMovedChannelId(null);
                     setDraggedChannelId(channel.id);
+                    event.dataTransfer.effectAllowed = 'move';
+                    event.dataTransfer.setData('text/plain', String(channel.id));
                   }}
                   onDragEnd={() => {
                     setDraggedChannelId(null);
