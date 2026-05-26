@@ -23,6 +23,7 @@ public static class MumbleExtensions
         services.AddSingleton<IAclSyncCoordinator, AclSyncCoordinator>();
         services.AddSingleton<AclValidationService>();
         services.AddSingleton<MumbleServerCallback>();
+        services.AddSingleton<IMumbleIceCommunicatorFactory, MumbleIceCommunicatorFactory>();
         services.AddHostedService<MumbleIceService>();
         return services;
     }

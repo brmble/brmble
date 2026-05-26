@@ -33,7 +33,8 @@ public class LiveKitServiceTests
         _mockUserRepo = new Mock<UserRepository>(
             new Mock<Database>("Data Source=:memory:").Object,
             matrixSettings);
-        _svc = new LiveKitService(settings, _mockUserRepo.Object,
+        var roomClient = new Mock<ILiveKitRoomClient>();
+        _svc = new LiveKitService(settings, _mockUserRepo.Object, roomClient.Object,
             NullLogger<LiveKitService>.Instance);
     }
 

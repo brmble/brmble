@@ -3,12 +3,14 @@ using System.Net;
 using Brmble.Server.Auth;
 using Brmble.Server.Data;
 using Brmble.Server.Matrix;
+using Brmble.Server.Mumble;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
 
@@ -55,6 +57,11 @@ public class AuthIntegrationTests : IDisposable
                 db.Initialize();
                 services.AddSingleton(db);
 
+                var mumbleIceHostedService = services.FirstOrDefault(d =>
+                    d.ServiceType == typeof(IHostedService) &&
+                    d.ImplementationType == typeof(MumbleIceService));
+                if (mumbleIceHostedService != null) services.Remove(mumbleIceHostedService);
+
                 // Stub IMatrixAppService so no real HTTP calls are made
                 var matrixDescriptor = services.FirstOrDefault(d => d.ServiceType == typeof(IMatrixAppService));
                 if (matrixDescriptor != null) services.Remove(matrixDescriptor);
@@ -76,6 +83,14 @@ public class AuthIntegrationTests : IDisposable
         });
 
         _client = _factory.CreateClient();
+    }
+
+    [TestMethod]
+    public void Services_DoesNotRegisterMumbleIceServiceAsHostedService()
+    {
+        var hostedServices = _factory.Services.GetServices<IHostedService>();
+
+        Assert.IsFalse(hostedServices.Any(service => service.GetType() == typeof(MumbleIceService)));
     }
 
     [TestMethod]
