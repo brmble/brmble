@@ -10,6 +10,7 @@ import type { Channel } from '../../types';
 
 interface AdminSettingsTabProps {
   channels?: Channel[];
+  onChannelsChange?: (channels: Channel[]) => void;
   liveUsers?: Array<{
     session: number;
     name: string;
@@ -20,7 +21,7 @@ interface AdminSettingsTabProps {
   }>;
 }
 
-export function AdminSettingsTab({ channels = [], liveUsers = [] }: AdminSettingsTabProps) {
+export function AdminSettingsTab({ channels = [], onChannelsChange, liveUsers = [] }: AdminSettingsTabProps) {
   const [activeTab, setActiveTab] = useState<AdminWorkspaceTab>('channels');
 
   return (
@@ -40,7 +41,7 @@ export function AdminSettingsTab({ channels = [], liveUsers = [] }: AdminSetting
         ))}
       </div>
       <div className="admin-workspace-body">
-        {activeTab === 'channels' && <AdminChannelsSection channels={channels} />}
+        {activeTab === 'channels' && <AdminChannelsSection channels={channels} onChannelsChange={onChannelsChange} />}
         {activeTab === 'users' && <AdminUsersSection liveUsers={liveUsers} />}
         {activeTab === 'groups' && <AdminGroupsSection channels={channels} />}
         {activeTab === 'moderation' && <AdminModerationSection />}

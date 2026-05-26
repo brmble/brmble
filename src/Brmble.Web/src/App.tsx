@@ -62,6 +62,7 @@ import { migrateLocalStorage } from './utils/migrateLocalStorage';
 import { mapBrmbleServiceStatus } from './utils/brmbleServiceStatus';
 import { areMatrixCredentialsEqual } from './utils/matrixCredentials';
 import { getSavedChannelPassword } from './utils/channelPasswords';
+import { getOrderedChannels } from './utils/channelOrder';
 import './App.css';
 
 export interface ScreenShareEndedNotification {
@@ -580,6 +581,8 @@ interface Channel {
   id: number;
   name: string;
   parent?: number;
+  description?: string;
+  position?: number;
   isEnterRestricted?: boolean;
   canEnter?: boolean;
   hasPasswordRestriction?: boolean;
@@ -1610,7 +1613,7 @@ function App() {
         setUsername(d.username);
       }
       if (d?.channels) {
-        setChannels(d.channels);
+        setChannels(getOrderedChannels(d.channels));
       }
       if (d?.users) {
         setUsers(d.users);
@@ -2013,14 +2016,14 @@ function App() {
     });
 
     const onVoiceChannelJoined = ((data: unknown) => {
-      const d = data as { id: number; name: string; parent?: number; isEnterRestricted?: boolean } | undefined;
+      const d = data as Channel | undefined;
       if (d?.id !== undefined) {
         setChannels(prev => {
-          const existing = prev.find(c => c.id === d.id);
-          if (existing) {
-            return prev.map(c => c.id === d.id ? d : c);
-          }
-          return [...prev, d];
+          const next = prev.some(channel => channel.id === d.id)
+            ? prev.map(channel => channel.id === d.id ? { ...channel, ...d } : channel)
+            : [...prev, d];
+
+          return getOrderedChannels(next);
         });
       }
     });
@@ -4142,6 +4145,7 @@ const handleConnect = (serverData: SavedServer) => {
         onLiveCompanionChange={handleLiveCompanionChange}
         liveUsers={users}
         channels={channels}
+        onChannelsChange={setChannels}
       />
 
       <ConnectModal

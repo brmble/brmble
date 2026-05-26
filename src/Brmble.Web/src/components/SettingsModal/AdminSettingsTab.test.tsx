@@ -13,12 +13,17 @@ const { bridgeMock } = vi.hoisted(() => ({
   },
 }));
 
+const usePermissionsMock = vi.fn();
+
 const saveSpy = vi.fn();
 
 vi.mock('../../bridge', () => ({ default: bridgeMock }));
 vi.mock('../../hooks/usePrompt', () => ({
   confirm: vi.fn().mockResolvedValue(true),
   prompt: vi.fn().mockResolvedValue(null),
+}));
+vi.mock('../../hooks/usePermissions', () => ({
+  usePermissions: () => usePermissionsMock(),
 }));
 vi.mock('../../hooks/useAclAdmin', () => ({
   useAclAdmin: () => ({
@@ -38,7 +43,8 @@ const ban = {
 };
 
 const channels: Channel[] = [
-  { id: 1, name: 'General' },
+  { id: 0, name: 'Root', position: 0 },
+  { id: 1, name: 'General', parent: 0, position: 0 },
   { id: 2, name: 'Raid Planning', parent: 1 },
 ];
 
@@ -53,6 +59,12 @@ describe('AdminSettingsTab', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(confirm).mockResolvedValue(true);
+    usePermissionsMock.mockReturnValue({
+      permissions: new Map<number, number>(),
+      hasPermission: vi.fn(() => false),
+      requestPermissions: vi.fn(),
+      Permission: { MakeChannel: 0x40 },
+    });
   });
 
   it('renders the five admin workspace tabs', () => {
@@ -96,7 +108,9 @@ describe('AdminSettingsTab', () => {
   it('renders the live channel list in the channels tab', () => {
     render(<AdminSettingsTab channels={channels} />);
 
+    expect(screen.getByRole('row', { name: 'Root' })).toBeInTheDocument();
     expect(screen.getByRole('row', { name: 'General' })).toBeInTheDocument();
     expect(screen.getByRole('row', { name: 'Raid Planning' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create Channel' })).toBeDisabled();
   });
 });

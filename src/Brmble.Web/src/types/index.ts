@@ -11,6 +11,7 @@ export interface Channel {
   parent?: number;
   type?: 'voice' | 'text';
   description?: string;
+  position?: number;
   isEnterRestricted?: boolean;
   canEnter?: boolean;
   hasPasswordRestriction?: boolean;
