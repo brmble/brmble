@@ -1246,6 +1246,8 @@ function App() {
   addMessageRef.current = addMessage;
   const currentChannelIdRef = useRef(currentChannelId);
   currentChannelIdRef.current = currentChannelId;
+  const currentChannelNameRef = useRef(currentChannelName);
+  currentChannelNameRef.current = currentChannelName;
   const previousConnectionStatusRef = useRef(connectionStatus);
   const overlayConnectedAtRef = useRef<number | null>(null);
   const previousCurrentChannelIdRef = useRef(currentChannelId);
@@ -2072,6 +2074,7 @@ function App() {
               || (d.channelId === 0 ? (serverLabel || 'Server') : `Channel ${d.channelId}`);
             const previousChannelName = d.previousChannelId !== undefined
               ? channelsRef.current.find(c => c.id === d.previousChannelId)?.name
+                || (currentChannelIdRef.current === String(d.previousChannelId) ? currentChannelNameRef.current : undefined)
               : undefined;
             const notification = {
               id: `channel-moved-${nextMovedChannelNotificationIdRef.current++}`,
