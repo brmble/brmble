@@ -2573,9 +2573,20 @@ function App() {
       setChannels(prev => mergeChannelChatAccess(prev, getResolvedChannelChatAccess(getChannelChatAccessRequestIds(prev))));
     };
 
-    const onAdminChannelUpdateError = () => {
-      setAdminChannelUpdateErrorSequence(sequence => sequence + 1);
-      setAdminChannelUpdateErrorVisible(true);
+    const onAdminChannelUpdateError = (data: unknown) => {
+      const payload = data as { statusCode?: number; body?: string; error?: string } | undefined;
+      if (payload?.statusCode === 403) {
+        setAdminChannelUpdateError({
+          title: 'Channel position was not saved',
+          detail: 'You need Write permission on that channel. Check the channel ACL if inheritance is disabled.',
+        });
+      } else {
+        const code = payload?.statusCode ?? payload?.error ?? 'unknown';
+        setAdminChannelUpdateError({
+          title: 'Channel update failed',
+          detail: `Request failed (${code}). Please try again.`,
+        });
+      }
       notifQueue.register('admin-channel-update-error', 'warning');
     };
 
@@ -3334,8 +3345,7 @@ const handleConnect = (serverData: SavedServer) => {
   const [movedChannelNotification, setMovedChannelNotification] = useState<QueuedMovedChannelNotification | null>(null);
   const [serverRemovalNotification, setServerRemovalNotification] = useState<ServerRemovalNotification | null>(null);
   const [brmbleServiceWarningNotification, setBrmbleServiceWarningNotification] = useState<typeof BRMBLE_SERVICE_DISCONNECTED_NOTIFICATION | null>(null);
-  const [adminChannelUpdateErrorVisible, setAdminChannelUpdateErrorVisible] = useState(false);
-  const [adminChannelUpdateErrorSequence, setAdminChannelUpdateErrorSequence] = useState(0);
+  const [adminChannelUpdateError, setAdminChannelUpdateError] = useState<{ title: string; detail: string } | null>(null);
   const brmbleServiceWarningDismissedForOutageRef = useRef(false);
   const nextScreenShareEndedNotificationIdRef = useRef(0);
   const nextWatchedShareEndedNotificationIdRef = useRef(0);
@@ -4317,17 +4327,17 @@ const handleConnect = (serverData: SavedServer) => {
             }}
           />
         )}
-        {adminChannelUpdateErrorVisible && notifQueue.isVisible('admin-channel-update-error') && (
+        {adminChannelUpdateError && notifQueue.isVisible('admin-channel-update-error') && (
           <Notification
-            key={adminChannelUpdateErrorSequence}
+            key={adminChannelUpdateError.title}
             status="warning"
             position="top-right"
-            visible={adminChannelUpdateErrorVisible}
-            title="Channel position was not saved"
-            detail="You need Write permission on that channel. Check the channel ACL if inheritance is disabled."
+            visible={true}
+            title={adminChannelUpdateError.title}
+            detail={adminChannelUpdateError.detail}
             onDismiss={() => {
               notifQueue.unregister('admin-channel-update-error');
-              setAdminChannelUpdateErrorVisible(false);
+              setAdminChannelUpdateError(null);
             }}
             onExited={() => {
               notifQueue.unregister('admin-channel-update-error');
