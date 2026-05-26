@@ -50,7 +50,7 @@ public sealed class MumbleAclService : IMumbleAclService
                 request.Name.Trim(),
                 current.parent,
                 current.links,
-                request.Description ?? string.Empty,
+                request.Description ?? current.description,
                 current.temporary,
                 request.Position);
 

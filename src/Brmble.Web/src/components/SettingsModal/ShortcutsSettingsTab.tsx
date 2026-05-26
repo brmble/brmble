@@ -162,10 +162,6 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
         window.removeEventListener('mousedown', onMouse, true);
         window.removeEventListener('keyup', finishRecording, true);
         window.removeEventListener('mouseup', finishRecording, true);
-        if (hotkeysSuspendedRef.current && (!capturedInputRef.current || capturedBindingKeyRef.current)) {
-          bridge.send('voice.resumeHotkeys');
-          hotkeysSuspendedRef.current = false;
-        }
         if (capturedInputRef.current) return;
         capturedInputRef.current = null;
         markCapturedBinding(null);
@@ -175,23 +171,22 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
 
   useEffect(() => {
     if (!capturedInputRef.current || !recordingKey || capturedBindingKeyRef.current !== recordingKey) return;
-    const finishRecording = () => {
-      capturedInputRef.current = null;
-      markCapturedBinding(null);
-      setRecordingKey(null);
-    };
-
-    window.addEventListener('keyup', finishRecording, true);
-    window.addEventListener('mouseup', finishRecording, true);
     return () => {
-      window.removeEventListener('keyup', finishRecording, true);
-      window.removeEventListener('mouseup', finishRecording, true);
       if (hotkeysSuspendedRef.current && !capturedInputRef.current) {
         bridge.send('voice.resumeHotkeys');
         hotkeysSuspendedRef.current = false;
       }
     };
   }, [recordingKey, capturedBindingKey]);
+
+  useEffect(() => {
+    return () => {
+      if (hotkeysSuspendedRef.current) {
+        bridge.send('voice.resumeHotkeys');
+        hotkeysSuspendedRef.current = false;
+      }
+    };
+  }, []);
 
   return (
     <div className="shortcuts-settings-tab">

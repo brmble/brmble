@@ -228,9 +228,9 @@ function renderApp() {
   );
 }
 
-async function emitAdminChannelUpdateError() {
+async function emitAdminChannelUpdateError(payload?: object) {
   await act(async () => {
-    (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('admin.channelUpdateError', { channelId: 7, statusCode: 403 });
+    (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('admin.channelUpdateError', payload ?? { channelId: 7, statusCode: 403 });
   });
 }
 
@@ -242,14 +242,33 @@ describe('admin channel update notifications', () => {
     (bridge as unknown as { __reset: () => void }).__reset();
   });
 
-  it('shows a warning notification when admin channel updates fail', async () => {
+  it('shows a warning notification with Write-permission guidance for 403 errors', async () => {
     renderApp();
 
-    await emitAdminChannelUpdateError();
+    await emitAdminChannelUpdateError({ channelId: 7, statusCode: 403 });
 
     expect(mockValues.notificationQueue.register).toHaveBeenCalledWith('admin-channel-update-error', 'warning');
     expect(await screen.findByText('Channel position was not saved')).toBeInTheDocument();
     expect(screen.getByText('You need Write permission on that channel. Check the channel ACL if inheritance is disabled.')).toBeInTheDocument();
+  });
+
+  it('shows a generic failure notification for non-403 errors', async () => {
+    renderApp();
+
+    await emitAdminChannelUpdateError({ channelId: 7, statusCode: 400, body: 'Bad request' });
+
+    expect(mockValues.notificationQueue.register).toHaveBeenCalledWith('admin-channel-update-error', 'warning');
+    expect(await screen.findByText('Channel update failed')).toBeInTheDocument();
+    expect(screen.getByText('Request failed (400). Please try again.')).toBeInTheDocument();
+  });
+
+  it('shows a generic failure notification when no status code is present', async () => {
+    renderApp();
+
+    await emitAdminChannelUpdateError({ channelId: 7, error: 'Not connected or invalid channel' });
+
+    expect(await screen.findByText('Channel update failed')).toBeInTheDocument();
+    expect(screen.getByText('Request failed (Not connected or invalid channel). Please try again.')).toBeInTheDocument();
   });
 
   it('unregisters the queue entry when dismissed', async () => {
@@ -272,7 +291,7 @@ describe('admin channel update notifications', () => {
       await act(async () => {
         vi.advanceTimersByTime(4900);
       });
-      await emitAdminChannelUpdateError();
+      await emitAdminChannelUpdateError({ channelId: 7, statusCode: 403 });
       await act(async () => {
         vi.advanceTimersByTime(5200);
       });
