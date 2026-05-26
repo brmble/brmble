@@ -105,6 +105,52 @@ describe('ShortcutsSettingsTab', () => {
     }
   });
 
+  it('shows a newly recorded shortcut key immediately after successful capture', () => {
+    const onChange = vi.fn();
+
+    render(
+      <ShortcutsSettingsTab
+        settings={baseSettings}
+        onChange={onChange}
+        allBindings={{}}
+        onClearBinding={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Not bound' })[0]);
+    fireEvent.keyDown(window, { code: 'KeyM' });
+
+    expect(screen.getByRole('button', { name: 'KeyM' })).toHaveClass('btn-primary');
+    expect(screen.queryByRole('button', { name: 'Press any key...' })).not.toBeInTheDocument();
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ toggleLeaveVoiceKey: 'KeyM' }));
+  });
+
+  it('keeps showing the captured key when parent settings rerender before key release', () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <ShortcutsSettingsTab
+        settings={baseSettings}
+        onChange={onChange}
+        allBindings={{}}
+        onClearBinding={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Not bound' })[0]);
+    fireEvent.keyDown(window, { code: 'KeyM' });
+    rerender(
+      <ShortcutsSettingsTab
+        settings={{ ...baseSettings, toggleLeaveVoiceKey: 'KeyM' }}
+        onChange={onChange}
+        allBindings={{ toggleLeaveVoiceKey: 'KeyM' }}
+        onClearBinding={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('button', { name: 'KeyM' })).toHaveClass('btn-primary');
+    expect(screen.queryByRole('button', { name: 'Press any key...' })).not.toBeInTheDocument();
+  });
+
   it('keeps hotkeys suspended until the recorded keyboard input is released', () => {
     render(
       <ShortcutsSettingsTab

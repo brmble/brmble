@@ -9,6 +9,7 @@ export interface Channel {
   id: number;
   name: string;
   parent?: number;
+  position?: number;
   type?: 'voice' | 'text';
   description?: string;
   isEnterRestricted?: boolean;

@@ -7,8 +7,10 @@ interface EditChannelDialogProps {
   initialName: string;
   initialDescription?: string;
   initialPassword?: string;
+  initialPosition?: number;
+  showPosition?: boolean;
   onClose: () => void;
-  onSave: (name: string, description: string, password: string) => void;
+  onSave: (name: string, description: string, position: number, password: string) => void;
   onError?: (message: string) => void;
 }
 
@@ -17,25 +19,35 @@ export function EditChannelDialog({
   initialName,
   initialDescription = '',
   initialPassword = '',
+  initialPosition = 0,
+  showPosition = false,
   onClose,
   onSave,
 }: EditChannelDialogProps) {
   const [name, setName] = useState(initialName);
   const [description, setDescription] = useState(initialDescription);
+  const [position, setPosition] = useState(String(initialPosition));
 
   useEffect(() => {
     setName(initialName);
     setDescription(initialDescription);
-  }, [initialName, initialDescription, initialPassword, isOpen]);
+    setPosition(String(initialPosition));
+  }, [initialName, initialDescription, initialPassword, initialPosition, isOpen]);
 
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(name, description, initialPassword);
+    onSave(name, description, Number.parseInt(position, 10) || 0, initialPassword);
   };
 
-  const hasChanges = name !== initialName || description !== initialDescription;
+  const adjustPosition = (delta: number) => {
+    setPosition(current => String((Number.parseInt(current, 10) || 0) + delta));
+  };
+
+  const hasChanges = name !== initialName
+    || description !== initialDescription
+    || (showPosition && (Number.parseInt(position, 10) || 0) !== initialPosition);
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -77,12 +89,40 @@ export function EditChannelDialog({
             />
           </div>
 
-          <div className="form-group">
-            <label>Password Access</label>
-            <p className="edit-channel-hint">
-              Channel password access is managed from the Permissions ACL editor so it stays visible alongside other group access rules.
-            </p>
-          </div>
+          {showPosition && (
+            <div className="form-group">
+              <label htmlFor="channel-position">Position</label>
+              <div className="position-stepper" data-testid="position-stepper">
+                <input
+                  id="channel-position"
+                  className="brmble-input position-stepper-input"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="-?[0-9]*"
+                  value={position}
+                  onChange={(e) => setPosition(e.target.value)}
+                />
+                <div className="position-stepper-controls">
+                  <button
+                    type="button"
+                    className="position-stepper-button"
+                    aria-label="Increase channel position"
+                    onClick={() => adjustPosition(1)}
+                  >
+                    <Icon name="chevron-up" size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    className="position-stepper-button"
+                    aria-label="Decrease channel position"
+                    onClick={() => adjustPosition(-1)}
+                  >
+                    <Icon name="chevron-down" size={12} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="edit-channel-footer">
             <button type="button" className="btn btn-secondary" onClick={onClose}>

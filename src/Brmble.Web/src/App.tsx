@@ -62,6 +62,7 @@ import { migrateLocalStorage } from './utils/migrateLocalStorage';
 import { mapBrmbleServiceStatus } from './utils/brmbleServiceStatus';
 import { areMatrixCredentialsEqual } from './utils/matrixCredentials';
 import { getSavedChannelPassword } from './utils/channelPasswords';
+import { getOrderedChannels } from './utils/channelOrder';
 import './App.css';
 
 export interface ScreenShareEndedNotification {
@@ -580,6 +581,8 @@ interface Channel {
   id: number;
   name: string;
   parent?: number;
+  description?: string;
+  position?: number;
   isEnterRestricted?: boolean;
   canEnter?: boolean;
   hasPasswordRestriction?: boolean;
@@ -1243,6 +1246,8 @@ function App() {
   addMessageRef.current = addMessage;
   const currentChannelIdRef = useRef(currentChannelId);
   currentChannelIdRef.current = currentChannelId;
+  const currentChannelNameRef = useRef(currentChannelName);
+  currentChannelNameRef.current = currentChannelName;
   const previousConnectionStatusRef = useRef(connectionStatus);
   const overlayConnectedAtRef = useRef<number | null>(null);
   const previousCurrentChannelIdRef = useRef(currentChannelId);
@@ -1610,7 +1615,7 @@ function App() {
         setUsername(d.username);
       }
       if (d?.channels) {
-        setChannels(d.channels);
+        setChannels(getOrderedChannels(d.channels));
       }
       if (d?.users) {
         setUsers(d.users);
@@ -2013,14 +2018,14 @@ function App() {
     });
 
     const onVoiceChannelJoined = ((data: unknown) => {
-      const d = data as { id: number; name: string; parent?: number; isEnterRestricted?: boolean } | undefined;
+      const d = data as Channel | undefined;
       if (d?.id !== undefined) {
         setChannels(prev => {
-          const existing = prev.find(c => c.id === d.id);
-          if (existing) {
-            return prev.map(c => c.id === d.id ? d : c);
-          }
-          return [...prev, d];
+          const next = prev.some(channel => channel.id === d.id)
+            ? prev.map(channel => channel.id === d.id ? { ...channel, ...d } : channel)
+            : [...prev, d];
+
+          return getOrderedChannels(next);
         });
       }
     });
@@ -2069,6 +2074,7 @@ function App() {
               || (d.channelId === 0 ? (serverLabel || 'Server') : `Channel ${d.channelId}`);
             const previousChannelName = d.previousChannelId !== undefined
               ? channelsRef.current.find(c => c.id === d.previousChannelId)?.name
+                || (currentChannelIdRef.current === String(d.previousChannelId) ? currentChannelNameRef.current : undefined)
               : undefined;
             const notification = {
               id: `channel-moved-${nextMovedChannelNotificationIdRef.current++}`,
@@ -2567,7 +2573,25 @@ function App() {
       setChannels(prev => mergeChannelChatAccess(prev, getResolvedChannelChatAccess(getChannelChatAccessRequestIds(prev))));
     };
 
+    const onAdminChannelUpdateError = (data: unknown) => {
+      const payload = data as { statusCode?: number; body?: string; error?: string } | undefined;
+      if (payload?.statusCode === 403) {
+        setAdminChannelUpdateError({
+          title: 'Channel position was not saved',
+          detail: 'You need Write permission on that channel. Check the channel ACL if inheritance is disabled.',
+        });
+      } else {
+        const code = payload?.statusCode ?? payload?.error ?? 'unknown';
+        setAdminChannelUpdateError({
+          title: 'Channel update failed',
+          detail: `Request failed (${code}). Please try again.`,
+        });
+      }
+      notifQueue.register('admin-channel-update-error', 'warning');
+    };
+
     bridge.on('brmble.serviceStatus', onBrmbleServiceStatus);
+    bridge.on('admin.channelUpdateError', onAdminChannelUpdateError);
     bridge.on('voice.connected', onVoiceConnected);
     bridge.on('voice.disconnected', onVoiceDisconnected);
     bridge.on('voice.error', onVoiceError);
@@ -2656,6 +2680,7 @@ function App() {
       bridge.off('app.updateAvailable', onUpdateAvailable);
       bridge.off('app.updateProgress', onUpdateProgress);
       bridge.off('brmble.serviceStatus', onBrmbleServiceStatus);
+      bridge.off('admin.channelUpdateError', onAdminChannelUpdateError);
       bridge.off('voice.connected', onVoiceConnected);
       bridge.off('voice.disconnected', onVoiceDisconnected);
       bridge.off('voice.error', onVoiceError);
@@ -3320,6 +3345,7 @@ const handleConnect = (serverData: SavedServer) => {
   const [movedChannelNotification, setMovedChannelNotification] = useState<QueuedMovedChannelNotification | null>(null);
   const [serverRemovalNotification, setServerRemovalNotification] = useState<ServerRemovalNotification | null>(null);
   const [brmbleServiceWarningNotification, setBrmbleServiceWarningNotification] = useState<typeof BRMBLE_SERVICE_DISCONNECTED_NOTIFICATION | null>(null);
+  const [adminChannelUpdateError, setAdminChannelUpdateError] = useState<{ title: string; detail: string } | null>(null);
   const brmbleServiceWarningDismissedForOutageRef = useRef(false);
   const nextScreenShareEndedNotificationIdRef = useRef(0);
   const nextWatchedShareEndedNotificationIdRef = useRef(0);
@@ -4142,6 +4168,7 @@ const handleConnect = (serverData: SavedServer) => {
         onLiveCompanionChange={handleLiveCompanionChange}
         liveUsers={users}
         channels={channels}
+        onChannelsChange={setChannels}
       />
 
       <ConnectModal
@@ -4297,6 +4324,23 @@ const handleConnect = (serverData: SavedServer) => {
             }}
             onExited={() => {
               notifQueue.unregister(serverRemovalNotification.id);
+            }}
+          />
+        )}
+        {adminChannelUpdateError && notifQueue.isVisible('admin-channel-update-error') && (
+          <Notification
+            key={adminChannelUpdateError.title}
+            status="warning"
+            position="top-right"
+            visible={true}
+            title={adminChannelUpdateError.title}
+            detail={adminChannelUpdateError.detail}
+            onDismiss={() => {
+              notifQueue.unregister('admin-channel-update-error');
+              setAdminChannelUpdateError(null);
+            }}
+            onExited={() => {
+              notifQueue.unregister('admin-channel-update-error');
             }}
           />
         )}

@@ -1382,6 +1382,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         return await SendViaBcTls(cert, uri, httpRequest);
     }
 
+    private static async Task<TlsResult> PatchViaBcTls(X509Certificate2 cert, Uri uri, string jsonBody)
+    {
+        var hostHeader = uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}";
+        var contentLength = System.Text.Encoding.UTF8.GetByteCount(jsonBody);
+        var httpRequest = $"PATCH {uri.PathAndQuery} HTTP/1.1\r\nHost: {hostHeader}\r\nContent-Type: application/json\r\nContent-Length: {contentLength}\r\nConnection: close\r\n\r\n{jsonBody}";
+        return await SendViaBcTls(cert, uri, httpRequest);
+    }
+
     internal static string CreateLiveKitTokenRequestBody(string roomName, string accessMode)
     {
         var normalizedAccessMode = accessMode.Trim().ToLowerInvariant() switch
@@ -1441,6 +1449,21 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         int? attempt = null,
         int? delayMs = null)
         => new(service, state, reason, attempt, delayMs);
+
+    internal static ChannelState CreateEditChannelState(
+        uint channelId,
+        Channel channel,
+        string name,
+        string? description,
+        int? position)
+        => new()
+        {
+            ChannelId = channelId,
+            Parent = channel.Parent,
+            Name = name,
+            Description = description ?? string.Empty,
+            Position = position ?? channel.Position,
+        };
 
     internal static bool ShouldRefreshCredentialsAfterHealthSuccess(
         bool credentialsAlreadyFetched,
@@ -3015,12 +3038,16 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 return Task.CompletedTask;
             }
 
-            Connection.SendControl(PacketType.ChannelState, new ChannelState
-            {
-                ChannelId = channelId,
-                Name = name,
-                Description = description ?? string.Empty,
-            });
+            var position = data.TryGetProperty("position", out var pos) && pos.TryGetInt32(out var parsedPosition)
+                ? parsedPosition
+                : (int?)null;
+
+            Connection.SendControl(PacketType.ChannelState, CreateEditChannelState(
+                channelId,
+                channel,
+                name,
+                description,
+                position));
 
             return Task.CompletedTask;
         });
@@ -3044,6 +3071,63 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             {
                 ChannelId = channelId,
             });
+
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("voice.reorderChannels", data =>
+        {
+            if (Connection is not { State: ConnectionStates.Connected })
+            {
+                _bridge?.Send("voice.error", new { message = "Not connected to server", type = "notConnected" });
+                return Task.CompletedTask;
+            }
+
+            if (!data.TryGetProperty("channelIds", out var channelIdsProp) || channelIdsProp.ValueKind != System.Text.Json.JsonValueKind.Array)
+            {
+                _bridge?.Send("voice.error", new { message = "channelIds must be an array", type = "invalidRequest" });
+                return Task.CompletedTask;
+            }
+
+            var parentId = data.TryGetProperty("parentId", out var parentProp) ? parentProp.GetUInt32() : 0u;
+            var channelIds = channelIdsProp.EnumerateArray().Select(element => element.GetUInt32()).ToArray();
+            
+            if (channelIds.Length < 2)
+            {
+                _bridge?.Send("voice.error", new { message = "At least two sibling channels are required for reorder", type = "invalidRequest" });
+                return Task.CompletedTask;
+            }
+
+            if (channelIds.Distinct().Count() != channelIds.Length)
+            {
+                _bridge?.Send("voice.error", new { message = "channelIds must not contain duplicates", type = "invalidRequest" });
+                return Task.CompletedTask;
+            }
+
+            if (channelIds.Contains(0u))
+            {
+                _bridge?.Send("voice.error", new { message = "Cannot reorder root channel (id 0)", type = "invalidRequest" });
+                return Task.CompletedTask;
+            }
+
+            var siblingChannels = channelIds
+                .Select(id => Channels.FirstOrDefault(channel => channel.Id == id))
+                .ToArray();
+
+            if (siblingChannels.Any(channel => channel == null) || siblingChannels.Any(channel => channel!.Parent != parentId))
+            {
+                _bridge?.Send("voice.error", new { message = "Reorder payload must contain channels with the same parent", type = "invalidRequest" });
+                return Task.CompletedTask;
+            }
+
+            for (var index = 0; index < channelIds.Length; index++)
+            {
+                Connection.SendControl(PacketType.ChannelState, new ChannelState
+                {
+                    ChannelId = channelIds[index],
+                    Position = index * 10,
+                });
+            }
 
             return Task.CompletedTask;
         });
@@ -3529,6 +3613,38 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _bridge?.NotifyUiThread();
         });
 
+        bridge.RegisterHandler("admin.updateChannel", async data =>
+        {
+            var channelId = data.TryGetProperty("channelId", out var cid) && cid.ValueKind == System.Text.Json.JsonValueKind.Number
+                ? cid.GetInt32()
+                : 0;
+            if (channelId <= 0 || _apiUrl is null)
+            {
+                _bridge?.Send("admin.channelUpdateError", new { channelId, error = "Not connected or invalid channel" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            using var cert = _certService?.GetExportableCertificate();
+            if (cert is null)
+            {
+                _bridge?.Send("admin.channelUpdateError", new { channelId, error = "No client certificate" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            var name = data.TryGetProperty("name", out var nameEl) ? nameEl.GetString() : string.Empty;
+            var description = data.TryGetProperty("description", out var descEl) ? descEl.GetString() : string.Empty;
+            var position = data.TryGetProperty("position", out var posEl) && posEl.TryGetInt32(out var parsedPosition)
+                ? parsedPosition
+                : 0;
+            var requestJson = System.Text.Json.JsonSerializer.Serialize(new { name, description, position });
+            var uri = new Uri(new Uri(_apiUrl, UriKind.Absolute), $"acl/channels/{channelId}/state");
+            var result = await PatchViaBcTls(cert, uri, requestJson);
+            _bridge?.Send(result.Success ? "admin.channelUpdated" : "admin.channelUpdateError", new { channelId, body = result.Body, statusCode = result.StatusCode, error = result.Error });
+            _bridge?.NotifyUiThread();
+        });
+
         bridge.RegisterHandler("acl.setChannelPassword", async data =>
         {
             var channelId = data.TryGetProperty("channelId", out var cid) && cid.ValueKind == System.Text.Json.JsonValueKind.Number
@@ -3897,6 +4013,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         id = channel.Id,
         name = channel.Name,
         parent = channel.Parent,
+        description = channel.Description,
+        position = channel.Position,
         isEnterRestricted = channel.IsEnterRestricted,
         canEnter = channel.CanEnter,
         hasPasswordRestriction = _channelPasswordRestrictions.TryGetValue(channel.Id, out var hasPasswordRestriction) && hasPasswordRestriction,
@@ -4259,6 +4377,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (ChannelDictionary.TryGetValue(channelState.ChannelId, out var channel))
         {
             _bridge?.Send("voice.channelJoined", CreateChannelPayload(channel));
+            _bridge?.NotifyUiThread();
         }
     }
 
@@ -4267,6 +4386,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         var channelId = channelRemove.ChannelId;
         base.ChannelRemove(channelRemove);
         _bridge?.Send("voice.channelRemoved", new { id = channelId });
+        _bridge?.NotifyUiThread();
     }
 
     public override void TextMessage(TextMessage textMessage)

@@ -55,6 +55,50 @@
   min-height: 60px;
 }
 
+.position-stepper {
+  position: relative;
+}
+
+.position-stepper-input {
+  width: 100%;
+  padding-right: var(--space-2xl);
+}
+
+.position-stepper-controls {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: grid;
+  width: var(--space-xl);
+  border-left: 1px solid var(--border-subtle);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  overflow: hidden;
+}
+
+.position-stepper-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  padding: 0;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.position-stepper-button:hover,
+.position-stepper-button:focus-visible {
+  background: var(--bg-hover);
+  color: var(--accent-primary);
+}
+
+.position-stepper-button:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--accent-primary);
+}
+
 .edit-channel-hint {
   font-size: var(--text-xs);
   color: var(--text-muted);

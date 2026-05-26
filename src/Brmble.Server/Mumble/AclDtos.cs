@@ -36,6 +36,8 @@ public sealed record AclUpdateRequest(
 
 public sealed record AclGroupMemberRequest(int Session, string Group);
 
+public sealed record ChannelUpdateRequest(string Name, string? Description, int Position);
+
 public sealed record AclWriteResult(
     bool Success,
     AclChannelSnapshotDto? Snapshot,

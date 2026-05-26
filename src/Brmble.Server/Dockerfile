@@ -26,16 +26,29 @@ RUN curl -fsSL -o /usr/local/bin/continuwuity \
 # ── Stage 2: Build Brmble.Server ─────────────────────────────────────────────
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG VERSION=0.0.0-dev
+ARG SOURCE_REVISION_ID=
 WORKDIR /src
 
 COPY Directory.Build.props .
+COPY .git/ .git/
 COPY src/Brmble.Server/ src/Brmble.Server/
 
-RUN dotnet publish src/Brmble.Server/Brmble.Server.csproj \
+RUN source_revision_id="$SOURCE_REVISION_ID"; \
+    if [ -z "$source_revision_id" ] && [ -f .git/HEAD ]; then \
+        head_ref="$(cat .git/HEAD)"; \
+        case "$head_ref" in \
+          ref:\ *) ref_path="${head_ref#ref: }"; \
+                   if [ -f ".git/$ref_path" ]; then source_revision_id="$(cat ".git/$ref_path")"; \
+                   elif [ -f .git/packed-refs ]; then source_revision_id="$(awk -v ref="$ref_path" '$2 == ref { print $1; exit }' .git/packed-refs)"; fi ;; \
+          *) source_revision_id="$head_ref" ;; \
+        esac; \
+    fi && \
+    dotnet publish src/Brmble.Server/Brmble.Server.csproj \
     -c Release \
     -r linux-x64 \
     --no-self-contained \
     -p:Version=${VERSION} \
+    -p:SourceRevisionId=${source_revision_id} \
     -o /app/publish
 
 # ── Stage 3: Runtime image ────────────────────────────────────────────────────

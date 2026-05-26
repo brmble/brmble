@@ -15,6 +15,7 @@ import { EditChannelDialog } from '../EditChannelDialog/EditChannelDialog';
 import { Icon } from '../Icon/Icon';
 import { AclEditorDialog } from '../AclEditor/AclEditorDialog';
 import { getSavedChannelPassword } from '../../utils/channelPasswords';
+import { getOrderedChildChannels, sortChannels } from '../../utils/channelOrder';
 import './ChannelTree.css';
 
 interface User {
@@ -35,6 +36,7 @@ interface Channel {
   id: number;
   name: string;
   parent?: number;
+  position?: number;
   description?: string;
   isEnterRestricted?: boolean;
   canEnter?: boolean;
@@ -91,7 +93,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
   const [infoDialogUser, setInfoDialogUser] = useState<{ userId: string; userName: string; isSelf: boolean } | null>(null);
   const [draggedUser, setDraggedUser] = useState<number | null>(null);
   const [dropTargetChannel, setDropTargetChannel] = useState<number | null>(null);
-  const [editChannelDialog, setEditChannelDialog] = useState<{ id: number; name: string; description?: string; initialPassword: string } | null>(null);
+  const [editChannelDialog, setEditChannelDialog] = useState<{ id: number; name: string; description?: string; initialPassword: string; position: number } | null>(null);
   const [aclEditorChannel, setAclEditorChannel] = useState<{ id: number; name: string } | null>(null);
   const { hasPermission, Permission, requestPermissions } = usePermissions();
   const sharingChannelIds = useMemo(() => {
@@ -166,7 +168,8 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     const expanded = new Set<number>();
     channels.forEach(ch => {
       const hasUsers = users.some(u => u.channelId === ch.id);
-      if (hasUsers) {
+      const hasChildren = channels.some(candidate => candidate.parent === ch.id);
+      if (hasUsers || hasChildren) {
         expanded.add(ch.id);
       }
     });
@@ -181,7 +184,8 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
       let changed = false;
       channels.forEach(ch => {
         const hasUsers = users.some(u => u.channelId === ch.id);
-        if (hasUsers && !next.has(ch.id)) {
+        const hasChildren = channels.some(candidate => candidate.parent === ch.id);
+        if ((hasUsers || hasChildren) && !next.has(ch.id)) {
           next.add(ch.id);
           changed = true;
         }
@@ -232,24 +236,26 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     });
 
     channelMap.forEach(ch => {
-      if (ch.parent && channelMap.has(ch.parent)) {
+      if (ch.parent !== undefined && ch.parent !== ch.id && channelMap.has(ch.parent)) {
         channelMap.get(ch.parent)!.children.push(ch);
       } else {
         roots.push(ch);
       }
     });
 
-    const sortChildren = (channels: ChannelWithUsers[]) => {
-      channels.forEach(ch => {
-        if (ch.children.length > 0) {
-          ch.children.sort((a, b) => a.id - b.id);
-          sortChildren(ch.children);
+    const sortChildren = (entries: ChannelWithUsers[]) => {
+      entries.forEach(channel => {
+        if (channel.children.length > 0) {
+          channel.children = getOrderedChildChannels(channel.children, channel.id) as ChannelWithUsers[];
+          sortChildren(channel.children);
         }
       });
     };
-    sortChildren(roots);
 
-    return roots;
+    const orderedRoots = sortChannels(roots) as ChannelWithUsers[];
+    sortChildren(orderedRoots);
+
+    return orderedRoots;
   }, [channels, users, sortByNamePerChannel]);
 
   const tree = useMemo(() => buildTree(), [buildTree]);
@@ -280,7 +286,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     const isChannelActive = (channelId: number) => channelContextMenu?.channelId === channelId;
 
     return (
-      <div key={channel.id} className={`channel-item${pendingChannelAction !== null ? ' channel-item--pending' : ''}`} data-level={level}>
+      <div key={channel.id} className={`channel-item${pendingChannelAction !== null ? ' channel-item--pending' : ''}`} data-level={level} data-channel-id={channel.id}>
         <div 
           className={`channel-row ${isCurrentChannel ? 'current' : ''}${hasUnread ? ' channel-row--unread' : ''}${channel.users.length === 0 && !hasUnread ? ' channel-row--empty' : ''}${isFolder ? ' is-folder' : ''}${dropTargetChannel === channel.id ? ' channel-row--drop-target' : ''}${isChannelActive(channel.id) ? ' channel-row--context-active' : ''}`}
           style={{ paddingLeft: `calc(16px + ${level * 20}px)` }}
@@ -528,6 +534,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
             name: channelContextMenu.channelName,
             description: channel?.description || '',
             initialPassword: '',
+            position: channel?.position ?? 0,
           });
           bridge.send('acl.getChannel', { channelId: channelContextMenu.channelId });
           setChannelContextMenu(null);
@@ -764,8 +771,9 @@ onClick: () => {
           initialName={editChannelDialog.name}
           initialDescription={editChannelDialog.description}
           initialPassword={editChannelDialog.initialPassword}
+          initialPosition={editChannelDialog.position}
           onClose={() => setEditChannelDialog(null)}
-          onSave={async (name, description) => {
+          onSave={async (name, description, position, _password) => {
             const channel = channels.find(c => c.id === editChannelDialog!.id);
             const oldName = channel?.name || '';
 
@@ -787,6 +795,7 @@ onClick: () => {
               channelId: editChannelDialog!.id,
               name,
               description,
+              position,
             });
             setEditChannelDialog(null);
           }}

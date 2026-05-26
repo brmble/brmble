@@ -51,6 +51,26 @@ public class MumbleAclServiceTests
     }
 
     [TestMethod]
+    public async Task UpdateChannelStateAsync_PreservesExistingStateAndWritesPosition()
+    {
+        var ice = new Mock<IMumbleAclIceClient>();
+        ice.Setup(i => i.GetChannelStateAsync(4))
+            .ReturnsAsync(new MumbleServer.Channel(4, "Old", 7, [2], "Old description", false, 3));
+        var service = new MumbleAclService(ice.Object, NullLogger<MumbleAclService>.Instance);
+
+        await service.UpdateChannelStateAsync(4, new ChannelUpdateRequest("New", "Updated", 12));
+
+        ice.Verify(i => i.SetChannelStateAsync(It.Is<MumbleServer.Channel>(channel =>
+            channel.id == 4
+            && channel.name == "New"
+            && channel.parent == 7
+            && channel.links.SequenceEqual(new[] { 2 })
+            && channel.description == "Updated"
+            && channel.temporary == false
+            && channel.position == 12)), Times.Once);
+    }
+
+    [TestMethod]
     public async Task HasWritePermissionAsync_DelegatesToMumblePermissionWrite()
     {
         var ice = new Mock<IMumbleAclIceClient>();
