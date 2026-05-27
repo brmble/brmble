@@ -3,6 +3,7 @@ import {
   BRMBLE_SERVICE_CONNECTING_CHAT_NOTICE,
   canOpenChannelChat,
   canSendToChannelChat,
+  getImageSendRoutingDecision,
   getMumbleImageDeliveryState,
   getBrmbleServiceBootstrapPhase,
   getBrmbleServiceChatNotice,
@@ -31,6 +32,44 @@ describe('getMumbleImageDeliveryState', () => {
 
   it('maps sendable helper results to no delivery marker', () => {
     expect(getMumbleImageDeliveryState({ kind: 'sendable', payload: '<img src="data:image/png;base64,AAA" />' })).toBeUndefined();
+  });
+});
+
+describe('getImageSendRoutingDecision', () => {
+  it('marks oversized non-Matrix image sends as errors instead of pretending they were sent', () => {
+    expect(getImageSendRoutingDecision({
+      isMatrixChannel: false,
+      mumblePreparationFailed: false,
+      mumbleResult: { kind: 'too-large', payloadLength: 140_000 },
+    })).toEqual({
+      shouldSendToMumble: false,
+      shouldSendToMatrix: false,
+      markNonMatrixAsError: true,
+    });
+  });
+
+  it('still uploads to Matrix when Mumble preparation fails for a Matrix-backed channel', () => {
+    expect(getImageSendRoutingDecision({
+      isMatrixChannel: true,
+      mumblePreparationFailed: true,
+      mumbleResult: null,
+    })).toEqual({
+      shouldSendToMumble: false,
+      shouldSendToMatrix: true,
+      markNonMatrixAsError: false,
+    });
+  });
+
+  it('sends to Mumble normally for sendable non-Matrix image payloads', () => {
+    expect(getImageSendRoutingDecision({
+      isMatrixChannel: false,
+      mumblePreparationFailed: false,
+      mumbleResult: { kind: 'sendable', payload: '<img src="data:image/png;base64,AAA" />' },
+    })).toEqual({
+      shouldSendToMumble: true,
+      shouldSendToMatrix: false,
+      markNonMatrixAsError: false,
+    });
   });
 });
 

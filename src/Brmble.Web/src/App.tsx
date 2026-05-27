@@ -513,6 +513,25 @@ export function getMumbleImageDeliveryState(result: PreparedMumbleImage): 'too-l
   return result.kind === 'too-large' ? 'too-large' : undefined;
 }
 
+export interface ImageSendRoutingDecision {
+  shouldSendToMumble: boolean;
+  shouldSendToMatrix: boolean;
+  markNonMatrixAsError: boolean;
+}
+
+export function getImageSendRoutingDecision(options: {
+  isMatrixChannel: boolean;
+  mumblePreparationFailed: boolean;
+  mumbleResult: PreparedMumbleImage | null;
+}): ImageSendRoutingDecision {
+  return {
+    shouldSendToMumble: options.mumbleResult?.kind === 'sendable',
+    shouldSendToMatrix: options.isMatrixChannel,
+    markNonMatrixAsError: !options.isMatrixChannel
+      && (options.mumblePreparationFailed || options.mumbleResult?.kind === 'too-large'),
+  };
+}
+
 function getDefaultVoice(voices: SpeechSynthesisVoice[]) {
   return voices.find(v => v.name.includes(DEFAULT_TTS_VOICE)) || voices[0] || null;
 }
@@ -2959,21 +2978,23 @@ const handleConnect = (serverData: SavedServer) => {
 
       setOptimisticImages(prev => [...prev, optimisticMsg]);
 
-      let mumbleResult: PreparedMumbleImage;
+      let mumbleResult: PreparedMumbleImage | null = null;
+      let mumblePreparationFailed = false;
       try {
         mumbleResult = await prepareImageForMumble(image);
       } catch (err) {
         console.error('Mumble image send failed:', err);
-        setOptimisticImages(prev => prev.map(m =>
-          m.id === tempId ? { ...m, pending: false, error: true } : m
-        ));
-        URL.revokeObjectURL(objectUrl);
-        return;
+        mumblePreparationFailed = true;
       }
 
-      const mumbleDelivery = getMumbleImageDeliveryState(mumbleResult);
+      const mumbleDelivery = mumbleResult ? getMumbleImageDeliveryState(mumbleResult) : undefined;
+      const routing = getImageSendRoutingDecision({
+        isMatrixChannel,
+        mumblePreparationFailed,
+        mumbleResult,
+      });
 
-      if (mumbleResult.kind === 'sendable') {
+      if (routing.shouldSendToMumble && mumbleResult?.kind === 'sendable') {
         if (channelId === 'server-root') {
           bridge.send('voice.sendMessage', { message: mumbleResult.payload, channelId: 0 });
         } else {
@@ -2987,7 +3008,7 @@ const handleConnect = (serverData: SavedServer) => {
         ));
       }
 
-      if (isMatrixChannel) {
+      if (routing.shouldSendToMatrix) {
         matrixClient.uploadContent(image)
           .then(mxcUrl => matrixClient.sendImageMessage(channelId, image, mxcUrl, mumbleDelivery))
           .then(() => {
@@ -3000,6 +3021,10 @@ const handleConnect = (serverData: SavedServer) => {
               m.id === tempId ? { ...m, pending: false, error: true } : m
             ));
           });
+      } else if (routing.markNonMatrixAsError) {
+        setOptimisticImages(prev => prev.map(m =>
+          m.id === tempId ? { ...m, pending: false, error: true } : m
+        ));
       } else {
         setOptimisticImages(prev => prev.map(m =>
           m.id === tempId ? { ...m, pending: false } : m
