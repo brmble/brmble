@@ -51,4 +51,38 @@ describe('MessageBubble', () => {
     await userEvent.click(thumbsUp);
     expect(onToggleReaction).toHaveBeenCalledWith('msg1', '👍', true);
   });
+
+  it('renders the oversized mumble indicator for image messages', () => {
+    renderBubble({
+      content: '',
+      media: [{ type: 'image', url: 'blob://image', mimetype: 'image/png', size: 123 }],
+      mumbleDelivery: 'too-large',
+    });
+
+    expect(screen.getByLabelText('Image was not sent to the Mumble client')).toBeInTheDocument();
+  });
+
+  it('shows the oversized mumble tooltip copy on hover', async () => {
+    const user = userEvent.setup();
+
+    renderBubble({
+      content: '',
+      media: [{ type: 'image', url: 'blob://image', mimetype: 'image/png', size: 123 }],
+      mumbleDelivery: 'too-large',
+    });
+
+    await user.hover(screen.getByLabelText('Image was not sent to the Mumble client'));
+
+    expect(await screen.findByText('Image is too large to send to the Mumble client.')).toBeInTheDocument();
+  });
+
+  it('does not show failed-send overlay for too-large mumble state by itself', () => {
+    renderBubble({
+      content: '',
+      media: [{ type: 'image', url: 'blob://image', mimetype: 'image/png', size: 123 }],
+      mumbleDelivery: 'too-large',
+    });
+
+    expect(screen.queryByText('Failed to send')).not.toBeInTheDocument();
+  });
 });

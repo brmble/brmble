@@ -31,6 +31,7 @@ interface MessageBubbleProps {
   messageId?: string;
   pending?: boolean;
   error?: boolean;
+  mumbleDelivery?: 'too-large';
   replyToEventId?: string;
   replyToSender?: string;
   replyToContent?: string;
@@ -146,7 +147,7 @@ function processMessageContent(
   return mentionified;
 }
 
-export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & React.HTMLAttributes<HTMLDivElement>>(function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId, currentUsername, knownUsernames, messageId, pending, error, replyToEventId, replyToSender, replyToContent, isReplyTargetHighlighted, onReplyClick, onDismiss, onOpenContextMenu, className, reactions, redacted, currentUserMatrixId, onToggleReaction, edited, ...rest }, ref) {
+export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & React.HTMLAttributes<HTMLDivElement>>(function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId, currentUsername, knownUsernames, messageId, pending, error, mumbleDelivery, replyToEventId, replyToSender, replyToContent, isReplyTargetHighlighted, onReplyClick, onDismiss, onOpenContextMenu, className, reactions, redacted, currentUserMatrixId, onToggleReaction, edited, ...rest }, ref) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const formatTime = (date: Date) => {
@@ -265,6 +266,22 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
                 onOpenLightbox={setLightboxUrl}
               />
             ))}
+          </div>
+        )}
+        {mumbleDelivery === 'too-large' && media && media.length > 0 && (
+          <div className="message-mumble-delivery">
+            <Tooltip content="Image is too large to send to the Mumble client.">
+              <span
+                className="message-mumble-delivery-indicator"
+                aria-label="Image was not sent to the Mumble client"
+              >
+                <span className="message-mumble-delivery-icon" aria-hidden="true">
+                  <svg viewBox="0 0 16 16" focusable="false">
+                    <path d="M8 1.5a5.5 5.5 0 0 1 4.48 8.69l1.96 1.96-.94.94-9-9 .94-.94 1.49 1.49A5.48 5.48 0 0 1 8 1.5Zm0 11a5.48 5.48 0 0 1-3.79-1.51l1-1A4.1 4.1 0 0 0 8 10.9a4.1 4.1 0 0 0 1.72-.38l1.03 1.03A5.47 5.47 0 0 1 8 12.5Zm2.55-3.23A4.1 4.1 0 0 0 8 5.1c-.46 0-.9.08-1.31.22l3.86 3.95Z" fill="currentColor" />
+                  </svg>
+                </span>
+              </span>
+            </Tooltip>
           </div>
         )}
         {firstUrl && matrixClient && (

@@ -193,6 +193,35 @@ p.message-text {
   background: var(--bg-tertiary);
 }
 
+.message-mumble-delivery {
+  margin-top: var(--space-2xs);
+  display: flex;
+  align-items: center;
+}
+
+.message-mumble-delivery-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: var(--radius-full);
+  color: var(--accent-danger);
+  background: var(--accent-danger-subtle);
+  border: 1px solid var(--accent-danger-border);
+}
+
+.message-mumble-delivery-icon {
+  width: 0.9rem;
+  height: 0.9rem;
+  display: inline-flex;
+}
+
+.message-mumble-delivery-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
 /* Reply preview in message bubble (Discord-style) */
 .message-reply-preview {
   padding: var(--space-2xs) var(--space-xs);

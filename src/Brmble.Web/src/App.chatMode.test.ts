@@ -3,6 +3,7 @@ import {
   BRMBLE_SERVICE_CONNECTING_CHAT_NOTICE,
   canOpenChannelChat,
   canSendToChannelChat,
+  getMumbleImageDeliveryState,
   getBrmbleServiceBootstrapPhase,
   getBrmbleServiceChatNotice,
   getChannelSelectionOutcome,
@@ -22,6 +23,16 @@ import {
 } from './App';
 import type { ServiceStatusMap } from './types';
 import type { MatrixCredentials } from './hooks/useMatrixClient';
+
+describe('getMumbleImageDeliveryState', () => {
+  it('maps oversized helper results to the too-large state', () => {
+    expect(getMumbleImageDeliveryState({ kind: 'too-large', payloadLength: 6000 })).toBe('too-large');
+  });
+
+  it('maps sendable helper results to no delivery marker', () => {
+    expect(getMumbleImageDeliveryState({ kind: 'sendable', payload: '<img src="data:image/png;base64,AAA" />' })).toBeUndefined();
+  });
+});
 
 const credentials: MatrixCredentials = {
   homeserverUrl: 'https://matrix.example.com',

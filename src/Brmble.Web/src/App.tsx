@@ -1,7 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import bridge from './bridge';
 import type { ConnectionStatus, ChatMessage, NativeBrmbleServiceStatus, ServiceStatus, ServiceStatusMap } from './types';
-import { encodeForMumble } from './utils/imageUpload';
+import { prepareImageForMumble, type PreparedMumbleImage } from './utils/imageUpload';
 import { useMatrixClient } from './hooks/useMatrixClient';
 import type { MatrixCredentials } from './hooks/useMatrixClient';
 import { useScreenShare } from './hooks/useScreenShare';
@@ -507,6 +507,10 @@ export function shouldPublishServerJoinOverlayEvent(input: {
   }
 
   return input.nowMs - input.connectedAtMs >= INITIAL_SERVER_JOIN_OVERLAY_SUPPRESS_MS;
+}
+
+export function getMumbleImageDeliveryState(result: PreparedMumbleImage): 'too-large' | undefined {
+  return result.kind === 'too-large' ? 'too-large' : undefined;
 }
 
 function getDefaultVoice(voices: SpeechSynthesisVoice[]) {
@@ -2904,7 +2908,7 @@ const handleConnect = (serverData: SavedServer) => {
     dmStore.clearSelection();
   };
 
-  const handleSendMessage = (content: string, image?: File) => {
+  const handleSendMessage = async (content: string, image?: File) => {
     if (!username || (!content && !image)) return;
 
     const channelId = currentChannelId;
@@ -2955,19 +2959,37 @@ const handleConnect = (serverData: SavedServer) => {
 
       setOptimisticImages(prev => [...prev, optimisticMsg]);
 
-      // Mumble path (fire and forget)
-      encodeForMumble(image).then(imgTag => {
-        if (channelId === 'server-root') {
-          bridge.send('voice.sendMessage', { message: imgTag, channelId: 0 });
-        } else {
-          bridge.send('voice.sendMessage', { message: imgTag, channelId: Number(channelId) });
-        }
-      }).catch(err => console.error('Mumble image send failed:', err));
+      let mumbleResult: PreparedMumbleImage;
+      try {
+        mumbleResult = await prepareImageForMumble(image);
+      } catch (err) {
+        console.error('Mumble image send failed:', err);
+        setOptimisticImages(prev => prev.map(m =>
+          m.id === tempId ? { ...m, pending: false, error: true } : m
+        ));
+        URL.revokeObjectURL(objectUrl);
+        return;
+      }
 
-      // Matrix path
+      const mumbleDelivery = getMumbleImageDeliveryState(mumbleResult);
+
+      if (mumbleResult.kind === 'sendable') {
+        if (channelId === 'server-root') {
+          bridge.send('voice.sendMessage', { message: mumbleResult.payload, channelId: 0 });
+        } else {
+          bridge.send('voice.sendMessage', { message: mumbleResult.payload, channelId: Number(channelId) });
+        }
+      }
+
+      if (mumbleDelivery) {
+        setOptimisticImages(prev => prev.map(m =>
+          m.id === tempId ? { ...m, mumbleDelivery } : m
+        ));
+      }
+
       if (isMatrixChannel) {
         matrixClient.uploadContent(image)
-          .then(mxcUrl => matrixClient.sendImageMessage(channelId, image, mxcUrl))
+          .then(mxcUrl => matrixClient.sendImageMessage(channelId, image, mxcUrl, mumbleDelivery))
           .then(() => {
             setOptimisticImages(prev => prev.filter(m => m.id !== tempId));
             URL.revokeObjectURL(objectUrl);
