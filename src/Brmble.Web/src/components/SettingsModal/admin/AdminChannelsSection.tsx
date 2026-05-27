@@ -32,11 +32,19 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
   // Build a map of channel IDs to their full paths for aria-labels
   const getChannelPath = (channel: Channel): string => {
     const path: string[] = [];
+    const visited = new Set<number>();
     let current: Channel | undefined = channel;
     
-    while (current) {
+    while (current && !visited.has(current.id)) {
+      visited.add(current.id);
       path.unshift(current.name);
-      current = draftChannels.find(ch => ch.id === current?.parent);
+
+      const parentId: number | undefined = current.parent;
+      if (parentId == null || parentId === current.id) {
+        break;
+      }
+
+      current = draftChannels.find(ch => ch.id === parentId);
     }
     
     return path.join(' / ');

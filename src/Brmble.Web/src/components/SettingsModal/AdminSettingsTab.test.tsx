@@ -108,8 +108,8 @@ describe('AdminSettingsTab', () => {
   it('renders the live channel list in the channels tab', () => {
     render(<AdminSettingsTab channels={channels} />);
 
-    expect(screen.getByRole('row', { name: 'General' })).toBeInTheDocument();
-    expect(screen.getByRole('row', { name: 'Raid Planning' })).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: 'General (Root / General)' })).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: 'Raid Planning (Root / General / Raid Planning)' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Create Channel' })).toBeDisabled();
   });
 });
