@@ -274,6 +274,8 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
               <span
                 className="message-mumble-delivery-indicator"
                 aria-label="Image was not sent to the Mumble client"
+                tabIndex={0}
+                role="status"
               >
                 <span className="message-mumble-delivery-icon" aria-hidden="true">
                   <svg viewBox="0 0 16 16" focusable="false">

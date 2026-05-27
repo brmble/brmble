@@ -38,10 +38,14 @@ export function encodeForMumble(file: File): Promise<string> {
 
 export async function prepareImageForMumble(file: File): Promise<PreparedMumbleImage> {
   const payload = await encodeForMumble(file);
-  if (payload.length > MUMBLE_SAFE_MESSAGE_BYTES) {
+  // Measure actual UTF-8 byte length, not UTF-16 code units
+  const encoder = new TextEncoder();
+  const payloadLength = encoder.encode(payload).length;
+  
+  if (payloadLength > MUMBLE_SAFE_MESSAGE_BYTES) {
     return {
       kind: 'too-large',
-      payloadLength: payload.length,
+      payloadLength,
     };
   }
 
