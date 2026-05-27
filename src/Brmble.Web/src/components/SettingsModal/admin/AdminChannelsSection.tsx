@@ -29,6 +29,19 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
   const selectedChannel = draftChannels.find(channel => channel.id === selectedChannelId) ?? null;
   const orderedChannels = getOrderedChannels(draftChannels);
 
+  // Build a map of channel IDs to their full paths for aria-labels
+  const getChannelPath = (channel: Channel): string => {
+    const path: string[] = [];
+    let current: Channel | undefined = channel;
+    
+    while (current) {
+      path.unshift(current.name);
+      current = draftChannels.find(ch => ch.id === current?.parent);
+    }
+    
+    return path.join(' / ');
+  };
+
   useEffect(() => {
     if (selectedChannelId != null && orderedChannels.some(channel => channel.id === selectedChannelId)) {
       return;
@@ -48,7 +61,7 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
   }, []);
 
   const handleDeleteChannel = async () => {
-    if (!selectedChannel) return;
+    if (!selectedChannel || selectedChannel.id === 0) return;
 
     const result = await prompt({
       title: 'Delete Channel',
@@ -90,7 +103,7 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
                     isRecentlyMoved ? 'admin-channel-row--recently-moved' : '',
                   ].filter(Boolean).join(' ')}
                   role="row"
-                  aria-label={channel.name}
+                  aria-label={`${channel.name} (${getChannelPath(channel)})`}
                   tabIndex={0}
                   draggable={channel.id !== 0}
                   onClick={() => setSelectedChannelId(channel.id)}
@@ -216,7 +229,7 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
 
       <div className="admin-action-row">
         <button type="button" className="btn btn-secondary btn-sm" disabled>Create Channel</button>
-        <button type="button" className="btn btn-danger btn-sm" onClick={handleDeleteChannel} disabled={!selectedChannel}>Delete Channel</button>
+        <button type="button" className="btn btn-danger btn-sm" onClick={handleDeleteChannel} disabled={!selectedChannel || selectedChannel.id === 0}>Delete Channel</button>
       </div>
 
       <p className="admin-help-text">Create Channel is not available yet. Request actions and safe delete are available.</p>
@@ -226,7 +239,7 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
           channelId={aclEditorChannel.id}
           channelName={aclEditorChannel.name}
           availableUsers={[]}
-          isNativePasswordProtected={channels.find(channel => channel.id === aclEditorChannel.id)?.isEnterRestricted ?? false}
+          isNativePasswordProtected={draftChannels.find(channel => channel.id === aclEditorChannel.id)?.isEnterRestricted ?? false}
           onClose={() => setAclEditorChannel(null)}
         />
       )}
