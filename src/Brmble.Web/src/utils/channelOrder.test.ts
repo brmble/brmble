@@ -58,6 +58,20 @@ describe('buildReorderPayload', () => {
       positions: [0, 10, 20],
     });
   });
+
+  it('excludes the root channel when root happens to report parent 0', () => {
+    const payload = buildReorderPayload([
+      { id: 0, name: 'Root', parent: 0, position: 0 },
+      { id: 20, name: 'Raid', parent: 0, position: 0 },
+      { id: 10, name: 'General', parent: 0, position: 1 },
+    ], 0);
+
+    expect(payload).toEqual({
+      parentId: 0,
+      channelIds: [20, 10],
+      positions: [0, 10],
+    });
+  });
 });
 
 describe('canDropIntoSiblingGroup', () => {

@@ -4,10 +4,6 @@ import { AclEditorDialog } from '../../../components/AclEditor/AclEditorDialog';
 import bridge from '../../../bridge';
 import { prompt } from '../../../hooks/usePrompt';
 import type { Channel } from '../../../types';
-import { ContextMenu } from '../../ContextMenu/ContextMenu';
-import type { ContextMenuItem } from '../../ContextMenu/ContextMenu';
-import { EditChannelDialog } from '../../EditChannelDialog/EditChannelDialog';
-import { SettingsHelp } from '../SettingsHelp';
 import {
   buildReorderPayload,
   canDropIntoSiblingGroup,
@@ -25,14 +21,12 @@ interface AdminChannelsSectionProps {
 export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminChannelsSectionProps) {
   const [draftChannels, setDraftChannels] = useState<Channel[]>(() => getOrderedChannels(channels));
   const [selectedChannelId, setSelectedChannelId] = useState<number | null>(channels[0]?.id ?? null);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; channelId: number } | null>(null);
-  const [editChannel, setEditChannel] = useState<Channel | null>(null);
-  const [permissionsChannel, setPermissionsChannel] = useState<Channel | null>(null);
+  const [aclEditorChannel, setAclEditorChannel] = useState<{ id: number; name: string } | null>(null);
   const [draggedChannelId, setDraggedChannelId] = useState<number | null>(null);
   const [dropTargetId, setDropTargetId] = useState<number | null>(null);
   const [recentlyMovedChannelId, setRecentlyMovedChannelId] = useState<number | null>(null);
   const recentlyMovedTimeoutRef = useRef<number | null>(null);
-  const contextChannel = draftChannels.find(channel => channel.id === contextMenu?.channelId) ?? null;
+  const selectedChannel = draftChannels.find(channel => channel.id === selectedChannelId) ?? null;
   const orderedChannels = getOrderedChannels(draftChannels);
 
   useEffect(() => {
@@ -53,24 +47,20 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
     }
   }, []);
 
-  const handleDeleteChannel = async (channel: Channel) => {
+  const handleDeleteChannel = async () => {
+    if (!selectedChannel) return;
+
     const result = await prompt({
       title: 'Delete Channel',
-      message: `Type "${channel.name}" to confirm deleting this channel.`,
-      placeholder: channel.name,
+      message: `Type "${selectedChannel.name}" to confirm deleting this channel.`,
+      placeholder: selectedChannel.name,
       confirmLabel: 'Delete',
       cancelLabel: 'Cancel',
     });
 
-    if (result !== channel.name) return;
-    bridge.send('voice.removeChannel', { channelId: channel.id });
+    if (result !== selectedChannel.name) return;
+    bridge.send('voice.removeChannel', { channelId: selectedChannel.id });
   };
-
-  const menuItems: ContextMenuItem[] = contextChannel ? [
-    { type: 'item', label: 'Edit Channel', onClick: () => setEditChannel(contextChannel) },
-    { type: 'item', label: 'Edit Permissions', onClick: () => setPermissionsChannel(contextChannel) },
-    { type: 'item', label: 'Delete Channel', onClick: () => void handleDeleteChannel(contextChannel) },
-  ] : [];
 
   return (
     <section className="settings-section admin-section">
@@ -93,13 +83,14 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
                   key={channel.id}
                   className={[
                     'admin-channel-row',
+                    'admin-channel-row--management',
                     isSelected ? 'selected' : '',
                     isDragging ? 'admin-channel-row--dragging' : '',
                     isDropTarget ? 'admin-channel-row--drop-target' : '',
                     isRecentlyMoved ? 'admin-channel-row--recently-moved' : '',
                   ].filter(Boolean).join(' ')}
                   role="row"
-                  aria-label={`${channel.name} Position ${channel.position ?? 0}`}
+                  aria-label={channel.name}
                   tabIndex={0}
                   draggable={channel.id !== 0}
                   onClick={() => setSelectedChannelId(channel.id)}
@@ -114,8 +105,10 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
                   onDragStart={event => {
                     setRecentlyMovedChannelId(null);
                     setDraggedChannelId(channel.id);
-                    event.dataTransfer.effectAllowed = 'move';
-                    event.dataTransfer.setData('text/plain', String(channel.id));
+                    if (event.dataTransfer) {
+                      event.dataTransfer.effectAllowed = 'move';
+                      event.dataTransfer.setData('text/plain', String(channel.id));
+                    }
                   }}
                   onDragEnd={() => {
                     setDraggedChannelId(null);
@@ -160,28 +153,36 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
                       setRecentlyMovedChannelId(current => (current === movedChannelId ? null : current));
                       recentlyMovedTimeoutRef.current = null;
                     }, 1200);
-                    payload.channelIds.forEach((chId, i) => {
-                      const ch = nextChannels.find(c => c.id === chId);
-                      if (ch) {
-                        bridge.send('admin.updateChannel', {
-                          channelId: chId,
-                          name: ch.name,
-                          description: ch.description ?? '',
-                          position: payload.positions[i],
-                        });
+                    payload.channelIds.forEach((channelId, index) => {
+                      const reorderedChannel = nextChannels.find(candidate => candidate.id === channelId);
+                      if (!reorderedChannel) {
+                        return;
                       }
+
+                      bridge.send('admin.updateChannel', {
+                        channelId,
+                        name: reorderedChannel.name,
+                        description: reorderedChannel.description ?? '',
+                        position: payload.positions[index],
+                      });
                     });
                     setDraggedChannelId(null);
                     setDropTargetId(null);
                   }}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setSelectedChannelId(channel.id);
-                    setContextMenu({ x: e.clientX, y: e.clientY, channelId: channel.id });
-                  }}
                 >
-                  <span className="admin-channel-row-name">{channel.name}</span>
-                  <span className="admin-channel-position-pill">Position {channel.position ?? 0}</span>
+                  <span>{channel.name}</span>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    aria-label={`Edit ${channel.name}`}
+                    onClick={event => {
+                      event.stopPropagation();
+                      setSelectedChannelId(channel.id);
+                      setAclEditorChannel({ id: channel.id, name: channel.name });
+                    }}
+                  >
+                    Edit
+                  </button>
                 </div>
               );
             })
@@ -215,46 +216,18 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
 
       <div className="admin-action-row">
         <button type="button" className="btn btn-secondary btn-sm" disabled>Create Channel</button>
-        <SettingsHelp content="Right-click a channel for admin actions." label="More information about channel admin actions" />
+        <button type="button" className="btn btn-danger btn-sm" onClick={handleDeleteChannel} disabled={!selectedChannel}>Delete Channel</button>
       </div>
 
       <p className="admin-help-text">Create Channel is not available yet. Request actions and safe delete are available.</p>
-      {contextMenu && menuItems.length > 0 && (
-        <ContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          items={menuItems}
-          onClose={() => setContextMenu(null)}
-        />
-      )}
-      {editChannel && (
-        <EditChannelDialog
-          isOpen={true}
-          initialName={editChannel.name}
-          initialDescription={editChannel.description}
-          initialPosition={editChannel.position ?? 0}
-          initialPassword=""
-          showPosition
-          onClose={() => setEditChannel(null)}
-          onSave={(name, description, position, _password) => {
-            bridge.send('admin.updateChannel', {
-              channelId: editChannel.id,
-              name,
-              description,
-              position,
-            });
-            setEditChannel(null);
-          }}
-        />
-      )}
-      {permissionsChannel && (
+      {aclEditorChannel && (
         <AclEditorDialog
           isOpen={true}
-          channelId={permissionsChannel.id}
-          channelName={permissionsChannel.name}
+          channelId={aclEditorChannel.id}
+          channelName={aclEditorChannel.name}
           availableUsers={[]}
-          isNativePasswordProtected={permissionsChannel.isEnterRestricted ?? false}
-          onClose={() => setPermissionsChannel(null)}
+          isNativePasswordProtected={channels.find(channel => channel.id === aclEditorChannel.id)?.isEnterRestricted ?? false}
+          onClose={() => setAclEditorChannel(null)}
         />
       )}
     </section>

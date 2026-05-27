@@ -3122,11 +3122,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
             for (var index = 0; index < channelIds.Length; index++)
             {
-                Connection.SendControl(PacketType.ChannelState, new ChannelState
-                {
-                    ChannelId = channelIds[index],
-                    Position = index * 10,
-                });
+                var channel = siblingChannels[index]!;
+                Connection.SendControl(PacketType.ChannelState, CreateEditChannelState(
+                    channelIds[index],
+                    channel,
+                    channel.Name,
+                    channel.Description,
+                    index * 10));
             }
 
             return Task.CompletedTask;
