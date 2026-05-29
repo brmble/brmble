@@ -480,7 +480,7 @@ export function SettingsModal(props: SettingsModalProps) {
                 connected={props.connected ?? false}
                 registeredName={connectedRegisteredName}
               />
-              <MyChannelRequests refreshKey={props.channelRequestRefreshKey ?? 0} />
+              <MyChannelRequests refreshKey={props.channelRequestRefreshKey ?? 0} connected={props.connected ?? false} />
             </>
           )}
           {activeTab === 'audio' && <AudioSettingsTab settings={settings.audio} onChange={handleAudioChange} noiseSuppression={settings.noiseSuppression} onNoiseSuppressionChange={handleNoiseSuppressionChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}

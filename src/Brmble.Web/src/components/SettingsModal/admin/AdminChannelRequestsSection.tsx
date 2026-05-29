@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { approveChannelRequest, denyChannelRequest, listAdminChannelRequests } from '../../../api/channelRequests';
 import type { ChannelRequestItem } from '../../../types/channelRequests';
 import { confirm, prompt } from '../../../hooks/usePrompt';
@@ -18,15 +18,22 @@ export function AdminChannelRequestsSection() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
 
+  // Tracks the latest request so stale responses from a previous filter are discarded.
+  const latestRequestRef = useRef(0);
+
   const load = async (filter = statusFilter) => {
+    const requestId = ++latestRequestRef.current;
     setLoading(true);
     setError(null);
     try {
-      setItems(await listAdminChannelRequests(filter));
+      const result = await listAdminChannelRequests(filter);
+      if (requestId !== latestRequestRef.current) return;
+      setItems(result);
     } catch {
+      if (requestId !== latestRequestRef.current) return;
       setError('Could not load channel requests.');
     } finally {
-      setLoading(false);
+      if (requestId === latestRequestRef.current) setLoading(false);
     }
   };
 

@@ -40,6 +40,11 @@ public static class ChannelRequestEndpoints
                 return Results.Unauthorized();
             }
 
+            if (!ChannelRequestStatus.IsValidFilter(status))
+            {
+                return Results.BadRequest(new { error = $"Invalid status filter. Valid values: {string.Join(", ", ChannelRequestStatus.All)}, all." });
+            }
+
             var items = await service.ListMineAsync(user.UserId, status, limit ?? 25);
             return Results.Ok(new ChannelRequestListResponse(items.Select(ChannelRequestDto.FromModel).ToList()));
         });
@@ -57,6 +62,11 @@ public static class ChannelRequestEndpoints
             if (failure is not null)
             {
                 return failure;
+            }
+
+            if (!ChannelRequestStatus.IsValidFilter(status))
+            {
+                return Results.BadRequest(new { error = $"Invalid status filter. Valid values: {string.Join(", ", ChannelRequestStatus.All)}, all." });
             }
 
             var items = await service.ListAdminAsync(status, limit ?? 50);

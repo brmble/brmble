@@ -10,6 +10,11 @@ public class ChannelRequestService
     private readonly IChannelRequestRepository _repository;
     private readonly IChannelRequestMumbleService _mumbleService;
 
+    // Serializes concurrent approve/deny operations on the same request id to
+    // prevent a Mumble channel being created for a request that has already been
+    // denied (or double-created by two simultaneous approvals).
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<long, SemaphoreSlim> _approvalLocks = new();
+
     public ChannelRequestService(IChannelRequestRepository repository, IChannelRequestMumbleService mumbleService)
     {
         _repository = repository;
@@ -55,64 +60,84 @@ public class ChannelRequestService
 
     public async Task<ChannelRequestResult> ApproveAsync(long id, AuthenticatedChannelRequestUser adminUser)
     {
-        var request = await _repository.GetByIdAsync(id);
-        if (request is null)
-        {
-            return new(false, null, ChannelRequestError.RequestNotFound);
-        }
-
-        if (!string.Equals(request.Status, ChannelRequestStatus.Pending, StringComparison.OrdinalIgnoreCase))
-        {
-            return new(false, null, ChannelRequestError.RequestNotPending);
-        }
-
+        var gate = _approvalLocks.GetOrAdd(id, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync();
         try
         {
-            var channel = await _mumbleService.FindChannelByNameAsync(request.NormalizedChannelName)
-                ?? await _mumbleService.CreateChannelAsync(request.RequestedChannelName);
-
-            var marked = await _repository.TryMarkApprovedAsync(
-                request.Id,
-                adminUser.UserId,
-                adminUser.DisplayName,
-                channel.ChannelId,
-                channel.ChannelName);
-
-            if (!marked)
+            var request = await _repository.GetByIdAsync(id);
+            if (request is null)
             {
-                await _repository.TryRecordApprovalFailureAsync(request.Id, "Channel exists in Mumble but the request row could not be marked approved.");
-                var healed = await _repository.GetByIdAsync(request.Id);
-                return healed is not null && string.Equals(healed.Status, ChannelRequestStatus.Approved, StringComparison.OrdinalIgnoreCase)
-                    ? new(true, healed, null)
-                    : new(false, null, ChannelRequestError.ApprovalSyncFailed);
+                return new(false, null, ChannelRequestError.RequestNotFound);
             }
 
-            return new(true, await _repository.GetByIdAsync(request.Id), null);
+            if (!string.Equals(request.Status, ChannelRequestStatus.Pending, StringComparison.OrdinalIgnoreCase))
+            {
+                return new(false, null, ChannelRequestError.RequestNotPending);
+            }
+
+            try
+            {
+                var channel = await _mumbleService.FindChannelByNameAsync(request.NormalizedChannelName)
+                    ?? await _mumbleService.CreateChannelAsync(request.RequestedChannelName);
+
+                var marked = await _repository.TryMarkApprovedAsync(
+                    request.Id,
+                    adminUser.UserId,
+                    adminUser.DisplayName,
+                    channel.ChannelId,
+                    channel.ChannelName);
+
+                if (!marked)
+                {
+                    await _repository.TryRecordApprovalFailureAsync(request.Id, "Channel exists in Mumble but the request row could not be marked approved.");
+                    var healed = await _repository.GetByIdAsync(request.Id);
+                    return healed is not null && string.Equals(healed.Status, ChannelRequestStatus.Approved, StringComparison.OrdinalIgnoreCase)
+                        ? new(true, healed, null)
+                        : new(false, null, ChannelRequestError.ApprovalSyncFailed);
+                }
+
+                return new(true, await _repository.GetByIdAsync(request.Id), null);
+            }
+            catch (Exception ex)
+            {
+                await _repository.TryRecordApprovalFailureAsync(request.Id, ex.Message);
+                return new(false, null, ChannelRequestError.ApprovalSyncFailed);
+            }
         }
-        catch (Exception ex)
+        finally
         {
-            await _repository.TryRecordApprovalFailureAsync(request.Id, ex.Message);
-            return new(false, null, ChannelRequestError.ApprovalSyncFailed);
+            gate.Release();
+            _approvalLocks.TryRemove(id, out _);
         }
     }
 
     public async Task<ChannelRequestResult> DenyAsync(long id, AuthenticatedChannelRequestUser adminUser, string? decisionReason)
     {
-        var request = await _repository.GetByIdAsync(id);
-        if (request is null)
+        var gate = _approvalLocks.GetOrAdd(id, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync();
+        try
         {
-            return new(false, null, ChannelRequestError.RequestNotFound);
-        }
+            var request = await _repository.GetByIdAsync(id);
+            if (request is null)
+            {
+                return new(false, null, ChannelRequestError.RequestNotFound);
+            }
 
-        if (!string.Equals(request.Status, ChannelRequestStatus.Pending, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(request.Status, ChannelRequestStatus.Pending, StringComparison.OrdinalIgnoreCase))
+            {
+                return new(false, null, ChannelRequestError.RequestNotPending);
+            }
+
+            var denied = await _repository.TryMarkDeniedAsync(id, adminUser.UserId, adminUser.DisplayName, NormalizeReason(decisionReason));
+            return denied
+                ? new(true, await _repository.GetByIdAsync(id), null)
+                : new(false, null, ChannelRequestError.RequestNotPending);
+        }
+        finally
         {
-            return new(false, null, ChannelRequestError.RequestNotPending);
+            gate.Release();
+            _approvalLocks.TryRemove(id, out _);
         }
-
-        var denied = await _repository.TryMarkDeniedAsync(id, adminUser.UserId, adminUser.DisplayName, NormalizeReason(decisionReason));
-        return denied
-            ? new(true, await _repository.GetByIdAsync(id), null)
-            : new(false, null, ChannelRequestError.RequestNotPending);
     }
 
     private static string? NormalizeStatus(string? status) =>
