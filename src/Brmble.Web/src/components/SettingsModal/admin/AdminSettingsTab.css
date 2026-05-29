@@ -39,11 +39,6 @@
   min-width: 0;
 }
 
-.admin-workspace-stack {
-  display: grid;
-  gap: var(--space-lg);
-}
-
 .admin-section {
   display: grid;
   gap: var(--space-md);
@@ -102,10 +97,7 @@
 }
 
 .admin-channel-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-sm);
+  display: block;
   width: 100%;
   min-width: 0;
   text-align: left;
@@ -120,25 +112,6 @@
     border-color var(--transition-fast),
     box-shadow var(--transition-fast),
     transform var(--transition-fast);
-}
-
-.admin-channel-row-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.admin-channel-position-pill {
-  flex: 0 0 auto;
-  padding: var(--space-2xs) var(--space-xs);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-full);
-  background: var(--bg-overlay);
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-  font-weight: 700;
-  white-space: nowrap;
 }
 
 .admin-channel-row:hover,
@@ -164,7 +137,13 @@
   grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--space-md);
   align-items: center;
-  cursor: default;
+}
+
+.admin-channel-row--dragging {
+  border-color: color-mix(in srgb, var(--accent-primary) 55%, var(--border-subtle));
+  background: color-mix(in srgb, var(--accent-primary) 12%, var(--bg-surface));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary) 30%, transparent);
+  opacity: 0.9;
 }
 
 .admin-channel-row--drop-target {
@@ -172,46 +151,10 @@
   background: color-mix(in srgb, var(--accent-primary) 8%, var(--bg-surface));
 }
 
-.admin-channel-list {
-  display: grid;
-  gap: var(--space-xs);
-}
-
-.admin-channel-row__details {
-  display: grid;
-  gap: var(--space-2xs);
-  min-width: 0;
-}
-
-.admin-channel-row__name {
-  font-weight: 600;
-}
-
-.admin-channel-row__meta {
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-}
-
-.admin-channel-row__actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: var(--space-xs);
-}
-
-.admin-create-channel-dialog {
-  width: min(100%, 520px);
-}
-
-.admin-create-channel-form {
-  display: grid;
-  gap: var(--space-sm);
-}
-
-.admin-create-channel-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-sm);
+.admin-channel-row--recently-moved {
+  border-color: color-mix(in srgb, var(--accent-primary) 62%, var(--border-subtle));
+  background: color-mix(in srgb, var(--accent-primary) 14%, var(--bg-surface));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary) 42%, transparent);
 }
 
 .admin-action-row,
@@ -671,6 +614,180 @@
 
 @media (max-width: 600px) {
   .admin-groups-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.admin-users-search-row {
+  align-items: end;
+}
+
+.admin-users-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  gap: var(--space-md);
+  align-items: start;
+  min-width: 0;
+}
+
+.admin-users-card {
+  min-width: 0;
+}
+
+.admin-user-row {
+  grid-template-columns: minmax(0, 1fr) max-content max-content;
+  grid-template-areas: "identity actions badges";
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.admin-user-row.selected,
+.admin-user-row:focus-within {
+  border-color: color-mix(in srgb, var(--accent-primary) 55%, var(--border-subtle));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-primary) 35%, transparent);
+}
+
+.admin-user-row-connected {
+  border-color: color-mix(in srgb, var(--accent-success) 32%, var(--border-subtle));
+  background: color-mix(in srgb, var(--accent-success) 8%, var(--bg-surface));
+}
+
+.admin-user-row-connected.selected,
+.admin-user-row-connected:focus-within {
+  border-color: color-mix(in srgb, var(--accent-success) 62%, var(--border-subtle));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-success) 45%, transparent);
+}
+
+.admin-user-identity {
+  grid-area: identity;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.admin-user-text {
+  display: grid;
+  gap: var(--space-2xs);
+  min-width: 0;
+}
+
+.admin-user-avatar {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 28%, var(--border-subtle));
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--bg-overlay) 82%, transparent);
+  color: var(--text-primary);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.admin-user-presence {
+  position: absolute;
+  right: -2px;
+  bottom: 3px;
+  width: 11px;
+  height: 11px;
+  border: 2px solid var(--bg-surface);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text-muted) 70%, var(--bg-overlay));
+}
+
+.admin-user-presence.online {
+  background: var(--accent-success);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-success) 20%, transparent);
+}
+
+.admin-user-badges {
+  grid-area: badges;
+  justify-content: flex-end;
+}
+
+.admin-user-actions {
+  grid-area: actions;
+}
+
+.admin-user-edit-button {
+  min-width: 64px;
+}
+
+.admin-user-badge-online {
+  background: color-mix(in srgb, var(--accent-success) 18%, var(--bg-overlay));
+  color: color-mix(in srgb, var(--accent-success) 82%, var(--text-primary));
+}
+
+.admin-user-editor {
+  position: sticky;
+  top: var(--space-md);
+  align-self: start;
+}
+
+.admin-user-editor-header,
+.admin-user-editor-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.admin-user-editor-header .heading-label,
+.admin-user-editor-header .admin-help-text {
+  margin: 0;
+}
+
+.admin-user-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-sm);
+}
+
+.admin-user-editor-field {
+  display: grid;
+  gap: var(--space-2xs);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.admin-user-editor-field-wide {
+  grid-column: 1 / -1;
+}
+
+.admin-user-editor-actions {
+  justify-content: flex-end;
+}
+
+@media (max-width: 900px) {
+  .admin-users-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-user-editor {
+    position: static;
+  }
+}
+
+@media (max-width: 640px) {
+  .admin-user-row {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "identity"
+      "badges"
+      "actions";
+  }
+
+  .admin-user-badges,
+  .admin-user-actions {
+    justify-content: flex-start;
+  }
+
+  .admin-user-editor-grid {
     grid-template-columns: 1fr;
   }
 }

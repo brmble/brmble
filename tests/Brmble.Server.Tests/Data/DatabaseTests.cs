@@ -81,4 +81,32 @@ public class DatabaseTests
 
         CollectionAssert.Contains(columns, "matrix_access_token");
     }
+
+    [TestMethod]
+    public void Initialize_CreatesChannelRequestsTable()
+    {
+        _db!.Initialize();
+
+        using var conn = _db.CreateConnection();
+        conn.Open();
+        var count = conn.ExecuteScalar<int>(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='channel_requests'");
+
+        Assert.AreEqual(1, count);
+    }
+
+    [TestMethod]
+    public void Initialize_CreatesChannelRequestsIndexes()
+    {
+        _db!.Initialize();
+
+        using var conn = _db.CreateConnection();
+        conn.Open();
+        var indexes = conn.Query<string>(
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='channel_requests'").ToList();
+
+        CollectionAssert.Contains(indexes, "ix_channel_requests_status_created_at");
+        CollectionAssert.Contains(indexes, "ux_channel_requests_pending_requester_name");
+        CollectionAssert.Contains(indexes, "ux_channel_requests_pending_requester_slot");
+    }
 }

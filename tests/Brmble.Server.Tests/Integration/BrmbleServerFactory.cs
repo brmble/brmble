@@ -1,4 +1,5 @@
 using Brmble.Server.Auth;
+using Brmble.Server.ChannelRequests;
 using Brmble.Server.Data;
 using Brmble.Server.Events;
 using Brmble.Server.Matrix;
@@ -22,6 +23,7 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
     public Mock<IAclAuthorizationService> AclAuthorizationMock { get; } = new();
     public Mock<IAclSyncCoordinator> AclCoordinatorMock { get; } = new();
     public Mock<IMumbleAclService> MumbleAclMock { get; } = new();
+    public Mock<IChannelRequestMumbleService> ChannelRequestMumbleMock { get; } = new();
     public Mock<ISessionMappingService> SessionMappingMock { get; } = new();
     public Mock<IMumbleRegistrationService> MumbleRegistrationMock { get; } = new();
 
@@ -33,6 +35,15 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
         _keepAlive = new SqliteConnection(_cs);
         _keepAlive.Open();
         AclAuthorizationMock.Setup(a => a.CanManageChannelAclAsync(It.IsAny<long>(), 0)).ReturnsAsync(true);
+        ChannelRequestMumbleMock
+            .Setup(service => service.ChannelNameExistsAsync(It.IsAny<string>()))
+            .ReturnsAsync(false);
+        ChannelRequestMumbleMock
+            .Setup(service => service.FindChannelByNameAsync(It.IsAny<string>()))
+            .ReturnsAsync((CreatedMumbleChannel?)null);
+        ChannelRequestMumbleMock
+            .Setup(service => service.CreateChannelAsync(It.IsAny<string>()))
+            .ReturnsAsync((string name) => new CreatedMumbleChannel(42, name));
         var defaultSessionMapping = new SessionMappingService();
         SessionMappingMock.Setup(s => s.SetNameForSession(It.IsAny<string>(), It.IsAny<int>()))
             .Callback<string, int>(defaultSessionMapping.SetNameForSession);
@@ -116,6 +127,10 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
             var aclService = services.FirstOrDefault(d => d.ServiceType == typeof(IMumbleAclService));
             if (aclService != null) services.Remove(aclService);
             services.AddSingleton(MumbleAclMock.Object);
+
+            var channelRequestMumble = services.FirstOrDefault(d => d.ServiceType == typeof(IChannelRequestMumbleService));
+            if (channelRequestMumble != null) services.Remove(channelRequestMumble);
+            services.AddSingleton(ChannelRequestMumbleMock.Object);
 
             var sessionMapping = services.FirstOrDefault(d => d.ServiceType == typeof(ISessionMappingService));
             if (sessionMapping != null) services.Remove(sessionMapping);

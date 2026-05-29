@@ -2,10 +2,12 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AdminSectionPlaceholder } from './AdminSectionPlaceholder';
 import { AdminChannelsSection } from './AdminChannelsSection';
+import { AdminChannelRequestsSection } from './AdminChannelRequestsSection';
 import type { Channel } from '../../../types';
 import bridge from '../../../bridge';
 
-const { promptMock, aclEditorDialogMock } = vi.hoisted(() => ({
+const { confirmMock, promptMock, aclEditorDialogMock } = vi.hoisted(() => ({
+  confirmMock: vi.fn(),
   promptMock: vi.fn(),
   aclEditorDialogMock: vi.fn(),
 }));
@@ -17,7 +19,25 @@ const { bridgeMock, usePermissionsMock } = vi.hoisted(() => ({
 }));
 
 vi.mock('../../../hooks/usePrompt', () => ({
+  confirm: confirmMock,
   prompt: promptMock,
+}));
+
+vi.mock('../../../api/channelRequests', () => ({
+  approveChannelRequest: vi.fn().mockResolvedValue({}),
+  denyChannelRequest: vi.fn().mockResolvedValue({}),
+  listAdminChannelRequests: vi.fn().mockResolvedValue([
+    {
+      id: 1,
+      channelName: 'Officer Chat',
+      reason: null,
+      status: 'pending',
+      createdAtUtc: '2026-05-28T12:00:00Z',
+      handledAtUtc: null,
+      decisionReason: null,
+      requesterDisplayName: 'Mike',
+    },
+  ]),
 }));
 
 vi.mock('../../ContextMenu/ContextMenu', () => ({
@@ -94,23 +114,23 @@ describe('Admin workspace sections', () => {
     expect(screen.getByText('Export will unlock when audit events are wired.')).toBeInTheDocument();
   });
 
-  it('renders the channels management overview and request queue', () => {
+  it('renders the channels management overview without the request queue', () => {
     render(<AdminChannelsSection channels={liveChannels} />);
 
     expect(screen.getByRole('heading', { name: 'Channels' })).toBeInTheDocument();
     expect(screen.getByText('Existing Channels')).toBeInTheDocument();
-    expect(screen.getByText('Channel Requests')).toBeInTheDocument();
+    expect(screen.queryByText('Channel Requests')).not.toBeInTheDocument();
     expect(screen.getByRole('row', { name: 'General Position 2' })).toBeInTheDocument();
     expect(screen.getByRole('row', { name: 'Raid Planning Position 1' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Create Channel' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Delete Channel' })).not.toBeInTheDocument();
   });
 
-  it('renders inline approve and deny actions for each channel request row', () => {
-    render(<AdminChannelsSection channels={liveChannels} />);
+  it('renders inline approve and deny actions for each channel request row', async () => {
+    render(<AdminChannelRequestsSection />);
 
-    expect(screen.getByRole('button', { name: 'Approve Mike request' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Deny Mike request' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Approve Officer Chat' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Deny Officer Chat' })).toBeInTheDocument();
   });
 
   it('opens the shared ACL editor via right-click context menu', () => {

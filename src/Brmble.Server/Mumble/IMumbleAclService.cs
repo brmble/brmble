@@ -13,8 +13,10 @@ public interface IMumbleAclService
 
 public interface IMumbleAclIceClient
 {
+    Task<Dictionary<int, MumbleServer.Channel>> GetChannelsAsync();
     Task<MumbleServer.Server_GetACLResult> GetAclAsync(int channelId);
     Task<MumbleServer.Channel> GetChannelStateAsync(int channelId);
+    Task<int> AddChannelAsync(string name, int parentId);
     Task SetChannelStateAsync(MumbleServer.Channel channel);
     Task SetAclAsync(int channelId, MumbleServer.ACL[] acls, MumbleServer.Group[] groups, bool inherit);
     Task AddUserToGroupAsync(int channelId, int sessionId, string group);

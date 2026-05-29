@@ -1,4 +1,5 @@
 using Brmble.Server.Events;
+using Brmble.Server.ChannelRequests;
 
 namespace Brmble.Server.Mumble;
 
@@ -22,6 +23,9 @@ public static class MumbleExtensions
         services.AddSingleton<IAclEventDispatcher, AclEventDispatcher>();
         services.AddSingleton<IAclSyncCoordinator, AclSyncCoordinator>();
         services.AddSingleton<AclValidationService>();
+        services.AddScoped<IChannelRequestRepository, ChannelRequestRepository>();
+        services.AddScoped<IChannelRequestMumbleService, ChannelRequestMumbleService>();
+        services.AddScoped<ChannelRequestService>();
         services.AddSingleton<MumbleServerCallback>();
         services.AddSingleton<IMumbleIceCommunicatorFactory, MumbleIceCommunicatorFactory>();
         services.AddHostedService<MumbleIceService>();

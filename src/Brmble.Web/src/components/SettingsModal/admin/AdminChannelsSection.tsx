@@ -15,8 +15,6 @@ import {
   moveChannelToSiblingIndex,
 } from '../../../utils/channelOrder';
 
-const REQUESTS = [{ id: 1, requestedBy: 'Mike', channelName: 'Officer Chat', status: 'Pending' }];
-
 interface AdminChannelsSectionProps {
   channels?: Channel[];
   onChannelsChange?: (channels: Channel[]) => void;
@@ -188,28 +186,6 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
           ) : (
             <p className="admin-help-text">No channels are available yet.</p>
           )}
-        </div>
-      </div>
-
-      <div className="admin-card">
-        <h4 className="heading-label">Channel Requests</h4>
-        <div className="admin-table-placeholder">
-          {REQUESTS.map(request => (
-            <div key={request.id} className="admin-request-row">
-              <span>{request.requestedBy} requested {request.channelName}</span>
-              <div className="admin-request-status-cell">
-                <span className="admin-request-status">{request.status}</span>
-                <div className="admin-request-actions">
-                  <button type="button" className="btn btn-secondary btn-sm" aria-label={`Approve ${request.requestedBy} request`}>
-                    Approve
-                  </button>
-                  <button type="button" className="btn btn-danger btn-sm" aria-label={`Deny ${request.requestedBy} request`}>
-                    Deny
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
         </div>
       </div>
 

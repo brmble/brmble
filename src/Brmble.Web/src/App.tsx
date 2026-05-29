@@ -43,6 +43,7 @@ import { UpdateNotification } from './components/UpdateNotification/UpdateNotifi
 import { WindowResizeHandles } from './components/WindowResizeHandles/WindowResizeHandles';
 import { BrokenCertNotification } from './components/BrokenCertNotification/BrokenCertNotification';
 import { Notification } from './components/Notification/Notification';
+import { RequestChannelModal } from './components/ChannelRequests/RequestChannelModal';
 import type { NotificationStatus } from './components/Notification/Notification';
 import { DEFAULT_OVERLAY, normalizeOverlaySettings, type OverlaySettings } from './components/SettingsModal/InterfaceSettingsTypes';
 import type { CompanionOverlaySnapshot } from './components/CompanionOverlay/overlayTypes';
@@ -956,6 +957,8 @@ function App() {
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection'>('profile');
+  const [requestChannelOpen, setRequestChannelOpen] = useState(false);
+  const [channelRequestRefreshKey, setChannelRequestRefreshKey] = useState(0);
   const [showGame, setShowGame] = useState(false);
   const [showAvatarEditor, setShowAvatarEditor] = useState(false);
   const brmbleServicesConnectedOnceRef = useRef(false);
@@ -4032,6 +4035,7 @@ const handleConnect = (serverData: SavedServer) => {
           onWatchScreenShare={handleWatchScreenShare}
           onStopWatching={(userId) => disconnectViewer(userId)}
           onEditAvatar={connected ? () => setShowAvatarEditor(true) : undefined}
+          onRequestChannel={() => setRequestChannelOpen(true)}
         />
         </ErrorBoundary>
         
@@ -4169,6 +4173,16 @@ const handleConnect = (serverData: SavedServer) => {
         liveUsers={users}
         channels={channels}
         onChannelsChange={setChannels}
+        channelRequestRefreshKey={channelRequestRefreshKey}
+      />
+
+      <RequestChannelModal
+        isOpen={requestChannelOpen}
+        onClose={() => setRequestChannelOpen(false)}
+        onCreated={() => {
+          setRequestChannelOpen(false);
+          setChannelRequestRefreshKey(key => key + 1);
+        }}
       />
 
       <ConnectModal

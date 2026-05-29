@@ -50,7 +50,13 @@ vi.mock('./ChannelTree', () => ({
 }));
 
 vi.mock('../ContextMenu/ContextMenu', () => ({
-  ContextMenu: () => null,
+  ContextMenu: ({ items }: { items: Array<{ label: string; onClick: () => void }> }) => (
+    <div role="menu">
+      {items.map(item => (
+        <button key={item.label} role="menuitem" onClick={item.onClick}>{item.label}</button>
+      ))}
+    </div>
+  ),
 }));
 
 vi.mock('../UserInfoDialog/UserInfoDialog', () => ({
@@ -493,5 +499,21 @@ describe('Sidebar root move drop targets', () => {
     fireEvent.drop(panel, event);
 
     expect(bridgeMock.send).toHaveBeenCalledWith('voice.move', { session: 7, channelId: 0 });
+  });
+});
+
+describe('Sidebar channel requests', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('opens the request channel workflow from the sidebar menu', async () => {
+    const onRequestChannel = vi.fn();
+    renderSidebar({ onRequestChannel });
+
+    fireEvent.contextMenu(screen.getByTestId('channel-tree').closest('.sidebar-channels')!);
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Request Channel' }));
+
+    expect(onRequestChannel).toHaveBeenCalledTimes(1);
   });
 });

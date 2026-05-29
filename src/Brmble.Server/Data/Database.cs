@@ -1,4 +1,5 @@
 using System.Data;
+using Brmble.Server.ChannelRequests;
 using Dapper;
 using Microsoft.Data.Sqlite;
 
@@ -50,6 +51,45 @@ public class Database
                 is_stale        INTEGER NOT NULL DEFAULT 0,
                 stale_reason    TEXT
             );
+            """);
+
+        var channelRequestStatuses = ChannelRequestStatus.SqlCheckConstraintList;
+        conn.Execute($"""
+            CREATE TABLE IF NOT EXISTS channel_requests (
+                id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                requester_user_id       INTEGER NOT NULL,
+                requester_display_name  TEXT NOT NULL,
+                requested_channel_name  TEXT NOT NULL,
+                normalized_channel_name TEXT NOT NULL,
+                pending_slot            INTEGER,
+                reason                  TEXT,
+                status                  TEXT NOT NULL,
+                created_at_utc          TEXT NOT NULL,
+                updated_at_utc          TEXT NOT NULL,
+                handled_at_utc          TEXT,
+                handled_by_user_id      INTEGER,
+                handled_by_display_name TEXT,
+                decision_reason         TEXT,
+                created_channel_id      INTEGER,
+                created_channel_name    TEXT,
+                last_approval_error     TEXT,
+                approval_attempt_count  INTEGER NOT NULL DEFAULT 0,
+                CHECK (status IN ({channelRequestStatuses}))
+            );
+
+            CREATE INDEX IF NOT EXISTS ix_channel_requests_status_created_at
+                ON channel_requests(status, created_at_utc);
+
+            CREATE INDEX IF NOT EXISTS ix_channel_requests_requester_user_id
+                ON channel_requests(requester_user_id);
+
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_channel_requests_pending_requester_name
+                ON channel_requests(requester_user_id, normalized_channel_name)
+                WHERE status = 'pending';
+
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_channel_requests_pending_requester_slot
+                ON channel_requests(requester_user_id, pending_slot)
+                WHERE status = 'pending' AND pending_slot IS NOT NULL;
             """);
 
         // Migrate existing deployments: add matrix_access_token if the column is missing
