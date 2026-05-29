@@ -21,7 +21,7 @@ describe('MyChannelRequests', () => {
       },
     ]);
 
-    render(<MyChannelRequests refreshKey={0} />);
+    render(<MyChannelRequests refreshKey={0} connected />);
 
     expect(await screen.findByText('Raid Team 2')).toBeInTheDocument();
     expect(screen.getByText('Denied')).toBeInTheDocument();
