@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useGameEngine } from './hooks/useGameEngine';
-import { UNLOCK_COSTS, PRODUCT_TIERS, SLOT_UNLOCK_COSTS, PRODUCT_ARREST_RISK } from './constants';
+import { UNLOCK_COSTS, PRODUCT_TIERS, SLOT_UNLOCK_COSTS, PRODUCT_ARREST_RISK, OPERATION_UPGRADE_DEFINITIONS } from './constants';
 import { getBailCost } from './economy';
+import { formatBulkCooldown, getBestBulkStreetValue } from './bulkMarket';
+import { getDealerEquipmentUpgradeCost, getDealerSlotUnlockCost } from './dealerUpgrades';
+import { getProductUpgradeCost } from './productUpgrades';
 import { confirm } from '../../hooks/usePrompt';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { Icon } from '../Icon/Icon';
@@ -108,8 +111,13 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     toggleDealerProtection,
     payDealerBail,
     dismissOfflineEarningsSummary,
+    buyOperationUpgrade,
+    buyProductUpgrade,
+    unlockDealerEquipmentSlot,
+    sellBulk,
   } = useGameEngine();
   const [upgradingDealerId, setUpgradingDealerId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'production' | 'operations'>('production');
 
   const upgradingDealer = upgradingDealerId
     ? state.activeDealers.find(dealer => dealer?.id === upgradingDealerId) ?? null
@@ -186,6 +194,28 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
         </div>
       </header>
 
+      <div className={styles.tabBar} role="tablist" aria-label="Neon-D sections">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'production'}
+          className={`${styles.tabButton} ${activeTab === 'production' ? styles.tabButtonActive : ''}`}
+          onClick={() => setActiveTab('production')}
+        >
+          Production
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'operations'}
+          className={`${styles.tabButton} ${activeTab === 'operations' ? styles.tabButtonActive : ''}`}
+          onClick={() => setActiveTab('operations')}
+        >
+          Operations
+        </button>
+      </div>
+
+      {activeTab === 'production' && (
       <div className={styles.gridLayout}>
         <section>
           <h3 className={`heading-section ${styles.productionColumnHeader}`}>Production</h3>
@@ -357,8 +387,8 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
             }
 
             const dealer = slot;
-                const upgradeCost = 500 * Math.pow(2.5, dealer.equipmentCount);
-                const isMaxed = dealer.equipmentCount >= 3;
+                const upgradeCost = getDealerEquipmentUpgradeCost(dealer.equipmentCount);
+                const isMaxed = dealer.equipmentCount >= dealer.maxEquipmentSlots;
                 const hasStoredPendingUpgrade = dealer.hasPendingUpgrade && dealer.pendingUpgradeOptions.length > 0;
                 const isInsufficientFunds = !hasStoredPendingUpgrade && state.money < upgradeCost;
                 
@@ -445,10 +475,7 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
                       <div className={`${styles.statRow} ${styles.equipmentRow}`}>
                         <span className={styles.label}>Equip Slots:</span>
                         <span className={styles.equipmentSlots}>
-                          {'filled '.repeat(dealer.equipmentCount).trim()}
-                          {dealer.equipmentCount < 3 && (
-                            <span className={styles.equipmentSlotEmpty}> {'empty '.repeat(3 - dealer.equipmentCount).trim()}</span>
-                          )}
+                          {dealer.equipmentCount}/{dealer.maxEquipmentSlots} filled
                         </span>
                       </div>
 
@@ -464,6 +491,18 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
                         >
                           {isMaxed ? 'MAXED OUT' : `Upgrade ($${Math.floor(upgradeCost).toLocaleString()})`}
                         </button>
+                        {dealer.maxEquipmentSlots < 5 && (() => {
+                          const slotCost = getDealerSlotUnlockCost(dealer.maxEquipmentSlots);
+                          return (
+                            <button
+                              className={styles.buyButton}
+                              disabled={state.money < slotCost}
+                              onClick={() => unlockDealerEquipmentSlot(dealer.id)}
+                            >
+                              Unlock Slot {dealer.maxEquipmentSlots + 1} ({formatMoney(slotCost)})
+                            </button>
+                          );
+                        })()}
                         <button
                           className={styles.dangerButton}
                           onClick={async () => {
@@ -487,6 +526,85 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
       })}
         </section>
       </div>
+      )}
+
+      {activeTab === 'operations' && (
+        <div className={styles.operationsLayout}>
+          <section className={`glass-panel ${styles.operationsPanel}`}>
+            <h3 className={`heading-section ${styles.columnHeader}`}>Dealer Operations</h3>
+            {Object.entries(OPERATION_UPGRADE_DEFINITIONS).map(([id, definition]) => {
+              const typedId = id as keyof typeof OPERATION_UPGRADE_DEFINITIONS;
+              const level = state.operationUpgrades[typedId];
+              const nextCost = definition.costs[level];
+              return (
+                <div key={id} className={styles.operationCard}>
+                  <div>
+                    <h4 className={`heading-label ${styles.operationTitle}`}>{definition.label}</h4>
+                    <p className={styles.label}>{definition.description}</p>
+                    <span className={styles.label}>Level {level}/{definition.maxLevel}</span>
+                  </div>
+                  <button
+                    className={styles.buyButton}
+                    disabled={level >= definition.maxLevel || state.money < nextCost}
+                    onClick={() => buyOperationUpgrade(typedId)}
+                  >
+                    {level >= definition.maxLevel ? 'Maxed' : `Upgrade (${formatMoney(nextCost)})`}
+                  </button>
+                </div>
+              );
+            })}
+          </section>
+
+          <section className={`glass-panel ${styles.operationsPanel}`}>
+            <h3 className={`heading-section ${styles.columnHeader}`}>Product Specialization</h3>
+            {state.unlockedProduction.map(productId => {
+              const product = state.production[productId];
+              const tracks = state.productUpgrades[productId];
+              if (!product || !tracks) return null;
+              return (
+                <div key={productId} className={styles.productUpgradeCard}>
+                  <h4 className={`heading-label ${styles.operationTitle}`}>{product.name}</h4>
+                  {Object.values(tracks).map(track => {
+                    const cost = getProductUpgradeCost(track.category, track.level);
+                    return (
+                      <button
+                        key={track.category}
+                        className={styles.upgradeTrackButton}
+                        disabled={track.level >= track.maxLevel || state.money < cost}
+                        onClick={() => buyProductUpgrade(productId, track.category)}
+                      >
+                        {track.category}: {track.level}/{track.maxLevel} ({track.level >= track.maxLevel ? 'Maxed' : formatMoney(cost)})
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </section>
+
+          <section className={`glass-panel ${styles.operationsPanel}`}>
+            <h3 className={`heading-section ${styles.columnHeader}`}>Bulk Market</h3>
+            {visibleProduction.filter(product => state.unlockedProduction.includes(product.id)).map(product => {
+              const remainingMs = Math.max(0, state.bulkMarket.cooldownUntil - Date.now());
+              const hasCooldown = remainingMs > 0;
+              const streetValuePercent = getBestBulkStreetValue(state.activeDealers, state.operationUpgrades.bulkNetwork);
+              const isLocked = streetValuePercent <= 0;
+              return (
+                <div key={product.id} className={styles.bulkRow}>
+                  <span>{product.name}: {product.stock.toFixed(2)}g</span>
+                  <button
+                    className={styles.buyButton}
+                    disabled={isLocked || hasCooldown || product.stock <= 0}
+                    onClick={() => sellBulk(product.id)}
+                  >
+                    {isLocked ? 'Bulk Locked' : hasCooldown ? `Cooldown ${formatBulkCooldown(remainingMs)}` : 'Sell Bulk'}
+                  </button>
+                </div>
+              );
+            })}
+          </section>
+        </div>
+      )}
 
       {upgradingDealer?.hasPendingUpgrade && upgradingDealer.pendingUpgradeOptions.length === 3 && !upgradingDealer.isArrested && (
         <div className={styles.equipmentModalOverlay}>
@@ -503,7 +621,19 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
                   }}
                 >
                   <div className={styles.equipmentOptionLabel}>{opt.label}</div>
+                  <div className={styles.rarityPill} data-rarity={opt.rarity.toLowerCase()}>{opt.rarity}</div>
+                  {opt.tone === 'MIXED' && <div className={styles.highRiskLabel}>High Risk</div>}
                   <div className={styles.equipmentOptionDescription}>{opt.description}</div>
+                  <div className={styles.effectList}>
+                    {opt.effects.map(effect => (
+                      <span
+                        key={`${effect.stat}-${effect.label}`}
+                        className={effect.isNegative ? styles.negativeEffect : styles.positiveEffect}
+                      >
+                        {effect.label}
+                      </span>
+                    ))}
+                  </div>
                 </button>
               ))}
             </div>

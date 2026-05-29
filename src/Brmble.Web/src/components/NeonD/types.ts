@@ -9,15 +9,38 @@ export interface ProductionItem {
   upgradeCost: number;
 }
 
-export type UpgradeType = 'VOLUME' | 'MARGIN' | 'SIDE_HUSTLE' | 'ALL_AROUNDER' | 'BULK';
+export type UpgradeType =
+  | 'VOLUME'
+  | 'MARGIN'
+  | 'RISK_REDUCTION'
+  | 'SIDE_HUSTLE'
+  | 'ALL_AROUNDER'
+  | 'BULK';
+
+export type DealerUpgradeRarity = 'COMMON' | 'UNCOMMON' | 'RARE' | 'JACKPOT';
+export type DealerUpgradeTone = 'POSITIVE' | 'MIXED' | 'NEGATIVE';
+
+export interface DealerUpgradeEffect {
+  stat: 'volumeBonus' | 'marginBonus' | 'riskBonus' | 'bulkStreetValue' | 'sideVolume';
+  value: number;
+  label: string;
+  isNegative?: boolean;
+}
 
 export interface DealerUpgrade {
   type: UpgradeType;
+  rarity: DealerUpgradeRarity;
+  tone: DealerUpgradeTone;
   label: string;
   description: string;
   value: number;
+  effects: DealerUpgradeEffect[];
   marginPenalty?: number;
   sideVolumeValue?: number;
+  sideProductId?: string;
+  riskPenalty?: number;
+  riskReduction?: number;
+  bulkStreetValue?: number;
 }
 
 export type DealerRiskLevel = 'LOW' | 'MEDIUM' | 'HIGH';
@@ -32,6 +55,9 @@ export interface Dealer {
   marginBonus: number;
   sideVolume: number;
   equipmentCount: number;
+  maxEquipmentSlots: number;
+  riskBonus: number;
+  bulkStreetValue: number;
   baseVolumeGps: number;
   baseMarginMult: number;
   volumeStars: number;
@@ -41,6 +67,27 @@ export interface Dealer {
   nextArrestCheckAt: number;
   hasPendingUpgrade: boolean;
   pendingUpgradeOptions: DealerUpgrade[];
+}
+
+export type OperationUpgradeId =
+  | 'betterVolumeTraining'
+  | 'betterMarginTraining'
+  | 'saferOperations'
+  | 'bulkNetwork';
+
+export type ProductUpgradeCategory = 'PURITY' | 'AUTOMATION' | 'CONCEALMENT' | 'DISTRIBUTION';
+
+export interface ProductUpgradeTrack {
+  category: ProductUpgradeCategory;
+  level: number;
+  maxLevel: number;
+}
+
+export type ProductUpgradeState = Record<string, Record<ProductUpgradeCategory, ProductUpgradeTrack>>;
+
+export interface BulkMarketState {
+  cooldownUntil: number;
+  lastSaleAt: number;
 }
 
 export interface OfflineEarningsSummary {
@@ -57,6 +104,9 @@ export interface GameState {
   activeDealers: (Dealer | null)[];
   availableDealers: Dealer[];
   unlockedSlots: number;
+  operationUpgrades: Record<OperationUpgradeId, number>;
+  productUpgrades: ProductUpgradeState;
+  bulkMarket: BulkMarketState;
   lastRefreshTime: number;
   lastEarningsPerDealer: Record<string, number>;
   lastTickAt: number;

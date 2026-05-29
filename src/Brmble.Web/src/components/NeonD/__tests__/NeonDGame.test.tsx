@@ -7,9 +7,9 @@ const mockNeonD = vi.hoisted(() => {
   const buyEquipmentMock = vi.fn();
   const startDealerUpgradeMock = vi.fn();
   const dealerUpgradeOptions = [
-    { type: 'VOLUME', label: 'Armed Gang', description: 'Volume +15%', value: 0.15 },
-    { type: 'MARGIN', label: 'Ferrari', description: 'Margin +15%', value: 0.15 },
-    { type: 'SIDE_HUSTLE', label: 'JACKPOT: Side Hustle', description: 'Add 10% side volume bleed', value: 0.1, sideVolumeValue: 0.1 },
+    { type: 'VOLUME', rarity: 'COMMON', tone: 'POSITIVE', label: 'Armed Gang', description: 'Volume +15%', value: 0.15, effects: [{ stat: 'volumeBonus', value: 0.15, label: '+15% volume' }] },
+    { type: 'MARGIN', rarity: 'COMMON', tone: 'POSITIVE', label: 'Ferrari', description: 'Margin +15%', value: 0.15, effects: [{ stat: 'marginBonus', value: 0.15, label: '+15% margin' }] },
+    { type: 'SIDE_HUSTLE', rarity: 'JACKPOT', tone: 'POSITIVE', label: 'JACKPOT: Side Hustle', description: 'Add 10% side volume bleed', value: 0.1, sideVolumeValue: 0.1, effects: [{ stat: 'sideVolume', value: 0.1, label: '+10% side volume' }] },
   ] as const;
 
   const createDealer = (overrides: Record<string, unknown> = {}) => ({
@@ -22,6 +22,9 @@ const mockNeonD = vi.hoisted(() => {
     marginBonus: 0,
     sideVolume: 0,
     equipmentCount: 0,
+    maxEquipmentSlots: 3,
+    riskBonus: 0,
+    bulkStreetValue: 0,
     baseVolumeGps: 1,
     baseMarginMult: 10,
     volumeStars: 3,
@@ -45,6 +48,24 @@ const mockNeonD = vi.hoisted(() => {
     activeDealers: [createDealer()],
     availableDealers: [],
     unlockedSlots: 1,
+    operationUpgrades: {
+      betterVolumeTraining: 0,
+      betterMarginTraining: 0,
+      saferOperations: 0,
+      bulkNetwork: 0,
+    },
+    productUpgrades: {
+      weed: {
+        PURITY: { category: 'PURITY', level: 0, maxLevel: 3 },
+        AUTOMATION: { category: 'AUTOMATION', level: 0, maxLevel: 3 },
+        CONCEALMENT: { category: 'CONCEALMENT', level: 0, maxLevel: 3 },
+        DISTRIBUTION: { category: 'DISTRIBUTION', level: 0, maxLevel: 2 },
+      },
+    },
+    bulkMarket: {
+      cooldownUntil: 0,
+      lastSaleAt: 0,
+    },
     lastRefreshTime: 0,
     lastEarningsPerDealer: { 'dealer-ui': 8.5 },
     lastTickAt: Date.now(),
@@ -53,6 +74,27 @@ const mockNeonD = vi.hoisted(() => {
   });
 
   let state = createState();
+  const defaultUseGameEngine = () => ({
+    state,
+    upgrade: vi.fn(),
+    unlockProduction: vi.fn(),
+    hireDealer: vi.fn(),
+    fireDealer: vi.fn(),
+    refreshPool: vi.fn(),
+    resetGame: vi.fn(),
+    unlockSlot: vi.fn(),
+    setDealerSelling: vi.fn(),
+    startDealerUpgrade: startDealerUpgradeMock,
+    buyEquipment: buyEquipmentMock,
+    toggleDealerProtection: vi.fn(),
+    payDealerBail: vi.fn(),
+    forceArrestDealer: vi.fn(),
+    dismissOfflineEarningsSummary: vi.fn(),
+    buyOperationUpgrade: vi.fn(),
+    buyProductUpgrade: vi.fn(),
+    unlockDealerEquipmentSlot: vi.fn(),
+    sellBulk: vi.fn(),
+  });
 
   return {
     buyEquipmentMock,
@@ -69,23 +111,8 @@ const mockNeonD = vi.hoisted(() => {
       buyEquipmentMock.mockReset();
       startDealerUpgradeMock.mockReset();
     },
-    useGameEngine: () => ({
-      state,
-      upgrade: vi.fn(),
-      unlockProduction: vi.fn(),
-      hireDealer: vi.fn(),
-      fireDealer: vi.fn(),
-      refreshPool: vi.fn(),
-      resetGame: vi.fn(),
-      unlockSlot: vi.fn(),
-      setDealerSelling: vi.fn(),
-      startDealerUpgrade: startDealerUpgradeMock,
-      buyEquipment: buyEquipmentMock,
-      toggleDealerProtection: vi.fn(),
-      payDealerBail: vi.fn(),
-      forceArrestDealer: vi.fn(),
-      dismissOfflineEarningsSummary: vi.fn(),
-    }),
+    defaultUseGameEngine,
+    useGameEngine: defaultUseGameEngine,
   };
 });
 
@@ -95,6 +122,7 @@ vi.mock('../hooks/useGameEngine', () => ({
 
 beforeEach(() => {
   mockNeonD.reset();
+  mockNeonD.useGameEngine = mockNeonD.defaultUseGameEngine;
 });
 
 it('shows protection state and risk label on an active dealer card', () => {
@@ -258,6 +286,10 @@ it('shows an offline earnings popup after a long enough break and dismisses it o
     payDealerBail: vi.fn(),
     forceArrestDealer: vi.fn(),
     dismissOfflineEarningsSummary,
+    buyOperationUpgrade: vi.fn(),
+    buyProductUpgrade: vi.fn(),
+    unlockDealerEquipmentSlot: vi.fn(),
+    sellBulk: vi.fn(),
   });
 
   render(<NeonDGame />);
@@ -268,4 +300,71 @@ it('shows an offline earnings popup after a long enough break and dismisses it o
 
   await user.click(screen.getByRole('button', { name: /accept/i }));
   expect(dismissOfflineEarningsSummary).toHaveBeenCalled();
+});
+
+it('renders operations tab with meta-upgrades, product upgrades, and bulk market', async () => {
+  const user = userEvent.setup();
+  render(<NeonDGame />);
+
+  await user.click(screen.getByRole('tab', { name: /operations/i }));
+
+  expect(screen.getByText(/better volume training/i)).toBeInTheDocument();
+  expect(screen.getByText(/product specialization/i)).toBeInTheDocument();
+  expect(screen.getByText(/bulk market/i)).toBeInTheDocument();
+});
+
+it('shows positive and negative upgrade effects in the equipment modal', async () => {
+  const user = userEvent.setup();
+  mockNeonD.setState(
+    mockNeonD.createState({
+      activeDealers: [
+        mockNeonD.createDealer({
+          pendingUpgradeOptions: [
+            {
+              type: 'VOLUME',
+              rarity: 'RARE',
+              tone: 'MIXED',
+              label: 'Reckless Crew',
+              description: 'Volume +25%, arrest risk +5%',
+              value: 0.25,
+              riskPenalty: 0.05,
+              effects: [
+                { stat: 'volumeBonus', value: 0.25, label: '+25% volume' },
+                { stat: 'riskBonus', value: 0.05, label: '+5% arrest risk', isNegative: true },
+              ],
+            },
+            {
+              type: 'RISK_REDUCTION',
+              rarity: 'UNCOMMON',
+              tone: 'POSITIVE',
+              label: 'Clean Route',
+              description: 'Arrest risk -6%',
+              value: 0.06,
+              riskReduction: 0.06,
+              effects: [{ stat: 'riskBonus', value: -0.06, label: '-6% arrest risk' }],
+            },
+            {
+              type: 'ALL_AROUNDER',
+              rarity: 'COMMON',
+              tone: 'POSITIVE',
+              label: 'All-Arounder',
+              description: 'Volume +5%, margin +5%',
+              value: 0.05,
+              effects: [
+                { stat: 'volumeBonus', value: 0.05, label: '+5% volume' },
+                { stat: 'marginBonus', value: 0.05, label: '+5% margin' },
+              ],
+            },
+          ],
+        }),
+      ],
+    }),
+  );
+
+  render(<NeonDGame />);
+  await user.click(screen.getByRole('button', { name: /upgrade/i }));
+
+  expect(screen.getByText(/high risk/i)).toBeInTheDocument();
+  expect(screen.getByText(/\+5% arrest risk/i)).toBeInTheDocument();
+  expect(screen.getByText(/-6% arrest risk/i)).toBeInTheDocument();
 });

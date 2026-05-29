@@ -1,4 +1,5 @@
-import type { GameState } from './types';
+import type { GameState, OperationUpgradeId } from './types';
+import { createDefaultProductUpgradeState } from './productUpgrades';
 
 // Complete 18-tier pricing data from DST economic model
 // Pricing Model: T1-T5 represents 5 progression tiers with base prices increasing by 10x per tier (4.20, 6.00, 10.00, 15.00, 20.00).
@@ -384,6 +385,17 @@ export const INITIAL_GAME_STATE: GameState = {
   activeDealers: [null, null, null],
   availableDealers: [],
   unlockedSlots: 1,
+  operationUpgrades: {
+    betterVolumeTraining: 0,
+    betterMarginTraining: 0,
+    saferOperations: 0,
+    bulkNetwork: 0,
+  },
+  productUpgrades: createDefaultProductUpgradeState(Object.keys(TIER_DATA)),
+  bulkMarket: {
+    cooldownUntil: 0,
+    lastSaleAt: 0,
+  },
   lastRefreshTime: 0,
   lastEarningsPerDealer: {},
   lastTickAt: 0,
@@ -455,3 +467,44 @@ export const PRODUCT_ARREST_RISK: Record<string, { chance: number; label: 'LOW' 
   neutronFlakes: { chance: 0.70, label: 'HIGH' },
   galacticCore: { chance: 0.75, label: 'HIGH' },
 };
+
+export const OPERATION_UPGRADE_DEFINITIONS: Record<OperationUpgradeId, {
+  label: string;
+  description: string;
+  maxLevel: number;
+  costs: number[];
+}> = {
+  betterVolumeTraining: {
+    label: 'Better Volume Training',
+    description: 'Improves dealer volume upgrade roll ranges.',
+    maxLevel: 3,
+    costs: [2_500, 25_000, 250_000],
+  },
+  betterMarginTraining: {
+    label: 'Better Margin Training',
+    description: 'Improves dealer margin upgrade roll ranges.',
+    maxLevel: 3,
+    costs: [2_500, 25_000, 250_000],
+  },
+  saferOperations: {
+    label: 'Safer Operations',
+    description: 'Adds stronger arrest-risk reduction options.',
+    maxLevel: 3,
+    costs: [5_000, 50_000, 500_000],
+  },
+  bulkNetwork: {
+    label: 'Bulk Network',
+    description: 'Unlocks bulk sales and raises market capacity.',
+    maxLevel: 3,
+    costs: [10_000, 100_000, 1_000_000],
+  },
+};
+
+export const TIER_REGRESSION_FIXTURES = Object.entries(TIER_DATA).slice(0, 13).map(([id, data]) => ({
+  id,
+  c0: data.c0,
+  costMultiplier: data.costMultiplier,
+  yieldPerLevel: data.yieldPerLevel,
+  unlockCost: data.unlockCost,
+  sellPrice: data.sellPrice,
+}));

@@ -60,6 +60,68 @@
   min-height: 0;
 }
 
+.tabBar {
+  display: flex;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-md);
+  flex-shrink: 0;
+}
+
+.tabButton {
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  padding: var(--space-xs) var(--space-md);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.tabButtonActive {
+  background: var(--accent-primary);
+  color: var(--bg-deep);
+}
+
+.operationsLayout {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-md);
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.operationsPanel {
+  padding: var(--space-lg);
+}
+
+.operationCard,
+.productUpgradeCard,
+.bulkRow {
+  display: grid;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+
+.operationTitle {
+  margin: 0;
+}
+
+.upgradeTrackButton {
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  padding: var(--space-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.upgradeTrackButton:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .productionCard {
   background: var(--bg-surface);
   border: 1px solid var(--glass-border);
@@ -245,6 +307,61 @@
 .equipmentOptionDescription {
   font-size: var(--text-2xs);
   opacity: 0.8;
+}
+
+.rarityPill,
+.highRiskLabel {
+  display: inline-flex;
+  width: fit-content;
+  border-radius: var(--radius-xs);
+  padding: var(--space-2xs) var(--space-xs);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+}
+
+.rarityPill[data-rarity='common'] {
+  background: var(--bg-hover-light);
+}
+
+.rarityPill[data-rarity='uncommon'] {
+  background: var(--accent-success-subtle);
+}
+
+.rarityPill[data-rarity='rare'] {
+  background: var(--accent-primary-glow);
+}
+
+.rarityPill[data-rarity='jackpot'] {
+  background: var(--accent-secondary-glow);
+}
+
+.highRiskLabel {
+  background: var(--accent-secondary-glow);
+  color: var(--accent-secondary);
+}
+
+.effectList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2xs);
+  margin-top: var(--space-2xs);
+}
+
+.positiveEffect,
+.negativeEffect {
+  border-radius: var(--radius-xs);
+  padding: var(--space-2xs) var(--space-xs);
+  font-size: var(--text-2xs);
+}
+
+.positiveEffect {
+  background: var(--accent-success-subtle);
+  color: var(--accent-success);
+}
+
+.negativeEffect {
+  background: var(--accent-secondary-glow);
+  color: var(--accent-secondary);
 }
 
 .flowArrowUp {
@@ -546,4 +663,10 @@
   outline: 2px solid var(--accent-success);
   outline-offset: 4px;
   border-radius: 999px;
+}
+
+@media (max-width: 900px) {
+  .operationsLayout {
+    grid-template-columns: 1fr;
+  }
 }

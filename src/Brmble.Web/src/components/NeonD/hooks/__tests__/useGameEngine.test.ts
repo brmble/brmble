@@ -14,6 +14,9 @@ const makeDealer = (overrides: Partial<Dealer> = {}): Dealer => ({
   marginBonus: 0,
   sideVolume: 0.10,
   equipmentCount: 0,
+  maxEquipmentSlots: 3,
+  riskBonus: 0,
+  bulkStreetValue: 0,
   baseVolumeGps: 10,
   baseMarginMult: 1,
   volumeStars: 3,
@@ -46,10 +49,7 @@ const mockDealerUpgradeRolls = (values: number[]) => {
   const sequence = [...values];
   return vi.spyOn(Math, 'random').mockImplementation(() => {
     const next = sequence.shift();
-    if (next === undefined) {
-      throw new Error('Unexpected Math.random call while generating dealer upgrades');
-    }
-    return next;
+    return next ?? 0.5;
   });
 };
 
@@ -317,7 +317,7 @@ describe('useGameEngine', () => {
       act(() => {
         result.current.buyEquipment('test-dealer', upgrade);
       });
-      expect(result.current.state.activeDealers[0]?.volumeBonus).toBeCloseTo(before + 0.15, 5);
+      expect(result.current.state.activeDealers[0]?.volumeBonus).toBeCloseTo(before + upgrade.value, 5);
     });
 
     it('MARGIN upgrade increases marginBonus', () => {
@@ -328,12 +328,14 @@ describe('useGameEngine', () => {
       act(() => {
         result.current.buyEquipment('test-dealer', upgrade);
       });
-      expect(result.current.state.activeDealers[0]?.marginBonus).toBeCloseTo(before + 0.15, 5);
+      expect(result.current.state.activeDealers[0]?.marginBonus).toBeCloseTo(before + upgrade.value, 5);
     });
 
-    it('BULK upgrade increases volumeBonus and reduces marginBonus', () => {
+    it('BULK upgrade increases bulk street value without changing normal selling bonuses', () => {
       const { result } = setupWithMoney();
-      const dealer = startPendingDealerUpgrade(result, [0.2, 0, 0.5, 0, 0.5, 0])!;
+      act(() => { vi.advanceTimersByTime(1_000_000); });
+      act(() => { result.current.buyOperationUpgrade('bulkNetwork'); });
+      const dealer = startPendingDealerUpgrade(result, [0.5, 0.7, 0.5, 0.5, 0.7, 0.5, 0.5, 0.7, 0.5])!;
       const volBefore = result.current.state.activeDealers[0]!.volumeBonus;
       const margBefore = result.current.state.activeDealers[0]!.marginBonus;
       const upgrade = dealer.pendingUpgradeOptions.find(option => option.type === 'BULK')!;
@@ -341,8 +343,9 @@ describe('useGameEngine', () => {
         result.current.buyEquipment('test-dealer', upgrade);
       });
       const d = result.current.state.activeDealers[0];
-      expect(d?.volumeBonus).toBeCloseTo(volBefore + 0.35, 5);
-      expect(d?.marginBonus).toBeCloseTo(margBefore - 0.1, 5);
+      expect(d?.volumeBonus).toBeCloseTo(volBefore, 5);
+      expect(d?.marginBonus).toBeCloseTo(margBefore, 5);
+      expect(d?.bulkStreetValue).toBeCloseTo(upgrade.value, 5);
     });
 
     it('ALL_AROUNDER upgrade increases both volumeBonus and marginBonus', () => {
@@ -355,8 +358,8 @@ describe('useGameEngine', () => {
         result.current.buyEquipment('test-dealer', upgrade);
       });
       const d = result.current.state.activeDealers[0];
-      expect(d?.volumeBonus).toBeCloseTo(volBefore + 0.05, 5);
-      expect(d?.marginBonus).toBeCloseTo(margBefore + 0.05, 5);
+      expect(d?.volumeBonus).toBeCloseTo(volBefore + upgrade.value, 5);
+      expect(d?.marginBonus).toBeCloseTo(margBefore + upgrade.value, 5);
     });
 
     it('SIDE_HUSTLE upgrade adds sideVolume', () => {
@@ -364,12 +367,13 @@ describe('useGameEngine', () => {
       act(() => {
         result.current.unlockProduction('mushrooms');
       });
-      const dealer = startPendingDealerUpgrade(result, [0.05, 0.5, 0, 0.5, 0, 0.5, 0])!;
+      const dealer = startPendingDealerUpgrade(result, [0.5, 0.9, 0.5, 0, 0.5, 0.9, 0.5, 0, 0.5, 0.9, 0.5, 0])!;
       const upgrade = dealer.pendingUpgradeOptions.find(option => option.type === 'SIDE_HUSTLE')!;
+      const before = result.current.state.activeDealers[0]!.sideVolume;
       act(() => {
         result.current.buyEquipment('test-dealer', upgrade);
       });
-      expect(result.current.state.activeDealers[0]?.sideVolume).toBeCloseTo(0.2, 5);
+      expect(result.current.state.activeDealers[0]?.sideVolume).toBeCloseTo(before + upgrade.value, 5);
     });
   });
 

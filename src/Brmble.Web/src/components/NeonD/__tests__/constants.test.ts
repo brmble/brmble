@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { INITIAL_GAME_STATE, TIER_DATA, PRODUCT_TIERS, UNLOCK_COSTS } from '../constants';
+import {
+  INITIAL_GAME_STATE,
+  OPERATION_UPGRADE_DEFINITIONS,
+  PRODUCT_TIERS,
+  TIER_DATA,
+  TIER_REGRESSION_FIXTURES,
+  UNLOCK_COSTS,
+} from '../constants';
 
 describe('Constants', () => {
   it('should use English display names', () => {
@@ -101,5 +108,42 @@ describe('Upgrade Mechanics', () => {
     expect(Object.keys(TIER_DATA).length).toBe(18);
     expect(Object.keys(PRODUCT_TIERS).length).toBe(18);
     expect(Object.keys(UNLOCK_COSTS).length).toBe(18);
+  });
+
+  it('provides operations defaults and definitions from one source of truth', () => {
+    expect(INITIAL_GAME_STATE.operationUpgrades).toEqual({
+      betterVolumeTraining: 0,
+      betterMarginTraining: 0,
+      saferOperations: 0,
+      bulkNetwork: 0,
+    });
+    expect(OPERATION_UPGRADE_DEFINITIONS.betterVolumeTraining.costs).toHaveLength(3);
+    expect(OPERATION_UPGRADE_DEFINITIONS.bulkNetwork.label).toBe('Bulk Network');
+  });
+
+  it('creates default product upgrade and bulk market state', () => {
+    expect(INITIAL_GAME_STATE.productUpgrades.weed.PURITY.level).toBe(0);
+    expect(INITIAL_GAME_STATE.productUpgrades.weed.DISTRIBUTION.maxLevel).toBe(2);
+    expect(INITIAL_GAME_STATE.bulkMarket).toEqual({ cooldownUntil: 0, lastSaleAt: 0 });
+  });
+
+  it('locks T1-T13 economy source-of-truth values', () => {
+    expect(TIER_REGRESSION_FIXTURES).toHaveLength(13);
+    expect(TIER_REGRESSION_FIXTURES[0]).toEqual({
+      id: 'weed',
+      c0: 15,
+      costMultiplier: 1.12,
+      yieldPerLevel: 0.20,
+      unlockCost: 0,
+      sellPrice: 4.20,
+    });
+    expect(TIER_REGRESSION_FIXTURES[12]).toEqual({
+      id: 'chronoSalt',
+      c0: 15000000000000,
+      costMultiplier: 1.46,
+      yieldPerLevel: 28.4765625,
+      unlockCost: 250000000000000,
+      sellPrice: 199.75,
+    });
   });
 });
