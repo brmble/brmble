@@ -298,7 +298,7 @@
 
   .admin-request-field {
     grid-template-columns: minmax(0, 1fr);
-    gap: 0.2rem;
+    gap: var(--space-2xs);
   }
 
   .admin-request-status-cell {
