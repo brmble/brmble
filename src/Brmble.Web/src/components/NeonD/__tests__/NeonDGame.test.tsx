@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, vi } from 'vitest';
 import { NeonDGame } from '../NeonDGame';
@@ -367,4 +367,23 @@ it('shows positive and negative upgrade effects in the equipment modal', async (
   expect(screen.getByText(/high risk/i)).toBeInTheDocument();
   expect(screen.getByText(/\+5% arrest risk/i)).toBeInTheDocument();
   expect(screen.getByText(/-6% arrest risk/i)).toBeInTheDocument();
+});
+
+it('shows hover explanations for Operations V2 controls', () => {
+  vi.useFakeTimers();
+  render(<NeonDGame />);
+
+  fireEvent.click(screen.getByRole('tab', { name: /operations/i }));
+  fireEvent.mouseEnter(screen.getAllByRole('button', { name: /upgrade/i })[0]);
+  act(() => { vi.advanceTimersByTime(400); });
+
+  expect(screen.getByRole('tooltip')).toHaveTextContent(/improves future dealer volume rolls/i);
+
+  fireEvent.mouseLeave(screen.getAllByRole('button', { name: /upgrade/i })[0]);
+  fireEvent.mouseEnter(screen.getByRole('button', { name: /PURITY/i }));
+  act(() => { vi.advanceTimersByTime(400); });
+
+  expect(screen.getByRole('tooltip')).toHaveTextContent(/raises this product's sell price/i);
+
+  vi.useRealTimers();
 });

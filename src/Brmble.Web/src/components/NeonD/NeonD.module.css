@@ -122,6 +122,11 @@
   cursor: not-allowed;
 }
 
+.tooltipTarget {
+  display: block;
+  width: 100%;
+}
+
 .productionCard {
   background: var(--bg-surface);
   border: 1px solid var(--glass-border);

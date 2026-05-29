@@ -106,6 +106,41 @@ describe('useGameEngine', () => {
     expect(result.current.state.lastTickAt).toBe(Date.now());
   });
 
+  it('resetGame locks dealer slots back to the starting single slot', () => {
+    localStorage.setItem('brmble_neon_d_save', JSON.stringify({
+      unlockedSlots: 3,
+      activeDealers: [makeDealer({ id: 'slot-reset-1' }), null, null],
+    }));
+
+    const { result } = renderHook(() => useGameEngine());
+
+    expect(result.current.state.unlockedSlots).toBe(3);
+
+    act(() => {
+      result.current.resetGame();
+    });
+
+    expect(result.current.state.unlockedSlots).toBe(1);
+    expect(result.current.state.activeDealers).toEqual([null, null, null]);
+  });
+
+  it('resetGame immediately persists the reset dealer slot state', () => {
+    localStorage.setItem('brmble_neon_d_save', JSON.stringify({
+      unlockedSlots: 3,
+      activeDealers: [makeDealer({ id: 'slot-reset-persisted' }), null, null],
+    }));
+
+    const { result } = renderHook(() => useGameEngine());
+
+    act(() => {
+      result.current.resetGame();
+    });
+
+    const saved = JSON.parse(localStorage.getItem('brmble_neon_d_save') ?? '{}');
+    expect(saved.unlockedSlots).toBe(1);
+    expect(saved.activeDealers).toEqual([null, null, null]);
+  });
+
   it('should update production without dealer', async () => {
     const { result } = renderHook(() => useGameEngine());
     

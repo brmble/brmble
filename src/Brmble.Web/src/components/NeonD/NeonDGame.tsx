@@ -95,6 +95,29 @@ function formatAwayDuration(awayMs: number) {
   return `${minutes}m`;
 }
 
+const OPERATION_TOOLTIP_TEXT: Record<keyof typeof OPERATION_UPGRADE_DEFINITIONS, string> = {
+  betterVolumeTraining: 'Improves future dealer volume rolls, making volume equipment more likely to land higher values.',
+  betterMarginTraining: 'Improves future dealer margin rolls, making margin equipment more likely to land higher values.',
+  saferOperations: 'Adds stronger arrest-risk reduction rolls to future dealer equipment choices.',
+  bulkNetwork: 'Unlocks bulk sales, increases how much stock can be sold at once, and shortens bulk cooldowns.',
+};
+
+const PRODUCT_UPGRADE_TOOLTIP_TEXT = {
+  PURITY: "Raises this product's sell price for normal dealer sales and bulk sales.",
+  AUTOMATION: "Raises this product's production gained from future lab upgrades.",
+  CONCEALMENT: "Reduces this product's arrest risk for dealers selling it.",
+  DISTRIBUTION: "Raises dealer demand for this product, letting dealers move more stock per second.",
+} as const;
+
+const getBulkTooltipText = (isLocked: boolean, hasCooldown: boolean, remainingMs: number) => {
+  if (isLocked) return 'Requires Bulk Network or a dealer bulk equipment upgrade before bulk sales are available.';
+  if (hasCooldown) return `Bulk buyers are cooling down. Available again in ${formatBulkCooldown(remainingMs)}.`;
+  return 'Sells stored stock instantly at the best available bulk street value, then starts a cooldown.';
+};
+
+const getEquipmentOptionTooltipText = (effectLabels: string[]) =>
+  `Applies this equipment to the dealer. Effects: ${effectLabels.join(', ')}.`;
+
 export function NeonDGame({ onClose }: { onClose?: () => void }) {
   const {
     state,
@@ -480,27 +503,35 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
                       </div>
 
                       <div className={styles.actionStack}>
-                        <button
-                          className={styles.buyButton}
-                          disabled={isMaxed || isInsufficientFunds}
-                          onClick={() => {
-                            if (isMaxed) return;
-                            startDealerUpgrade(dealer.id);
-                            setUpgradingDealerId(dealer.id);
-                          }}
-                        >
-                          {isMaxed ? 'MAXED OUT' : `Upgrade ($${Math.floor(upgradeCost).toLocaleString()})`}
-                        </button>
+                        <Tooltip content="Rolls three equipment choices for this dealer. Each filled equipment slot applies one permanent effect.">
+                          <span className={styles.tooltipTarget}>
+                            <button
+                              className={styles.buyButton}
+                              disabled={isMaxed || isInsufficientFunds}
+                              onClick={() => {
+                                if (isMaxed) return;
+                                startDealerUpgrade(dealer.id);
+                                setUpgradingDealerId(dealer.id);
+                              }}
+                            >
+                              {isMaxed ? 'MAXED OUT' : `Upgrade ($${Math.floor(upgradeCost).toLocaleString()})`}
+                            </button>
+                          </span>
+                        </Tooltip>
                         {dealer.maxEquipmentSlots < 5 && (() => {
                           const slotCost = getDealerSlotUnlockCost(dealer.maxEquipmentSlots);
                           return (
-                            <button
-                              className={styles.buyButton}
-                              disabled={state.money < slotCost}
-                              onClick={() => unlockDealerEquipmentSlot(dealer.id)}
-                            >
-                              Unlock Slot {dealer.maxEquipmentSlots + 1} ({formatMoney(slotCost)})
-                            </button>
+                            <Tooltip content="Adds one more personal equipment slot for this dealer, up to five total.">
+                              <span className={styles.tooltipTarget}>
+                                <button
+                                  className={styles.buyButton}
+                                  disabled={state.money < slotCost}
+                                  onClick={() => unlockDealerEquipmentSlot(dealer.id)}
+                                >
+                                  Unlock Slot {dealer.maxEquipmentSlots + 1} ({formatMoney(slotCost)})
+                                </button>
+                              </span>
+                            </Tooltip>
                           );
                         })()}
                         <button
@@ -543,13 +574,17 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
                     <p className={styles.label}>{definition.description}</p>
                     <span className={styles.label}>Level {level}/{definition.maxLevel}</span>
                   </div>
-                  <button
-                    className={styles.buyButton}
-                    disabled={level >= definition.maxLevel || state.money < nextCost}
-                    onClick={() => buyOperationUpgrade(typedId)}
-                  >
-                    {level >= definition.maxLevel ? 'Maxed' : `Upgrade (${formatMoney(nextCost)})`}
-                  </button>
+                  <Tooltip content={OPERATION_TOOLTIP_TEXT[typedId]}>
+                    <span className={styles.tooltipTarget}>
+                      <button
+                        className={styles.buyButton}
+                        disabled={level >= definition.maxLevel || state.money < nextCost}
+                        onClick={() => buyOperationUpgrade(typedId)}
+                      >
+                        {level >= definition.maxLevel ? 'Maxed' : `Upgrade (${formatMoney(nextCost)})`}
+                      </button>
+                    </span>
+                  </Tooltip>
                 </div>
               );
             })}
@@ -567,14 +602,17 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
                   {Object.values(tracks).map(track => {
                     const cost = getProductUpgradeCost(track.category, track.level);
                     return (
-                      <button
-                        key={track.category}
-                        className={styles.upgradeTrackButton}
-                        disabled={track.level >= track.maxLevel || state.money < cost}
-                        onClick={() => buyProductUpgrade(productId, track.category)}
-                      >
-                        {track.category}: {track.level}/{track.maxLevel} ({track.level >= track.maxLevel ? 'Maxed' : formatMoney(cost)})
-                      </button>
+                      <Tooltip key={track.category} content={PRODUCT_UPGRADE_TOOLTIP_TEXT[track.category]}>
+                        <span className={styles.tooltipTarget}>
+                          <button
+                            className={styles.upgradeTrackButton}
+                            disabled={track.level >= track.maxLevel || state.money < cost}
+                            onClick={() => buyProductUpgrade(productId, track.category)}
+                          >
+                            {track.category}: {track.level}/{track.maxLevel} ({track.level >= track.maxLevel ? 'Maxed' : formatMoney(cost)})
+                          </button>
+                        </span>
+                      </Tooltip>
                     );
                   })}
                 </div>
@@ -592,13 +630,17 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
               return (
                 <div key={product.id} className={styles.bulkRow}>
                   <span>{product.name}: {product.stock.toFixed(2)}g</span>
-                  <button
-                    className={styles.buyButton}
-                    disabled={isLocked || hasCooldown || product.stock <= 0}
-                    onClick={() => sellBulk(product.id)}
-                  >
-                    {isLocked ? 'Bulk Locked' : hasCooldown ? `Cooldown ${formatBulkCooldown(remainingMs)}` : 'Sell Bulk'}
-                  </button>
+                  <Tooltip content={getBulkTooltipText(isLocked, hasCooldown, remainingMs)}>
+                    <span className={styles.tooltipTarget}>
+                      <button
+                        className={styles.buyButton}
+                        disabled={isLocked || hasCooldown || product.stock <= 0}
+                        onClick={() => sellBulk(product.id)}
+                      >
+                        {isLocked ? 'Bulk Locked' : hasCooldown ? `Cooldown ${formatBulkCooldown(remainingMs)}` : 'Sell Bulk'}
+                      </button>
+                    </span>
+                  </Tooltip>
                 </div>
               );
             })}
@@ -612,29 +654,30 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
             <h3 className={`heading-section ${styles.columnHeader}`}>Select Equipment</h3>
             <div className={styles.equipmentOptions}>
               {upgradingDealer.pendingUpgradeOptions.map((opt, i) => (
-                <button 
-                  key={i} 
-                  className={opt.type === 'SIDE_HUSTLE' ? `${styles.dangerButton} ${styles.sideHustleOption}` : styles.buyButton}
-                  onClick={() => {
-                    buyEquipment(upgradingDealer.id, opt);
-                    setUpgradingDealerId(null);
-                  }}
-                >
-                  <div className={styles.equipmentOptionLabel}>{opt.label}</div>
-                  <div className={styles.rarityPill} data-rarity={opt.rarity.toLowerCase()}>{opt.rarity}</div>
-                  {opt.tone === 'MIXED' && <div className={styles.highRiskLabel}>High Risk</div>}
-                  <div className={styles.equipmentOptionDescription}>{opt.description}</div>
-                  <div className={styles.effectList}>
-                    {opt.effects.map(effect => (
-                      <span
-                        key={`${effect.stat}-${effect.label}`}
-                        className={effect.isNegative ? styles.negativeEffect : styles.positiveEffect}
-                      >
-                        {effect.label}
-                      </span>
-                    ))}
-                  </div>
-                </button>
+                <Tooltip key={i} content={getEquipmentOptionTooltipText(opt.effects.map(effect => effect.label))}>
+                  <button 
+                    className={opt.type === 'SIDE_HUSTLE' ? `${styles.dangerButton} ${styles.sideHustleOption}` : styles.buyButton}
+                    onClick={() => {
+                      buyEquipment(upgradingDealer.id, opt);
+                      setUpgradingDealerId(null);
+                    }}
+                  >
+                    <div className={styles.equipmentOptionLabel}>{opt.label}</div>
+                    <div className={styles.rarityPill} data-rarity={opt.rarity.toLowerCase()}>{opt.rarity}</div>
+                    {opt.tone === 'MIXED' && <div className={styles.highRiskLabel}>High Risk</div>}
+                    <div className={styles.equipmentOptionDescription}>{opt.description}</div>
+                    <div className={styles.effectList}>
+                      {opt.effects.map(effect => (
+                        <span
+                          key={`${effect.stat}-${effect.label}`}
+                          className={effect.isNegative ? styles.negativeEffect : styles.positiveEffect}
+                        >
+                          {effect.label}
+                        </span>
+                      ))}
+                    </div>
+                  </button>
+                </Tooltip>
               ))}
             </div>
           </div>

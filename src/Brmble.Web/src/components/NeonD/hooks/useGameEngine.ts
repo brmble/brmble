@@ -33,6 +33,7 @@ import { getBestBulkStreetValue, canUseBulkMarket, getBulkSaleConfig, sellBulkSt
 import { createDefaultProductUpgradeState, getProductUpgradeCost, upgradeProductTrack } from '../productUpgrades';
 
 const OFFLINE_EARNINGS_POPUP_THRESHOLD_MS = 10 * 60 * 1000;
+const SAVE_KEY = 'brmble_neon_d_save';
 
 // Roll a random value within a given range
 function rollWithinRange(min: number, max: number): number {
@@ -380,7 +381,7 @@ const createInitialGameState = (): GameState => ({
 });
 
 export const useGameEngine = () => {
-  const [state, setState, clearStorage] = usePersistedGameState<GameState>('brmble_neon_d_save', createInitialGameState);
+  const [state, setState, clearStorage] = usePersistedGameState<GameState>(SAVE_KEY, createInitialGameState);
 
   useEffect(() => {
     const needsMigration = state.activeDealers.some(dealer =>
@@ -733,8 +734,14 @@ export const useGameEngine = () => {
   };
 
   const resetGame = useCallback(() => {
+    const nextState = createInitialGameState();
     clearStorage();
-    setState(createInitialGameState());
+    try {
+      localStorage.setItem(SAVE_KEY, JSON.stringify(nextState));
+    } catch (error) {
+      console.warn(`Error saving localStorage key "${SAVE_KEY}" during reset:`, error);
+    }
+    setState(nextState);
   }, [setState, clearStorage]);
 
   useInterval(tick, 1000);
