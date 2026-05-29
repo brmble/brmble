@@ -81,7 +81,7 @@ public class ChannelRequestRepository : IChannelRequestRepository
         using var conn = _db.CreateConnection();
         return (await conn.QueryAsync<ChannelRequest>(
             $"{SelectSql} WHERE requester_user_id = @requesterUserId AND (@status IS NULL OR status = @status) ORDER BY created_at_utc DESC LIMIT @limit",
-            new { requesterUserId, status = NormalizeStatus(status), limit })).ToList();
+            new { requesterUserId, status, limit })).ToList();
     }
 
     public async Task<IReadOnlyList<ChannelRequest>> ListAdminAsync(string? status, int limit)
@@ -89,7 +89,7 @@ public class ChannelRequestRepository : IChannelRequestRepository
         using var conn = _db.CreateConnection();
         return (await conn.QueryAsync<ChannelRequest>(
             $"{SelectSql} WHERE (@status IS NULL OR status = @status) ORDER BY CASE WHEN status = 'pending' THEN 0 ELSE 1 END, created_at_utc DESC LIMIT @limit",
-            new { status = NormalizeStatus(status), limit })).ToList();
+            new { status, limit })).ToList();
     }
 
     public async Task<ChannelRequest?> GetByIdAsync(long id)
@@ -198,11 +198,6 @@ public class ChannelRequestRepository : IChannelRequestRepository
                approval_attempt_count AS ApprovalAttemptCount
         FROM channel_requests
         """;
-
-    private static string? NormalizeStatus(string? status) =>
-        string.IsNullOrWhiteSpace(status) || string.Equals(status, "all", StringComparison.OrdinalIgnoreCase)
-            ? null
-            : status.Trim().ToLowerInvariant();
 
     private static async Task<int?> FindAvailablePendingSlotAsync(
         SqliteConnection conn,

@@ -65,6 +65,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private long _wsGeneration;
     private readonly IAppConfigService? _appConfigService;
     private readonly VoiceIdleTracker? _voiceIdleTracker;
+    private readonly ChannelRequestBridgeHandler _channelRequestBridgeHandler;
     private System.Threading.Timer? _voiceIdlePollTimer;
     private int _voiceIdlePollOffset;
     private int _voiceIdlePollInProgress;   // 0 = idle, 1 = tick running (Interlocked guard)
@@ -134,6 +135,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _certService = certService;
         _appConfigService = appConfigService;
         _voiceIdleTracker = voiceIdleTracker;
+        _channelRequestBridgeHandler = new ChannelRequestBridgeHandler(
+            _bridge,
+            _certService,
+            () => _apiUrl,
+            PostChannelRequestViaBcTls,
+            GetChannelRequestViaBcTls);
         _audioManager = new AudioManager(_hwnd);
         // Toggle* actions now fire via MumbleAdapter.FireShortcutAction
         // (driven by InputRouter.ShortcutReleased); AudioManager no longer
@@ -1388,6 +1395,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         var contentLength = System.Text.Encoding.UTF8.GetByteCount(jsonBody);
         var httpRequest = $"PATCH {uri.PathAndQuery} HTTP/1.1\r\nHost: {hostHeader}\r\nContent-Type: application/json\r\nContent-Length: {contentLength}\r\nConnection: close\r\n\r\n{jsonBody}";
         return await SendViaBcTls(cert, uri, httpRequest);
+    }
+
+    private static async Task<ChannelRequestBridgeHandler.TlsCallResult> PostChannelRequestViaBcTls(X509Certificate2 cert, Uri uri, string jsonBody)
+    {
+        var result = await PostViaBcTls(cert, uri, jsonBody);
+        return new(result.Success, result.Body, result.StatusCode, result.Error);
+    }
+
+    private static async Task<ChannelRequestBridgeHandler.TlsCallResult> GetChannelRequestViaBcTls(X509Certificate2 cert, Uri uri)
+    {
+        var result = await GetViaBcTls(cert, uri);
+        return new(result.Success, result.Body, result.StatusCode, result.Error);
     }
 
     internal static string CreateLiveKitTokenRequestBody(string roomName, string accessMode)
@@ -3647,86 +3666,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         bridge.RegisterHandler("channelRequests.request", async data =>
         {
-            var requestId = data.TryGetProperty("requestId", out var requestIdProp) && requestIdProp.ValueKind == System.Text.Json.JsonValueKind.Number
-                ? requestIdProp.GetInt32()
-                : (int?)null;
-            var action = data.TryGetProperty("action", out var actionProp) ? actionProp.GetString() : null;
-
-            if (string.IsNullOrWhiteSpace(action) || _apiUrl is null)
-            {
-                _bridge?.Send("channelRequests.response", new { requestId, success = false, error = "Not connected or invalid channel request action" });
-                _bridge?.NotifyUiThread();
-                return;
-            }
-
-            using var cert = _certService?.GetExportableCertificate();
-            if (cert is null)
-            {
-                _bridge?.Send("channelRequests.response", new { requestId, success = false, error = "No client certificate" });
-                _bridge?.NotifyUiThread();
-                return;
-            }
-
-            var baseUri = new Uri(_apiUrl, UriKind.Absolute);
-            TlsResult result;
-
-            switch (action)
-            {
-                case "create":
-                {
-                    var channelName = data.TryGetProperty("channelName", out var nameEl) ? nameEl.GetString() : string.Empty;
-                    var reason = data.TryGetProperty("reason", out var reasonEl) ? reasonEl.GetString() : string.Empty;
-                    var requestJson = System.Text.Json.JsonSerializer.Serialize(new { channelName, reason });
-                    result = await PostViaBcTls(cert, new Uri(baseUri, "channel-requests"), requestJson);
-                    break;
-                }
-                case "listMine":
-                {
-                    result = await GetViaBcTls(cert, new Uri(baseUri, "channel-requests/mine"));
-                    break;
-                }
-                case "listAdmin":
-                {
-                    var status = data.TryGetProperty("status", out var statusEl) ? statusEl.GetString() : "pending";
-                    var path = string.IsNullOrWhiteSpace(status)
-                        ? "admin/channel-requests"
-                        : $"admin/channel-requests?status={Uri.EscapeDataString(status)}";
-                    result = await GetViaBcTls(cert, new Uri(baseUri, path));
-                    break;
-                }
-                case "approve":
-                {
-                    var id = data.TryGetProperty("id", out var idEl) && idEl.ValueKind == System.Text.Json.JsonValueKind.Number
-                        ? idEl.GetInt64()
-                        : 0;
-                    result = await PostViaBcTls(cert, new Uri(baseUri, $"admin/channel-requests/{id}/approve"), "{}");
-                    break;
-                }
-                case "deny":
-                {
-                    var id = data.TryGetProperty("id", out var idEl) && idEl.ValueKind == System.Text.Json.JsonValueKind.Number
-                        ? idEl.GetInt64()
-                        : 0;
-                    var reason = data.TryGetProperty("reason", out var reasonEl) ? reasonEl.GetString() : string.Empty;
-                    var requestJson = System.Text.Json.JsonSerializer.Serialize(new { reason });
-                    result = await PostViaBcTls(cert, new Uri(baseUri, $"admin/channel-requests/{id}/deny"), requestJson);
-                    break;
-                }
-                default:
-                    _bridge?.Send("channelRequests.response", new { requestId, success = false, error = $"Unknown channel request action '{action}'" });
-                    _bridge?.NotifyUiThread();
-                    return;
-            }
-
-            _bridge?.Send("channelRequests.response", new
-            {
-                requestId,
-                success = result.Success,
-                body = result.Body,
-                statusCode = result.StatusCode,
-                error = result.Error
-            });
-            _bridge?.NotifyUiThread();
+            await _channelRequestBridgeHandler.HandleAsync(data);
         });
 
         bridge.RegisterHandler("acl.setChannelPassword", async data =>

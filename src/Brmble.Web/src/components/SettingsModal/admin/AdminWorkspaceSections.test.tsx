@@ -131,6 +131,12 @@ describe('Admin workspace sections', () => {
 
     expect(await screen.findByRole('button', { name: 'Approve Officer Chat' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Deny Officer Chat' })).toBeInTheDocument();
+    expect(screen.getByText('Channel')).toBeInTheDocument();
+    expect(screen.getByText('Officer Chat')).toBeInTheDocument();
+    expect(screen.getByText('Requested by')).toBeInTheDocument();
+    expect(screen.getByText('Mike')).toBeInTheDocument();
+    expect(screen.getByText('Reason')).toBeInTheDocument();
+    expect(screen.getByText('No reason provided')).toBeInTheDocument();
   });
 
   it('opens the shared ACL editor via right-click context menu', () => {

@@ -101,10 +101,20 @@ export function AdminChannelRequestsSection() {
         <div className="admin-table-placeholder">
           {items.map(item => (
             <div key={item.id} className="admin-request-row">
-              <span>
-                {item.requesterDisplayName ?? 'Someone'} requested {item.channelName}
-                {item.reason ? `: ${item.reason}` : ''}
-              </span>
+              <div className="admin-request-details">
+                <div className="admin-request-field">
+                  <span className="admin-request-label">Channel</span>
+                  <span className="admin-request-value">{item.channelName}</span>
+                </div>
+                <div className="admin-request-field">
+                  <span className="admin-request-label">Requested by</span>
+                  <span className="admin-request-value">{item.requesterDisplayName ?? 'Someone'}</span>
+                </div>
+                <div className="admin-request-field">
+                  <span className="admin-request-label">Reason</span>
+                  <span className="admin-request-value">{item.reason?.trim() || 'No reason provided'}</span>
+                </div>
+              </div>
               <div className="admin-request-status-cell">
                 <span className="admin-request-status">{labels[item.status]}</span>
                 {item.status === 'pending' && (
