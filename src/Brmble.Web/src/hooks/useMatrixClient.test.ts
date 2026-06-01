@@ -488,6 +488,43 @@ describe('useMatrixClient', () => {
     expect(result.current.activeMessages[0].sender).toBe('Alice');
   });
 
+  it('hydrates mumbleDelivery from matrix image event content', () => {
+    mockClient.getRoom.mockReturnValue(null);
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+
+    act(() => result.current.setActiveChannel('42'));
+
+    const onCall = mockClient.on.mock.calls.find(
+      (c: unknown[]) => c[0] === 'Room.timeline'
+    );
+    const handler = onCall![1] as (event: unknown, room: unknown) => void;
+
+    const mockEvent = {
+      getType: () => 'm.room.message',
+      getSender: () => '@alice:example.com',
+      getId: () => '$img-too-large',
+      getContent: () => ({
+        msgtype: 'm.image',
+        body: 'oversized.png',
+        url: 'mxc://example/oversized',
+        info: { mimetype: 'image/png', size: 1234 },
+        'com.brmble.mumble_delivery': 'too-large',
+      }),
+      getTs: () => Date.now(),
+    };
+
+    const mockRoom = {
+      roomId: '!room:example.com',
+      getMember: () => ({ name: 'Alice', rawDisplayName: 'Alice' }),
+    };
+
+    act(() => handler(mockEvent, mockRoom));
+
+    const last = result.current.activeMessages[result.current.activeMessages.length - 1];
+    expect(last.media?.[0].url).toBe('https://matrix.example.com/_matrix/media/v3/download/example/oversized');
+    expect(last.mumbleDelivery).toBe('too-large');
+  });
+
   it('exposes the Matrix client instance', () => {
     const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
     expect(result.current.client).not.toBeNull();
