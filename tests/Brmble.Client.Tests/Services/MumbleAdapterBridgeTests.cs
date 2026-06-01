@@ -635,8 +635,8 @@ public class MumbleAdapterBridgeTests
         adapter.RegisterHandlers(bridge);
         var capture = AttachCapturingConnection(adapter);
         adapter.ChannelState(new ChannelState { ChannelId = 0, Name = "Root" });
-        adapter.ChannelState(new ChannelState { ChannelId = 10, Name = "General", Parent = 0, Position = 0 });
-        adapter.ChannelState(new ChannelState { ChannelId = 20, Name = "Raid", Parent = 0, Position = 1 });
+        adapter.ChannelState(new ChannelState { ChannelId = 10, Name = "General", Parent = 0, Description = "Lobby", Position = 0 });
+        adapter.ChannelState(new ChannelState { ChannelId = 20, Name = "Raid", Parent = 0, Description = "Games", Position = 1 });
         _ = NativeBridgeTestHarness.DrainMessages(bridge);
 
         InvokeBridgeHandler(bridge, "voice.reorderChannels", """
@@ -649,7 +649,10 @@ public class MumbleAdapterBridgeTests
 
         CollectionAssert.AreEqual(new[] { 20u, 10u }, sentPackets.Select(packet => packet.ChannelId).ToArray());
         CollectionAssert.AreEqual(new[] { 0, 10 }, sentPackets.Select(packet => packet.Position).ToArray());
-        Assert.IsTrue(sentPackets.All(packet => !packet.ShouldSerializeParent()));
+        CollectionAssert.AreEqual(new[] { 0u, 0u }, sentPackets.Select(packet => packet.Parent).ToArray());
+        CollectionAssert.AreEqual(new[] { "Raid", "General" }, sentPackets.Select(packet => packet.Name).ToArray());
+        CollectionAssert.AreEqual(new[] { "Games", "Lobby" }, sentPackets.Select(packet => packet.Description).ToArray());
+        Assert.IsTrue(sentPackets.All(packet => packet.ShouldSerializeParent()));
         capture.Dispose();
     }
 

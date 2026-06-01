@@ -23,7 +23,7 @@ export function sortChannels(channels: Channel[]) {
 
 export function getOrderedChildChannels(channels: Channel[], parentId: number | undefined) {
   return sortChannels(
-    channels.filter(channel => (channel.parent ?? undefined) === parentId),
+    channels.filter(channel => (channel.parent ?? undefined) === parentId && channel.id !== parentId),
   );
 }
 
