@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { validateImageFile, encodeForMumble } from '../../utils/imageUpload';
+import {
+  validateImageFile,
+  encodeForMumble,
+  prepareImageForMumble,
+  MUMBLE_SAFE_MESSAGE_BYTES,
+} from '../../utils/imageUpload';
 
 describe('validateImageFile', () => {
   it('accepts valid PNG file', () => {
@@ -63,5 +68,47 @@ describe('encodeForMumble', () => {
     const file = new File(['hello'], 'test.png', { type: 'image/png' });
     const result = await encodeForMumble(file);
     expect(result).toMatch(/^<img src="data:image\/png;base64,[A-Za-z0-9+/=]+" \/>$/);
+  });
+});
+
+describe('prepareImageForMumble', () => {
+  it('returns a sendable payload when the full html img tag fits inside the safe limit', async () => {
+    const file = new File(['hello'], 'small.png', { type: 'image/png' });
+
+    const result = await prepareImageForMumble(file);
+
+    expect(result).toEqual({
+      kind: 'sendable',
+      payload: expect.stringMatching(/^<img src="data:image\/png;base64,[A-Za-z0-9+/=]+" \/>$/),
+    });
+  });
+
+  it('returns oversized when the full html payload exceeds the safe limit', async () => {
+    const rawBytes = new Uint8Array(MUMBLE_SAFE_MESSAGE_BYTES);
+    const file = new File([rawBytes], 'huge.png', { type: 'image/png' });
+
+    const result = await prepareImageForMumble(file);
+
+    expect(result.kind).toBe('too-large');
+    if (result.kind !== 'too-large') {
+      throw new Error('Expected too-large result');
+    }
+    expect(result).toEqual({
+      kind: 'too-large',
+      payloadLength: expect.any(Number),
+    });
+    expect(result.payloadLength).toBeGreaterThan(MUMBLE_SAFE_MESSAGE_BYTES);
+  });
+
+  it('checks the rendered html payload length instead of the raw file size', async () => {
+    const file = new File(['x'], 'tiny.png', { type: 'image/png' });
+
+    const result = await prepareImageForMumble(file);
+
+    expect(result.kind).toBe('sendable');
+    if (result.kind !== 'sendable') {
+      throw new Error('Expected sendable result');
+    }
+    expect(result.payload.length).toBeGreaterThan(file.size);
   });
 });

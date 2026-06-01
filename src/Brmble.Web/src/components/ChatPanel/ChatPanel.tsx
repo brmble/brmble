@@ -977,6 +977,7 @@ const [replyState, setReplyState] = useState<{
                     messageId={item.message.id}
                     pending={item.message.pending}
                     error={item.message.error}
+                    mumbleDelivery={item.message.mumbleDelivery}
                     replyToEventId={item.message.replyToEventId}
                     replyToSender={(item.message.replyToSender) || (item.message.replyToEventId ? lookupMessageById(item.message.replyToEventId)?.sender : undefined)}
                     replyToContent={(item.message.replyToContent) || (item.message.replyToEventId ? lookupMessageById(item.message.replyToEventId)?.content : undefined)}

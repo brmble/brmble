@@ -1,9 +1,15 @@
 import { MAX_SIZE_BYTES, ALLOWED_MIMETYPES } from './parseMessageMedia';
 
+export const MUMBLE_SAFE_MESSAGE_BYTES = 128_000;
+
 export interface ValidationError {
   type: 'invalid-type' | 'too-large' | 'empty';
   message: string;
 }
+
+export type PreparedMumbleImage =
+  | { kind: 'sendable'; payload: string }
+  | { kind: 'too-large'; payloadLength: number };
 
 export function validateImageFile(file: File): ValidationError | null {
   if (file.size === 0) {
@@ -28,4 +34,23 @@ export function encodeForMumble(file: File): Promise<string> {
     reader.onerror = () => reject(new Error('Failed to read file'));
     reader.readAsDataURL(file);
   });
+}
+
+export async function prepareImageForMumble(file: File): Promise<PreparedMumbleImage> {
+  const payload = await encodeForMumble(file);
+  // Measure actual UTF-8 byte length, not UTF-16 code units
+  const encoder = new TextEncoder();
+  const payloadLength = encoder.encode(payload).length;
+  
+  if (payloadLength > MUMBLE_SAFE_MESSAGE_BYTES) {
+    return {
+      kind: 'too-large',
+      payloadLength,
+    };
+  }
+
+  return {
+    kind: 'sendable',
+    payload,
+  };
 }

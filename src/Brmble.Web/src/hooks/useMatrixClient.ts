@@ -15,6 +15,9 @@ import bridge from '../bridge';
 
 const TYPING_TIMEOUT_MS = 10_000;
 const TYPING_REFRESH_MS = 5_000;
+const MUMBLE_DELIVERY_CONTENT_KEY = 'com.brmble.mumble_delivery';
+
+type MumbleDeliveryState = 'too-large';
 
 type TypingEntry = {
   userId: string;
@@ -66,6 +69,7 @@ function transformEventToChatMessage(
     url?: string;
     info?: { thumbnail_url?: string; w?: number; h?: number; mimetype?: string; size?: number };
     'm.relates_to'?: { 'm.in_reply_to'?: { event_id: string } };
+    'com.brmble.mumble_delivery'?: MumbleDeliveryState;
   };
 
   let media: MediaAttachment[] | undefined;
@@ -105,6 +109,7 @@ function transformEventToChatMessage(
     timestamp: new Date(event.getTs()),
     msgType: content.msgtype,
     ...(media && { media }),
+    ...(content[MUMBLE_DELIVERY_CONTENT_KEY] === 'too-large' && { mumbleDelivery: 'too-large' as const }),
     ...(replyToEventId && { replyToEventId }),
   };
 }
@@ -1027,7 +1032,12 @@ export function useMatrixClient(
     clearLocalTypingState();
   }, [clearLocalTypingState, credentials, stopTypingForRoom]);
 
-  const sendImageMessage = useCallback(async (channelId: string, file: File, mxcUrl: string) => {
+  const sendImageMessage = useCallback(async (
+    channelId: string,
+    file: File,
+    mxcUrl: string,
+    mumbleDelivery?: MumbleDeliveryState,
+  ) => {
     if (!credentials || !clientRef.current) return;
     const roomId = credentials.roomMap[channelId];
     if (!roomId) return;
@@ -1039,6 +1049,7 @@ export function useMatrixClient(
         mimetype: file.type,
         size: file.size,
       },
+      ...(mumbleDelivery ? { [MUMBLE_DELIVERY_CONTENT_KEY]: mumbleDelivery } : {}),
     });
   }, [credentials]);
 

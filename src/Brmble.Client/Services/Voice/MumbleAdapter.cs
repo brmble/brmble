@@ -1475,14 +1475,25 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         string name,
         string? description,
         int? position)
-        => new()
+    {
+        var state = new ChannelState
         {
             ChannelId = channelId,
             Parent = channel.Parent,
             Name = name,
-            Description = description ?? string.Empty,
             Position = position ?? channel.Position,
         };
+        
+        // Only set Description if it was explicitly provided (not null).
+        // When description is null, the server only sent description_hash,
+        // so we must not serialize Description to avoid clearing the real description.
+        if (description is not null)
+        {
+            state.Description = description;
+        }
+        
+        return state;
+    }
 
     internal static bool ShouldRefreshCredentialsAfterHealthSuccess(
         bool credentialsAlreadyFetched,
@@ -3141,11 +3152,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
             for (var index = 0; index < channelIds.Length; index++)
             {
-                Connection.SendControl(PacketType.ChannelState, new ChannelState
-                {
-                    ChannelId = channelIds[index],
-                    Position = index * 10,
-                });
+                var channel = siblingChannels[index]!;
+                Connection.SendControl(PacketType.ChannelState, CreateEditChannelState(
+                    channelIds[index],
+                    channel,
+                    channel.Name,
+                    channel.Description,
+                    index * 10));
             }
 
             return Task.CompletedTask;

@@ -65,6 +65,7 @@ export interface ChatMessage {
   media?: MediaAttachment[];
   pending?: boolean;
   error?: boolean;
+  mumbleDelivery?: 'too-large';
   redacted?: boolean;
   reactions?: Record<string, string[]>;
   replyToEventId?: string;
