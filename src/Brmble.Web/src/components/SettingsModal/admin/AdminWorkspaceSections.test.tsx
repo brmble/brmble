@@ -2,9 +2,12 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AdminSectionPlaceholder } from './AdminSectionPlaceholder';
 import { AdminChannelsSection } from './AdminChannelsSection';
+import { AdminChannelRequestsSection } from './AdminChannelRequestsSection';
 import type { Channel } from '../../../types';
+import bridge from '../../../bridge';
 
-const { promptMock, aclEditorDialogMock } = vi.hoisted(() => ({
+const { confirmMock, promptMock, aclEditorDialogMock } = vi.hoisted(() => ({
+  confirmMock: vi.fn(),
   promptMock: vi.fn(),
   aclEditorDialogMock: vi.fn(),
 }));
@@ -16,7 +19,47 @@ const { bridgeMock, usePermissionsMock } = vi.hoisted(() => ({
 }));
 
 vi.mock('../../../hooks/usePrompt', () => ({
+  confirm: confirmMock,
   prompt: promptMock,
+}));
+
+vi.mock('../../../api/channelRequests', () => ({
+  approveChannelRequest: vi.fn().mockResolvedValue({}),
+  denyChannelRequest: vi.fn().mockResolvedValue({}),
+  listAdminChannelRequests: vi.fn().mockResolvedValue([
+    {
+      id: 1,
+      channelName: 'Officer Chat',
+      reason: null,
+      status: 'pending',
+      createdAtUtc: '2026-05-28T12:00:00Z',
+      handledAtUtc: null,
+      decisionReason: null,
+      requesterDisplayName: 'Mike',
+    },
+  ]),
+}));
+
+vi.mock('../../ContextMenu/ContextMenu', () => ({
+  ContextMenu: ({ items }: { items: Array<{ label?: string; type: string; onClick?: () => void }> }) => (
+    <div data-testid="admin-channel-menu">
+      {items.map((item, index) =>
+        item.type === 'item' ? <button key={`${item.label}-${index}`} onClick={item.onClick}>{item.label}</button> : <hr key={`divider-${index}`} />
+      )}
+    </div>
+  ),
+}));
+
+vi.mock('../../EditChannelDialog/EditChannelDialog', () => ({
+  EditChannelDialog: (props: Record<string, unknown>) => (
+    <div data-testid="admin-edit-channel-dialog">
+      <span>{String(props.initialPosition)}</span>
+      <span>{props.showPosition ? 'position enabled' : 'position hidden'}</span>
+      <button onClick={() => (props.onSave as (name: string, description: string, position: number) => void)('General', 'Updated', 12)}>
+        Save Admin Edit Channel
+      </button>
+    </div>
+  ),
 }));
 
 vi.mock('../../AclEditor/AclEditorDialog', () => ({
@@ -24,6 +67,12 @@ vi.mock('../../AclEditor/AclEditorDialog', () => ({
     aclEditorDialogMock(props);
     return <div data-testid="acl-editor-dialog" />;
   },
+}));
+
+vi.mock('../SettingsHelp', () => ({
+  SettingsHelp: ({ content, label }: { content: string; label: string }) => (
+    <button type="button" aria-label={label} data-help-content={content}>?</button>
+  ),
 }));
 
 vi.mock('../../../bridge', () => ({
@@ -65,33 +114,39 @@ describe('Admin workspace sections', () => {
     expect(screen.getByText('Export will unlock when audit events are wired.')).toBeInTheDocument();
   });
 
-  it('renders the channels management overview and request queue', () => {
+  it('renders the channels management overview without the request queue', () => {
     render(<AdminChannelsSection channels={liveChannels} />);
 
     expect(screen.getByRole('heading', { name: 'Channels' })).toBeInTheDocument();
     expect(screen.getByText('Existing Channels')).toBeInTheDocument();
-    expect(screen.getByText('Channel Requests')).toBeInTheDocument();
-    expect(screen.getByRole('row', { name: 'General (General)' })).toBeInTheDocument();
-    expect(screen.getByRole('row', { name: 'Raid Planning (General / Raid Planning)' })).toBeInTheDocument();
+    expect(screen.queryByText('Channel Requests')).not.toBeInTheDocument();
+    expect(screen.getByRole('row', { name: 'General Position 2' })).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: 'Raid Planning Position 1' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Create Channel' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Delete Channel' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete Channel' })).not.toBeInTheDocument();
   });
 
-  it('renders inline approve and deny actions for each channel request row', () => {
-    render(<AdminChannelsSection channels={liveChannels} />);
+  it('renders inline approve and deny actions for each channel request row', async () => {
+    render(<AdminChannelRequestsSection />);
 
-    expect(screen.getByRole('button', { name: 'Approve Mike request' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Deny Mike request' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Approve Officer Chat' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Deny Officer Chat' })).toBeInTheDocument();
+    expect(screen.getByText('Channel')).toBeInTheDocument();
+    expect(screen.getByText('Officer Chat')).toBeInTheDocument();
+    expect(screen.getByText('Requested by')).toBeInTheDocument();
+    expect(screen.getByText('Mike')).toBeInTheDocument();
+    expect(screen.getByText('Reason')).toBeInTheDocument();
+    expect(screen.getByText('No reason provided')).toBeInTheDocument();
   });
 
-  it('opens the shared ACL editor for the selected channel when its Edit action is clicked', () => {
+  it('opens the shared ACL editor via right-click context menu', () => {
     render(<AdminChannelsSection channels={[
       { id: 7, name: 'General' },
       { id: 9, name: 'Raid Planning', parent: 7, isEnterRestricted: true },
     ]} />);
 
-    const raidPlanningRow = screen.getByRole('row', { name: 'Raid Planning (General / Raid Planning)' });
-    fireEvent.click(within(raidPlanningRow).getByRole('button', { name: 'Edit Raid Planning' }));
+    fireEvent.contextMenu(screen.getByRole('row', { name: 'Raid Planning Position 0' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Permissions' }));
 
     expect(screen.getByTestId('acl-editor-dialog')).toBeInTheDocument();
     expect(aclEditorDialogMock).toHaveBeenLastCalledWith(expect.objectContaining({
@@ -103,24 +158,23 @@ describe('Admin workspace sections', () => {
     }));
   });
 
-  it('updates the selected channel when Edit is clicked so follow-up actions target the same row', async () => {
-    promptMock.mockResolvedValue('Raid Planning');
+  it('opens a typed confirmation before deleting the selected channel from context menu', async () => {
+    promptMock.mockResolvedValue('General');
 
     render(<AdminChannelsSection channels={[
       { id: 7, name: 'General' },
       { id: 9, name: 'Raid Planning', parent: 7, isEnterRestricted: true },
     ]} />);
 
-    const raidPlanningRow = screen.getByRole('row', { name: 'Raid Planning (General / Raid Planning)' });
-    fireEvent.click(within(raidPlanningRow).getByRole('button', { name: 'Edit Raid Planning' }));
+    fireEvent.contextMenu(screen.getByRole('row', { name: /General Position 0/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Delete Channel' }));
 
     await waitFor(() => {
       expect(promptMock).toHaveBeenCalledWith(
         expect.objectContaining({
           title: 'Delete Channel',
-          message: expect.stringContaining('Raid Planning'),
-          placeholder: 'Raid Planning',
+          message: expect.stringContaining('General'),
+          placeholder: 'General',
         }),
       );
     });
@@ -128,6 +182,8 @@ describe('Admin workspace sections', () => {
 
   it('reorders sibling channels when a channel row is dragged onto another row', () => {
     const onChannelsChange = vi.fn();
+    const dataTransfer = { effectAllowed: '', setData: vi.fn() };
+
     render(
       <AdminChannelsSection
         channels={[
@@ -139,33 +195,26 @@ describe('Admin workspace sections', () => {
       />,
     );
 
-    const generalRow = screen.getByRole('row', { name: 'General (Root / General)' });
-    const raidRow = screen.getByRole('row', { name: 'Raid (Root / Raid)' });
+    const generalRow = screen.getByRole('row', { name: 'General Position 0' });
+    const raidRow = screen.getByRole('row', { name: 'Raid Position 1' });
 
-    fireEvent.dragStart(raidRow);
-    fireEvent.dragOver(generalRow);
-    fireEvent.drop(generalRow);
+    fireEvent.dragStart(raidRow, { dataTransfer });
+    fireEvent.dragOver(generalRow, { dataTransfer });
+    fireEvent.drop(generalRow, { dataTransfer });
 
-    expect(onChannelsChange).toHaveBeenCalledWith([
-      { id: 0, name: 'Root', position: 0 },
-      { id: 20, name: 'Raid', parent: 0, position: 0 },
-      { id: 10, name: 'General', parent: 0, position: 10 },
-    ]);
-    expect(bridgeMock.send).toHaveBeenCalledWith('admin.updateChannel', {
+    expect(bridgeMock.send).toHaveBeenCalledWith('admin.updateChannel', expect.objectContaining({
       channelId: 20,
-      name: 'Raid',
-      description: '',
       position: 0,
-    });
-    expect(bridgeMock.send).toHaveBeenCalledWith('admin.updateChannel', {
+    }));
+    expect(bridgeMock.send).toHaveBeenCalledWith('admin.updateChannel', expect.objectContaining({
       channelId: 10,
-      name: 'General',
-      description: '',
       position: 10,
-    });
+    }));
   });
 
   it('highlights the dragged channel during reorder and keeps a recently-moved highlight after drop', () => {
+    const dataTransfer = { effectAllowed: '', setData: vi.fn() };
+
     render(
       <AdminChannelsSection
         channels={[
@@ -176,23 +225,23 @@ describe('Admin workspace sections', () => {
       />,
     );
 
-    const generalRow = screen.getByRole('row', { name: 'General (Root / General)' });
-    const raidRow = screen.getByRole('row', { name: 'Raid (Root / Raid)' });
+    const generalRow = screen.getByRole('row', { name: 'General Position 0' });
+    const raidRow = screen.getByRole('row', { name: 'Raid Position 1' });
 
-    fireEvent.dragStart(raidRow);
+    fireEvent.dragStart(raidRow, { dataTransfer });
     expect(raidRow).toHaveClass('admin-channel-row--dragging');
 
-    fireEvent.dragOver(generalRow);
-    fireEvent.drop(generalRow);
+    fireEvent.dragOver(generalRow, { dataTransfer });
+    fireEvent.drop(generalRow, { dataTransfer });
 
-    expect(screen.getByRole('row', { name: 'Raid (Root / Raid)' })).toHaveClass('admin-channel-row--recently-moved');
+    expect(screen.getByRole('row', { name: 'Raid Position 0' })).toHaveClass('admin-channel-row--recently-moved');
   });
 
   it('opens a typed confirmation before deleting the selected channel', async () => {
     promptMock.mockResolvedValue('General');
     render(<AdminChannelsSection channels={liveChannels} />);
 
-    fireEvent.click(screen.getByRole('row', { name: 'General (General)' }));
+    fireEvent.contextMenu(screen.getByRole('row', { name: /General Position 2/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Delete Channel' }));
 
     await waitFor(() => {
@@ -210,14 +259,18 @@ describe('Admin workspace sections', () => {
   it('keeps disabled admin actions paired with visible explanatory text', () => {
     render(<AdminChannelsSection channels={liveChannels} />);
     expect(screen.getByRole('button', { name: 'Create Channel' })).toBeDisabled();
-    expect(screen.getByText('Create Channel is not available yet. Request actions and safe delete are available.')).toBeInTheDocument();
+    expect(screen.getByText(/Create Channel is not available yet/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'More information about channel admin actions' })).toHaveAttribute(
+      'data-help-content',
+      'Right-click a channel for admin actions.',
+    );
   });
 
   it('shows an empty-state message when no live channels are available', () => {
     render(<AdminChannelsSection channels={[]} />);
 
     expect(screen.getByText('No channels are available yet.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Delete Channel' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Delete Channel' })).not.toBeInTheDocument();
   });
 
   it('sorts admin channels by the same Mumble order as the sidebar', () => {
@@ -227,31 +280,49 @@ describe('Admin workspace sections', () => {
       { id: 9, name: 'Alpha', position: 1 },
     ]} />);
 
-    expect(screen.getAllByRole('row').map(row => row.getAttribute('aria-label'))).toEqual([
-      'Alpha (Alpha)',
-      'Bravo (Bravo)',
-      'Zulu (Zulu)',
-    ]);
+    expect(screen.getAllByRole('row').map(row => row.getAttribute('aria-label'))).toEqual(['Alpha Position 1', 'Bravo Position 1', 'Zulu Position 3']);
   });
 
-  it('does not show the Mumble position values in the admin channel rows', () => {
+  it('shows each admin channel position in row labels and visible pills', () => {
+    render(<AdminChannelsSection channels={[
+      { id: 7, name: 'Root' },
+      { id: 8, name: 'Raid', position: 12 },
+      { id: 9, name: 'No Position', position: undefined },
+    ]} />);
+
+    expect(screen.getByRole('row', { name: 'Root Position 0' })).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: 'Raid Position 12' })).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: 'No Position Position 0' })).toBeInTheDocument();
+    expect(screen.getAllByText('Position 0')).toHaveLength(2);
+    expect(screen.getByText('Position 12')).toBeInTheDocument();
+  });
+
+  it('opens admin channel actions from a right-click context menu', () => {
+    render(<AdminChannelsSection channels={liveChannels} />);
+
+    fireEvent.contextMenu(screen.getByRole('row', { name: 'General Position 2' }));
+
+    expect(screen.getByTestId('admin-channel-menu')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit Channel' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit Permissions' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete Channel' })).toBeInTheDocument();
+    expect(within(screen.getByTestId('admin-channel-menu')).queryByRole('button', { name: 'Create Channel' })).not.toBeInTheDocument();
+  });
+
+  it('sends edited channel position through the admin edit action', () => {
     render(<AdminChannelsSection channels={[{ id: 7, name: 'General', position: 3 }]} />);
 
-    expect(screen.getByRole('row', { name: 'General (General)' })).toBeInTheDocument();
-    expect(screen.queryByText(/Position\s+3/i)).not.toBeInTheDocument();
-  });
+    fireEvent.contextMenu(screen.getByRole('row', { name: 'General Position 3' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Channel' }));
 
-  it('renders channels when the root channel reports itself as parent 0', () => {
-    render(
-      <AdminChannelsSection
-        channels={[
-          { id: 0, name: 'Connected', parent: 0, position: 0 },
-          { id: 7, name: 'General', parent: 0, position: 1 },
-        ]}
-      />,
-    );
+    expect(screen.getByText('position enabled')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Save Admin Edit Channel' }));
 
-    expect(screen.getByRole('row', { name: 'Connected (Connected)' })).toBeInTheDocument();
-    expect(screen.getByRole('row', { name: 'General (Connected / General)' })).toBeInTheDocument();
+    expect(vi.mocked(bridge.send)).toHaveBeenCalledWith('admin.updateChannel', {
+      channelId: 7,
+      name: 'General',
+      description: 'Updated',
+      position: 12,
+    });
   });
 });

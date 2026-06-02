@@ -31,6 +31,9 @@ vi.mock('../../hooks/useAclAdmin', () => ({
     save: saveSpy,
   }),
 }));
+vi.mock('./admin/AdminChannelRequestsSection', () => ({
+  AdminChannelRequestsSection: () => <section data-testid="admin-channel-requests" />,
+}));
 
 const ban = {
   address: '127.0.0.1',
@@ -108,8 +111,8 @@ describe('AdminSettingsTab', () => {
   it('renders the live channel list in the channels tab', () => {
     render(<AdminSettingsTab channels={channels} />);
 
-    expect(screen.getByRole('row', { name: 'General (Root / General)' })).toBeInTheDocument();
-    expect(screen.getByRole('row', { name: 'Raid Planning (Root / General / Raid Planning)' })).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: 'General Position 0' })).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: 'Raid Planning Position 0' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Create Channel' })).toBeDisabled();
   });
 });

@@ -1,0 +1,65 @@
+.request-channel-modal {
+  width: min(520px, calc(100vw - 32px));
+}
+
+.request-channel-form {
+  display: grid;
+  gap: 16px;
+}
+
+.request-channel-field {
+  display: grid;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.request-channel-reason {
+  min-height: 110px;
+  resize: vertical;
+}
+
+.request-channel-error {
+  margin: 0;
+  color: var(--danger);
+}
+
+.channel-request-list {
+  display: grid;
+  gap: 10px;
+}
+
+.channel-request-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px;
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+  background: var(--bg-secondary);
+}
+
+.channel-request-main {
+  display: grid;
+  gap: 4px;
+}
+
+.channel-request-name {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.channel-request-meta {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.channel-request-status {
+  align-self: flex-start;
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: var(--accent-muted);
+  color: var(--accent-primary);
+  font-size: 0.8rem;
+  font-weight: 700;
+}

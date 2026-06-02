@@ -50,6 +50,7 @@ interface SidebarProps {
   isLiveKitRoomConnected?: boolean;
   screenShareQuality?: ScreenShareQuality;
   onEditAvatar?: () => void;
+  onRequestChannel?: () => void;
 }
 
 export function Sidebar({
@@ -79,7 +80,8 @@ export function Sidebar({
   watchingShares,
   isLiveKitRoomConnected = false,
   screenShareQuality = 'unknown',
-  onEditAvatar
+  onEditAvatar,
+  onRequestChannel
 }: SidebarProps) {
   const fingerprint = useProfileFingerprint();
   const { width, isDragging, handleProps } = useResizable({
@@ -179,7 +181,6 @@ export function Sidebar({
 
   const [sidebarContextMenu, setSidebarContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [addChannelDialog, setAddChannelDialog] = useState(false);
-  const [requestChannelDialog, setRequestChannelDialog] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
   const [newChannelDescription, setNewChannelDescription] = useState('');
   const [rootDropTarget, setRootDropTarget] = useState<'server' | 'connected' | null>(null);
@@ -610,7 +611,7 @@ export function Sidebar({
                 <Icon name="message-square" size={14} />
               ),
               onClick: () => {
-                setRequestChannelDialog(true);
+                onRequestChannel?.();
                 setSidebarContextMenu(null);
               },
             },
@@ -671,26 +672,6 @@ export function Sidebar({
               </button>
               <button className="btn btn-primary" disabled={newChannelName.trim().length === 0} onClick={() => { const trimmedName = newChannelName.trim(); if (!trimmedName) { return; } bridge.send('voice.addChannel', { name: trimmedName, description: newChannelDescription, parent: 0 }); setAddChannelDialog(false); setNewChannelName(''); setNewChannelDescription(''); }}>
                 Send
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {requestChannelDialog && (
-        <div className="modal-overlay" onClick={() => setRequestChannelDialog(false)}>
-          <div
-            className="prompt glass-panel animate-slide-up"
-            role="dialog"
-            aria-modal="true"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="modal-header">
-              <h2 className="heading-title modal-title">Request Channel</h2>
-              <p className="modal-subtitle">Channel request feature coming soon</p>
-            </div>
-            <div className="prompt-footer">
-              <button className="btn btn-primary" onClick={() => setRequestChannelDialog(false)}>
-                Close
               </button>
             </div>
           </div>
