@@ -27,6 +27,13 @@ const VIEWER_MODE_OPTIONS = [
   { value: 'new-window', label: 'Full window' },
 ];
 
+const PREFERRED_CAPTURE_SOURCE_OPTIONS = [
+  { value: 'window', label: 'Window (recommended for games)' },
+  { value: 'screen', label: 'Screen' },
+  { value: 'browser', label: 'Browser/App' },
+  { value: 'auto', label: 'Auto' },
+];
+
 export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettingsTabProps) {
   const [localSettings, setLocalSettings] = useState<ScreenShareSettings>(settings);
 
@@ -97,6 +104,18 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
             />
             <span className="brmble-toggle-slider"></span>
           </label>
+        </div>
+
+        <div className="settings-item">
+          <div className="settings-label-group">
+            <span className="settings-label">Preferred Capture Source</span>
+            <SettingsHelp content="Choose Window for game sharing. Your system picker still asks which window to share." label="More information about preferred capture source" />
+          </div>
+          <Select
+            value={localSettings.preferredCaptureSource}
+            onChange={(value) => handleChange('preferredCaptureSource', value as ScreenShareSettings['preferredCaptureSource'])}
+            options={PREFERRED_CAPTURE_SOURCE_OPTIONS}
+          />
         </div>
 
         <div className="settings-item">
