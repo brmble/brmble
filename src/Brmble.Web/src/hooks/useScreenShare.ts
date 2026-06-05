@@ -23,6 +23,7 @@ export interface ScreenShareSettings {
   resolution: '720p' | '1080p' | '1440p' | '4k';
   fps: 15 | 30 | 60;
   systemAudio: boolean;
+  preferredCaptureSource: 'auto' | 'window' | 'screen' | 'browser';
 }
 
 export type LocalShareStopReason = 'manual' | 'source-closed' | 'interrupted' | 'error' | 'blocked-capture' | 'moved-channel';
@@ -936,6 +937,16 @@ export function useScreenShare(
         };
 
         captureOptions = {};
+
+        const displaySurfaceMap: Partial<Record<ScreenShareSettings['preferredCaptureSource'], 'window' | 'monitor' | 'browser'>> = {
+          window: 'window',
+          screen: 'monitor',
+          browser: 'browser',
+        };
+        const displaySurface = displaySurfaceMap[screenShareSettings.preferredCaptureSource];
+        if (displaySurface) {
+          captureOptions.video = { displaySurface };
+        }
 
         if (screenShareSettings.captureAudio) {
           captureOptions.audio = true;

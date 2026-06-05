@@ -3222,7 +3222,7 @@ describe('useScreenShare', () => {
     expect(onLocalShareEnded).toHaveBeenNthCalledWith(2, 'error');
   });
 
-  it('passes correct capture options to setScreenShareEnabled', async () => {
+  it('passes default window capture source to setScreenShareEnabled', async () => {
     let tokenHandler: ((data: unknown) => void) | null = null;
     (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
       if (type === 'livekit.token') tokenHandler = handler;
@@ -3233,6 +3233,7 @@ describe('useScreenShare', () => {
       systemAudio: true,
       resolution: '1080p' as const,
       fps: 30 as const,
+      preferredCaptureSource: 'window' as const,
     };
 
     const { result } = renderHook(() => useScreenShare(undefined, settings));
@@ -3246,8 +3247,40 @@ describe('useScreenShare', () => {
     expect(mockRoom.localParticipant.setScreenShareEnabled).toHaveBeenCalledWith(true, expect.objectContaining({
       audio: true,
       systemAudio: 'include',
+      video: { displaySurface: 'window' },
       resolution: { width: 1920, height: 1080, frameRate: 30 },
       videoEncoding: { maxBitrate: 4_000_000, maxFramerate: 30 },
+    }));
+  });
+
+  it('omits display surface hint when preferred capture source is auto', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+    });
+
+    const settings = {
+      captureAudio: false,
+      systemAudio: false,
+      resolution: '720p' as const,
+      fps: 15 as const,
+      preferredCaptureSource: 'auto' as const,
+    };
+
+    const { result } = renderHook(() => useScreenShare(undefined, settings));
+
+    await act(async () => {
+      const promise = result.current.startSharing('channel-1');
+      tokenHandler?.(liveKitToken('test-jwt'));
+      await promise;
+    });
+
+    expect(mockRoom.localParticipant.setScreenShareEnabled).toHaveBeenCalledWith(true, expect.not.objectContaining({
+      video: expect.anything(),
+    }));
+    expect(mockRoom.localParticipant.setScreenShareEnabled).toHaveBeenCalledWith(true, expect.objectContaining({
+      resolution: { width: 1280, height: 720, frameRate: 15 },
+      videoEncoding: { maxBitrate: 2_000_000, maxFramerate: 15 },
     }));
   });
 });
