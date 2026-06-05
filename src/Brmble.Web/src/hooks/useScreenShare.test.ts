@@ -1615,6 +1615,41 @@ describe('useScreenShare', () => {
     expect(result.current.watchingShares).toHaveLength(1);
   });
 
+  it('uses the publication source when attaching screen-share audio tracks', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+    const audioEl = document.createElement('audio');
+    const screenShareAudioTrack = {
+      kind: 'audio',
+      attach: vi.fn(() => audioEl),
+      detach: vi.fn(),
+    };
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    await act(async () => {
+      const p = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      tokenHandler?.(liveKitToken('jwt'));
+      await p;
+    });
+
+    act(() => {
+      emitRoomEvent('trackSubscribed', screenShareAudioTrack, { source: 'screen_share_audio' }, { identity: '@alice:test' });
+    });
+
+    expect(screenShareAudioTrack.attach).toHaveBeenCalledTimes(1);
+    expect(document.body.contains(audioEl)).toBe(true);
+  });
+
   it('reports track unsubscribe before share stop once as ended', async () => {
     let tokenHandler: ((data: unknown) => void) | null = null;
     let shareStartedHandler: ((data: unknown) => void) | null = null;

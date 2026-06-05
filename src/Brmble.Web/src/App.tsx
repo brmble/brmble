@@ -3771,7 +3771,7 @@ const handleConnect = (serverData: SavedServer) => {
       if (
         voiceChannelId != null &&
         d.roomName === `channel-${voiceChannelId}` &&
-        d.sessionId !== selfUser?.session &&
+        (d.sessionId == null || selfUser?.session == null || d.sessionId !== selfUser.session) &&
         shouldShowOptionalNotification(optionalNotificationSettingsRef.current, 'notificationRemoteScreenShare')
       ) {
         setScreenShareNotification({ userName: d.userName, roomName: d.roomName, userId: d.userId, matrixUserId: d.matrixUserId });

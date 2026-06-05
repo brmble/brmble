@@ -688,7 +688,7 @@ export function useScreenShare(
   }, [clearLocalShareEndListener, stopLocalShare]);
 
   const bindRoomEvents = useCallback((room: Room) => {
-    room.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
+    room.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
       if (roomRef.current !== room) {
         return;
       }
@@ -708,13 +708,13 @@ export function useScreenShare(
       }
       if (
         track.kind === Track.Kind.Audio &&
-        track.source === Track.Source.ScreenShareAudio
+        (track.source === Track.Source.ScreenShareAudio || pub.source === Track.Source.ScreenShareAudio)
       ) {
         attachRemoteAudio(matchedShare.userId, track as { attach: () => HTMLElement });
       }
     });
 
-    room.on(RoomEvent.TrackUnsubscribed, (track, _pub, participant) => {
+    room.on(RoomEvent.TrackUnsubscribed, (track, pub, participant) => {
       if (roomRef.current !== room) {
         return;
       }
@@ -735,7 +735,7 @@ export function useScreenShare(
       }
       if (
         track.kind === Track.Kind.Audio &&
-        track.source === Track.Source.ScreenShareAudio
+        (track.source === Track.Source.ScreenShareAudio || pub.source === Track.Source.ScreenShareAudio)
       ) {
         track.detach();
         detachRemoteAudio(matchedShare.userId);
