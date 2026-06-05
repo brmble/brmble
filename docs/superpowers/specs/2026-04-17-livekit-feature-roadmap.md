@@ -46,6 +46,8 @@ See full spec: `2026-04-17-multi-share-foundation-design.md`
 > What the person sharing can do.
 
 7. Window picker (specific window, not just full screen)
+   - Active slice: preferred capture source setting defaults to Window and passes a LiveKit/browser capture hint while keeping the native picker user-controlled.
+   - Deferred follow-up: suggest the current game window when starting share, using native foreground-window detection and later overlay/in-game context. The picker cannot be preselected programmatically, so this should remain a suggestion rather than automatic selection.
 8. Application/system audio capture
 9. Region capture (share a rectangle)
 10. Share the Brmble window itself (quick-share)
