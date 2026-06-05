@@ -91,6 +91,35 @@ public class AppConfigServiceTests
     }
 
     [TestMethod]
+    public void SavesAndReloads_ScreenShareSettings()
+    {
+        var svc = new AppConfigService(_tempDir, null);
+        var updated = AppSettings.Default with
+        {
+            ScreenShare = AppSettings.Default.ScreenShare with
+            {
+                CaptureAudio = true,
+                Resolution = "1440p",
+                Fps = 60,
+                SystemAudio = true,
+                ViewerMode = "new-window",
+                PreferredCaptureSource = "auto"
+            }
+        };
+
+        svc.SetSettings(updated);
+        var svc2 = new AppConfigService(_tempDir, null);
+        var screenShare = svc2.GetSettings().ScreenShare;
+
+        Assert.IsTrue(screenShare.CaptureAudio);
+        Assert.AreEqual("1440p", screenShare.Resolution);
+        Assert.AreEqual(60, screenShare.Fps);
+        Assert.IsTrue(screenShare.SystemAudio);
+        Assert.AreEqual("new-window", screenShare.ViewerMode);
+        Assert.AreEqual("auto", screenShare.PreferredCaptureSource);
+    }
+
+    [TestMethod]
     public void LoadsLegacyNotificationsEnabledFalse_AsOptionalNotificationsDisabled()
     {
         var legacyJson = """
