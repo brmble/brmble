@@ -65,6 +65,7 @@ export interface ScreenShareSettings {
   fps: 15 | 30 | 60;
   systemAudio: boolean;
   viewerMode: 'in-app' | 'new-window';
+  preferredCaptureSource: 'auto' | 'window' | 'screen' | 'browser';
 }
 
 export const DEFAULT_SCREEN_SHARE: ScreenShareSettings = {
@@ -73,6 +74,7 @@ export const DEFAULT_SCREEN_SHARE: ScreenShareSettings = {
   fps: 30,
   systemAudio: false,
   viewerMode: 'in-app',
+  preferredCaptureSource: 'window',
 };
 
 interface AppSettings {

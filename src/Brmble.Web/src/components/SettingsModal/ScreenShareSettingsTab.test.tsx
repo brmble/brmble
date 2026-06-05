@@ -9,6 +9,7 @@ const settings: ScreenShareSettings = {
   fps: 30,
   systemAudio: false,
   viewerMode: 'in-app',
+  preferredCaptureSource: 'window',
 };
 
 describe('ScreenShareSettingsTab', () => {
