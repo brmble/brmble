@@ -43,7 +43,7 @@ interface SettingsModalProps {
   };
   onUploadAvatar?: (blob: Blob, contentType: string) => void;
   onRemoveAvatar?: () => void;
-  initialTab?: 'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'admin';
+  initialTab?: 'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'screenShare' | 'admin';
   brmblegotchiEnabled?: boolean;
   setBrmblegotchiEnabled?: (enabled: boolean) => void;
   onLiveCompanionChange?: (nextCompanion: CompanionSelection, previousCompanion: CompanionSelection) => void;
@@ -197,7 +197,10 @@ export function SettingsModal(props: SettingsModalProps) {
             audio: { ...DEFAULT_SETTINGS.audio, ...(d.settings!.audio ?? {}) },
             overlay: normalizeOverlaySettings(d.settings!.overlay ?? {}),
             brmblegotchi: d.settings!.brmblegotchi ?? prev.brmblegotchi ?? DEFAULT_BRMBLEGOTCHI,
-            screenShare: d.settings!.screenShare ?? prev.screenShare ?? DEFAULT_SCREEN_SHARE,
+            screenShare: {
+              ...DEFAULT_SCREEN_SHARE,
+              ...((d.settings!.screenShare ?? prev.screenShare) ?? {}),
+            },
             noiseSuppression: normalizedNs,
           };
           if (d.settings!.appearance?.theme) {

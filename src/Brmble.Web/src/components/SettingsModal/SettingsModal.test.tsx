@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { SettingsModal } from './SettingsModal';
 
@@ -76,5 +76,48 @@ describe('SettingsModal tabs', () => {
     );
 
     expect(screen.getByTestId('admin-users-prop')).toHaveTextContent('Alice');
+  });
+
+  it('normalizes legacy screen share settings from native settings', async () => {
+    render(<SettingsModal isOpen onClose={vi.fn()} initialTab="screenShare" />);
+
+    await waitFor(() => {
+      expect(bridgeMock.on).toHaveBeenCalledWith('settings.current', expect.any(Function));
+    });
+
+    const currentSettingsHandler = bridgeMock.on.mock.calls.find(
+      ([event]) => event === 'settings.current',
+    )?.[1] as ((data: unknown) => void) | undefined;
+
+    const legacyScreenShareSettings = {
+      captureAudio: true,
+      resolution: '1080p',
+      fps: 30,
+      systemAudio: false,
+      viewerMode: 'in-app',
+    } as unknown;
+
+    act(() => {
+      currentSettingsHandler?.({ settings: { screenShare: legacyScreenShareSettings } });
+    });
+
+    const captureAudioToggle = screen.getAllByRole('checkbox')[0];
+    await waitFor(() => {
+      expect(captureAudioToggle).toBeChecked();
+    });
+
+    bridgeMock.send.mockClear();
+    fireEvent.click(captureAudioToggle);
+
+    await waitFor(() => {
+      expect(bridgeMock.send).toHaveBeenCalledWith('settings.set', {
+        settings: expect.objectContaining({
+          screenShare: expect.objectContaining({
+            captureAudio: false,
+            preferredCaptureSource: 'window',
+          }),
+        }),
+      });
+    });
   });
 });
