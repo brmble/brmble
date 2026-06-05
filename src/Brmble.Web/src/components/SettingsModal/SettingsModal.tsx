@@ -394,6 +394,7 @@ export function SettingsModal(props: SettingsModalProps) {
     setSettings(newSettings);
     bridge.send('settings.set', { settings: newSettings });
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
+    window.dispatchEvent(new Event('brmble-settings-updated'));
   };
 
   const handleConnectionChange = (connection: ConnectionSettings) => {

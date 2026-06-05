@@ -702,6 +702,44 @@ describe('active share discovery', () => {
     expect(screenShareState.startSharing).toHaveBeenCalledWith('channel-1');
   });
 
+  it('uses same-document screen share settings updates before starting share', async () => {
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+      bridge.emit('brmble.serviceStatus', { service: 'screenshare', state: 'connected' });
+    });
+
+    localStorage.setItem('brmble-settings', JSON.stringify({
+      screenShare: {
+        captureAudio: false,
+        resolution: '1080p',
+        fps: 30,
+        systemAudio: false,
+        viewerMode: 'in-app',
+        preferredCaptureSource: 'auto',
+      },
+    }));
+    act(() => {
+      window.dispatchEvent(new Event('brmble-settings-updated'));
+    });
+
+    await act(async () => {
+      view.getByTestId('header-toggle-screen-share').click();
+      await Promise.resolve();
+    });
+
+    expect(getScreenShareSettingsArg()).toEqual(expect.objectContaining({
+      preferredCaptureSource: 'auto',
+    }));
+    expect(screenShareState.startSharing).toHaveBeenCalledWith('channel-1');
+  });
+
   it('does not start local sharing while Brmble-dependent screenshare status is idle', async () => {
     serviceStatus.statuses.server = { state: 'connecting' };
     serviceStatus.statuses.livekit = { state: 'connected' };

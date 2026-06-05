@@ -3378,11 +3378,13 @@ const handleConnect = (serverData: SavedServer) => {
 
     const handleStorage = () => loadSettings();
     window.addEventListener('storage', handleStorage);
+    window.addEventListener('brmble-settings-updated', handleStorage);
 
     return () => {
       bridgeApi.off?.('settings.current', handleBridgeSettings);
       bridgeApi.off?.('settings.updated', handleBridgeSettings);
       window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('brmble-settings-updated', handleStorage);
     };
   }, []);
 
