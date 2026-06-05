@@ -28,9 +28,9 @@ const VIEWER_MODE_OPTIONS = [
 ];
 
 const PREFERRED_CAPTURE_SOURCE_OPTIONS = [
-  { value: 'window', label: 'Window (recommended for games)' },
-  { value: 'screen', label: 'Screen' },
-  { value: 'browser', label: 'Browser/App' },
+  { value: 'window', label: 'Application Window' },
+  { value: 'screen', label: 'Full Screen' },
+  { value: 'browser', label: 'Browser Tab' },
   { value: 'auto', label: 'Auto' },
 ];
 
@@ -42,7 +42,11 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
   }, [settings]);
 
   const handleChange = <K extends keyof ScreenShareSettings>(key: K, value: ScreenShareSettings[K]) => {
-    const newSettings = { ...localSettings, [key]: value };
+    const newSettings = {
+      ...localSettings,
+      [key]: value,
+      ...(key === 'captureAudio' && value === false ? { systemAudio: false } : {}),
+    };
     setLocalSettings(newSettings);
     onChange(newSettings);
   };
@@ -52,19 +56,16 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
       <div className="settings-section">
         <h3 className="heading-section settings-section-title">Screen Capture</h3>
         
-        <div className="settings-item settings-toggle">
+        <div className="settings-item">
           <div className="settings-label-group">
-            <span className="settings-label">Capture Audio</span>
-            <SettingsHelp content="Capture microphone audio along with screen share when browser support is available." label="More information about capture audio" />
+            <span className="settings-label">Preferred Capture Source</span>
+            <SettingsHelp content="Choose Window for game sharing. Your system picker still asks which window to share." label="More information about preferred capture source" />
           </div>
-          <label className="brmble-toggle">
-            <input
-              type="checkbox"
-              checked={localSettings.captureAudio}
-              onChange={(e) => handleChange('captureAudio', e.target.checked)}
-            />
-            <span className="brmble-toggle-slider"></span>
-          </label>
+          <Select
+            value={localSettings.preferredCaptureSource}
+            onChange={(value) => handleChange('preferredCaptureSource', value as ScreenShareSettings['preferredCaptureSource'])}
+            options={PREFERRED_CAPTURE_SOURCE_OPTIONS}
+          />
         </div>
 
         <div className="settings-item">
@@ -93,29 +94,33 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
 
         <div className="settings-item settings-toggle">
           <div className="settings-label-group">
-            <span className="settings-label">System Audio</span>
-            <SettingsHelp content="Capture system audio when supported. System audio is available on Windows and macOS, and requires browser support." label="More information about system audio" />
+            <span className="settings-label">Capture Audio</span>
+            <SettingsHelp content="Share audio from the selected screen, window, or browser tab when supported. Voice chat uses Brmble separately." label="More information about capture audio" />
           </div>
           <label className="brmble-toggle">
             <input
               type="checkbox"
-              checked={localSettings.systemAudio}
-              onChange={(e) => handleChange('systemAudio', e.target.checked)}
+              checked={localSettings.captureAudio}
+              onChange={(e) => handleChange('captureAudio', e.target.checked)}
             />
             <span className="brmble-toggle-slider"></span>
           </label>
         </div>
 
-        <div className="settings-item">
+        <div className="settings-item settings-toggle">
           <div className="settings-label-group">
-            <span className="settings-label">Preferred Capture Source</span>
-            <SettingsHelp content="Choose Window for game sharing. Your system picker still asks which window to share." label="More information about preferred capture source" />
+            <span className="settings-label">System Audio</span>
+            <SettingsHelp content="Request system audio when supported. Only available when capture audio is enabled." label="More information about system audio" />
           </div>
-          <Select
-            value={localSettings.preferredCaptureSource}
-            onChange={(value) => handleChange('preferredCaptureSource', value as ScreenShareSettings['preferredCaptureSource'])}
-            options={PREFERRED_CAPTURE_SOURCE_OPTIONS}
-          />
+          <label className="brmble-toggle">
+            <input
+              type="checkbox"
+              checked={localSettings.captureAudio && localSettings.systemAudio}
+              disabled={!localSettings.captureAudio}
+              onChange={(e) => handleChange('systemAudio', e.target.checked)}
+            />
+            <span className="brmble-toggle-slider"></span>
+          </label>
         </div>
 
         <div className="settings-item">

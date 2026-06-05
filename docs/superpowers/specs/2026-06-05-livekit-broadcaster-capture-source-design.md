@@ -38,9 +38,9 @@ Add one row to the existing Screen Share settings tab under Screen Capture:
 
 Options:
 
-- `Window (recommended for games)` maps to `displaySurface: 'window'`
-- `Screen` maps to `displaySurface: 'monitor'`
-- `Browser/App` maps to `displaySurface: 'browser'`
+- `Application Window` maps to `displaySurface: 'window'`
+- `Full Screen` maps to `displaySurface: 'monitor'`
+- `Browser Tab` maps to `displaySurface: 'browser'`
 - `Auto` omits the display-surface hint
 
 Default:

@@ -43,6 +43,15 @@ describe('SettingsModal tabs', () => {
     expect(screen.queryByRole('button', { name: 'Messages' })).not.toBeInTheDocument();
   });
 
+  it('defaults screen share capture audio on and system audio off', async () => {
+    render(<SettingsModal isOpen={true} onClose={vi.fn()} initialTab="screenShare" />);
+
+    const toggles = await screen.findAllByRole('checkbox');
+
+    expect(toggles[0]).toBeChecked();
+    expect(toggles[1]).not.toBeChecked();
+  });
+
   it('registers native shortcut changes for every shortcut action', async () => {
     render(<SettingsModal isOpen onClose={vi.fn()} initialTab="shortcuts" />);
 

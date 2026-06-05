@@ -152,8 +152,8 @@ describe('ScreenShareSettingsTab', () => {
 
     render(<ScreenShareSettingsTab settings={settings} onChange={onChange} />);
 
-    await user.click(screen.getByRole('combobox', { name: 'Window (recommended for games)' }));
-    await user.click(screen.getByRole('option', { name: 'Screen' }));
+    await user.click(screen.getByRole('combobox', { name: 'Application Window' }));
+    await user.click(screen.getByRole('option', { name: 'Full Screen' }));
 
     expect(onChange).toHaveBeenCalledWith({
       ...settings,
@@ -179,14 +179,14 @@ In `ScreenShareSettingsTab.tsx`, add this option list after `VIEWER_MODE_OPTIONS
 
 ```ts
 const PREFERRED_CAPTURE_SOURCE_OPTIONS = [
-  { value: 'window', label: 'Window (recommended for games)' },
-  { value: 'screen', label: 'Screen' },
-  { value: 'browser', label: 'Browser/App' },
+  { value: 'window', label: 'Application Window' },
+  { value: 'screen', label: 'Full Screen' },
+  { value: 'browser', label: 'Browser Tab' },
   { value: 'auto', label: 'Auto' },
 ];
 ```
 
-Add this row between the System Audio row and Viewer Location row:
+Add this row at the top of the Screen Capture section, before Resolution:
 
 ```tsx
         <div className="settings-item">

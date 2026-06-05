@@ -107,8 +107,8 @@ vi.mock('livekit-client', () => ({
     Unknown: 'unknown',
   },
   Track: {
-    Kind: { Video: 'video' },
-    Source: { ScreenShare: 'screen_share' },
+    Kind: { Audio: 'audio', Video: 'video' },
+    Source: { ScreenShare: 'screen_share', ScreenShareAudio: 'screen_share_audio' },
   },
 }));
 
@@ -1569,6 +1569,50 @@ describe('useScreenShare', () => {
     expect(result.current.focusedShare).toBeNull();
     expect(result.current.remoteVideoEls.has(10)).toBe(false);
     expect(mockRoom.disconnect).not.toHaveBeenCalled();
+  });
+
+  it('attaches and detaches screen-share audio tracks for watched shares', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+    const audioEl = document.createElement('audio');
+    const screenShareAudioTrack = {
+      kind: 'audio',
+      source: 'screen_share_audio',
+      attach: vi.fn(() => audioEl),
+      detach: vi.fn(),
+    };
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    await act(async () => {
+      const p = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      tokenHandler?.(liveKitToken('jwt'));
+      await p;
+    });
+
+    act(() => {
+      emitRoomEvent('trackSubscribed', screenShareAudioTrack, {}, { identity: '@alice:test' });
+    });
+
+    expect(screenShareAudioTrack.attach).toHaveBeenCalledTimes(1);
+    expect(document.body.contains(audioEl)).toBe(true);
+
+    act(() => {
+      emitRoomEvent('trackUnsubscribed', screenShareAudioTrack, {}, { identity: '@alice:test' });
+    });
+
+    expect(screenShareAudioTrack.detach).toHaveBeenCalledTimes(1);
+    expect(document.body.contains(audioEl)).toBe(false);
+    expect(result.current.watchingShares).toHaveLength(1);
   });
 
   it('reports track unsubscribe before share stop once as ended', async () => {

@@ -58,7 +58,7 @@ public record AppearanceSettings(
 );
 
 public record ScreenShareSettings(
-    bool CaptureAudio = false,
+    bool CaptureAudio = true,
     string Resolution = "1080p",
     int Fps = 30,
     bool SystemAudio = false,

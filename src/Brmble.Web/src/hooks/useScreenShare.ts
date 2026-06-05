@@ -182,6 +182,7 @@ export function useScreenShare(
   const [isViewerConnectPending, setIsViewerConnectPending] = useState(false);
   const [focusedShare, _setFocusedShare] = useState<ShareInfo | null>(null);
   const [remoteVideoEls, setRemoteVideoEls] = useState<Map<number, HTMLVideoElement>>(new Map());
+  const remoteAudioElsRef = useRef<Map<number, HTMLAudioElement>>(new Map());
   const [roomQuality, setRoomQuality] = useState<ScreenShareQuality>('unknown');
   const [shareQualities, setShareQualities] = useState<Map<number, ScreenShareQuality>>(new Map());
 
@@ -313,6 +314,23 @@ export function useScreenShare(
     recomputeRoomQuality();
   }, [recomputeRoomQuality]);
 
+  const detachRemoteAudio = useCallback((userId: number) => {
+    const audioEl = remoteAudioElsRef.current.get(userId);
+    if (!audioEl) return;
+
+    audioEl.remove();
+    remoteAudioElsRef.current.delete(userId);
+  }, []);
+
+  const attachRemoteAudio = useCallback((userId: number, track: { attach: () => HTMLElement }) => {
+    detachRemoteAudio(userId);
+    const el = track.attach() as HTMLAudioElement;
+    el.autoplay = true;
+    el.dataset.screenShareAudio = String(userId);
+    document.body.appendChild(el);
+    remoteAudioElsRef.current.set(userId, el);
+  }, [detachRemoteAudio]);
+
   const clearTokenRefreshTimer = useCallback(() => {
     if (tokenRefreshTimerRef.current) {
       clearTimeout(tokenRefreshTimerRef.current);
@@ -366,6 +384,7 @@ export function useScreenShare(
     if (evictedUserId != null) {
       const evicted = evictedUserId;
       setFocusedShare(p => p?.userId === evicted ? null : p);
+      detachRemoteAudio(evicted);
       removeShareQuality(evicted);
       setRemoteVideoEls(p => {
         const m = new Map(p);
@@ -375,7 +394,7 @@ export function useScreenShare(
     }
 
     recomputeRoomQuality();
-  }, [recomputeRoomQuality, removeShareQuality, setFocusedShare]);
+  }, [detachRemoteAudio, recomputeRoomQuality, removeShareQuality, setFocusedShare]);
 
   const removeWatchingShare = useCallback((userId: number, options?: { clearPending?: boolean }) => {
     const removedShares = watchingSharesRef.current.filter(s => s.userId === userId);
@@ -388,6 +407,7 @@ export function useScreenShare(
     watchingSharesRef.current = next;
     setWatchingShares(next);
     setFocusedShare(prev => prev?.userId === userId ? null : prev);
+    detachRemoteAudio(userId);
     setRemoteVideoEls(prev => {
       const next = new Map(prev);
       next.delete(userId);
@@ -395,16 +415,19 @@ export function useScreenShare(
     });
     removeShareQuality(userId);
     return next;
-  }, [removeShareQuality, setFocusedShare]);
+  }, [detachRemoteAudio, removeShareQuality, setFocusedShare]);
 
   const clearWatchingState = useCallback(() => {
     setRemoteVideoEls(new Map());
+    for (const userId of remoteAudioElsRef.current.keys()) {
+      detachRemoteAudio(userId);
+    }
     updateWatchingShares([]);
     setFocusedShare(null);
     shareQualitiesRef.current = new Map();
     setShareQualities(new Map());
     recomputeRoomQuality();
-  }, [recomputeRoomQuality, setFocusedShare, updateWatchingShares]);
+  }, [detachRemoteAudio, recomputeRoomQuality, setFocusedShare, updateWatchingShares]);
 
   const endWatchedShare = useCallback((share: ShareInfo, reason: WatchedShareEndReason) => {
     const key = watchedShareKey(share.roomName, share.userId);
@@ -683,6 +706,12 @@ export function useScreenShare(
         const el = track.attach() as HTMLVideoElement;
         setRemoteVideoEls(prev => new Map(prev).set(matchedShare.userId, el));
       }
+      if (
+        track.kind === Track.Kind.Audio &&
+        track.source === Track.Source.ScreenShareAudio
+      ) {
+        attachRemoteAudio(matchedShare.userId, track as { attach: () => HTMLElement });
+      }
     });
 
     room.on(RoomEvent.TrackUnsubscribed, (track, _pub, participant) => {
@@ -703,6 +732,13 @@ export function useScreenShare(
         track.detach();
         pendingUnsubscribedWatchedSharesRef.current.set(watchedShareKey(matchedShare.roomName, matchedShare.userId), matchedShare);
         removeWatchingShare(matchedShare.userId, { clearPending: false });
+      }
+      if (
+        track.kind === Track.Kind.Audio &&
+        track.source === Track.Source.ScreenShareAudio
+      ) {
+        track.detach();
+        detachRemoteAudio(matchedShare.userId);
       }
     });
 
@@ -789,7 +825,7 @@ export function useScreenShare(
         void stopLocalShare(teardownIntent ?? 'interrupted', room);
       }
     });
-  }, [clearTokenLease, clearWatchingState, invalidateRoomLifecycle, notifyUnexpectedWatchedShareEnds, recomputeRoomQuality, removeWatchingShare, resetQualityState, stopLocalShare, updateShareQuality]);
+  }, [attachRemoteAudio, clearTokenLease, clearWatchingState, detachRemoteAudio, invalidateRoomLifecycle, notifyUnexpectedWatchedShareEnds, recomputeRoomQuality, removeWatchingShare, resetQualityState, stopLocalShare, updateShareQuality]);
 
   // Ensure we have a connected room for the given channel.
   // Returns the existing room if already connected to this channel, otherwise connects.
@@ -1049,6 +1085,9 @@ export function useScreenShare(
             if (pub.track && pub.track.kind === Track.Kind.Video && pub.source === Track.Source.ScreenShare) {
               pub.track.detach();
             }
+            if (pub.track && pub.track.kind === Track.Kind.Audio && pub.source === Track.Source.ScreenShareAudio) {
+              pub.track.detach();
+            }
           });
         }
       }
@@ -1095,6 +1134,9 @@ export function useScreenShare(
             const el = pub.track.attach() as HTMLVideoElement;
             setRemoteVideoEls(prev => new Map(prev).set(targetUserId, el));
           }
+          if (pub.track && pub.track.kind === Track.Kind.Audio && pub.source === Track.Source.ScreenShareAudio) {
+            attachRemoteAudio(targetUserId, pub.track as unknown as { attach: () => HTMLElement });
+          }
         });
       }
       // If track not yet available, TrackSubscribed event will pick it up
@@ -1110,7 +1152,7 @@ export function useScreenShare(
       unregisterPendingViewerAttempt(pendingAttempt);
       endViewerConnectAttempt();
     }
-  }, [activeShares, ensureRoom, addWatchingShare, removeWatchingShare, maybeDisconnectRoom, beginViewerConnectAttempt, endViewerConnectAttempt, registerPendingViewerAttempt, unregisterPendingViewerAttempt, updateShareQuality]);
+  }, [activeShares, ensureRoom, addWatchingShare, removeWatchingShare, maybeDisconnectRoom, beginViewerConnectAttempt, endViewerConnectAttempt, registerPendingViewerAttempt, unregisterPendingViewerAttempt, updateShareQuality, attachRemoteAudio]);
 
   const disconnectViewer = useCallback(async (userId?: number) => {
     const room = roomRef.current;
@@ -1125,6 +1167,9 @@ export function useScreenShare(
         if (participant) {
           participant.trackPublications.forEach((pub: RemoteTrackPublication) => {
             if (pub.track && pub.track.kind === Track.Kind.Video && pub.source === Track.Source.ScreenShare) {
+              pub.track.detach();
+            }
+            if (pub.track && pub.track.kind === Track.Kind.Audio && pub.source === Track.Source.ScreenShareAudio) {
               pub.track.detach();
             }
           });
@@ -1195,6 +1240,9 @@ export function useScreenShare(
           if (participant) {
             participant.trackPublications.forEach((pub: RemoteTrackPublication) => {
               if (pub.track && pub.track.kind === Track.Kind.Video && pub.source === Track.Source.ScreenShare) {
+                pub.track.detach();
+              }
+              if (pub.track && pub.track.kind === Track.Kind.Audio && pub.source === Track.Source.ScreenShareAudio) {
                 pub.track.detach();
               }
             });

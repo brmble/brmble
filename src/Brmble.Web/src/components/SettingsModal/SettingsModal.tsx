@@ -69,7 +69,7 @@ export interface ScreenShareSettings {
 }
 
 export const DEFAULT_SCREEN_SHARE: ScreenShareSettings = {
-  captureAudio: false,
+  captureAudio: true,
   resolution: '1080p',
   fps: 30,
   systemAudio: false,

@@ -39,11 +39,46 @@ describe('ScreenShareSettingsTab', () => {
     expect(screen.getByRole('button', { name: 'More information about viewer location' })).toHaveClass('settings-info-btn');
     expect(screen.queryByText('System audio is available on Windows and macOS. Audio capture requires browser support.')).not.toBeInTheDocument();
     expect(screen.queryByText('Choose Window for game sharing. Your system picker still asks which window to share.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Share audio from the selected screen, window, or browser tab when supported. Voice chat uses Brmble separately.')).not.toBeInTheDocument();
 
     fireEvent.focus(captureAudioHelp);
     act(() => { vi.advanceTimersByTime(400); });
 
-    expect(screen.getByRole('tooltip')).toHaveTextContent('browser support');
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Voice chat uses Brmble separately');
+  });
+
+  it('turns system audio off and disables it when capture audio is turned off', () => {
+    const onChange = vi.fn();
+
+    render(<ScreenShareSettingsTab settings={{ ...settings, systemAudio: true }} onChange={onChange} />);
+
+    const toggles = screen.getAllByRole('checkbox');
+    const captureAudioToggle = toggles[0];
+    const systemAudioToggle = toggles[1];
+
+    fireEvent.click(captureAudioToggle);
+
+    expect(onChange).toHaveBeenCalledWith({
+      ...settings,
+      captureAudio: false,
+      systemAudio: false,
+    });
+    expect(systemAudioToggle).toBeDisabled();
+  });
+
+  it('orders capture source, quality, audio, then viewer location settings', () => {
+    render(<ScreenShareSettingsTab settings={settings} onChange={vi.fn()} />);
+
+    const labels = screen.getAllByText(/^(Preferred Capture Source|Resolution|Frame Rate|Capture Audio|System Audio|Viewer Location)$/).map((label) => label.textContent);
+
+    expect(labels).toEqual([
+      'Preferred Capture Source',
+      'Resolution',
+      'Frame Rate',
+      'Capture Audio',
+      'System Audio',
+      'Viewer Location',
+    ]);
   });
 
   it('updates preferred capture source through the themed select', async () => {
@@ -53,8 +88,8 @@ describe('ScreenShareSettingsTab', () => {
 
     render(<ScreenShareSettingsTab settings={settings} onChange={onChange} />);
 
-    await user.click(screen.getByText('Window (recommended for games)'));
-    await user.click(screen.getByRole('option', { name: 'Screen' }));
+    await user.click(screen.getByText('Application Window'));
+    await user.click(screen.getByRole('option', { name: 'Full Screen' }));
 
     expect(onChange).toHaveBeenCalledWith({
       ...settings,
