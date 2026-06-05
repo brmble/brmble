@@ -42,6 +42,7 @@ const emitLocalTrackEvent = (event: string) => {
 
 // Mock livekit-client
 const mockRoom = {
+  startAudio: vi.fn().mockResolvedValue(undefined),
   connect: vi.fn().mockImplementation(async () => { mockRoom.state = 'connected'; }),
   disconnect: vi.fn().mockResolvedValue(undefined),
   name: 'channel-1',
@@ -75,6 +76,7 @@ const mockRoom = {
 vi.mock('livekit-client', () => ({
   Room: class MockRoom {
     connect = vi.fn((...args: unknown[]) => mockRoom.connect(...args));
+    startAudio = vi.fn((...args: unknown[]) => mockRoom.startAudio(...args));
     disconnect = vi.fn((...args: unknown[]) => mockRoom.disconnect(...args));
     name = mockRoom.name;
     get state() { return mockRoom.state; }
@@ -131,6 +133,7 @@ describe('useScreenShare', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRoom.state = undefined;
+    mockRoom.startAudio.mockResolvedValue(undefined);
     mockRoom.remoteParticipants.clear();
     roomEventHandlers.clear();
     localTrackEventHandlers.clear();
@@ -1648,6 +1651,30 @@ describe('useScreenShare', () => {
 
     expect(screenShareAudioTrack.attach).toHaveBeenCalledTimes(1);
     expect(document.body.contains(audioEl)).toBe(true);
+  });
+
+  it('starts LiveKit audio playback when watching a share', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    await act(async () => {
+      const p = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      tokenHandler?.(liveKitToken('jwt'));
+      await p;
+    });
+
+    expect(mockRoom.startAudio).toHaveBeenCalled();
   });
 
   it('reports track unsubscribe before share stop once as ended', async () => {

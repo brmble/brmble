@@ -329,6 +329,9 @@ export function useScreenShare(
     el.dataset.screenShareAudio = String(userId);
     document.body.appendChild(el);
     remoteAudioElsRef.current.set(userId, el);
+    void roomRef.current?.startAudio?.().catch((err: unknown) => {
+      console.warn('[LiveKit] screen-share audio playback could not start', err);
+    });
   }, [detachRemoteAudio]);
 
   const clearTokenRefreshTimer = useCallback(() => {
@@ -1124,6 +1127,9 @@ export function useScreenShare(
 
       // Add to watching list (handles max 4 enforcement via addWatchingShare)
       addWatchingShare(newShare);
+      void room.startAudio?.().catch((err: unknown) => {
+        console.warn('[LiveKit] viewer audio playback could not start', err);
+      });
 
       // Subscribe to the target's screen share track
       const participant = room.remoteParticipants.get(participantIdentity);

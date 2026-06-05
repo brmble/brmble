@@ -3767,6 +3767,18 @@ const handleConnect = (serverData: SavedServer) => {
       const d = data as { roomName: string; userName: string; userId?: number; matrixUserId?: string; sessionId?: number };
       const selfUser = usersRef.current.find(u => u.self);
       const voiceChannelId = selfUser?.channelId;
+      try {
+        bridge.send('livekit.debug.screenShareStarted.received', {
+          roomName: d.roomName,
+          userId: d.userId,
+          sessionId: d.sessionId,
+          selfSession: selfUser?.session,
+          voiceChannelId,
+          notificationsEnabled: shouldShowOptionalNotification(optionalNotificationSettingsRef.current, 'notificationRemoteScreenShare'),
+        });
+      } catch {
+        // Diagnostics must never affect notification handling.
+      }
       // Only show notification for other users' shares in our channel
       if (
         voiceChannelId != null &&

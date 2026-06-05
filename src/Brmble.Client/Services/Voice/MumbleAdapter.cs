@@ -3376,13 +3376,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             {
                 var baseUri = new Uri(_apiUrl, UriKind.Absolute);
                 var uri = new Uri(baseUri, "livekit/share-started");
+                LogToFile($"[LiveKit] share-started notification begin: room={roomName}, uri={uri}");
                 var result = await PostViaBcTls(cert, uri, System.Text.Json.JsonSerializer.Serialize(new { roomName }));
                 if (result.Success)
+                {
+                    LogToFile($"[LiveKit] share-started notification succeeded: room={roomName}");
                     SendBrmbleServiceStatus("screenshare", "connected");
+                }
                 else
+                {
                     SendBrmbleServiceStatus("screenshare", "disconnected", reason: "share-started-failed");
-                if (!result.Success)
                     LogToFile($"[LiveKit] share-started notification failed: {result.Error}");
+                }
             }
             catch (Exception ex)
             {
