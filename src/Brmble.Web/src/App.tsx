@@ -3328,12 +3328,20 @@ const handleConnect = (serverData: SavedServer) => {
     const applyScreenShareSettings = (value: unknown) => {
       if (!value || typeof value !== 'object') return;
 
+      const payload = value as Record<string, unknown>;
+      const settingsPayload =
+        payload.settings && typeof payload.settings === 'object'
+          ? payload.settings as Record<string, unknown>
+          : null;
+
       const candidate =
-        'screenShare' in value &&
-        value.screenShare &&
-        typeof value.screenShare === 'object'
-          ? value.screenShare
-          : value;
+        settingsPayload
+          ? settingsPayload.screenShare
+          : payload.screenShare && typeof payload.screenShare === 'object'
+            ? payload.screenShare
+            : payload;
+
+      if (!candidate || typeof candidate !== 'object') return;
 
       setScreenShareSettings((current) => ({
         ...current,

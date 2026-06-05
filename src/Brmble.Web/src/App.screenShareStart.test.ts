@@ -26,6 +26,9 @@ const {
   getLocalShareEndedHandler,
   clearLocalShareEndedHandler,
   captureLocalShareEndedHandler,
+  getScreenShareSettingsArg,
+  clearScreenShareSettingsArg,
+  captureScreenShareSettingsArg,
 } = vi.hoisted(() => {
   const handlers = new Map<string, Set<BridgeHandler>>();
   const disconnect = vi.fn();
@@ -73,6 +76,7 @@ const {
   };
   let idleActionsArgs: { onBeforeAutoLeave?: () => void | Promise<void> } | null = null;
   let localShareEndedHandler: ((reason: 'manual' | 'source-closed' | 'interrupted' | 'error' | 'blocked-capture' | 'moved-channel') => void) | null = null;
+  let latestScreenShareSettings: unknown = null;
   let latestSidebarProps: { channels?: Array<{ id: number; canEnter?: boolean; hasPasswordRestriction?: boolean; position?: number; description?: string }> } = {};
   const mockBridge = {
     send: vi.fn(),
@@ -129,6 +133,13 @@ const {
     captureLocalShareEndedHandler: (handler?: (reason: 'manual' | 'source-closed' | 'interrupted' | 'error' | 'blocked-capture' | 'moved-channel') => void) => {
       localShareEndedHandler = handler ?? null;
     },
+    getScreenShareSettingsArg: () => latestScreenShareSettings,
+    clearScreenShareSettingsArg: () => {
+      latestScreenShareSettings = null;
+    },
+    captureScreenShareSettingsArg: (settings: unknown) => {
+      latestScreenShareSettings = settings;
+    },
     notifQueue: {
       register: vi.fn(),
       unregister: vi.fn(),
@@ -157,6 +168,7 @@ vi.mock('./hooks/useMatrixClient', () => ({
 
 vi.mock('./hooks/useScreenShare', () => ({
   useScreenShare: (_onDisconnected?: () => void, _settings?: unknown, onLocalShareEnded?: (reason: 'manual' | 'source-closed' | 'interrupted' | 'error' | 'blocked-capture' | 'moved-channel') => void) => {
+    captureScreenShareSettingsArg(_settings);
     captureLocalShareEndedHandler(onLocalShareEnded);
     return {
     isSharing: screenShareState.isSharing,
@@ -537,6 +549,7 @@ describe('active share discovery', () => {
     idleActionsState.preLeaveCancelledAt = null;
     clearIdleActionsArgs();
     clearLocalShareEndedHandler();
+    clearScreenShareSettingsArg();
     sidebarProps.current = {};
     vi.mocked(notifQueue.isVisible).mockReturnValue(false);
     vi.mocked(bridge.send).mockImplementation((type: string, payload?: unknown) => {
@@ -651,6 +664,42 @@ describe('active share discovery', () => {
     expect(screenShareState.startSharing).toHaveBeenCalledWith('channel-1');
     expect(bridge.send).toHaveBeenCalledWith('livekit.debug.toggleScreenShare.notSharing.inVoice.channel-1.canStart', {});
     expect(serviceStatus.updateStatus).toHaveBeenCalledWith('livekit', { state: 'connecting', error: undefined });
+  });
+
+  it('keeps screen share settings from native settings bridge wrappers before starting share', async () => {
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('settings.current', {
+        settings: {
+          screenShare: {
+            captureAudio: false,
+            resolution: '1080p',
+            fps: 30,
+            systemAudio: false,
+            viewerMode: 'in-app',
+            preferredCaptureSource: 'auto',
+          },
+        },
+      });
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+      bridge.emit('brmble.serviceStatus', { service: 'screenshare', state: 'connected' });
+    });
+
+    await act(async () => {
+      view.getByTestId('header-toggle-screen-share').click();
+      await Promise.resolve();
+    });
+
+    expect(getScreenShareSettingsArg()).toEqual(expect.objectContaining({
+      preferredCaptureSource: 'auto',
+    }));
+    expect(screenShareState.startSharing).toHaveBeenCalledWith('channel-1');
   });
 
   it('does not start local sharing while Brmble-dependent screenshare status is idle', async () => {
