@@ -1,0 +1,1236 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Brmble Theme — Windows 2000 Explorer Restyle
+
+   Theme slug:
+   :root[data-theme="windows-2000"]
+
+   Purpose:
+   CSS-only restyle for the existing Windows 2000 theme.
+   - Chat side becomes a white Windows Explorer content pane.
+   - Header/search/notice surfaces become classic system chrome.
+   - Voice channel tree becomes a compact old Explorer folder tree.
+   - Everything is scoped to :root[data-theme="windows-2000"].
+
+   Drop this into:
+   src/Brmble.Web/src/themes/windows-2000-theme.css
+
+   Or import it after the existing windows-2000 theme CSS.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   WINDOWS 2000 TOKEN BASE
+   Keep these if this file is used standalone.
+   If your existing windows-2000-theme.css already defines the tokens, this
+   block can remain safely as the canonical updated token set.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root[data-theme="windows-2000"] {
+  /* System palette */
+  --win2k-face: #d4d0c8;
+  --win2k-face-alt: #c0c0c0;
+  --win2k-light: #ffffff;
+  --win2k-mid: #808080;
+  --win2k-dark: #404040;
+  --win2k-black: #000000;
+  --win2k-desktop-blue: #3a6ea5;
+  --win2k-title-blue: #0a246a;
+  --win2k-selection-blue: #316ac5;
+  --win2k-folder-yellow: #f4c542;
+  --win2k-folder-yellow-light: #ffe58a;
+  --win2k-folder-yellow-dark: #c99a1f;
+  --win2k-folder-outline: #8a6d1f;
+  --win2k-tree-line: #808080;
+
+  /* Backgrounds */
+  --bg-deep:           #3a6ea5;
+  --bg-primary:        #d4d0c8;
+  --bg-glass:          rgba(212, 208, 200, 0.98);
+  --bg-hover:          rgba(49, 106, 197, 0.16);
+  --bg-hover-strong:   rgba(49, 106, 197, 0.28);
+  --bg-surface:        #ffffff;
+  --bg-overlay:        rgba(0, 0, 0, 0.38);
+  --bg-elevated:       #d4d0c8;
+  --bg-input:          #ffffff;
+  --bg-deep-glass:     rgba(58, 110, 165, 0.28);
+  --bg-hover-light:    rgba(255, 255, 255, 0.65);
+  --bg-surface-active: rgba(49, 106, 197, 0.24);
+
+  /* Primary accent */
+  --accent-primary:       #0a246a;
+  --accent-primary-dark:  #071a4f;
+  --accent-primary-hover: #1b4f9c;
+  --accent-primary-light: #3a6ea5;
+  --accent-primary-glow:  rgba(10, 36, 106, 0.26);
+  --accent-primary-wash:  rgba(10, 36, 106, 0.16);
+  --accent-primary-ghost: rgba(10, 36, 106, 0.10);
+
+  /* Secondary accent */
+  --accent-secondary:        #316ac5;
+  --accent-secondary-glow:   rgba(49, 106, 197, 0.24);
+  --accent-secondary-subtle: rgba(49, 106, 197, 0.12);
+
+  /* Success accent */
+  --accent-success:        #008000;
+  --accent-success-glow:   rgba(0, 128, 0, 0.24);
+  --accent-success-subtle: rgba(0, 128, 0, 0.12);
+  --accent-success-text:   #006b00;
+  --accent-success-border: rgba(0, 128, 0, 0.48);
+  --accent-success-bg:     rgba(0, 128, 0, 0.18);
+
+  /* Warning accent */
+  --accent-warning:        #ffcc00;
+  --accent-warning-text:   #7a5a00;
+  --accent-warning-subtle: rgba(255, 204, 0, 0.14);
+  --accent-warning-border: rgba(170, 130, 0, 0.50);
+  --accent-warning-bg:     rgba(255, 204, 0, 0.24);
+
+  /* Info accent */
+  --accent-info:        #3a6ea5;
+  --accent-info-text:   #0a246a;
+  --accent-info-subtle: rgba(58, 110, 165, 0.14);
+  --accent-info-border: rgba(58, 110, 165, 0.48);
+  --accent-info-bg:     rgba(58, 110, 165, 0.22);
+
+  /* Decorative accent */
+  --accent-decorative:      #008080;
+  --accent-decorative-glow: rgba(0, 128, 128, 0.30);
+  --bg-avatar-start:        #316ac5;
+  --bg-avatar-end:          #0a246a;
+
+  /* Danger accent */
+  --accent-danger:        #c00000;
+  --accent-danger-strong: #a00000;
+  --accent-danger-text:   #7f0000;
+  --accent-danger-subtle: rgba(192, 0, 0, 0.12);
+  --accent-danger-border: rgba(192, 0, 0, 0.48);
+  --accent-danger-bg:     rgba(192, 0, 0, 0.20);
+
+  /* Status */
+  --status-connected: #008000;
+
+  /* Text */
+  --text-primary:           #000000;
+  --text-secondary:         #202020;
+  --text-secondary-dim:     rgba(32, 32, 32, 0.62);
+  --text-secondary-muted:   rgba(32, 32, 32, 0.74);
+  --text-muted:             #4c4c4c;
+  --text-muted-dim:         rgba(76, 76, 76, 0.52);
+  --text-muted-strong:      rgba(76, 76, 76, 0.88);
+
+  /* Borders and effects */
+  --border-subtle: #808080;
+  --border-glow:   rgba(10, 36, 106, 0.28);
+
+  /* Glass disabled */
+  --glass-blur:         blur(0px);
+  --glass-border:       1px solid #808080;
+  --glass-blur-overlay: blur(0px);
+
+  /* Shadows */
+  --shadow-dialog:
+    inset 1px 1px 0 #ffffff,
+    inset -1px -1px 0 #404040,
+    2px 2px 0 rgba(0, 0, 0, 0.35);
+
+  --shadow-elevated:
+    inset 1px 1px 0 #ffffff,
+    inset -1px -1px 0 #808080,
+    2px 2px 0 rgba(0, 0, 0, 0.26);
+
+  --shadow-drop-subtle:
+    drop-shadow(1px 1px 0 rgba(0, 0, 0, 0.35));
+
+  /* Glow scale */
+  --glow-sm: 2px;
+  --glow-md: 4px;
+  --glow-lg: 6px;
+
+  /* Radius scale */
+  --radius-xs:   0px;
+  --radius-sm:   0px;
+  --radius-md:   0px;
+  --radius-lg:   0px;
+  --radius-xl:   0px;
+  --radius-full: 50%;
+
+  /* Typography */
+  --font-display: Tahoma, "MS Sans Serif", "Microsoft Sans Serif", Arial, sans-serif;
+  --font-body:    Tahoma, "MS Sans Serif", "Microsoft Sans Serif", Arial, sans-serif;
+  --font-mono:    "Lucida Console", "Courier New", monospace;
+
+  /* Heading scale */
+  --heading-title-size:    1.5rem;
+  --heading-title-color:   var(--text-primary);
+  --heading-section-size:  1rem;
+  --heading-section-color: var(--accent-primary);
+  --heading-label-size:    0.6875rem;
+  --heading-label-color:   var(--text-muted);
+
+  /* Theme atmosphere */
+  --theme-noise-opacity: 0.018;
+  --theme-noise-texture:
+    repeating-linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.28) 0px,
+      rgba(255, 255, 255, 0.28) 1px,
+      transparent 1px,
+      transparent 4px
+    );
+  --theme-noise-scale: 4px 4px;
+  --theme-mesh-bg: none;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   GENERIC WINDOWS 2000 CHROME
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root[data-theme="windows-2000"] *,
+:root[data-theme="windows-2000"] *::before,
+:root[data-theme="windows-2000"] *::after {
+  box-sizing: border-box;
+}
+
+:root[data-theme="windows-2000"] button,
+:root[data-theme="windows-2000"] [role="button"],
+:root[data-theme="windows-2000"] input,
+:root[data-theme="windows-2000"] textarea,
+:root[data-theme="windows-2000"] select {
+  border-radius: 0 !important;
+  font-family: var(--font-body);
+}
+
+:root[data-theme="windows-2000"] button,
+:root[data-theme="windows-2000"] [role="button"] {
+  color: #000000;
+  background: var(--win2k-face);
+  border: 1px solid var(--win2k-mid);
+  box-shadow:
+    inset 1px 1px 0 var(--win2k-light),
+    inset -1px -1px 0 var(--win2k-dark);
+}
+
+:root[data-theme="windows-2000"] button:active,
+:root[data-theme="windows-2000"] [role="button"]:active {
+  box-shadow:
+    inset 1px 1px 0 var(--win2k-dark),
+    inset -1px -1px 0 var(--win2k-light);
+  transform: translate(1px, 1px);
+}
+
+:root[data-theme="windows-2000"] input,
+:root[data-theme="windows-2000"] textarea,
+:root[data-theme="windows-2000"] select {
+  color: #000000;
+  background: #ffffff;
+  border: 1px solid var(--win2k-mid);
+  box-shadow:
+    inset 1px 1px 0 var(--win2k-dark),
+    inset -1px -1px 0 var(--win2k-light);
+}
+
+:root[data-theme="windows-2000"] ::selection {
+  background: var(--win2k-selection-blue);
+  color: #ffffff;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TASK 1 — WINDOWS 2000 EXPLORER-STYLE CHAT PANE
+
+   Target selectors from ChatPanel:
+   .chat-panel
+   .chat-header
+   .chat-search-inline
+   .chat-messages
+   .chat-top-notice
+   .chat-date-separator-wrapper
+   .chat-date-separator
+   .chat-unread-divider
+   .chat-typing-indicator
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root[data-theme="windows-2000"] .chat-panel {
+  background: var(--win2k-face);
+  color: #000000;
+  border-left: 1px solid var(--win2k-mid);
+  border-radius: 0;
+  box-shadow:
+    inset 1px 0 0 var(--win2k-light),
+    inset 0 1px 0 var(--win2k-light);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-theme="windows-2000"] .chat-header {
+  background: var(--win2k-face);
+  color: #000000;
+  border-bottom: 1px solid var(--win2k-mid);
+  border-radius: 0;
+  box-shadow:
+    inset 0 1px 0 var(--win2k-light),
+    inset 0 -1px 0 var(--win2k-face-alt);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-theme="windows-2000"] .chat-header h1,
+:root[data-theme="windows-2000"] .chat-header h2,
+:root[data-theme="windows-2000"] .chat-header h3,
+:root[data-theme="windows-2000"] .chat-header .heading-title,
+:root[data-theme="windows-2000"] .chat-header .heading-section {
+  color: #000000;
+  font-family: var(--font-body);
+  font-weight: 700;
+}
+
+:root[data-theme="windows-2000"] .chat-messages {
+  background: #ffffff;
+  color: #000000;
+  border-top: 1px solid var(--win2k-light);
+  border-radius: 0;
+  box-shadow:
+    inset 1px 1px 0 var(--win2k-mid),
+    inset -1px -1px 0 var(--win2k-light);
+}
+
+:root[data-theme="windows-2000"] .chat-search-inline,
+:root[data-theme="windows-2000"] .chat-top-notice {
+  background: var(--win2k-face);
+  color: #000000;
+  border: 1px solid var(--win2k-mid);
+  border-radius: 0;
+  box-shadow:
+    inset 1px 1px 0 var(--win2k-light),
+    inset -1px -1px 0 var(--win2k-mid);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-theme="windows-2000"] .chat-search-inline input {
+  background: #ffffff;
+  color: #000000;
+}
+
+:root[data-theme="windows-2000"] .chat-top-notice a,
+:root[data-theme="windows-2000"] .chat-search-inline a {
+  color: var(--win2k-title-blue);
+  text-decoration: underline;
+}
+
+:root[data-theme="windows-2000"] .chat-date-separator-wrapper {
+  background: #ffffff;
+}
+
+:root[data-theme="windows-2000"] .chat-date-separator,
+:root[data-theme="windows-2000"] .chat-unread-divider {
+  color: #4c4c4c;
+  font-family: var(--font-body);
+}
+
+:root[data-theme="windows-2000"] .chat-date-separator::before,
+:root[data-theme="windows-2000"] .chat-date-separator::after,
+:root[data-theme="windows-2000"] .chat-unread-divider::before,
+:root[data-theme="windows-2000"] .chat-unread-divider::after {
+  background: var(--win2k-face-alt);
+}
+
+:root[data-theme="windows-2000"] .chat-date-separator-label,
+:root[data-theme="windows-2000"] .chat-unread-divider-label {
+  background: #ffffff;
+  color: #000000;
+  padding: 0 4px;
+  border-radius: 0;
+}
+
+:root[data-theme="windows-2000"] .chat-unread-divider-label {
+  color: #800000;
+  font-weight: 700;
+}
+
+:root[data-theme="windows-2000"] .chat-typing-indicator {
+  background: #ffffff;
+  color: #4c4c4c;
+  border-top: 1px solid var(--win2k-face-alt);
+  font-family: var(--font-body);
+}
+
+
+/* Optional message/content tuning for white Explorer pane readability.
+   These selectors are deliberately common/generic and remain theme-scoped. */
+
+:root[data-theme="windows-2000"] .message,
+:root[data-theme="windows-2000"] .chat-message,
+:root[data-theme="windows-2000"] [data-message] {
+  color: #000000;
+  border-radius: 0;
+}
+
+:root[data-theme="windows-2000"] .message:hover,
+:root[data-theme="windows-2000"] .chat-message:hover,
+:root[data-theme="windows-2000"] [data-message]:hover {
+  background: #eaf2ff;
+}
+
+:root[data-theme="windows-2000"] .message a,
+:root[data-theme="windows-2000"] .chat-message a,
+:root[data-theme="windows-2000"] [data-message] a {
+  color: #0000ee;
+  text-decoration: underline;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TASK 2 — WINDOWS EXPLORER FOLDER TREE FOR VOICE CHANNELS
+
+   Target selectors from ChannelTree:
+   .channel-tree
+   .channel-item
+   .channel-row
+   .channel-row.current
+   .channel-children
+   .channel-name
+   .expand-icon
+   .user-row
+   .channel-access-icon
+   .user-count
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root[data-theme="windows-2000"] .channel-tree {
+  position: relative;
+  background: #ffffff;
+  color: #000000;
+  font-family: var(--font-body);
+  font-size: 11px;
+  line-height: 15px;
+  border: 1px solid var(--win2k-mid);
+  border-radius: 0;
+  box-shadow:
+    inset 1px 1px 0 var(--win2k-dark),
+    inset -1px -1px 0 var(--win2k-light);
+  padding: 4px;
+}
+
+:root[data-theme="windows-2000"] .channel-item {
+  position: relative;
+  margin-bottom: 0;
+}
+
+:root[data-theme="windows-2000"] .channel-row,
+:root[data-theme="windows-2000"] .user-row {
+  position: relative;
+  min-height: 18px;
+  margin: 0;
+  padding: 1px 4px 1px 0;
+  border: 1px solid transparent;
+  border-radius: 0;
+  gap: 4px;
+  background: transparent;
+  color: #000000;
+  box-shadow: none;
+  font-family: var(--font-body);
+  font-size: 11px;
+  line-height: 15px;
+}
+
+:root[data-theme="windows-2000"] .channel-row:hover,
+:root[data-theme="windows-2000"] .user-row:hover {
+  background: #eaf2ff;
+  border-color: var(--win2k-selection-blue);
+}
+
+:root[data-theme="windows-2000"] .channel-row.current {
+  background: var(--win2k-selection-blue);
+  border-color: var(--win2k-title-blue);
+  color: #ffffff;
+  outline: 1px dotted #ffffff;
+  outline-offset: -3px;
+}
+
+:root[data-theme="windows-2000"] .channel-row.current .channel-name,
+:root[data-theme="windows-2000"] .channel-row.current .expand-icon,
+:root[data-theme="windows-2000"] .channel-row.current .channel-access-icon,
+:root[data-theme="windows-2000"] .channel-row.current .user-count {
+  color: #ffffff;
+  opacity: 1;
+}
+
+:root[data-theme="windows-2000"] .channel-name,
+:root[data-theme="windows-2000"] .expand-icon,
+:root[data-theme="windows-2000"] .channel-access-icon,
+:root[data-theme="windows-2000"] .user-count {
+  color: #000000;
+  opacity: 1;
+}
+
+:root[data-theme="windows-2000"] .channel-name {
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 15px;
+}
+
+:root[data-theme="windows-2000"] .expand-icon {
+  width: 13px;
+  height: 13px;
+  min-width: 13px;
+  display: inline-grid;
+  place-items: center;
+  color: #000000;
+  background: #ffffff;
+  border: 1px solid var(--win2k-mid);
+  box-shadow:
+    inset 1px 1px 0 var(--win2k-light),
+    inset -1px -1px 0 var(--win2k-face-alt);
+  font-size: 9px;
+  line-height: 1;
+}
+
+:root[data-theme="windows-2000"] .channel-children {
+  position: relative;
+  margin-top: 0;
+  margin-bottom: 0;
+  padding-left: 16px;
+}
+
+/* Dotted/segmented old Explorer tree guide line for nested children */
+:root[data-theme="windows-2000"] .channel-children::before {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: -2px;
+  bottom: 8px;
+  width: 1px;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    var(--win2k-tree-line) 0,
+    var(--win2k-tree-line) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+/* Horizontal branch from guide line into row */
+:root[data-theme="windows-2000"] .channel-children > .channel-item > .channel-row::before,
+:root[data-theme="windows-2000"] .channel-children > .channel-item > .user-row::before {
+  content: "";
+  position: absolute;
+  left: -9px;
+  top: 9px;
+  width: 12px;
+  height: 1px;
+  background-image: repeating-linear-gradient(
+    to right,
+    var(--win2k-tree-line) 0,
+    var(--win2k-tree-line) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+/* Folder icon before channel names.
+   It is drawn on .channel-name so it follows indentation from the real tree. */
+:root[data-theme="windows-2000"] .channel-row .channel-name {
+  position: relative;
+  padding-left: 20px;
+}
+
+:root[data-theme="windows-2000"] .channel-row .channel-name::before {
+  content: "";
+  position: absolute;
+  left: 1px;
+  top: 2px;
+  width: 15px;
+  height: 11px;
+  background:
+    linear-gradient(var(--win2k-folder-yellow-light) 0 0) 1px 0 / 7px 4px no-repeat,
+    linear-gradient(var(--win2k-folder-yellow) 0 0) 0 3px / 15px 8px no-repeat;
+  border: 1px solid var(--win2k-folder-outline);
+  box-shadow:
+    inset 1px 1px 0 #fff8b0,
+    inset -1px -1px 0 var(--win2k-folder-yellow-dark);
+}
+
+/* Users remain compact, but use an old list-row style rather than folders. */
+:root[data-theme="windows-2000"] .user-row {
+  padding-left: 20px;
+}
+
+:root[data-theme="windows-2000"] .user-row .channel-name,
+:root[data-theme="windows-2000"] .user-row .user-name {
+  position: relative;
+  padding-left: 16px;
+}
+
+:root[data-theme="windows-2000"] .user-row .channel-name::before,
+:root[data-theme="windows-2000"] .user-row .user-name::before {
+  content: "";
+  position: absolute;
+  left: 1px;
+  top: 3px;
+  width: 9px;
+  height: 9px;
+  background: #c0c0c0;
+  border: 1px solid var(--win2k-mid);
+  box-shadow:
+    inset 1px 1px 0 var(--win2k-light),
+    inset -1px -1px 0 var(--win2k-dark);
+}
+
+/* Access/count badges should stop looking modern. */
+:root[data-theme="windows-2000"] .channel-access-icon,
+:root[data-theme="windows-2000"] .user-count {
+  font-family: var(--font-body);
+  font-size: 10px;
+  background: transparent;
+  border-radius: 0;
+}
+
+:root[data-theme="windows-2000"] .user-count {
+  padding: 0 2px;
+  border: 1px solid transparent;
+}
+
+/* Hide modern SVG channel glyphs inside rows, if present.
+   Remove this rule if you want the app's original channel icons visible. */
+:root[data-theme="windows-2000"] .channel-row svg:not(.expand-icon svg),
+:root[data-theme="windows-2000"] .user-row svg:not(.expand-icon svg) {
+  display: none;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   OPTIONAL SIDEBAR / CHANNEL PANEL WRAPPER CHROME
+
+   These selectors cover common Brmble/sidebar wrapper names. They are useful
+   when the channel tree sits inside a larger sidebar panel.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root[data-theme="windows-2000"] .channel-panel,
+:root[data-theme="windows-2000"] .channels-panel,
+:root[data-theme="windows-2000"] .channel-sidebar,
+:root[data-theme="windows-2000"] .channels-sidebar,
+:root[data-theme="windows-2000"] .server-sidebar,
+:root[data-theme="windows-2000"] .sidebar-channels,
+:root[data-theme="windows-2000"] [data-panel="channels"],
+:root[data-theme="windows-2000"] [data-sidebar="channels"],
+:root[data-theme="windows-2000"] aside[aria-label*="channel" i],
+:root[data-theme="windows-2000"] nav[aria-label*="channel" i] {
+  background: var(--win2k-face);
+  color: #000000;
+  border-right: 1px solid var(--win2k-mid);
+  border-radius: 0;
+  box-shadow:
+    inset -1px 0 0 var(--win2k-dark),
+    inset 1px 0 0 var(--win2k-light);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Optional mini title strip above the tree. */
+:root[data-theme="windows-2000"] .channel-panel::before,
+:root[data-theme="windows-2000"] .channels-panel::before,
+:root[data-theme="windows-2000"] .channel-sidebar::before,
+:root[data-theme="windows-2000"] .channels-sidebar::before,
+:root[data-theme="windows-2000"] .sidebar-channels::before,
+:root[data-theme="windows-2000"] [data-panel="channels"]::before,
+:root[data-theme="windows-2000"] [data-sidebar="channels"]::before {
+  content: "Channels";
+  display: block;
+  height: 20px;
+  line-height: 20px;
+  padding: 0 6px;
+  margin: 0 0 4px;
+  color: #ffffff;
+  font: 700 11px Tahoma, "MS Sans Serif", Arial, sans-serif;
+  background: linear-gradient(90deg, var(--win2k-title-blue) 0%, var(--win2k-selection-blue) 100%);
+  border-bottom: 1px solid var(--win2k-mid);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CLASSIC SCROLLBARS
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root[data-theme="windows-2000"] .chat-messages,
+:root[data-theme="windows-2000"] .channel-tree,
+:root[data-theme="windows-2000"] .channel-panel,
+:root[data-theme="windows-2000"] .channels-panel,
+:root[data-theme="windows-2000"] .channel-sidebar,
+:root[data-theme="windows-2000"] .channels-sidebar,
+:root[data-theme="windows-2000"] .sidebar-channels,
+:root[data-theme="windows-2000"] [data-panel="channels"],
+:root[data-theme="windows-2000"] [data-sidebar="channels"] {
+  scrollbar-color: var(--win2k-face) #ffffff;
+  scrollbar-width: thin;
+}
+
+:root[data-theme="windows-2000"] ::-webkit-scrollbar {
+  width: 16px;
+  height: 16px;
+}
+
+:root[data-theme="windows-2000"] ::-webkit-scrollbar-track {
+  background: #ffffff;
+  border: 1px solid var(--win2k-mid);
+}
+
+:root[data-theme="windows-2000"] ::-webkit-scrollbar-thumb,
+:root[data-theme="windows-2000"] ::-webkit-scrollbar-button {
+  background: var(--win2k-face);
+  border: 1px solid var(--win2k-mid);
+  box-shadow:
+    inset 1px 1px 0 var(--win2k-light),
+    inset -1px -1px 0 var(--win2k-dark);
+}
+
+:root[data-theme="windows-2000"] ::-webkit-scrollbar-corner {
+  background: var(--win2k-face);
+  border: 1px solid var(--win2k-mid);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION NOTES
+
+   Focused checks from the plan:
+   npm run test -- src/components/ChatPanel/ChatPanel.test.tsx
+   npm run test -- src/components/Sidebar/ChannelTree.test.tsx
+   npm run build
+
+   Manual QA:
+   1. Right side chat area is white instead of blue.
+   2. Chat header/search/notice look like old Windows chrome.
+   3. Left channel tree reads like Explorer folder navigation.
+   4. Selected channel uses classic Windows blue.
+   5. Hover/current/search/message states do not break layout.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   WINDOWS 2000 DENSE EXPLORER CHAT ADD-ON
+
+   Purpose:
+   Makes the white chat pane feel less empty while preserving the old Windows
+   Explorer / File Manager vibe.
+
+   Visual direction:
+   - Messages read like compact Details View rows.
+   - Chat has subtle old-list grid lines.
+   - Header/search/typing areas feel like system chrome.
+   - Hover/current/unread states use classic Windows selection language.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root[data-theme="windows-2000"] {
+  --win2k-chat-row-height: 26px;
+  --win2k-chat-row-alt: #f7f7f7;
+  --win2k-chat-row-hover: #eaf2ff;
+  --win2k-chat-row-border: #e0e0e0;
+  --win2k-chat-column-line: #d8d8d8;
+  --win2k-chat-path-bg: #ffffff;
+}
+
+/* Chat shell gets a stronger Explorer window outline */
+:root[data-theme="windows-2000"] .chat-panel {
+  background: var(--win2k-face);
+  border-left: 1px solid var(--win2k-mid);
+  box-shadow:
+    inset 1px 0 0 var(--win2k-light),
+    inset 0 1px 0 var(--win2k-light),
+    inset -1px 0 0 var(--win2k-dark);
+}
+
+/* Header becomes a clearer Explorer toolbar/header zone */
+:root[data-theme="windows-2000"] .chat-header {
+  min-height: 42px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  background:
+    linear-gradient(
+      to bottom,
+      var(--win2k-light) 0,
+      var(--win2k-light) 1px,
+      var(--win2k-face) 1px,
+      var(--win2k-face) 100%
+    );
+  border-bottom: 1px solid var(--win2k-dark);
+  box-shadow:
+    inset 0 1px 0 var(--win2k-light),
+    inset 0 -1px 0 var(--win2k-mid);
+}
+
+/* Optional fake address/path strip under common header content.
+   This gives the chat a File Manager address-bar vibe without needing DOM changes. */
+:root[data-theme="windows-2000"] .chat-header::after {
+  content: "C:\\channels\\current\\messages\\*.*";
+  display: block;
+  margin-top: 4px;
+  padding: 2px 6px;
+  height: 20px;
+  line-height: 14px;
+  color: #000000;
+  background: var(--win2k-chat-path-bg);
+  border: 1px solid var(--win2k-mid);
+  box-shadow:
+    inset 1px 1px 0 var(--win2k-dark),
+    inset -1px -1px 0 var(--win2k-light);
+  font: 400 11px Tahoma, "MS Sans Serif", "Microsoft Sans Serif", Arial, sans-serif;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The white pane gets subtle Details View striping/grid lines */
+:root[data-theme="windows-2000"] .chat-messages {
+  background:
+    linear-gradient(to right, transparent 0, transparent 154px, var(--win2k-chat-column-line) 155px, transparent 156px),
+    repeating-linear-gradient(
+      to bottom,
+      #ffffff 0,
+      #ffffff calc(var(--win2k-chat-row-height) - 1px),
+      var(--win2k-chat-row-border) calc(var(--win2k-chat-row-height) - 1px),
+      var(--win2k-chat-row-border) var(--win2k-chat-row-height)
+    );
+  border: 1px solid var(--win2k-mid);
+  box-shadow:
+    inset 1px 1px 0 var(--win2k-dark),
+    inset -1px -1px 0 var(--win2k-light);
+}
+
+/* Search and notice areas feel like classic toolbar panels */
+:root[data-theme="windows-2000"] .chat-search-inline,
+:root[data-theme="windows-2000"] .chat-top-notice {
+  margin: 4px;
+  padding: 4px 6px;
+  background: var(--win2k-face);
+  border: 1px solid var(--win2k-mid);
+  box-shadow:
+    inset 1px 1px 0 var(--win2k-light),
+    inset -1px -1px 0 var(--win2k-dark);
+}
+
+/* Messages become compact file-list rows */
+:root[data-theme="windows-2000"] .message,
+:root[data-theme="windows-2000"] .chat-message,
+:root[data-theme="windows-2000"] [data-message] {
+  position: relative;
+  margin: 0 4px;
+  padding: 4px 6px 4px 8px;
+  min-height: var(--win2k-chat-row-height);
+  color: #000000;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid transparent;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* Add a tiny classic document icon on each message row */
+:root[data-theme="windows-2000"] .message::before,
+:root[data-theme="windows-2000"] .chat-message::before,
+:root[data-theme="windows-2000"] [data-message]::before {
+  content: "";
+  display: inline-block;
+  width: 11px;
+  height: 13px;
+  margin-right: 6px;
+  vertical-align: -2px;
+  background:
+    linear-gradient(135deg, transparent 0 48%, #c0c0c0 49% 51%, #ffffff 52%) top right / 5px 5px no-repeat,
+    #ffffff;
+  border: 1px solid #808080;
+  box-shadow:
+    inset 1px 1px 0 #ffffff,
+    inset -1px -1px 0 #c0c0c0;
+}
+
+/* Alternating rows if the app exposes message siblings directly */
+:root[data-theme="windows-2000"] .message:nth-child(even),
+:root[data-theme="windows-2000"] .chat-message:nth-child(even),
+:root[data-theme="windows-2000"] [data-message]:nth-child(even) {
+  background: rgba(247, 247, 247, 0.88);
+}
+
+/* Hover feels like Explorer row focus */
+:root[data-theme="windows-2000"] .message:hover,
+:root[data-theme="windows-2000"] .chat-message:hover,
+:root[data-theme="windows-2000"] [data-message]:hover {
+  background: var(--win2k-chat-row-hover);
+  border-color: var(--win2k-selection-blue);
+  outline: 1px dotted #000000;
+  outline-offset: -3px;
+}
+
+/* Selected/current/focused/unread row support */
+:root[data-theme="windows-2000"] .message.current,
+:root[data-theme="windows-2000"] .message.selected,
+:root[data-theme="windows-2000"] .chat-message.current,
+:root[data-theme="windows-2000"] .chat-message.selected,
+:root[data-theme="windows-2000"] [data-message][aria-current="true"],
+:root[data-theme="windows-2000"] [data-message][aria-selected="true"] {
+  background: var(--win2k-selection-blue);
+  color: #ffffff;
+  border-color: var(--win2k-title-blue);
+  outline: 1px dotted #ffffff;
+  outline-offset: -3px;
+}
+
+:root[data-theme="windows-2000"] .message.unread,
+:root[data-theme="windows-2000"] .chat-message.unread,
+:root[data-theme="windows-2000"] [data-message][data-unread="true"] {
+  border-left: 4px solid #c00000;
+  padding-left: 4px;
+  background: #fff8f8;
+}
+
+/* Common author/name selectors: make them feel like a Details View first column */
+:root[data-theme="windows-2000"] .message-author,
+:root[data-theme="windows-2000"] .chat-message-author,
+:root[data-theme="windows-2000"] .message-username,
+:root[data-theme="windows-2000"] .chat-message-username,
+:root[data-theme="windows-2000"] [data-message-author] {
+  display: inline-block;
+  min-width: 128px;
+  max-width: 150px;
+  margin-right: 8px;
+  color: #000080;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: top;
+}
+
+/* Timestamp looks like a second file-list column */
+:root[data-theme="windows-2000"] .message-timestamp,
+:root[data-theme="windows-2000"] .chat-message-timestamp,
+:root[data-theme="windows-2000"] time {
+  display: inline-block;
+  min-width: 58px;
+  margin-right: 8px;
+  color: #666666;
+  font-size: 10px;
+  font-weight: 400;
+  white-space: nowrap;
+  vertical-align: top;
+}
+
+/* Message text/body remains readable */
+:root[data-theme="windows-2000"] .message-content,
+:root[data-theme="windows-2000"] .chat-message-content,
+:root[data-theme="windows-2000"] .message-body,
+:root[data-theme="windows-2000"] .chat-message-body,
+:root[data-theme="windows-2000"] [data-message-content] {
+  color: #000000;
+  line-height: 1.35;
+}
+
+:root[data-theme="windows-2000"] .message.current .message-content,
+:root[data-theme="windows-2000"] .message.selected .message-content,
+:root[data-theme="windows-2000"] .chat-message.current .chat-message-content,
+:root[data-theme="windows-2000"] .chat-message.selected .chat-message-content,
+:root[data-theme="windows-2000"] [data-message][aria-current="true"] [data-message-content],
+:root[data-theme="windows-2000"] [data-message][aria-selected="true"] [data-message-content] {
+  color: #ffffff;
+}
+
+/* Links stay old-web blue */
+:root[data-theme="windows-2000"] .message a,
+:root[data-theme="windows-2000"] .chat-message a,
+:root[data-theme="windows-2000"] [data-message] a {
+  color: #0000ee;
+  text-decoration: underline;
+}
+
+:root[data-theme="windows-2000"] .message.current a,
+:root[data-theme="windows-2000"] .message.selected a,
+:root[data-theme="windows-2000"] .chat-message.current a,
+:root[data-theme="windows-2000"] .chat-message.selected a,
+:root[data-theme="windows-2000"] [data-message][aria-current="true"] a,
+:root[data-theme="windows-2000"] [data-message][aria-selected="true"] a {
+  color: #ffffff;
+}
+
+/* Code blocks/snippets become inset Windows text fields */
+:root[data-theme="windows-2000"] .message pre,
+:root[data-theme="windows-2000"] .chat-message pre,
+:root[data-theme="windows-2000"] [data-message] pre,
+:root[data-theme="windows-2000"] .message code,
+:root[data-theme="windows-2000"] .chat-message code,
+:root[data-theme="windows-2000"] [data-message] code {
+  color: #000000;
+  background: #ffffff;
+  border: 1px solid var(--win2k-mid);
+  border-radius: 0;
+  box-shadow:
+    inset 1px 1px 0 var(--win2k-dark),
+    inset -1px -1px 0 var(--win2k-light);
+  font-family: var(--font-mono);
+}
+
+/* Separators become list headers rather than floating modern pills */
+:root[data-theme="windows-2000"] .chat-date-separator-wrapper {
+  background: transparent;
+  padding: 4px 4px 2px;
+}
+
+:root[data-theme="windows-2000"] .chat-date-separator,
+:root[data-theme="windows-2000"] .chat-unread-divider {
+  min-height: 18px;
+  color: #000000;
+  background: var(--win2k-face);
+  border: 1px solid var(--win2k-mid);
+  box-shadow:
+    inset 1px 1px 0 var(--win2k-light),
+    inset -1px -1px 0 var(--win2k-dark);
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+:root[data-theme="windows-2000"] .chat-date-separator::before,
+:root[data-theme="windows-2000"] .chat-date-separator::after,
+:root[data-theme="windows-2000"] .chat-unread-divider::before,
+:root[data-theme="windows-2000"] .chat-unread-divider::after {
+  display: none;
+}
+
+:root[data-theme="windows-2000"] .chat-date-separator-label,
+:root[data-theme="windows-2000"] .chat-unread-divider-label {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+/* Typing indicator becomes a bottom status-bar-like strip */
+:root[data-theme="windows-2000"] .chat-typing-indicator {
+  min-height: 22px;
+  padding: 3px 6px;
+  color: #000000;
+  background: var(--win2k-face);
+  border-top: 1px solid var(--win2k-mid);
+  box-shadow:
+    inset 0 1px 0 var(--win2k-light),
+    inset 0 -1px 0 var(--win2k-mid);
+}
+
+/* If your chat composer/input area uses common names, make it match the chrome too */
+:root[data-theme="windows-2000"] .chat-input,
+:root[data-theme="windows-2000"] .chat-composer,
+:root[data-theme="windows-2000"] .message-input,
+:root[data-theme="windows-2000"] .composer {
+  background: var(--win2k-face);
+  border-top: 1px solid var(--win2k-mid);
+  border-radius: 0;
+  box-shadow:
+    inset 0 1px 0 var(--win2k-light);
+}
+
+:root[data-theme="windows-2000"] .chat-input textarea,
+:root[data-theme="windows-2000"] .chat-composer textarea,
+:root[data-theme="windows-2000"] .message-input textarea,
+:root[data-theme="windows-2000"] .composer textarea,
+:root[data-theme="windows-2000"] .chat-input input,
+:root[data-theme="windows-2000"] .chat-composer input,
+:root[data-theme="windows-2000"] .message-input input,
+:root[data-theme="windows-2000"] .composer input {
+  background: #ffffff;
+  color: #000000;
+  border: 1px solid var(--win2k-mid);
+  border-radius: 0;
+  box-shadow:
+    inset 1px 1px 0 var(--win2k-dark),
+    inset -1px -1px 0 var(--win2k-light);
+}
+
+/* Compact density for smaller screens */
+@media (max-width: 720px) {
+  :root[data-theme="windows-2000"] .chat-header::after {
+    content: "C:\\messages\\*.*";
+  }
+
+  :root[data-theme="windows-2000"] .message-author,
+  :root[data-theme="windows-2000"] .chat-message-author,
+  :root[data-theme="windows-2000"] .message-username,
+  :root[data-theme="windows-2000"] .chat-message-username,
+  :root[data-theme="windows-2000"] [data-message-author] {
+    min-width: 88px;
+    max-width: 104px;
+  }
+
+  :root[data-theme="windows-2000"] .chat-messages {
+    background:
+      repeating-linear-gradient(
+        to bottom,
+        #ffffff 0,
+        #ffffff calc(var(--win2k-chat-row-height) - 1px),
+        var(--win2k-chat-row-border) calc(var(--win2k-chat-row-height) - 1px),
+        var(--win2k-chat-row-border) var(--win2k-chat-row-height)
+      );
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   WINDOWS 2000 — REPLACE FAKE ADDRESS BAR WITH REAL SEARCH BAR
+
+   Result:
+   - Removes the decorative C:\channels\current\messages path bar.
+   - Uses the actual .chat-search-inline component as the main bar above chat.
+   - Keeps the old Windows Explorer/System chrome look.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root[data-theme="windows-2000"] {
+  --win2k-search-height: 38px;
+  --win2k-search-label-width: 54px;
+}
+
+/* Restore a compact header now that the fake address bar is gone */
+:root[data-theme="windows-2000"] .chat-header {
+  min-height: 40px;
+  padding: 4px 6px;
+  display: flex;
+  align-items: center;
+  background:
+    linear-gradient(
+      to bottom,
+      var(--win2k-light) 0,
+      var(--win2k-light) 1px,
+      var(--win2k-face) 1px,
+      var(--win2k-face) 100%
+    );
+  border-bottom: 1px solid var(--win2k-mid);
+  box-shadow:
+    inset 0 1px 0 var(--win2k-light),
+    inset 0 -1px 0 var(--win2k-dark);
+}
+
+/* Remove old decorative address bar/path completely */
+:root[data-theme="windows-2000"] .chat-header::after,
+:root[data-theme="windows-2000"] .chat-header::before {
+  content: none !important;
+  display: none !important;
+}
+
+/* Main functional search bar */
+:root[data-theme="windows-2000"] .chat-search-inline {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: calc(100% - 12px);
+  min-height: var(--win2k-search-height);
+  margin: 5px 6px 6px;
+  padding: 4px 34px 4px calc(var(--win2k-search-label-width) + 8px);
+  color: #000000;
+  background:
+    linear-gradient(
+      to right,
+      var(--win2k-face) 0,
+      var(--win2k-face) var(--win2k-search-label-width),
+      #ffffff var(--win2k-search-label-width),
+      #ffffff 100%
+    );
+  border: 1px solid var(--win2k-mid);
+  border-radius: 0 !important;
+  box-shadow:
+    inset 1px 1px 0 var(--win2k-dark),
+    inset -1px -1px 0 var(--win2k-light);
+  cursor: text;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Classic label at the left */
+:root[data-theme="windows-2000"] .chat-search-inline::before {
+  content: "Search";
+  position: absolute;
+  left: 7px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: calc(var(--win2k-search-label-width) - 12px);
+  color: #000000;
+  font: 400 12px Tahoma, "MS Sans Serif", "Microsoft Sans Serif", Arial, sans-serif;
+  pointer-events: none;
+}
+
+/* Old Windows-style search button on the right */
+:root[data-theme="windows-2000"] .chat-search-inline::after {
+  content: "⌕";
+  position: absolute;
+  right: 3px;
+  top: 3px;
+  width: 27px;
+  height: calc(var(--win2k-search-height) - 8px);
+  display: grid;
+  place-items: center;
+  color: #000000;
+  background: var(--win2k-face);
+  border: 1px solid var(--win2k-mid);
+  box-shadow:
+    inset 1px 1px 0 var(--win2k-light),
+    inset -1px -1px 0 var(--win2k-dark);
+  font: 700 15px Tahoma, Arial, sans-serif;
+  pointer-events: none;
+}
+
+/* Make the real search input fill the white address field area */
+:root[data-theme="windows-2000"] .chat-search-inline input,
+:root[data-theme="windows-2000"] .chat-search-inline textarea,
+:root[data-theme="windows-2000"] .chat-search-inline [role="searchbox"],
+:root[data-theme="windows-2000"] .chat-search-inline [contenteditable="true"] {
+  width: 100%;
+  min-width: 0;
+  min-height: calc(var(--win2k-search-height) - 12px);
+  margin: 0;
+  padding: 2px 4px;
+  color: #000000;
+  background: transparent;
+  border: 0 !important;
+  border-radius: 0 !important;
+  outline: none !important;
+  box-shadow: none !important;
+  font: 400 12px Tahoma, "MS Sans Serif", "Microsoft Sans Serif", Arial, sans-serif;
+}
+
+/* Search placeholder should read like a functional field, not fake chrome */
+:root[data-theme="windows-2000"] .chat-search-inline input::placeholder,
+:root[data-theme="windows-2000"] .chat-search-inline textarea::placeholder {
+  color: #666666;
+  opacity: 1;
+}
+
+/* Strong old Windows focus */
+:root[data-theme="windows-2000"] .chat-search-inline:focus-within {
+  border-color: var(--win2k-title-blue);
+  outline: 1px dotted #000000;
+  outline-offset: -4px;
+}
+
+/* Hover gives a subtle Explorer focus hint */
+:root[data-theme="windows-2000"] .chat-search-inline:hover {
+  border-color: var(--win2k-selection-blue);
+}
+
+/* Keep message pane tight under search */
+:root[data-theme="windows-2000"] .chat-search-inline + .chat-messages,
+:root[data-theme="windows-2000"] .chat-search-inline ~ .chat-messages {
+  margin-top: 0;
+}
+
+/* Search results notice stays compact under the search bar */
+:root[data-theme="windows-2000"] .chat-search-inline + .chat-top-notice,
+:root[data-theme="windows-2000"] .chat-top-notice {
+  margin-top: 2px;
+}
+
+/* Mobile */
+@media (max-width: 720px) {
+  :root[data-theme="windows-2000"] {
+    --win2k-search-label-width: 46px;
+    --win2k-search-height: 36px;
+  }
+
+  :root[data-theme="windows-2000"] .chat-search-inline::before {
+    content: "Find";
+  }
+}
