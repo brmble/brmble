@@ -1258,6 +1258,35 @@ describe('active share discovery', () => {
     expect(screen.getByText('Alice started sharing their screen')).toBeInTheDocument();
   });
 
+  it('does not notify for the broadcaster\'s own share when session id is missing but identity matches self', () => {
+    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id === 'screen-share');
+
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [
+          { name: 'TestUser', self: true, channelId: 1, matrixUserId: '@self:example.com' },
+        ],
+      });
+    });
+
+    act(() => {
+      bridge.emit('livekit.screenShareStarted', {
+        roomName: 'channel-1',
+        userName: 'TestUser',
+        userId: 7,
+        matrixUserId: '@self:example.com',
+      });
+    });
+
+    expect(notifQueue.register).not.toHaveBeenCalledWith('screen-share', 'info');
+    expect(screen.queryByText('TestUser started sharing their screen')).not.toBeInTheDocument();
+  });
+
   it('clears visible optional screen share notification when global disable is enabled', () => {
     vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id === 'screen-share');
 

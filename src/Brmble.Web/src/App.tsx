@@ -3776,23 +3776,19 @@ const handleConnect = (serverData: SavedServer) => {
       const d = data as { roomName: string; userName: string; userId?: number; matrixUserId?: string; sessionId?: number };
       const selfUser = usersRef.current.find(u => u.self);
       const voiceChannelId = selfUser?.channelId;
-      try {
-        bridge.send('livekit.debug.screenShareStarted.received', {
-          roomName: d.roomName,
-          userId: d.userId,
-          sessionId: d.sessionId,
-          selfSession: selfUser?.session,
-          voiceChannelId,
-          notificationsEnabled: shouldShowOptionalNotification(optionalNotificationSettingsRef.current, 'notificationRemoteScreenShare'),
-        });
-      } catch {
-        // Diagnostics must never affect notification handling.
-      }
-      // Only show notification for other users' shares in our channel
+      // Only show notification for other users' shares in our channel.
+      // Prefer the session id to identify self; when the server payload omits
+      // it, fall back to matching the Matrix identity so the broadcaster does
+      // not get a notification for their own share (the event is broadcast to
+      // everyone in the room, including the sharer).
+      const selfMatrixUserId = selfUser?.matrixUserId ?? matrixCredentialsRef.current?.userId;
+      const isSelfShare = (d.sessionId != null && selfUser?.session != null)
+        ? d.sessionId === selfUser.session
+        : (selfMatrixUserId != null && d.matrixUserId != null && d.matrixUserId === selfMatrixUserId);
       if (
         voiceChannelId != null &&
         d.roomName === `channel-${voiceChannelId}` &&
-        (d.sessionId == null || selfUser?.session == null || d.sessionId !== selfUser.session) &&
+        !isSelfShare &&
         shouldShowOptionalNotification(optionalNotificationSettingsRef.current, 'notificationRemoteScreenShare')
       ) {
         setScreenShareNotification({ userName: d.userName, roomName: d.roomName, userId: d.userId, matrixUserId: d.matrixUserId });

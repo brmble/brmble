@@ -133,6 +133,51 @@ describe('SettingsModal tabs', () => {
     });
   });
 
+  it('normalizes stored system audio off when capture audio is off on load', async () => {
+    render(<SettingsModal isOpen onClose={vi.fn()} initialTab="screenShare" />);
+
+    await waitFor(() => {
+      expect(bridgeMock.on).toHaveBeenCalledWith('settings.current', expect.any(Function));
+    });
+
+    const currentSettingsHandler = bridgeMock.on.mock.calls.find(
+      ([event]) => event === 'settings.current',
+    )?.[1] as ((data: unknown) => void) | undefined;
+
+    // Legacy/divergent combo: capture audio off but system audio still true.
+    const divergentScreenShareSettings = {
+      captureAudio: false,
+      systemAudio: true,
+      resolution: '1080p',
+      fps: 30,
+      viewerMode: 'in-app',
+      preferredCaptureSource: 'window',
+    } as unknown;
+
+    act(() => {
+      currentSettingsHandler?.({ settings: { screenShare: divergentScreenShareSettings } });
+    });
+
+    const [captureAudioToggle, systemAudioToggle] = await screen.findAllByRole('checkbox');
+    expect(captureAudioToggle).not.toBeChecked();
+    expect(systemAudioToggle).not.toBeChecked();
+
+    bridgeMock.send.mockClear();
+    // Re-enabling capture audio must NOT resurrect system audio.
+    fireEvent.click(captureAudioToggle);
+
+    await waitFor(() => {
+      expect(bridgeMock.send).toHaveBeenCalledWith('settings.set', {
+        settings: expect.objectContaining({
+          screenShare: expect.objectContaining({
+            captureAudio: true,
+            systemAudio: false,
+          }),
+        }),
+      });
+    });
+  });
+
   it('shows channel request history in the profile tab', () => {
     render(<SettingsModal isOpen onClose={vi.fn()} />);
 

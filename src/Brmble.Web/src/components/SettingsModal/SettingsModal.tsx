@@ -199,10 +199,17 @@ export function SettingsModal(props: SettingsModalProps) {
             audio: { ...DEFAULT_SETTINGS.audio, ...(d.settings!.audio ?? {}) },
             overlay: normalizeOverlaySettings(d.settings!.overlay ?? {}),
             brmblegotchi: d.settings!.brmblegotchi ?? prev.brmblegotchi ?? DEFAULT_BRMBLEGOTCHI,
-            screenShare: {
-              ...DEFAULT_SCREEN_SHARE,
-              ...((d.settings!.screenShare ?? prev.screenShare) ?? {}),
-            },
+            screenShare: (() => {
+              const merged = {
+                ...DEFAULT_SCREEN_SHARE,
+                ...((d.settings!.screenShare ?? prev.screenShare) ?? {}),
+              };
+              // System audio is only meaningful when capture audio is on.
+              // Normalize on load so a legacy/divergent stored combo
+              // (captureAudio: false, systemAudio: true) cannot silently
+              // resurrect system audio when capture audio is re-enabled.
+              return { ...merged, systemAudio: merged.captureAudio && merged.systemAudio };
+            })(),
             noiseSuppression: normalizedNs,
           };
           if (d.settings!.appearance?.theme) {
