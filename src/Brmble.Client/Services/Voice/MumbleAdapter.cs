@@ -65,6 +65,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private long _wsGeneration;
     private readonly IAppConfigService? _appConfigService;
     private readonly VoiceIdleTracker? _voiceIdleTracker;
+    private readonly ChannelRequestBridgeHandler _channelRequestBridgeHandler;
     private System.Threading.Timer? _voiceIdlePollTimer;
     private int _voiceIdlePollOffset;
     private int _voiceIdlePollInProgress;   // 0 = idle, 1 = tick running (Interlocked guard)
@@ -134,6 +135,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _certService = certService;
         _appConfigService = appConfigService;
         _voiceIdleTracker = voiceIdleTracker;
+        _channelRequestBridgeHandler = new ChannelRequestBridgeHandler(
+            _bridge,
+            _certService,
+            () => _apiUrl,
+            PostChannelRequestViaBcTls,
+            GetChannelRequestViaBcTls);
         _audioManager = new AudioManager(_hwnd);
         // Toggle* actions now fire via MumbleAdapter.FireShortcutAction
         // (driven by InputRouter.ShortcutReleased); AudioManager no longer
@@ -1388,6 +1395,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         var contentLength = System.Text.Encoding.UTF8.GetByteCount(jsonBody);
         var httpRequest = $"PATCH {uri.PathAndQuery} HTTP/1.1\r\nHost: {hostHeader}\r\nContent-Type: application/json\r\nContent-Length: {contentLength}\r\nConnection: close\r\n\r\n{jsonBody}";
         return await SendViaBcTls(cert, uri, httpRequest);
+    }
+
+    private static async Task<ChannelRequestBridgeHandler.TlsCallResult> PostChannelRequestViaBcTls(X509Certificate2 cert, Uri uri, string jsonBody)
+    {
+        var result = await PostViaBcTls(cert, uri, jsonBody);
+        return new(result.Success, result.Body, result.StatusCode, result.Error);
+    }
+
+    private static async Task<ChannelRequestBridgeHandler.TlsCallResult> GetChannelRequestViaBcTls(X509Certificate2 cert, Uri uri)
+    {
+        var result = await GetViaBcTls(cert, uri);
+        return new(result.Success, result.Body, result.StatusCode, result.Error);
     }
 
     internal static string CreateLiveKitTokenRequestBody(string roomName, string accessMode)
@@ -3661,6 +3680,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             var result = await PatchViaBcTls(cert, uri, requestJson);
             _bridge?.Send(result.Success ? "admin.channelUpdated" : "admin.channelUpdateError", new { channelId, body = result.Body, statusCode = result.StatusCode, error = result.Error });
             _bridge?.NotifyUiThread();
+        });
+
+        bridge.RegisterHandler("channelRequests.request", async data =>
+        {
+            await _channelRequestBridgeHandler.HandleAsync(data);
         });
 
         bridge.RegisterHandler("acl.setChannelPassword", async data =>

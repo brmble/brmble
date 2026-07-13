@@ -11,6 +11,7 @@ import { ConnectionSettingsTab, type ConnectionSettings } from './ConnectionSett
 import { ProfileSettingsTab } from './ProfileSettingsTab';
 import { AdminSettingsTab } from './AdminSettingsTab';
 import { ScreenShareSettingsTab } from './ScreenShareSettingsTab';
+import { MyChannelRequests } from '../ChannelRequests/MyChannelRequests';
 import { useServerlist } from '../../hooks/useServerlist';
 import { usePermissions, Permission } from '../../hooks/usePermissions';
 import type { Channel } from '../../types';
@@ -57,6 +58,7 @@ interface SettingsModalProps {
   }>;
   channels?: Channel[];
   onChannelsChange?: (channels: Channel[]) => void;
+  channelRequestRefreshKey?: number;
 }
 
 export interface ScreenShareSettings {
@@ -476,13 +478,16 @@ export function SettingsModal(props: SettingsModalProps) {
 
         <div className="settings-content">
           {activeTab === 'profile' && (
-            <ProfileSettingsTab
-              currentUser={props.currentUser ?? { name: props.username ?? 'Unknown' }}
-              onUploadAvatar={props.onUploadAvatar ?? (() => {})}
-              onRemoveAvatar={props.onRemoveAvatar ?? (() => {})}
-              connected={props.connected ?? false}
-              registeredName={connectedRegisteredName}
-            />
+            <>
+              <ProfileSettingsTab
+                currentUser={props.currentUser ?? { name: props.username ?? 'Unknown' }}
+                onUploadAvatar={props.onUploadAvatar ?? (() => {})}
+                onRemoveAvatar={props.onRemoveAvatar ?? (() => {})}
+                connected={props.connected ?? false}
+                registeredName={connectedRegisteredName}
+              />
+              <MyChannelRequests refreshKey={props.channelRequestRefreshKey ?? 0} connected={props.connected ?? false} />
+            </>
           )}
           {activeTab === 'audio' && <AudioSettingsTab settings={settings.audio} onChange={handleAudioChange} noiseSuppression={settings.noiseSuppression} onNoiseSuppressionChange={handleNoiseSuppressionChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}
           {activeTab === 'shortcuts' && <ShortcutsSettingsTab settings={settings.shortcuts} onChange={handleShortcutsChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}

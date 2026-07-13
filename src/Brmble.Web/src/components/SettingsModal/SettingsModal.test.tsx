@@ -29,6 +29,9 @@ vi.mock('./AdminSettingsTab', () => ({
     <div data-testid="admin-users-prop">{liveUsers.map(user => user.name).join(',')}</div>
   ),
 }));
+vi.mock('../ChannelRequests/MyChannelRequests', () => ({
+  MyChannelRequests: () => <div data-testid="my-channel-requests" />,
+}));
 
 describe('SettingsModal tabs', () => {
   beforeEach(() => {
@@ -128,5 +131,11 @@ describe('SettingsModal tabs', () => {
         }),
       });
     });
+  });
+
+  it('shows channel request history in the profile tab', () => {
+    render(<SettingsModal isOpen onClose={vi.fn()} />);
+
+    expect(screen.getByTestId('my-channel-requests')).toBeInTheDocument();
   });
 });

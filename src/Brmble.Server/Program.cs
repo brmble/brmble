@@ -1,5 +1,6 @@
 using Brmble.Server;
 using Brmble.Server.Auth;
+using Brmble.Server.ChannelRequests;
 using Brmble.Server.DM;
 using Brmble.Server.Middleware;
 using Microsoft.AspNetCore.DataProtection;
@@ -61,6 +62,14 @@ builder.Services.AddRateLimiter(options =>
         limiterOptions.QueueLimit = 0;
         limiterOptions.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
     });
+
+    options.AddFixedWindowLimiter("channel-request-create", limiterOptions =>
+    {
+        limiterOptions.PermitLimit = 5;
+        limiterOptions.Window = TimeSpan.FromMinutes(10);
+        limiterOptions.QueueLimit = 0;
+        limiterOptions.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+    });
 });
 
 var app = builder.Build();
@@ -75,6 +84,7 @@ app.MapAuthEndpoints();
 app.MapAdminEndpoints();
 app.MapDmEndpoints();
 app.MapAclAdminEndpoints();
+app.MapChannelRequestEndpoints();
 app.MapChannelChatAccessEndpoints();
 app.Map("/ws", BrmbleWebSocketHandler.HandleAsync);
 app.MapServerInfoEndpoints();

@@ -3,6 +3,7 @@ import './AdminSettingsTab.css';
 import { ADMIN_WORKSPACE_TABS, type AdminWorkspaceTab } from './admin/AdminWorkspaceTypes';
 import { AdminModerationSection } from './admin/AdminModerationSection';
 import { AdminChannelsSection } from './admin/AdminChannelsSection';
+import { AdminChannelRequestsSection } from './admin/AdminChannelRequestsSection';
 import { AdminUsersSection } from './admin/AdminUsersSection';
 import { AdminAuditLogSection } from './admin/AdminAuditLogSection';
 import { AdminGroupsSection } from './admin/AdminGroupsSection';
@@ -41,7 +42,12 @@ export function AdminSettingsTab({ channels = [], onChannelsChange, liveUsers = 
         ))}
       </div>
       <div className="admin-workspace-body">
-        {activeTab === 'channels' && <AdminChannelsSection channels={channels} onChannelsChange={onChannelsChange} />}
+        {activeTab === 'channels' && (
+          <div className="admin-workspace-stack">
+            <AdminChannelsSection channels={channels} onChannelsChange={onChannelsChange} />
+            <AdminChannelRequestsSection />
+          </div>
+        )}
         {activeTab === 'users' && <AdminUsersSection liveUsers={liveUsers} />}
         {activeTab === 'groups' && <AdminGroupsSection channels={channels} />}
         {activeTab === 'moderation' && <AdminModerationSection />}
