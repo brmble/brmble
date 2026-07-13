@@ -823,6 +823,12 @@ interface ServerRemovalNotification extends ScreenShareEndedNotification {
 function App() {
   // --- Notification queue (max 3 visible, priority-based) ---
   const notifQueue = useNotificationQueue();
+  // Stable ref to the notification queue so effects that must only run on
+  // specific triggers (e.g. channel change) can call queue methods without
+  // depending on the queue object's identity, which churns on every
+  // register/unregister and would otherwise re-run those effects unexpectedly.
+  const notifQueueRef = useRef(notifQueue);
+  notifQueueRef.current = notifQueue;
 
   // --- Brmblegotchi settings state ---
   const [brmblegotchiEnabled, setBrmblegotchiEnabledState] = useState<boolean>(() => {
@@ -3824,13 +3830,19 @@ const handleConnect = (serverData: SavedServer) => {
 
   requestActiveShareDiscoveryRef.current = requestActiveShareDiscovery;
 
-  // Check for active screen shares when switching channels
+  // Check for active screen shares when switching channels.
+  // Depends ONLY on currentChannelId: the other collaborators (disconnectViewer,
+  // notifQueue, requestActiveShareDiscovery) are accessed via refs so their
+  // identity churn — notably notifQueue changing on every register/unregister —
+  // does not re-run this effect and wipe a freshly shown screen-share
+  // notification.
   useEffect(() => {
-    disconnectViewer();
+    disconnectViewerRef.current?.();
     setScreenShareNotification(null);
-    notifQueue.unregister('screen-share');
-    requestActiveShareDiscovery(currentChannelId);
-  }, [currentChannelId, disconnectViewer, notifQueue, requestActiveShareDiscovery]);
+    notifQueueRef.current.unregister('screen-share');
+    requestActiveShareDiscoveryRef.current?.(currentChannelId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentChannelId]);
 
   useEffect(() => {
     const previousConnectionStatus = previousConnectionStatusRef.current;
