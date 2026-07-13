@@ -39,11 +39,12 @@ describe('ScreenShareSettingsTab', () => {
     expect(screen.getByRole('button', { name: 'More information about viewer location' })).toHaveClass('settings-info-btn');
     expect(screen.queryByText('System audio is available on Windows and macOS. Audio capture requires browser support.')).not.toBeInTheDocument();
     expect(screen.queryByText('Choose Window for game sharing. Your system picker still asks which window to share.')).not.toBeInTheDocument();
-    expect(screen.queryByText('Share audio from the selected screen, window, or browser tab when supported. Voice chat uses Brmble separately.')).not.toBeInTheDocument();
+    expect(screen.queryByText(/capturing a single application window's audio is not supported/)).not.toBeInTheDocument();
 
     fireEvent.focus(captureAudioHelp);
     act(() => { vi.advanceTimersByTime(400); });
 
+    expect(screen.getByRole('tooltip')).toHaveTextContent('single application window');
     expect(screen.getByRole('tooltip')).toHaveTextContent('Voice chat uses Brmble separately');
   });
 

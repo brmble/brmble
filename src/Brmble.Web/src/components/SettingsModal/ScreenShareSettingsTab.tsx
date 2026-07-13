@@ -95,7 +95,7 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
         <div className="settings-item settings-toggle">
           <div className="settings-label-group">
             <span className="settings-label">Capture Audio</span>
-            <SettingsHelp content="Share audio from the selected screen, window, or browser tab when supported. Voice chat uses Brmble separately." label="More information about capture audio" />
+            <SettingsHelp content="Shares audio together with your screen. Works when sharing a whole screen or a browser tab; capturing a single application window's audio is not supported by the system. You must also enable audio in the screen picker. Voice chat uses Brmble separately." label="More information about capture audio" />
           </div>
           <label className="brmble-toggle">
             <input
@@ -110,7 +110,7 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
         <div className="settings-item settings-toggle">
           <div className="settings-label-group">
             <span className="settings-label">System Audio</span>
-            <SettingsHelp content="Request system audio when supported. Only available when capture audio is enabled." label="More information about system audio" />
+            <SettingsHelp content="Shares your computer's system audio when sharing a whole screen. Only available when capture audio is enabled and offered by the screen picker." label="More information about system audio" />
           </div>
           <label className="brmble-toggle">
             <input
