@@ -824,6 +824,12 @@ interface ServerRemovalNotification extends ScreenShareEndedNotification {
 function App() {
   // --- Notification queue (max 3 visible, priority-based) ---
   const notifQueue = useNotificationQueue();
+  // Stable ref to the notification queue so effects that must only run on
+  // specific triggers (e.g. channel change) can call queue methods without
+  // depending on the queue object's identity, which churns on every
+  // register/unregister and would otherwise re-run those effects unexpectedly.
+  const notifQueueRef = useRef(notifQueue);
+  notifQueueRef.current = notifQueue;
 
   // --- Brmblegotchi settings state ---
   const [brmblegotchiEnabled, setBrmblegotchiEnabledState] = useState<boolean>(() => {
@@ -3331,12 +3337,20 @@ const handleConnect = (serverData: SavedServer) => {
     const applyScreenShareSettings = (value: unknown) => {
       if (!value || typeof value !== 'object') return;
 
+      const payload = value as Record<string, unknown>;
+      const settingsPayload =
+        payload.settings && typeof payload.settings === 'object'
+          ? payload.settings as Record<string, unknown>
+          : null;
+
       const candidate =
-        'screenShare' in value &&
-        value.screenShare &&
-        typeof value.screenShare === 'object'
-          ? value.screenShare
-          : value;
+        settingsPayload
+          ? settingsPayload.screenShare
+          : payload.screenShare && typeof payload.screenShare === 'object'
+            ? payload.screenShare
+            : payload;
+
+      if (!candidate || typeof candidate !== 'object') return;
 
       setScreenShareSettings((current) => ({
         ...current,
@@ -3373,11 +3387,13 @@ const handleConnect = (serverData: SavedServer) => {
 
     const handleStorage = () => loadSettings();
     window.addEventListener('storage', handleStorage);
+    window.addEventListener('brmble-settings-updated', handleStorage);
 
     return () => {
       bridgeApi.off?.('settings.current', handleBridgeSettings);
       bridgeApi.off?.('settings.updated', handleBridgeSettings);
       window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('brmble-settings-updated', handleStorage);
     };
   }, []);
 
@@ -3760,11 +3776,19 @@ const handleConnect = (serverData: SavedServer) => {
       const d = data as { roomName: string; userName: string; userId?: number; matrixUserId?: string; sessionId?: number };
       const selfUser = usersRef.current.find(u => u.self);
       const voiceChannelId = selfUser?.channelId;
-      // Only show notification for other users' shares in our channel
+      // Only show notification for other users' shares in our channel.
+      // Prefer the session id to identify self; when the server payload omits
+      // it, fall back to matching the Matrix identity so the broadcaster does
+      // not get a notification for their own share (the event is broadcast to
+      // everyone in the room, including the sharer).
+      const selfMatrixUserId = selfUser?.matrixUserId ?? matrixCredentialsRef.current?.userId;
+      const isSelfShare = (d.sessionId != null && selfUser?.session != null)
+        ? d.sessionId === selfUser.session
+        : (selfMatrixUserId != null && d.matrixUserId != null && d.matrixUserId === selfMatrixUserId);
       if (
         voiceChannelId != null &&
         d.roomName === `channel-${voiceChannelId}` &&
-        d.sessionId !== selfUser?.session &&
+        !isSelfShare &&
         shouldShowOptionalNotification(optionalNotificationSettingsRef.current, 'notificationRemoteScreenShare')
       ) {
         setScreenShareNotification({ userName: d.userName, roomName: d.roomName, userId: d.userId, matrixUserId: d.matrixUserId });
@@ -3805,13 +3829,19 @@ const handleConnect = (serverData: SavedServer) => {
 
   requestActiveShareDiscoveryRef.current = requestActiveShareDiscovery;
 
-  // Check for active screen shares when switching channels
+  // Check for active screen shares when switching channels.
+  // Depends ONLY on currentChannelId: the other collaborators (disconnectViewer,
+  // notifQueue, requestActiveShareDiscovery) are accessed via refs so their
+  // identity churn — notably notifQueue changing on every register/unregister —
+  // does not re-run this effect and wipe a freshly shown screen-share
+  // notification.
   useEffect(() => {
-    disconnectViewer();
+    disconnectViewerRef.current?.();
     setScreenShareNotification(null);
-    notifQueue.unregister('screen-share');
-    requestActiveShareDiscovery(currentChannelId);
-  }, [currentChannelId, disconnectViewer, notifQueue, requestActiveShareDiscovery]);
+    notifQueueRef.current.unregister('screen-share');
+    requestActiveShareDiscoveryRef.current?.(currentChannelId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentChannelId]);
 
   useEffect(() => {
     const previousConnectionStatus = previousConnectionStatusRef.current;

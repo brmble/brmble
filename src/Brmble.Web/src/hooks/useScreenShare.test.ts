@@ -42,6 +42,7 @@ const emitLocalTrackEvent = (event: string) => {
 
 // Mock livekit-client
 const mockRoom = {
+  startAudio: vi.fn().mockResolvedValue(undefined),
   connect: vi.fn().mockImplementation(async () => { mockRoom.state = 'connected'; }),
   disconnect: vi.fn().mockResolvedValue(undefined),
   name: 'channel-1',
@@ -75,6 +76,7 @@ const mockRoom = {
 vi.mock('livekit-client', () => ({
   Room: class MockRoom {
     connect = vi.fn((...args: unknown[]) => mockRoom.connect(...args));
+    startAudio = vi.fn((...args: unknown[]) => mockRoom.startAudio(...args));
     disconnect = vi.fn((...args: unknown[]) => mockRoom.disconnect(...args));
     name = mockRoom.name;
     get state() { return mockRoom.state; }
@@ -107,8 +109,8 @@ vi.mock('livekit-client', () => ({
     Unknown: 'unknown',
   },
   Track: {
-    Kind: { Video: 'video' },
-    Source: { ScreenShare: 'screen_share' },
+    Kind: { Audio: 'audio', Video: 'video' },
+    Source: { ScreenShare: 'screen_share', ScreenShareAudio: 'screen_share_audio' },
   },
 }));
 
@@ -131,6 +133,7 @@ describe('useScreenShare', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRoom.state = undefined;
+    mockRoom.startAudio.mockResolvedValue(undefined);
     mockRoom.remoteParticipants.clear();
     roomEventHandlers.clear();
     localTrackEventHandlers.clear();
@@ -1569,6 +1572,109 @@ describe('useScreenShare', () => {
     expect(result.current.focusedShare).toBeNull();
     expect(result.current.remoteVideoEls.has(10)).toBe(false);
     expect(mockRoom.disconnect).not.toHaveBeenCalled();
+  });
+
+  it('attaches and detaches screen-share audio tracks for watched shares', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+    const audioEl = document.createElement('audio');
+    const screenShareAudioTrack = {
+      kind: 'audio',
+      source: 'screen_share_audio',
+      attach: vi.fn(() => audioEl),
+      detach: vi.fn(),
+    };
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    await act(async () => {
+      const p = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      tokenHandler?.(liveKitToken('jwt'));
+      await p;
+    });
+
+    act(() => {
+      emitRoomEvent('trackSubscribed', screenShareAudioTrack, {}, { identity: '@alice:test' });
+    });
+
+    expect(screenShareAudioTrack.attach).toHaveBeenCalledTimes(1);
+    expect(document.body.contains(audioEl)).toBe(true);
+
+    act(() => {
+      emitRoomEvent('trackUnsubscribed', screenShareAudioTrack, {}, { identity: '@alice:test' });
+    });
+
+    expect(screenShareAudioTrack.detach).toHaveBeenCalledTimes(1);
+    expect(document.body.contains(audioEl)).toBe(false);
+    expect(result.current.watchingShares).toHaveLength(1);
+  });
+
+  it('uses the publication source when attaching screen-share audio tracks', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+    const audioEl = document.createElement('audio');
+    const screenShareAudioTrack = {
+      kind: 'audio',
+      attach: vi.fn(() => audioEl),
+      detach: vi.fn(),
+    };
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    await act(async () => {
+      const p = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      tokenHandler?.(liveKitToken('jwt'));
+      await p;
+    });
+
+    act(() => {
+      emitRoomEvent('trackSubscribed', screenShareAudioTrack, { source: 'screen_share_audio' }, { identity: '@alice:test' });
+    });
+
+    expect(screenShareAudioTrack.attach).toHaveBeenCalledTimes(1);
+    expect(document.body.contains(audioEl)).toBe(true);
+  });
+
+  it('starts LiveKit audio playback when watching a share', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    await act(async () => {
+      const p = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      tokenHandler?.(liveKitToken('jwt'));
+      await p;
+    });
+
+    expect(mockRoom.startAudio).toHaveBeenCalled();
   });
 
   it('reports track unsubscribe before share stop once as ended', async () => {
@@ -3222,7 +3328,7 @@ describe('useScreenShare', () => {
     expect(onLocalShareEnded).toHaveBeenNthCalledWith(2, 'error');
   });
 
-  it('passes correct capture options to setScreenShareEnabled', async () => {
+  it('passes default window capture source to setScreenShareEnabled', async () => {
     let tokenHandler: ((data: unknown) => void) | null = null;
     (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
       if (type === 'livekit.token') tokenHandler = handler;
@@ -3233,6 +3339,7 @@ describe('useScreenShare', () => {
       systemAudio: true,
       resolution: '1080p' as const,
       fps: 30 as const,
+      preferredCaptureSource: 'window' as const,
     };
 
     const { result } = renderHook(() => useScreenShare(undefined, settings));
@@ -3246,8 +3353,40 @@ describe('useScreenShare', () => {
     expect(mockRoom.localParticipant.setScreenShareEnabled).toHaveBeenCalledWith(true, expect.objectContaining({
       audio: true,
       systemAudio: 'include',
+      video: { displaySurface: 'window' },
       resolution: { width: 1920, height: 1080, frameRate: 30 },
       videoEncoding: { maxBitrate: 4_000_000, maxFramerate: 30 },
+    }));
+  });
+
+  it('omits display surface hint when preferred capture source is auto', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+    });
+
+    const settings = {
+      captureAudio: false,
+      systemAudio: false,
+      resolution: '720p' as const,
+      fps: 15 as const,
+      preferredCaptureSource: 'auto' as const,
+    };
+
+    const { result } = renderHook(() => useScreenShare(undefined, settings));
+
+    await act(async () => {
+      const promise = result.current.startSharing('channel-1');
+      tokenHandler?.(liveKitToken('test-jwt'));
+      await promise;
+    });
+
+    expect(mockRoom.localParticipant.setScreenShareEnabled).toHaveBeenCalledWith(true, expect.not.objectContaining({
+      video: expect.anything(),
+    }));
+    expect(mockRoom.localParticipant.setScreenShareEnabled).toHaveBeenCalledWith(true, expect.objectContaining({
+      resolution: { width: 1280, height: 720, frameRate: 15 },
+      videoEncoding: { maxBitrate: 2_000_000, maxFramerate: 15 },
     }));
   });
 });

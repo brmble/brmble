@@ -57,6 +57,15 @@ public record AppearanceSettings(
     string Theme = "classic"
 );
 
+public record ScreenShareSettings(
+    bool CaptureAudio = true,
+    string Resolution = "1080p",
+    int Fps = 30,
+    bool SystemAudio = false,
+    string ViewerMode = "in-app",
+    string PreferredCaptureSource = "window"
+);
+
 public record AppSettings(
     AudioSettings Audio,
     ShortcutsSettings Shortcuts,
@@ -67,11 +76,13 @@ public record AppSettings(
     string? AutoConnectServerId = null,
     bool ReconnectEnabled = true,
     bool RememberLastChannel = true,
-    AppearanceSettings? Appearance = null
+    AppearanceSettings? Appearance = null,
+    ScreenShareSettings? ScreenShare = null
 )
 {
     public NoiseSuppressionSettings NoiseSuppression { get; init; } = NoiseSuppression ?? new NoiseSuppressionSettings();
     public AppearanceSettings Appearance { get; init; } = Appearance ?? new AppearanceSettings();
+    public ScreenShareSettings ScreenShare { get; init; } = ScreenShare ?? new ScreenShareSettings();
 
     public static AppSettings Default => new(
         new AudioSettings(),
