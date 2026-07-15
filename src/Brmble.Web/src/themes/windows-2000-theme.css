@@ -592,10 +592,9 @@
   border: 1px solid transparent;
 }
 
-/* Hide modern SVG channel glyphs inside rows, if present.
-   Remove this rule if you want the app's original channel icons visible. */
-:root[data-theme="windows-2000"] .channel-row svg:not(.expand-icon svg),
-:root[data-theme="windows-2000"] .user-row svg:not(.expand-icon svg) {
+/* Hide decorative channel folder/monitor glyph to keep Win2K text-only sidebar look.
+   Only targets the icon span, leaving expand arrows, status icons, sort icons, etc. intact. */
+:root[data-theme="windows-2000"] .channel-icon > svg {
   display: none;
 }
 
@@ -760,27 +759,6 @@
     inset 0 -1px 0 var(--win2k-mid);
 }
 
-/* Optional fake address/path strip under common header content.
-   This gives the chat a File Manager address-bar vibe without needing DOM changes. */
-:root[data-theme="windows-2000"] .chat-header::after {
-  content: "C:\\channels\\current\\messages\\*.*";
-  display: block;
-  margin-top: 4px;
-  padding: 2px 6px;
-  height: 20px;
-  line-height: 14px;
-  color: #000000;
-  background: var(--win2k-chat-path-bg);
-  border: 1px solid var(--win2k-mid);
-  box-shadow:
-    inset 1px 1px 0 var(--win2k-dark),
-    inset -1px -1px 0 var(--win2k-light);
-  font: 400 11px Tahoma, "MS Sans Serif", "Microsoft Sans Serif", Arial, sans-serif;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 /* The white pane gets subtle Details View striping/grid lines */
 :root[data-theme="windows-2000"] .chat-messages {
   background:
@@ -903,8 +881,7 @@
 
 /* Timestamp looks like a second file-list column */
 :root[data-theme="windows-2000"] .message-timestamp,
-:root[data-theme="windows-2000"] .chat-message-timestamp,
-:root[data-theme="windows-2000"] time {
+:root[data-theme="windows-2000"] .chat-message-timestamp {
   display: inline-block;
   min-width: 58px;
   margin-right: 8px;
@@ -1103,13 +1080,6 @@
   box-shadow:
     inset 0 1px 0 var(--win2k-light),
     inset 0 -1px 0 var(--win2k-dark);
-}
-
-/* Remove old decorative address bar/path completely */
-:root[data-theme="windows-2000"] .chat-header::after,
-:root[data-theme="windows-2000"] .chat-header::before {
-  content: none !important;
-  display: none !important;
 }
 
 /* Main functional search bar */
