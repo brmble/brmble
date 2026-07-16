@@ -37,6 +37,104 @@ export interface ScreenShareSettings {
   contentType?: 'motion' | 'detail';
 }
 
+/** Debounce window before applying edited settings to an already-active share. */
+const APPLY_SETTINGS_DEBOUNCE_MS = 400;
+
+const SCREEN_SHARE_RESOLUTION_MAP: Record<string, { width: number; height: number }> = {
+  '720p': { width: 1280, height: 720 },
+  '1080p': { width: 1920, height: 1080 },
+  '1440p': { width: 2560, height: 1440 },
+  '4k': { width: 3840, height: 2160 },
+};
+
+// Motion/video/game content needs substantially more bitrate than static desktops to
+// avoid the blocky degradation weak-bandwidth viewers were seeing. Raised across the board.
+const SCREEN_SHARE_BITRATE_MAP: Record<string, number> = {
+  '720p': 3_000_000,
+  '1080p': 6_000_000,
+  '1440p': 10_000_000,
+  '4k': 18_000_000,
+};
+
+const screenShareDegradationPreference = (settings: ScreenShareSettings): 'maintain-resolution' | 'maintain-framerate' =>
+  settings.contentType === 'detail' ? 'maintain-resolution' : 'maintain-framerate';
+
+const screenShareContentHint = (settings: ScreenShareSettings): 'detail' | 'motion' =>
+  settings.contentType === 'detail' ? 'detail' : 'motion';
+
+/**
+ * Build the getDisplayMedia capture options (2nd arg) and publish options (3rd arg)
+ * for setScreenShareEnabled from user settings. Shared by initial share start and by
+ * the re-capture path when resolution/capture-source settings change mid-share.
+ */
+const buildScreenShareOptions = (settings: ScreenShareSettings): {
+  captureOptions: Record<string, unknown> | undefined;
+  publishOptions: Record<string, unknown>;
+} => {
+  let captureOptions: Record<string, unknown> | undefined = {};
+
+  const displaySurfaceMap: Partial<Record<ScreenShareSettings['preferredCaptureSource'], 'window' | 'monitor' | 'browser'>> = {
+    window: 'window',
+    screen: 'monitor',
+    browser: 'browser',
+  };
+  const displaySurface = displaySurfaceMap[settings.preferredCaptureSource];
+  if (displaySurface) {
+    captureOptions.video = { displaySurface };
+  }
+
+  if (settings.captureAudio) {
+    captureOptions.audio = true;
+  }
+
+  if (settings.captureAudio && settings.systemAudio) {
+    captureOptions.systemAudio = 'include';
+  }
+
+  // Steer the encoder: motion content keeps framerate smooth (drop resolution under
+  // pressure); detail content preserves sharpness (drop framerate under pressure).
+  captureOptions.contentHint = screenShareContentHint(settings);
+
+  // publishOptions (3rd arg) — NOT capture options. videoEncoding/codec/simulcast belong here.
+  const publishOptions: Record<string, unknown> = {
+    degradationPreference: screenShareDegradationPreference(settings),
+    // Two-layer simulcast (high + one low) so weak-bandwidth viewers subscribe to the low
+    // layer cleanly instead of receiving a single high-res stream degraded by packet loss.
+    simulcast: true,
+    screenShareSimulcastLayers: [new VideoPreset(640, 360, 500_000, settings.fps ?? 15)],
+  };
+
+  if (settings.resolution || settings.fps) {
+    const res = SCREEN_SHARE_RESOLUTION_MAP[settings.resolution];
+    captureOptions.resolution = {
+      ...res,
+      frameRate: settings.fps,
+    };
+    publishOptions.videoEncoding = {
+      maxBitrate: SCREEN_SHARE_BITRATE_MAP[settings.resolution],
+      maxFramerate: settings.fps,
+    };
+  }
+
+  if (Object.keys(captureOptions).length === 0) {
+    captureOptions = undefined;
+  }
+
+  return { captureOptions, publishOptions };
+};
+
+/** Settings whose changes require a fresh getDisplayMedia capture (picker prompt). */
+const screenShareNeedsRecapture = (prev: ScreenShareSettings, next: ScreenShareSettings): boolean =>
+  prev.resolution !== next.resolution ||
+  prev.preferredCaptureSource !== next.preferredCaptureSource ||
+  prev.captureAudio !== next.captureAudio ||
+  prev.systemAudio !== next.systemAudio;
+
+/** Settings whose changes can be applied to the live track without re-capturing. */
+const screenShareNeedsLiveApply = (prev: ScreenShareSettings, next: ScreenShareSettings): boolean =>
+  prev.contentType !== next.contentType || prev.fps !== next.fps;
+
+
 export type LocalShareStopReason = 'manual' | 'source-closed' | 'interrupted' | 'error' | 'blocked-capture' | 'moved-channel';
 export type WatchedShareEndReason = 'ended' | 'unexpected';
 export type WatchedShareEndedCallback = (share: ShareInfo, reason: WatchedShareEndReason) => void;
@@ -234,6 +332,9 @@ export function useScreenShare(
   const isRoomReconnectingRef = useRef(false);
   const isSharingRef = useRef(false);
   const isStartingShareRef = useRef(false);
+  // Snapshot of the settings currently applied to the active share, so an edit can be
+  // diffed to decide between a silent live-apply and a re-capture.
+  const appliedShareSettingsRef = useRef<ScreenShareSettings | null>(null);
   const focusedShareRef = useRef<ShareInfo | null>(null);
   const discoveryTargetRef = useRef<DiscoveryTarget>(null);
   const shareEventVersionRef = useRef(0);
@@ -678,6 +779,7 @@ export function useScreenShare(
 
     isSharingRef.current = false;
     setIsSharing(false);
+    appliedShareSettingsRef.current = null;
     recomputeRoomQuality();
 
     if (wasSharing && roomName) {
@@ -783,10 +885,27 @@ export function useScreenShare(
       }
 
       const watching = watchingSharesRef.current;
-      const matchedShare = watching.find(s => {
+      let matchedShare = watching.find(s => {
         const identity = s.matrixUserId ?? String(s.userId);
         return identity === participant.identity;
       });
+      // Self-heal: a broadcaster restarting their share (e.g. applying new
+      // resolution/capture-source settings) briefly unpublishes and republishes
+      // the track WITHOUT sending a livekit.screenShareStopped bridge event. That
+      // leaves the viewer's share parked in pendingUnsubscribedWatchedSharesRef.
+      // When the new track subscribes, restore the share so the tile keeps playing
+      // instead of staying blank — no "Share ended" notification is involved.
+      if (!matchedShare) {
+        for (const pending of pendingUnsubscribedWatchedSharesRef.current.values()) {
+          const identity = pending.matrixUserId ?? String(pending.userId);
+          if (identity === participant.identity) {
+            matchedShare = pending;
+            pendingUnsubscribedWatchedSharesRef.current.delete(watchedShareKey(pending.roomName, pending.userId));
+            addWatchingShare(pending);
+            break;
+          }
+        }
+      }
       if (!matchedShare) return;
       if (
         track.kind === Track.Kind.Video &&
@@ -916,7 +1035,7 @@ export function useScreenShare(
         void stopLocalShare(teardownIntent ?? 'interrupted', room);
       }
     });
-  }, [attachRemoteAudio, applyViewerQuality, clearTokenLease, clearWatchingState, detachRemoteAudio, invalidateRoomLifecycle, notifyUnexpectedWatchedShareEnds, recomputeRoomQuality, removeWatchingShare, resetQualityState, stopLocalShare, updateShareQuality]);
+  }, [addWatchingShare, attachRemoteAudio, applyViewerQuality, clearTokenLease, clearWatchingState, detachRemoteAudio, invalidateRoomLifecycle, notifyUnexpectedWatchedShareEnds, recomputeRoomQuality, removeWatchingShare, resetQualityState, stopLocalShare, updateShareQuality]);
 
   // Ensure we have a connected room for the given channel.
   // Returns the existing room if already connected to this channel, otherwise connects.
@@ -1065,71 +1184,7 @@ export function useScreenShare(
       let captureOptions: Record<string, unknown> | undefined;
       let publishOptions: Record<string, unknown> | undefined;
       if (screenShareSettings) {
-        const resolutionMap: Record<string, { width: number; height: number }> = {
-          '720p': { width: 1280, height: 720 },
-          '1080p': { width: 1920, height: 1080 },
-          '1440p': { width: 2560, height: 1440 },
-          '4k': { width: 3840, height: 2160 },
-        };
-
-        // Motion/video/game content needs substantially more bitrate than static desktops to
-        // avoid the blocky degradation weak-bandwidth viewers were seeing. Raised across the board.
-        const bitrateMap: Record<string, number> = {
-          '720p': 3_000_000,
-          '1080p': 6_000_000,
-          '1440p': 10_000_000,
-          '4k': 18_000_000,
-        };
-
-        captureOptions = {};
-
-        const displaySurfaceMap: Partial<Record<ScreenShareSettings['preferredCaptureSource'], 'window' | 'monitor' | 'browser'>> = {
-          window: 'window',
-          screen: 'monitor',
-          browser: 'browser',
-        };
-        const displaySurface = displaySurfaceMap[screenShareSettings.preferredCaptureSource];
-        if (displaySurface) {
-          captureOptions.video = { displaySurface };
-        }
-
-        if (screenShareSettings.captureAudio) {
-          captureOptions.audio = true;
-        }
-
-        if (screenShareSettings.captureAudio && screenShareSettings.systemAudio) {
-          captureOptions.systemAudio = 'include';
-        }
-
-        // Steer the encoder: motion content keeps framerate smooth (drop resolution under
-        // pressure); detail content preserves sharpness (drop framerate under pressure).
-        const isDetail = screenShareSettings.contentType === 'detail';
-        captureOptions.contentHint = isDetail ? 'detail' : 'motion';
-
-        // publishOptions (3rd arg) — NOT capture options. videoEncoding/codec/simulcast belong here.
-        publishOptions = {
-          degradationPreference: isDetail ? 'maintain-resolution' : 'maintain-framerate',
-          // Two-layer simulcast (high + one low) so weak-bandwidth viewers subscribe to the low
-          // layer cleanly instead of receiving a single high-res stream degraded by packet loss.
-          simulcast: true,
-          screenShareSimulcastLayers: [new VideoPreset(640, 360, 500_000, screenShareSettings.fps ?? 15)],
-        };
-
-        if (screenShareSettings.resolution || screenShareSettings.fps) {
-          const res = resolutionMap[screenShareSettings.resolution];
-          captureOptions.resolution = {
-            ...res,
-            frameRate: screenShareSettings.fps,
-          };
-          publishOptions.videoEncoding = {
-            maxBitrate: bitrateMap[screenShareSettings.resolution],
-            maxFramerate: screenShareSettings.fps,
-          };
-        }
-
-        if (Object.keys(captureOptions).length === 0) {
-          captureOptions = undefined;
-        }
+        ({ captureOptions, publishOptions } = buildScreenShareOptions(screenShareSettings));
       }
 
       sendScreenShareDebugEvent('startSharing.setScreenShareEnabled.begin');
@@ -1145,6 +1200,7 @@ export function useScreenShare(
 
       isSharingRef.current = true;
       setIsSharing(true);
+      appliedShareSettingsRef.current = screenShareSettings ?? null;
       recomputeRoomQuality();
       bindLocalShareEndListener(room);
 
@@ -1190,6 +1246,88 @@ export function useScreenShare(
     }
     await stopLocalShare('manual');
   }, [invalidateRoomLifecycle, stopLocalShare]);
+
+  // Apply encoder-only changes (content type, framerate, degradation preference) to the
+  // already-published track. No getDisplayMedia re-prompt, no flicker, and viewers keep
+  // watching the same track uninterrupted.
+  const applyLiveScreenShareSettings = useCallback((settings: ScreenShareSettings) => {
+    const room = roomRef.current;
+    const pub = room?.localParticipant.getTrackPublication?.(Track.Source.ScreenShare);
+    const track = pub?.track as { mediaStreamTrack?: MediaStreamTrack; sender?: RTCRtpSender } | undefined;
+    if (!track) {
+      return;
+    }
+    if (track.mediaStreamTrack) {
+      try { track.mediaStreamTrack.contentHint = screenShareContentHint(settings); } catch { /* ignore */ }
+    }
+    const sender = track.sender;
+    if (sender && typeof sender.getParameters === 'function' && typeof sender.setParameters === 'function') {
+      try {
+        const params = sender.getParameters();
+        params.degradationPreference = screenShareDegradationPreference(settings) as RTCDegradationPreference;
+        if (params.encodings?.length && settings.fps) {
+          for (const enc of params.encodings) {
+            enc.maxFramerate = settings.fps;
+          }
+        }
+        void sender.setParameters(params);
+      } catch { /* ignore */ }
+    }
+    sendScreenShareDebugEvent('applySettings.liveApplied');
+  }, []);
+
+  // Re-acquire the capture (resolution or capture-source changed) by toggling the local
+  // screen share off then on with fresh options. Deliberately does NOT send the
+  // livekit.shareStopped/shareStarted bridge events, so viewers get no "Share ended"
+  // notification — their track briefly unsubscribes then self-heals on resubscribe.
+  const recaptureActiveScreenShare = useCallback(async (settings: ScreenShareSettings) => {
+    const room = roomRef.current;
+    if (!room || !isSharingRef.current) {
+      return;
+    }
+    const { captureOptions, publishOptions } = buildScreenShareOptions(settings);
+    sendScreenShareDebugEvent('applySettings.recapture.begin');
+    try {
+      await room.localParticipant.setScreenShareEnabled(false);
+      if (!isSharingRef.current || roomRef.current !== room) {
+        return;
+      }
+      await room.localParticipant.setScreenShareEnabled(true, captureOptions, publishOptions);
+      bindLocalShareEndListener(room);
+      sendScreenShareDebugEvent('applySettings.recapture.done');
+    } catch (err) {
+      sendScreenShareDebugEvent('applySettings.recapture.error');
+      setError(getErrorLikeDetails(err)?.message || 'Screen share failed');
+    }
+  }, [bindLocalShareEndListener]);
+
+  const applyScreenShareSettingsToActiveShare = useCallback(async (
+    prev: ScreenShareSettings,
+    next: ScreenShareSettings,
+  ) => {
+    appliedShareSettingsRef.current = next;
+    if (screenShareNeedsRecapture(prev, next)) {
+      await recaptureActiveScreenShare(next);
+    } else if (screenShareNeedsLiveApply(prev, next)) {
+      applyLiveScreenShareSettings(next);
+    }
+  }, [applyLiveScreenShareSettings, recaptureActiveScreenShare]);
+
+  // Auto-apply edited screenshare settings to a running share (debounced so slider drags
+  // don't thrash). Live-applies encoder changes; re-captures only for resolution/source.
+  useEffect(() => {
+    if (!isSharing || !screenShareSettings) {
+      return;
+    }
+    const prev = appliedShareSettingsRef.current;
+    if (!prev || (!screenShareNeedsRecapture(prev, screenShareSettings) && !screenShareNeedsLiveApply(prev, screenShareSettings))) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      void applyScreenShareSettingsToActiveShare(prev, screenShareSettings);
+    }, APPLY_SETTINGS_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [isSharing, screenShareSettings, applyScreenShareSettingsToActiveShare]);
 
   // --- Viewer logic ---
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useScreenShare } from './useScreenShare';
+import { useScreenShare, type ScreenShareSettings } from './useScreenShare';
 import bridge from '../bridge';
 
 const roomEventHandlers = new Map<string, Set<(...args: unknown[]) => void>>();
@@ -9,7 +9,16 @@ let localSharePublicationEnabled = false;
 let mockRoomConstructionCount = 0;
 const mockRoomInstances: Array<{ connect: ReturnType<typeof vi.fn> }> = [];
 
+let senderEncodings: Array<{ maxBitrate?: number; maxFramerate?: number }> = [{}];
+const mockScreenShareMediaStreamTrack = { contentHint: '' };
+const mockScreenShareSender = {
+  getParameters: vi.fn(() => ({ encodings: senderEncodings, degradationPreference: undefined as string | undefined })),
+  setParameters: vi.fn().mockResolvedValue(undefined),
+};
+
 const mockLocalScreenShareTrack = {
+  mediaStreamTrack: mockScreenShareMediaStreamTrack,
+  sender: mockScreenShareSender,
   addEventListener: vi.fn((event: string, handler: () => void) => {
     const handlers = localTrackEventHandlers.get(event) ?? new Set<() => void>();
     handlers.add(handler);
@@ -151,6 +160,8 @@ describe('useScreenShare', () => {
     localSharePublicationEnabled = false;
     mockRoomConstructionCount = 0;
     mockRoomInstances.length = 0;
+    senderEncodings = [{}];
+    mockScreenShareMediaStreamTrack.contentHint = '';
   });
 
   afterEach(() => {
@@ -1627,6 +1638,64 @@ describe('useScreenShare', () => {
     expect(result.current.focusedShare).toBeNull();
     expect(result.current.remoteVideoEls.has(10)).toBe(false);
     expect(mockRoom.disconnect).not.toHaveBeenCalled();
+  });
+
+  it('self-heals a pending watched share when the broadcaster republishes without a shareStopped event', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+    let watchedShareEnded = 0;
+    const screenShareTrack = {
+      kind: 'video',
+      source: 'screen_share',
+      attach: vi.fn(() => document.createElement('video')),
+      detach: vi.fn(),
+    };
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare(undefined, undefined, undefined, () => { watchedShareEnded += 1; }));
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    await act(async () => {
+      const p = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      tokenHandler?.(liveKitToken('jwt'));
+      await p;
+    });
+
+    act(() => {
+      emitRoomEvent('trackSubscribed', screenShareTrack, {}, { identity: '@alice:test' });
+    });
+    expect(result.current.watchingShares).toHaveLength(1);
+
+    // Broadcaster restarts (re-capture): track unsubscribes then a new one subscribes,
+    // with NO livekit.screenShareStopped bridge event in between.
+    await act(async () => {
+      emitRoomEvent('trackUnsubscribed', screenShareTrack, {}, { identity: '@alice:test' });
+      await Promise.resolve();
+    });
+    expect(result.current.watchingShares).toEqual([]);
+
+    const republishedTrack = {
+      kind: 'video',
+      source: 'screen_share',
+      attach: vi.fn(() => document.createElement('video')),
+      detach: vi.fn(),
+    };
+    act(() => {
+      emitRoomEvent('trackSubscribed', republishedTrack, {}, { identity: '@alice:test' });
+    });
+
+    expect(result.current.watchingShares).toHaveLength(1);
+    expect(result.current.watchingShares[0].userId).toBe(10);
+    expect(result.current.remoteVideoEls.has(10)).toBe(true);
+    expect(republishedTrack.attach).toHaveBeenCalledTimes(1);
+    expect(watchedShareEnded).toBe(0);
   });
 
   it('attaches and detaches screen-share audio tracks for watched shares', async () => {
@@ -3488,5 +3557,123 @@ describe('useScreenShare', () => {
       expect.objectContaining({ contentHint: 'detail' }),
       expect.objectContaining({ degradationPreference: 'maintain-resolution' }),
     );
+  });
+
+  describe('applying settings to an active share', () => {
+    const baseSettings: ScreenShareSettings = {
+      captureAudio: false,
+      systemAudio: false,
+      resolution: '1080p',
+      fps: 30,
+      preferredCaptureSource: 'window',
+      contentType: 'motion',
+    };
+
+    const startActiveShare = async (settings: ScreenShareSettings) => {
+      let tokenHandler: ((data: unknown) => void) | null = null;
+      (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+        if (type === 'livekit.token') tokenHandler = handler;
+      });
+
+      const view = renderHook(
+        (props: ScreenShareSettings) => useScreenShare(undefined, props),
+        { initialProps: settings },
+      );
+
+      await act(async () => {
+        const promise = view.result.current.startSharing('channel-1');
+        tokenHandler?.(liveKitToken('test-jwt'));
+        await promise;
+      });
+      expect(view.result.current.isSharing).toBe(true);
+      (mockRoom.localParticipant.setScreenShareEnabled as ReturnType<typeof vi.fn>).mockClear();
+      (bridge.send as ReturnType<typeof vi.fn>).mockClear();
+      return view;
+    };
+
+    it('live-applies contentType and fps changes to the active track without re-capturing', async () => {
+      vi.useFakeTimers();
+      const view = await startActiveShare(baseSettings);
+
+      await act(async () => {
+        view.rerender({ ...baseSettings, contentType: 'detail', fps: 60 });
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+
+      // No re-capture: setScreenShareEnabled must not be toggled off/on again.
+      expect(mockRoom.localParticipant.setScreenShareEnabled).not.toHaveBeenCalled();
+      // Live-applied on the existing track.
+      expect(mockScreenShareMediaStreamTrack.contentHint).toBe('detail');
+      expect(mockScreenShareSender.setParameters).toHaveBeenCalled();
+      expect(senderEncodings[0].maxFramerate).toBe(60);
+      const params = (mockScreenShareSender.setParameters as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0] as { degradationPreference?: string };
+      expect(params.degradationPreference).toBe('maintain-resolution');
+      // No stop/start bridge chatter → viewers keep watching with no notification.
+      const sends = (bridge.send as ReturnType<typeof vi.fn>).mock.calls.map(([type]) => type);
+      expect(sends).not.toContain('livekit.shareStopped');
+      expect(sends).not.toContain('livekit.shareStarted');
+      expect(view.result.current.isSharing).toBe(true);
+    });
+
+    it('re-captures the active share on resolution change without emitting shareStopped/shareStarted', async () => {
+      vi.useFakeTimers();
+      const view = await startActiveShare(baseSettings);
+
+      await act(async () => {
+        view.rerender({ ...baseSettings, resolution: '4k' });
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+
+      // Re-capture: unpublish then republish with the new options.
+      expect(mockRoom.localParticipant.setScreenShareEnabled).toHaveBeenCalledWith(false);
+      expect(mockRoom.localParticipant.setScreenShareEnabled).toHaveBeenCalledWith(
+        true,
+        expect.objectContaining({ resolution: { width: 3840, height: 2160, frameRate: 30 } }),
+        expect.objectContaining({ videoEncoding: { maxBitrate: 18_000_000, maxFramerate: 30 } }),
+      );
+      // Silent to viewers: no bridge stop/start events (no "Share ended" notification).
+      const sends = (bridge.send as ReturnType<typeof vi.fn>).mock.calls.map(([type]) => type);
+      expect(sends).not.toContain('livekit.shareStopped');
+      expect(sends).not.toContain('livekit.shareStarted');
+      expect(view.result.current.isSharing).toBe(true);
+    });
+
+    it('re-captures on capture-source change', async () => {
+      vi.useFakeTimers();
+      const view = await startActiveShare(baseSettings);
+
+      await act(async () => {
+        view.rerender({ ...baseSettings, preferredCaptureSource: 'screen' });
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+
+      expect(mockRoom.localParticipant.setScreenShareEnabled).toHaveBeenCalledWith(false);
+      expect(mockRoom.localParticipant.setScreenShareEnabled).toHaveBeenCalledWith(
+        true,
+        expect.objectContaining({ video: { displaySurface: 'monitor' } }),
+        expect.anything(),
+      );
+    });
+
+    it('does nothing when settings are unchanged', async () => {
+      vi.useFakeTimers();
+      const view = await startActiveShare(baseSettings);
+
+      await act(async () => {
+        view.rerender({ ...baseSettings });
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+
+      expect(mockRoom.localParticipant.setScreenShareEnabled).not.toHaveBeenCalled();
+      expect(mockScreenShareSender.setParameters).not.toHaveBeenCalled();
+    });
   });
 });
