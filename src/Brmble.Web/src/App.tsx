@@ -4109,6 +4109,10 @@ const handleConnect = (serverData: SavedServer) => {
           watchingShares={watchingShares}
           isLiveKitRoomConnected={isSharing || watchingShares.length > 0}
           screenShareQuality={roomQuality}
+          isSharing={isSharing}
+          broadcastSummary={isSharing ? `${screenShareSettings.resolution} ${screenShareSettings.fps}fps` : undefined}
+          shareQualities={shareQualities}
+          remoteVideoEls={remoteVideoEls}
           onWatchScreenShare={handleWatchScreenShare}
           onStopWatching={(userId) => disconnectViewer(userId)}
           onEditAvatar={connected ? () => setShowAvatarEditor(true) : undefined}
