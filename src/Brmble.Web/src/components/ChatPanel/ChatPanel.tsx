@@ -7,7 +7,7 @@ import { groupMessages } from '../../utils/groupMessages';
 import { formatDateSeparator, formatFullDate } from '../../utils/formatDateSeparator';
 import type { ChatMessage, MentionableUser } from '../../types';
 import { ScreenShareGrid } from '../ScreenShareGrid';
-import type { ShareInfo } from '../../hooks/useScreenShare';
+import type { ShareInfo, ViewerQuality } from '../../hooks/useScreenShare';
 import type { ScreenShareQuality } from '../../utils/screenShareQuality';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
 import type { ContextMenuItem } from '../ContextMenu/ContextMenu';
@@ -34,8 +34,10 @@ interface ChatPanelProps {
   remoteVideoEls?: Map<number, HTMLVideoElement>;
   roomQuality?: ScreenShareQuality;
   shareQualities?: Map<number, ScreenShareQuality>;
+  viewerQualities?: Map<number, ViewerQuality>;
   onFocusShare?: (share: ShareInfo | null) => void;
   onCloseShare?: (share: ShareInfo) => void;
+  onViewerQualityChange?: (userId: number, quality: ViewerQuality) => void;
   screenShareViewerMode?: 'in-app' | 'new-window';
   /** Connected users for avatar lookup by sender name */
   users?: { name: string; matrixUserId?: string; avatarUrl?: string }[];
@@ -57,7 +59,7 @@ const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
 const DEFAULT_SPLIT = 50;
 const REPLY_TARGET_HIGHLIGHT_MS = 1600;
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, watchingShares, focusedShare, remoteVideoEls, roomQuality, shareQualities, onFocusShare, onCloseShare, screenShareViewerMode, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard, currentUserMatrixId, onToggleReaction, typingIndicatorText, typingTargetId, onTypingStart, onTypingStop }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, watchingShares, focusedShare, remoteVideoEls, roomQuality, shareQualities, viewerQualities, onFocusShare, onCloseShare, onViewerQualityChange, screenShareViewerMode, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard, currentUserMatrixId, onToggleReaction, typingIndicatorText, typingTargetId, onTypingStart, onTypingStop }: ChatPanelProps) {
   // Build lookup maps from sender name and matrixUserId → avatar data for MessageBubble.
   // Name-based lookup works when Mumble name matches message sender.
   // MatrixUserId-based lookup handles cases where the user connected with a different
@@ -878,8 +880,10 @@ const [replyState, setReplyState] = useState<{
               videoElements={remoteVideoEls!}
               roomQuality={roomQuality}
               shareQualities={shareQualities}
+              viewerQualities={viewerQualities}
               onFocus={onFocusShare ?? (() => {})}
               onClose={onCloseShare!}
+              onViewerQualityChange={onViewerQualityChange}
             />
           </div>
           <div

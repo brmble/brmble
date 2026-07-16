@@ -3470,7 +3470,7 @@ const handleConnect = (serverData: SavedServer) => {
     setWatchedShareEndedNotifications(prev => [...prev, notification]);
   }, []);
 
-  const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, roomQuality, shareQualities, disconnectViewer, connectAsViewer, isViewerConnectPending, handleScreenShareServiceUnavailable } = useScreenShare(() => {
+  const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, roomQuality, shareQualities, viewerQualities, setViewerQuality, disconnectViewer, connectAsViewer, isViewerConnectPending, handleScreenShareServiceUnavailable } = useScreenShare(() => {
     setSharingChannelId(undefined);
     sharingChannelIdRef.current = undefined;
   }, screenShareSettings, handleLocalScreenShareEnded, handleWatchedShareEnded);
@@ -4150,11 +4150,13 @@ const handleConnect = (serverData: SavedServer) => {
                     watchingShares={watchingShares}
                     focusedShare={focusedShare}
                     remoteVideoEls={remoteVideoEls}
-                    roomQuality={roomQuality}
-                    shareQualities={shareQualities}
-                    onFocusShare={setFocusedShare}
-                    onCloseShare={(share) => disconnectViewer(share.userId)}
-                    screenShareViewerMode={screenShareSettings.viewerMode}
+                     roomQuality={roomQuality}
+                     shareQualities={shareQualities}
+                     viewerQualities={viewerQualities}
+                     onFocusShare={setFocusedShare}
+                     onCloseShare={(share) => disconnectViewer(share.userId)}
+                     onViewerQualityChange={setViewerQuality}
+                     screenShareViewerMode={screenShareSettings.viewerMode}
                     users={users}
                     disabled={!canSendActiveChannelChat}
                     topNotice={channelChatAccessNotice ?? brmbleServiceChatNotice}

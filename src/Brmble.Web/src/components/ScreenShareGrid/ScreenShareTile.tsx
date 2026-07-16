@@ -1,8 +1,17 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { Icon } from '../Icon/Icon';
 import { Tooltip } from '../Tooltip/Tooltip';
+import { Select } from '../Select';
 import type { ScreenShareQuality } from '../../utils/screenShareQuality';
+import type { ViewerQuality } from '../../hooks/useScreenShare';
 import './ScreenShareTile.css';
+
+const VIEWER_QUALITY_OPTIONS = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'high', label: 'High' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'low', label: 'Low' },
+];
 
 interface ScreenShareTileProps {
   videoEl: HTMLVideoElement;
@@ -10,11 +19,13 @@ interface ScreenShareTileProps {
   isFocused: boolean;
   isThumbnail: boolean;
   quality?: ScreenShareQuality;
+  viewerQuality?: ViewerQuality;
+  onViewerQualityChange?: (quality: ViewerQuality) => void;
   onClick: () => void;
   onClose: () => void;
 }
 
-export function ScreenShareTile({ videoEl, sharerName, isFocused, isThumbnail, quality = 'unknown', onClick, onClose }: ScreenShareTileProps) {
+export function ScreenShareTile({ videoEl, sharerName, isFocused, isThumbnail, quality = 'unknown', viewerQuality = 'auto', onViewerQualityChange, onClick, onClose }: ScreenShareTileProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(false);
@@ -117,6 +128,19 @@ export function ScreenShareTile({ videoEl, sharerName, isFocused, isThumbnail, q
       </div>
       {!isThumbnail && (
         <div className="screen-share-tile-overlay screen-share-tile-overlay--controls">
+          {onViewerQualityChange && (
+            <div
+              className="screen-share-tile-quality-select-wrapper"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Select
+                className="screen-share-tile-quality-select"
+                value={viewerQuality}
+                onChange={(value) => onViewerQualityChange(value as ViewerQuality)}
+                options={VIEWER_QUALITY_OPTIONS}
+              />
+            </div>
+          )}
           <Tooltip content={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
             <button
               className="btn btn-ghost btn-icon screen-share-tile-control-btn"

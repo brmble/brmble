@@ -112,6 +112,17 @@ vi.mock('livekit-client', () => ({
     Kind: { Audio: 'audio', Video: 'video' },
     Source: { ScreenShare: 'screen_share', ScreenShareAudio: 'screen_share_audio' },
   },
+  VideoQuality: { LOW: 0, MEDIUM: 1, HIGH: 2 },
+  VideoPreset: class MockVideoPreset {
+    width: number;
+    height: number;
+    constructor(width: number, height: number, maxBitrate: number, maxFramerate?: number) {
+      this.width = width;
+      this.height = height;
+      void maxBitrate;
+      void maxFramerate;
+    }
+  },
 }));
 
 vi.mock('../bridge', () => ({
@@ -220,7 +231,7 @@ describe('useScreenShare', () => {
       await sharePromise;
     });
 
-    expect(mockRoom.localParticipant.setScreenShareEnabled).toHaveBeenCalledWith(true, undefined);
+    expect(mockRoom.localParticipant.setScreenShareEnabled).toHaveBeenCalledWith(true, undefined, undefined);
     expect(mockRoom.localParticipant.setScreenShareEnabled).toHaveBeenCalledWith(false);
     expect(result.current.isSharing).toBe(false);
     expect((bridge.send as ReturnType<typeof vi.fn>).mock.calls.filter(([type]) => type === 'livekit.shareStarted')).toHaveLength(0);
@@ -1234,6 +1245,50 @@ describe('useScreenShare', () => {
     });
 
     expect(result.current.shareQualities.get(10)).toBe('fair');
+  });
+
+  it('applies a viewer quality override to the watched screen-share publication', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const setVideoQuality = vi.fn();
+    const screenSharePub = {
+      kind: 'video',
+      source: 'screen_share',
+      setVideoQuality,
+      track: { kind: 'video', source: 'screen_share', attach: vi.fn(() => document.createElement('video')) },
+    };
+    mockRoom.remoteParticipants.set('@alice:test', {
+      identity: '@alice:test',
+      connectionQuality: 'good',
+      trackPublications: new Map([['pub1', screenSharePub]]),
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    await act(async () => {
+      const promise = result.current.connectAsViewer('channel-1', 10, '@alice:test');
+      tokenHandler?.(liveKitToken('jwt'));
+      await promise;
+    });
+
+    // connectAsViewer pins auto -> HIGH on attach
+    expect(setVideoQuality).toHaveBeenCalledWith(2);
+
+    act(() => {
+      result.current.setViewerQuality(10, 'low');
+    });
+
+    expect(result.current.viewerQualities.get(10)).toBe('low');
+    expect(setVideoQuality).toHaveBeenLastCalledWith(0);
   });
 
   it('ignores stale room-scoped activeShareResult after global discovery becomes current', () => {
@@ -3350,13 +3405,21 @@ describe('useScreenShare', () => {
       await promise;
     });
 
-    expect(mockRoom.localParticipant.setScreenShareEnabled).toHaveBeenCalledWith(true, expect.objectContaining({
-      audio: true,
-      systemAudio: 'include',
-      video: { displaySurface: 'window' },
-      resolution: { width: 1920, height: 1080, frameRate: 30 },
-      videoEncoding: { maxBitrate: 4_000_000, maxFramerate: 30 },
-    }));
+    expect(mockRoom.localParticipant.setScreenShareEnabled).toHaveBeenCalledWith(
+      true,
+      expect.objectContaining({
+        audio: true,
+        systemAudio: 'include',
+        video: { displaySurface: 'window' },
+        resolution: { width: 1920, height: 1080, frameRate: 30 },
+        contentHint: 'motion',
+      }),
+      expect.objectContaining({
+        videoEncoding: { maxBitrate: 6_000_000, maxFramerate: 30 },
+        simulcast: true,
+        degradationPreference: 'maintain-framerate',
+      }),
+    );
   });
 
   it('omits display surface hint when preferred capture source is auto', async () => {
@@ -3381,12 +3444,49 @@ describe('useScreenShare', () => {
       await promise;
     });
 
-    expect(mockRoom.localParticipant.setScreenShareEnabled).toHaveBeenCalledWith(true, expect.not.objectContaining({
-      video: expect.anything(),
-    }));
-    expect(mockRoom.localParticipant.setScreenShareEnabled).toHaveBeenCalledWith(true, expect.objectContaining({
-      resolution: { width: 1280, height: 720, frameRate: 15 },
-      videoEncoding: { maxBitrate: 2_000_000, maxFramerate: 15 },
-    }));
+    expect(mockRoom.localParticipant.setScreenShareEnabled).toHaveBeenCalledWith(
+      true,
+      expect.not.objectContaining({ video: expect.anything() }),
+      expect.anything(),
+    );
+    expect(mockRoom.localParticipant.setScreenShareEnabled).toHaveBeenCalledWith(
+      true,
+      expect.objectContaining({
+        resolution: { width: 1280, height: 720, frameRate: 15 },
+      }),
+      expect.objectContaining({
+        videoEncoding: { maxBitrate: 3_000_000, maxFramerate: 15 },
+      }),
+    );
+  });
+
+  it('encodes detail content with maintain-resolution and a detail content hint', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+    });
+
+    const settings = {
+      captureAudio: false,
+      systemAudio: false,
+      resolution: '1080p' as const,
+      fps: 30 as const,
+      preferredCaptureSource: 'window' as const,
+      contentType: 'detail' as const,
+    };
+
+    const { result } = renderHook(() => useScreenShare(undefined, settings));
+
+    await act(async () => {
+      const promise = result.current.startSharing('channel-1');
+      tokenHandler?.(liveKitToken('test-jwt'));
+      await promise;
+    });
+
+    expect(mockRoom.localParticipant.setScreenShareEnabled).toHaveBeenCalledWith(
+      true,
+      expect.objectContaining({ contentHint: 'detail' }),
+      expect.objectContaining({ degradationPreference: 'maintain-resolution' }),
+    );
   });
 });

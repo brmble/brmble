@@ -34,6 +34,11 @@ const PREFERRED_CAPTURE_SOURCE_OPTIONS = [
   { value: 'auto', label: 'Auto' },
 ];
 
+const CONTENT_TYPE_OPTIONS = [
+  { value: 'motion', label: 'Motion (games & video)' },
+  { value: 'detail', label: 'Detail (text & code)' },
+];
+
 export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettingsTabProps) {
   const [localSettings, setLocalSettings] = useState<ScreenShareSettings>(settings);
 
@@ -89,6 +94,18 @@ export function ScreenShareSettingsTab({ settings, onChange }: ScreenShareSettin
             value={String(localSettings.fps)}
             onChange={(value) => handleChange('fps', Number(value) as ScreenShareSettings['fps'])}
             options={FPS_OPTIONS}
+          />
+        </div>
+
+        <div className="settings-item">
+          <div className="settings-label-group">
+            <span className="settings-label">Content Type</span>
+            <SettingsHelp content="Motion keeps video and games smooth by favouring frame rate under load. Detail keeps text and code sharp by favouring resolution." label="More information about content type" />
+          </div>
+          <Select
+            value={localSettings.contentType}
+            onChange={(value) => handleChange('contentType', value as ScreenShareSettings['contentType'])}
+            options={CONTENT_TYPE_OPTIONS}
           />
         </div>
 
