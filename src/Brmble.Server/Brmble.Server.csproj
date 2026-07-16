@@ -8,6 +8,8 @@
     <PackageReference Include="Dapper" Version="2.1.66" />
     <PackageReference Include="Livekit.Server.Sdk.Dotnet" Version="1.2.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.3" />
+    <!-- Pin patched SQLitePCLRaw to resolve GHSA-2m69-gcr7-jv3q (transitive via Microsoft.Data.Sqlite) -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
     <PackageReference Include="MinVer" Version="5.0.0" PrivateAssets="all" />
     <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
     <PackageReference Include="ZeroC.Ice" Version="3.8.0" />
