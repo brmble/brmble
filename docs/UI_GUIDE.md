@@ -472,6 +472,7 @@ Props:
 | `disabled` | `boolean` | `false` | Disables the trigger button |
 | `className` | `string` | `''` | Additional CSS classes on the wrapper |
 | `placeholder` | `string` | `undefined` | Shown when no option matches `value` |
+| `ariaLabel` | `string` | `undefined` | Accessible name for the trigger when there is no visible `<label>` |
 
 #### DOM Structure
 
@@ -503,6 +504,21 @@ Rules:
 5. Full ARIA: `role="combobox"` on trigger, `role="listbox"` on dropdown, `role="option"` on items, `aria-expanded`, `aria-activedescendant`
 6. Trigger and dropdown use theme tokens (`--bg-primary`, `--glass-border`, `--radius-md`, `--shadow-elevated`) -- no hardcoded values
 7. **Disabled selects** with tooltips: wrap `<Select>` in a wrapper and attach `<Tooltip>` to the wrapper, since disabled buttons don't fire mouse events
+
+---
+
+### Screenshare Viewer Controls
+
+Reference: `src/Brmble.Web/src/components/ScreenShareGrid/ScreenShareTile.tsx`, `ScreenShareTile.css`
+
+Watched screen-share tiles expose viewer-side controls in the top-right `--controls` overlay, shown on hover for non-thumbnail tiles only. The overlay contains, left-to-right: a receive-quality `<Select>` (Auto / High / Medium / Low, defaulting to Auto) followed by the fullscreen button.
+
+Rules:
+1. **Reuse `<Select>`** for the quality dropdown — never a native select. Its portal dropdown escapes the tile's overflow, so it renders correctly inside the overlay.
+2. **Stop click propagation**: wrap the `<Select>` in `.screen-share-tile-quality-select-wrapper` with `onClick={(e) => e.stopPropagation()}` so opening the dropdown doesn't toggle tile focus.
+3. **Controls are viewer-only**: broadcaster encode settings (resolution, FPS, content type) live in the Screen Share settings tab, not on the tile.
+4. Quality maps to LiveKit `RemoteTrackPublication.setVideoQuality`; `Auto` pins to HIGH and lets adaptive stream pick the best simulcast layer. Only render the control when an `onViewerQualityChange` handler is supplied.
+5. All spacing/sizing uses tokens (`--space-*`, `--radius-*`) — no hardcoded values.
 
 ---
 

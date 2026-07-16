@@ -68,6 +68,7 @@ export interface ScreenShareSettings {
   systemAudio: boolean;
   viewerMode: 'in-app' | 'new-window';
   preferredCaptureSource: 'auto' | 'window' | 'screen' | 'browser';
+  contentType: 'motion' | 'detail';
 }
 
 export const DEFAULT_SCREEN_SHARE: ScreenShareSettings = {
@@ -77,6 +78,7 @@ export const DEFAULT_SCREEN_SHARE: ScreenShareSettings = {
   systemAudio: false,
   viewerMode: 'in-app',
   preferredCaptureSource: 'window',
+  contentType: 'motion',
 };
 
 interface AppSettings {

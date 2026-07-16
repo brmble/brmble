@@ -64,6 +64,7 @@ import { mapBrmbleServiceStatus } from './utils/brmbleServiceStatus';
 import { areMatrixCredentialsEqual } from './utils/matrixCredentials';
 import { getSavedChannelPassword } from './utils/channelPasswords';
 import { getOrderedChannels } from './utils/channelOrder';
+import { formatBroadcastSummary } from './utils/formatBroadcastSummary';
 import './App.css';
 
 export interface ScreenShareEndedNotification {
@@ -3470,7 +3471,7 @@ const handleConnect = (serverData: SavedServer) => {
     setWatchedShareEndedNotifications(prev => [...prev, notification]);
   }, []);
 
-  const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, roomQuality, shareQualities, disconnectViewer, connectAsViewer, isViewerConnectPending, handleScreenShareServiceUnavailable } = useScreenShare(() => {
+  const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, roomQuality, shareQualities, viewerQualities, setViewerQuality, disconnectViewer, connectAsViewer, isViewerConnectPending, handleScreenShareServiceUnavailable } = useScreenShare(() => {
     setSharingChannelId(undefined);
     sharingChannelIdRef.current = undefined;
   }, screenShareSettings, handleLocalScreenShareEnded, handleWatchedShareEnded);
@@ -4109,6 +4110,10 @@ const handleConnect = (serverData: SavedServer) => {
           watchingShares={watchingShares}
           isLiveKitRoomConnected={isSharing || watchingShares.length > 0}
           screenShareQuality={roomQuality}
+          isSharing={isSharing}
+          broadcastSummary={isSharing ? formatBroadcastSummary(screenShareSettings.resolution, screenShareSettings.fps) : undefined}
+          shareQualities={shareQualities}
+          remoteVideoEls={remoteVideoEls}
           onWatchScreenShare={handleWatchScreenShare}
           onStopWatching={(userId) => disconnectViewer(userId)}
           onEditAvatar={connected ? () => setShowAvatarEditor(true) : undefined}
@@ -4150,11 +4155,13 @@ const handleConnect = (serverData: SavedServer) => {
                     watchingShares={watchingShares}
                     focusedShare={focusedShare}
                     remoteVideoEls={remoteVideoEls}
-                    roomQuality={roomQuality}
-                    shareQualities={shareQualities}
-                    onFocusShare={setFocusedShare}
-                    onCloseShare={(share) => disconnectViewer(share.userId)}
-                    screenShareViewerMode={screenShareSettings.viewerMode}
+                     roomQuality={roomQuality}
+                     shareQualities={shareQualities}
+                     viewerQualities={viewerQualities}
+                     onFocusShare={setFocusedShare}
+                     onCloseShare={(share) => disconnectViewer(share.userId)}
+                     onViewerQualityChange={setViewerQuality}
+                     screenShareViewerMode={screenShareSettings.viewerMode}
                     users={users}
                     disabled={!canSendActiveChannelChat}
                     topNotice={channelChatAccessNotice ?? brmbleServiceChatNotice}

@@ -1,6 +1,6 @@
 import { useEffect, useCallback } from 'react';
 import { ScreenShareTile } from './ScreenShareTile';
-import type { ShareInfo } from '../../hooks/useScreenShare';
+import type { ShareInfo, ViewerQuality } from '../../hooks/useScreenShare';
 import type { ScreenShareQuality } from '../../utils/screenShareQuality';
 import './ScreenShareGrid.css';
 
@@ -10,8 +10,10 @@ interface ScreenShareGridProps {
   videoElements: Map<number, HTMLVideoElement>;
   roomQuality?: ScreenShareQuality;
   shareQualities?: Map<number, ScreenShareQuality>;
+  viewerQualities?: Map<number, ViewerQuality>;
   onFocus: (share: ShareInfo | null) => void;
   onClose: (share: ShareInfo) => void;
+  onViewerQualityChange?: (userId: number, quality: ViewerQuality) => void;
 }
 
 function getLayout(count: number, hasFocus: boolean): string {
@@ -21,7 +23,7 @@ function getLayout(count: number, hasFocus: boolean): string {
   return `grid-${count}`;
 }
 
-export function ScreenShareGrid({ watchingShares, focusedShare, videoElements, roomQuality = 'unknown', shareQualities, onFocus, onClose }: ScreenShareGridProps) {
+export function ScreenShareGrid({ watchingShares, focusedShare, videoElements, roomQuality = 'unknown', shareQualities, viewerQualities, onFocus, onClose, onViewerQualityChange }: ScreenShareGridProps) {
   // Clear focus when only one stream remains (revert to single-stream view)
   useEffect(() => {
     if (watchingShares.length <= 1 && focusedShare) {
@@ -60,6 +62,11 @@ export function ScreenShareGrid({ watchingShares, focusedShare, videoElements, r
     roomQuality === 'reconnecting' ? 'reconnecting' : shareQualities?.get(userId) ?? 'unknown'
   );
 
+  const viewerQualityFor = (userId: number): ViewerQuality => viewerQualities?.get(userId) ?? 'auto';
+  const handleViewerQualityChange = onViewerQualityChange
+    ? (userId: number) => (quality: ViewerQuality) => onViewerQualityChange(userId, quality)
+    : undefined;
+
   return (
     <div className="screen-share-grid" data-layout={layout}>
       {focusedShare && (
@@ -74,6 +81,8 @@ export function ScreenShareGrid({ watchingShares, focusedShare, videoElements, r
                 isFocused={true}
                 isThumbnail={false}
                 quality={qualityForShare(focusedShare.userId)}
+                viewerQuality={viewerQualityFor(focusedShare.userId)}
+                onViewerQualityChange={handleViewerQualityChange?.(focusedShare.userId)}
                 onClick={() => handleTileClick(focusedShare)}
                 onClose={() => onClose(focusedShare)}
               />
@@ -114,6 +123,8 @@ export function ScreenShareGrid({ watchingShares, focusedShare, videoElements, r
                 isFocused={false}
                 isThumbnail={false}
                 quality={qualityForShare(share.userId)}
+                viewerQuality={viewerQualityFor(share.userId)}
+                onViewerQualityChange={handleViewerQualityChange?.(share.userId)}
                 onClick={() => handleTileClick(share)}
                 onClose={() => onClose(share)}
               />

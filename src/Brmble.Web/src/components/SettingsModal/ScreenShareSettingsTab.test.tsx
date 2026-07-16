@@ -11,6 +11,7 @@ const settings: ScreenShareSettings = {
   systemAudio: false,
   viewerMode: 'in-app',
   preferredCaptureSource: 'window',
+  contentType: 'motion',
 };
 
 beforeAll(() => {
@@ -95,6 +96,22 @@ describe('ScreenShareSettingsTab', () => {
     expect(onChange).toHaveBeenCalledWith({
       ...settings,
       preferredCaptureSource: 'screen',
+    });
+  });
+
+  it('updates content type through the themed select', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+
+    render(<ScreenShareSettingsTab settings={settings} onChange={onChange} />);
+
+    await user.click(screen.getByText('Motion (games & video)'));
+    await user.click(screen.getByRole('option', { name: 'Detail (text & code)' }));
+
+    expect(onChange).toHaveBeenCalledWith({
+      ...settings,
+      contentType: 'detail',
     });
   });
 });

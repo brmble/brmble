@@ -14,9 +14,10 @@ interface SelectProps {
   disabled?: boolean;
   className?: string;
   placeholder?: string;
+  ariaLabel?: string;
 }
 
-export function Select({ value, onChange, options, disabled, className, placeholder }: SelectProps) {
+export function Select({ value, onChange, options, disabled, className, placeholder, ariaLabel }: SelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [dropdownStyle, setDropdownStyle] = useState<CSSProperties>({});
@@ -176,6 +177,7 @@ export function Select({ value, onChange, options, disabled, className, placehol
         id={triggerId}
         type="button"
         role="combobox"
+        aria-label={ariaLabel}
         aria-expanded={isOpen}
         aria-haspopup="listbox"
         aria-controls={listboxId}

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
+import { getDefaultNormalizer } from '@testing-library/dom';
 import { Sidebar } from './Sidebar';
 import type { ShareInfo } from '../../hooks/useScreenShare';
 import type { ServiceStatusMap } from '../../types';
@@ -106,6 +107,11 @@ vi.mock('../../bridge', () => ({
 }));
 
 const channels = [{ id: 0, name: 'Connected', parent: 0 }];
+
+// The livekit tooltip is multi-line (\n separated). getByLabelText collapses
+// whitespace by default, which would merge the lines, so preserve newlines when
+// matching these multi-line aria-labels.
+const multiline = { normalizer: getDefaultNormalizer({ collapseWhitespace: false }) };
 
 const makeShare = (overrides: Partial<ShareInfo> = {}): ShareInfo => ({
   roomName: 'channel-0',
@@ -221,6 +227,78 @@ describe('Sidebar root user screen share behavior', () => {
     });
 
     expect(screen.getByLabelText('Screenshare: Connected - poor')).toBeInTheDocument();
+  });
+
+  it('adds a Broadcasting line to the Screenshare tooltip when sharing', () => {
+    renderSidebar({
+      isLiveKitRoomConnected: true,
+      screenShareQuality: 'good',
+      isSharing: true,
+      broadcastSummary: '1080p 30fps',
+    });
+
+    expect(
+      screen.getByLabelText('Screenshare: Connected - good\nBroadcasting: 1080p 30fps', multiline),
+    ).toBeInTheDocument();
+  });
+
+  it('adds a Watching line and a per-share resolution line to the Screenshare tooltip', () => {
+    const share = makeShare({ userId: 42, userName: 'Alice' });
+    const video = { videoWidth: 1920, videoHeight: 1080 } as HTMLVideoElement;
+
+    renderSidebar({
+      isLiveKitRoomConnected: true,
+      screenShareQuality: 'good',
+      watchingShares: [share],
+      shareQualities: new Map([[42, 'good']]),
+      remoteVideoEls: new Map([[42, video]]),
+    });
+
+    expect(
+      screen.getByLabelText('Screenshare: Connected - good\nWatching 1 share\nAlice: 1920×1080 (good)', multiline),
+    ).toBeInTheDocument();
+  });
+
+  it('pluralizes the Watching line for two watched shares', () => {
+    const a = makeShare({ userId: 42, userName: 'Alice' });
+    const b = makeShare({ userId: 7, userName: 'Bob' });
+
+    renderSidebar({
+      isLiveKitRoomConnected: true,
+      screenShareQuality: 'fair',
+      watchingShares: [a, b],
+      shareQualities: new Map([
+        [42, 'good'],
+        [7, 'poor'],
+      ]),
+      remoteVideoEls: new Map([
+        [42, { videoWidth: 1920, videoHeight: 1080 } as HTMLVideoElement],
+        [7, { videoWidth: 1280, videoHeight: 720 } as HTMLVideoElement],
+      ]),
+    });
+
+    expect(
+      screen.getByLabelText(
+        'Screenshare: Connected - fair\nWatching 2 shares\nAlice: 1920×1080 (good)\nBob: 1280×720 (poor)',
+        multiline,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('omits the per-share resolution when the video element has no dimensions', () => {
+    const share = makeShare({ userId: 42, userName: 'Alice' });
+
+    renderSidebar({
+      isLiveKitRoomConnected: true,
+      screenShareQuality: 'good',
+      watchingShares: [share],
+      shareQualities: new Map([[42, 'good']]),
+      remoteVideoEls: new Map([[42, { videoWidth: 0, videoHeight: 0 } as HTMLVideoElement]]),
+    });
+
+    expect(
+      screen.getByLabelText('Screenshare: Connected - good\nWatching 1 share\nAlice (good)', multiline),
+    ).toBeInTheDocument();
   });
 
   it('shows reconnecting Screenshare state for transient LiveKit reconnects', () => {
