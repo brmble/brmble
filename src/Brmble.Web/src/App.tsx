@@ -64,6 +64,7 @@ import { mapBrmbleServiceStatus } from './utils/brmbleServiceStatus';
 import { areMatrixCredentialsEqual } from './utils/matrixCredentials';
 import { getSavedChannelPassword } from './utils/channelPasswords';
 import { getOrderedChannels } from './utils/channelOrder';
+import { formatBroadcastSummary } from './utils/formatBroadcastSummary';
 import './App.css';
 
 export interface ScreenShareEndedNotification {
@@ -4110,7 +4111,7 @@ const handleConnect = (serverData: SavedServer) => {
           isLiveKitRoomConnected={isSharing || watchingShares.length > 0}
           screenShareQuality={roomQuality}
           isSharing={isSharing}
-          broadcastSummary={isSharing ? `${screenShareSettings.resolution} ${screenShareSettings.fps}fps` : undefined}
+          broadcastSummary={isSharing ? formatBroadcastSummary(screenShareSettings.resolution, screenShareSettings.fps) : undefined}
           shareQualities={shareQualities}
           remoteVideoEls={remoteVideoEls}
           onWatchScreenShare={handleWatchScreenShare}
