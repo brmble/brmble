@@ -83,7 +83,9 @@ function buildShareLine(
   remoteVideoEls: Map<number, HTMLVideoElement>,
 ): string {
   const trimmedName = share.userName?.trim() ?? '';
-  const label = trimmedName !== '' ? trimmedName : String(share.matrixUserId ?? share.userId);
+  const trimmedMatrixId = share.matrixUserId?.trim() ?? '';
+  const label =
+    trimmedName !== '' ? trimmedName : trimmedMatrixId !== '' ? trimmedMatrixId : String(share.userId);
 
   const el = remoteVideoEls.get(share.userId);
   const w = el?.videoWidth ?? 0;

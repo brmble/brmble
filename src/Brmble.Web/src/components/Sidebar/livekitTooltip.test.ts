@@ -222,4 +222,19 @@ describe('buildLiveKitTooltip', () => {
       `${NAME}: Connected - good\nWatching 2 shares\n@alice:example.com\n7`,
     );
   });
+
+  it('falls back past an empty matrixUserId to the numeric userId', () => {
+    const share = makeShare({ userId: 7, userName: '', matrixUserId: '   ' });
+    expect(
+      buildLiveKitTooltip(
+        base({
+          isLiveKitRoomConnected: true,
+          screenShareQuality: 'good',
+          watchingShares: [share],
+          shareQualities: new Map(),
+          remoteVideoEls: new Map(),
+        }),
+      ),
+    ).toBe(`Screenshare: Connected - good\nWatching 1 share\n7`);
+  });
 });
