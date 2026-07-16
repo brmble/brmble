@@ -237,4 +237,34 @@ describe('buildLiveKitTooltip', () => {
       ),
     ).toBe(`Screenshare: Connected - good\nWatching 1 share\n7`);
   });
+
+  it('strips embedded newlines from the label to prevent tooltip line injection', () => {
+    const share = makeShare({ userId: 42, userName: 'Alice\r\nBroadcasting: fake' });
+    expect(
+      buildLiveKitTooltip(
+        base({
+          isLiveKitRoomConnected: true,
+          screenShareQuality: 'good',
+          watchingShares: [share],
+          shareQualities: new Map([[42, 'good']]),
+          remoteVideoEls: new Map([[42, fakeVideo(1920, 1080)]]),
+        }),
+      ),
+    ).toBe(`Screenshare: Connected - good\nWatching 1 share\nAlice Broadcasting: fake: 1920×1080 (good)`);
+  });
+
+  it('falls back to userId when a name is only newlines/control characters', () => {
+    const share = makeShare({ userId: 7, userName: '\r\n\t', matrixUserId: '\n' });
+    expect(
+      buildLiveKitTooltip(
+        base({
+          isLiveKitRoomConnected: true,
+          screenShareQuality: 'good',
+          watchingShares: [share],
+          shareQualities: new Map(),
+          remoteVideoEls: new Map(),
+        }),
+      ),
+    ).toBe(`Screenshare: Connected - good\nWatching 1 share\n7`);
+  });
 });

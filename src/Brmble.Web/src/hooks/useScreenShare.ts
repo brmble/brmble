@@ -206,6 +206,7 @@ const logScreenShareDiag = (
   el: HTMLVideoElement | null,
   pub?: { videoQuality?: unknown; dimensions?: { width: number; height: number } },
 ) => {
+  if (!import.meta.env.DEV) return;
   try {
     const dims = pub?.dimensions;
     console.info('[LiveKit][screenshare-diag]', where, {

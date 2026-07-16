@@ -77,13 +77,21 @@ export function buildLiveKitTooltip(input: LiveKitTooltipInput): string | null {
   return lines.join('\n');
 }
 
+// Remove control characters (including newlines) so a remote-supplied name
+// cannot inject or spoof additional tooltip lines, then collapse whitespace.
+function sanitizeLabel(value: string | undefined): string {
+  if (!value) return '';
+  // eslint-disable-next-line no-control-regex
+  return value.replace(/[\u0000-\u001F\u007F]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 function buildShareLine(
   share: ShareInfo,
   shareQualities: Map<number, ScreenShareQuality>,
   remoteVideoEls: Map<number, HTMLVideoElement>,
 ): string {
-  const trimmedName = share.userName?.trim() ?? '';
-  const trimmedMatrixId = share.matrixUserId?.trim() ?? '';
+  const trimmedName = sanitizeLabel(share.userName);
+  const trimmedMatrixId = sanitizeLabel(share.matrixUserId);
   const label =
     trimmedName !== '' ? trimmedName : trimmedMatrixId !== '' ? trimmedMatrixId : String(share.userId);
 

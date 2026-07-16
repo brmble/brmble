@@ -472,6 +472,7 @@ Props:
 | `disabled` | `boolean` | `false` | Disables the trigger button |
 | `className` | `string` | `''` | Additional CSS classes on the wrapper |
 | `placeholder` | `string` | `undefined` | Shown when no option matches `value` |
+| `ariaLabel` | `string` | `undefined` | Accessible name for the trigger when there is no visible `<label>` |
 
 #### DOM Structure
 

@@ -135,6 +135,7 @@ export function ScreenShareTile({ videoEl, sharerName, isFocused, isThumbnail, q
             >
               <Select
                 className="screen-share-tile-quality-select"
+                ariaLabel="Receive quality"
                 value={viewerQuality}
                 onChange={(value) => onViewerQualityChange(value as ViewerQuality)}
                 options={VIEWER_QUALITY_OPTIONS}
