@@ -108,10 +108,15 @@ static class Program
             // Single instance: a second launch focuses the running window and
             // exits. Pass --allow-multiple (or set BRMBLE_ALLOW_MULTIPLE=1) to
             // bypass — handy for running a dev build alongside an installed copy.
+            // Debug builds (dotnet run) always allow multiple so local multi-client
+            // testing is friction-free; Release/production stays single-instance.
             // Mutex is a static field held for the process lifetime; the OS
             // releases it on exit.
             bool allowMultiple = args.Contains("--allow-multiple")
                 || Environment.GetEnvironmentVariable("BRMBLE_ALLOW_MULTIPLE") == "1";
+#if DEBUG
+            allowMultiple = true;
+#endif
             if (!allowMultiple)
             {
                 _instanceMutex = new System.Threading.Mutex(true, @"Local\Brmble.SingleInstance", out bool isNew);
