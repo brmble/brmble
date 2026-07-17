@@ -1310,6 +1310,7 @@ function App() {
   const disconnectViewerRef = useRef<(() => Promise<void>) | null>(null);
   const handleScreenShareServiceUnavailableRef = useRef<(() => Promise<void>) | null>(null);
   const requestActiveShareDiscoveryRef = useRef<((channelId: string | undefined) => void) | null>(null);
+  const previousScreenShareServiceConnectedRef = useRef(false);
   const pendingCompanionRef = useRef<{ requestId: number; next: CompanionId; previous: CompanionId } | null>(null);
   const companionRequestIdRef = useRef(0);
 
@@ -1617,8 +1618,17 @@ function App() {
       if ((status.service === 'session' || status.service === 'screenshare') && mapped.update.state !== 'connected') {
         void handleScreenShareServiceUnavailableRef.current?.();
       }
-      if (status.service === 'screenshare' && status.state === 'connected') {
-        requestActiveShareDiscoveryRef.current?.(currentChannelIdRef.current);
+      if (status.service === 'screenshare') {
+        const nowConnected = status.state === 'connected';
+        const wasConnected = previousScreenShareServiceConnectedRef.current;
+        previousScreenShareServiceConnectedRef.current = nowConnected;
+        // Only run discovery when the screenshare service *transitions* into
+        // connected. Discovery success itself emits a "connected" status, so
+        // re-triggering on every "connected" message caused an infinite
+        // discovery loop that exhausted the server rate limit (HTTP 429).
+        if (nowConnected && !wasConnected) {
+          requestActiveShareDiscoveryRef.current?.(currentChannelIdRef.current);
+        }
       }
     };
 

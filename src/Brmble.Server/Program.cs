@@ -47,21 +47,36 @@ builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
-    options.AddFixedWindowLimiter("livekit-token", limiterOptions =>
-    {
-        limiterOptions.PermitLimit = 10;
-        limiterOptions.Window = TimeSpan.FromMinutes(1);
-        limiterOptions.QueueLimit = 0;
-        limiterOptions.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
-    });
+    // Per-client partition key so one client's requests can't starve others.
+    // These endpoints require a client certificate; fall back to remote IP.
+    static string LiveKitPartitionKey(HttpContext ctx) =>
+        ctx.Connection.ClientCertificate?.Thumbprint
+        ?? ctx.Connection.RemoteIpAddress?.ToString()
+        ?? "unknown";
 
-    options.AddFixedWindowLimiter("livekit-active-share", limiterOptions =>
-    {
-        limiterOptions.PermitLimit = 30;
-        limiterOptions.Window = TimeSpan.FromMinutes(1);
-        limiterOptions.QueueLimit = 0;
-        limiterOptions.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
-    });
+    options.AddPolicy("livekit-token", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(LiveKitPartitionKey(httpContext), _ =>
+            new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            }));
+
+    // Active-share discovery fires on connect and on every channel switch, so
+    // this must be generous per client. A global limiter here caused 429s that
+    // silently broke the "who is sharing" icon for everyone once the shared
+    // budget was exhausted.
+    options.AddPolicy("livekit-active-share", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(LiveKitPartitionKey(httpContext), _ =>
+            new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 60,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            }));
 
     options.AddFixedWindowLimiter("channel-request-create", limiterOptions =>
     {
