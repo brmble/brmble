@@ -63,7 +63,8 @@ public record ScreenShareSettings(
     int Fps = 30,
     bool SystemAudio = false,
     string ViewerMode = "in-app",
-    string PreferredCaptureSource = "window"
+    string PreferredCaptureSource = "window",
+    string ContentType = "motion"
 );
 
 public record AppSettings(

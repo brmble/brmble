@@ -10,7 +10,7 @@ let mockRoomConstructionCount = 0;
 const mockRoomInstances: Array<{ connect: ReturnType<typeof vi.fn> }> = [];
 
 let senderEncodings: Array<{ maxBitrate?: number; maxFramerate?: number }> = [{}];
-const mockScreenShareMediaStreamTrack = { contentHint: '' };
+const mockScreenShareMediaStreamTrack = { contentHint: '', applyConstraints: vi.fn().mockResolvedValue(undefined) };
 const mockScreenShareSender = {
   getParameters: vi.fn(() => ({ encodings: senderEncodings, degradationPreference: undefined as string | undefined })),
   setParameters: vi.fn().mockResolvedValue(undefined),
@@ -162,6 +162,7 @@ describe('useScreenShare', () => {
     mockRoomInstances.length = 0;
     senderEncodings = [{}];
     mockScreenShareMediaStreamTrack.contentHint = '';
+    mockScreenShareMediaStreamTrack.applyConstraints.mockClear();
   });
 
   afterEach(() => {
@@ -3617,8 +3618,9 @@ describe('useScreenShare', () => {
       expect(view.result.current.isSharing).toBe(true);
     });
 
-    it('re-captures the active share on resolution change without emitting shareStopped/shareStarted', async () => {
+    it('live-applies a resolution change to the active track without re-capturing or re-prompting the picker', async () => {
       vi.useFakeTimers();
+      senderEncodings = [{ maxBitrate: 6_000_000 }];
       const view = await startActiveShare(baseSettings);
 
       await act(async () => {
@@ -3628,13 +3630,18 @@ describe('useScreenShare', () => {
         await vi.advanceTimersByTimeAsync(1000);
       });
 
-      // Re-capture: unpublish then republish with the new options.
-      expect(mockRoom.localParticipant.setScreenShareEnabled).toHaveBeenCalledWith(false);
-      expect(mockRoom.localParticipant.setScreenShareEnabled).toHaveBeenCalledWith(
-        true,
-        expect.objectContaining({ resolution: { width: 3840, height: 2160, frameRate: 30 } }),
-        expect.objectContaining({ videoEncoding: { maxBitrate: 18_000_000, maxFramerate: 30 } }),
+      // No re-capture: setScreenShareEnabled must not be toggled off/on (no getDisplayMedia picker).
+      expect(mockRoom.localParticipant.setScreenShareEnabled).not.toHaveBeenCalled();
+      // Constrained the existing capture in place.
+      expect(mockScreenShareMediaStreamTrack.applyConstraints).toHaveBeenCalledWith(
+        expect.objectContaining({
+          width: { ideal: 3840 },
+          height: { ideal: 2160 },
+          frameRate: { ideal: 30 },
+        }),
       );
+      // Top-layer bitrate ceiling raised to the 4k target.
+      expect(senderEncodings[0].maxBitrate).toBe(18_000_000);
       // Silent to viewers: no bridge stop/start events (no "Share ended" notification).
       const sends = (bridge.send as ReturnType<typeof vi.fn>).mock.calls.map(([type]) => type);
       expect(sends).not.toContain('livekit.shareStopped');

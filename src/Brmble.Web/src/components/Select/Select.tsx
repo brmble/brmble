@@ -224,7 +224,13 @@ export function Select({ value, onChange, options, disabled, className, placehol
             );
           })}
         </div>,
-        document.body
+        // Portal into the active fullscreen element only when it actually contains this
+        // Select; portaling to document.body would render the menu outside the fullscreen
+        // top layer (invisible/unclickable), while portaling into an unrelated fullscreen
+        // element would misplace it. Falls back to document.body otherwise.
+        (document.fullscreenElement?.contains(triggerRef.current)
+          ? document.fullscreenElement
+          : document.body)
       )}
     </div>
   );

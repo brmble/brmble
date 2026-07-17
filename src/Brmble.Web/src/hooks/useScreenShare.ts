@@ -123,16 +123,19 @@ const buildScreenShareOptions = (settings: ScreenShareSettings): {
   return { captureOptions, publishOptions };
 };
 
-/** Settings whose changes require a fresh getDisplayMedia capture (picker prompt). */
+/**
+ * Settings whose changes require a fresh getDisplayMedia capture (picker prompt).
+ * Resolution is deliberately NOT here — it is applied live via track.applyConstraints
+ * so viewers keep watching and the broadcaster is never re-prompted for a source.
+ */
 const screenShareNeedsRecapture = (prev: ScreenShareSettings, next: ScreenShareSettings): boolean =>
-  prev.resolution !== next.resolution ||
   prev.preferredCaptureSource !== next.preferredCaptureSource ||
   prev.captureAudio !== next.captureAudio ||
   prev.systemAudio !== next.systemAudio;
 
 /** Settings whose changes can be applied to the live track without re-capturing. */
 const screenShareNeedsLiveApply = (prev: ScreenShareSettings, next: ScreenShareSettings): boolean =>
-  prev.contentType !== next.contentType || prev.fps !== next.fps;
+  prev.contentType !== next.contentType || prev.fps !== next.fps || prev.resolution !== next.resolution;
 
 
 export type LocalShareStopReason = 'manual' | 'source-closed' | 'interrupted' | 'error' | 'blocked-capture' | 'moved-channel';
@@ -1260,15 +1263,44 @@ export function useScreenShare(
     }
     if (track.mediaStreamTrack) {
       try { track.mediaStreamTrack.contentHint = screenShareContentHint(settings); } catch { /* ignore */ }
+      // Resolution/fps change: constrain the existing capture in place. Bounded by the
+      // source's native resolution (can't upscale beyond what the display provides), but
+      // never re-prompts the picker and viewers keep watching the same track.
+      const res = SCREEN_SHARE_RESOLUTION_MAP[settings.resolution];
+      if (res) {
+        // applyConstraints is async; attach .catch so a rejected constraint change
+        // never surfaces as an unhandled promise rejection.
+        void Promise.resolve(
+          track.mediaStreamTrack.applyConstraints({
+            width: { ideal: res.width },
+            height: { ideal: res.height },
+            frameRate: { ideal: settings.fps },
+          }),
+        ).catch(() => { /* best-effort; resolution steering must never break the share */ });
+      }
     }
     const sender = track.sender;
     if (sender && typeof sender.getParameters === 'function' && typeof sender.setParameters === 'function') {
       try {
         const params = sender.getParameters();
         params.degradationPreference = screenShareDegradationPreference(settings) as RTCDegradationPreference;
-        if (params.encodings?.length && settings.fps) {
+        const maxBitrate = SCREEN_SHARE_BITRATE_MAP[settings.resolution];
+        if (params.encodings?.length) {
+          // Identify the top (highest-bitrate) layer so we only steer its ceiling,
+          // even if a mid simulcast layer is added later. The low layer is left as-is.
+          let topEnc: typeof params.encodings[number] | undefined;
           for (const enc of params.encodings) {
-            enc.maxFramerate = settings.fps;
+            if (settings.fps) {
+              enc.maxFramerate = settings.fps;
+            }
+            if (enc.maxBitrate && (!topEnc || (topEnc.maxBitrate ?? 0) < enc.maxBitrate)) {
+              topEnc = enc;
+            }
+          }
+          // Match the top layer's bitrate ceiling to the target resolution (raising it
+          // for larger resolutions, lowering it for smaller ones).
+          if (maxBitrate && topEnc?.maxBitrate) {
+            topEnc.maxBitrate = maxBitrate;
           }
         }
         void sender.setParameters(params);
@@ -1277,7 +1309,7 @@ export function useScreenShare(
     sendScreenShareDebugEvent('applySettings.liveApplied');
   }, []);
 
-  // Re-acquire the capture (resolution or capture-source changed) by toggling the local
+  // Re-acquire the capture (capture-source or audio changed) by toggling the local
   // screen share off then on with fresh options. Deliberately does NOT send the
   // livekit.shareStopped/shareStarted bridge events, so viewers get no "Share ended"
   // notification — their track briefly unsubscribes then self-heals on resubscribe.
