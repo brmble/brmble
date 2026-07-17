@@ -219,9 +219,9 @@ public sealed class NativeBridge
 #if DEBUG
     private static readonly object _logLock = new();
 #endif
-    // Conditional: calls (including argument interpolation) are compiled out
-    // of Release builds entirely — no per-message string allocation or disk
-    // I/O in production (#400).
+    // Conditional: call sites (including argument interpolation) are compiled out
+    // whenever the caller is built without the DEBUG symbol defined — no per-message
+    // string allocation or disk I/O in production by default (#400).
     [Conditional("DEBUG")]
     private static void LogBridge(string message)
     {
