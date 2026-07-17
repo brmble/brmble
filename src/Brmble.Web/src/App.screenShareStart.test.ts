@@ -816,6 +816,46 @@ describe('active share discovery', () => {
     expect(bridge.send).toHaveBeenCalledWith('livekit.checkActiveShare', expect.objectContaining({ roomName: 'channel-1' }));
   });
 
+  it('does not re-trigger active share discovery on repeated connected statuses without a disconnect', async () => {
+    render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    await waitFor(() => {
+      expect(bridge.send).toHaveBeenCalledWith('livekit.checkActiveShare', expect.objectContaining({ roomName: 'channel-1' }));
+    });
+
+    // Establish the 'connected' baseline. The first connected status may
+    // legitimately trigger discovery once (transition into connected).
+    act(() => {
+      bridge.emit('brmble.serviceStatus', { service: 'screenshare', state: 'connected' });
+    });
+
+    vi.mocked(bridge.send).mockClear();
+
+    // The client emits a 'connected' screenshare status on every successful
+    // active-share discovery. Repeated 'connected' statuses (no intervening
+    // disconnect) must NOT re-trigger discovery, otherwise the loop that
+    // exhausted the server rate limit (HTTP 429) reappears.
+    act(() => {
+      bridge.emit('brmble.serviceStatus', { service: 'screenshare', state: 'connected' });
+      bridge.emit('brmble.serviceStatus', { service: 'screenshare', state: 'connected' });
+      bridge.emit('brmble.serviceStatus', { service: 'screenshare', state: 'connected' });
+    });
+
+    const checkActiveShareCalls = vi.mocked(bridge.send).mock.calls.filter(
+      ([type]) => type === 'livekit.checkActiveShare',
+    );
+    expect(checkActiveShareCalls).toHaveLength(0);
+  });
+
   it('does not tear down LiveKit lifecycle when active share discovery fails', () => {
     render(React.createElement(App));
 
