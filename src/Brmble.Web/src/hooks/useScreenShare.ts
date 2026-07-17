@@ -1286,16 +1286,21 @@ export function useScreenShare(
         params.degradationPreference = screenShareDegradationPreference(settings) as RTCDegradationPreference;
         const maxBitrate = SCREEN_SHARE_BITRATE_MAP[settings.resolution];
         if (params.encodings?.length) {
+          // Identify the top (highest-bitrate) layer so we only steer its ceiling,
+          // even if a mid simulcast layer is added later. The low layer is left as-is.
+          let topEnc: typeof params.encodings[number] | undefined;
           for (const enc of params.encodings) {
             if (settings.fps) {
               enc.maxFramerate = settings.fps;
             }
-            // Match the top layer's bitrate ceiling to the target resolution (raising it
-            // for larger resolutions, lowering it for smaller ones). The low simulcast
-            // layer (<= 600 kbps) is left untouched.
-            if (maxBitrate && enc.maxBitrate && enc.maxBitrate > 600_000) {
-              enc.maxBitrate = maxBitrate;
+            if (enc.maxBitrate && (!topEnc || (topEnc.maxBitrate ?? 0) < enc.maxBitrate)) {
+              topEnc = enc;
             }
+          }
+          // Match the top layer's bitrate ceiling to the target resolution (raising it
+          // for larger resolutions, lowering it for smaller ones).
+          if (maxBitrate && topEnc?.maxBitrate) {
+            topEnc.maxBitrate = maxBitrate;
           }
         }
         void sender.setParameters(params);
