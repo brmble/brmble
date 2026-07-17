@@ -309,27 +309,30 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _intentionalDisconnect = false;
         _rejected = false;
 
-        // Recreate audio manager if disposed by a previous Disconnect()
-        if (_audioManager == null)
-        {
-            _audioManager = new AudioManager(_hwnd);
-            WireAudioManagerBridgeEvents();
-        }
-
-        // InputRouter is app-lifetime; only the AudioManager-dependent
-        // subscription needs re-wiring when AudioManager was recreated.
-        // Reapply settings so the fresh AudioManager gets the user's
-        // transmission mode (otherwise it stays on its default Continuous
-        // mode and ServerSync's mic-start path leaves the mic running).
-        if (_inputRouter != null)
-        {
-            WireAudioManagerToInputRouter();
-            var settings = _appConfigService?.GetSettings();
-            if (settings != null) ApplySettings(settings);
-        }
-
+        // Everything below runs inside the try: an unexpected exception in
+        // setup (e.g. ApplySettings) must surface as voice.error instead of
+        // leaving the UI stuck on "Connecting" forever.
         try
         {
+            // Recreate audio manager if disposed by a previous Disconnect()
+            if (_audioManager == null)
+            {
+                _audioManager = new AudioManager(_hwnd);
+                WireAudioManagerBridgeEvents();
+            }
+
+            // InputRouter is app-lifetime; only the AudioManager-dependent
+            // subscription needs re-wiring when AudioManager was recreated.
+            // Reapply settings so the fresh AudioManager gets the user's
+            // transmission mode (otherwise it stays on its default Continuous
+            // mode and ServerSync's mic-start path leaves the mic running).
+            if (_inputRouter != null)
+            {
+                WireAudioManagerToInputRouter();
+                var settings = _appConfigService?.GetSettings();
+                if (settings != null) ApplySettings(settings);
+            }
+
             SendSystemMessage($"Connecting to {host}:{port}...", "connecting");
             _bridge?.NotifyUiThread();
 

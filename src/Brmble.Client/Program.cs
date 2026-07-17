@@ -360,7 +360,17 @@ static class Program
         }
         catch (Exception ex)
         {
+            // A failure here leaves the window blank (Navigate never runs) and
+            // Debug.WriteLine is invisible in a WinExe — persist to the same
+            // file the unhandled-exception hooks in Main use.
             Debug.WriteLine($"[ERROR] InitWebView2Async: {ex}");
+            try
+            {
+                File.AppendAllText(
+                    Path.Combine(Path.GetTempPath(), "brmble-tls.log"),
+                    $"[{DateTime.Now:HH:mm:ss.fff}] InitWebView2Async FAILED (window will stay blank): {ex}\n\n");
+            }
+            catch { /* logging is best-effort */ }
         }
     }
 
