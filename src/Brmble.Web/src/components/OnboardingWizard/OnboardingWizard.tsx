@@ -127,13 +127,17 @@ interface WizardSettings {
 
 const SETTINGS_STORAGE_KEY = 'brmble-settings';
 
-function loadInitialSettings(): WizardSettings {
+export function loadInitialSettings(): WizardSettings {
+  // The applied theme lives on <html data-theme> (set by applyTheme, from
+  // either localStorage at boot or the native config via settings.current).
+  // Prefer it over localStorage, which can be stale or missing (#476).
+  const appliedTheme = document.documentElement.getAttribute('data-theme');
   try {
     const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
     if (stored) {
       const parsed = JSON.parse(stored);
       return {
-        theme: parsed.appearance?.theme ?? 'classic',
+        theme: appliedTheme ?? parsed.appearance?.theme ?? 'classic',
         brmblegotchiEnabled: parsed.brmblegotchi?.enabled ?? true,
         inputDevice: parsed.audio?.inputDevice ?? 'default',
         outputDevice: parsed.audio?.outputDevice ?? 'default',
@@ -147,7 +151,7 @@ function loadInitialSettings(): WizardSettings {
     }
   } catch { /* ignore */ }
   return {
-    theme: 'classic',
+    theme: appliedTheme ?? 'classic',
     brmblegotchiEnabled: true,
     inputDevice: 'default',
     outputDevice: 'default',
