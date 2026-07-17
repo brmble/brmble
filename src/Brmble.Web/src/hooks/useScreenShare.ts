@@ -1268,13 +1268,15 @@ export function useScreenShare(
       // never re-prompts the picker and viewers keep watching the same track.
       const res = SCREEN_SHARE_RESOLUTION_MAP[settings.resolution];
       if (res) {
-        try {
-          void track.mediaStreamTrack.applyConstraints({
+        // applyConstraints is async; attach .catch so a rejected constraint change
+        // never surfaces as an unhandled promise rejection.
+        void Promise.resolve(
+          track.mediaStreamTrack.applyConstraints({
             width: { ideal: res.width },
             height: { ideal: res.height },
             frameRate: { ideal: settings.fps },
-          });
-        } catch { /* ignore */ }
+          }),
+        ).catch(() => { /* best-effort; resolution steering must never break the share */ });
       }
     }
     const sender = track.sender;
@@ -1288,7 +1290,9 @@ export function useScreenShare(
             if (settings.fps) {
               enc.maxFramerate = settings.fps;
             }
-            // Only raise the top layer's ceiling; leave the low simulcast layer as-is.
+            // Match the top layer's bitrate ceiling to the target resolution (raising it
+            // for larger resolutions, lowering it for smaller ones). The low simulcast
+            // layer (<= 600 kbps) is left untouched.
             if (maxBitrate && enc.maxBitrate && enc.maxBitrate > 600_000) {
               enc.maxBitrate = maxBitrate;
             }
