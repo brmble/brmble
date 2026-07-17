@@ -224,7 +224,11 @@ export function Select({ value, onChange, options, disabled, className, placehol
             );
           })}
         </div>,
-        document.body
+        // Portal into the active fullscreen element when present; portaling to
+        // document.body would render the menu outside the fullscreen top layer,
+        // making it invisible/unclickable (e.g. the viewer quality dropdown on a
+        // maximized screen-share tile).
+        document.fullscreenElement ?? document.body
       )}
     </div>
   );

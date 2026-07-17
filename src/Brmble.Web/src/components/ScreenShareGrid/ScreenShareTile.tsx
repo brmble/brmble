@@ -129,18 +129,20 @@ export function ScreenShareTile({ videoEl, sharerName, isFocused, isThumbnail, q
       {!isThumbnail && (
         <div className="screen-share-tile-overlay screen-share-tile-overlay--controls">
           {onViewerQualityChange && (
-            <div
-              className="screen-share-tile-quality-select-wrapper"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <Select
-                className="screen-share-tile-quality-select"
-                ariaLabel="Receive quality"
-                value={viewerQuality}
-                onChange={(value) => onViewerQualityChange(value as ViewerQuality)}
-                options={VIEWER_QUALITY_OPTIONS}
-              />
-            </div>
+            <Tooltip content="Quality of the video you receive. Lower it to save bandwidth; Auto adapts to your connection.">
+              <div
+                className="screen-share-tile-quality-select-wrapper"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <Select
+                  className="screen-share-tile-quality-select"
+                  ariaLabel="Receive quality"
+                  value={viewerQuality}
+                  onChange={(value) => onViewerQualityChange(value as ViewerQuality)}
+                  options={VIEWER_QUALITY_OPTIONS}
+                />
+              </div>
+            </Tooltip>
           )}
           <Tooltip content={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
             <button
