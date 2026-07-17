@@ -238,6 +238,9 @@ internal static class Win32Window
     [DllImport("user32.dll")]
     public static extern bool SetForegroundWindow(IntPtr hwnd);
 
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern IntPtr FindWindow(string? lpClassName, string? lpWindowName);
+
     [DllImport("user32.dll")]
     public static extern bool ReleaseCapture();
 

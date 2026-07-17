@@ -31,6 +31,7 @@ static class Program
     private static CompanionOverlayRelay? _overlayRelay;
     private static CompanionOverlayHost? _overlayHost;
     private static IntPtr _hwnd;
+    private static System.Threading.Mutex? _instanceMutex;
     private static volatile bool _muted;
     private static volatile bool _deafened;
     private static volatile string? _closeAction; // null = ask, "minimize", "quit"
@@ -68,7 +69,7 @@ static class Program
     }
 
     [STAThread]
-    static void Main()
+    static void Main(string[] args)
     {
         // Unhandled-exception trap for diagnosis. WinExe has no console; without
         // this hook a crashing background thread leaves no trace beyond exit
@@ -98,7 +99,34 @@ static class Program
 
         try
         {
+            // Must run before anything else: on install/update/uninstall,
+            // Velopack relaunches this exe with --veloapp-* args that Run()
+            // handles and then exits. Placing the single-instance check ahead of
+            // it would hijack those hook invocations.
             VelopackApp.Build().Run();
+
+            // Single instance: a second launch focuses the running window and
+            // exits. Pass --allow-multiple (or set BRMBLE_ALLOW_MULTIPLE=1) to
+            // bypass — handy for running a dev build alongside an installed copy.
+            // Mutex is a static field held for the process lifetime; the OS
+            // releases it on exit.
+            bool allowMultiple = args.Contains("--allow-multiple")
+                || Environment.GetEnvironmentVariable("BRMBLE_ALLOW_MULTIPLE") == "1";
+            if (!allowMultiple)
+            {
+                _instanceMutex = new System.Threading.Mutex(true, @"Local\Brmble.SingleInstance", out bool isNew);
+                if (!isNew)
+                {
+                    var existing = Win32Window.FindWindow("BrmbleWindow", null);
+                    if (existing != IntPtr.Zero)
+                    {
+                        Win32Window.ShowWindow(existing, Win32Window.SW_RESTORE);
+                        Win32Window.SetForegroundWindow(existing);
+                    }
+                    return;
+                }
+            }
+
             DevLog.Init();
 
             Win32Window.SetAppUserModelId(AppIdentity.AppUserModelId);
