@@ -67,10 +67,10 @@ public record ScreenShareSettings(
 );
 
 public record AppSettings(
-    AudioSettings Audio,
-    ShortcutsSettings Shortcuts,
-    MessagesSettings Messages,
-    OverlaySettings Overlay,
+    AudioSettings? Audio = null,
+    ShortcutsSettings? Shortcuts = null,
+    MessagesSettings? Messages = null,
+    OverlaySettings? Overlay = null,
     NoiseSuppressionSettings? NoiseSuppression = null,
     bool AutoConnectEnabled = false,
     string? AutoConnectServerId = null,
@@ -80,6 +80,13 @@ public record AppSettings(
     ScreenShareSettings? ScreenShare = null
 )
 {
+    // JSON from the frontend (settings.set) or an older config.json may omit
+    // entire sections or carry explicit nulls; never expose a null section.
+    public AudioSettings Audio { get; init; } = Audio ?? new AudioSettings();
+    public ShortcutsSettings Shortcuts { get; init; } = Shortcuts ?? new ShortcutsSettings();
+    public MessagesSettings Messages { get; init; } = Messages ?? new MessagesSettings();
+    public OverlaySettings Overlay { get; init; } = Overlay ?? new OverlaySettings();
+
     public NoiseSuppressionSettings NoiseSuppression { get; init; } = NoiseSuppression ?? new NoiseSuppressionSettings();
     public AppearanceSettings Appearance { get; init; } = Appearance ?? new AppearanceSettings();
     public ScreenShareSettings ScreenShare { get; init; } = ScreenShare ?? new ScreenShareSettings();
