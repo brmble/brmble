@@ -204,4 +204,292 @@ describe('useDMStore contact directory merge', () => {
     }));
     expect(result.current.contacts[0].isEphemeral).not.toBe(true);
   });
+
+  it('shows a registered standard-Mumble user in both route sections and keeps transports separate', () => {
+    const sendMatrixDM = vi.fn().mockResolvedValue(undefined);
+    const sendMumbleDM = vi.fn();
+    const fetchDMHistory = vi.fn().mockResolvedValue(undefined);
+    const { result } = renderHook(() =>
+      useDMStore(makeOptions({
+        fetchDMHistory,
+        sendMatrixDM,
+        sendMumbleDM,
+        brmbleUsers: [
+          { matrixUserId: '@val:example.com', displayName: 'Val Persistent' },
+        ],
+        users: [
+          { name: 'me', session: 1, self: true, matrixUserId: '@me:example.com', isBrmbleClient: true },
+          {
+            name: 'Vanilla Val',
+            session: 2,
+            certHash: 'cert-val',
+            matrixUserId: '@val:example.com',
+            isBrmbleClient: false,
+          },
+        ] as DMStoreOptions['users'],
+      }))
+    );
+
+    expect(result.current.contacts).toEqual([
+      expect.objectContaining({
+        id: '@val:example.com',
+        displayName: 'Vanilla Val',
+        isEphemeral: undefined,
+        onlineSessionId: 2,
+      }),
+      expect.objectContaining({
+        id: 'cert-val',
+        displayName: 'Vanilla Val',
+        isEphemeral: true,
+        mumbleCertHash: 'cert-val',
+        mumbleSessionId: 2,
+      }),
+    ]);
+
+    act(() => result.current.selectContact('@val:example.com'));
+    act(() => result.current.sendMessage('persistent hello'));
+
+    expect(sendMatrixDM).toHaveBeenCalledTimes(1);
+    expect(sendMatrixDM).toHaveBeenCalledWith('@val:example.com', 'persistent hello');
+    expect(fetchDMHistory).toHaveBeenCalledWith('@val:example.com');
+    expect(sendMumbleDM).not.toHaveBeenCalled();
+
+    act(() => result.current.selectContact('cert-val'));
+    act(() => result.current.sendMessage('live hello'));
+
+    expect(sendMumbleDM).toHaveBeenCalledTimes(1);
+    expect(sendMumbleDM).toHaveBeenCalledWith(2, 'live hello');
+    expect(sendMatrixDM).toHaveBeenCalledTimes(1);
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({
+        channelId: 'cert-val',
+        sender: 'me',
+        content: 'live hello',
+      }),
+    ]);
+  });
+
+  it('returns empty Mumble history immediately after selecting a first-time Mumble route', () => {
+    const sendMatrixDM = vi.fn().mockResolvedValue(undefined);
+    const sendMumbleDM = vi.fn();
+    const { result } = renderHook(() =>
+      useDMStore(makeOptions({
+        sendMatrixDM,
+        sendMumbleDM,
+        activeDmMessages: [
+          {
+            id: '$matrix-1',
+            channelId: '@val:example.com',
+            sender: 'Vanilla Val',
+            content: 'matrix history',
+            timestamp: new Date('2026-07-18T10:00:00Z'),
+          },
+        ],
+        brmbleUsers: [
+          { matrixUserId: '@val:example.com', displayName: 'Vanilla Val' },
+        ],
+        users: [
+          { name: 'me', session: 1, self: true },
+          {
+            name: 'Vanilla Val',
+            session: 22,
+            certHash: 'cert-val',
+            matrixUserId: '@val:example.com',
+            isBrmbleClient: false,
+          },
+        ] as DMStoreOptions['users'],
+      }))
+    );
+
+    act(() => result.current.selectContact('@val:example.com'));
+    expect(result.current.messages.map(message => message.content)).toEqual(['matrix history']);
+
+    act(() => result.current.selectContact('cert-val'));
+    expect(result.current.selectedContact).toEqual(expect.objectContaining({ id: 'cert-val', isEphemeral: true }));
+    expect(result.current.messages).toEqual([]);
+
+    act(() => result.current.sendMessage('mumble only'));
+
+    expect(result.current.messages.map(message => message.content)).toEqual(['mumble only']);
+    expect(sendMumbleDM).toHaveBeenCalledWith(22, 'mumble only');
+    expect(sendMatrixDM).not.toHaveBeenCalled();
+  });
+
+  it('does not list an online Brmble-client user under Mumble users even when a certHash is present', () => {
+    const { result } = renderHook(() =>
+      useDMStore(makeOptions({
+        brmbleUsers: [
+          { matrixUserId: '@alice:example.com', displayName: 'Alice' },
+        ],
+        users: [
+          { name: 'me', session: 1, self: true },
+          {
+            name: 'Alice',
+            session: 2,
+            certHash: 'cert-alice',
+            matrixUserId: '@alice:example.com',
+            isBrmbleClient: true,
+          },
+        ] as DMStoreOptions['users'],
+      }))
+    );
+
+    expect(result.current.contacts).toEqual([
+      expect.objectContaining({
+        id: '@alice:example.com',
+        displayName: 'Alice',
+      }),
+    ]);
+    expect(result.current.contacts.some(contact => contact.isEphemeral === true)).toBe(false);
+  });
+
+  it('keeps existing Mumble history but disables the route when the active user switches to the Brmble client', () => {
+    const sendMumbleDM = vi.fn();
+    const standardUsers = [
+      { name: 'me', session: 1, self: true },
+      {
+        name: 'Switching Sam',
+        session: 2,
+        certHash: 'cert-sam',
+        matrixUserId: '@sam:example.com',
+        isBrmbleClient: false,
+      },
+    ] as DMStoreOptions['users'];
+    const brmbleUsers = [
+      { name: 'me', session: 1, self: true },
+      {
+        name: 'Switching Sam',
+        session: 2,
+        certHash: 'cert-sam',
+        matrixUserId: '@sam:example.com',
+        isBrmbleClient: true,
+      },
+    ] as DMStoreOptions['users'];
+
+    const { result, rerender } = renderHook(
+      ({ users }) => useDMStore(makeOptions({ sendMumbleDM, users })),
+      { initialProps: { users: standardUsers } },
+    );
+
+    act(() => result.current.startMumbleDM('cert-sam', 2, 'Switching Sam'));
+    act(() => result.current.sendMessage('before switch'));
+
+    rerender({ users: brmbleUsers });
+
+    const mumbleRoute = result.current.contacts.find(contact => contact.id === 'cert-sam');
+    expect(mumbleRoute).toEqual(expect.objectContaining({
+      isEphemeral: true,
+      mumbleSessionId: null,
+      lastMessage: 'before switch',
+    }));
+
+    act(() => result.current.selectContact('cert-sam'));
+    act(() => result.current.sendMessage('after switch'));
+
+    expect(sendMumbleDM).toHaveBeenCalledTimes(1);
+    expect(result.current.messages.map(message => message.content)).toEqual(['before switch']);
+  });
+
+  it('removes an unused stored Mumble route when the active user switches to the Brmble client', () => {
+    const standardUsers = [
+      { name: 'me', session: 1, self: true },
+      {
+        name: 'Switching Sam',
+        session: 2,
+        certHash: 'cert-sam',
+        matrixUserId: '@sam:example.com',
+        isBrmbleClient: false,
+      },
+    ] as DMStoreOptions['users'];
+    const brmbleUsers = [
+      { name: 'me', session: 1, self: true },
+      {
+        name: 'Switching Sam',
+        session: 2,
+        certHash: 'cert-sam',
+        matrixUserId: '@sam:example.com',
+        isBrmbleClient: true,
+      },
+    ] as DMStoreOptions['users'];
+
+    const { result, rerender } = renderHook(
+      ({ users }) => useDMStore(makeOptions({ users })),
+      { initialProps: { users: standardUsers } },
+    );
+
+    act(() => result.current.startMumbleDM('cert-sam', 2, 'Switching Sam'));
+    rerender({ users: brmbleUsers });
+
+    expect(result.current.contacts.find(contact => contact.id === 'cert-sam')).toBeUndefined();
+  });
+
+  it('excludes the current local user from every Matrix and Mumble contact source', () => {
+    const matrixDmRoomMap = new Map([
+      ['@me:example.com', '!self:example.com'],
+      ['@bob:example.com', '!bob:example.com'],
+    ]);
+
+    const { result } = renderHook(() =>
+      useDMStore(makeOptions({
+        matrixDmRoomMap,
+        brmbleUsers: [
+          { matrixUserId: '@me:example.com', displayName: 'me' },
+          { matrixUserId: '@carol:example.com', displayName: 'Carol' },
+        ],
+        users: [
+          {
+            name: 'me',
+            session: 1,
+            self: true,
+            certHash: 'cert-me',
+            matrixUserId: '@me:example.com',
+            isBrmbleClient: true,
+          },
+          {
+            name: 'Bob',
+            session: 2,
+            certHash: 'cert-bob',
+            matrixUserId: '@bob:example.com',
+            isBrmbleClient: true,
+          },
+        ] as DMStoreOptions['users'],
+        username: 'me',
+      }))
+    );
+
+    act(() => result.current.startDM('@me:example.com', 'me'));
+    act(() => result.current.startMumbleDM('cert-me', 1, 'me'));
+
+    expect(result.current.contacts.map(contact => contact.id)).toEqual([
+      '@bob:example.com',
+      '@carol:example.com',
+    ]);
+    expect(result.current.selectedContact).toBeNull();
+  });
+
+  it('sends later Mumble messages to the newest active session after reconnect', () => {
+    const sendMumbleDM = vi.fn();
+    const { result } = renderHook(() =>
+      useDMStore(makeOptions({
+        sendMumbleDM,
+        users: [
+          { name: 'me', session: 1, self: true },
+          { name: 'Mumble Mike', session: 2, certHash: 'cert-mike' },
+        ] as DMStoreOptions['users'],
+      }))
+    );
+
+    act(() => result.current.selectContact('cert-mike'));
+    act(() => result.current.sendMessage('first session'));
+
+    expect(sendMumbleDM).toHaveBeenLastCalledWith(2, 'first session');
+
+    act(() => result.current.updateMumbleSession('cert-mike', null));
+    act(() => result.current.updateMumbleSession('cert-mike', 42, 'Mumble Mike'));
+    act(() => result.current.selectContact('cert-mike'));
+    act(() => result.current.sendMessage('new session'));
+
+    expect(sendMumbleDM).toHaveBeenLastCalledWith(42, 'new session');
+    expect(sendMumbleDM).not.toHaveBeenCalledWith(2, 'new session');
+  });
 });
