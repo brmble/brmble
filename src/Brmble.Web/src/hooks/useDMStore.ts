@@ -166,7 +166,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     // Merge online Brmble users that are visible in Mumble but were not present
     // in the directory snapshot for any reason.
     for (const user of users) {
-      if (user.self || !user.matrixUserId || seen.has(user.matrixUserId)) continue;
+      if (user.self || !user.isBrmbleClient || !user.matrixUserId || seen.has(user.matrixUserId)) continue;
       seen.add(user.matrixUserId);
       result.push({
         id: user.matrixUserId,
@@ -184,10 +184,11 @@ export function useDMStore(options: DMStoreOptions): DMStore {
       }
     }
 
-    // Merge online Mumble-only users and any existing ephemeral Mumble contacts.
+    // Merge online Mumble users that are not reachable through Brmble/Matrix,
+    // plus any existing ephemeral Mumble contacts.
     const ephemeral = new Map<string, DMContact>();
     for (const user of users) {
-      if (user.self || !user.certHash || user.matrixUserId) continue;
+      if (user.self || !user.certHash || (user.isBrmbleClient && user.matrixUserId)) continue;
       ephemeral.set(user.certHash, {
         id: user.certHash,
         displayName: user.name,
@@ -245,6 +246,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
   const selectContact = useCallback((id: string) => {
     setSelectedContactId(id);
     setAppMode('dm');
+    const isMumbleContact = mumbleContacts.has(id) || contacts.some(c => c.id === id && c.isEphemeral);
 
     // Clear Mumble unread if applicable
     setMumbleContacts(prev => {
@@ -257,10 +259,10 @@ export function useDMStore(options: DMStoreOptions): DMStore {
       return prev;
     });
 
-    if (fetchDMHistory) {
+    if (!isMumbleContact && fetchDMHistory) {
       fetchDMHistory(id).catch(console.warn);
     }
-  }, [fetchDMHistory]);
+  }, [fetchDMHistory, mumbleContacts, contacts]);
 
   const startDM = useCallback((matrixUserId: string, displayName: string, avatarUrl?: string) => {
     // Add a pending contact if no DM room exists yet (first-time DM)
@@ -297,7 +299,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
   const sendMessage = useCallback((content: string) => {
     if (!selectedContactId) return;
 
-    const contact = mumbleContacts.get(selectedContactId);
+    const contact = mumbleContacts.get(selectedContactId) ?? contacts.find(c => c.id === selectedContactId && c.isEphemeral);
     if (contact?.isEphemeral) {
       // Mumble DM path
       if (contact.mumbleSessionId == null) return; // offline, can't send
@@ -359,7 +361,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
           });
         });
     }
-  }, [selectedContactId, username, sendMatrixDM, mumbleContacts, sendMumbleDM]);
+  }, [selectedContactId, username, sendMatrixDM, mumbleContacts, contacts, sendMumbleDM]);
 
   const closeDM = useCallback((id: string) => {
     // Deselect if this contact is currently active

@@ -121,6 +121,69 @@ describe('useDMStore contact directory merge', () => {
     ]);
   });
 
+  it('sends to a first-time displayed Mumble-only contact over Mumble', () => {
+    const sendMatrixDM = vi.fn().mockResolvedValue(undefined);
+    const sendMumbleDM = vi.fn();
+    const fetchDMHistory = vi.fn().mockResolvedValue(undefined);
+    const { result } = renderHook(() =>
+      useDMStore(makeOptions({
+        fetchDMHistory,
+        sendMatrixDM,
+        sendMumbleDM,
+        users: [
+          { name: 'me', session: 1, self: true },
+          { name: 'Mumble Mike', session: 2, certHash: 'cert-mike' },
+        ] as DMStoreOptions['users'],
+      }))
+    );
+
+    act(() => result.current.selectContact('cert-mike'));
+    act(() => result.current.sendMessage('hello'));
+
+    expect(sendMumbleDM).toHaveBeenCalledTimes(1);
+    expect(sendMumbleDM).toHaveBeenCalledWith(2, 'hello');
+    expect(sendMatrixDM).not.toHaveBeenCalled();
+    expect(fetchDMHistory).not.toHaveBeenCalled();
+  });
+
+  it('treats registered vanilla Mumble users as Mumble contacts', () => {
+    const sendMatrixDM = vi.fn().mockResolvedValue(undefined);
+    const sendMumbleDM = vi.fn();
+    const { result } = renderHook(() =>
+      useDMStore(makeOptions({
+        sendMatrixDM,
+        sendMumbleDM,
+        users: [
+          { name: 'me', session: 1, self: true },
+          {
+            name: 'Vanilla Val',
+            session: 2,
+            certHash: 'cert-val',
+            matrixUserId: '@val:example.com',
+            isBrmbleClient: false,
+          },
+        ] as DMStoreOptions['users'],
+      }))
+    );
+
+    expect(result.current.contacts).toEqual([
+      expect.objectContaining({
+        id: 'cert-val',
+        displayName: 'Vanilla Val',
+        isEphemeral: true,
+        mumbleCertHash: 'cert-val',
+        mumbleSessionId: 2,
+      }),
+    ]);
+
+    act(() => result.current.selectContact('cert-val'));
+    act(() => result.current.sendMessage('hello'));
+
+    expect(sendMumbleDM).toHaveBeenCalledTimes(1);
+    expect(sendMumbleDM).toHaveBeenCalledWith(2, 'hello');
+    expect(sendMatrixDM).not.toHaveBeenCalled();
+  });
+
   it('keeps Brmble users in the Matrix contact section when they are online', () => {
     const { result } = renderHook(() =>
       useDMStore(makeOptions({
