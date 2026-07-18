@@ -49,6 +49,7 @@ public static class BrmbleWebSocketHandler
                 sessionId = currentSessionId,
                 matrixUserId = currentMapping.MatrixUserId,
                 mumbleName = currentMapping.MumbleName,
+                certHash = currentMapping.CertHash,
                 isBrmbleClient = true
             });
         }
@@ -66,6 +67,7 @@ public static class BrmbleWebSocketHandler
                         matrixUserId = kvp.Value.MatrixUserId,
                         mumbleName = kvp.Value.MumbleName,
                         companionId = kvp.Value.CompanionId,
+                        certHash = kvp.Value.CertHash,
                         isBrmbleClient = kvp.Value.IsBrmbleClient
                     });
             var snapshotJson = JsonSerializer.Serialize(new { type = "sessionMappingSnapshot", mappings = snapshot }, JsonOptions);
@@ -89,6 +91,8 @@ public static class BrmbleWebSocketHandler
         finally
         {
             eventBus.RemoveClient(ws);
+            if (!eventBus.HasConnectedClient(user.Id))
+                activeSessions.Deactivate(hash);
         }
     }
 }

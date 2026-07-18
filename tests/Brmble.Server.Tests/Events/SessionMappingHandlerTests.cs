@@ -108,15 +108,22 @@ public class SessionMappingHandlerTests
     }
 
     [TestMethod]
-    public async Task OnUserConnected_AlreadyMapped_DoesNotBroadcast()
+    public async Task OnUserConnected_AlreadyMapped_BroadcastsRouteUpsert()
     {
         var user = await _repo.Insert("abc123", "Alice");
         _mapping.Setup(m => m.TryAddMatrixUser(1, user.MatrixUserId, "Alice", user.Id, "floppy")).Returns(false);
+        _mapping.Setup(m => m.TryUpdateBrmbleStatus(1, false)).Returns(true);
+        _mapping.Setup(m => m.TryUpdateCertHash(1, "abc123")).Returns(true);
 
         await _handler.OnUserConnected(new MumbleUser("Alice", "abc123", 1));
 
         _mapping.Verify(m => m.TryAddMatrixUser(1, user.MatrixUserId, "Alice", user.Id, "floppy"), Times.Once);
-        _bus.Verify(b => b.BroadcastAsync(It.IsAny<object>()), Times.Never);
+        _mapping.Verify(m => m.TryUpdateBrmbleStatus(1, false), Times.Once);
+        _bus.Verify(b => b.BroadcastAsync(It.Is<object>(message =>
+            message.GetType().GetProperty("type")!.GetValue(message)!.Equals("userMappingAdded") &&
+            message.GetType().GetProperty("sessionId")!.GetValue(message)!.Equals(1) &&
+            message.GetType().GetProperty("certHash")!.GetValue(message)!.Equals("abc123") &&
+            message.GetType().GetProperty("isBrmbleClient")!.GetValue(message)!.Equals(false))), Times.Once);
     }
 
     [TestMethod]

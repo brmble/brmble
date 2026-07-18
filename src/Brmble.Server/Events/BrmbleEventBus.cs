@@ -27,6 +27,8 @@ public class BrmbleEventBus : IBrmbleEventBus
 
     public void RemoveClient(WebSocket ws) => _clients.TryRemove(ws, out _);
 
+    public bool HasConnectedClient(long userId) => _clients.Values.Any(id => id == userId);
+
     public async Task BroadcastAsync(object message)
     {
         var json = JsonSerializer.Serialize(message, JsonOptions);

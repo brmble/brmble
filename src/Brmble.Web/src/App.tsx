@@ -2513,7 +2513,7 @@ function App() {
     };
 
     const onUserMappingUpdated = (data: unknown) => {
-      const d = data as { sessionId: number; matrixUserId?: string; companionId?: CompanionId; isBrmbleClient?: boolean; action: string } | undefined;
+      const d = data as { sessionId: number; matrixUserId?: string; companionId?: CompanionId; certHash?: string; isBrmbleClient?: boolean; action: string } | undefined;
       if (d?.sessionId !== undefined) {
         setUsers(prev => prev.map(u =>
           u.session === d.sessionId
@@ -2521,6 +2521,7 @@ function App() {
               ...u,
               matrixUserId: d.action === 'added' ? d.matrixUserId : undefined,
               companionId: d.action === 'added' ? d.companionId : u.companionId,
+              certHash: d.action === 'added' ? (d.certHash ?? u.certHash) : u.certHash,
               isBrmbleClient: d.action === 'added' ? d.isBrmbleClient : undefined,
             }
             : u
@@ -2533,16 +2534,16 @@ function App() {
     };
 
     const onSessionMappingSnapshot = (data: unknown) => {
-      const d = data as { mappings: Record<string, { matrixUserId: string; mumbleName: string; companionId?: CompanionId; isBrmbleClient?: boolean }> } | undefined;
+      const d = data as { mappings: Record<string, { matrixUserId: string; mumbleName: string; companionId?: CompanionId; certHash?: string; isBrmbleClient?: boolean }> } | undefined;
       if (d?.mappings && typeof d.mappings === 'object') {
         setUsers(prev => {
-          const mappingMap = new Map<number, { matrixUserId: string; companionId?: CompanionId; isBrmbleClient?: boolean }>();
+          const mappingMap = new Map<number, { matrixUserId: string; companionId?: CompanionId; certHash?: string; isBrmbleClient?: boolean }>();
           for (const [sid, entry] of Object.entries(d.mappings)) {
-            mappingMap.set(Number(sid), { matrixUserId: entry.matrixUserId, companionId: entry.companionId, isBrmbleClient: entry.isBrmbleClient });
+            mappingMap.set(Number(sid), { matrixUserId: entry.matrixUserId, companionId: entry.companionId, certHash: entry.certHash, isBrmbleClient: entry.isBrmbleClient });
           }
           return prev.map(u => {
             const m = mappingMap.get(u.session);
-            return m ? { ...u, matrixUserId: m.matrixUserId, companionId: m.companionId ?? u.companionId, isBrmbleClient: m.isBrmbleClient } : u;
+            return m ? { ...u, matrixUserId: m.matrixUserId, companionId: m.companionId ?? u.companionId, certHash: m.certHash ?? u.certHash, isBrmbleClient: m.isBrmbleClient } : u;
           });
         });
         // Fetch avatars for users that gained a matrixUserId
