@@ -95,6 +95,15 @@ namespace MumbleVoiceEngine.Tests.Audio
         }
 
         [TestMethod]
+        public void Process_NegativeLength_Throws()
+        {
+            // A negative length must never reach the native resampler.
+            using var resampler = new R8BrainResampler(48000, 48000, 960);
+            Assert.ThrowsException<ArgumentException>(() =>
+                resampler.Process(new double[960], -1, out _));
+        }
+
+        [TestMethod]
         public void Clear_ResetsState()
         {
             using var resampler = new R8BrainResampler(48000, 16000, 960);

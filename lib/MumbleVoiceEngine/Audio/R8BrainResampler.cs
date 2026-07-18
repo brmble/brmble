@@ -33,6 +33,9 @@ public sealed class R8BrainResampler : IDisposable
         if (_handle == IntPtr.Zero)
             throw new ObjectDisposedException(nameof(R8BrainResampler));
 
+        if (inputLength < 0)
+            throw new ArgumentException(
+                $"Input length {inputLength} is negative", nameof(inputLength));
         if (inputLength > _maxInLen)
             throw new ArgumentException(
                 $"Input length {inputLength} exceeds maxInLen {_maxInLen} configured at construction",
