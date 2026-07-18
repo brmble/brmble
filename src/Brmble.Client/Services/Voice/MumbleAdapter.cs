@@ -3877,7 +3877,20 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         // Reuse or recreated AudioManager (see Connect())
         // Set up audio packet handlers (need Connection which is now available)
         _audioManager?.SendVoicePacket += packet =>
-            Connection?.SendVoice(new ArraySegment<byte>(packet.ToArray()));
+        {
+            try
+            {
+                Connection?.SendVoice(new ArraySegment<byte>(packet.ToArray()));
+            }
+            catch (Exception ex)
+            {
+                // This handler runs on the capture thread (via the encode
+                // pipeline's packet callback). A throwing send — socket died,
+                // connection torn down mid-packet — must drop the packet, not
+                // kill the capture thread and silently deaden the mic.
+                AudioLog.Write($"[Voice] SendVoice failed, dropping packet: {ex.Message}");
+            }
+        };
         _audioManager?.UserStartedSpeaking += userId =>
         {
             _bridge?.Send("voice.userSpeaking", new { session = userId });
