@@ -19,6 +19,31 @@ public class AudioManagerPttTests
             .GetField("_pttActive", BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(audio)!;
 
+    private static object? GetField(AudioManager audio, string name)
+        => typeof(AudioManager)
+            .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(audio);
+
+    [TestMethod]
+    public void ModeSwitch_CancelsPendingSilenceTail()
+    {
+        // PTT release schedules a silence tail; switching transmission mode
+        // before it fires must invalidate it, or the tail stops the mic the
+        // new mode (e.g. Continuous) just started.
+        using var audio = new AudioManager();
+        audio.SetTransmissionMode(TransmissionMode.PushToTalk, key: "F1", hwnd: IntPtr.Zero);
+        audio.SetPttActiveExternal(true);
+        audio.SetPttActiveExternal(false); // schedules the tail
+
+        int generationBefore = (int)GetField(audio, "_pttSilenceTailGeneration")!;
+        audio.SetTransmissionMode(TransmissionMode.Continuous, key: null, hwnd: IntPtr.Zero);
+
+        Assert.IsNull(GetField(audio, "_pttSilenceTailTimer"),
+            "pending silence-tail timer must be disposed on mode switch");
+        Assert.IsTrue((int)GetField(audio, "_pttSilenceTailGeneration")! > generationBefore,
+            "generation must advance so an already-fired tail callback becomes a no-op");
+    }
+
     [TestMethod]
     public void QuickRePressAfterRelease_IsNotDropped()
     {

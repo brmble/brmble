@@ -657,6 +657,12 @@ internal sealed class AudioManager : IDisposable
             if (_waveIn is WasapiCapture recheck &&
                 recheck.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped)
             {
+                // Another start may have won the race while we were unlocked;
+                // if the capture is actively recording, the mic is live and
+                // _micStarted is correct — don't clear it.
+                if (recheck.CaptureState == NAudio.CoreAudioApi.CaptureState.Capturing)
+                    return;
+
                 AudioLog.Write($"[Audio] WASAPI capture still stopping after wait, skipping StartRecording");
                 // Recording never started: clear _micStarted so the next
                 // StartMic retries instead of no-opping against a dead mic.
@@ -1192,6 +1198,13 @@ internal sealed class AudioManager : IDisposable
 
         _pttActive = false;
         _transmissionMode = mode;
+
+        // A pending PTT silence tail belongs to the previous mode; cancel it
+        // (and advance the generation for an already-fired callback) so it
+        // cannot stop the mic the new mode is about to start.
+        _pttSilenceTailTimer?.Dispose();
+        _pttSilenceTailTimer = null;
+        Interlocked.Increment(ref _pttSilenceTailGeneration);
 
         // For PTT, start with mic off until key pressed
         if (mode == TransmissionMode.PushToTalk)
