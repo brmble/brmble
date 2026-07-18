@@ -21,20 +21,32 @@ public sealed class R8BrainResampler : IDisposable
     }
 
     public int Process(double[] input, out double[] output)
+        => Process(input, input.Length, out output);
+
+    /// <summary>
+    /// Resample the first <paramref name="inputLength"/> samples of
+    /// <paramref name="input"/>. The backing array may be larger than the
+    /// actual sample count (callers reuse growing scratch buffers).
+    /// </summary>
+    public int Process(double[] input, int inputLength, out double[] output)
     {
         if (_handle == IntPtr.Zero)
             throw new ObjectDisposedException(nameof(R8BrainResampler));
 
-        if (input.Length > _maxInLen)
+        if (inputLength > _maxInLen)
             throw new ArgumentException(
-                $"Input length {input.Length} exceeds maxInLen {_maxInLen} configured at construction",
-                nameof(input));
+                $"Input length {inputLength} exceeds maxInLen {_maxInLen} configured at construction",
+                nameof(inputLength));
+        if (inputLength > input.Length)
+            throw new ArgumentException(
+                $"Input length {inputLength} exceeds array length {input.Length}",
+                nameof(inputLength));
 
         var pinned = GCHandle.Alloc(input, GCHandleType.Pinned);
         try
         {
             int outSamples = R8BrainNative.r8b_process(
-                _handle, pinned.AddrOfPinnedObject(), input.Length, out IntPtr outPtr);
+                _handle, pinned.AddrOfPinnedObject(), inputLength, out IntPtr outPtr);
 
             if (outSamples > 0 && outPtr != IntPtr.Zero)
             {

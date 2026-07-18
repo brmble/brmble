@@ -35,6 +35,22 @@ public class WebRtcApmProcessorTests
     }
 
     [TestMethod]
+    public void Reset_DiscardsBufferedSubFrame()
+    {
+        using var proc = new WebRtcApmProcessor();
+        byte[] half = new byte[WebRtcApmProcessor.FrameBytes / 2];
+        byte[] output = new byte[WebRtcApmProcessor.FrameBytes * 2];
+
+        proc.Process(half, output);
+        proc.Reset();
+
+        // After Reset the previous half frame must be gone: another half frame
+        // should buffer again instead of completing a (stale) frame.
+        int written = proc.Process(half, output);
+        Assert.AreEqual(0, written, "Reset should discard the buffered leftover from the previous transmission");
+    }
+
+    [TestMethod]
     public void Process_SilenceInSilenceOut()
     {
         using var proc = new WebRtcApmProcessor();

@@ -114,6 +114,13 @@ public sealed class WebRtcApmProcessor : IDisposable
         return outWritten;
     }
 
+    /// <summary>
+    /// Discard any buffered sub-frame leftover. Call between voice
+    /// transmissions so the stale tail of the previous one is not prepended
+    /// to the first frame of the next.
+    /// </summary>
+    public void Reset() => _pendingBytes = 0;
+
     private void ProcessOneFrame(ReadOnlySpan<byte> inPcm16, Span<byte> outPcm16)
     {
         var inFloat = _frameIn[0];

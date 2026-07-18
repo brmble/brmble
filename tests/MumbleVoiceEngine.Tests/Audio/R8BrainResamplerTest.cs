@@ -66,6 +66,35 @@ namespace MumbleVoiceEngine.Tests.Audio
         }
 
         [TestMethod]
+        public void Process_WithExplicitLength_UsesOnlyThatManySamples()
+        {
+            // The capture path reuses a growing scratch array, so the backing
+            // array can be larger than both the real sample count and maxInLen.
+            using var resampler = new R8BrainResampler(48000, 48000, 960);
+            var backing = new double[4096]; // > maxInLen; tail is garbage
+            for (int i = 0; i < 960; i++)
+                backing[i] = Math.Sin(2.0 * Math.PI * 400 * i / 48000);
+            for (int i = 960; i < backing.Length; i++)
+                backing[i] = 99.0;
+
+            int outSamples = resampler.Process(backing, 960, out double[] output);
+
+            Assert.IsTrue(Math.Abs(outSamples - 960) <= 1,
+                $"Same-rate resample of 960 samples should return ~960, got {outSamples}");
+            for (int i = 0; i < outSamples; i++)
+                Assert.IsTrue(Math.Abs(output[i]) <= 1.5,
+                    $"Output sample {i} = {output[i]} — garbage tail leaked into resample");
+        }
+
+        [TestMethod]
+        public void Process_LengthAboveMaxInLen_Throws()
+        {
+            using var resampler = new R8BrainResampler(48000, 48000, 960);
+            Assert.ThrowsException<ArgumentException>(() =>
+                resampler.Process(new double[2000], 2000, out _));
+        }
+
+        [TestMethod]
         public void Clear_ResetsState()
         {
             using var resampler = new R8BrainResampler(48000, 16000, 960);
