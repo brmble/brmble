@@ -14,10 +14,12 @@ export interface DMContact {
   lastMessage?: string;
   lastMessageTime?: number;
   unreadCount: number;
+  /** Active Mumble session for an online Matrix contact, used only by user-info controls. */
+  onlineSessionId?: number;
   // Mumble DM fields (only set for ephemeral Mumble contacts)
   isEphemeral?: boolean;
   mumbleCertHash?: string;
-  mumbleSessionId?: number | null;  // null = offline
+  mumbleSessionId?: number | null;  // null = offline or no active standard-Mumble route
 }
 
 export interface BrmbleDMUser {
@@ -121,6 +123,14 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     }
   }, [users.length]);
 
+  const selfMatrixUserIds = useMemo(() => {
+    return new Set(users.filter(user => user.self && user.matrixUserId).map(user => user.matrixUserId!));
+  }, [users]);
+
+  const selfCertHashes = useMemo(() => {
+    return new Set(users.filter(user => user.self && user.certHash).map(user => user.certHash!));
+  }, [users]);
+
   // ---- Matrix contacts derived from matrixDmRoomMap ------------------------
 
   const contacts: DMContact[] = useMemo(() => {
@@ -129,6 +139,8 @@ export function useDMStore(options: DMStoreOptions): DMStore {
 
     if (matrixDmRoomMap) {
       for (const [matrixUserId] of matrixDmRoomMap) {
+        if (selfMatrixUserIds.has(matrixUserId)) continue;
+
         seen.add(matrixUserId);
         const user = users.find(u => u.matrixUserId === matrixUserId);
         const lastPreview = matrixDmLastMessages?.get(matrixUserId);
@@ -144,7 +156,8 @@ export function useDMStore(options: DMStoreOptions): DMStore {
           avatarUrl: user?.avatarUrl ?? matrixDmUserAvatarUrls?.get(matrixUserId),
           lastMessage: lastPreview?.content,
           lastMessageTime: lastPreview?.ts,
-          unreadCount: 0, // Matrix unread is tracked globally via matrixDmUnreadCount
+          unreadCount: 0,
+          onlineSessionId: user?.session,
         });
       }
     }
@@ -152,7 +165,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     // Merge all known Brmble users, including offline users and users without
     // an existing DM room. Selecting one keeps using the Matrix DM path.
     for (const directoryUser of brmbleUsers) {
-      if (seen.has(directoryUser.matrixUserId)) continue;
+      if (seen.has(directoryUser.matrixUserId) || selfMatrixUserIds.has(directoryUser.matrixUserId)) continue;
       const user = users.find(u => u.matrixUserId === directoryUser.matrixUserId);
       seen.add(directoryUser.matrixUserId);
       result.push({
@@ -160,6 +173,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
         displayName: user?.name ?? directoryUser.displayName,
         avatarUrl: user?.avatarUrl ?? directoryUser.avatarUrl ?? matrixDmUserAvatarUrls?.get(directoryUser.matrixUserId),
         unreadCount: 0,
+        onlineSessionId: user?.session,
       });
     }
 
@@ -173,22 +187,30 @@ export function useDMStore(options: DMStoreOptions): DMStore {
         displayName: user.name,
         avatarUrl: user.avatarUrl,
         unreadCount: 0,
+        onlineSessionId: user.session,
       });
     }
 
     // Merge pending Matrix contacts (first-time DMs before room is created)
     for (const [id, pc] of pendingMatrixContacts) {
-      if (!seen.has(id)) {
+      if (!seen.has(id) && !selfMatrixUserIds.has(id)) {
         seen.add(id);
-        result.push(pc);
+        const user = users.find(u => u.matrixUserId === id);
+        result.push({ ...pc, onlineSessionId: user?.session });
       }
     }
 
-    // Merge online Mumble users that are not reachable through Brmble/Matrix,
-    // plus any existing ephemeral Mumble contacts.
+    // Merge online standard-Mumble users that have a stable certificate hash,
+    // plus retained ephemeral conversations. Cert-less users are intentionally
+    // excluded from this pass; see the plan scope note.
     const ephemeral = new Map<string, DMContact>();
+    const liveUsersByCertHash = new Map<string, User>();
+
     for (const user of users) {
-      if (user.self || !user.certHash || (user.isBrmbleClient && user.matrixUserId)) continue;
+      if (user.self || !user.certHash || selfCertHashes.has(user.certHash)) continue;
+      liveUsersByCertHash.set(user.certHash, user);
+      if (user.isBrmbleClient === true && user.matrixUserId) continue;
+
       ephemeral.set(user.certHash, {
         id: user.certHash,
         displayName: user.name,
@@ -201,10 +223,31 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     }
 
     for (const [, mc] of mumbleContacts) {
-      const onlineContact = mc.mumbleCertHash ? ephemeral.get(mc.mumbleCertHash) : undefined;
-      const msgs = mumbleMessages.get(mc.mumbleCertHash!);
+      const certHash = mc.mumbleCertHash;
+      if (!certHash || selfCertHashes.has(certHash)) continue;
+
+      const onlineUser = liveUsersByCertHash.get(certHash);
+      const onlineContact = ephemeral.get(certHash);
+      const msgs = mumbleMessages.get(certHash);
       const lastMsg = msgs && msgs.length > 0 ? msgs[msgs.length - 1] : undefined;
-      ephemeral.set(mc.mumbleCertHash!, {
+      const hasRetainedConversation = Boolean(lastMsg);
+
+      if (onlineUser?.isBrmbleClient === true && onlineUser.matrixUserId) {
+        if (!hasRetainedConversation) continue;
+        ephemeral.set(certHash, {
+          ...mc,
+          displayName: onlineUser.name,
+          avatarUrl: onlineUser.avatarUrl ?? mc.avatarUrl,
+          mumbleSessionId: null,
+          lastMessage: lastMsg?.content,
+          lastMessageTime: lastMsg?.timestamp.getTime(),
+        });
+        continue;
+      }
+
+      if (!onlineContact && !hasRetainedConversation) continue;
+
+      ephemeral.set(certHash, {
         ...mc,
         displayName: onlineContact?.displayName ?? mc.displayName,
         avatarUrl: onlineContact?.avatarUrl ?? mc.avatarUrl,
@@ -219,7 +262,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
       .sort((a, b) => (b.lastMessageTime ?? 0) - (a.lastMessageTime ?? 0) || a.displayName.localeCompare(b.displayName));
     result.splice(0, result.length, ...matrixContacts, ...mumbleOnlyContacts);
     return result;
-  }, [matrixDmRoomMap, matrixDmLastMessages, matrixDmUserDisplayNames, matrixDmUserAvatarUrls, brmbleUsers, users, pendingMatrixContacts, mumbleContacts, mumbleMessages]);
+  }, [matrixDmRoomMap, matrixDmLastMessages, matrixDmUserDisplayNames, matrixDmUserAvatarUrls, brmbleUsers, users, pendingMatrixContacts, mumbleContacts, mumbleMessages, selfMatrixUserIds, selfCertHashes]);
 
   // ---- Selected contact ----------------------------------------------------
 
@@ -232,14 +275,16 @@ export function useDMStore(options: DMStoreOptions): DMStore {
 
   const messages: ChatMessage[] = useMemo(() => {
     if (!selectedContactId) return [];
-    // Check if this is a Mumble contact
-    const mumbleMsgs = mumbleMessages.get(selectedContactId);
-    if (mumbleMsgs) return mumbleMsgs;
-    // Otherwise Matrix messages
+
+    const contact = selectedContact ?? contacts.find(c => c.id === selectedContactId);
+    if (contact?.isEphemeral) {
+      return mumbleMessages.get(selectedContactId) ?? [];
+    }
+
     const matrixMsgs = activeDmMessages ?? [];
     const pending = pendingMessages.get(selectedContactId) ?? [];
     return [...matrixMsgs, ...pending];
-  }, [selectedContactId, activeDmMessages, pendingMessages, mumbleMessages]);
+  }, [selectedContactId, selectedContact, contacts, activeDmMessages, pendingMessages, mumbleMessages]);
 
   // ---- Actions -------------------------------------------------------------
 
@@ -265,6 +310,11 @@ export function useDMStore(options: DMStoreOptions): DMStore {
   }, [fetchDMHistory, mumbleContacts, contacts]);
 
   const startDM = useCallback((matrixUserId: string, displayName: string, avatarUrl?: string) => {
+    if (selfMatrixUserIds.has(matrixUserId)) {
+      setSelectedContactId(null);
+      return;
+    }
+
     // Add a pending contact if no DM room exists yet (first-time DM)
     if (!matrixDmRoomMap?.has(matrixUserId)) {
       setPendingMatrixContacts(prev => {
@@ -286,7 +336,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     if (fetchDMHistory) {
       fetchDMHistory(matrixUserId).catch(console.warn);
     }
-  }, [fetchDMHistory, matrixDmRoomMap]);
+  }, [fetchDMHistory, matrixDmRoomMap, selfMatrixUserIds]);
 
   const clearSelection = useCallback(() => {
     setSelectedContactId(null);
@@ -299,10 +349,34 @@ export function useDMStore(options: DMStoreOptions): DMStore {
   const sendMessage = useCallback((content: string) => {
     if (!selectedContactId) return;
 
-    const contact = mumbleContacts.get(selectedContactId) ?? contacts.find(c => c.id === selectedContactId && c.isEphemeral);
+    const derivedContact = contacts.find(c => c.id === selectedContactId && c.isEphemeral);
+    const storedContact = mumbleContacts.get(selectedContactId);
+    const contact = derivedContact?.mumbleSessionId === null ? derivedContact : storedContact ?? derivedContact;
     if (contact?.isEphemeral) {
       // Mumble DM path
       if (contact.mumbleSessionId == null) return; // offline, can't send
+      setMumbleContacts(prev => {
+        const existing = prev.get(contact.id);
+        const nextContact: DMContact = {
+          ...contact,
+          unreadCount: existing?.unreadCount ?? contact.unreadCount,
+          mumbleSessionId: contact.mumbleSessionId,
+        };
+
+        if (
+          existing &&
+          existing.displayName === nextContact.displayName &&
+          existing.avatarUrl === nextContact.avatarUrl &&
+          existing.mumbleSessionId === nextContact.mumbleSessionId &&
+          existing.unreadCount === nextContact.unreadCount
+        ) {
+          return prev;
+        }
+
+        const next = new Map(prev);
+        next.set(contact.id, nextContact);
+        return next;
+      });
       const msg: ChatMessage = {
         id: `mumble-${Date.now()}-${Math.random()}`,
         channelId: selectedContactId,
@@ -452,6 +526,11 @@ export function useDMStore(options: DMStoreOptions): DMStore {
   }, []);
 
   const startMumbleDM = useCallback((certHash: string, sessionId: number, displayName: string) => {
+    if (selfCertHashes.has(certHash)) {
+      setSelectedContactId(null);
+      return;
+    }
+
     setMumbleContacts(prev => {
       const next = new Map(prev);
       if (!next.has(certHash)) {
@@ -468,7 +547,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     });
     setSelectedContactId(certHash);
     setAppMode('dm');
-  }, []);
+  }, [selfCertHashes]);
 
   // ---- Return --------------------------------------------------------------
 

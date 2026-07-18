@@ -234,7 +234,6 @@ describe('useDMStore contact directory merge', () => {
       expect.objectContaining({
         id: '@val:example.com',
         displayName: 'Vanilla Val',
-        isEphemeral: undefined,
         onlineSessionId: 2,
       }),
       expect.objectContaining({
