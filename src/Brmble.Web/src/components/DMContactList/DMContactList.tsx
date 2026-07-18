@@ -24,6 +24,8 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
   const filtered = contacts.filter(c =>
     c.displayName.toLowerCase().includes(searchQuery.toLowerCase())
   );
+  const messageContacts = filtered.filter(c => !c.isEphemeral);
+  const mumbleContacts = filtered.filter(c => c.isEphemeral);
 
   const formatTime = (ts?: number) => {
     if (!ts) return '';
@@ -48,7 +50,7 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
         <Icon name="search" size={14} />
         <input
           type="text"
-          placeholder="Search conversations..."
+          placeholder="Search users..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="dm-contact-search-input"
@@ -58,43 +60,44 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
       <div className="dm-contact-entries">
         {filtered.length === 0 && (
           <p className="dm-contact-empty">
-            {searchQuery ? 'No matching conversations' : 'No conversations yet'}
+            {searchQuery ? 'No matching users' : 'No conversations yet'}
           </p>
         )}
-        {filtered.map(contact => (
-          <button
-            key={contact.id}
-            className={`dm-contact-entry ${selectedUserId === contact.id ? 'active' : ''} ${contact.isEphemeral && contact.mumbleSessionId == null ? 'offline' : ''}`}
-            onClick={() => onSelectContact(contact.id, contact.displayName)}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              setContextMenu({ x: e.clientX, y: e.clientY, id: contact.id, displayName: contact.displayName, isEphemeral: contact.isEphemeral });
-            }}
-          >
-            <Avatar user={{ name: contact.displayName, matrixUserId: contact.isEphemeral ? undefined : contact.id, avatarUrl: contact.avatarUrl }} size={28} isMumbleOnly={contact.isEphemeral} />
-            <div className="dm-contact-info">
-              <div className="dm-contact-name-row">
-                <Tooltip content="">
-                <span className="dm-contact-name">
-                  {contact.displayName}
-                </span>
-                </Tooltip>
-                {contact.isEphemeral && (
-                  <span className="dm-contact-ephemeral-tag">mumble</span>
-                )}
-                {contact.lastMessageTime && (
-                  <span className="dm-contact-time">{formatTime(contact.lastMessageTime)}</span>
-                )}
-              </div>
-              {contact.lastMessage && (
-                <span className="dm-contact-preview">{contact.lastMessage}</span>
-              )}
-            </div>
-            {contact.unreadCount > 0 && (
-              <span className="dm-contact-unread">{contact.unreadCount}</span>
+
+        {messageContacts.length > 0 && (
+          <div className="dm-contact-section">
+            {messageContacts.map(contact => (
+              <ContactEntry
+                key={contact.id}
+                contact={contact}
+                selected={selectedUserId === contact.id}
+                formatTime={formatTime}
+                onSelectContact={onSelectContact}
+                onOpenContextMenu={setContextMenu}
+              />
+            ))}
+          </div>
+        )}
+
+        {(mumbleContacts.length > 0 || (!searchQuery && messageContacts.length > 0)) && (
+          <div className="dm-contact-section">
+            <div className="dm-contact-section-title">Mumble users</div>
+            {mumbleContacts.length === 0 ? (
+              <p className="dm-contact-empty dm-contact-empty-section">No Mumble users online</p>
+            ) : (
+              mumbleContacts.map(contact => (
+                <ContactEntry
+                  key={contact.id}
+                  contact={contact}
+                  selected={selectedUserId === contact.id}
+                  formatTime={formatTime}
+                  onSelectContact={onSelectContact}
+                  onOpenContextMenu={setContextMenu}
+                />
+              ))
             )}
-          </button>
-        ))}
+          </div>
+        )}
       </div>
 
       {contextMenu && (
@@ -150,5 +153,49 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
         );
       })()}
     </div>
+  );
+}
+
+interface ContactEntryProps {
+  contact: DMContact;
+  selected: boolean;
+  formatTime: (ts?: number) => string;
+  onSelectContact: (id: string, displayName: string) => void;
+  onOpenContextMenu: (menu: { x: number; y: number; id: string; displayName: string; isEphemeral?: boolean }) => void;
+}
+
+function ContactEntry({ contact, selected, formatTime, onSelectContact, onOpenContextMenu }: ContactEntryProps) {
+  return (
+    <button
+      className={`dm-contact-entry ${selected ? 'active' : ''} ${contact.isEphemeral && contact.mumbleSessionId == null ? 'offline' : ''}`}
+      onClick={() => onSelectContact(contact.id, contact.displayName)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onOpenContextMenu({ x: e.clientX, y: e.clientY, id: contact.id, displayName: contact.displayName, isEphemeral: contact.isEphemeral });
+      }}
+    >
+      <Avatar user={{ name: contact.displayName, matrixUserId: contact.isEphemeral ? undefined : contact.id, avatarUrl: contact.avatarUrl }} size={28} isMumbleOnly={contact.isEphemeral} />
+      <div className="dm-contact-info">
+        <div className="dm-contact-name-row">
+          <Tooltip content="">
+          <span className="dm-contact-name">
+            {contact.displayName}
+          </span>
+          </Tooltip>
+          {contact.isEphemeral && (
+            <span className="dm-contact-ephemeral-tag">mumble</span>
+          )}
+          {contact.lastMessageTime && (
+            <span className="dm-contact-time">{formatTime(contact.lastMessageTime)}</span>
+          )}
+        </div>
+        {contact.lastMessage && (
+          <span className="dm-contact-preview">{contact.lastMessage}</span>
+        )}
+      </div>
+      {contact.unreadCount > 0 && (
+        <span className="dm-contact-unread">{contact.unreadCount}</span>
+      )}
+    </button>
   );
 }

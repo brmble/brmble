@@ -64,6 +64,7 @@ import { mapBrmbleServiceStatus } from './utils/brmbleServiceStatus';
 import { areMatrixCredentialsEqual } from './utils/matrixCredentials';
 import { getSavedChannelPassword } from './utils/channelPasswords';
 import { getOrderedChannels } from './utils/channelOrder';
+import { formatBroadcastSummary } from './utils/formatBroadcastSummary';
 import './App.css';
 
 export interface ScreenShareEndedNotification {
@@ -629,6 +630,11 @@ interface User {
   isBrmbleClient?: boolean;
 }
 
+interface BrmbleDMUser {
+  matrixUserId: string;
+  displayName: string;
+}
+
 interface ChannelChatAccessState {
   canRead: boolean;
   canSend: boolean;
@@ -824,6 +830,12 @@ interface ServerRemovalNotification extends ScreenShareEndedNotification {
 function App() {
   // --- Notification queue (max 3 visible, priority-based) ---
   const notifQueue = useNotificationQueue();
+  // Stable ref to the notification queue so effects that must only run on
+  // specific triggers (e.g. channel change) can call queue methods without
+  // depending on the queue object's identity, which churns on every
+  // register/unregister and would otherwise re-run those effects unexpectedly.
+  const notifQueueRef = useRef(notifQueue);
+  notifQueueRef.current = notifQueue;
 
   // --- Brmblegotchi settings state ---
   const [brmblegotchiEnabled, setBrmblegotchiEnabledState] = useState<boolean>(() => {
@@ -1005,6 +1017,7 @@ function App() {
   const [hasPendingInvite] = useState(false);
 
   const [matrixCredentials, setMatrixCredentials] = useState<MatrixCredentials | null>(null);
+  const [brmbleDMUsers, setBrmbleDMUsers] = useState<BrmbleDMUser[]>([]);
   const matrixOverlayCallbacks = useMemo(() => ({
     onChannelMessage: (channelId: string, message: ChatMessage) => {
       const settings = overlaySettingsRef.current;
@@ -1188,6 +1201,7 @@ function App() {
     matrixDmUserAvatarUrls: matrixClient.dmUserAvatarUrls,
     sendMatrixDM: matrixClient.sendDMMessage,
     fetchDMHistory: matrixClient.fetchDMHistory,
+    brmbleUsers: brmbleDMUsers,
     users,
     username,
     sendMumbleDM: (targetSession: number, text: string) => {
@@ -1303,6 +1317,7 @@ function App() {
   const disconnectViewerRef = useRef<(() => Promise<void>) | null>(null);
   const handleScreenShareServiceUnavailableRef = useRef<(() => Promise<void>) | null>(null);
   const requestActiveShareDiscoveryRef = useRef<((channelId: string | undefined) => void) | null>(null);
+  const previousScreenShareServiceConnectedRef = useRef(false);
   const pendingCompanionRef = useRef<{ requestId: number; next: CompanionId; previous: CompanionId } | null>(null);
   const companionRequestIdRef = useRef(0);
 
@@ -1610,8 +1625,17 @@ function App() {
       if ((status.service === 'session' || status.service === 'screenshare') && mapped.update.state !== 'connected') {
         void handleScreenShareServiceUnavailableRef.current?.();
       }
-      if (status.service === 'screenshare' && status.state === 'connected') {
-        requestActiveShareDiscoveryRef.current?.(currentChannelIdRef.current);
+      if (status.service === 'screenshare') {
+        const nowConnected = status.state === 'connected';
+        const wasConnected = previousScreenShareServiceConnectedRef.current;
+        previousScreenShareServiceConnectedRef.current = nowConnected;
+        // Only run discovery when the screenshare service *transitions* into
+        // connected. Discovery success itself emits a "connected" status, so
+        // re-triggering on every "connected" message caused an infinite
+        // discovery loop that exhausted the server rate limit (HTTP 429).
+        if (nowConnected && !wasConnected) {
+          requestActiveShareDiscoveryRef.current?.(currentChannelIdRef.current);
+        }
       }
     };
 
@@ -1747,6 +1771,7 @@ function App() {
       setSpeakingUsers(new Map());
       hasMatrixCredentialsForSessionRef.current = false;
       setMatrixCredentials(null);
+      setBrmbleDMUsers([]);
       setCurrentUserAvatarUrl(undefined);
       fetchedAvatarIdsRef.current.clear();
       disconnectViewerRef.current?.();
@@ -1764,9 +1789,14 @@ function App() {
 
     const onServerCredentials = (data: unknown) => {
       setConnectionError(null);
-      const wrapped = data as { matrix?: MatrixCredentials } | undefined;
+      const wrapped = data as { matrix?: MatrixCredentials; userMappings?: Record<string, string> } | undefined;
       const d = wrapped?.matrix;
       if (d?.homeserverUrl && d.accessToken && d.userId && d.roomMap) {
+        const directoryUsers = Object.entries(wrapped?.userMappings ?? {})
+          .map(([displayName, matrixUserId]) => ({ displayName, matrixUserId }))
+          .filter(user => user.matrixUserId !== d.userId)
+          .sort((left, right) => left.displayName.localeCompare(right.displayName));
+        setBrmbleDMUsers(directoryUsers);
         if (!hasMatrixCredentialsForSessionRef.current) {
           clearChatStorage();
           hasMatrixCredentialsForSessionRef.current = true;
@@ -3132,6 +3162,7 @@ const handleConnect = (serverData: SavedServer) => {
         setSpeakingUsers(new Map());
         hasMatrixCredentialsForSessionRef.current = false;
         setMatrixCredentials(null);
+        setBrmbleDMUsers([]);
         setSharingChannelId(undefined);
       },
     });
@@ -3331,12 +3362,20 @@ const handleConnect = (serverData: SavedServer) => {
     const applyScreenShareSettings = (value: unknown) => {
       if (!value || typeof value !== 'object') return;
 
+      const payload = value as Record<string, unknown>;
+      const settingsPayload =
+        payload.settings && typeof payload.settings === 'object'
+          ? payload.settings as Record<string, unknown>
+          : null;
+
       const candidate =
-        'screenShare' in value &&
-        value.screenShare &&
-        typeof value.screenShare === 'object'
-          ? value.screenShare
-          : value;
+        settingsPayload
+          ? settingsPayload.screenShare
+          : payload.screenShare && typeof payload.screenShare === 'object'
+            ? payload.screenShare
+            : payload;
+
+      if (!candidate || typeof candidate !== 'object') return;
 
       setScreenShareSettings((current) => ({
         ...current,
@@ -3373,11 +3412,13 @@ const handleConnect = (serverData: SavedServer) => {
 
     const handleStorage = () => loadSettings();
     window.addEventListener('storage', handleStorage);
+    window.addEventListener('brmble-settings-updated', handleStorage);
 
     return () => {
       bridgeApi.off?.('settings.current', handleBridgeSettings);
       bridgeApi.off?.('settings.updated', handleBridgeSettings);
       window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('brmble-settings-updated', handleStorage);
     };
   }, []);
 
@@ -3454,7 +3495,7 @@ const handleConnect = (serverData: SavedServer) => {
     setWatchedShareEndedNotifications(prev => [...prev, notification]);
   }, []);
 
-  const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, roomQuality, shareQualities, disconnectViewer, connectAsViewer, isViewerConnectPending, handleScreenShareServiceUnavailable } = useScreenShare(() => {
+  const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, roomQuality, shareQualities, viewerQualities, setViewerQuality, disconnectViewer, connectAsViewer, isViewerConnectPending, handleScreenShareServiceUnavailable } = useScreenShare(() => {
     setSharingChannelId(undefined);
     sharingChannelIdRef.current = undefined;
   }, screenShareSettings, handleLocalScreenShareEnded, handleWatchedShareEnded);
@@ -3760,11 +3801,19 @@ const handleConnect = (serverData: SavedServer) => {
       const d = data as { roomName: string; userName: string; userId?: number; matrixUserId?: string; sessionId?: number };
       const selfUser = usersRef.current.find(u => u.self);
       const voiceChannelId = selfUser?.channelId;
-      // Only show notification for other users' shares in our channel
+      // Only show notification for other users' shares in our channel.
+      // Prefer the session id to identify self; when the server payload omits
+      // it, fall back to matching the Matrix identity so the broadcaster does
+      // not get a notification for their own share (the event is broadcast to
+      // everyone in the room, including the sharer).
+      const selfMatrixUserId = selfUser?.matrixUserId ?? matrixCredentialsRef.current?.userId;
+      const isSelfShare = (d.sessionId != null && selfUser?.session != null)
+        ? d.sessionId === selfUser.session
+        : (selfMatrixUserId != null && d.matrixUserId != null && d.matrixUserId === selfMatrixUserId);
       if (
         voiceChannelId != null &&
         d.roomName === `channel-${voiceChannelId}` &&
-        d.sessionId !== selfUser?.session &&
+        !isSelfShare &&
         shouldShowOptionalNotification(optionalNotificationSettingsRef.current, 'notificationRemoteScreenShare')
       ) {
         setScreenShareNotification({ userName: d.userName, roomName: d.roomName, userId: d.userId, matrixUserId: d.matrixUserId });
@@ -3805,13 +3854,19 @@ const handleConnect = (serverData: SavedServer) => {
 
   requestActiveShareDiscoveryRef.current = requestActiveShareDiscovery;
 
-  // Check for active screen shares when switching channels
+  // Check for active screen shares when switching channels.
+  // Depends ONLY on currentChannelId: the other collaborators (disconnectViewer,
+  // notifQueue, requestActiveShareDiscovery) are accessed via refs so their
+  // identity churn — notably notifQueue changing on every register/unregister —
+  // does not re-run this effect and wipe a freshly shown screen-share
+  // notification.
   useEffect(() => {
-    disconnectViewer();
+    disconnectViewerRef.current?.();
     setScreenShareNotification(null);
-    notifQueue.unregister('screen-share');
-    requestActiveShareDiscovery(currentChannelId);
-  }, [currentChannelId, disconnectViewer, notifQueue, requestActiveShareDiscovery]);
+    notifQueueRef.current.unregister('screen-share');
+    requestActiveShareDiscoveryRef.current?.(currentChannelId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentChannelId]);
 
   useEffect(() => {
     const previousConnectionStatus = previousConnectionStatusRef.current;
@@ -4079,6 +4134,10 @@ const handleConnect = (serverData: SavedServer) => {
           watchingShares={watchingShares}
           isLiveKitRoomConnected={isSharing || watchingShares.length > 0}
           screenShareQuality={roomQuality}
+          isSharing={isSharing}
+          broadcastSummary={isSharing ? formatBroadcastSummary(screenShareSettings.resolution, screenShareSettings.fps) : undefined}
+          shareQualities={shareQualities}
+          remoteVideoEls={remoteVideoEls}
           onWatchScreenShare={handleWatchScreenShare}
           onStopWatching={(userId) => disconnectViewer(userId)}
           onEditAvatar={connected ? () => setShowAvatarEditor(true) : undefined}
@@ -4120,11 +4179,13 @@ const handleConnect = (serverData: SavedServer) => {
                     watchingShares={watchingShares}
                     focusedShare={focusedShare}
                     remoteVideoEls={remoteVideoEls}
-                    roomQuality={roomQuality}
-                    shareQualities={shareQualities}
-                    onFocusShare={setFocusedShare}
-                    onCloseShare={(share) => disconnectViewer(share.userId)}
-                    screenShareViewerMode={screenShareSettings.viewerMode}
+                     roomQuality={roomQuality}
+                     shareQualities={shareQualities}
+                     viewerQualities={viewerQualities}
+                     onFocusShare={setFocusedShare}
+                     onCloseShare={(share) => disconnectViewer(share.userId)}
+                     onViewerQualityChange={setViewerQuality}
+                     screenShareViewerMode={screenShareSettings.viewerMode}
                     users={users}
                     disabled={!canSendActiveChannelChat}
                     topNotice={channelChatAccessNotice ?? brmbleServiceChatNotice}

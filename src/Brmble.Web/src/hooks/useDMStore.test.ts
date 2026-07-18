@@ -81,3 +81,64 @@ describe('useDMStore pendingMessages on Matrix send failure', () => {
     expect(pending).toHaveLength(0);
   });
 });
+
+describe('useDMStore contact directory merge', () => {
+  it('includes all known Brmble users even when no DM room exists', () => {
+    const { result } = renderHook(() =>
+      useDMStore(makeOptions({
+        brmbleUsers: [
+          { matrixUserId: '@alice:example.com', displayName: 'Alice' },
+          { matrixUserId: '@bob:example.com', displayName: 'Bob' },
+        ],
+      }))
+    );
+
+    expect(result.current.contacts).toEqual([
+      expect.objectContaining({ id: '@alice:example.com', displayName: 'Alice' }),
+      expect.objectContaining({ id: '@bob:example.com', displayName: 'Bob' }),
+    ]);
+    expect(result.current.contacts.every(contact => contact.isEphemeral !== true)).toBe(true);
+  });
+
+  it('includes online Mumble-only users as ephemeral contacts', () => {
+    const { result } = renderHook(() =>
+      useDMStore(makeOptions({
+        users: [
+          { name: 'me', session: 1, self: true },
+          { name: 'Mumble Mike', session: 2, certHash: 'cert-mike' },
+        ] as DMStoreOptions['users'],
+      }))
+    );
+
+    expect(result.current.contacts).toEqual([
+      expect.objectContaining({
+        id: 'cert-mike',
+        displayName: 'Mumble Mike',
+        isEphemeral: true,
+        mumbleCertHash: 'cert-mike',
+        mumbleSessionId: 2,
+      }),
+    ]);
+  });
+
+  it('keeps Brmble users in the Matrix contact section when they are online', () => {
+    const { result } = renderHook(() =>
+      useDMStore(makeOptions({
+        brmbleUsers: [
+          { matrixUserId: '@alice:example.com', displayName: 'Alice Offline Name' },
+        ],
+        users: [
+          { name: 'me', session: 1, self: true },
+          { name: 'Alice Online Name', session: 2, certHash: 'cert-alice', matrixUserId: '@alice:example.com', isBrmbleClient: true },
+        ] as DMStoreOptions['users'],
+      }))
+    );
+
+    expect(result.current.contacts).toHaveLength(1);
+    expect(result.current.contacts[0]).toEqual(expect.objectContaining({
+      id: '@alice:example.com',
+      displayName: 'Alice Online Name',
+    }));
+    expect(result.current.contacts[0].isEphemeral).not.toBe(true);
+  });
+});

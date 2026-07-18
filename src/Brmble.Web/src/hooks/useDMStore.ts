@@ -20,6 +20,12 @@ export interface DMContact {
   mumbleSessionId?: number | null;  // null = offline
 }
 
+export interface BrmbleDMUser {
+  matrixUserId: string;
+  displayName: string;
+  avatarUrl?: string;
+}
+
 export interface DMStoreOptions {
   matrixDmLastMessages: Map<string, MessagePreview> | undefined;
   activeDmMessages: ChatMessage[] | undefined;
@@ -29,6 +35,7 @@ export interface DMStoreOptions {
   sendMatrixDM: ((targetMatrixUserId: string, text: string) => Promise<void>) | undefined;
   fetchDMHistory: ((targetMatrixUserId: string) => Promise<void>) | undefined;
   sendMumbleDM?: (targetSession: number, text: string) => void;
+  brmbleUsers?: BrmbleDMUser[];
   users: User[];
   username: string;
 }
@@ -72,6 +79,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     sendMatrixDM,
     fetchDMHistory,
     sendMumbleDM,
+    brmbleUsers = [],
     users,
     username,
   } = options;
@@ -141,27 +149,76 @@ export function useDMStore(options: DMStoreOptions): DMStore {
       }
     }
 
+    // Merge all known Brmble users, including offline users and users without
+    // an existing DM room. Selecting one keeps using the Matrix DM path.
+    for (const directoryUser of brmbleUsers) {
+      if (seen.has(directoryUser.matrixUserId)) continue;
+      const user = users.find(u => u.matrixUserId === directoryUser.matrixUserId);
+      seen.add(directoryUser.matrixUserId);
+      result.push({
+        id: directoryUser.matrixUserId,
+        displayName: user?.name ?? directoryUser.displayName,
+        avatarUrl: user?.avatarUrl ?? directoryUser.avatarUrl ?? matrixDmUserAvatarUrls?.get(directoryUser.matrixUserId),
+        unreadCount: 0,
+      });
+    }
+
+    // Merge online Brmble users that are visible in Mumble but were not present
+    // in the directory snapshot for any reason.
+    for (const user of users) {
+      if (user.self || !user.matrixUserId || seen.has(user.matrixUserId)) continue;
+      seen.add(user.matrixUserId);
+      result.push({
+        id: user.matrixUserId,
+        displayName: user.name,
+        avatarUrl: user.avatarUrl,
+        unreadCount: 0,
+      });
+    }
+
     // Merge pending Matrix contacts (first-time DMs before room is created)
     for (const [id, pc] of pendingMatrixContacts) {
       if (!seen.has(id)) {
+        seen.add(id);
         result.push(pc);
       }
     }
 
-    // Merge Mumble contacts
+    // Merge online Mumble-only users and any existing ephemeral Mumble contacts.
+    const ephemeral = new Map<string, DMContact>();
+    for (const user of users) {
+      if (user.self || !user.certHash || user.matrixUserId) continue;
+      ephemeral.set(user.certHash, {
+        id: user.certHash,
+        displayName: user.name,
+        avatarUrl: user.avatarUrl,
+        unreadCount: 0,
+        isEphemeral: true,
+        mumbleCertHash: user.certHash,
+        mumbleSessionId: user.session,
+      });
+    }
+
     for (const [, mc] of mumbleContacts) {
+      const onlineContact = mc.mumbleCertHash ? ephemeral.get(mc.mumbleCertHash) : undefined;
       const msgs = mumbleMessages.get(mc.mumbleCertHash!);
       const lastMsg = msgs && msgs.length > 0 ? msgs[msgs.length - 1] : undefined;
-      result.push({
+      ephemeral.set(mc.mumbleCertHash!, {
         ...mc,
+        displayName: onlineContact?.displayName ?? mc.displayName,
+        avatarUrl: onlineContact?.avatarUrl ?? mc.avatarUrl,
+        mumbleSessionId: onlineContact?.mumbleSessionId ?? mc.mumbleSessionId,
         lastMessage: lastMsg?.content,
         lastMessageTime: lastMsg?.timestamp.getTime(),
       });
     }
 
-    result.sort((a, b) => (b.lastMessageTime ?? 0) - (a.lastMessageTime ?? 0));
+    const matrixContacts = result.sort((a, b) => (b.lastMessageTime ?? 0) - (a.lastMessageTime ?? 0));
+    const mumbleOnlyContacts = [...ephemeral.values()]
+      .sort((a, b) => (b.lastMessageTime ?? 0) - (a.lastMessageTime ?? 0) || a.displayName.localeCompare(b.displayName));
+    result.splice(0, result.length, ...matrixContacts, ...mumbleOnlyContacts);
     return result;
-  }, [matrixDmRoomMap, matrixDmLastMessages, matrixDmUserDisplayNames, matrixDmUserAvatarUrls, users, pendingMatrixContacts, mumbleContacts, mumbleMessages]);
+  }, [matrixDmRoomMap, matrixDmLastMessages, matrixDmUserDisplayNames, matrixDmUserAvatarUrls, brmbleUsers, users, pendingMatrixContacts, mumbleContacts, mumbleMessages]);
 
   // ---- Selected contact ----------------------------------------------------
 
