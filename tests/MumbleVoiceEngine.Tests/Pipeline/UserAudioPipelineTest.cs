@@ -93,6 +93,37 @@ namespace MumbleVoiceEngine.Tests.Pipeline
         }
 
         [TestMethod]
+        public void TenMsUnitSequences_ConsecutivePackets_NoFalseLoss()
+        {
+            // Mumble sequence numbers count 10ms units: consecutive 20ms
+            // packets arrive as 0, 2, 4 and must not register packet loss.
+            using var pipeline = new UserAudioPipeline(sampleRate: 48000, channels: 1);
+            using var encoder = new OpusEncoder(48000, 1) { Bitrate = 72000 };
+
+            pipeline.FeedEncodedPacket(EncodeSineFrame(encoder, 0), sequence: 0);
+            pipeline.FeedEncodedPacket(EncodeSineFrame(encoder, 1), sequence: 2);
+            pipeline.FeedEncodedPacket(EncodeSineFrame(encoder, 2), sequence: 4);
+
+            Assert.AreEqual(0, pipeline.GetAndResetLossPercent(),
+                "consecutive 10ms-unit sequences must not count as loss");
+        }
+
+        [TestMethod]
+        public void TenMsUnitSequences_MissingPacket_CountsAsLoss()
+        {
+            // 0, 2, then 6: the packet at sequence 4 (20ms) is missing.
+            using var pipeline = new UserAudioPipeline(sampleRate: 48000, channels: 1);
+            using var encoder = new OpusEncoder(48000, 1) { Bitrate = 72000 };
+
+            pipeline.FeedEncodedPacket(EncodeSineFrame(encoder, 0), sequence: 0);
+            pipeline.FeedEncodedPacket(EncodeSineFrame(encoder, 1), sequence: 2);
+            pipeline.FeedEncodedPacket(EncodeSineFrame(encoder, 2), sequence: 6);
+
+            Assert.IsTrue(pipeline.GetAndResetLossPercent() > 0,
+                "a real 10ms-unit gap must register as loss");
+        }
+
+        [TestMethod]
         public void Volume_Half_ReducesAmplitude()
         {
             using var pipeline = new UserAudioPipeline(sampleRate: 48000, channels: 1);

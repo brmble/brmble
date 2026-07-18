@@ -332,6 +332,30 @@ namespace MumbleVoiceEngine.Tests.Pipeline
         }
 
         [TestMethod]
+        public void SequenceNumber_NonDefaultSampleRate_StillAdvancesInTenMsUnits()
+        {
+            // 20ms at 16kHz = 320 samples; Mumble sequence units are 10ms
+            // regardless of sample rate, so this must advance by 2 (not 320/480=0).
+            using var pipeline = new EncodePipeline(
+                sampleRate: 16000, channels: 1, bitrate: 24000,
+                onPacketReady: _ => { }, frameSize: 320);
+
+            pipeline.SubmitPcm(new byte[320 * 2]);
+            Assert.AreEqual(2L, pipeline.CurrentSequence);
+        }
+
+        [TestMethod]
+        public void Constructor_SubTenMsFrame_Throws()
+        {
+            // 2.5ms and 5ms frames are permitted by Opus but cannot be
+            // represented in Mumble's 10ms sequence units — consecutive packets
+            // would reuse the same sequence number.
+            Assert.ThrowsException<ArgumentException>(() => new EncodePipeline(
+                sampleRate: 48000, channels: 1, bitrate: 72000,
+                onPacketReady: _ => { }, frameSize: 120));
+        }
+
+        [TestMethod]
         public void SequenceNumber_AdvancesByFrameDurationInTenMsUnits()
         {
             // 10ms frame (480 samples) → +1; 40ms frame (1920 samples) → +4.

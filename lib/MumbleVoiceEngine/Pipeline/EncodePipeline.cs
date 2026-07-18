@@ -14,6 +14,7 @@ public class EncodePipeline : IDisposable
     private readonly OpusEncoder _encoder;
     private readonly int _frameSize;        // samples per frame (960)
     private readonly int _frameSizeBytes;   // bytes per frame (1920 for mono 16-bit)
+    private readonly int _sequenceStride;   // Mumble 10ms units per packet
     private readonly byte[] _accumulator;
     private int _accumulatorPos;
     private long _sequenceNumber;
@@ -27,6 +28,17 @@ public class EncodePipeline : IDisposable
     {
         _frameSize = frameSize;
         _frameSizeBytes = frameSize * sizeof(short) * channels;
+
+        // Mumble sequence numbers count 10ms units at the stream's sample
+        // rate. Frames shorter than 10ms (Opus permits 2.5/5ms) cannot be
+        // represented — consecutive packets would reuse a sequence number.
+        int samplesPerTenMs = sampleRate / 100;
+        if (frameSize % samplesPerTenMs != 0)
+            throw new ArgumentException(
+                $"Frame size {frameSize} samples is not a multiple of 10ms at {sampleRate} Hz " +
+                "and cannot be represented in Mumble sequence units.",
+                nameof(frameSize));
+        _sequenceStride = frameSize / samplesPerTenMs;
         _accumulator = new byte[_frameSizeBytes];
         _onPacketReady = onPacketReady;
         _sequenceNumber = initialSequence;
@@ -173,9 +185,9 @@ public class EncodePipeline : IDisposable
             Array.Copy(encoded, opusData, encodedLen);
 
             byte[] packet = VoicePacketBuilder.Build(opusData, _sequenceNumber, _target, terminator);
-            // Mumble sequence numbers count 10ms units (480 samples at 48kHz),
-            // so a 20ms frame advances the sequence by 2, not 1.
-            _sequenceNumber += _frameSize / 480;
+            // Mumble sequence numbers count 10ms units, so a 20ms frame
+            // advances the sequence by 2, not 1.
+            _sequenceNumber += _sequenceStride;
 
             _onPacketReady(packet);
         }
