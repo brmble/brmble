@@ -1209,32 +1209,37 @@ function App() {
     },
   });
 
+  const selectedDmIsMumble = dmStore.selectedContact?.isEphemeral === true;
+  const activeDmMatrixContactId = dmStore.appMode === 'dm' && !selectedDmIsMumble
+    ? (dmStore.selectedContact?.id ?? null)
+    : null;
+
   useLayoutEffect(() => {
     matrixClient.setActiveChannel(dmStore.appMode === 'dm' ? null : permittedActiveMatrixChannelId);
   }, [dmStore.appMode, matrixClient.setActiveChannel, permittedActiveMatrixChannelId]);
 
   useLayoutEffect(() => {
-    matrixClient.setActiveDmContact(dmStore.appMode === 'dm' ? (dmStore.selectedContact?.id ?? null) : null);
-  }, [dmStore.appMode, dmStore.selectedContact?.id, matrixClient.setActiveDmContact]);
+    matrixClient.setActiveDmContact(activeDmMatrixContactId);
+  }, [activeDmMatrixContactId, matrixClient.setActiveDmContact]);
 
   // Determine active Matrix room ID (depends on dmStore.selectedContact)
   const activeMatrixRoomId = useMemo(() => {
-    if (dmStore.selectedContact && matrixClient?.dmRoomMap) {
-      const roomId = matrixClient.dmRoomMap.get(dmStore.selectedContact.id);
-      if (roomId) return roomId;
+    if (dmStore.appMode === 'dm') {
+      return activeDmMatrixContactId && matrixClient?.dmRoomMap
+        ? matrixClient.dmRoomMap.get(activeDmMatrixContactId) ?? null
+        : null;
     }
+
     if (permittedActiveMatrixChannelId && matrixCredentials?.roomMap?.[permittedActiveMatrixChannelId]) {
       return matrixCredentials.roomMap[permittedActiveMatrixChannelId];
     }
     return null;
-  }, [dmStore.selectedContact, matrixClient?.dmRoomMap, matrixCredentials?.roomMap, permittedActiveMatrixChannelId]);
+  }, [dmStore.appMode, activeDmMatrixContactId, matrixClient?.dmRoomMap, matrixCredentials?.roomMap, permittedActiveMatrixChannelId]);
 
   const dmMatrixRoomId = useMemo(() => {
-    if (dmStore.selectedContact && matrixClient?.dmRoomMap) {
-      return matrixClient.dmRoomMap.get(dmStore.selectedContact.id) ?? null;
-    }
-    return null;
-  }, [dmStore.selectedContact, matrixClient?.dmRoomMap]);
+    if (!activeDmMatrixContactId || !matrixClient?.dmRoomMap) return null;
+    return matrixClient.dmRoomMap.get(activeDmMatrixContactId) ?? null;
+  }, [activeDmMatrixContactId, matrixClient?.dmRoomMap]);
 
   const unreadTracker = useUnreadTracker(
     matrixClient?.client ?? null,
@@ -4209,20 +4214,20 @@ const handleConnect = (serverData: SavedServer) => {
                     currentUsername={username}
                     onSendMessage={dmStore.sendMessage}
                     isDM={true}
-                    matrixClient={matrixClient.client}
-                    matrixRoomId={dmMatrixRoomId}
-                    readMarkerTs={dmDividerTs}
+                    matrixClient={selectedDmIsMumble ? null : matrixClient.client}
+                    matrixRoomId={selectedDmIsMumble ? null : dmMatrixRoomId}
+                    readMarkerTs={selectedDmIsMumble ? null : dmDividerTs}
                     users={users}
                     disabled={dmStore.selectedContact?.isEphemeral === true && dmStore.selectedContact?.mumbleSessionId == null}
-                    topNotice={dmStore.selectedContact?.isEphemeral ? 'This is a Mumble direct message. Chat history will be lost when you disconnect.' : undefined}
+                    topNotice={selectedDmIsMumble ? 'This is a Mumble direct message. Chat history will be lost when you disconnect.' : undefined}
                     onMessageContextMenu={handleChatMessageContextMenu}
-                     onCopyToClipboard={handleCopyToClipboard}
-                     currentUserMatrixId={matrixCredentials?.userId}
-                     onToggleReaction={handleToggleDmReaction}
-                     typingIndicatorText={dmStore.appMode === 'dm' ? matrixClient.activeTypingText : undefined}
-                     typingTargetId={dmStore.selectedContact?.id}
-                     onTypingStart={matrixClient.startTyping}
-                     onTypingStop={matrixClient.stopTyping}
+                    onCopyToClipboard={handleCopyToClipboard}
+                    currentUserMatrixId={selectedDmIsMumble ? undefined : matrixCredentials?.userId}
+                    onToggleReaction={selectedDmIsMumble ? undefined : handleToggleDmReaction}
+                    typingIndicatorText={!selectedDmIsMumble && dmStore.appMode === 'dm' ? matrixClient.activeTypingText : undefined}
+                    typingTargetId={!selectedDmIsMumble ? (activeDmMatrixContactId ?? undefined) : undefined}
+                    onTypingStart={!selectedDmIsMumble ? matrixClient.startTyping : undefined}
+                    onTypingStop={!selectedDmIsMumble ? matrixClient.stopTyping : undefined}
                   />
                   </ErrorBoundary>
                 </div>
