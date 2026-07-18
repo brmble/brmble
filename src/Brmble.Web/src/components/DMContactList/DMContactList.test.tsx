@@ -47,7 +47,7 @@ function renderList(contacts: DMContact[] = [matrixContact, mumbleContact]) {
   const onSelectContact = vi.fn();
   const onCloseConversation = vi.fn();
 
-  render(
+  const view = render(
     <DMContactList
       contacts={contacts}
       selectedUserId={null}
@@ -57,7 +57,7 @@ function renderList(contacts: DMContact[] = [matrixContact, mumbleContact]) {
     />,
   );
 
-  return { onSelectContact, onCloseConversation };
+  return { ...view, onSelectContact, onCloseConversation };
 }
 
 describe('DMContactList directory behavior', () => {
@@ -128,6 +128,31 @@ describe('DMContactList directory behavior', () => {
     await user.click(screen.getByRole('button', { name: /Send Direct Message/ }));
 
     expect(onSelectContact).toHaveBeenCalledWith('cert-val', 'Vanilla Val');
+  });
+
+  it('updates an open Mumble user info dialog to the current active session after reconnect', async () => {
+    const user = userEvent.setup();
+    localStorage.setItem('volume_55', '80');
+    const { rerender } = renderList();
+
+    const mumbleButton = screen.getAllByRole('button', { name: /Vanilla Val/ })[1];
+    fireEvent.contextMenu(mumbleButton);
+    await user.click(screen.getByRole('button', { name: 'User Information' }));
+
+    expect(bridge.send).toHaveBeenCalledWith('voice.setVolume', { session: 44, volume: 100 });
+
+    rerender(
+      <DMContactList
+        contacts={[matrixContact, { ...mumbleContact, mumbleSessionId: 55 }]}
+        selectedUserId={null}
+        onSelectContact={vi.fn()}
+        onCloseConversation={vi.fn()}
+        visible={true}
+      />,
+    );
+
+    expect(bridge.send).toHaveBeenCalledWith('voice.setVolume', { session: 55, volume: 80 });
+    expect(bridge.send).toHaveBeenCalledWith('voice.setLocalMute', { session: 55, muted: false });
   });
 
   it('opens user info for an online Matrix route with the real Mumble session and selects the Matrix route from the real dialog', async () => {

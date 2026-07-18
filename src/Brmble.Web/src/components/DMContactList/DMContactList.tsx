@@ -162,17 +162,20 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
 
       {infoDialogUser && (() => {
         const contact = contacts.find(c => c.id === infoDialogUser.id);
+        const isEphemeral = contact?.isEphemeral ?? infoDialogUser.isEphemeral;
+        const activeSession = isEphemeral
+          ? contact?.mumbleSessionId
+          : contact?.onlineSessionId;
+        if (activeSession == null) return null;
         return (
         <UserInfoDialog
           isOpen={true}
           onClose={() => setInfoDialogUser(null)}
-          userName={infoDialogUser.displayName}
-          session={infoDialogUser.isEphemeral
-            ? (infoDialogUser.mumbleSessionId ?? 0)
-            : (infoDialogUser.onlineSessionId ?? 0)}
+          userName={contact?.displayName ?? infoDialogUser.displayName}
+          session={activeSession}
           isSelf={false}
           comment={undefined}
-          matrixUserId={infoDialogUser.isEphemeral ? undefined : contact?.id}
+          matrixUserId={isEphemeral ? undefined : contact?.id}
           avatarUrl={contact?.avatarUrl}
           onStartDM={(_userId, userName) => onSelectContact(infoDialogUser.id, userName)}
         />

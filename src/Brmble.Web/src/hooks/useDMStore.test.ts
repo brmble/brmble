@@ -342,6 +342,24 @@ describe('useDMStore contact directory merge', () => {
     expect(result.current.contacts.some(contact => contact.isEphemeral === true)).toBe(false);
   });
 
+  it('does not list a Brmble-client user under Mumble users before Matrix mapping arrives', () => {
+    const { result } = renderHook(() =>
+      useDMStore(makeOptions({
+        users: [
+          { name: 'me', session: 1, self: true },
+          {
+            name: 'Mapping Soon',
+            session: 2,
+            certHash: 'cert-soon',
+            isBrmbleClient: true,
+          },
+        ] as DMStoreOptions['users'],
+      }))
+    );
+
+    expect(result.current.contacts.find(contact => contact.id === 'cert-soon')).toBeUndefined();
+  });
+
   it('keeps existing Mumble history but disables the route when the active user switches to the Brmble client', () => {
     const sendMumbleDM = vi.fn();
     const standardUsers = [
@@ -468,14 +486,15 @@ describe('useDMStore contact directory merge', () => {
 
   it('sends later Mumble messages to the newest active session after reconnect', () => {
     const sendMumbleDM = vi.fn();
-    const { result } = renderHook(() =>
-      useDMStore(makeOptions({
-        sendMumbleDM,
-        users: [
-          { name: 'me', session: 1, self: true },
-          { name: 'Mumble Mike', session: 2, certHash: 'cert-mike' },
-        ] as DMStoreOptions['users'],
-      }))
+    const { result, rerender } = renderHook(
+      ({ session }) => useDMStore(makeOptions({
+          sendMumbleDM,
+          users: [
+            { name: 'me', session: 1, self: true },
+            { name: 'Mumble Mike', session, certHash: 'cert-mike' },
+          ] as DMStoreOptions['users'],
+        })),
+      { initialProps: { session: 2 } },
     );
 
     act(() => result.current.selectContact('cert-mike'));
@@ -483,8 +502,7 @@ describe('useDMStore contact directory merge', () => {
 
     expect(sendMumbleDM).toHaveBeenLastCalledWith(2, 'first session');
 
-    act(() => result.current.updateMumbleSession('cert-mike', null));
-    act(() => result.current.updateMumbleSession('cert-mike', 42, 'Mumble Mike'));
+    rerender({ session: 42 });
     act(() => result.current.selectContact('cert-mike'));
     act(() => result.current.sendMessage('new session'));
 

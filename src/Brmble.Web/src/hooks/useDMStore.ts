@@ -209,7 +209,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     for (const user of users) {
       if (user.self || !user.certHash || selfCertHashes.has(user.certHash)) continue;
       liveUsersByCertHash.set(user.certHash, user);
-      if (user.isBrmbleClient === true && user.matrixUserId) continue;
+      if (user.isBrmbleClient === true) continue;
 
       ephemeral.set(user.certHash, {
         id: user.certHash,
@@ -232,7 +232,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
       const lastMsg = msgs && msgs.length > 0 ? msgs[msgs.length - 1] : undefined;
       const hasRetainedConversation = Boolean(lastMsg);
 
-      if (onlineUser?.isBrmbleClient === true && onlineUser.matrixUserId) {
+      if (onlineUser?.isBrmbleClient === true) {
         if (!hasRetainedConversation) continue;
         ephemeral.set(certHash, {
           ...mc,
@@ -351,7 +351,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
 
     const derivedContact = contacts.find(c => c.id === selectedContactId && c.isEphemeral);
     const storedContact = mumbleContacts.get(selectedContactId);
-    const contact = derivedContact?.mumbleSessionId === null ? derivedContact : storedContact ?? derivedContact;
+    const contact = derivedContact ?? storedContact;
     if (contact?.isEphemeral) {
       // Mumble DM path
       if (contact.mumbleSessionId == null) return; // offline, can't send
