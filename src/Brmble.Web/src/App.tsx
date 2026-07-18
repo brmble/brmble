@@ -4248,7 +4248,7 @@ const handleConnect = (serverData: SavedServer) => {
         <DMContactList
           contacts={dmContactsWithUnreads}
           selectedUserId={dmStore.selectedContact?.id ?? null}
-          onSelectContact={(id: string, _name: string) => dmStore.selectContact(id)}
+          onSelectContact={(id: string) => dmStore.selectContact(id)}
           onCloseConversation={dmStore.closeDM}
           visible={dmStore.appMode === 'dm'}
         />
