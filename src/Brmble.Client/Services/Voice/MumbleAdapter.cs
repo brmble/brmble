@@ -37,6 +37,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     // Tracked so we can unsubscribe when AudioManager is disposed.
     private Action<bool>? _pttStateChangedHandler;
     private string? _lastWelcomeText;
+
+    // Rate-limit state for SendVoice failure logging (capture-thread handler).
+    private long _lastSendVoiceFailLogMs;
+    private int _sendVoiceFailsSinceLog;
     private readonly CertificateService? _certService;
     private uint? _previousChannelId;
     private uint? _pendingLocalJoinChannelId;
@@ -3888,7 +3892,17 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 // pipeline's packet callback). A throwing send — socket died,
                 // connection torn down mid-packet — must drop the packet, not
                 // kill the capture thread and silently deaden the mic.
-                AudioLog.Write($"[Voice] SendVoice failed, dropping packet: {ex.Message}");
+                // Rate-limited: a persistently dead socket fails at packet
+                // rate (~50/s) and would otherwise flood audio.log.
+                int dropped = Interlocked.Increment(ref _sendVoiceFailsSinceLog);
+                long now = Environment.TickCount64;
+                long last = Interlocked.Read(ref _lastSendVoiceFailLogMs);
+                if (now - last >= 1000 &&
+                    Interlocked.CompareExchange(ref _lastSendVoiceFailLogMs, now, last) == last)
+                {
+                    Interlocked.Exchange(ref _sendVoiceFailsSinceLog, 0);
+                    AudioLog.Write($"[Voice] SendVoice failed, dropped {dropped} packet(s) in the last interval: {ex.Message}");
+                }
             }
         };
         _audioManager?.UserStartedSpeaking += userId =>
