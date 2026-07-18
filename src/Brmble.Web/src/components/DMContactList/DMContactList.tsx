@@ -12,14 +12,27 @@ interface DMContactListProps {
   selectedUserId: string | null;
   onSelectContact: (id: string, displayName: string) => void;
   onCloseConversation: (id: string) => void;
-  onlineUserIds: string[];
   visible: boolean;
 }
 
-export function DMContactList({ contacts, selectedUserId, onSelectContact, onCloseConversation, onlineUserIds, visible }: DMContactListProps) {
+export function DMContactList({ contacts, selectedUserId, onSelectContact, onCloseConversation, visible }: DMContactListProps) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; id: string; displayName: string; isEphemeral?: boolean } | null>(null);
-  const [infoDialogUser, setInfoDialogUser] = useState<{ id: string; displayName: string } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    id: string;
+    displayName: string;
+    isEphemeral?: boolean;
+    mumbleSessionId?: number | null;
+    onlineSessionId?: number;
+  } | null>(null);
+  const [infoDialogUser, setInfoDialogUser] = useState<{
+    id: string;
+    displayName: string;
+    isEphemeral?: boolean;
+    mumbleSessionId?: number | null;
+    onlineSessionId?: number;
+  } | null>(null);
 
   const filtered = contacts.filter(c =>
     c.displayName.toLowerCase().includes(searchQuery.toLowerCase())
@@ -119,8 +132,19 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
               icon: (
                 <Icon name="info-filled" size={14} />
               ),
-              disabled: !onlineUserIds.includes(contextMenu.id),
-              onClick: () => { setInfoDialogUser({ id: contextMenu.id, displayName: contextMenu.displayName }); setContextMenu(null); },
+              disabled: contextMenu.isEphemeral
+                ? contextMenu.mumbleSessionId == null
+                : contextMenu.onlineSessionId == null,
+              onClick: () => {
+                setInfoDialogUser({
+                  id: contextMenu.id,
+                  displayName: contextMenu.displayName,
+                  isEphemeral: contextMenu.isEphemeral,
+                  mumbleSessionId: contextMenu.mumbleSessionId,
+                  onlineSessionId: contextMenu.onlineSessionId,
+                });
+                setContextMenu(null);
+              },
             },
             // Only Mumble (ephemeral) contacts can be closed — Brmble DMs are persistent
             ...(contextMenu.isEphemeral ? [{
@@ -143,12 +167,14 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
           isOpen={true}
           onClose={() => setInfoDialogUser(null)}
           userName={infoDialogUser.displayName}
-          session={0}
+          session={infoDialogUser.isEphemeral
+            ? (infoDialogUser.mumbleSessionId ?? 0)
+            : (infoDialogUser.onlineSessionId ?? 0)}
           isSelf={false}
           comment={undefined}
-          matrixUserId={contact?.id}
+          matrixUserId={infoDialogUser.isEphemeral ? undefined : contact?.id}
           avatarUrl={contact?.avatarUrl}
-          onStartDM={(userId, userName) => onSelectContact(userId, userName)}
+          onStartDM={(_userId, userName) => onSelectContact(infoDialogUser.id, userName)}
         />
         );
       })()}
@@ -161,7 +187,15 @@ interface ContactEntryProps {
   selected: boolean;
   formatTime: (ts?: number) => string;
   onSelectContact: (id: string, displayName: string) => void;
-  onOpenContextMenu: (menu: { x: number; y: number; id: string; displayName: string; isEphemeral?: boolean }) => void;
+  onOpenContextMenu: (menu: {
+    x: number;
+    y: number;
+    id: string;
+    displayName: string;
+    isEphemeral?: boolean;
+    mumbleSessionId?: number | null;
+    onlineSessionId?: number;
+  }) => void;
 }
 
 function ContactEntry({ contact, selected, formatTime, onSelectContact, onOpenContextMenu }: ContactEntryProps) {
@@ -171,7 +205,15 @@ function ContactEntry({ contact, selected, formatTime, onSelectContact, onOpenCo
       onClick={() => onSelectContact(contact.id, contact.displayName)}
       onContextMenu={(e) => {
         e.preventDefault();
-        onOpenContextMenu({ x: e.clientX, y: e.clientY, id: contact.id, displayName: contact.displayName, isEphemeral: contact.isEphemeral });
+        onOpenContextMenu({
+          x: e.clientX,
+          y: e.clientY,
+          id: contact.id,
+          displayName: contact.displayName,
+          isEphemeral: contact.isEphemeral,
+          mumbleSessionId: contact.mumbleSessionId,
+          onlineSessionId: contact.onlineSessionId,
+        });
       }}
     >
       <Avatar user={{ name: contact.displayName, matrixUserId: contact.isEphemeral ? undefined : contact.id, avatarUrl: contact.avatarUrl }} size={28} isMumbleOnly={contact.isEphemeral} />

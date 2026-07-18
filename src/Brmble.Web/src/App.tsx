@@ -4245,7 +4245,6 @@ const handleConnect = (serverData: SavedServer) => {
           selectedUserId={dmStore.selectedContact?.id ?? null}
           onSelectContact={(id: string, _name: string) => dmStore.selectContact(id)}
           onCloseConversation={dmStore.closeDM}
-           onlineUserIds={users.filter(u => !u.self && u.matrixUserId).map(u => u.matrixUserId!)}
           visible={dmStore.appMode === 'dm'}
         />
       </div>

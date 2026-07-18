@@ -63,6 +63,9 @@ function renderList(contacts: DMContact[] = [matrixContact, mumbleContact]) {
 describe('DMContactList directory behavior', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
+    localStorage.setItem('volume_44', '100');
+    localStorage.setItem('volume_33', '100');
   });
 
   it('renders a registered standard-Mumble user as two visually distinct route entries', () => {
