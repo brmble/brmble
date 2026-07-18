@@ -173,7 +173,9 @@ public class EncodePipeline : IDisposable
             Array.Copy(encoded, opusData, encodedLen);
 
             byte[] packet = VoicePacketBuilder.Build(opusData, _sequenceNumber, _target, terminator);
-            _sequenceNumber++;
+            // Mumble sequence numbers count 10ms units (480 samples at 48kHz),
+            // so a 20ms frame advances the sequence by 2, not 1.
+            _sequenceNumber += _frameSize / 480;
 
             _onPacketReady(packet);
         }

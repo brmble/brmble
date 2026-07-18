@@ -76,12 +76,13 @@ namespace MumbleVoiceEngine.Tests.Pipeline
 
             Assert.AreEqual(2, packets.Count);
 
-            // Parse sequence numbers from client→server packets
+            // Parse sequence numbers from client→server packets. Mumble sequence
+            // numbers count 10ms units, so a 20ms frame advances by 2.
             using var reader0 = new PacketReader(new MemoryStream(packets[0], 1, packets[0].Length - 1));
             Assert.AreEqual(0L, reader0.ReadVarInt64());
 
             using var reader1 = new PacketReader(new MemoryStream(packets[1], 1, packets[1].Length - 1));
-            Assert.AreEqual(1L, reader1.ReadVarInt64());
+            Assert.AreEqual(2L, reader1.ReadVarInt64());
         }
 
         [TestMethod]
@@ -324,10 +325,26 @@ namespace MumbleVoiceEngine.Tests.Pipeline
             Assert.AreEqual(0L, pipeline.CurrentSequence);
 
             pipeline.SubmitPcm(new byte[960 * 2]);
-            Assert.AreEqual(1L, pipeline.CurrentSequence);
+            Assert.AreEqual(2L, pipeline.CurrentSequence);
 
             pipeline.SubmitPcm(new byte[960 * 2]);
-            Assert.AreEqual(2L, pipeline.CurrentSequence);
+            Assert.AreEqual(4L, pipeline.CurrentSequence);
+        }
+
+        [TestMethod]
+        public void SequenceNumber_AdvancesByFrameDurationInTenMsUnits()
+        {
+            // 10ms frame (480 samples) → +1; 40ms frame (1920 samples) → +4.
+            foreach (var (frameSize, expectedStride) in new[] { (480, 1L), (1920, 4L) })
+            {
+                using var pipeline = new EncodePipeline(
+                    sampleRate: 48000, channels: 1, bitrate: 72000,
+                    onPacketReady: _ => { }, frameSize: frameSize);
+
+                pipeline.SubmitPcm(new byte[frameSize * 2]);
+                Assert.AreEqual(expectedStride, pipeline.CurrentSequence,
+                    $"frameSize {frameSize}");
+            }
         }
     }
 }
