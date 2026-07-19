@@ -101,6 +101,7 @@ games share one schema.
 - `channel_id` INTEGER (Mumble channel the match happened in)
 - `format` TEXT (`'1v1'` / `'ffa'` / …)
 - `outcome` TEXT (`'decided'` / `'draw'` / `'abandoned'`)
+- `abandon_reason` TEXT NULL (`'forfeit'` / `'disconnect'` / `'left_channel'`; set when `outcome = 'abandoned'`)
 - `started_at`, `ended_at` (timestamps)
 - `duration_ms` INTEGER
 - `metadata_json` TEXT NULL (per-game extras)
@@ -110,13 +111,18 @@ games share one schema.
 - `user_id` INTEGER → `users.id`
 - `placement` INTEGER (1 = winner, 2 = second, …; ties share a placement)
 - `score` INTEGER NULL (game-defined: final roll, RPS rounds won, WPM, …)
-- `result` TEXT (`'win'` / `'loss'` / `'draw'`)
+- `result` TEXT (`'win'` / `'loss'` / `'draw'` / `'abandoned'`)
 - `metadata_json` TEXT NULL (per-player game extras, e.g. accuracy)
 - PK (`match_id`, `user_id`)
 
+Abandoned matches (forfeit, disconnect, or leaving the channel) are **recorded**,
+not discarded. The participant who caused the abandonment gets `result =
+'abandoned'`; the reason is captured in `game_matches.abandon_reason`. This makes
+rage-quits and disconnect patterns visible in stats.
+
 **`game_user_stats`** (lifetime aggregate cache; all-time view only)
 - `user_id`, `game_type` (composite PK), `wins`, `losses`, `draws`,
-  `games_played`, `updated_at`
+  `abandons`, `games_played`, `updated_at`
 
 **`game_head_to_head`** (lifetime per-pair aggregate cache)
 - `player_low_id`, `player_high_id`, `game_type` (composite PK; canonical
@@ -152,10 +158,29 @@ come back server → `/ws` → Client → bridge → Web.
 | Respond | `game.respond {matchId, accept}` | `game.started {matchId, players, firstTurn, view}` or `game.declined` |
 | Play | `game.action {matchId, action}` (e.g. `{roll:true}`) | `game.stateUpdated {matchId, view, whoseTurn, lastEvent}` |
 | End | — | `game.ended {matchId, placements, winnerId, scores}` + Matrix system msg to channel |
-| Quit/timeout | `game.forfeit {matchId}` | `game.ended {outcome:'abandoned'}` |
+| Quit/disconnect | `game.forfeit {matchId}` | `game.ended {outcome:'abandoned', reason}` |
 
-Guardrails: 30s invite timeout; per-turn timeout; one active match per user;
-both players must remain in the same voice channel (leaving = forfeit).
+Guardrails: 30s invite timeout; per-turn timeout with escalating penalty (see
+Deathrolling Turn Timeout below); one active match per user; both players must
+remain in the same voice channel (leaving = forfeit). No slash commands in this
+release — invites are initiated from UI only.
+
+### Deathrolling Turn Timeout & Penalty
+
+Instead of an immediate auto-forfeit, a slow player is penalised progressively so
+the game still resolves without letting anyone stall indefinitely:
+
+- Each turn the active player has **15 seconds** to roll.
+- If they do not roll within 15s, their **roll ceiling** (the current number they
+  must roll under) is reduced by **X%** (configurable, default 20%), rounded down.
+- Every additional **5 seconds** without a roll reduces the ceiling by another X%.
+- This repeats until the player either rolls (against the reduced ceiling) or the
+  ceiling reaches **1**, at which point they are forced to roll a `1` and **lose**.
+- The server owns these timers and the ceiling reduction (authoritative); each
+  reduction emits a `game.stateUpdated` so both clients see the shrinking ceiling
+  and a visible countdown.
+- Timeout-driven losses are recorded as a normal `'decided'` outcome (the player
+  genuinely lost), not `'abandoned'`.
 
 ## Components / File Plan
 
@@ -200,9 +225,16 @@ only, no new toast system); read the guide before any UI work.
 
 - Non-Brmble target, target not in same voice channel, target already in a match,
   self-challenge → invite rejected with reason.
-- Invite/turn timeouts → match ends `abandoned`; no stats recorded for abandoned
-  (or recorded as `abandoned` outcome, excluded from win/loss ratios).
-- Player disconnects or leaves voice channel mid-match → forfeit.
-- Server restart → in-memory live matches lost (acceptable); persisted history
-  unaffected.
+- Invite timeout → invite expires, no match recorded.
+- Turn timeout (Deathrolling) → escalating ceiling penalty, ultimately a normal
+  `'decided'` loss (not abandoned); see Deathrolling Turn Timeout above.
+- Player forfeits, disconnects, or leaves the voice channel mid-match → match
+  ends `'abandoned'` and **is recorded** with `abandon_reason`
+  (`forfeit`/`disconnect`/`left_channel`); the abandoning player's participant
+  `result = 'abandoned'` and the other player is treated as the winner for
+  head-to-head purposes. Abandons are tracked in `game_user_stats.abandons` so
+  quit/disconnect behaviour is visible.
+- Server restart → in-memory live matches lost; on restart any match still live
+  is closed as `'abandoned'` (`reason = 'disconnect'`) if it can be reconciled,
+  else simply not persisted. Persisted history is unaffected.
 - Illegal/duplicate/out-of-turn actions → rejected by engine, state unchanged.
