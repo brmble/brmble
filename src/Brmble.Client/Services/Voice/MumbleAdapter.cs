@@ -58,7 +58,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private readonly Stopwatch _notifyThrottle = Stopwatch.StartNew();
     private string? _apiUrl;
     private string? _activeServerId;
-    private Dictionary<string, string> _userMappings = new();
     private readonly ConcurrentDictionary<uint, SessionMappingEntry> _sessionMappings = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<uint, bool> _channelPasswordRestrictions = new();
     private CancellationTokenSource? _wsCts;
@@ -1922,18 +1921,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     _bridge?.NotifyUiThread();
                 }
                 return;
-            }
-
-            // Parse user mappings (displayName -> matrixUserId) from the auth response
-            if (credentials.Value.TryGetProperty("userMappings", out var mappingsElement))
-            {
-                _userMappings = new Dictionary<string, string>();
-                foreach (var prop in mappingsElement.EnumerateObject())
-                {
-                    var matrixId = prop.Value.GetString();
-                    if (matrixId is not null)
-                        _userMappings[prop.Name] = matrixId;
-                }
             }
 
             // Parse session mappings (sessionId -> matrixUserId + mumbleName) from the auth response
@@ -4033,7 +4020,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 self = u == LocalUser,
                 comment = u.Comment,
                 certHash = u.CertificateHash ?? (hasMap ? sm!.CertHash : null),
-                matrixUserId = hasMap ? sm!.MatrixUserId : _userMappings.GetValueOrDefault(u.Name),
+                // No name-based fallback: a same-named session with a different cert
+                // must not inherit this user's Matrix identity.
+                matrixUserId = hasMap ? sm!.MatrixUserId : null,
                 companionId = hasMap ? sm!.CompanionId : null,
                 isBrmbleClient = hasMap && sm!.IsBrmbleClient
             };
@@ -4157,7 +4146,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             self = isSelf,
             comment = user?.Comment,
             certHash = user?.CertificateHash ?? (hasJoinMapping ? joinMapping!.CertHash : null),
-            matrixUserId = hasJoinMapping ? joinMapping!.MatrixUserId : _userMappings.GetValueOrDefault(joinedUserName),
+            matrixUserId = hasJoinMapping ? joinMapping!.MatrixUserId : null,
             companionId = hasJoinMapping ? joinMapping!.CompanionId : null,
             isBrmbleClient = hasJoinMapping && joinMapping!.IsBrmbleClient
         });

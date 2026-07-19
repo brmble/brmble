@@ -43,6 +43,8 @@ public class AuthServiceTests
                    .ReturnsAsync("syt_refresh_token");
         _mockMumbleReg = new Mock<IMumbleRegistrationService>();
         _mockSessionMapping = new Mock<ISessionMappingService>();
+        _mockSessionMapping.Setup(m => m.GetSnapshot())
+                           .Returns(new Dictionary<int, SessionMapping>());
         var mockEventBus = new Mock<IBrmbleEventBus>();
         mockEventBus.Setup(b => b.BroadcastAsync(It.IsAny<object>())).Returns(Task.CompletedTask);
         _svc = new AuthService(repo, _mockMatrix.Object, NullLogger<AuthService>.Instance,
@@ -92,6 +94,23 @@ public class AuthServiceTests
         await _svc!.Authenticate("todeactivate");
         _svc.Deactivate("todeactivate");
         Assert.IsFalse(_svc.IsBrmbleClient("todeactivate"));
+    }
+
+    [TestMethod]
+    public void Deactivate_DemotesSessionsByCertHash_NotByName()
+    {
+        // Even after _certToName was rebound to a newer session, demotion must hit
+        // every session whose mapping carries this cert.
+        _mockSessionMapping!.Setup(m => m.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>
+        {
+            [5] = new SessionMapping("@1:test.local", "Alice", 1, "floppy", IsBrmbleClient: true, CertHash: "cert-a"),
+            [7] = new SessionMapping("@2:test.local", "Bob", 2, "floppy", IsBrmbleClient: true, CertHash: "cert-b"),
+        });
+
+        _svc!.Deactivate("cert-a");
+
+        _mockSessionMapping.Verify(m => m.TryUpdateBrmbleStatus(5, false), Times.Once);
+        _mockSessionMapping.Verify(m => m.TryUpdateBrmbleStatus(7, It.IsAny<bool>()), Times.Never);
     }
 
     [TestMethod]

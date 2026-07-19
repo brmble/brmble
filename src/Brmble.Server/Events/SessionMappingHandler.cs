@@ -38,7 +38,10 @@ public class SessionMappingHandler : IMumbleEventHandler
 
         var mappingAdded = _sessionMapping.TryAddMatrixUser(user.SessionId, dbUser.MatrixUserId, user.Name, dbUser.Id, companionId);
         _sessionMapping.TryUpdateCertHash(user.SessionId, user.CertHash);
-        _sessionMapping.TryUpdateBrmbleStatus(user.SessionId, isBrmbleClient);
+        // Upgrade-only: a concurrent Authenticate may have already flagged this session
+        // Brmble; writing false here would race that away. Demotion goes via Deactivate.
+        if (isBrmbleClient)
+            _sessionMapping.TryUpdateBrmbleStatus(user.SessionId, true);
 
         _logger.LogInformation(
             "Mapped session {Session} ({Name}) to {MatrixUserId} via cert (brmbleClient={IsBrmble}, added={Added})",
@@ -64,7 +67,21 @@ public class SessionMappingHandler : IMumbleEventHandler
         }
     }
 
-    public Task OnUserDisconnected(MumbleUser user) => Task.CompletedTask;
+    public async Task OnUserDisconnected(MumbleUser user)
+    {
+        // Crash safety net: if the Mumble session ends and no Brmble WebSocket is
+        // alive for this user, the cert must not stay marked Brmble-active — a later
+        // plain-Mumble connect with the same cert would be shown as a Brmble user.
+        if (string.IsNullOrEmpty(user.CertHash)) return;
+        if (!_activeSessions.IsBrmbleClient(user.CertHash)) return;
+
+        var dbUser = await _userRepository.GetByCertHash(user.CertHash);
+        if (dbUser is not null && _eventBus.HasConnectedClient(dbUser.Id)) return;
+
+        _activeSessions.Deactivate(user.CertHash);
+        _logger.LogInformation("Deactivated Brmble cert for {Name} (session {Session} disconnected, no live WebSocket)",
+            user.Name, user.SessionId);
+    }
     public Task OnUserTextureAvailable(MumbleUser user, byte[] textureData) => Task.CompletedTask;
     public Task OnUserTextMessage(MumbleUser sender, string text, int channelId) => Task.CompletedTask;
     public Task OnChannelCreated(MumbleChannel channel) => Task.CompletedTask;
