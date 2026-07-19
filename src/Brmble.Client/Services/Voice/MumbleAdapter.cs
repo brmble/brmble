@@ -3884,7 +3884,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         {
             try
             {
-                Connection?.SendVoice(new ArraySegment<byte>(packet.ToArray()));
+                // Avoid ToArray() on the capture hot path: EncodePipeline
+                // emits a fresh array per packet and SendVoice consumes the
+                // segment synchronously, so the backing array can be sent
+                // directly.
+                if (System.Runtime.InteropServices.MemoryMarshal.TryGetArray(packet, out ArraySegment<byte> segment))
+                    Connection?.SendVoice(segment);
+                else
+                    Connection?.SendVoice(new ArraySegment<byte>(packet.ToArray()));
             }
             catch (Exception ex)
             {
