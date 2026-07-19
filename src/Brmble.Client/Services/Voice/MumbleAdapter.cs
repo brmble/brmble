@@ -97,7 +97,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     })
     { Timeout = TimeSpan.FromSeconds(5) };
 
-    internal record SessionMappingEntry(string MatrixUserId, string MumbleName, string CompanionId, bool IsBrmbleClient = false);
+    internal record SessionMappingEntry(string MatrixUserId, string MumbleName, string CompanionId, bool IsBrmbleClient = false, string? CertHash = null);
 
     /// <summary>
     /// Parses a JSON object whose keys are session IDs and values contain
@@ -114,10 +114,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 var matrixId = prop.Value.TryGetProperty("matrixUserId", out var m) ? m.GetString() : null;
                 var name = prop.Value.TryGetProperty("mumbleName", out var n) ? n.GetString() : null;
                 var companionId = prop.Value.TryGetProperty("companionId", out var c) ? c.GetString() : "floppy";
+                var certHash = prop.Value.TryGetProperty("certHash", out var h) ? h.GetString() : null;
                 if (matrixId is not null && name is not null && companionId is not null)
                 {
                     var isBrmble = prop.Value.TryGetProperty("isBrmbleClient", out var b) && b.GetBoolean();
-                    result[sid] = new SessionMappingEntry(matrixId, name, companionId, isBrmble);
+                    result[sid] = new SessionMappingEntry(matrixId, name, companionId, isBrmble, certHash);
                 }
             }
         }
@@ -2539,6 +2540,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                                 k.Value.MatrixUserId,
                                 k.Value.MumbleName,
                                 k.Value.CompanionId,
+                                k.Value.CertHash,
                                 k.Value.IsBrmbleClient
                             })
                         });
@@ -2550,11 +2552,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     var addMatrixId = root.TryGetProperty("matrixUserId", out var matrixProp) ? matrixProp.GetString() : null;
                     var addName = root.TryGetProperty("mumbleName", out var nameProp) ? nameProp.GetString() : null;
                     var addCompanionId = root.TryGetProperty("companionId", out var companionProp) ? companionProp.GetString() : "floppy";
+                    var addCertHash = root.TryGetProperty("certHash", out var certProp) ? certProp.GetString() : null;
                     var addIsBrmble = root.TryGetProperty("isBrmbleClient", out var brmbleProp) && brmbleProp.GetBoolean();
                     if (addSid > 0 && addMatrixId is not null && addName is not null && addCompanionId is not null)
                     {
-                        _sessionMappings[addSid] = new SessionMappingEntry(addMatrixId, addName, addCompanionId, addIsBrmble);
-                        _bridge?.Send("voice.userMappingUpdated", new { sessionId = addSid, matrixUserId = addMatrixId, mumbleName = addName, companionId = addCompanionId, isBrmbleClient = addIsBrmble, action = "added" });
+                        _sessionMappings[addSid] = new SessionMappingEntry(addMatrixId, addName, addCompanionId, addIsBrmble, addCertHash);
+                        _bridge?.Send("voice.userMappingUpdated", new { sessionId = addSid, matrixUserId = addMatrixId, mumbleName = addName, companionId = addCompanionId, certHash = addCertHash, isBrmbleClient = addIsBrmble, action = "added" });
                         _bridge?.NotifyUiThread();
                     }
                     break;
@@ -4063,7 +4066,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 deafened = u.Deaf || u.SelfDeaf,
                 self = u == LocalUser,
                 comment = u.Comment,
-                certHash = u.CertificateHash,
+                certHash = u.CertificateHash ?? (hasMap ? sm!.CertHash : null),
                 matrixUserId = hasMap ? sm!.MatrixUserId : _userMappings.GetValueOrDefault(u.Name),
                 companionId = hasMap ? sm!.CompanionId : null,
                 isBrmbleClient = hasMap && sm!.IsBrmbleClient
@@ -4187,7 +4190,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             deafened = user != null ? (user.Deaf || user.SelfDeaf) : (userState.Deaf || userState.SelfDeaf),
             self = isSelf,
             comment = user?.Comment,
-            certHash = user?.CertificateHash,
+            certHash = user?.CertificateHash ?? (hasJoinMapping ? joinMapping!.CertHash : null),
             matrixUserId = hasJoinMapping ? joinMapping!.MatrixUserId : _userMappings.GetValueOrDefault(joinedUserName),
             companionId = hasJoinMapping ? joinMapping!.CompanionId : null,
             isBrmbleClient = hasJoinMapping && joinMapping!.IsBrmbleClient

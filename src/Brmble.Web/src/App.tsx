@@ -630,6 +630,11 @@ interface User {
   isBrmbleClient?: boolean;
 }
 
+interface BrmbleDMUser {
+  matrixUserId: string;
+  displayName: string;
+}
+
 interface ChannelChatAccessState {
   canRead: boolean;
   canSend: boolean;
@@ -1012,6 +1017,7 @@ function App() {
   const [hasPendingInvite] = useState(false);
 
   const [matrixCredentials, setMatrixCredentials] = useState<MatrixCredentials | null>(null);
+  const [brmbleDMUsers, setBrmbleDMUsers] = useState<BrmbleDMUser[]>([]);
   const matrixOverlayCallbacks = useMemo(() => ({
     onChannelMessage: (channelId: string, message: ChatMessage) => {
       const settings = overlaySettingsRef.current;
@@ -1195,6 +1201,7 @@ function App() {
     matrixDmUserAvatarUrls: matrixClient.dmUserAvatarUrls,
     sendMatrixDM: matrixClient.sendDMMessage,
     fetchDMHistory: matrixClient.fetchDMHistory,
+    brmbleUsers: brmbleDMUsers,
     users,
     username,
     sendMumbleDM: (targetSession: number, text: string) => {
@@ -1202,32 +1209,37 @@ function App() {
     },
   });
 
+  const selectedDmIsMumble = dmStore.selectedContact?.isEphemeral === true;
+  const activeDmMatrixContactId = dmStore.appMode === 'dm' && !selectedDmIsMumble
+    ? (dmStore.selectedContact?.id ?? null)
+    : null;
+
   useLayoutEffect(() => {
     matrixClient.setActiveChannel(dmStore.appMode === 'dm' ? null : permittedActiveMatrixChannelId);
   }, [dmStore.appMode, matrixClient.setActiveChannel, permittedActiveMatrixChannelId]);
 
   useLayoutEffect(() => {
-    matrixClient.setActiveDmContact(dmStore.appMode === 'dm' ? (dmStore.selectedContact?.id ?? null) : null);
-  }, [dmStore.appMode, dmStore.selectedContact?.id, matrixClient.setActiveDmContact]);
+    matrixClient.setActiveDmContact(activeDmMatrixContactId);
+  }, [activeDmMatrixContactId, matrixClient.setActiveDmContact]);
 
   // Determine active Matrix room ID (depends on dmStore.selectedContact)
   const activeMatrixRoomId = useMemo(() => {
-    if (dmStore.selectedContact && matrixClient?.dmRoomMap) {
-      const roomId = matrixClient.dmRoomMap.get(dmStore.selectedContact.id);
-      if (roomId) return roomId;
+    if (dmStore.appMode === 'dm') {
+      return activeDmMatrixContactId && matrixClient?.dmRoomMap
+        ? matrixClient.dmRoomMap.get(activeDmMatrixContactId) ?? null
+        : null;
     }
+
     if (permittedActiveMatrixChannelId && matrixCredentials?.roomMap?.[permittedActiveMatrixChannelId]) {
       return matrixCredentials.roomMap[permittedActiveMatrixChannelId];
     }
     return null;
-  }, [dmStore.selectedContact, matrixClient?.dmRoomMap, matrixCredentials?.roomMap, permittedActiveMatrixChannelId]);
+  }, [dmStore.appMode, activeDmMatrixContactId, matrixClient?.dmRoomMap, matrixCredentials?.roomMap, permittedActiveMatrixChannelId]);
 
   const dmMatrixRoomId = useMemo(() => {
-    if (dmStore.selectedContact && matrixClient?.dmRoomMap) {
-      return matrixClient.dmRoomMap.get(dmStore.selectedContact.id) ?? null;
-    }
-    return null;
-  }, [dmStore.selectedContact, matrixClient?.dmRoomMap]);
+    if (!activeDmMatrixContactId || !matrixClient?.dmRoomMap) return null;
+    return matrixClient.dmRoomMap.get(activeDmMatrixContactId) ?? null;
+  }, [activeDmMatrixContactId, matrixClient?.dmRoomMap]);
 
   const unreadTracker = useUnreadTracker(
     matrixClient?.client ?? null,
@@ -1764,6 +1776,7 @@ function App() {
       setSpeakingUsers(new Map());
       hasMatrixCredentialsForSessionRef.current = false;
       setMatrixCredentials(null);
+      setBrmbleDMUsers([]);
       setCurrentUserAvatarUrl(undefined);
       fetchedAvatarIdsRef.current.clear();
       disconnectViewerRef.current?.();
@@ -1781,9 +1794,14 @@ function App() {
 
     const onServerCredentials = (data: unknown) => {
       setConnectionError(null);
-      const wrapped = data as { matrix?: MatrixCredentials } | undefined;
+      const wrapped = data as { matrix?: MatrixCredentials; userMappings?: Record<string, string> } | undefined;
       const d = wrapped?.matrix;
       if (d?.homeserverUrl && d.accessToken && d.userId && d.roomMap) {
+        const directoryUsers = Object.entries(wrapped?.userMappings ?? {})
+          .map(([displayName, matrixUserId]) => ({ displayName, matrixUserId }))
+          .filter(user => user.matrixUserId !== d.userId)
+          .sort((left, right) => left.displayName.localeCompare(right.displayName));
+        setBrmbleDMUsers(directoryUsers);
         if (!hasMatrixCredentialsForSessionRef.current) {
           clearChatStorage();
           hasMatrixCredentialsForSessionRef.current = true;
@@ -2495,7 +2513,7 @@ function App() {
     };
 
     const onUserMappingUpdated = (data: unknown) => {
-      const d = data as { sessionId: number; matrixUserId?: string; companionId?: CompanionId; isBrmbleClient?: boolean; action: string } | undefined;
+      const d = data as { sessionId: number; matrixUserId?: string; companionId?: CompanionId; certHash?: string; isBrmbleClient?: boolean; action: string } | undefined;
       if (d?.sessionId !== undefined) {
         setUsers(prev => prev.map(u =>
           u.session === d.sessionId
@@ -2503,6 +2521,7 @@ function App() {
               ...u,
               matrixUserId: d.action === 'added' ? d.matrixUserId : undefined,
               companionId: d.action === 'added' ? d.companionId : u.companionId,
+              certHash: d.action === 'added' ? (d.certHash ?? u.certHash) : u.certHash,
               isBrmbleClient: d.action === 'added' ? d.isBrmbleClient : undefined,
             }
             : u
@@ -2515,16 +2534,16 @@ function App() {
     };
 
     const onSessionMappingSnapshot = (data: unknown) => {
-      const d = data as { mappings: Record<string, { matrixUserId: string; mumbleName: string; companionId?: CompanionId; isBrmbleClient?: boolean }> } | undefined;
+      const d = data as { mappings: Record<string, { matrixUserId: string; mumbleName: string; companionId?: CompanionId; certHash?: string; isBrmbleClient?: boolean }> } | undefined;
       if (d?.mappings && typeof d.mappings === 'object') {
         setUsers(prev => {
-          const mappingMap = new Map<number, { matrixUserId: string; companionId?: CompanionId; isBrmbleClient?: boolean }>();
+          const mappingMap = new Map<number, { matrixUserId: string; companionId?: CompanionId; certHash?: string; isBrmbleClient?: boolean }>();
           for (const [sid, entry] of Object.entries(d.mappings)) {
-            mappingMap.set(Number(sid), { matrixUserId: entry.matrixUserId, companionId: entry.companionId, isBrmbleClient: entry.isBrmbleClient });
+            mappingMap.set(Number(sid), { matrixUserId: entry.matrixUserId, companionId: entry.companionId, certHash: entry.certHash, isBrmbleClient: entry.isBrmbleClient });
           }
           return prev.map(u => {
             const m = mappingMap.get(u.session);
-            return m ? { ...u, matrixUserId: m.matrixUserId, companionId: m.companionId ?? u.companionId, isBrmbleClient: m.isBrmbleClient } : u;
+            return m ? { ...u, matrixUserId: m.matrixUserId, companionId: m.companionId ?? u.companionId, certHash: m.certHash ?? u.certHash, isBrmbleClient: m.isBrmbleClient } : u;
           });
         });
         // Fetch avatars for users that gained a matrixUserId
@@ -3149,6 +3168,7 @@ const handleConnect = (serverData: SavedServer) => {
         setSpeakingUsers(new Map());
         hasMatrixCredentialsForSessionRef.current = false;
         setMatrixCredentials(null);
+        setBrmbleDMUsers([]);
         setSharingChannelId(undefined);
       },
     });
@@ -4195,20 +4215,20 @@ const handleConnect = (serverData: SavedServer) => {
                     currentUsername={username}
                     onSendMessage={dmStore.sendMessage}
                     isDM={true}
-                    matrixClient={matrixClient.client}
-                    matrixRoomId={dmMatrixRoomId}
-                    readMarkerTs={dmDividerTs}
+                    matrixClient={selectedDmIsMumble ? null : matrixClient.client}
+                    matrixRoomId={selectedDmIsMumble ? null : dmMatrixRoomId}
+                    readMarkerTs={selectedDmIsMumble ? null : dmDividerTs}
                     users={users}
                     disabled={dmStore.selectedContact?.isEphemeral === true && dmStore.selectedContact?.mumbleSessionId == null}
-                    topNotice={dmStore.selectedContact?.isEphemeral ? 'This is a Mumble direct message. Chat history will be lost when you disconnect.' : undefined}
+                    topNotice={selectedDmIsMumble ? 'This is a Mumble direct message. Chat history will be lost when you disconnect.' : undefined}
                     onMessageContextMenu={handleChatMessageContextMenu}
-                     onCopyToClipboard={handleCopyToClipboard}
-                     currentUserMatrixId={matrixCredentials?.userId}
-                     onToggleReaction={handleToggleDmReaction}
-                     typingIndicatorText={dmStore.appMode === 'dm' ? matrixClient.activeTypingText : undefined}
-                     typingTargetId={dmStore.selectedContact?.id}
-                     onTypingStart={matrixClient.startTyping}
-                     onTypingStop={matrixClient.stopTyping}
+                    onCopyToClipboard={handleCopyToClipboard}
+                    currentUserMatrixId={selectedDmIsMumble ? undefined : matrixCredentials?.userId}
+                    onToggleReaction={selectedDmIsMumble ? undefined : handleToggleDmReaction}
+                    typingIndicatorText={!selectedDmIsMumble && dmStore.appMode === 'dm' ? matrixClient.activeTypingText : undefined}
+                    typingTargetId={!selectedDmIsMumble ? (activeDmMatrixContactId ?? undefined) : undefined}
+                    onTypingStart={!selectedDmIsMumble ? matrixClient.startTyping : undefined}
+                    onTypingStop={!selectedDmIsMumble ? matrixClient.stopTyping : undefined}
                   />
                   </ErrorBoundary>
                 </div>
@@ -4229,9 +4249,8 @@ const handleConnect = (serverData: SavedServer) => {
         <DMContactList
           contacts={dmContactsWithUnreads}
           selectedUserId={dmStore.selectedContact?.id ?? null}
-          onSelectContact={(id: string, _name: string) => dmStore.selectContact(id)}
+          onSelectContact={(id: string) => dmStore.selectContact(id)}
           onCloseConversation={dmStore.closeDM}
-           onlineUserIds={users.filter(u => !u.self && u.matrixUserId).map(u => u.matrixUserId!)}
           visible={dmStore.appMode === 'dm'}
         />
       </div>

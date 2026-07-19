@@ -25,6 +25,7 @@ public interface IActiveBrmbleSessions
     bool IsBrmbleClientByName(string mumbleName);
     void TrackMumbleName(string mumbleName, string? certHash = null, bool active = false);
     void UntrackMumbleName(string mumbleName);
+    void Deactivate(string certHash);
 }
 
 public class AuthService : IActiveBrmbleSessions

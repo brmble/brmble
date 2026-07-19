@@ -64,6 +64,29 @@
   font-style: italic;
 }
 
+.dm-contact-empty-section {
+  padding: var(--space-sm);
+  text-align: left;
+}
+
+.dm-contact-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+}
+
+.dm-contact-section + .dm-contact-section {
+  margin-top: var(--space-md);
+}
+
+.dm-contact-section-title {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  padding: var(--space-xs) var(--space-sm) var(--space-2xs);
+  text-transform: uppercase;
+}
+
 .dm-contact-entry {
   display: flex;
   align-items: center;

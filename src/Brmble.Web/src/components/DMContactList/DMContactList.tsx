@@ -12,18 +12,33 @@ interface DMContactListProps {
   selectedUserId: string | null;
   onSelectContact: (id: string, displayName: string) => void;
   onCloseConversation: (id: string) => void;
-  onlineUserIds: string[];
   visible: boolean;
 }
 
-export function DMContactList({ contacts, selectedUserId, onSelectContact, onCloseConversation, onlineUserIds, visible }: DMContactListProps) {
+export function DMContactList({ contacts, selectedUserId, onSelectContact, onCloseConversation, visible }: DMContactListProps) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; id: string; displayName: string; isEphemeral?: boolean } | null>(null);
-  const [infoDialogUser, setInfoDialogUser] = useState<{ id: string; displayName: string } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    id: string;
+    displayName: string;
+    isEphemeral?: boolean;
+    mumbleSessionId?: number | null;
+    onlineSessionId?: number;
+  } | null>(null);
+  const [infoDialogUser, setInfoDialogUser] = useState<{
+    id: string;
+    displayName: string;
+    isEphemeral?: boolean;
+    mumbleSessionId?: number | null;
+    onlineSessionId?: number;
+  } | null>(null);
 
   const filtered = contacts.filter(c =>
     c.displayName.toLowerCase().includes(searchQuery.toLowerCase())
   );
+  const messageContacts = filtered.filter(c => !c.isEphemeral);
+  const mumbleContacts = filtered.filter(c => c.isEphemeral);
 
   const formatTime = (ts?: number) => {
     if (!ts) return '';
@@ -48,7 +63,7 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
         <Icon name="search" size={14} />
         <input
           type="text"
-          placeholder="Search conversations..."
+          placeholder="Search users..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="dm-contact-search-input"
@@ -58,43 +73,44 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
       <div className="dm-contact-entries">
         {filtered.length === 0 && (
           <p className="dm-contact-empty">
-            {searchQuery ? 'No matching conversations' : 'No conversations yet'}
+            {searchQuery ? 'No matching users' : 'No conversations yet'}
           </p>
         )}
-        {filtered.map(contact => (
-          <button
-            key={contact.id}
-            className={`dm-contact-entry ${selectedUserId === contact.id ? 'active' : ''} ${contact.isEphemeral && contact.mumbleSessionId == null ? 'offline' : ''}`}
-            onClick={() => onSelectContact(contact.id, contact.displayName)}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              setContextMenu({ x: e.clientX, y: e.clientY, id: contact.id, displayName: contact.displayName, isEphemeral: contact.isEphemeral });
-            }}
-          >
-            <Avatar user={{ name: contact.displayName, matrixUserId: contact.isEphemeral ? undefined : contact.id, avatarUrl: contact.avatarUrl }} size={28} isMumbleOnly={contact.isEphemeral} />
-            <div className="dm-contact-info">
-              <div className="dm-contact-name-row">
-                <Tooltip content="">
-                <span className="dm-contact-name">
-                  {contact.displayName}
-                </span>
-                </Tooltip>
-                {contact.isEphemeral && (
-                  <span className="dm-contact-ephemeral-tag">mumble</span>
-                )}
-                {contact.lastMessageTime && (
-                  <span className="dm-contact-time">{formatTime(contact.lastMessageTime)}</span>
-                )}
-              </div>
-              {contact.lastMessage && (
-                <span className="dm-contact-preview">{contact.lastMessage}</span>
-              )}
-            </div>
-            {contact.unreadCount > 0 && (
-              <span className="dm-contact-unread">{contact.unreadCount}</span>
+
+        {messageContacts.length > 0 && (
+          <div className="dm-contact-section">
+            {messageContacts.map(contact => (
+              <ContactEntry
+                key={contact.id}
+                contact={contact}
+                selected={selectedUserId === contact.id}
+                formatTime={formatTime}
+                onSelectContact={onSelectContact}
+                onOpenContextMenu={setContextMenu}
+              />
+            ))}
+          </div>
+        )}
+
+        {(mumbleContacts.length > 0 || (!searchQuery && messageContacts.length > 0)) && (
+          <div className="dm-contact-section">
+            <div className="dm-contact-section-title">Mumble users</div>
+            {mumbleContacts.length === 0 ? (
+              <p className="dm-contact-empty dm-contact-empty-section">No Mumble users online</p>
+            ) : (
+              mumbleContacts.map(contact => (
+                <ContactEntry
+                  key={contact.id}
+                  contact={contact}
+                  selected={selectedUserId === contact.id}
+                  formatTime={formatTime}
+                  onSelectContact={onSelectContact}
+                  onOpenContextMenu={setContextMenu}
+                />
+              ))
             )}
-          </button>
-        ))}
+          </div>
+        )}
       </div>
 
       {contextMenu && (
@@ -116,8 +132,19 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
               icon: (
                 <Icon name="info-filled" size={14} />
               ),
-              disabled: !onlineUserIds.includes(contextMenu.id),
-              onClick: () => { setInfoDialogUser({ id: contextMenu.id, displayName: contextMenu.displayName }); setContextMenu(null); },
+              disabled: contextMenu.isEphemeral
+                ? contextMenu.mumbleSessionId == null
+                : contextMenu.onlineSessionId == null,
+              onClick: () => {
+                setInfoDialogUser({
+                  id: contextMenu.id,
+                  displayName: contextMenu.displayName,
+                  isEphemeral: contextMenu.isEphemeral,
+                  mumbleSessionId: contextMenu.mumbleSessionId,
+                  onlineSessionId: contextMenu.onlineSessionId,
+                });
+                setContextMenu(null);
+              },
             },
             // Only Mumble (ephemeral) contacts can be closed — Brmble DMs are persistent
             ...(contextMenu.isEphemeral ? [{
@@ -135,20 +162,85 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
 
       {infoDialogUser && (() => {
         const contact = contacts.find(c => c.id === infoDialogUser.id);
+        const isEphemeral = contact?.isEphemeral ?? infoDialogUser.isEphemeral;
+        const activeSession = isEphemeral
+          ? contact?.mumbleSessionId
+          : contact?.onlineSessionId;
+        if (activeSession == null) return null;
         return (
         <UserInfoDialog
           isOpen={true}
           onClose={() => setInfoDialogUser(null)}
-          userName={infoDialogUser.displayName}
-          session={0}
+          userName={contact?.displayName ?? infoDialogUser.displayName}
+          session={activeSession}
           isSelf={false}
           comment={undefined}
-          matrixUserId={contact?.id}
+          matrixUserId={isEphemeral ? undefined : contact?.id}
           avatarUrl={contact?.avatarUrl}
-          onStartDM={(userId, userName) => onSelectContact(userId, userName)}
+          onStartDM={(_userId, userName) => onSelectContact(infoDialogUser.id, userName)}
         />
         );
       })()}
     </div>
+  );
+}
+
+interface ContactEntryProps {
+  contact: DMContact;
+  selected: boolean;
+  formatTime: (ts?: number) => string;
+  onSelectContact: (id: string, displayName: string) => void;
+  onOpenContextMenu: (menu: {
+    x: number;
+    y: number;
+    id: string;
+    displayName: string;
+    isEphemeral?: boolean;
+    mumbleSessionId?: number | null;
+    onlineSessionId?: number;
+  }) => void;
+}
+
+function ContactEntry({ contact, selected, formatTime, onSelectContact, onOpenContextMenu }: ContactEntryProps) {
+  return (
+    <button
+      className={`dm-contact-entry ${selected ? 'active' : ''} ${contact.isEphemeral && contact.mumbleSessionId == null ? 'offline' : ''}`}
+      onClick={() => onSelectContact(contact.id, contact.displayName)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onOpenContextMenu({
+          x: e.clientX,
+          y: e.clientY,
+          id: contact.id,
+          displayName: contact.displayName,
+          isEphemeral: contact.isEphemeral,
+          mumbleSessionId: contact.mumbleSessionId,
+          onlineSessionId: contact.onlineSessionId,
+        });
+      }}
+    >
+      <Avatar user={{ name: contact.displayName, matrixUserId: contact.isEphemeral ? undefined : contact.id, avatarUrl: contact.avatarUrl }} size={28} isMumbleOnly={contact.isEphemeral} />
+      <div className="dm-contact-info">
+        <div className="dm-contact-name-row">
+          <Tooltip content="">
+          <span className="dm-contact-name">
+            {contact.displayName}
+          </span>
+          </Tooltip>
+          {contact.isEphemeral && (
+            <span className="dm-contact-ephemeral-tag">mumble</span>
+          )}
+          {contact.lastMessageTime && (
+            <span className="dm-contact-time">{formatTime(contact.lastMessageTime)}</span>
+          )}
+        </div>
+        {contact.lastMessage && (
+          <span className="dm-contact-preview">{contact.lastMessage}</span>
+        )}
+      </div>
+      {contact.unreadCount > 0 && (
+        <span className="dm-contact-unread">{contact.unreadCount}</span>
+      )}
+    </button>
   );
 }

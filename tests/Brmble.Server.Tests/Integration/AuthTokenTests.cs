@@ -127,6 +127,31 @@ public class AuthTokenTests : IDisposable
     }
 
     [TestMethod]
+    public async Task PostAuthToken_SessionMappings_IncludeCertHash()
+    {
+        using var factory = new BrmbleServerFactory();
+        using var client = factory.CreateClient();
+
+        var sessionMapping = factory.Services.GetRequiredService<ISessionMappingService>();
+        sessionMapping.SetNameForSession("OtherUser", 42);
+        sessionMapping.TryAddMatrixUser(42, "@other:localhost", "OtherUser", 999, "retro");
+        sessionMapping.TryUpdateCertHash(42, "cert-other");
+
+        var response = await client.PostAsync("/auth/token", null);
+        response.EnsureSuccessStatusCode();
+
+        var json = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(json);
+        var certHash = doc.RootElement
+            .GetProperty("sessionMappings")
+            .GetProperty("42")
+            .GetProperty("certHash")
+            .GetString();
+
+        Assert.AreEqual("cert-other", certHash);
+    }
+
+    [TestMethod]
     public async Task PostAuthToken_SelfSession_IsBrmbleClient_True()
     {
         // Verify that the authenticating user's own session gets isBrmbleClient = true
