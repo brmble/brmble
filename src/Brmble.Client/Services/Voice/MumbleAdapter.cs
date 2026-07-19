@@ -1411,7 +1411,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         return new(result.Success, result.Body, result.StatusCode, result.Error);
     }
 
-    private static async Task<ChannelRequestBridgeHandler.TlsCallResult> GetChannelRequestViaBcTls(X509Certificate2 cert, Uri uri)
+    internal static async Task<ChannelRequestBridgeHandler.TlsCallResult> GetChannelRequestViaBcTls(X509Certificate2 cert, Uri uri)
     {
         var result = await GetViaBcTls(cert, uri);
         return new(result.Success, result.Body, result.StatusCode, result.Error);

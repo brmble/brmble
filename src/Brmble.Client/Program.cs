@@ -377,7 +377,8 @@ static class Program
                 _bridge,
                 _certService,
                 () => _mumbleClient?.ApiUrl,
-                MumbleAdapter.PostChannelRequestViaBcTls);
+                MumbleAdapter.PostChannelRequestViaBcTls,
+                MumbleAdapter.GetChannelRequestViaBcTls);
             _gameService.Initialize(_bridge);
             _gameService.RegisterHandlers(_bridge);
 
