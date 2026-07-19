@@ -37,6 +37,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     // Tracked so we can unsubscribe when AudioManager is disposed.
     private Action<bool>? _pttStateChangedHandler;
     private string? _lastWelcomeText;
+
+    // Rate-limit state for SendVoice failure logging (capture-thread handler).
+    private long _lastSendVoiceFailLogMs;
+    private int _sendVoiceFailsSinceLog;
     private readonly CertificateService? _certService;
     private uint? _previousChannelId;
     private uint? _pendingLocalJoinChannelId;
@@ -3877,7 +3881,37 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         // Reuse or recreated AudioManager (see Connect())
         // Set up audio packet handlers (need Connection which is now available)
         _audioManager?.SendVoicePacket += packet =>
-            Connection?.SendVoice(new ArraySegment<byte>(packet.ToArray()));
+        {
+            try
+            {
+                // Avoid ToArray() on the capture hot path: EncodePipeline
+                // emits a fresh array per packet and SendVoice consumes the
+                // segment synchronously, so the backing array can be sent
+                // directly.
+                if (System.Runtime.InteropServices.MemoryMarshal.TryGetArray(packet, out ArraySegment<byte> segment))
+                    Connection?.SendVoice(segment);
+                else
+                    Connection?.SendVoice(new ArraySegment<byte>(packet.ToArray()));
+            }
+            catch (Exception ex)
+            {
+                // This handler runs on the capture thread (via the encode
+                // pipeline's packet callback). A throwing send — socket died,
+                // connection torn down mid-packet — must drop the packet, not
+                // kill the capture thread and silently deaden the mic.
+                // Rate-limited: a persistently dead socket fails at packet
+                // rate (~50/s) and would otherwise flood audio.log.
+                int dropped = Interlocked.Increment(ref _sendVoiceFailsSinceLog);
+                long now = Environment.TickCount64;
+                long last = Interlocked.Read(ref _lastSendVoiceFailLogMs);
+                if (now - last >= 1000 &&
+                    Interlocked.CompareExchange(ref _lastSendVoiceFailLogMs, now, last) == last)
+                {
+                    Interlocked.Exchange(ref _sendVoiceFailsSinceLog, 0);
+                    AudioLog.Write($"[Voice] SendVoice failed, dropped {dropped} packet(s) in the last interval: {ex.Message}");
+                }
+            }
+        };
         _audioManager?.UserStartedSpeaking += userId =>
         {
             _bridge?.Send("voice.userSpeaking", new { session = userId });
