@@ -14,9 +14,10 @@ interface SelectProps {
   disabled?: boolean;
   className?: string;
   placeholder?: string;
+  ariaLabel?: string;
 }
 
-export function Select({ value, onChange, options, disabled, className, placeholder }: SelectProps) {
+export function Select({ value, onChange, options, disabled, className, placeholder, ariaLabel }: SelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [dropdownStyle, setDropdownStyle] = useState<CSSProperties>({});
@@ -176,6 +177,7 @@ export function Select({ value, onChange, options, disabled, className, placehol
         id={triggerId}
         type="button"
         role="combobox"
+        aria-label={ariaLabel}
         aria-expanded={isOpen}
         aria-haspopup="listbox"
         aria-controls={listboxId}
@@ -222,7 +224,13 @@ export function Select({ value, onChange, options, disabled, className, placehol
             );
           })}
         </div>,
-        document.body
+        // Portal into the active fullscreen element only when it actually contains this
+        // Select; portaling to document.body would render the menu outside the fullscreen
+        // top layer (invisible/unclickable), while portaling into an unrelated fullscreen
+        // element would misplace it. Falls back to document.body otherwise.
+        (document.fullscreenElement?.contains(triggerRef.current)
+          ? document.fullscreenElement
+          : document.body)
       )}
     </div>
   );

@@ -8,7 +8,9 @@
   <ItemGroup>
     <PackageReference Include="BouncyCastle.Cryptography" Version="2.5.1" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.5" />
-    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3800.47" />
+    <!-- Pin patched SQLitePCLRaw to resolve GHSA-2m69-gcr7-jv3q (transitive via Microsoft.Data.Sqlite) -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4078.44" />
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="Velopack" Version="0.0.1298" />
   </ItemGroup>

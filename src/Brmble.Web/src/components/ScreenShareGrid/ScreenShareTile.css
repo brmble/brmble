@@ -90,8 +90,18 @@
   top: var(--space-xs);
   right: calc(var(--space-xs) + var(--space-lg) + var(--space-xs));
   display: flex;
+  align-items: center;
   gap: var(--space-xs);
   pointer-events: auto;
+}
+
+.screen-share-tile-quality-select-wrapper {
+  display: flex;
+  align-items: center;
+}
+
+.screen-share-tile-quality-select {
+  min-width: calc(var(--space-lg) * 3);
 }
 
 .screen-share-tile-control-btn {

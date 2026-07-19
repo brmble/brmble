@@ -44,7 +44,7 @@ interface SettingsModalProps {
   };
   onUploadAvatar?: (blob: Blob, contentType: string) => void;
   onRemoveAvatar?: () => void;
-  initialTab?: 'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'admin';
+  initialTab?: 'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'screenShare' | 'admin';
   brmblegotchiEnabled?: boolean;
   setBrmblegotchiEnabled?: (enabled: boolean) => void;
   onLiveCompanionChange?: (nextCompanion: CompanionSelection, previousCompanion: CompanionSelection) => void;
@@ -67,14 +67,18 @@ export interface ScreenShareSettings {
   fps: 15 | 30 | 60;
   systemAudio: boolean;
   viewerMode: 'in-app' | 'new-window';
+  preferredCaptureSource: 'auto' | 'window' | 'screen' | 'browser';
+  contentType: 'motion' | 'detail';
 }
 
 export const DEFAULT_SCREEN_SHARE: ScreenShareSettings = {
-  captureAudio: false,
+  captureAudio: true,
   resolution: '1080p',
   fps: 30,
   systemAudio: false,
   viewerMode: 'in-app',
+  preferredCaptureSource: 'window',
+  contentType: 'motion',
 };
 
 interface AppSettings {
@@ -197,7 +201,17 @@ export function SettingsModal(props: SettingsModalProps) {
             audio: { ...DEFAULT_SETTINGS.audio, ...(d.settings!.audio ?? {}) },
             overlay: normalizeOverlaySettings(d.settings!.overlay ?? {}),
             brmblegotchi: d.settings!.brmblegotchi ?? prev.brmblegotchi ?? DEFAULT_BRMBLEGOTCHI,
-            screenShare: d.settings!.screenShare ?? prev.screenShare ?? DEFAULT_SCREEN_SHARE,
+            screenShare: (() => {
+              const merged = {
+                ...DEFAULT_SCREEN_SHARE,
+                ...((d.settings!.screenShare ?? prev.screenShare) ?? {}),
+              };
+              // System audio is only meaningful when capture audio is on.
+              // Normalize on load so a legacy/divergent stored combo
+              // (captureAudio: false, systemAudio: true) cannot silently
+              // resurrect system audio when capture audio is re-enabled.
+              return { ...merged, systemAudio: merged.captureAudio && merged.systemAudio };
+            })(),
             noiseSuppression: normalizedNs,
           };
           if (d.settings!.appearance?.theme) {
@@ -391,6 +405,7 @@ export function SettingsModal(props: SettingsModalProps) {
     setSettings(newSettings);
     bridge.send('settings.set', { settings: newSettings });
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
+    window.dispatchEvent(new Event('brmble-settings-updated'));
   };
 
   const handleConnectionChange = (connection: ConnectionSettings) => {

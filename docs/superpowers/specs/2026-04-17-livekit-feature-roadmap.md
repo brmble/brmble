@@ -46,7 +46,10 @@ See full spec: `2026-04-17-multi-share-foundation-design.md`
 > What the person sharing can do.
 
 7. Window picker (specific window, not just full screen)
+   - Active slice: preferred capture source setting defaults to Window and passes a LiveKit/browser capture hint while keeping the native picker user-controlled.
+   - Deferred follow-up: suggest the current game window when starting share, using native foreground-window detection and later overlay/in-game context. The picker cannot be preselected programmatically, so this should remain a suggestion rather than automatic selection.
 8. Application/system audio capture
+   - Active slice: screen-share audio defaults to enabled with system audio opt-in; viewers attach LiveKit screen-share audio tracks when present.
 9. Region capture (share a rectangle)
 10. Share the Brmble window itself (quick-share)
 11. Auto-stop on lock/sleep
@@ -64,6 +67,8 @@ See full spec: `2026-04-17-multi-share-foundation-design.md`
 18. Fit-to-window vs. original size toggle
 19. Low-bandwidth viewer mode (request lower quality via simulcast/dynacast)
 20. Viewer count overlay on the stream
+
+**Deferred:** Screen-share audio mute/volume controls for viewers -- basic playback is implemented, but per-share viewer audio controls are not yet designed.
 
 **Deferred:** Zoom & pan -- cut for now.
 

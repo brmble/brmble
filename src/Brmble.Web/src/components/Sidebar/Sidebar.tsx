@@ -12,6 +12,7 @@ import { useServiceStatus } from '../../hooks/useServiceStatus';
 import { useResizable } from '../../hooks/useResizable';
 import type { ShareInfo } from '../../hooks/useScreenShare';
 import type { ScreenShareQuality } from '../../utils/screenShareQuality';
+import { buildLiveKitTooltip } from './livekitTooltip';
 import { useProfileFingerprint } from '../../contexts/ProfileContext';
 import { prompt } from '../../hooks/usePrompt';
 import bridge from '../../bridge';
@@ -49,6 +50,10 @@ interface SidebarProps {
   watchingShares?: ShareInfo[];
   isLiveKitRoomConnected?: boolean;
   screenShareQuality?: ScreenShareQuality;
+  isSharing?: boolean;
+  broadcastSummary?: string;
+  shareQualities?: Map<number, ScreenShareQuality>;
+  remoteVideoEls?: Map<number, HTMLVideoElement>;
   onEditAvatar?: () => void;
   onRequestChannel?: () => void;
 }
@@ -80,6 +85,10 @@ export function Sidebar({
   watchingShares,
   isLiveKitRoomConnected = false,
   screenShareQuality = 'unknown',
+  isSharing = false,
+  broadcastSummary,
+  shareQualities,
+  remoteVideoEls,
   onEditAvatar,
   onRequestChannel
 }: SidebarProps) {
@@ -133,16 +142,20 @@ export function Sidebar({
     const error = status.error;
 
     if (svc === 'livekit' && !error) {
-      if (status.state === 'connected' && !isLiveKitRoomConnected) {
-        return `${name}: Available`;
-      }
+      const livekitTooltip = buildLiveKitTooltip({
+        name,
+        connected: status.state === 'connected',
+        isLiveKitRoomConnected,
+        screenShareQuality,
+        isSharing,
+        broadcastSummary,
+        watchingShares: watchingShares ?? [],
+        shareQualities: shareQualities ?? new Map(),
+        remoteVideoEls: remoteVideoEls ?? new Map(),
+      });
 
-      if (isLiveKitRoomConnected && screenShareQuality === 'reconnecting') {
-        return `${name}: Reconnecting`;
-      }
-
-      if (status.state === 'connected' && isLiveKitRoomConnected && screenShareQuality !== 'unknown') {
-        return `${name}: Connected - ${screenShareQuality}`;
+      if (livekitTooltip !== null) {
+        return livekitTooltip;
       }
     }
 

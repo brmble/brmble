@@ -91,6 +91,35 @@ public class AppConfigServiceTests
     }
 
     [TestMethod]
+    public void SavesAndReloads_ScreenShareSettings()
+    {
+        var svc = new AppConfigService(_tempDir, null);
+        var updated = AppSettings.Default with
+        {
+            ScreenShare = AppSettings.Default.ScreenShare with
+            {
+                CaptureAudio = true,
+                Resolution = "1440p",
+                Fps = 60,
+                SystemAudio = true,
+                ViewerMode = "new-window",
+                PreferredCaptureSource = "auto"
+            }
+        };
+
+        svc.SetSettings(updated);
+        var svc2 = new AppConfigService(_tempDir, null);
+        var screenShare = svc2.GetSettings().ScreenShare;
+
+        Assert.IsTrue(screenShare.CaptureAudio);
+        Assert.AreEqual("1440p", screenShare.Resolution);
+        Assert.AreEqual(60, screenShare.Fps);
+        Assert.IsTrue(screenShare.SystemAudio);
+        Assert.AreEqual("new-window", screenShare.ViewerMode);
+        Assert.AreEqual("auto", screenShare.PreferredCaptureSource);
+    }
+
+    [TestMethod]
     public void LoadsLegacyNotificationsEnabledFalse_AsOptionalNotificationsDisabled()
     {
         var legacyJson = """
@@ -134,6 +163,51 @@ public class AppConfigServiceTests
         var svc2 = new AppConfigService(_tempDir, null);
 
         Assert.AreEqual("bee", svc2.GetSettings().Overlay.MyCompanion);
+    }
+
+    [TestMethod]
+    public void LoadsConfigWithNullSettingsSections_FallsBackToDefaults()
+    {
+        // A fresh install's OnboardingWizard sends settings.set without
+        // shortcuts/messages/overlay, which used to be persisted as null
+        // and crash MumbleAdapter.ApplySettings on the next launch.
+        var configPath = Path.Combine(_tempDir, "config.json");
+        File.WriteAllText(configPath, """
+            {
+              "servers": [],
+              "settings": {
+                "audio": null,
+                "shortcuts": null,
+                "messages": null,
+                "overlay": null,
+                "appearance": { "theme": "classic" }
+              }
+            }
+            """);
+
+        var svc = new AppConfigService(_tempDir, null);
+        var settings = svc.GetSettings();
+
+        Assert.IsNotNull(settings.Audio);
+        Assert.IsNotNull(settings.Shortcuts);
+        Assert.IsNotNull(settings.Messages);
+        Assert.IsNotNull(settings.Overlay);
+    }
+
+    [TestMethod]
+    public void DeserializesPartialSettingsPayload_FallsBackToDefaults()
+    {
+        // Mirrors the settings.set bridge handler: the frontend may send a
+        // settings object that omits entire sections.
+        var settings = JsonSerializer.Deserialize<AppSettings>(
+            """{ "appearance": { "theme": "classic" }, "reconnectEnabled": true }""",
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+        Assert.IsNotNull(settings);
+        Assert.IsNotNull(settings.Audio);
+        Assert.IsNotNull(settings.Shortcuts);
+        Assert.IsNotNull(settings.Messages);
+        Assert.IsNotNull(settings.Overlay);
     }
 
     [TestMethod]

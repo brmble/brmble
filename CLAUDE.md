@@ -23,6 +23,8 @@ The MSBuild target `CopyWebDist` copies `src/Brmble.Web/dist/` to the output `we
 
 - Brmble.Client is a raw Win32 + WebView2 app (no WPF/WinForms). There is no SynchronizationContext, so any non-WebView2 `await` in `InitWebView2Async` will break thread affinity and cause `Navigate()` to silently fail. Keep all non-WebView2 async work outside that method (e.g. synchronous calls in `Main`).
 
+- **Single instance:** `Main` holds a named mutex (`Local\Brmble.SingleInstance`). A second launch focuses the running window (`FindWindow` on class `BrmbleWindow`) and exits. **Debug builds always allow multiple instances** (`#if DEBUG` in `Program.cs`), so a plain `dotnet run --project src/Brmble.Client` can run several clients side by side for local multi-client testing. Release/production builds enforce single-instance. To run a second copy of a Release/installed build — e.g. a dev build next to an installed one — pass `--allow-multiple` (`dotnet run -c Release --project src/Brmble.Client -- --allow-multiple`) or set env `BRMBLE_ALLOW_MULTIPLE=1`.
+
 ## Bridge Architecture
 
 The client uses a modular C# ↔ JavaScript bridge:

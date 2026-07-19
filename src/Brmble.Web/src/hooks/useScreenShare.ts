@@ -1,7 +1,16 @@
 import { useCallback, useRef, useState, useEffect, type SetStateAction } from 'react';
-import { Room, RoomEvent, Track, RemoteTrackPublication } from 'livekit-client';
+import { Room, RoomEvent, Track, RemoteTrackPublication, VideoPreset, VideoQuality } from 'livekit-client';
 import bridge from '../bridge';
 import { type ScreenShareQuality, mapLiveKitQuality, worstQuality } from '../utils/screenShareQuality';
+
+/** Viewer-selected receive quality for a watched screen share. 'auto' defers to adaptive stream. */
+export type ViewerQuality = 'auto' | 'high' | 'medium' | 'low';
+
+const VIEWER_QUALITY_TO_LIVEKIT: Record<Exclude<ViewerQuality, 'auto'>, VideoQuality> = {
+  high: VideoQuality.HIGH,
+  medium: VideoQuality.MEDIUM,
+  low: VideoQuality.LOW,
+};
 
 export interface ShareInfo {
   roomName: string;
@@ -23,7 +32,111 @@ export interface ScreenShareSettings {
   resolution: '720p' | '1080p' | '1440p' | '4k';
   fps: 15 | 30 | 60;
   systemAudio: boolean;
+  preferredCaptureSource: 'auto' | 'window' | 'screen' | 'browser';
+  /** Optimize encoding for smooth motion (games/video) or sharp detail (text/code). */
+  contentType?: 'motion' | 'detail';
 }
+
+/** Debounce window before applying edited settings to an already-active share. */
+const APPLY_SETTINGS_DEBOUNCE_MS = 400;
+
+const SCREEN_SHARE_RESOLUTION_MAP: Record<string, { width: number; height: number }> = {
+  '720p': { width: 1280, height: 720 },
+  '1080p': { width: 1920, height: 1080 },
+  '1440p': { width: 2560, height: 1440 },
+  '4k': { width: 3840, height: 2160 },
+};
+
+// Motion/video/game content needs substantially more bitrate than static desktops to
+// avoid the blocky degradation weak-bandwidth viewers were seeing. Raised across the board.
+const SCREEN_SHARE_BITRATE_MAP: Record<string, number> = {
+  '720p': 3_000_000,
+  '1080p': 6_000_000,
+  '1440p': 10_000_000,
+  '4k': 18_000_000,
+};
+
+const screenShareDegradationPreference = (settings: ScreenShareSettings): 'maintain-resolution' | 'maintain-framerate' =>
+  settings.contentType === 'detail' ? 'maintain-resolution' : 'maintain-framerate';
+
+const screenShareContentHint = (settings: ScreenShareSettings): 'detail' | 'motion' =>
+  settings.contentType === 'detail' ? 'detail' : 'motion';
+
+/**
+ * Build the getDisplayMedia capture options (2nd arg) and publish options (3rd arg)
+ * for setScreenShareEnabled from user settings. Shared by initial share start and by
+ * the re-capture path when resolution/capture-source settings change mid-share.
+ */
+const buildScreenShareOptions = (settings: ScreenShareSettings): {
+  captureOptions: Record<string, unknown> | undefined;
+  publishOptions: Record<string, unknown>;
+} => {
+  let captureOptions: Record<string, unknown> | undefined = {};
+
+  const displaySurfaceMap: Partial<Record<ScreenShareSettings['preferredCaptureSource'], 'window' | 'monitor' | 'browser'>> = {
+    window: 'window',
+    screen: 'monitor',
+    browser: 'browser',
+  };
+  const displaySurface = displaySurfaceMap[settings.preferredCaptureSource];
+  if (displaySurface) {
+    captureOptions.video = { displaySurface };
+  }
+
+  if (settings.captureAudio) {
+    captureOptions.audio = true;
+  }
+
+  if (settings.captureAudio && settings.systemAudio) {
+    captureOptions.systemAudio = 'include';
+  }
+
+  // Steer the encoder: motion content keeps framerate smooth (drop resolution under
+  // pressure); detail content preserves sharpness (drop framerate under pressure).
+  captureOptions.contentHint = screenShareContentHint(settings);
+
+  // publishOptions (3rd arg) — NOT capture options. videoEncoding/codec/simulcast belong here.
+  const publishOptions: Record<string, unknown> = {
+    degradationPreference: screenShareDegradationPreference(settings),
+    // Two-layer simulcast (high + one low) so weak-bandwidth viewers subscribe to the low
+    // layer cleanly instead of receiving a single high-res stream degraded by packet loss.
+    simulcast: true,
+    screenShareSimulcastLayers: [new VideoPreset(640, 360, 500_000, settings.fps ?? 15)],
+  };
+
+  if (settings.resolution || settings.fps) {
+    const res = SCREEN_SHARE_RESOLUTION_MAP[settings.resolution];
+    captureOptions.resolution = {
+      ...res,
+      frameRate: settings.fps,
+    };
+    publishOptions.videoEncoding = {
+      maxBitrate: SCREEN_SHARE_BITRATE_MAP[settings.resolution],
+      maxFramerate: settings.fps,
+    };
+  }
+
+  if (Object.keys(captureOptions).length === 0) {
+    captureOptions = undefined;
+  }
+
+  return { captureOptions, publishOptions };
+};
+
+/**
+ * Settings whose changes require a fresh getDisplayMedia capture (picker prompt).
+ * Resolution is deliberately NOT here — it is applied live via track.applyConstraints
+ * so viewers keep watching and the broadcaster is never re-prompted for a source.
+ */
+const screenShareNeedsRecapture = (prev: ScreenShareSettings, next: ScreenShareSettings): boolean =>
+  prev.preferredCaptureSource !== next.preferredCaptureSource ||
+  prev.captureAudio !== next.captureAudio ||
+  prev.systemAudio !== next.systemAudio;
+
+/** Settings whose changes can be applied to the live track without re-capturing. */
+const screenShareNeedsLiveApply = (prev: ScreenShareSettings, next: ScreenShareSettings): boolean =>
+  prev.contentType !== next.contentType || prev.fps !== next.fps || prev.resolution !== next.resolution;
+
 
 export type LocalShareStopReason = 'manual' | 'source-closed' | 'interrupted' | 'error' | 'blocked-capture' | 'moved-channel';
 export type WatchedShareEndReason = 'ended' | 'unexpected';
@@ -82,6 +195,32 @@ const sendScreenShareDebugEvent = (eventName: string) => {
     bridge.send(`livekit.debug.${eventName}`, {});
   } catch {
     // Diagnostics must never affect the share lifecycle.
+  }
+};
+
+/**
+ * Phase 0 instrumentation: log the actual received layer/resolution/quality per viewer so we
+ * can confirm whether pixelation is per-viewer (bandwidth/layer) or per-broadcaster (encode).
+ * Cheap console diagnostics only — never affects the share lifecycle.
+ */
+const logScreenShareDiag = (
+  where: string,
+  userId: number,
+  el: HTMLVideoElement | null,
+  pub?: { videoQuality?: unknown; dimensions?: { width: number; height: number } },
+) => {
+  if (!import.meta.env.DEV) return;
+  try {
+    const dims = pub?.dimensions;
+    console.info('[LiveKit][screenshare-diag]', where, {
+      userId,
+      elementSize: el ? `${el.clientWidth}x${el.clientHeight}` : 'n/a',
+      videoResolution: el ? `${el.videoWidth}x${el.videoHeight}` : 'n/a',
+      publishedDimensions: dims ? `${dims.width}x${dims.height}` : 'n/a',
+      videoQuality: pub?.videoQuality,
+    });
+  } catch {
+    // Diagnostics must never throw.
   }
 };
 
@@ -181,19 +320,25 @@ export function useScreenShare(
   const [isViewerConnectPending, setIsViewerConnectPending] = useState(false);
   const [focusedShare, _setFocusedShare] = useState<ShareInfo | null>(null);
   const [remoteVideoEls, setRemoteVideoEls] = useState<Map<number, HTMLVideoElement>>(new Map());
+  const remoteAudioElsRef = useRef<Map<number, HTMLAudioElement>>(new Map());
   const [roomQuality, setRoomQuality] = useState<ScreenShareQuality>('unknown');
   const [shareQualities, setShareQualities] = useState<Map<number, ScreenShareQuality>>(new Map());
+  const [viewerQualities, setViewerQualities] = useState<Map<number, ViewerQuality>>(new Map());
 
   // Single room connection per channel — used for both publishing and subscribing
   const roomRef = useRef<Room | null>(null);
   const watchingSharesRef = useRef<ShareInfo[]>([]);
   const activeSharesRef = useRef<ShareInfo[]>([]);
   const shareQualitiesRef = useRef<Map<number, ScreenShareQuality>>(new Map());
+  const viewerQualitiesRef = useRef<Map<number, ViewerQuality>>(new Map());
   const shareQualitiesBeforeReconnectRef = useRef<Map<number, ScreenShareQuality> | null>(null);
   const localQualityRef = useRef<ScreenShareQuality>('unknown');
   const isRoomReconnectingRef = useRef(false);
   const isSharingRef = useRef(false);
   const isStartingShareRef = useRef(false);
+  // Snapshot of the settings currently applied to the active share, so an edit can be
+  // diffed to decide between a silent live-apply and a re-capture.
+  const appliedShareSettingsRef = useRef<ScreenShareSettings | null>(null);
   const focusedShareRef = useRef<ShareInfo | null>(null);
   const discoveryTargetRef = useRef<DiscoveryTarget>(null);
   const shareEventVersionRef = useRef(0);
@@ -292,6 +437,8 @@ export function useScreenShare(
     localQualityRef.current = 'unknown';
     shareQualitiesRef.current = new Map();
     setShareQualities(new Map());
+    viewerQualitiesRef.current = new Map();
+    setViewerQualities(new Map());
     setRoomQuality('unknown');
   }, []);
 
@@ -311,6 +458,69 @@ export function useScreenShare(
     setShareQualities(next);
     recomputeRoomQuality();
   }, [recomputeRoomQuality]);
+
+  // Apply the viewer-selected receive quality to a participant's screen-share video track.
+  // 'auto' pins to HIGH so, with a 2-layer simulcast publish, adaptive stream is free to
+  // pick the best layer up to full quality; explicit levels force a fixed layer.
+  const applyViewerQuality = useCallback((participant: { trackPublications: Map<string, RemoteTrackPublication> }, userId: number) => {
+    const pref = viewerQualitiesRef.current.get(userId) ?? 'auto';
+    const target = pref === 'auto' ? VideoQuality.HIGH : VIEWER_QUALITY_TO_LIVEKIT[pref];
+    participant.trackPublications?.forEach((pub) => {
+      if (pub.kind === Track.Kind.Video && pub.source === Track.Source.ScreenShare) {
+        try {
+          pub.setVideoQuality?.(target);
+        } catch {
+          // Quality selection is best-effort; never break playback.
+        }
+      }
+    });
+  }, []);
+
+  const removeViewerQuality = useCallback((userId: number) => {
+    if (!viewerQualitiesRef.current.has(userId)) {
+      return;
+    }
+    const next = new Map(viewerQualitiesRef.current);
+    next.delete(userId);
+    viewerQualitiesRef.current = next;
+    setViewerQualities(next);
+  }, []);
+
+  const setViewerQuality = useCallback((userId: number, quality: ViewerQuality) => {
+    viewerQualitiesRef.current = new Map(viewerQualitiesRef.current).set(userId, quality);
+    setViewerQualities(viewerQualitiesRef.current);
+
+    const room = roomRef.current;
+    const share = watchingSharesRef.current.find(s => s.userId === userId);
+    if (!room || !share) {
+      return;
+    }
+    const identity = share.matrixUserId ?? String(userId);
+    const participant = room.remoteParticipants.get(identity);
+    if (participant) {
+      applyViewerQuality(participant, userId);
+    }
+  }, [applyViewerQuality]);
+
+  const detachRemoteAudio = useCallback((userId: number) => {
+    const audioEl = remoteAudioElsRef.current.get(userId);
+    if (!audioEl) return;
+
+    audioEl.remove();
+    remoteAudioElsRef.current.delete(userId);
+  }, []);
+
+  const attachRemoteAudio = useCallback((userId: number, track: { attach: () => HTMLElement }) => {
+    detachRemoteAudio(userId);
+    const el = track.attach() as HTMLAudioElement;
+    el.autoplay = true;
+    el.dataset.screenShareAudio = String(userId);
+    document.body.appendChild(el);
+    remoteAudioElsRef.current.set(userId, el);
+    void roomRef.current?.startAudio?.().catch((err: unknown) => {
+      console.warn('[LiveKit] screen-share audio playback could not start', err);
+    });
+  }, [detachRemoteAudio]);
 
   const clearTokenRefreshTimer = useCallback(() => {
     if (tokenRefreshTimerRef.current) {
@@ -365,6 +575,7 @@ export function useScreenShare(
     if (evictedUserId != null) {
       const evicted = evictedUserId;
       setFocusedShare(p => p?.userId === evicted ? null : p);
+      detachRemoteAudio(evicted);
       removeShareQuality(evicted);
       setRemoteVideoEls(p => {
         const m = new Map(p);
@@ -374,7 +585,7 @@ export function useScreenShare(
     }
 
     recomputeRoomQuality();
-  }, [recomputeRoomQuality, removeShareQuality, setFocusedShare]);
+  }, [detachRemoteAudio, recomputeRoomQuality, removeShareQuality, setFocusedShare]);
 
   const removeWatchingShare = useCallback((userId: number, options?: { clearPending?: boolean }) => {
     const removedShares = watchingSharesRef.current.filter(s => s.userId === userId);
@@ -387,23 +598,30 @@ export function useScreenShare(
     watchingSharesRef.current = next;
     setWatchingShares(next);
     setFocusedShare(prev => prev?.userId === userId ? null : prev);
+    detachRemoteAudio(userId);
     setRemoteVideoEls(prev => {
       const next = new Map(prev);
       next.delete(userId);
       return next;
     });
     removeShareQuality(userId);
+    removeViewerQuality(userId);
     return next;
-  }, [removeShareQuality, setFocusedShare]);
+  }, [detachRemoteAudio, removeShareQuality, removeViewerQuality, setFocusedShare]);
 
   const clearWatchingState = useCallback(() => {
     setRemoteVideoEls(new Map());
+    for (const userId of remoteAudioElsRef.current.keys()) {
+      detachRemoteAudio(userId);
+    }
     updateWatchingShares([]);
     setFocusedShare(null);
     shareQualitiesRef.current = new Map();
     setShareQualities(new Map());
+    viewerQualitiesRef.current = new Map();
+    setViewerQualities(new Map());
     recomputeRoomQuality();
-  }, [recomputeRoomQuality, setFocusedShare, updateWatchingShares]);
+  }, [detachRemoteAudio, recomputeRoomQuality, setFocusedShare, updateWatchingShares]);
 
   const endWatchedShare = useCallback((share: ShareInfo, reason: WatchedShareEndReason) => {
     const key = watchedShareKey(share.roomName, share.userId);
@@ -565,6 +783,7 @@ export function useScreenShare(
 
     isSharingRef.current = false;
     setIsSharing(false);
+    appliedShareSettingsRef.current = null;
     recomputeRoomQuality();
 
     if (wasSharing && roomName) {
@@ -664,16 +883,33 @@ export function useScreenShare(
   }, [clearLocalShareEndListener, stopLocalShare]);
 
   const bindRoomEvents = useCallback((room: Room) => {
-    room.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
+    room.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
       if (roomRef.current !== room) {
         return;
       }
 
       const watching = watchingSharesRef.current;
-      const matchedShare = watching.find(s => {
+      let matchedShare = watching.find(s => {
         const identity = s.matrixUserId ?? String(s.userId);
         return identity === participant.identity;
       });
+      // Self-heal: a broadcaster restarting their share (e.g. applying new
+      // resolution/capture-source settings) briefly unpublishes and republishes
+      // the track WITHOUT sending a livekit.screenShareStopped bridge event. That
+      // leaves the viewer's share parked in pendingUnsubscribedWatchedSharesRef.
+      // When the new track subscribes, restore the share so the tile keeps playing
+      // instead of staying blank — no "Share ended" notification is involved.
+      if (!matchedShare) {
+        for (const pending of pendingUnsubscribedWatchedSharesRef.current.values()) {
+          const identity = pending.matrixUserId ?? String(pending.userId);
+          if (identity === participant.identity) {
+            matchedShare = pending;
+            pendingUnsubscribedWatchedSharesRef.current.delete(watchedShareKey(pending.roomName, pending.userId));
+            addWatchingShare(pending);
+            break;
+          }
+        }
+      }
       if (!matchedShare) return;
       if (
         track.kind === Track.Kind.Video &&
@@ -681,10 +917,18 @@ export function useScreenShare(
       ) {
         const el = track.attach() as HTMLVideoElement;
         setRemoteVideoEls(prev => new Map(prev).set(matchedShare.userId, el));
+        applyViewerQuality(participant, matchedShare.userId);
+        logScreenShareDiag('trackSubscribed', matchedShare.userId, el, pub);
+      }
+      if (
+        track.kind === Track.Kind.Audio &&
+        (track.source === Track.Source.ScreenShareAudio || pub.source === Track.Source.ScreenShareAudio)
+      ) {
+        attachRemoteAudio(matchedShare.userId, track as { attach: () => HTMLElement });
       }
     });
 
-    room.on(RoomEvent.TrackUnsubscribed, (track, _pub, participant) => {
+    room.on(RoomEvent.TrackUnsubscribed, (track, pub, participant) => {
       if (roomRef.current !== room) {
         return;
       }
@@ -702,6 +946,13 @@ export function useScreenShare(
         track.detach();
         pendingUnsubscribedWatchedSharesRef.current.set(watchedShareKey(matchedShare.roomName, matchedShare.userId), matchedShare);
         removeWatchingShare(matchedShare.userId, { clearPending: false });
+      }
+      if (
+        track.kind === Track.Kind.Audio &&
+        (track.source === Track.Source.ScreenShareAudio || pub.source === Track.Source.ScreenShareAudio)
+      ) {
+        track.detach();
+        detachRemoteAudio(matchedShare.userId);
       }
     });
 
@@ -788,7 +1039,7 @@ export function useScreenShare(
         void stopLocalShare(teardownIntent ?? 'interrupted', room);
       }
     });
-  }, [clearTokenLease, clearWatchingState, invalidateRoomLifecycle, notifyUnexpectedWatchedShareEnds, recomputeRoomQuality, removeWatchingShare, resetQualityState, stopLocalShare, updateShareQuality]);
+  }, [addWatchingShare, attachRemoteAudio, applyViewerQuality, clearTokenLease, clearWatchingState, detachRemoteAudio, invalidateRoomLifecycle, notifyUnexpectedWatchedShareEnds, recomputeRoomQuality, removeWatchingShare, resetQualityState, stopLocalShare, updateShareQuality]);
 
   // Ensure we have a connected room for the given channel.
   // Returns the existing room if already connected to this channel, otherwise connects.
@@ -833,7 +1084,22 @@ export function useScreenShare(
         throw createSupersededRoomRequestError();
       }
 
-      const room = new Room();
+      const room = new Room({
+        // Let subscribers request only the layers they can render, and pause tracks
+        // for off-screen/hidden tiles — the core fix for per-viewer pixelation.
+        adaptiveStream: true,
+        // Stop publishing simulcast layers no viewer is consuming, saving upstream bandwidth.
+        dynacast: true,
+        publishDefaults: {
+          // Motion-heavy screen content (games/video) benefits most from VP9's efficiency;
+          // VP8 backup keeps older/limited WebView2 receivers working without forcing an upgrade.
+          videoCodec: 'vp9',
+          backupCodec: { codec: 'vp8' },
+          // Prefer dropping resolution over framerate for smooth motion; per-share overrides
+          // are applied in startSharing based on the broadcaster's contentType toggle.
+          degradationPreference: 'maintain-framerate',
+        },
+      });
       bindRoomEvents(room);
 
       roomRef.current = room;
@@ -920,50 +1186,13 @@ export function useScreenShare(
       sendScreenShareDebugEvent('startSharing.ensureRoom.done');
 
       let captureOptions: Record<string, unknown> | undefined;
+      let publishOptions: Record<string, unknown> | undefined;
       if (screenShareSettings) {
-        const resolutionMap: Record<string, { width: number; height: number }> = {
-          '720p': { width: 1280, height: 720 },
-          '1080p': { width: 1920, height: 1080 },
-          '1440p': { width: 2560, height: 1440 },
-          '4k': { width: 3840, height: 2160 },
-        };
-
-        const bitrateMap: Record<string, number> = {
-          '720p': 2_000_000,
-          '1080p': 4_000_000,
-          '1440p': 8_000_000,
-          '4k': 15_000_000,
-        };
-
-        captureOptions = {};
-
-        if (screenShareSettings.captureAudio) {
-          captureOptions.audio = true;
-        }
-
-        if (screenShareSettings.captureAudio && screenShareSettings.systemAudio) {
-          captureOptions.systemAudio = 'include';
-        }
-
-        if (screenShareSettings.resolution || screenShareSettings.fps) {
-          const res = resolutionMap[screenShareSettings.resolution];
-          captureOptions.resolution = {
-            ...res,
-            frameRate: screenShareSettings.fps,
-          };
-          captureOptions.videoEncoding = {
-            maxBitrate: bitrateMap[screenShareSettings.resolution],
-            maxFramerate: screenShareSettings.fps,
-          };
-        }
-
-        if (Object.keys(captureOptions).length === 0) {
-          captureOptions = undefined;
-        }
+        ({ captureOptions, publishOptions } = buildScreenShareOptions(screenShareSettings));
       }
 
       sendScreenShareDebugEvent('startSharing.setScreenShareEnabled.begin');
-      await room.localParticipant.setScreenShareEnabled(true, captureOptions);
+      await room.localParticipant.setScreenShareEnabled(true, captureOptions, publishOptions);
       sendScreenShareDebugEvent('startSharing.setScreenShareEnabled.done');
 
       if (shareStartCancelGenerationRef.current !== shareStartCancelGeneration || roomRef.current !== room) {
@@ -975,6 +1204,7 @@ export function useScreenShare(
 
       isSharingRef.current = true;
       setIsSharing(true);
+      appliedShareSettingsRef.current = screenShareSettings ?? null;
       recomputeRoomQuality();
       bindLocalShareEndListener(room);
 
@@ -1021,6 +1251,117 @@ export function useScreenShare(
     await stopLocalShare('manual');
   }, [invalidateRoomLifecycle, stopLocalShare]);
 
+  // Apply encoder-only changes (content type, framerate, degradation preference) to the
+  // already-published track. No getDisplayMedia re-prompt, no flicker, and viewers keep
+  // watching the same track uninterrupted.
+  const applyLiveScreenShareSettings = useCallback((settings: ScreenShareSettings) => {
+    const room = roomRef.current;
+    const pub = room?.localParticipant.getTrackPublication?.(Track.Source.ScreenShare);
+    const track = pub?.track as { mediaStreamTrack?: MediaStreamTrack; sender?: RTCRtpSender } | undefined;
+    if (!track) {
+      return;
+    }
+    if (track.mediaStreamTrack) {
+      try { track.mediaStreamTrack.contentHint = screenShareContentHint(settings); } catch { /* ignore */ }
+      // Resolution/fps change: constrain the existing capture in place. Bounded by the
+      // source's native resolution (can't upscale beyond what the display provides), but
+      // never re-prompts the picker and viewers keep watching the same track.
+      const res = SCREEN_SHARE_RESOLUTION_MAP[settings.resolution];
+      if (res) {
+        // applyConstraints is async; attach .catch so a rejected constraint change
+        // never surfaces as an unhandled promise rejection.
+        void Promise.resolve(
+          track.mediaStreamTrack.applyConstraints({
+            width: { ideal: res.width },
+            height: { ideal: res.height },
+            frameRate: { ideal: settings.fps },
+          }),
+        ).catch(() => { /* best-effort; resolution steering must never break the share */ });
+      }
+    }
+    const sender = track.sender;
+    if (sender && typeof sender.getParameters === 'function' && typeof sender.setParameters === 'function') {
+      try {
+        const params = sender.getParameters();
+        params.degradationPreference = screenShareDegradationPreference(settings) as RTCDegradationPreference;
+        const maxBitrate = SCREEN_SHARE_BITRATE_MAP[settings.resolution];
+        if (params.encodings?.length) {
+          // Identify the top (highest-bitrate) layer so we only steer its ceiling,
+          // even if a mid simulcast layer is added later. The low layer is left as-is.
+          let topEnc: typeof params.encodings[number] | undefined;
+          for (const enc of params.encodings) {
+            if (settings.fps) {
+              enc.maxFramerate = settings.fps;
+            }
+            if (enc.maxBitrate && (!topEnc || (topEnc.maxBitrate ?? 0) < enc.maxBitrate)) {
+              topEnc = enc;
+            }
+          }
+          // Match the top layer's bitrate ceiling to the target resolution (raising it
+          // for larger resolutions, lowering it for smaller ones).
+          if (maxBitrate && topEnc?.maxBitrate) {
+            topEnc.maxBitrate = maxBitrate;
+          }
+        }
+        void sender.setParameters(params);
+      } catch { /* ignore */ }
+    }
+    sendScreenShareDebugEvent('applySettings.liveApplied');
+  }, []);
+
+  // Re-acquire the capture (capture-source or audio changed) by toggling the local
+  // screen share off then on with fresh options. Deliberately does NOT send the
+  // livekit.shareStopped/shareStarted bridge events, so viewers get no "Share ended"
+  // notification — their track briefly unsubscribes then self-heals on resubscribe.
+  const recaptureActiveScreenShare = useCallback(async (settings: ScreenShareSettings) => {
+    const room = roomRef.current;
+    if (!room || !isSharingRef.current) {
+      return;
+    }
+    const { captureOptions, publishOptions } = buildScreenShareOptions(settings);
+    sendScreenShareDebugEvent('applySettings.recapture.begin');
+    try {
+      await room.localParticipant.setScreenShareEnabled(false);
+      if (!isSharingRef.current || roomRef.current !== room) {
+        return;
+      }
+      await room.localParticipant.setScreenShareEnabled(true, captureOptions, publishOptions);
+      bindLocalShareEndListener(room);
+      sendScreenShareDebugEvent('applySettings.recapture.done');
+    } catch (err) {
+      sendScreenShareDebugEvent('applySettings.recapture.error');
+      setError(getErrorLikeDetails(err)?.message || 'Screen share failed');
+    }
+  }, [bindLocalShareEndListener]);
+
+  const applyScreenShareSettingsToActiveShare = useCallback(async (
+    prev: ScreenShareSettings,
+    next: ScreenShareSettings,
+  ) => {
+    appliedShareSettingsRef.current = next;
+    if (screenShareNeedsRecapture(prev, next)) {
+      await recaptureActiveScreenShare(next);
+    } else if (screenShareNeedsLiveApply(prev, next)) {
+      applyLiveScreenShareSettings(next);
+    }
+  }, [applyLiveScreenShareSettings, recaptureActiveScreenShare]);
+
+  // Auto-apply edited screenshare settings to a running share (debounced so slider drags
+  // don't thrash). Live-applies encoder changes; re-captures only for resolution/source.
+  useEffect(() => {
+    if (!isSharing || !screenShareSettings) {
+      return;
+    }
+    const prev = appliedShareSettingsRef.current;
+    if (!prev || (!screenShareNeedsRecapture(prev, screenShareSettings) && !screenShareNeedsLiveApply(prev, screenShareSettings))) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      void applyScreenShareSettingsToActiveShare(prev, screenShareSettings);
+    }, APPLY_SETTINGS_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [isSharing, screenShareSettings, applyScreenShareSettingsToActiveShare]);
+
   // --- Viewer logic ---
 
   const connectAsViewer = useCallback(async (roomName: string, targetUserId: number, matrixUserId?: string) => {
@@ -1036,6 +1377,9 @@ export function useScreenShare(
         if (participant) {
           participant.trackPublications.forEach((pub: RemoteTrackPublication) => {
             if (pub.track && pub.track.kind === Track.Kind.Video && pub.source === Track.Source.ScreenShare) {
+              pub.track.detach();
+            }
+            if (pub.track && pub.track.kind === Track.Kind.Audio && pub.source === Track.Source.ScreenShareAudio) {
               pub.track.detach();
             }
           });
@@ -1074,6 +1418,9 @@ export function useScreenShare(
 
       // Add to watching list (handles max 4 enforcement via addWatchingShare)
       addWatchingShare(newShare);
+      void room.startAudio?.().catch((err: unknown) => {
+        console.warn('[LiveKit] viewer audio playback could not start', err);
+      });
 
       // Subscribe to the target's screen share track
       const participant = room.remoteParticipants.get(participantIdentity);
@@ -1083,6 +1430,11 @@ export function useScreenShare(
           if (pub.track && pub.track.kind === Track.Kind.Video && pub.source === Track.Source.ScreenShare) {
             const el = pub.track.attach() as HTMLVideoElement;
             setRemoteVideoEls(prev => new Map(prev).set(targetUserId, el));
+            applyViewerQuality(participant, targetUserId);
+            logScreenShareDiag('connectAsViewer', targetUserId, el, pub);
+          }
+          if (pub.track && pub.track.kind === Track.Kind.Audio && pub.source === Track.Source.ScreenShareAudio) {
+            attachRemoteAudio(targetUserId, pub.track as unknown as { attach: () => HTMLElement });
           }
         });
       }
@@ -1099,7 +1451,7 @@ export function useScreenShare(
       unregisterPendingViewerAttempt(pendingAttempt);
       endViewerConnectAttempt();
     }
-  }, [activeShares, ensureRoom, addWatchingShare, removeWatchingShare, maybeDisconnectRoom, beginViewerConnectAttempt, endViewerConnectAttempt, registerPendingViewerAttempt, unregisterPendingViewerAttempt, updateShareQuality]);
+  }, [activeShares, ensureRoom, addWatchingShare, removeWatchingShare, maybeDisconnectRoom, beginViewerConnectAttempt, endViewerConnectAttempt, registerPendingViewerAttempt, unregisterPendingViewerAttempt, updateShareQuality, attachRemoteAudio, applyViewerQuality]);
 
   const disconnectViewer = useCallback(async (userId?: number) => {
     const room = roomRef.current;
@@ -1114,6 +1466,9 @@ export function useScreenShare(
         if (participant) {
           participant.trackPublications.forEach((pub: RemoteTrackPublication) => {
             if (pub.track && pub.track.kind === Track.Kind.Video && pub.source === Track.Source.ScreenShare) {
+              pub.track.detach();
+            }
+            if (pub.track && pub.track.kind === Track.Kind.Audio && pub.source === Track.Source.ScreenShareAudio) {
               pub.track.detach();
             }
           });
@@ -1184,6 +1539,9 @@ export function useScreenShare(
           if (participant) {
             participant.trackPublications.forEach((pub: RemoteTrackPublication) => {
               if (pub.track && pub.track.kind === Track.Kind.Video && pub.source === Track.Source.ScreenShare) {
+                pub.track.detach();
+              }
+              if (pub.track && pub.track.kind === Track.Kind.Audio && pub.source === Track.Source.ScreenShareAudio) {
                 pub.track.detach();
               }
             });
@@ -1334,6 +1692,8 @@ export function useScreenShare(
     remoteVideoEls,    // new
     roomQuality,
     shareQualities,
+    viewerQualities,      // new: per-viewer receive-quality overrides
+    setViewerQuality,     // new
     addWatchingShare,      // new
     removeWatchingShare,   // new
     disconnectViewer,

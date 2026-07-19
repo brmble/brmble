@@ -9,7 +9,7 @@ namespace Brmble.Client.Services.Update;
 /// Checks for application updates via GitHub Releases using Velopack.
 /// Communicates update availability and progress to the frontend via NativeBridge.
 /// </summary>
-public class UpdateService : IService
+public class UpdateService : IService, IDisposable
 {
     private const string RepoUrl = "https://github.com/brmble/brmble";
     private static readonly TimeSpan CheckInterval = TimeSpan.FromHours(4);
