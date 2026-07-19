@@ -146,8 +146,6 @@ internal sealed class AudioManager : IDisposable
     private volatile bool _pttActive;
     private System.Threading.Timer? _pttSilenceTailTimer;
     private int _pttSilenceTailGeneration; // incremented each time the timer is cancelled/replaced
-    private long _pttLastToggleMs;
-    private const int MinPttToggleThresholdMs = 100; // debounce to prevent WASAPI stress
 
     // Speaking detection (polls per-user JitterBuffer.IsSpeaking directly)
     private readonly HashSet<uint> _currentlySpeaking = new();
@@ -662,7 +660,16 @@ internal sealed class AudioManager : IDisposable
             if (_waveIn is WasapiCapture recheck &&
                 recheck.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped)
             {
+                // Another start may have won the race while we were unlocked;
+                // if the capture is actively recording, the mic is live and
+                // _micStarted is correct — don't clear it.
+                if (recheck.CaptureState == NAudio.CoreAudioApi.CaptureState.Capturing)
+                    return;
+
                 AudioLog.Write($"[Audio] WASAPI capture still stopping after wait, skipping StartRecording");
+                // Recording never started: clear _micStarted so the next
+                // StartMic retries instead of no-opping against a dead mic.
+                _micStarted = false;
                 return;
             }
         }
@@ -993,7 +1000,18 @@ internal sealed class AudioManager : IDisposable
         // Software gate: for PTT+, send audio to the server only when PTT is active
         if (shouldSubmitPcm)
         {
-            pipeline?.SubmitPcm(new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes));
+            try
+            {
+                pipeline?.SubmitPcm(new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes));
+            }
+            catch (Exception ex)
+            {
+                // The pipeline can be disposed by a concurrent settings change,
+                // and the packet callback runs the network send. An unhandled
+                // exception here kills the NAudio capture thread and silently
+                // deadens the mic — drop the frame instead.
+                AudioLog.Write($"[Audio] SubmitPcm failed, dropping frame: {ex}");
+            }
         }
         // else: encoded audio is ignored (the encoder keeps running)
     }
@@ -1221,6 +1239,13 @@ internal sealed class AudioManager : IDisposable
         _pttActive = false;
         _transmissionMode = mode;
 
+        // A pending PTT silence tail belongs to the previous mode; cancel it
+        // (and advance the generation for an already-fired callback) so it
+        // cannot stop the mic the new mode is about to start.
+        _pttSilenceTailTimer?.Dispose();
+        _pttSilenceTailTimer = null;
+        Interlocked.Increment(ref _pttSilenceTailGeneration);
+
         // For PTT, start with mic off until key pressed
         if (mode == TransmissionMode.PushToTalk)
             StopMic();
@@ -1243,28 +1268,22 @@ internal sealed class AudioManager : IDisposable
     private void SetPttActive(bool active)
     {
         bool startMic = false;
-        bool scheduleSilenceTail = false;
-        int silenceTailGeneration = 0;
-        int holdMs = 200;
         bool fireSpeakingEvent = false;
         bool fireSilentEvent = false;
 
         lock (_lock)
         {
-            long now = Environment.TickCount64;
-
-            // Debounce: Ignore rapid activations to prevent WASAPI stress and socket buffer exhaustion,
-            // but never drop a deactivation. Releasing PTT must always clear _pttActive and
-            // schedule the silence tail so the mic cannot be left running.
-            if (active && now - _pttLastToggleMs < MinPttToggleThresholdMs)
-                return;
-
-            // Coalesce: If state hasn't changed, do nothing
+            // Coalesce: If state hasn't changed, do nothing. Note there is
+            // deliberately no press-debounce here: the coalesce already absorbs
+            // repeated same-state events, so a debounce could only ever drop a
+            // press-after-release — leaving the user holding a dead key while
+            // the release's silence tail stops the mic under them. Rapid
+            // press/release cycles don't stress WASAPI either way, because the
+            // silence tail keeps the mic running between them.
             if (_pttActive == active)
                 return;
 
             AudioLog.Write($"[Audio] SetPttActive: active={active}, muted={_muted}");
-            _pttLastToggleMs = now;
             _pttActive = active;
 
             if (active && !_muted && _transmissionMode != TransmissionMode.PushToTalkPlus)
@@ -1309,10 +1328,14 @@ internal sealed class AudioManager : IDisposable
                 }
                 else
                 {
-                    // For regular PTT, schedule the silence tail after the hold delay
-                    silenceTailGeneration = Interlocked.Increment(ref _pttSilenceTailGeneration);
-                    scheduleSilenceTail = true;
-                    holdMs = _voiceHoldMs;
+                    // For regular PTT, schedule the silence tail after the hold
+                    // delay. Create the timer while still holding the lock so a
+                    // re-press can never interleave between scheduling decision
+                    // and timer assignment.
+                    int generation = Interlocked.Increment(ref _pttSilenceTailGeneration);
+                    _pttSilenceTailTimer = new System.Threading.Timer(
+                        _ => SilenceTailElapsed(generation), null,
+                        dueTime: _voiceHoldMs, period: Timeout.Infinite);
                 }
             }
             // else: active but muted - do nothing
@@ -1335,20 +1358,24 @@ internal sealed class AudioManager : IDisposable
             UserStoppedSpeaking?.Invoke(_localUserId);
         }
 
-        // Schedule silence tail outside the lock
-        if (scheduleSilenceTail)
+    }
+
+    private void SilenceTailElapsed(int generation)
+    {
+        bool wasSpeaking;
+        uint capturedUserId;
+        lock (_lock)
         {
-            int generation = silenceTailGeneration;
-            _pttSilenceTailTimer = new System.Threading.Timer(_ =>
-            {
-                // Guard against the timer callback running after cancel/dispose.
-                // If generation has advanced, a newer cancel/restart supersedes this callback.
-                if (Interlocked.CompareExchange(ref _pttSilenceTailGeneration, generation, generation) != generation)
-                    return;
-                if (_pttActive || _muted) return;
-                StopMic();
-            }, null, dueTime: holdMs, period: Timeout.Infinite);
+            // Re-check generation and PTT state under the same lock that
+            // SetPttActive mutates them, so a press that lands between the
+            // timer firing and this callback running cannot have its freshly
+            // started mic stopped underneath it.
+            if (Volatile.Read(ref _pttSilenceTailGeneration) != generation) return;
+            if (_pttActive || _muted) return;
+            (wasSpeaking, capturedUserId) = StopMicLocked();
         }
+        if (wasSpeaking)
+            UserStoppedSpeaking?.Invoke(capturedUserId);
     }
 
     private void CheckSpeakingState(object? state)
