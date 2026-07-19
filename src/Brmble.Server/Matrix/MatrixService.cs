@@ -142,6 +142,18 @@ public class MatrixService
         await _appService.SetRoomName(roomId, channel.Name);
     }
 
+    public async Task SendChannelSystemMessageAsync(int channelId, string text)
+    {
+        var roomId = await _channelRepository.GetRoomIdAsync(channelId);
+        if (roomId is null)
+        {
+            _logger.LogWarning("No Matrix room mapped for Mumble channel {ChannelId} — system message dropped", channelId);
+            return;
+        }
+        _logger.LogInformation("Sending system message to channel {ChannelId} room {RoomId}", channelId, roomId);
+        await _appService.SendMessage(roomId, "Brmble", text);
+    }
+
     private static string StripHtml(string html)
     {
         var stripped = Regex.Replace(html, "<.*?>", string.Empty, RegexOptions.Singleline);
