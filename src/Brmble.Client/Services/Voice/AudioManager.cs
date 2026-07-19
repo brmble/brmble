@@ -202,7 +202,10 @@ internal sealed class AudioManager : IDisposable
         public int LostUnits;
     }
 
-    // Device→48kHz resampler (r8brain)
+    // Device→48kHz resampler (r8brain). _resamplerLock serializes the native
+    // handle between the capture thread (Process) and stop/dispose paths
+    // (Clear/Dispose) — StopRecording() doesn't wait for the capture thread.
+    private readonly object _resamplerLock = new();
     private R8BrainResampler? _deviceResampler;
     private int _deviceSampleRate;
     private int _deviceMaxInLen;
@@ -702,8 +705,14 @@ internal sealed class AudioManager : IDisposable
         }
         _encodePipeline?.Dispose();
         _encodePipeline = null;
-        _deviceResampler?.Dispose();
-        _deviceResampler = null;
+        // Keep the resampler instance across transmissions (recreating it per
+        // PTT press re-primes its FIR filter, clipping the start of speech);
+        // just reset its internal state so no stale tail leaks into the next one.
+        try { lock (_resamplerLock) { _deviceResampler?.Clear(); } }
+        catch (Exception ex) { AudioLog.Write($"[Audio] Resampler clear failed: {ex.Message}"); }
+        // Same for the APM: drop its buffered sub-frame leftover so the stale
+        // tail of this transmission is not prepended to the next one.
+        lock (_processorLock) { _processor?.Reset(); }
         _micStarted = false;
         uint capturedUserId = _localUserId;
         bool wasSpeaking = capturedUserId != 0 && _currentlySpeaking.Remove(capturedUserId);
@@ -716,6 +725,7 @@ internal sealed class AudioManager : IDisposable
     [ThreadStatic] private static float[]? _wasapiMonoScratch;
     [ThreadStatic] private static byte[]? _wasapiInt16Scratch;
     [ThreadStatic] private static double[]? _resampleDoubleScratch;
+    [ThreadStatic] private static float[]? _resampleOutScratch;
     [ThreadStatic] private static bool _threadPriorityBoosted;
 
     private void OnMicData(object? sender, WaveInEventArgs e)
@@ -767,31 +777,61 @@ internal sealed class AudioManager : IDisposable
             int srcRate = fmt.SampleRate;
             if (srcRate != 48000)
             {
-                // Create or recreate r8brain resampler if device rate changed or buffer exceeds maxInLen
-                if (_deviceResampler == null || _deviceSampleRate != srcRate || monoFrames > _deviceMaxInLen)
+                // Create the resampler once per device rate with 100ms of input
+                // headroom. Recreating it mid-stream (as the old size-based
+                // condition did when WASAPI callbacks coalesced under load)
+                // drops the samples buffered in its FIR state and re-primes,
+                // splicing an audible gap into the outgoing stream.
+                // Hold _resamplerLock across create/process: StopRecording()
+                // doesn't wait for the capture thread, so StopMicLocked's
+                // Clear() (and Dispose) can otherwise race a Process() still
+                // running here on the native handle.
+                int totalOut = 0;
+                lock (_resamplerLock)
                 {
-                    _deviceResampler?.Dispose();
-                    _deviceSampleRate = srcRate;
-                    _deviceMaxInLen = monoFrames;
-                    _deviceResampler = new R8BrainResampler(srcRate, 48000, monoFrames);
+                    if (_deviceResampler == null || _deviceSampleRate != srcRate)
+                    {
+                        _deviceResampler?.Dispose();
+                        _deviceSampleRate = srcRate;
+                        _deviceMaxInLen = Math.Max(srcRate / 10, monoFrames);
+                        _deviceResampler = new R8BrainResampler(srcRate, 48000, _deviceMaxInLen);
+                    }
+
+                    // Process in chunks of at most maxInLen; larger-than-headroom
+                    // callbacks are handled without touching the resampler state.
+                    int processedFrames = 0;
+                    while (processedFrames < monoFrames)
+                    {
+                        int chunk = Math.Min(_deviceMaxInLen, monoFrames - processedFrames);
+                        if (_resampleDoubleScratch == null || _resampleDoubleScratch.Length < chunk)
+                            _resampleDoubleScratch = new double[chunk];
+                        for (int i = 0; i < chunk; i++)
+                            _resampleDoubleScratch[i] = _wasapiMonoScratch[processedFrames + i];
+
+                        int outSamples = _deviceResampler.Process(_resampleDoubleScratch, chunk, out double[] resampledDouble);
+
+                        // Accumulate into a separate output scratch; the mono scratch
+                        // still holds unprocessed input for subsequent chunks.
+                        if (_resampleOutScratch == null || _resampleOutScratch.Length < totalOut + outSamples)
+                        {
+                            // Amortized doubling: converges to the steady-state
+                            // size after the first few callbacks instead of
+                            // reallocating per chunk on a large callback.
+                            int newCap = Math.Max(totalOut + outSamples, (_resampleOutScratch?.Length ?? 0) * 2);
+                            var grown = new float[newCap];
+                            if (_resampleOutScratch != null)
+                                Array.Copy(_resampleOutScratch, grown, totalOut);
+                            _resampleOutScratch = grown;
+                        }
+                        for (int i = 0; i < outSamples; i++)
+                            _resampleOutScratch[totalOut + i] = (float)resampledDouble[i];
+                        totalOut += outSamples;
+                        processedFrames += chunk;
+                    }
                 }
 
-                // Convert float→double for r8brain
-                if (_resampleDoubleScratch == null || _resampleDoubleScratch.Length < monoFrames)
-                    _resampleDoubleScratch = new double[monoFrames];
-                for (int i = 0; i < monoFrames; i++)
-                    _resampleDoubleScratch[i] = _wasapiMonoScratch[i];
-
-                int outSamples = _deviceResampler.Process(_resampleDoubleScratch, out double[] resampledDouble);
-
-                // Reuse mono scratch buffer for float conversion
-                if (_wasapiMonoScratch == null || _wasapiMonoScratch.Length < outSamples)
-                    _wasapiMonoScratch = new float[outSamples];
-                for (int i = 0; i < outSamples; i++)
-                    _wasapiMonoScratch[i] = (float)resampledDouble[i];
-
-                monoAt48k = _wasapiMonoScratch;
-                monoFrames = outSamples;
+                monoAt48k = _resampleOutScratch ?? Array.Empty<float>();
+                monoFrames = totalOut;
             }
             else
             {
@@ -1369,8 +1409,11 @@ internal sealed class AudioManager : IDisposable
 
     public void Dispose()
     {
-        _deviceResampler?.Dispose();
-        _deviceResampler = null;
+        lock (_resamplerLock)
+        {
+            _deviceResampler?.Dispose();
+            _deviceResampler = null;
+        }
         lock (_processorLock)
         {
             _processor?.Dispose();
