@@ -330,6 +330,9 @@ public sealed class GameSessionManager
         _matches.TryRemove(matchId, out _);
     }
 
+    public bool TryGetActiveMatch(long userId, out long matchId)
+        => _userToMatch.TryGetValue(userId, out matchId);
+
     public bool IsMatchLive(long matchId)
         => _matches.TryGetValue(matchId, out var match) && match.Status == "live";
 

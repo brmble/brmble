@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Brmble.Server.Auth;
 using Brmble.Server.Events;
+using Brmble.Server.Games;
 using Brmble.Server.LiveKit;
 using Brmble.Server.Mumble;
 using Microsoft.Extensions.Logging;
@@ -22,7 +23,8 @@ public class MumbleServerCallbackTests
         ILiveKitParticipantRemover? liveKitParticipantRemover = null,
         IReadOnlyList<TimeSpan>? liveKitRevocationRetryDelays = null,
         LiveKitParticipantTracker? liveKitParticipantTracker = null,
-        ILogger<MumbleServerCallback>? logger = null)
+        ILogger<MumbleServerCallback>? logger = null,
+        GameSessionManager? gameSessions = null)
     {
         if (mapping is null)
         {
@@ -55,7 +57,22 @@ public class MumbleServerCallbackTests
             screenShareTracker ?? new ScreenShareTracker(),
             revocationScheduler,
             liveKitParticipantTracker ?? new LiveKitParticipantTracker(),
+            gameSessions ?? CreateGameSessions(),
             logger ?? NullLogger<MumbleServerCallback>.Instance);
+    }
+
+    private static GameSessionManager CreateGameSessions()
+    {
+        var presence = new Mock<IGamePresence>().Object;
+        var publisher = new Mock<IGameEventPublisher>().Object;
+        var announcer = new Mock<IGameAnnouncer>().Object;
+        return new GameSessionManager(
+            Array.Empty<IGameEngine>(),
+            new CryptoRandomSource(),
+            presence,
+            publisher,
+            announcer,
+            Brmble.Server.Tests.Games.GameTestHelpers.NewRepo());
     }
 
     [TestMethod]
